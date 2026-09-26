@@ -18,7 +18,7 @@ that names the cost and the user/revenue milestone that justifies it.
 ## Stack (fixed)
 
 - **Backend:** Go 1.23+, **one modular monolith** (`backend/cmd/api`) with Connect-RPC (HTTP/JSON + binary proto) managed with `buf`.
-- **Clients:** Flutter (iOS, Android, Web) — Riverpod, go_router, freezed, connect-dart generated clients.
+- **Clients:** Flutter (iOS, Android, Web) — BLoc, go_router, freezed, connect-dart generated clients.
 - **Cloud:** GCP + Firebase only. Terraform for infra. No click-ops.
 
 ## Growth stages (design for Stage 0, keep the door open to Stage 3)
