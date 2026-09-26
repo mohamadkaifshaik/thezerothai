@@ -1,0 +1,17 @@
+.env
+.env.*
+*.pem
+*sa-key*.json
+credentials*.json
+.claude/settings.local.json
+cover.out
+coverage/
+.terraform/
+*.tfstate*
+app/build/
+.dart_tool/
+firebase-debug.log
+firestore-debug.log
+pubsub-debug.log
+ui-debug.log
+.firebase/
