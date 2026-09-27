@@ -74,7 +74,7 @@ jobs:
       - name: Deploy Firestore rules + indexes
         if: steps.gate.outputs.skip == 'false' && hashFiles('firebase.json') != ''
         run: |
-          npm install -g firebase-tools@13
+          npm install -g firebase-tools@15
           firebase deploy --only firestore:rules,firestore:indexes \
             --project "${{ vars.DEV_PROJECT_ID }}" --non-interactive
 
@@ -119,5 +119,5 @@ jobs:
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
-          npm install -g firebase-tools@13
+          npm install -g firebase-tools@15
           firebase deploy --only hosting --project "${FIREBASE_PROJECT_ID}" --non-interactive
