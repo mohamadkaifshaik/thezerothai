@@ -1,0 +1,255 @@
+name: Promote prod
+
+# Manual, founder-run traffic promotion for a release already staged by
+# release-prod.yml (image built, deployed --no-traffic --tag rc, smoke
+# tested). This workflow is workflow_dispatch ONLY — there is no `push`
+# trigger, so it never runs automatically.
+#
+# GitHub Free (private repo) has neither environment required-reviewers nor
+# tag rulesets available (see docs/runbooks/cloud-bootstrap.md §6/6a). The
+# founder clicking "Run workflow" and picking a stage IS the human approval;
+# there is no second machine-enforced gate beyond:
+#   1. the `prod` GitHub Environment's deployment policy (tags matching `v*`
+#      only — this workflow declares `environment: prod` on its one job, so
+#      GitHub itself refuses to start the job from a branch ref), and
+#   2. the checks in this workflow: dispatch must be from a tag ref matching
+#      ^v[0-9]+\.[0-9]+\.[0-9]+$, a docs/reviews/release-<tag>-readiness.md
+#      with `VERDICT: GO` must exist for that exact tag, and the revision
+#      currently holding the `rc` traffic tag must be provably built from
+#      that same tag (not a stale rc left over from a different release).
+# CLAUDE.md rule: "Never shift prod traffic without a passing
+# production-reviewer verdict" — enforced by the VERDICT: GO check below on
+# every run (both the 10% and the 100% stage), since each stage is a
+# separate workflow_dispatch run with no `needs:` relationship to the other.
+#
+# Run this twice per release: once with stage=10, watch dashboards for ~15
+# minutes (5xx ratio, p95 latency, Error Reporting), then again with
+# stage=100.
+#
+# Security note (same pattern as release-prod.yml): every `${{ }}` value
+# used inside a `run:` block is first assigned to an `env:` var and expanded
+# as a shell variable — never spliced directly into a script — so nothing
+# derived from workflow inputs/refs can perform script injection against the
+# prod-WIF-authenticated steps.
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Percentage of traffic to shift to the rc revision"
+        required: true
+        type: choice
+        options:
+          - "10"
+          - "100"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: promote-prod
+  cancel-in-progress: false # never cancel a traffic shift mid-flight
+
+jobs:
+  promote:
+    name: "Promote rc (stage=${{ github.event.inputs.stage }})"
+    runs-on: ubuntu-latest
+    environment: prod # deployment policy restricts this to tag refs matching v* (GitHub Free-compatible)
+    steps:
+      - name: Validate stage input
+        id: stage
+        env:
+          STAGE_INPUT: ${{ github.event.inputs.stage }}
+        run: |
+          # workflow_dispatch "choice" inputs are enforced by the GitHub UI
+          # form but not necessarily by every API caller — re-check here so a
+          # malformed dispatch can't reach the gcloud step below.
+          case "${STAGE_INPUT}" in
+            10|100) ;;
+            *)
+              echo "::error::stage must be '10' or '100', got '${STAGE_INPUT}'."
+              exit 1
+              ;;
+          esac
+          echo "stage=${STAGE_INPUT}" >> "$GITHUB_OUTPUT"
+
+      - name: Require dispatch from a tag ref, validate the tag
+        id: tagname
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "${REF_TYPE}" != "tag" ]; then
+            echo "::error::This workflow must be dispatched from a tag ref (got ref_type='${REF_TYPE}', ref_name='${REF_NAME}'). Pick a v* tag under 'Use workflow from', not a branch."
+            exit 1
+          fi
+          tag="${REF_NAME}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '${tag}' does not match ^v[0-9]+.[0-9]+.[0-9]+\$ — refusing to promote."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tagname.outputs.tag }}
+
+      - name: Require a recorded production-reviewer GO verdict
+        env:
+          RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
+        run: |
+          f="docs/reviews/release-${RELEASE_TAG}-readiness.md"
+          if [ ! -f "$f" ]; then
+            echo "::error::Missing $f — production-reviewer must record VERDICT: GO before any traffic can shift."
+            exit 1
+          fi
+          grep -q "VERDICT: GO" "$f" || { echo "::error::$f does not contain 'VERDICT: GO'"; exit 1; }
+
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
+          create_credentials_file: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve the rc revision and verify it matches this tag
+        id: rc_rev
+        env:
+          RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+        run: |
+          revision=$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT}" --region="${REGION}" \
+            --format='value(status.traffic.filter(tag:rc).first().revisionName)')
+          if [ -z "${revision}" ]; then
+            echo "::error::No revision is currently tagged 'rc' on ${SERVICE}. Run release-prod.yml for ${RELEASE_TAG} first."
+            exit 1
+          fi
+
+          image=$(gcloud run revisions describe "${revision}" \
+            --project="${PROJECT}" --region="${REGION}" \
+            --format='value(spec.containers[0].image)')
+          if [ -z "${image}" ]; then
+            echo "::error::Could not resolve the container image for revision ${revision}."
+            exit 1
+          fi
+
+          # release-prod.yml pushes the image with `ko build -t "${RELEASE_TAG}"`,
+          # so the release tag is a real Artifact Registry tag on that image —
+          # but Cloud Run always pins a revision's spec to the resolved
+          # digest (repo/api@sha256:...), never a mutable tag, so `image`
+          # above is a digest reference. Ask Artifact Registry which tags
+          # point at that exact digest and require RELEASE_TAG to be one of
+          # them. This is what actually proves "the revision behind rc was
+          # built from this git tag" — robust against a stale rc left over
+          # from a previous release-prod run for a *different* tag (the rc
+          # traffic tag only ever points at one revision at a time, so a
+          # second release-prod run for a newer tag silently moves it).
+          #
+          # Matched as a raw quoted JSON string (`"<tag>"`) rather than via a
+          # specific field name, so this doesn't depend on exactly which key
+          # `docker tags list` happens to report the tag under.
+          tags_json=$(gcloud artifacts docker tags list "${image}" --format=json)
+          if ! grep -qF "\"${RELEASE_TAG}\"" <<<"${tags_json}"; then
+            echo "::error::rc revision '${revision}' (image ${image}) is not tagged '${RELEASE_TAG}' in Artifact Registry — rc points at a different release. Re-run release-prod.yml for ${RELEASE_TAG}, then retry this promotion."
+            exit 1
+          fi
+
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "Verified rc revision ${revision} (image ${image}) matches tag ${RELEASE_TAG}"
+
+      - name: Shift 10% traffic to the verified revision
+        if: steps.stage.outputs.stage == '10'
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+        run: |
+          gcloud run services update-traffic "${SERVICE}" \
+            --project="${PROJECT}" \
+            --region="${REGION}" \
+            --to-revisions="${REVISION}=10"
+
+      - name: Watch reminder
+        if: steps.stage.outputs.stage == '10'
+        env:
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+        run: |
+          echo "::notice::10% of traffic is now on ${REVISION}. Watch 5xx ratio, p95 latency and Error Reporting for ~15 minutes, then re-run this workflow with stage=100."
+
+      - uses: subosito/flutter-action@v2
+        if: steps.stage.outputs.stage == '100'
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+
+      - name: flutter build web (prod) — built fresh from this tag, before any traffic shift
+        if: steps.stage.outputs.stage == '100'
+        working-directory: app
+        env:
+          # Web calls the API via the Firebase Hosting `/api/**` rewrite, not
+          # the raw Cloud Run URL — same-origin, no CORS needed.
+          API_BASE_URL: /api
+          RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          flutter build web --release \
+            --dart-define=USE_EMULATORS=false \
+            --dart-define=FIREBASE_ENV=prod \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+      - name: Shift 100% traffic to the verified revision
+        if: steps.stage.outputs.stage == '100'
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+        run: |
+          # --to-revisions (not --to-latest): --to-latest would also send
+          # traffic to any revision deployed after this one (e.g. if
+          # release-prod already ran again for a newer tag), which is not
+          # what a promotion of THIS tag means.
+          gcloud run services update-traffic "${SERVICE}" \
+            --project="${PROJECT}" \
+            --region="${REGION}" \
+            --to-revisions="${REVISION}=100"
+
+      - name: Smoke test the service URL (/health)
+        if: steps.stage.outputs.stage == '100'
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+        run: |
+          url=$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT}" --region="${REGION}" \
+            --format='value(status.url)')
+          curl -fsS --retry 5 --retry-delay 5 "${url}/health"
+
+      - name: Deploy web + Firestore rules/indexes (Firebase, prod)
+        if: steps.stage.outputs.stage == '100'
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
+        run: |
+          npm install -g firebase-tools@15
+          firebase deploy --only hosting,firestore:rules,firestore:indexes \
+            --project "${FIREBASE_PROJECT_ID}" --non-interactive
+
+      - name: Rollback command (if this promotion needs to be undone)
+        if: failure()
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+        run: |
+          echo "::error::Promotion failed. See docs/runbooks/rollback.md."
+          echo "gcloud run services update-traffic ${SERVICE} --project=${PROJECT} --region=${REGION} --to-revisions=<previous-stable-revision>=100"

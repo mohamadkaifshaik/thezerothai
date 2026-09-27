@@ -2,12 +2,17 @@ name: Release prod
 
 # Tag v* (push, or workflow_dispatch run against that tag ref) -> build &
 # push image -> deploy to prod Cloud Run with --no-traffic --tag rc -> smoke
-# test the rc URL.
-# Traffic is NEVER shifted by this first job. Shifting 10% then 100% each
-# require a human approval via a GitHub Environment (see manual setup notes)
-# AND a recorded `VERDICT: GO` from production-reviewer in docs/reviews/.
-# See release-rollout skill + CLAUDE.md rule: "Never shift prod traffic
-# without a passing production-reviewer verdict."
+# test the rc URL -> build mobile release artifacts.
+#
+# This workflow NEVER shifts prod traffic and NEVER deploys Firebase Hosting.
+# Promotion (10% -> 100%, plus the prod web deploy) is a separate, manual
+# workflow: `promote-prod.yml`. On GitHub Free (private repo) there is no
+# environment required-reviewers and no tag ruleset, so the founder clicking
+# "Run workflow" on promote-prod.yml for a given stage IS the human approval
+# — see docs/runbooks/cloud-bootstrap.md §6/6a and the release-rollout skill.
+# CLAUDE.md rule still holds: "Never shift prod traffic without a passing
+# production-reviewer verdict" — promote-prod.yml enforces that by requiring
+# docs/reviews/release-<tag>-readiness.md to contain `VERDICT: GO`.
 #
 # Security note (M5/N7): there is deliberately no free-text `tag` input on
 # workflow_dispatch — that let any collaborator with write access type an
@@ -96,143 +101,53 @@ jobs:
 
       - name: Deploy Firestore rules + indexes (must be READY before code needs them)
         if: hashFiles('firebase.json') != ''
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
         run: |
           npm install -g firebase-tools@15
           firebase deploy --only firestore:rules,firestore:indexes \
-            --project "${{ vars.PROD_PROJECT_ID }}" --non-interactive
+            --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
       - name: Deploy Cloud Run revision (NO TRAFFIC, tagged rc)
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          IMAGE: ${{ steps.build.outputs.image }}
         run: |
-          gcloud run deploy "${{ vars.PROD_SERVICE_NAME }}" \
-            --project="${{ vars.PROD_PROJECT_ID }}" \
-            --region="${{ vars.PROD_REGION }}" \
-            --image="${{ steps.build.outputs.image }}" \
+          gcloud run deploy "${SERVICE}" \
+            --project="${PROJECT}" \
+            --region="${REGION}" \
+            --image="${IMAGE}" \
             --no-traffic --tag=rc \
             --quiet
 
       - name: Resolve rc revision URL
         id: rc_url
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
         run: |
-          url=$(gcloud run services describe "${{ vars.PROD_SERVICE_NAME }}" \
-            --project="${{ vars.PROD_PROJECT_ID }}" \
-            --region="${{ vars.PROD_REGION }}" \
+          url=$(gcloud run services describe "${SERVICE}" \
+            --project="${PROJECT}" \
+            --region="${REGION}" \
             --format='value(status.traffic.filter(tag:rc).first().url)')
           echo "url=${url}" >> "$GITHUB_OUTPUT"
           echo "rc revision: ${url}"
 
       - name: Smoke test rc revision (/health)
-        run: |
-          curl -fsS --retry 5 --retry-delay 5 "${{ steps.rc_url.outputs.url }}/health"
-
-      # N6: build the web artifact here, BEFORE any prod traffic shift and
-      # before the manual GO gates — a broken web build should fail the
-      # release early, and promote-100 must never build from source after
-      # traffic has already moved to rc. promote-100 only downloads this
-      # artifact and deploys it.
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.47.5"
-          channel: stable
-
-      - name: flutter build web
-        working-directory: app
         env:
-          # Web calls the API via the Firebase Hosting `/api/**` rewrite, not
-          # the raw Cloud Run URL — same-origin, no CORS needed.
-          API_BASE_URL: /api
-          RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
-          GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+          RC_URL: ${{ steps.rc_url.outputs.url }}
         run: |
-          flutter build web --release \
-            --dart-define=USE_EMULATORS=false \
-            --dart-define=API_BASE_URL="${API_BASE_URL}" \
-            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
-            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+          curl -fsS --retry 5 --retry-delay 5 "${RC_URL}/health"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web-build-${{ steps.tagname.outputs.tag }}
-          path: app/build/web
-          retention-days: 7
-
-  promote-10:
-    name: "Manual GO required: shift 10% traffic to rc"
-    needs: build-and-stage
-    runs-on: ubuntu-latest
-    environment: production-traffic-10 # GitHub Environment with required reviewers (manual setup, see runbooks)
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Require a recorded production-reviewer GO verdict
-        env:
-          RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}
-        run: |
-          f="docs/reviews/release-${RELEASE_TAG}-readiness.md"
-          if [ ! -f "$f" ]; then
-            echo "::error::Missing $f — production-reviewer must record VERDICT: GO before traffic can shift."
-            exit 1
-          fi
-          grep -q "VERDICT: GO" "$f" || { echo "::error::$f does not contain 'VERDICT: GO'"; exit 1; }
-
-      - name: Auth to GCP (WIF)
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Shift 10% traffic to rc
-        run: |
-          gcloud run services update-traffic "${{ vars.PROD_SERVICE_NAME }}" \
-            --project="${{ vars.PROD_PROJECT_ID }}" \
-            --region="${{ vars.PROD_REGION }}" \
-            --to-tags=rc=10
-
-      - name: Watch reminder
-        run: |
-          echo "::notice::10% of traffic is now on rc. Watch 5xx ratio, p95 latency and Error Reporting for ~15 minutes before approving the 100% promotion job."
-
-  promote-100:
-    name: "Manual approval required: shift 100% traffic to rc"
-    needs: [build-and-stage, promote-10]
-    runs-on: ubuntu-latest
-    environment: production-traffic-100 # separate GitHub Environment approval — a second, deliberate human decision
-    steps:
-      - name: Auth to GCP (WIF)
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Shift 100% traffic to latest (rc becomes stable)
-        run: |
-          gcloud run services update-traffic "${{ vars.PROD_SERVICE_NAME }}" \
-            --project="${{ vars.PROD_PROJECT_ID }}" \
-            --region="${{ vars.PROD_REGION }}" \
-            --to-latest
-
-      # N6: the web app was already built (from this exact tag) in
-      # build-and-stage, BEFORE the traffic shift — this job only downloads
-      # that artifact and deploys it. It never builds from source here.
-      - uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: web-build-${{ needs.build-and-stage.outputs.tag }}
-          path: app/build/web
-
-      - name: Deploy web (Firebase Hosting, prod)
-        env:
-          FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
-        run: |
-          npm install -g firebase-tools@15
-          firebase deploy --only hosting --project "${FIREBASE_PROJECT_ID}" --non-interactive
-
+  # Mobile release artifacts. These never touch GCP (no WIF, no `environment:
+  # prod`) — they just need the tagged source and the PROD_* repo variables
+  # that describe how a prod client should be configured. Every prod client
+  # build passes --dart-define=FIREBASE_ENV=prod (selects the prod Firebase
+  # project's options, see PR #5 `app/lib/app/app_config.dart`) and
+  # GOOGLE_WEB_CLIENT_ID from PROD_GOOGLE_WEB_CLIENT_ID.
   build-android:
     name: Build Android AAB
     needs: build-and-stage
@@ -258,9 +173,16 @@ jobs:
           API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+        # NOTE (founder follow-up): app/android's checked-in google-services.json
+        # is still dev's — FIREBASE_ENV=prod only switches the Dart-side
+        # Firebase options (lib/firebase_options_prod.dart). Native Android
+        # SDK init (Google Sign-In, Crashlytics) still reads the dev
+        # google-services.json until a prod one is added (flutterfire
+        # configure per flavor, or a build-time swap step).
         run: |
           flutter build appbundle --release \
             --dart-define=USE_EMULATORS=false \
+            --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
@@ -296,16 +218,7 @@ jobs:
         run: |
           flutter build ios --release --no-codesign \
             --dart-define=USE_EMULATORS=false \
+            --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
-
-  rollback-notice:
-    name: Rollback command (informational, runs if promotion fails)
-    needs: [promote-10, promote-100]
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "::error::Release failed after a traffic shift. See docs/runbooks/rollback.md."
-          echo "gcloud run services update-traffic ${{ vars.PROD_SERVICE_NAME }} --project=${{ vars.PROD_PROJECT_ID }} --region=${{ vars.PROD_REGION }} --to-revisions=<previous-revision>=100"
