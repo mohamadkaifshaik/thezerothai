@@ -31,7 +31,8 @@ permissions:
   id-token: write
 
 env:
-  KO_GO_PATH: ./cmd/api
+  # Not KO_GO_PATH: ko reads that variable as the path to the `go` binary.
+  API_MAIN_PKG: ./cmd/api
 
 jobs:
   build-and-stage:
@@ -90,7 +91,7 @@ jobs:
           KO_DOCKER_REPO: ${{ vars.PROD_ARTIFACT_REGISTRY_URL }}
           RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
         run: |
-          digest=$(ko build "${{ env.KO_GO_PATH }}" --bare -t "${RELEASE_TAG}")
+          digest=$(ko build "${API_MAIN_PKG}" --bare -t "${RELEASE_TAG}")
           echo "image=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Firestore rules + indexes (must be READY before code needs them)
