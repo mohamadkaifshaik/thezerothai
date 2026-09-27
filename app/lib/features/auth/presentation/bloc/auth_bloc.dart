@@ -10,9 +10,11 @@ import 'auth_event.dart';
 import 'auth_state.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
-  /// [googleWebClientId], [appleServiceId] and [appleRedirectUri] are only
-  /// used on Flutter Web (Apple's Service ID flow also needs it on Android);
-  /// see `AppConfig` and the Phase-0 manual steps for how to provision them.
+  /// [googleWebClientId] is the Web OAuth client of the build's Firebase
+  /// project, used as `serverClientId` for Google sign-in on Android/iOS (web
+  /// uses Firebase Auth's popup and doesn't need it). [appleServiceId] and
+  /// [appleRedirectUri] are only used by Apple's web flow (web and Android).
+  /// See `AppConfig` and the Phase-0 manual steps for how to provision them.
   AuthBloc({
     required AuthRepository authRepository,
     String? googleWebClientId,
@@ -111,7 +113,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(state.copyWith(isSubmitting: true, failure: null));
     final serviceId = _appleServiceId;
     final redirectUri = _appleRedirectUri;
-    final webOptions = (serviceId != null &&
+    final webOptions =
+        (serviceId != null &&
             serviceId.isNotEmpty &&
             redirectUri != null &&
             redirectUri.isNotEmpty)
