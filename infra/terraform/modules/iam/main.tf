@@ -155,6 +155,14 @@ resource "google_project_iam_member" "tf_plan_security_reviewer" {
   member  = "serviceAccount:${google_service_account.tf_plan.email}"
 }
 
+// The providers set user_project_override + billing_project (needed for the Budgets and Firebase APIs), so
+// every API call is billed to this project and the caller needs serviceusage.services.use.
+resource "google_project_iam_member" "tf_plan_serviceusage_consumer" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.tf_plan.email}"
+}
+
 // roles/billing.viewer only exists at billing-account level (not on projects). Lets the plan SA refresh
 // the budget resource; read-only.
 resource "google_billing_account_iam_member" "tf_plan_billing_viewer" {
