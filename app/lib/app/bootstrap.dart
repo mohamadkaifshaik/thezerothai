@@ -104,13 +104,15 @@ Future<void> bootstrap() async {
 
 /// Activates App Check, but never lets it block startup.
 ///
-/// On web, App Check needs a reCAPTCHA v3 site key: without one there is no
-/// valid provider, and the Firebase JS SDK throws from `initializeAppCheck`.
-/// Uncaught, that happens before `runApp` and leaves a white screen. So web
-/// skips App Check until `RECAPTCHA_SITE_KEY` is set. Any activation failure
-/// is logged and startup continues: the API runs App Check in monitor mode
-/// until it's proven (ADR-0006), and `AuthHeadersInterceptor` already sends
-/// no App Check header when no token is available.
+/// On web, App Check needs a reCAPTCHA Enterprise (Google Cloud Fraud Defense)
+/// site key: without one there is no valid provider, and the Firebase JS SDK
+/// throws from `initializeAppCheck`. Uncaught, that happens before `runApp`
+/// and leaves a white screen. Web App Check is deferred at Stage 0 (ADR-0006
+/// amendment: Classic keys are gone, and Enterprise is a flat $8/month past 10k
+/// assessments), so web skips it while `RECAPTCHA_SITE_KEY` is empty. Any
+/// activation failure is logged and startup continues: the API runs App Check
+/// in monitor mode, and `AuthHeadersInterceptor` already sends no App Check
+/// header when no token is available.
 Future<void> _activateAppCheck(AppConfig config) async {
   if (kIsWeb && config.recaptchaSiteKey.isEmpty) {
     debugPrint('App Check: no RECAPTCHA_SITE_KEY, skipping on web.');
@@ -129,7 +131,7 @@ Future<void> _activateAppCheck(AppConfig config) async {
           : const AppleAppAttestProvider(),
       providerWeb: config.recaptchaSiteKey.isEmpty
           ? null
-          : ReCaptchaV3Provider(config.recaptchaSiteKey),
+          : ReCaptchaEnterpriseProvider(config.recaptchaSiteKey),
     );
   } catch (e) {
     debugPrint('App Check activation failed; continuing without it: $e');

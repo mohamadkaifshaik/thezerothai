@@ -53,9 +53,9 @@ class AppConfig {
   /// Optional App Check debug token for local/dev builds. Empty in prod.
   final String appCheckDebugToken;
 
-  /// reCAPTCHA v3 site key used for App Check on Flutter Web. Empty when not
-  /// yet provisioned (falls back to the debug provider so the app still
-  /// compiles and runs against emulators).
+  /// reCAPTCHA Enterprise (Google Cloud Fraud Defense) site key for App Check
+  /// on Flutter Web. Empty at Stage 0: web App Check is deferred (ADR-0006
+  /// amendment), and the app skips App Check on web while this is empty.
   final String recaptchaSiteKey;
 
   /// Web OAuth client id of this build's Firebase project. Mobile Google

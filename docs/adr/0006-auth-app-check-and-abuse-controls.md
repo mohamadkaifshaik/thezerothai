@@ -71,6 +71,26 @@ and Cloud Run requests from a billing-account-wide 2M/month. The Cloud Run servi
   `admin/config.signupsEnabled`); security-auditor threat model before prod.
 - Revisit when: the trigger above fires, or we add DMs (separate E2E ADR).
 
+## Amendment 2026-09-27: web App Check deferred (founder decision)
+reCAPTCHA Classic (v3) keys can no longer be created. Web App Check now needs reCAPTCHA Enterprise, sold as Google
+Cloud Fraud Defense: 10,000 assessments per calendar month free per organization (pooled across projects), then a
+**flat $8/month** from 10,001 to 100,000, then $0.001 per assessment (source: Fraud Defense billing docs). App Check
+re-attests about twice per token TTL (default 1 h), so a few hundred daily web users would cross 10k/month. That is a
+step to a fixed fee, which the prime directive forbids without an ADR and a revenue milestone.
+
+Decision for Stage 0:
+- **Web: no App Check.** The app skips activation when `RECAPTCHA_SITE_KEY` is empty (it is).
+- **Mobile: Play Integrity (Android) / App Attest (iOS)**, both free. Register them in the App Check console when
+  the store builds exist.
+- **API: `APP_CHECK_MODE=monitor` for all clients.** The API can't reliably tell web requests from mobile ones, so it
+  can't enforce App Check for mobile only. Until web has a provider, App Check is telemetry, not a gate. Abuse
+  protection at Stage 0 is Firebase Auth, per-uid/per-IP rate limits, daily per-user quotas, the max-3-instances cap,
+  degraded mode and the budget alerts.
+- **Revisit** (new ADR) when abusive web sign-ups or requests show up in logs, or when revenue comfortably covers
+  $8/month. The planned shape then: a `google_recaptcha_enterprise_key` (web, score-based, no localhost on prod) and
+  `google_firebase_app_check_recaptcha_enterprise_config` in Terraform with a 1-day token TTL. The app switches to
+  `ReCaptchaEnterpriseProvider` (already wired) by setting the `*_RECAPTCHA_SITE_KEY` repo variables. Then enforce.
+
 ## Handoff
 - backend-developer: `pkg/platform/authn` (ID token + App Check verifiers with cached JWKS, emulator mode via
   `FIREBASE_AUTH_EMULATOR_HOST`), `pkg/platform/ratelimit` (token buckets keyed by uid/IP, LRU-bounded),
@@ -79,6 +99,6 @@ and Cloud Run requests from a billing-account-wide 2M/month. The Cloud Run servi
   platform (debug provider in dev only); attach both headers on every call; handle PROFILE_REQUIRED,
   EMAIL_NOT_VERIFIED, RATE_LIMITED, QUOTA_EXCEEDED, DEGRADED_MODE distinctly.
 - production-deployer: enable Email/Password, Google, Apple providers only; App Check apps registered
-  (Play Integrity, App Attest/DeviceCheck, reCAPTCHA v3 site key); push/scheduler SA with OIDC; cursor HMAC secret.
+  (Play Integrity, App Attest/DeviceCheck; web deferred, see the 2026-09-27 amendment); push/scheduler SA with OIDC; cursor HMAC secret.
 - tester: tokens with wrong audience/issuer/expired, missing App Check, suspended account, per-uid bucket exhaustion,
   quota rollover, new-account quotas, forged `/internal` calls.

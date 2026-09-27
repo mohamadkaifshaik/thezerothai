@@ -51,11 +51,10 @@ This first apply has to be local. The GitHub OIDC login (Workload Identity Feder
 4. Android: `keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -alias androiddebugkey -storepass android`,
    then add the SHA-1 and SHA-256 to the Android app (`com.dzeroth.dzeroth`). Add the release/Play signing keys later.
 5. Web Google sign-in: copy the Web OAuth client ID (Auth → Google provider) and pass it as `--dart-define=GOOGLE_WEB_CLIENT_ID=...`.
-6. App Check:
-   - Register a reCAPTCHA v3 key for the web domain.
-   - Set `enable_recaptcha_app_check = true` and the secret in tfvars, then re-apply.
-   - Pass `--dart-define=RECAPTCHA_SITE_KEY=...` to web builds.
-   - In the console, turn on Play Integrity (Android) and App Attest (iOS).
+6. App Check: **web is deferred at Stage 0** (ADR-0006 amendment: reCAPTCHA Classic is gone, and reCAPTCHA
+   Enterprise / Fraud Defense is a flat $8/month past 10k assessments). Don't create reCAPTCHA keys. When the
+   Android/iOS store builds exist, register Play Integrity (Android) and App Attest (iOS) in Firebase console →
+   App Check, and add the debug-provider tokens for internal test builds.
 
 ## 5. Apple Sign-In
 Needs the Apple Developer Program ($99/yr, which is outside GCP).
@@ -111,7 +110,7 @@ Repo variables come from `terraform output` in each env. Use `DEV_*` and `PROD_*
 | `*_HOSTING_SITE_ID` | `hosting_site_id` from tfvars |
 | `*_CORS_ORIGINS_JSON`, `*_FOUNDER_EMAILS_JSON` | the tfvars lists as JSON |
 | `*_API_BASE_URL` | `cloud_run_url` (the deterministic `https://api-<project_number>.<region>.run.app` URL) — used by Android/iOS builds, which call Cloud Run directly (no Hosting rewrite). Web builds hardcode `/api` instead. |
-| `*_RECAPTCHA_SITE_KEY` | reCAPTCHA v3 site key from step 4.6 (public site key, not the secret) — used as `--dart-define=RECAPTCHA_SITE_KEY=...` on every CI Flutter build |
+| `*_RECAPTCHA_SITE_KEY` | leave **unset** at Stage 0 (web App Check deferred, ADR-0006 amendment). When revisited: the reCAPTCHA Enterprise (Fraud Defense) *site* key |
 | `*_GOOGLE_WEB_CLIENT_ID` | Web OAuth client ID from step 4.5 (Firebase Auth → Google provider) — used as `--dart-define=GOOGLE_WEB_CLIENT_ID=...` on every CI Flutter build |
 | `TF_STATE_BUCKET` | `dzeroth-tfstate` |
 | `BILLING_ACCOUNT` | the billing account ID |
