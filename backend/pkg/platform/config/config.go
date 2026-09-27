@@ -58,6 +58,13 @@ type RateLimitConfig struct {
 	CheckHandlePerUserPerMinute int
 	LikesPerUserPerMinute       int
 	PerIPPerMinute              int
+
+	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
+	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
+	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is
+	// a flood backstop, not the fine-grained per-uid/IP limiting PerIPPerMinute already does once a request
+	// is inside the Connect chain (a separate bucket; see ratelimit.PreAuthIPMiddleware).
+	PreAuthIPPerMinute int
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -118,13 +125,14 @@ type Config struct {
 	// call the Cloud Run URL directly instead of through Hosting.
 	CORSAllowedOrigins []string
 
-	// TrustedProxyHops is how many trusted-proxy entries (from the right) of X-Forwarded-For to skip past
-	// to find the real client IP for ratelimit.ClientIP (ADR-0006 §3, amended). Defaults to 1, the original
-	// "rightmost entry" behavior. Through Firebase Hosting -> Cloud Run there may genuinely be more than one
-	// trusted hop appended in front of the real client IP for web traffic, putting every web user in one
-	// shared per-IP bucket if left at 1 — but the exact number has not been measured yet, so this stays
-	// configurable rather than guessed; see pkg/platform/ratelimit's XFF hop-count debug log, meant to
-	// calibrate it from real dev traffic.
+	// TrustedProxyHops, left at the default (<=1), lets ratelimit.ResolveClientIP auto-detect the Firebase
+	// Hosting -> Cloud Run path (M2, 2026-09-27 security audit amendment to ADR-0006 §3): it recognizes
+	// when the rightmost X-Forwarded-For entry is a Google-operated egress address rather than the real
+	// client, and if so counts one hop further left. Set above 1 only as an explicit operator override for
+	// a topology that heuristic does not fit — it then skips detection and always counts that many entries
+	// in from the right, the pre-M2 behavior. Every request logs xff_hops/via_hosting (never the IPs
+	// themselves) on the one per-request INFO line (pkg/platform/mw.Logging) so this can be measured from
+	// real dev traffic instead of guessed.
 	TrustedProxyHops int
 }
 
@@ -205,6 +213,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if rl.PerIPPerMinute, err = getInt("RATE_LIMIT_PER_IP_PER_MIN", 120); err != nil {
+		return Config{}, err
+	}
+	if rl.PreAuthIPPerMinute, err = getInt("RATE_LIMIT_PRE_AUTH_IP_PER_MIN", 120); err != nil {
 		return Config{}, err
 	}
 

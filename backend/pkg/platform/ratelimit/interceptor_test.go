@@ -1,13 +1,10 @@
 package ratelimit_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +12,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
@@ -28,6 +26,20 @@ func authInject(uid string) connect.UnaryInterceptorFunc {
 			if uid != "" {
 				ctx = authn.WithClaims(ctx, authn.Claims{UID: uid})
 			}
+			return next(ctx, req)
+		}
+	})
+}
+
+// requestInfoInject stands in for mw.Logging's ctx.WithValue setup, since ratelimit.Interceptor writes
+// xff_hops/via_hosting onto the same logger.RequestInfo pointer mw.Logging reads from for its one line per
+// request (M2) — without this, logger.RequestInfoFromContext(ctx) would be nil inside the interceptor,
+// exactly like a real request that reached ratelimit.Interceptor without mw.Logging ever running.
+func requestInfoInject(info **logger.RequestInfo) connect.UnaryInterceptorFunc {
+	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			ctx, ri := logger.WithRequestInfo(ctx)
+			*info = ri
 			return next(ctx, req)
 		}
 	})
@@ -47,6 +59,21 @@ func newServer(t *testing.T, uid string, cfg ratelimit.Config) *httptest.Server 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// newServerWithRequestInfo is newServer plus requestInfoInject, for tests that need to inspect what
+// ratelimit.Interceptor wrote to logger.RequestInfo (M2). info is populated once the request completes.
+func newServerWithRequestInfo(t *testing.T, uid string, cfg ratelimit.Config) (srv *httptest.Server, info **logger.RequestInfo) {
+	t.Helper()
+	info = new(*logger.RequestInfo)
+	h := connect.NewUnaryHandler(procedure, okHandler,
+		connect.WithInterceptors(requestInfoInject(info), authInject(uid), ratelimit.Interceptor(cfg)),
+	)
+	mux := http.NewServeMux()
+	mux.Handle(procedure, h)
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, info
 }
 
 func call(t *testing.T, srv *httptest.Server, xff string) error {
@@ -105,7 +132,7 @@ func TestInterceptor_PerIPLimit(t *testing.T) {
 
 // TestInterceptor_TrustedProxyHopsAffectsIPBucket: with TrustedProxyHops=2, the interceptor must key the
 // per-IP bucket off the second entry from the right, not the rightmost — the concrete behavior change an
-// operator gets from raising TRUSTED_PROXY_HOPS once the real hop count is measured in dev.
+// operator gets from raising TRUSTED_PROXY_HOPS as an explicit override (ResolveClientIP's doc comment).
 func TestInterceptor_TrustedProxyHopsAffectsIPBucket(t *testing.T) {
 	cfg := ratelimit.Config{IP: ratelimit.NewLimiter(1, time.Minute), TrustedProxyHops: 2}
 	srv := newServer(t, "", cfg)
@@ -120,26 +147,37 @@ func TestInterceptor_TrustedProxyHopsAffectsIPBucket(t *testing.T) {
 	}
 }
 
-// TestInterceptor_LogsXFFHopCountNotIPs (XFF concern): the debug log must carry a count operators can use
-// to calibrate TRUSTED_PROXY_HOPS, and must never carry the IP addresses themselves (PII).
-func TestInterceptor_LogsXFFHopCountNotIPs(t *testing.T) {
-	var buf bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	cfg := ratelimit.Config{Log: log}
-	srv := newServer(t, "", cfg)
+// TestInterceptor_SetsXFFHopsAndViaHostingOnRequestInfo (M2): the interceptor must surface xff_hops/
+// via_hosting on logger.RequestInfo so mw.Logging's one-line-per-request INFO log can carry them — the
+// fix for the old defect where this was only ever logged at Debug (dropped in prod, which defaults to
+// Info). Never the IP itself: RequestInfo has no field for one, by design.
+func TestInterceptor_SetsXFFHopsAndViaHostingOnRequestInfo(t *testing.T) {
+	cfg := ratelimit.Config{}
+	srv, info := newServerWithRequestInfo(t, "", cfg)
 
-	if err := call(t, srv, "1.2.3.4, 5.6.7.8, 9.10.11.12"); err != nil {
+	if err := call(t, srv, "1.2.3.4, 5.6.7.8, 66.249.64.10"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	out := buf.String()
-	if !strings.Contains(out, `"xff_hops":3`) {
-		t.Errorf("log output missing xff_hops=3; got: %s", out)
+	if (*info).XFFHops != 3 {
+		t.Errorf("XFFHops = %d, want 3", (*info).XFFHops)
 	}
-	for _, leaked := range []string{"1.2.3.4", "5.6.7.8", "9.10.11.12"} {
-		if strings.Contains(out, leaked) {
-			t.Errorf("log output leaked an IP address (%s), want only the hop count: %s", leaked, out)
-		}
+	if !(*info).ViaHosting {
+		t.Error("ViaHosting = false, want true: rightmost entry is a recognized Google egress IP")
+	}
+}
+
+func TestInterceptor_SetsViaHostingFalseOnDirectPath(t *testing.T) {
+	cfg := ratelimit.Config{}
+	srv, info := newServerWithRequestInfo(t, "", cfg)
+
+	if err := call(t, srv, "203.0.113.7"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if (*info).ViaHosting {
+		t.Error("ViaHosting = true, want false: rightmost entry is an ordinary (non-Google) address")
+	}
+	if (*info).XFFHops != 1 {
+		t.Errorf("XFFHops = %d, want 1", (*info).XFFHops)
 	}
 }
 

@@ -12,7 +12,7 @@ func clearEnv(t *testing.T) {
 		"PORT", "FIREBASE_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "GCP_PROJECT_ID", "GCP_PROJECT", "ENV", "DEGRADED_MODE",
 		"APP_CHECK_MODE", "CURSOR_HMAC_KEY", "SHUTDOWN_TIMEOUT", "CACHE_TTL", "HANDLE_CHANGE_COOLDOWN",
 		"QUOTA_NEW_ACCOUNT_WINDOW", "RATE_LIMIT_PER_USER_PER_MIN", "RATE_LIMIT_TIMELINE_PER_MIN",
-		"RATE_LIMIT_CHECK_HANDLE_PER_MIN", "RATE_LIMIT_LIKES_PER_MIN", "RATE_LIMIT_PER_IP_PER_MIN",
+		"RATE_LIMIT_CHECK_HANDLE_PER_MIN", "RATE_LIMIT_LIKES_PER_MIN", "RATE_LIMIT_PER_IP_PER_MIN", "RATE_LIMIT_PRE_AUTH_IP_PER_MIN",
 		"QUOTA_POSTS_PER_DAY", "QUOTA_FOLLOWS_PER_DAY", "QUOTA_MEDIA_PER_DAY", "QUOTA_EXPORTS_PER_DAY",
 		"QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", "QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY", "QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY",
 		"INTERNAL_OIDC_AUDIENCE", "INTERNAL_OIDC_ALLOWED_EMAILS", "CORS_ALLOWED_ORIGINS", "TRUSTED_PROXY_HOPS",
@@ -53,6 +53,9 @@ func TestLoad_LocalDefaults(t *testing.T) {
 	if cfg.RateLimit.PerUserPerMinute != 60 {
 		t.Errorf("RateLimit.PerUserPerMinute = %d, want 60", cfg.RateLimit.PerUserPerMinute)
 	}
+	if cfg.RateLimit.PreAuthIPPerMinute != 120 {
+		t.Errorf("RateLimit.PreAuthIPPerMinute = %d, want 120 (M1 default)", cfg.RateLimit.PreAuthIPPerMinute)
+	}
 	if len(cfg.CORSAllowedOrigins) == 0 {
 		t.Error("expected CORS to default on for local dev origins")
 	}
@@ -78,6 +81,18 @@ func TestLoad_InvalidTrustedProxyHops(t *testing.T) {
 	t.Setenv("TRUSTED_PROXY_HOPS", "not-an-int")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected error for invalid TRUSTED_PROXY_HOPS")
+	}
+}
+
+func TestLoad_PreAuthIPPerMinuteOverride(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("RATE_LIMIT_PRE_AUTH_IP_PER_MIN", "42")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.RateLimit.PreAuthIPPerMinute != 42 {
+		t.Errorf("RateLimit.PreAuthIPPerMinute = %d, want 42", cfg.RateLimit.PreAuthIPPerMinute)
 	}
 }
 

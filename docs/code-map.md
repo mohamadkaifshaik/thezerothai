@@ -12,7 +12,7 @@ details) are not catalogued here — only what other code should import and reus
 | logger.New / logger.L / logger.WithLogger | backend/pkg/platform/logger | Process-wide slog JSON logger (Cloud Logging shaped: severity/message) |
 | logger.TraceFromRequest / TraceFromRequestHeader / WithTrace / TraceFromContext | backend/pkg/platform/logger | Cloud Trace correlation field from `traceparent` / `X-Cloud-Trace-Context` |
 | logger.HashUID | backend/pkg/platform/logger | Non-PII per-user log correlation (`uid_hash` field) |
-| logger.WithRequestInfo / RequestInfoFromContext | backend/pkg/platform/logger | Mutable per-request pointer (uid, app_check_failed) inner interceptors set so `mw.Logging`'s one log line can see fields set *after* it calls `next` — the fix for "an inner interceptor's ctx.WithValue is invisible to an ancestor holding the original ctx"; don't add a second ad hoc ctx-value flag for a future log field, extend this struct instead |
+| logger.WithRequestInfo / RequestInfoFromContext | backend/pkg/platform/logger | Mutable per-request pointer (uid, app_check_failed, xff_hops, via_hosting) inner interceptors set so `mw.Logging`'s one log line can see fields set *after* it calls `next` — the fix for "an inner interceptor's ctx.WithValue is invisible to an ancestor holding the original ctx"; don't add a second ad hoc ctx-value flag for a future log field, extend this struct instead |
 | httpcors.Wrap | backend/pkg/platform/httpcors | The one browser-CORS middleware for the Connect mux (wraps the whole handler, not a Connect interceptor — preflight OPTIONS never reaches one); no-op when the origin allowlist is empty |
 | fsclient.New | backend/pkg/platform/fsclient | The one process-wide `*firestore.Client` (emulator-aware via FIRESTORE_EMULATOR_HOST, standard SDK behavior) |
 | health.Handler | backend/pkg/platform/health | `/healthz` — zero-dependency liveness/startup probe |
@@ -27,7 +27,8 @@ details) are not catalogued here — only what other code should import and reus
 | authn.AccountStatusInterceptor / AccountStatusProvider / ProfileExemptProcedures | backend/pkg/platform/authn | PROFILE_REQUIRED / SUSPENDED / DELETING enforcement; a module's Service implements AccountStatusProvider via a small adapter (see cmd/api/main.go) |
 | authn.UIDFromContext / ClaimsFromContext / WithClaims | backend/pkg/platform/authn | Read the verified caller identity anywhere downstream of the auth interceptors |
 | degraded.Interceptor / ProcedureSet / NewProcedureSet | backend/pkg/platform/degraded | DEGRADED_MODE=readonly/nomedia enforcement; readonly is derived from each RPC's proto `idempotency_level`, no hand-maintained list |
-| ratelimit.NewLimiter / ratelimit.Interceptor / ratelimit.Config / ClientIP / XFFHopCount | backend/pkg/platform/ratelimit | Per-uid and per-IP in-memory token buckets, with per-procedure overrides. `ClientIP(h, hops)` counts `hops` entries in from the right of X-Forwarded-For (config.Config.TrustedProxyHops / env TRUSTED_PROXY_HOPS, default 1 = rightmost); the real number of trusted-proxy hops Firebase Hosting -> Cloud Run adds is not yet measured, so `Config.Log` (if set) emits a debug-level `xff_hops` count per request — never the IPs — to calibrate it from real dev traffic |
+| ratelimit.NewLimiter / ratelimit.Interceptor / ratelimit.Config / ResolveClientIP / ClientIP / XFFHopCount | backend/pkg/platform/ratelimit | Per-uid and per-IP in-memory token buckets (post-auth, inside the Connect chain), with per-procedure overrides. `ResolveClientIP(h, hops)` auto-detects a Firebase Hosting egress IP at the rightmost X-Forwarded-For entry (isGoogleEgressIP / googleEgressCIDRs, excludes GCP customer-assignable ranges) and steps one entry left when found; `hops` > 1 is an explicit operator override (config.Config.TrustedProxyHops / env TRUSTED_PROXY_HOPS) that skips detection. Sets xff_hops/via_hosting on logger.RequestInfo for mw.Logging's per-request line — never logs an IP directly |
+| ratelimit.PreAuthIPMiddleware | backend/pkg/platform/ratelimit | Plain net/http middleware, coarse per-IP flood backstop *before* the Connect handler chain (before App Check/ID token JWT-verify CPU) — wraps apiserver.Build's whole mux, a separate Limiter from ratelimit.Interceptor's; exempts /health, /healthz |
 | quota.Store / quota.CheckAndReserve / quota.Today | backend/pkg/platform/quota | Daily per-user quotas at `quotas/{uid}` (posts/follows/uploads/exports), IST day boundary |
 
 ## Errors, requests, pagination
@@ -39,6 +40,7 @@ details) are not catalogued here — only what other code should import and reus
 | budget.Counter / budget.WithCounter / budget.FromContext | backend/pkg/platform/budget | Per-request Firestore read/write/delete counting for logs (`fs_reads`/`fs_writes`) and integration-test budget assertions |
 | cursor.Encode / cursor.Decode / cursor.Cursor / cursor.IsFirstPage | backend/pkg/platform/cursor | Opaque, HMAC-signed `(createdAt, docId)` pagination cursors — use for every list RPC, don't build a second cursor scheme |
 | limits.ClampPageSize / limits.DefaultPageSize / limits.MaxPageSize | backend/pkg/platform/limits | page_size clamping (default 20, max 50) for every list RPC |
+| limits.MaxRequestBytes | backend/pkg/platform/limits | Request-body size cap (256 KiB) passed to both connect.WithReadMaxBytes (per handler) and http.MaxBytesHandler (wrapping the mux) in apiserver.Build — don't hand-roll a second size constant for a new module's handler |
 | idempotency.Store / idempotency.Key / idempotency.HashRequest | backend/pkg/platform/idempotency | The `idempotency/{sha256(uid\|rpc\|key)}` doc mechanism for creates with a Snowflake id (CreatePost, CreateUpload, ...). Natural-key creates (users, follows, likes) don't need this — a `Create()` `AlreadyExists` is enough. |
 
 ## Storage primitives
@@ -59,7 +61,7 @@ details) are not catalogued here — only what other code should import and reus
 
 | Item | Location | Use it for |
 |---|---|---|
-| apiserver.Build | backend/internal/apiserver | The one `*http.ServeMux` wiring every module's Connect handler + `/healthz` + `/internal/*` with the full interceptor chain (ADR-0006 §2). `cmd/api/main.go` and `backend/e2e` both call this — a `package main` can't be imported, so the wiring can't live in cmd/api itself. |
+| apiserver.Build | backend/internal/apiserver | The one `*http.ServeMux` wiring every module's Connect handler + `/health`(z) + `/internal/*` with the full interceptor chain (ADR-0006 §2), wrapped outermost by CORS -> ratelimit.PreAuthIPMiddleware -> http.MaxBytesHandler (M1/hardening, see its doc comment for the full per-request pipeline). `cmd/api/main.go` and `backend/e2e` both call this — a `package main` can't be imported, so the wiring can't live in cmd/api itself. |
 
 ## Test helpers (import only from `_test.go` files, like `net/http/httptest`)
 

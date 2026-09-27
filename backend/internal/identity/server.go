@@ -6,6 +6,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -16,6 +17,32 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
+
+// signInProviderPassword is the Firebase `firebase.sign_in_provider` claim value (authn.Claims
+// .SignInProvider) for email/password accounts — the only provider Firebase does not itself guarantee a
+// verified email for. Google and Apple sign-in verify the email upstream before Firebase ever issues a
+// token for it (ADR-0006 §1: "email verification required before posting, following, uploading"; H1,
+// 2026-09-27 security audit, applies that requirement at the earliest point a new account touches
+// Firestore — CreateProfile). Anonymous/phone sign-in are disabled at Stage 0 (ADR-0006 §1, CLAUDE.md), so
+// in practice this only ever distinguishes password from google.com/apple.com.
+const signInProviderPassword = "password"
+
+// requireVerifiedEmailForPassword enforces H1 (2026-09-27 security audit): a password-provider account
+// must have a verified email before creating a profile. Unscripted signups otherwise let an attacker mint
+// Firebase email/password accounts by the thousand per hour per IP and squat handles / burn the Firestore
+// write quota (docs/reviews/security-audit-v0.1.0.md). Google/Apple sign-in are never blocked here,
+// regardless of the (redundant, in their case) email_verified claim value.
+func requireVerifiedEmailForPassword(ctx context.Context) error {
+	claims, _ := authn.ClaimsFromContext(ctx)
+	if claims.SignInProvider != signInProviderPassword || claims.EmailVerified {
+		return nil
+	}
+	return apierr.New(
+		connect.CodeFailedPrecondition,
+		commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED,
+		"please verify your email before creating a profile",
+	)
+}
 
 // Server adapts Service to identityv1connect.IdentityServiceHandler.
 type Server struct {
@@ -41,6 +68,9 @@ func callerUID(ctx context.Context) (string, error) {
 func (s *Server) CreateProfile(ctx context.Context, req *connect.Request[identityv1.CreateProfileRequest]) (*connect.Response[identityv1.CreateProfileResponse], error) {
 	uid, err := callerUID(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireVerifiedEmailForPassword(ctx); err != nil {
 		return nil, err
 	}
 	profile, err := s.svc.CreateProfile(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetHandle(), req.Msg.GetDisplayName())
@@ -136,13 +166,12 @@ func (s *Server) GetAccountExport(context.Context, *connect.Request[identityv1.G
 	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 }
 
-var errUnimplementedPhase1 = unimplementedErr{}
-
-type unimplementedErr struct{}
-
-func (unimplementedErr) Error() string {
-	return "not implemented in Phase 0: requires graph/posts/engagement/media/notifications (ADR-0003 Deletes & privacy); tracked for Phase 1"
-}
+// errUnimplementedPhase1's message is deliberately generic (L10, 2026-09-27 security audit): it is sent
+// verbatim to the client by connect.NewError. The real reason — these need the resumable delete/export
+// jobs from ADR-0003 "Deletes & privacy", which fan out across graph/posts/engagement/media/notifications,
+// none of which exist in this Phase 0 bootstrap (see the doc comment above) — must stay in source comments,
+// not on the wire, so a caller can't map our internal module roadmap from error text.
+var errUnimplementedPhase1 = errors.New("not available yet")
 
 func toProtoStatus(s AccountStatus) identityv1.AccountStatus {
 	switch s {
