@@ -84,3 +84,25 @@ variable "budget_currency_code" {
   type        = string
   default     = "INR" # this billing account bills in INR
 }
+
+# Find with: gcloud services api-keys list --project=<project_id> --format="table(uid,displayName)"
+variable "browser_key_uid" {
+  description = "UID of the Firebase-auto-created browser API key (security audit M3)."
+  type        = string
+  # Not a secret: the UID only identifies the key (the key string itself ships in the app).
+  default = "b2413e40-5b82-4c43-9898-6479d55c37c7"
+}
+
+variable "android_key_uid" {
+  description = "UID of the Firebase-auto-created Android API key (security audit M3)."
+  type        = string
+  # Not a secret: the UID only identifies the key (the key string itself ships in the app).
+  default = "3093a811-6a7e-463e-a30a-9d345152ae2f"
+}
+
+variable "ios_key_uid" {
+  description = "UID of the Firebase-auto-created iOS API key (security audit M3)."
+  type        = string
+  # Not a secret: the UID only identifies the key (the key string itself ships in the app).
+  default = "e6fc1659-2bc0-46bc-849c-2a82cab88ad3"
+}

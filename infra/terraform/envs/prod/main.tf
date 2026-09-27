@@ -212,3 +212,62 @@ module "firebase" {
 
   depends_on = [module.project_services]
 }
+
+// Security audit M3: restrict the three Firebase-auto-created API keys
+// (imported by UID, see import_apikeys.tf) instead of leaving them open to
+// any referrer/app/API. See docs/runbooks/cloud-bootstrap.md section 9.
+// PLAN ONLY until the founder reviews dev's verified result -- do not apply
+// to prod without a separate, explicit go-ahead.
+module "apikeys" {
+  source         = "../../modules/apikeys"
+  project_number = data.google_project.this.number
+
+  browser_key_uid = var.browser_key_uid
+  android_key_uid = var.android_key_uid
+  ios_key_uid     = var.ios_key_uid
+
+  # Real prod origins only -- no localhost. www redirects to the apex in
+  # Hosting but still needs to be an allowed referrer since the browser sends
+  # its own Referer header before the 301 completes. The *.web.app /
+  # *.firebaseapp.com fallbacks stay allowed (Firebase Auth's popup/iframe
+  # runs on firebaseapp.com, and .web.app is the Hosting default URL).
+  browser_allowed_referrers = [
+    "https://dzeroth.com/*",
+    "https://www.dzeroth.com/*",
+    "https://dzeroth-prod.web.app/*",
+    "https://dzeroth-prod.firebaseapp.com/*",
+  ]
+
+  # See envs/dev/main.tf for the full rationale (identical set): Identity
+  # Toolkit + Token Service for Auth, Installations as the harmless baseline
+  # every Firebase app needs. Verified against app/pubspec.yaml and
+  # app/lib/app/bootstrap.dart 2026-09-27 -- the web app has no Firestore,
+  # Storage or Messaging client SDK.
+  browser_api_targets = [
+    "identitytoolkit.googleapis.com",
+    "securetoken.googleapis.com",
+    "firebaseinstallations.googleapis.com",
+  ]
+
+  # Plus App Check: Android/iOS activate real attestation providers
+  # (Play Integrity / App Attest) in release builds. Web defers App Check
+  # (ADR-0006 amendment).
+  android_api_targets = [
+    "identitytoolkit.googleapis.com",
+    "securetoken.googleapis.com",
+    "firebaseinstallations.googleapis.com",
+    "firebaseappcheck.googleapis.com",
+  ]
+  ios_api_targets = [
+    "identitytoolkit.googleapis.com",
+    "securetoken.googleapis.com",
+    "firebaseinstallations.googleapis.com",
+    "firebaseappcheck.googleapis.com",
+  ]
+
+  ios_bundle_id = var.ios_bundle_id
+  # android_allowed_applications left at its default ([]): no Play Console
+  # signing cert yet. See docs/runbooks/cloud-bootstrap.md section 9.
+
+  depends_on = [module.project_services]
+}

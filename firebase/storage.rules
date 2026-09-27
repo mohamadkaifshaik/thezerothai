@@ -7,6 +7,18 @@ rules_version = '2';
 //   at https://storage.googleapis.com/<project>-media/m/<mediaId>[_t].<ext>. The rule below mirrors that for the
 //   SDK path: single-object `get` only (no `list`), and only on the public bucket. The upload bucket name ends in
 //   "-media-upload", so it never matches, and unmoderated objects stay private.
+//
+// NEVER DEPLOYED to dzeroth-dev or dzeroth-prod, on purpose (security audit L5). This file exists only so
+// `firebase emulators:start --only ...,storage` (make emulators / make dev / make test-int) has rules to enforce
+// locally — firebase.json's "storage" key is required for that emulator to boot at all. It is NOT wired into any
+// CI/CD workflow (`grep -r "only storage" .github` returns nothing) and deliberately shouldn't be: our media
+// buckets (infra/terraform/modules/media-buckets) are plain GCS buckets, never registered with Firebase Storage,
+// and the app has no firebase_storage dependency (app/pubspec.yaml) — every real request hits storage.googleapis.com
+// (signed URLs / public HTTPS GET) directly, which Firebase Storage security rules cannot see or govern at all;
+// they only apply to requests through firebasestorage.googleapis.com. Registering these buckets with Firebase
+// Storage just to deploy this file would add a false sense of protection, not real protection. The real,
+// live-verified protection is IAM + public access prevention in Terraform — see
+// docs/runbooks/cloud-bootstrap.md section 10.
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {

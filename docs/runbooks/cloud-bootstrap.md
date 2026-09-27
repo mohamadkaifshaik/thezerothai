@@ -232,3 +232,121 @@ curl -fsS "$(terraform -chdir=infra/terraform/envs/dev output -raw cloud_run_url
 ```
 This needs one image deployed first, via `deploy-dev.yml` on a push to `main`.
 Then check the budget: Console → Billing → Budgets should list a $5 budget with 25/50/90/100% alerts.
+
+## 9. API key restrictions (security audit M3)
+
+Firebase auto-creates three unrestricted API keys (browser, Android, iOS) the moment you add a web/Android/iOS app
+to a project — before Terraform ever runs. `infra/terraform/modules/apikeys` brings the three that already exist in
+`dzeroth-dev`/`dzeroth-prod` under management via `import` blocks (`envs/{dev,prod}/import_apikeys.tf`), then
+restricts them. There is no `google_apikeys_key` data source and no way to create a *replacement* key without
+orphaning every already-shipped app build that has the old one baked in (`google-services.json` /
+`GoogleService-Info.plist` / `firebase_options*.dart`) — importing the real one is the only option.
+
+**One-time per project, before the first `apply` that touches `modules/apikeys`:** the Apikeys management API itself
+must be enabled (it's in `modules/project-services`' default list now, but a project that already ran its first
+apply before this change needs a targeted apply to pick it up — a plain `terraform apply` would otherwise fail the
+`import` reads with `SERVICE_DISABLED`, since the API has to be reachable to even read the current state of the
+resource being imported):
+```bash
+terraform apply -target=module.project_services
+```
+
+**Finding the UIDs** (needed for `browser_key_uid` / `android_key_uid` / `ios_key_uid` in `terraform.tfvars`):
+```bash
+gcloud services api-keys list --project=dzeroth-dev --format="table(uid,displayName)"
+```
+
+**What's restricted and why** (see `envs/{dev,prod}/main.tf` for the exact lists — kept in sync with what
+`app/pubspec.yaml` + `app/lib/app/bootstrap.dart` actually use, re-verify both if either changes):
+- **Browser key:** `browser_key_restrictions.allowed_referrers` = this env's real web origins (custom domain +
+  `*.web.app` + `*.firebaseapp.com` — Firebase Auth's popup/iframe runs on `firebaseapp.com`, so that origin must
+  stay allowed) + `http://localhost:5000/*` and `:8080/*` in dev only, for `flutter run -d chrome`. **A port
+  wildcard (`http://localhost:*`) does NOT work** — verified live 2026-09-27: Google's referrer matcher only
+  wildcards a trailing path segment, not a port number, so it returns `API_KEY_HTTP_REFERRER_BLOCKED` exactly like
+  an origin that isn't listed at all. List every port explicitly.
+- **Android/iOS keys:** no app restriction yet. iOS *could* be restricted by bundle ID today (`com.dzeroth.dzeroth`,
+  static, known without an Apple Developer account) and is. Android needs a **SHA-1** fingerprint (not the SHA-256
+  Firebase asks for elsewhere) from a Play App Signing certificate, which doesn't exist until the app has a Play
+  Console listing:
+  1. Create the app in Play Console (internal testing track is enough).
+  2. Play Console → Setup → App integrity → App signing key certificate → copy the SHA-1.
+  3. Add it to `terraform.tfvars`: `android_allowed_applications = [{ package_name = "com.dzeroth.dzeroth", sha1_fingerprint = "..." }]`.
+  4. `terraform plan`/`apply` — this only ADDS a restriction (the key currently has none on this axis), so it can't
+     break anything already working; it can only reject apps that aren't the real signed one.
+- **`api_targets`** on every key: trimmed from Firebase's default (~26 services covering every Firebase product,
+  whether or not this app uses it) to what the app's Firebase SDKs actually call — `identitytoolkit.googleapis.com`
+  + `securetoken.googleapis.com` (Firebase Auth) + `firebaseinstallations.googleapis.com` (baseline every Firebase
+  app needs; harmless, no PII, if unused) on all three, plus `firebaseappcheck.googleapis.com` on Android/iOS only
+  (they activate real App Check providers in release builds; web defers App Check per ADR-0006 amendment). Notably
+  **not** `firestore.googleapis.com` or `firebasestorage.googleapis.com` — Firestore is server-side only (Go Admin
+  SDK) and media uploads are plain GCS via signed URLs, never the Firebase Storage SDK (see section 10 below).
+
+**Verification after applying to an env:**
+```bash
+# Disallowed referrer -> expect 403 API_KEY_HTTP_REFERRER_BLOCKED
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=<browser key string>" \
+  -H 'Content-Type: application/json' -H 'Referer: https://evil.example.com/' -d '{"returnSecureToken":true}'
+# Allowed referrer -> expect 400 ADMIN_ONLY_OPERATION (anonymous sign-up is off) or another normal
+# identitytoolkit business error, NOT a 403/API_KEY_HTTP_REFERRER_BLOCKED.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=<browser key string>" \
+  -H 'Content-Type: application/json' -H 'Referer: https://dev.dzeroth.com/' -d '{"returnSecureToken":true}'
+```
+Get the key string once, for testing only, with `gcloud services api-keys get-key-string <key resource name>` — it's
+not a secret Firebase asks you to keep hidden (it's shipped in every client build and is safe in public code; real
+protection is these restrictions plus Firestore/Storage rules), but avoid leaving it sitting around in shell history
+or logs anyway. Then load the real site in a browser and confirm sign-in still renders and works end to end (a
+headless Chrome + puppeteer load of the Hosting URL, checking for console/request errors and a screenshot, is enough
+to catch a white-screen regression without a full manual pass) — a wrong restriction fails closed for every real
+user, not just the curl test above.
+
+## 10. Media bucket protection is IAM + public access prevention, not Storage rules (security audit L5)
+
+`firebase/storage.rules` / `firebase.json`'s `"storage"` key are **never deployed** to `dzeroth-dev` or
+`dzeroth-prod`, on purpose — no workflow runs `firebase deploy --only storage` (or `storage:rules`), and none
+should. They exist solely so `firebase emulators:start --only ...,storage` (`make emulators` / `make dev` /
+`make test-int`) has a rules file to enforce locally; the Storage emulator won't boot at all without that
+`firebase.json` key, which is the only reason it's still there.
+
+**Why not just deploy them for real, too?** Deploying Firebase Storage security rules requires the target bucket to
+be registered *with Firebase Storage*, and even then those rules only govern requests made through the Firebase
+Storage SDK/REST API (`firebasestorage.googleapis.com`). This app's media buckets
+(`infra/terraform/modules/media-buckets`, plain `google_storage_bucket` resources) are never registered with
+Firebase Storage, and `app/pubspec.yaml` has no `firebase_storage` dependency — every real request is a V4 signed
+PUT (uploads, issued by the API) or a public HTTPS GET (`storage.googleapis.com/<project>-media/...`, approved
+media), both plain GCS, both invisible to Firebase Storage rules. Registering the buckets just to deploy rules that
+can never see the app's actual traffic would be pure theater: a config that *looks* like a security control but
+enforces nothing, which is worse than no config at all because it invites the wrong mental model in an incident.
+
+**What actually protects these buckets** (`infra/terraform/modules/media-buckets/main.tf`), enforced by GCS itself,
+not an app-layer rules engine:
+- `uniform_bucket_level_access = true` on both — no legacy per-object ACLs, IAM only.
+- Upload bucket: `public_access_prevention = "enforced"` — fully private, zero public access of any kind. Only the
+  runtime service account (`roles/storage.objectAdmin`) and short-lived V4 signed URLs it mints can touch it.
+- Media bucket: `public_access_prevention = "inherited"` (deliberately, to allow exactly one public grant) +
+  `google_storage_bucket_iam_member` binding `allUsers` → `roles/storage.objectViewer` — public **read**, only.
+  Writes still require the runtime service account's `roles/storage.objectAdmin`.
+- Both: `force_destroy = false` + `lifecycle { prevent_destroy = true }` on the media bucket.
+
+**Verify live** (ran against dzeroth-dev 2026-09-27; same shape expected on prod). Note `gcloud storage buckets
+describe` flattens field names (no `iamConfiguration.` prefix — that's the raw REST API's shape, not this CLI's):
+```bash
+gcloud storage buckets describe gs://dzeroth-dev-media-upload \
+  --format="default(public_access_prevention,uniform_bucket_level_access.enabled)"
+# -> public_access_prevention: enforced, uniform_bucket_level_access.enabled: true
+
+gcloud storage buckets describe gs://dzeroth-dev-media \
+  --format="default(public_access_prevention,uniform_bucket_level_access.enabled)"
+# -> public_access_prevention: inherited, uniform_bucket_level_access.enabled: true (inherited, not enforced,
+#    is what lets the allUsers grant below exist at all)
+
+gcloud storage buckets get-iam-policy gs://dzeroth-dev-media
+# -> allUsers has roles/storage.objectViewer (public read) and nothing else; api-runtime@... has
+#    roles/storage.objectAdmin; the rest are GCP's standard project-editor/owner/viewer legacy bindings
+#    (every bucket has these unless explicitly stripped -- not a Terraform-managed grant, not public).
+
+gcloud storage buckets get-iam-policy gs://dzeroth-dev-media-upload
+# -> no allUsers / allAuthenticatedUsers binding at all; only api-runtime@... (objectAdmin) plus the same
+#    standard project-editor/owner/viewer legacy bindings as above.
+```
