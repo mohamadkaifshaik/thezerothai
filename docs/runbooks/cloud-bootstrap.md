@@ -178,15 +178,10 @@ access, so there's no one else's compromised or careless push to defend against 
   tags, with "Repository admin" added as a bypass so admins can still tag releases directly, in the GitHub UI — the
   API call above is equivalent.)
 
-**Known cleanup (not done by this change — ask the founder first):** the `production-traffic-10` and
-`production-traffic-100` GitHub Environments still physically exist on this repo (created 2026-09-27, no protection
-rules — required reviewers were never actually attached, since Free doesn't support them) even though nothing
-references them anymore after this change. Deleting a GitHub Environment isn't reversible from the UI/API (it would
-have to be recreated from scratch), so it's left for the founder to confirm and run:
-```bash
-gh api -X DELETE repos/mohamadkaifshaik/thezerothai/environments/production-traffic-10
-gh api -X DELETE repos/mohamadkaifshaik/thezerothai/environments/production-traffic-100
-```
+**Cleanup done (2026-09-27):** the `production-traffic-10` and `production-traffic-100` GitHub Environments were
+created by accident by a failed required-reviewers call (Free plan). Before deletion they were verified empty: no
+protection rules, variables, secrets or deployments. They have been deleted, and only `dev` and `prod` remain. Recreate
+one with `gh api -X PUT repos/mohamadkaifshaik/thezerothai/environments/<name>` if a future plan needs it.
 
 ## 7. Custom domain
 Firebase console → Hosting → Add custom domain, then add the TXT/A records at your DNS provider. After that, add
