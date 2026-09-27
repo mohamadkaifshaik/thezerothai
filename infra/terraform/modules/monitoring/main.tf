@@ -107,16 +107,16 @@ resource "google_monitoring_dashboard" "free_tier" {
 }
 
 // ---------------------------------------------------------------------------
-// Uptime check on /healthz
+// Uptime check on /health (run.app reserves paths ending in "z", e.g. /healthz, at the Google front end)
 // ---------------------------------------------------------------------------
 resource "google_monitoring_uptime_check_config" "healthz" {
   project      = var.project_id
-  display_name = "api /healthz (${var.env})"
+  display_name = "api /health (${var.env})"
   timeout      = "10s"
   period       = "300s"
 
   http_check {
-    path         = "/healthz"
+    path         = "/health"
     port         = 443
     use_ssl      = true
     validate_ssl = true
@@ -138,7 +138,7 @@ resource "google_monitoring_uptime_check_config" "healthz" {
 // 1. Uptime check fails for 5 minutes.
 resource "google_monitoring_alert_policy" "uptime_failing" {
   project      = var.project_id
-  display_name = "api /healthz uptime check failing (${var.env})"
+  display_name = "api /health uptime check failing (${var.env})"
   combiner     = "OR"
 
   conditions {

@@ -88,7 +88,7 @@ jobs:
         id: build
         working-directory: backend
         env:
-          KO_DOCKER_REPO: ${{ vars.PROD_ARTIFACT_REGISTRY_URL }}
+          KO_DOCKER_REPO: ${{ vars.PROD_ARTIFACT_REGISTRY_URL }}/api # Artifact Registry needs <repo>/<image>
           RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
         run: |
           digest=$(ko build "${API_MAIN_PKG}" --bare -t "${RELEASE_TAG}")
@@ -120,9 +120,9 @@ jobs:
           echo "url=${url}" >> "$GITHUB_OUTPUT"
           echo "rc revision: ${url}"
 
-      - name: Smoke test rc revision (/healthz)
+      - name: Smoke test rc revision (/health)
         run: |
-          curl -fsS --retry 5 --retry-delay 5 "${{ steps.rc_url.outputs.url }}/healthz"
+          curl -fsS --retry 5 --retry-delay 5 "${{ steps.rc_url.outputs.url }}/health"
 
       # N6: build the web artifact here, BEFORE any prod traffic shift and
       # before the manual GO gates — a broken web build should fail the

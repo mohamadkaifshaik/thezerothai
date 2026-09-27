@@ -80,7 +80,7 @@ so any module can later be split into its own Cloud Run service or moved to anot
 5. **Pagination:** opaque cursors only, never offset. **Every query has a `Limit`** (default 20, max 50).
 6. **Read budget:** every RPC documents its worst-case Firestore reads/writes; no N+1 (denormalize author snapshot into posts; batch `GetAll`).
 7. **Media never passes through the API** — clients upload straight to GCS via signed URLs.
-8. **The API exposes** `/healthz`, structured JSON logs with trace IDs, and graceful shutdown (Cloud Run sends SIGTERM; 10 s budget).
+8. **The API exposes** `/health` (not `/healthz`: `*.run.app` reserves paths ending in `z`; `/healthz` is kept only as an alias), structured JSON logs with trace IDs, and graceful shutdown (Cloud Run sends SIGTERM; 10 s budget).
 9. **Backwards-compatible protos:** never reuse or renumber fields; `buf breaking` gates CI.
 10. **Privacy:** right-to-delete path for every collection; PII limited to Firebase Auth + `users/{uid}/private`. Google-managed encryption at rest (default, free).
 11. **Cost caps are code:** max-instances, per-user daily quotas and query limits live in Terraform/config and are reviewed like logic.

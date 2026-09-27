@@ -65,7 +65,7 @@ jobs:
         id: build
         working-directory: backend
         env:
-          KO_DOCKER_REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}
+          KO_DOCKER_REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}/api # Artifact Registry needs <repo>/<image>
           IMAGE_TAG: ${{ github.sha }}
         run: |
           digest=$(ko build "${API_MAIN_PKG}" --bare -t "${IMAGE_TAG}")
@@ -86,6 +86,16 @@ jobs:
             --region="${{ vars.DEV_REGION }}" \
             --image="${{ steps.build.outputs.image }}" \
             --quiet
+
+      - name: Smoke test dev (/health)
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          SERVICE: ${{ vars.DEV_SERVICE_NAME }}
+          PROJECT: ${{ vars.DEV_PROJECT_ID }}
+          REGION: ${{ vars.DEV_REGION }}
+        run: |
+          url=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
 
       - uses: subosito/flutter-action@v2
         if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
