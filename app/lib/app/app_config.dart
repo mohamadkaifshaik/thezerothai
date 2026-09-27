@@ -76,6 +76,14 @@ class AppConfig {
   /// `--dart-define=FIREBASE_ENV=prod`; see [resolveFirebaseEnv].
   final FirebaseEnv firebaseEnv;
 
+  static const String _appleServiceIdDefine = String.fromEnvironment(
+    'APPLE_SERVICE_ID',
+  );
+
+  /// Whether web builds can offer "Sign in with Apple": web needs a Services
+  /// ID (`--dart-define=APPLE_SERVICE_ID=...`). iOS/macOS use the native flow.
+  static const bool appleSignInOnWebConfigured = _appleServiceIdDefine != '';
+
   static AppConfig fromEnvironment() {
     // `!kReleaseMode` is itself a compile-time constant expression (kReleaseMode
     // is `const bool.fromEnvironment('dart.vm.product')`), so this stays
@@ -93,7 +101,7 @@ class AppConfig {
     const appCheckDebugToken = String.fromEnvironment('APP_CHECK_DEBUG_TOKEN');
     const recaptchaSiteKey = String.fromEnvironment('RECAPTCHA_SITE_KEY');
     const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
-    const appleServiceId = String.fromEnvironment('APPLE_SERVICE_ID');
+    const appleServiceId = _appleServiceIdDefine;
     const appleRedirectUri = String.fromEnvironment('APPLE_REDIRECT_URI');
     const definedFirebaseEnv = String.fromEnvironment('FIREBASE_ENV');
 
