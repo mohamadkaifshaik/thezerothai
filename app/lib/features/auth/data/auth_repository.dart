@@ -19,12 +19,17 @@ import '../domain/auth_failure.dart';
 /// attach a fresh Firebase ID token to every API call without depending on
 /// this feature package for anything but that one method.
 class AuthRepository implements AuthTokenProvider {
-  AuthRepository({fb.FirebaseAuth? firebaseAuth, GoogleSignIn? googleSignIn})
-    : _firebaseAuth = firebaseAuth ?? fb.FirebaseAuth.instance,
-      _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
+  AuthRepository({
+    fb.FirebaseAuth? firebaseAuth,
+    GoogleSignIn? googleSignIn,
+    @visibleForTesting bool isWeb = kIsWeb,
+  }) : _firebaseAuth = firebaseAuth ?? fb.FirebaseAuth.instance,
+       _googleSignIn = googleSignIn ?? GoogleSignIn.instance,
+       _isWeb = isWeb;
 
   final fb.FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
+  final bool _isWeb;
   bool _googleInitialized = false;
 
   /// Emits the current [AppUser], or null when signed out. Uses
@@ -99,17 +104,36 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
-  Future<void> _ensureGoogleInitialized({String? clientId}) async {
+  Future<void> _ensureGoogleInitialized({String? serverClientId}) async {
     if (_googleInitialized) return;
-    await _googleSignIn.initialize(clientId: clientId);
+    await _googleSignIn.initialize(
+      serverClientId: (serverClientId == null || serverClientId.isEmpty)
+          ? null
+          : serverClientId,
+    );
     _googleInitialized = true;
   }
 
-  /// [webClientId] is required on Flutter Web (the OAuth client id for this
-  /// site); ignored on mobile, where native config drives sign-in.
+  /// Web: Firebase Auth's own popup. google_sign_in 7 can't sign in
+  /// programmatically on web (`supportsAuthenticate()` is false there; it only
+  /// supports Google's rendered button).
+  ///
+  /// Mobile: google_sign_in, then a Firebase credential from its ID token.
+  /// [webClientId] (this build's Firebase project's Web OAuth client) is passed
+  /// as `serverClientId`, so the ID token is issued for the project the build
+  /// targets. Without it, Android falls back to the checked-in (dev)
+  /// google-services.json, and prod Firebase would reject the token.
   Future<void> signInWithGoogle({String? webClientId}) async {
+    if (_isWeb) {
+      try {
+        await _firebaseAuth.signInWithPopup(fb.GoogleAuthProvider());
+      } on fb.FirebaseAuthException catch (e) {
+        throw _mapFirebaseAuthException(e);
+      }
+      return;
+    }
     try {
-      await _ensureGoogleInitialized(clientId: kIsWeb ? webClientId : null);
+      await _ensureGoogleInitialized(serverClientId: webClientId);
       if (!_googleSignIn.supportsAuthenticate()) {
         throw const AuthFailure.unknown(
           'Google sign-in is not supported on this platform.',
@@ -118,7 +142,9 @@ class AuthRepository implements AuthTokenProvider {
       final account = await _googleSignIn.authenticate();
       final idToken = account.authentication.idToken;
       if (idToken == null) {
-        throw const AuthFailure.unknown('Google sign-in did not return a token.');
+        throw const AuthFailure.unknown(
+          'Google sign-in did not return a token.',
+        );
       }
       final credential = fb.GoogleAuthProvider.credential(idToken: idToken);
       await _firebaseAuth.signInWithCredential(credential);
@@ -205,6 +231,21 @@ class AuthRepository implements AuthTokenProvider {
         return const AuthFailure.requiresRecentLogin();
       case 'network-request-failed':
         return const AuthFailure.network();
+      // Web popup sign-in (signInWithPopup).
+      case 'popup-closed-by-user':
+      case 'cancelled-popup-request':
+      case 'user-cancelled':
+        return const AuthFailure.cancelled();
+      case 'popup-blocked':
+        return const AuthFailure.unknown(
+          'Your browser blocked the Google sign-in window. Allow pop-ups for '
+          'this site and try again.',
+        );
+      case 'account-exists-with-different-credential':
+        return const AuthFailure.unknown(
+          'An account with this email already exists. Sign in with your '
+          'email and password instead.',
+        );
       default:
         return AuthFailure.unknown(e.message ?? e.code);
     }

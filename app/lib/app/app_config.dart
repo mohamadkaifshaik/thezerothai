@@ -58,7 +58,9 @@ class AppConfig {
   /// compiles and runs against emulators).
   final String recaptchaSiteKey;
 
-  /// OAuth client id for Google Sign-In on Flutter Web. Ignored on mobile.
+  /// Web OAuth client id of this build's Firebase project. Mobile Google
+  /// sign-in uses it as `serverClientId`, so ID tokens target the right project.
+  /// Web sign-in uses Firebase Auth's popup and doesn't need it.
   final String googleWebClientId;
 
   /// "Sign in with Apple" Service ID (reverse-DNS, e.g. `com.dzeroth.app.service`).
