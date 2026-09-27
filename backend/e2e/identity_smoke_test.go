@@ -132,20 +132,20 @@ func assertCode(t *testing.T, err error, want connect.Code) {
 	}
 }
 
-// TestE2E_Healthz: /healthz is a plain http.HandlerFunc outside the Connect interceptor chain (no auth,
+// TestE2E_Healthz: /health (and its /healthz alias) is a plain http.HandlerFunc outside the Connect interceptor chain (no auth,
 // no Firestore) — must always answer 200, in every degraded mode, so Cloud Run's liveness probe never
-// depends on downstream health (CLAUDE.md: "The API exposes /healthz").
+// depends on downstream health (CLAUDE.md rule 8).
 func TestE2E_Healthz(t *testing.T) {
 	skipIfNoEmulators(t)
 	_, baseURL := newTestServer(t, config.DegradedOff)
 
-	resp, err := http.Get(baseURL + "/healthz")
+	resp, err := http.Get(baseURL + "/health")
 	if err != nil {
-		t.Fatalf("GET /healthz: %v", err)
+		t.Fatalf("GET /health: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want 200", resp.StatusCode)
+		t.Fatalf("GET /health status = %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -192,19 +192,19 @@ func TestE2E_SignUpThenGetMe(t *testing.T) {
 
 // TestE2E_DegradedReadonly_RejectsWritesButAllowsReads exercises the DEGRADED_MODE=readonly switch
 // (CLAUDE.md "degraded-mode switch", pkg/platform/degraded) through the full stack: a mutating RPC must
-// be rejected even though it would otherwise succeed, while a read-only RPC and /healthz keep working.
+// be rejected even though it would otherwise succeed, while a read-only RPC and /health keep working.
 func TestE2E_DegradedReadonly_RejectsWritesButAllowsReads(t *testing.T) {
 	skipIfNoEmulators(t)
 	client, baseURL := newTestServer(t, config.DegradedReadonly)
 	idToken, _ := newAnonymousIDToken(t)
 
-	resp, err := http.Get(baseURL + "/healthz")
+	resp, err := http.Get(baseURL + "/health")
 	if err != nil {
-		t.Fatalf("GET /healthz: %v", err)
+		t.Fatalf("GET /health: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want 200 even in readonly mode", resp.StatusCode)
+		t.Fatalf("GET /health status = %d, want 200 even in readonly mode", resp.StatusCode)
 	}
 
 	// CheckHandleAvailability is NO_SIDE_EFFECTS and profile-exempt: must still work in readonly mode.
@@ -236,13 +236,13 @@ func TestE2E_APIPrefix_HealthzAndRPC(t *testing.T) {
 	skipIfNoEmulators(t)
 	_, baseURL := newTestServer(t, config.DegradedOff)
 
-	resp, err := http.Get(baseURL + "/api/healthz")
+	resp, err := http.Get(baseURL + "/api/health")
 	if err != nil {
-		t.Fatalf("GET /api/healthz: %v", err)
+		t.Fatalf("GET /api/health: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/healthz status = %d, want 200", resp.StatusCode)
+		t.Fatalf("GET /api/health status = %d, want 200", resp.StatusCode)
 	}
 
 	apiClient := identityv1connect.NewIdentityServiceClient(http.DefaultClient, baseURL+"/api")
@@ -261,14 +261,14 @@ func TestE2E_CORS_AllowsLocalDevOrigin(t *testing.T) {
 	skipIfNoEmulators(t)
 	_, baseURL := newTestServer(t, config.DegradedOff)
 
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/healthz", nil)
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/health", nil)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
 	req.Header.Set("Origin", "http://localhost:54321")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /healthz with Origin header: %v", err)
+		t.Fatalf("GET /health with Origin header: %v", err)
 	}
 	defer resp.Body.Close()
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:54321" {

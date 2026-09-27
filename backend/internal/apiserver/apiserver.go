@@ -1,5 +1,5 @@
 // Package apiserver is the dzeroth monolith's composition root (ADR-0002): it wires every registered
-// module's Connect handler, /healthz and /internal/* onto one *http.ServeMux with the full interceptor
+// module's Connect handler, /health (+ /healthz alias) and /internal/* onto one *http.ServeMux with the full interceptor
 // chain (ADR-0006 §2). cmd/api/main.go calls Build at startup; backend/e2e also calls it directly to boot
 // the exact same handler inside an httptest.Server against the Firebase Emulator Suite.
 //
@@ -33,7 +33,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// Build wires every module's Connect handler plus /healthz and /internal/* into one handler (ADR-0002: one
+// Build wires every module's Connect handler plus /health and /internal/* into one handler (ADR-0002: one
 // process, one mux, one cold start). The caller owns closing the returned *firestore.Client (e.g. defer).
 //
 // The return type is http.Handler, not *http.ServeMux: Firebase Hosting forwards `/api/**` to Cloud Run
@@ -114,6 +114,9 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	)
 
 	mux := http.NewServeMux()
+	// /health is the canonical path: Cloud Run's Google front end reserves URL paths ending in "z" on
+	// *.run.app, so external requests to /healthz never reach the container. /healthz stays as an alias.
+	mux.HandleFunc("/health", health.Handler())
 	mux.HandleFunc("/healthz", health.Handler())
 
 	path, handler := identityv1connect.NewIdentityServiceHandler(identityServer, interceptors)
