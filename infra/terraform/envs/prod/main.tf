@@ -203,5 +203,12 @@ module "firebase" {
   ios_bundle_id        = var.ios_bundle_id
   hosting_site_id      = var.hosting_site_id
 
+  # dzeroth.com serves the prod web app; www redirects to it (301). DNS is at Squarespace
+  # (manual); see the custom_domain_dns_records output and docs/runbooks/cloud-bootstrap.md section 7.
+  custom_domains = {
+    "dzeroth.com"     = {}
+    "www.dzeroth.com" = { redirect_to = "dzeroth.com" }
+  }
+
   depends_on = [module.project_services]
 }

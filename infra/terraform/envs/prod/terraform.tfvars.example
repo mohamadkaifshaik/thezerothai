@@ -19,7 +19,9 @@ media_bucket_region = "us-central1"
 # wildcard ports/domains — list every real origin explicitly, including the
 # custom domain once attached to Firebase Hosting.
 cors_origins = [
+  "https://dzeroth.com",
   "https://dzeroth-prod.web.app",
+  "https://dzeroth-prod.firebaseapp.com",
 ]
 
 android_package_name = "com.dzeroth.dzeroth"

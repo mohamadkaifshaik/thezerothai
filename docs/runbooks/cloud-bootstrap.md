@@ -183,13 +183,53 @@ created by accident by a failed required-reviewers call (Free plan). Before dele
 protection rules, variables, secrets or deployments. They have been deleted, and only `dev` and `prod` remain. Recreate
 one with `gh api -X PUT repos/mohamadkaifshaik/thezerothai/environments/<name>` if a future plan needs it.
 
-## 7. Custom domain
-Firebase console → Hosting → Add custom domain, then add the TXT/A records at your DNS provider. After that, add
-`https://<domain>` to `cors_origins` in the prod tfvars and re-apply.
+## 7. Custom domain (dzeroth.com)
+Layout: `dzeroth.com` serves prod web (Hosting site `dzeroth-prod`), `www.dzeroth.com` 301-redirects to it, and
+`dev.dzeroth.com` serves dev web (`dzeroth-dev`). The Hosting domains are Terraform-managed (`custom_domains` in
+`envs/*/main.tf`, applied 2026-09-27). DNS is at **Squarespace**, which has no API, so the records are added by hand.
+
+### 7a. Hosting records (Squarespace → Domains → dzeroth.com → DNS → Custom records)
+| Host | Type | Value | For |
+|---|---|---|---|
+| `@` | A | `199.36.158.100` | dzeroth.com → Firebase Hosting |
+| `@` | TXT | `hosting-site=dzeroth-prod` | ownership proof |
+| `www` | CNAME | `dzeroth-prod.web.app` | www redirect |
+| `dev` | CNAME | `dzeroth-dev.web.app` | dev web |
+
+Keep the existing `@ TXT v=spf1 -all` until 7c replaces it. Source of truth for these values:
+`terraform -chdir=infra/terraform/envs/prod output custom_domain_dns_records` (and `envs/dev`). Check progress with
+the `custom_domain_status` output: the target is `HOST_ACTIVE` / `OWNERSHIP_ACTIVE` / `CERT_ACTIVE`, and the managed
+TLS certificate can take up to 24 h after DNS resolves. `dzeroth.com` shows Firebase's "Site not found" page until
+the first prod release deploys web (`promote-prod.yml`, stage 100).
+
+### 7b. Already done (2026-09-27)
+- Upload-bucket CORS includes `https://dzeroth.com` (prod) and `https://dev.dzeroth.com` (dev): tfvars, the
+  `.example` files, and the `*_CORS_ORIGINS_JSON` repo variables.
+- Firebase Auth authorized domains include `dzeroth.com` and `www.dzeroth.com` (prod) and `dev.dzeroth.com` (dev),
+  which Google sign-in and email links need. They were set through the Identity Toolkit admin API, since Terraform
+  support would require upgrading to Identity Platform:
+  ```bash
+  TOKEN=$(gcloud auth print-access-token)
+  curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: <project>" -H "Content-Type: application/json"     -d '{"authorizedDomains":["localhost","<project>.firebaseapp.com","<project>.web.app","<custom domains>"]}'     "https://identitytoolkit.googleapis.com/admin/v2/projects/<project>/config?updateMask=authorizedDomains"
+  ```
+  PATCH replaces the whole list, so GET `.../config` first and include every existing domain.
+
+### 7c. Auth emails from your own domain (fixes verification mail landing in spam)
+Do this for **prod** (`dzeroth.com`, so mail comes from `noreply@dzeroth.com`). Dev keeps Firebase's default sender:
+`dev.dzeroth.com` is a CNAME, and a CNAME name can't also hold the SPF TXT record this needs. Testers can mark the
+dev email "Not spam" once.
+1. Firebase console (dzeroth-prod) → Authentication → Templates → Email address verification → edit → **Customize
+   domain** → `dzeroth.com`. Firebase shows the records to add: a verification TXT, two DKIM CNAMEs
+   (`firebase1._domainkey`, `firebase2._domainkey`) and an SPF include.
+2. Add them at Squarespace. **SPF:** a name may have only one `v=spf1` record, so *replace* `@ TXT v=spf1 -all`
+   with the SPF value Firebase gives (e.g. `v=spf1 include:_spf.firebasemail.com ~all`). Don't add a second one.
+3. Add DMARC for deliverability: `_dmarc` TXT `v=DMARC1; p=none`. Tighten it to `p=quarantine` once mail is flowing.
+4. Back in Templates: set the sender name (e.g. "dZeroth"), and after the first prod release set **Customize
+   action URL** to `https://dzeroth.com/__/auth/action`, so verification links show your domain.
 
 ## 8. Verify
 ```bash
-curl -fsS "$(terraform -chdir=infra/terraform/envs/dev output -raw cloud_run_url)/healthz"
+curl -fsS "$(terraform -chdir=infra/terraform/envs/dev output -raw cloud_run_url)/health"
 ```
 This needs one image deployed first, via `deploy-dev.yml` on a push to `main`.
 Then check the budget: Console → Billing → Budgets should list a $5 budget with 25/50/90/100% alerts.
