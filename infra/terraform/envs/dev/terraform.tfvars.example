@@ -19,6 +19,8 @@ media_bucket_region = "us-central1"
 # Hosting default domain + custom domain, if any). GCS CORS does not support
 # wildcard ports/domains.
 cors_origins = [
+  "https://dzeroth-dev.web.app",
+  "https://dzeroth-dev.firebaseapp.com",
   "http://localhost:5000",
   "http://localhost:8080",
 ]
