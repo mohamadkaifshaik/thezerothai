@@ -116,8 +116,12 @@ jobs:
         run: |
           flutter build web --release \
             --dart-define=USE_EMULATORS=false \
+            --dart-define=FIREBASE_ENV=dev \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
           npm install -g firebase-tools@15
+          # Deploy from the repo root: app/firebase.json (flutterfire metadata only) would otherwise shadow the
+          # root firebase.json that defines hosting (public: app/build/web) and the /api/** rewrite.
+          cd "$GITHUB_WORKSPACE"
           firebase deploy --only hosting --project "${FIREBASE_PROJECT_ID}" --non-interactive
