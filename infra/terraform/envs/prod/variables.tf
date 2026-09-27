@@ -86,14 +86,20 @@ variable "budget_currency_code" {
 variable "browser_key_uid" {
   description = "UID of the Firebase-auto-created browser API key (security audit M3)."
   type        = string
+  # Not a secret: the UID only identifies the key (the key string itself ships in the app).
+  default = "eacd65c0-c4fd-4c48-9e58-7d8c791ed585"
 }
 
 variable "android_key_uid" {
   description = "UID of the Firebase-auto-created Android API key (security audit M3)."
   type        = string
+  # Not a secret: the UID only identifies the key (the key string itself ships in the app).
+  default = "2c5b4004-ae22-4176-aeb4-def6aa8eff72"
 }
 
 variable "ios_key_uid" {
   description = "UID of the Firebase-auto-created iOS API key (security audit M3)."
   type        = string
+  # Not a secret: the UID only identifies the key (the key string itself ships in the app).
+  default = "0bbd8085-c7ab-4077-bebf-938efd9384ba"
 }
