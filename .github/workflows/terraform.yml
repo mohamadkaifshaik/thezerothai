@@ -98,17 +98,19 @@ jobs:
       - name: terraform plan
         if: steps.gate.outputs.run == 'true'
         id: plan
+        # TF_VAR_* env vars instead of -var="..." flags: the JSON list values contain double quotes that
+        # broke shell quoting, and env indirection keeps repo variables out of the script text.
+        env:
+          TF_VAR_project_id: ${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}
+          TF_VAR_billing_account: ${{ vars.BILLING_ACCOUNT }}
+          TF_VAR_github_repo: ${{ github.repository }}
+          TF_VAR_founder_emails: ${{ matrix.env == 'dev' && vars.DEV_FOUNDER_EMAILS_JSON || vars.PROD_FOUNDER_EMAILS_JSON }}
+          TF_VAR_hosting_site_id: ${{ matrix.env == 'dev' && vars.DEV_HOSTING_SITE_ID || vars.PROD_HOSTING_SITE_ID }}
+          TF_VAR_cors_origins: ${{ matrix.env == 'dev' && vars.DEV_CORS_ORIGINS_JSON || vars.PROD_CORS_ORIGINS_JSON }}
         run: |
           set -o pipefail
           # -lock=false: the plan SA is read-only on the state bucket and must not take the apply lock.
-          terraform plan -input=false -no-color -lock=false -out=tfplan \
-            -var="project_id=${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}" \
-            -var="billing_account=${{ vars.BILLING_ACCOUNT }}" \
-            -var="github_repo=${{ github.repository }}" \
-            -var="founder_emails=${{ matrix.env == 'dev' && vars.DEV_FOUNDER_EMAILS_JSON || vars.PROD_FOUNDER_EMAILS_JSON }}" \
-            -var="hosting_site_id=${{ matrix.env == 'dev' && vars.DEV_HOSTING_SITE_ID || vars.PROD_HOSTING_SITE_ID }}" \
-            -var="cors_origins=${{ matrix.env == 'dev' && vars.DEV_CORS_ORIGINS_JSON || vars.PROD_CORS_ORIGINS_JSON }}" \
-            | tee plan_output.txt
+          terraform plan -input=false -no-color -lock=false -out=tfplan | tee plan_output.txt
 
       - name: Truncate plan for PR comment
         if: steps.gate.outputs.run == 'true' && (github.event_name == 'pull_request')

@@ -128,7 +128,7 @@ jobs:
       # artifact and deploys it.
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.35.x"
+          flutter-version: "3.47.5"
           channel: stable
 
       - name: flutter build web
@@ -245,7 +245,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.35.x"
+          flutter-version: "3.47.5"
           channel: stable
 
       - name: flutter build appbundle
@@ -280,7 +280,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.35.x"
+          flutter-version: "3.47.5"
           channel: stable
 
       - name: flutter build ios (no codesign — TestFlight signing is a separate, documented step)
