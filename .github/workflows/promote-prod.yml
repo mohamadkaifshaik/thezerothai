@@ -123,9 +123,10 @@ jobs:
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
           REGION: ${{ vars.PROD_REGION }}
         run: |
+          # jq, not a gcloud --format projection: gcloud has no first() transform (verified; it errors).
           revision=$(gcloud run services describe "${SERVICE}" \
             --project="${PROJECT}" --region="${REGION}" \
-            --format='value(status.traffic.filter(tag:rc).first().revisionName)')
+            --format=json | jq -r '[.status.traffic[]? | select(.tag == "rc") | .revisionName] | first // empty')
           if [ -z "${revision}" ]; then
             echo "::error::No revision is currently tagged 'rc' on ${SERVICE}. Run release-prod.yml for ${RELEASE_TAG} first."
             exit 1
@@ -139,24 +140,19 @@ jobs:
             exit 1
           fi
 
-          # release-prod.yml pushes the image with `ko build -t "${RELEASE_TAG}"`,
-          # so the release tag is a real Artifact Registry tag on that image —
-          # but Cloud Run always pins a revision's spec to the resolved
-          # digest (repo/api@sha256:...), never a mutable tag, so `image`
-          # above is a digest reference. Ask Artifact Registry which tags
-          # point at that exact digest and require RELEASE_TAG to be one of
-          # them. This is what actually proves "the revision behind rc was
-          # built from this git tag" — robust against a stale rc left over
-          # from a previous release-prod run for a *different* tag (the rc
-          # traffic tag only ever points at one revision at a time, so a
-          # second release-prod run for a newer tag silently moves it).
-          #
-          # Matched as a raw quoted JSON string (`"<tag>"`) rather than via a
-          # specific field name, so this doesn't depend on exactly which key
-          # `docker tags list` happens to report the tag under.
-          tags_json=$(gcloud artifacts docker tags list "${image}" --format=json)
-          if ! grep -qF "\"${RELEASE_TAG}\"" <<<"${tags_json}"; then
-            echo "::error::rc revision '${revision}' (image ${image}) is not tagged '${RELEASE_TAG}' in Artifact Registry — rc points at a different release. Re-run release-prod.yml for ${RELEASE_TAG}, then retry this promotion."
+          # release-prod.yml pushes the image with `ko build -t "${RELEASE_TAG}"`, so
+          # <repo>/api:<RELEASE_TAG> is a real Artifact Registry tag. Cloud Run pins a
+          # revision to a digest (repo/api@sha256:...). Proving "the revision behind rc
+          # was built from this git tag" = the digest the release tag points to equals
+          # the revision's digest. This catches a stale rc left over from a different
+          # release (the rc traffic tag moves on every release-prod run).
+          # (`gcloud artifacts docker tags list <image@digest>` returns NOT_FOUND and
+          # reports tags as full resource paths, so it can't be used for this; verified.)
+          repo_image="${image%@*}"
+          rev_digest=$(gcloud artifacts docker images describe "${image}" --format='value(image_summary.digest)')
+          tag_digest=$(gcloud artifacts docker images describe "${repo_image}:${RELEASE_TAG}" --format='value(image_summary.digest)' || true)
+          if [ -z "${rev_digest}" ] || [ "${rev_digest}" != "${tag_digest}" ]; then
+            echo "::error::rc revision '${revision}' (${rev_digest:-unknown digest}) is not the image tagged '${RELEASE_TAG}' (${tag_digest:-tag not found}); rc points at a different release. Re-run release-prod.yml for ${RELEASE_TAG}, then retry this promotion."
             exit 1
           fi
 

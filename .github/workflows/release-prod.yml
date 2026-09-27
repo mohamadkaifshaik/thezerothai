@@ -135,10 +135,15 @@ jobs:
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
           REGION: ${{ vars.PROD_REGION }}
         run: |
+          # jq, not a gcloud --format projection: gcloud has no first() transform (verified; it errors).
           url=$(gcloud run services describe "${SERVICE}" \
             --project="${PROJECT}" \
             --region="${REGION}" \
-            --format='value(status.traffic.filter(tag:rc).first().url)')
+            --format=json | jq -r '[.status.traffic[]? | select(.tag == "rc") | .url] | first // empty')
+          if [ -z "${url}" ]; then
+            echo "::error::No traffic tag 'rc' found on ${SERVICE} after the --no-traffic --tag=rc deploy."
+            exit 1
+          fi
           echo "url=${url}" >> "$GITHUB_OUTPUT"
           echo "rc revision: ${url}"
 
