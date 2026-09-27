@@ -99,6 +99,12 @@ jobs:
           digest=$(ko build "${API_MAIN_PKG}" --bare -t "${RELEASE_TAG}")
           echo "image=${digest}" >> "$GITHUB_OUTPUT"
 
+      # Deliberately no `working-directory:` here — firebase-tools reads
+      # firebase.json from the step's cwd with no upward directory search, so
+      # this must run from $GITHUB_WORKSPACE (repo root), which is where the
+      # real firebase.json (firestore/storage/hosting config) lives.
+      # app/firebase.json is a separate, flutterfire-generated file that only
+      # has a "flutter" key — running from app/ would silently no-op or fail.
       - name: Deploy Firestore rules + indexes (must be READY before code needs them)
         if: hashFiles('firebase.json') != ''
         env:
