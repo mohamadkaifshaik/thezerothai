@@ -97,6 +97,9 @@ resource "google_cloud_run_v2_service" "api" {
       # image digest or the live traffic split (tagged-revision rollouts).
       template[0].containers[0].image,
       traffic,
+      # Service-level `scaling` is unset here; the API echoes back zero defaults, causing a permanent
+      # no-op diff. The real caps are template.scaling (min 0 / max 3), which stays managed.
+      scaling,
     ]
   }
 }

@@ -26,10 +26,11 @@ module "project_services" {
 }
 
 module "iam" {
-  source      = "../../modules/iam"
-  project_id  = var.project_id
-  env         = local.env
-  github_repo = var.github_repo
+  source          = "../../modules/iam"
+  project_id      = var.project_id
+  billing_account = var.billing_account
+  env             = local.env
+  github_repo     = var.github_repo
 
   # prod deploys ONLY from version tags — see release-rollout skill
   # (tag v* -> --no-traffic --tag rc -> smoke -> manual GO -> traffic shift).
@@ -122,12 +123,22 @@ module "cloud_run_api" {
   depends_on = [module.project_services, module.secrets]
 }
 
+// Google creates the Pub/Sub service agent lazily; force it into existence before granting it roles
+// (DLQ publisher), otherwise the first apply fails with "service account does not exist".
+resource "google_project_service_identity" "pubsub" {
+  provider = google-beta
+  project  = var.project_id
+  service  = "pubsub.googleapis.com"
+
+  depends_on = [module.project_services]
+}
+
 module "pubsub" {
   source                            = "../../modules/pubsub"
   project_id                        = var.project_id
   push_base_url                     = local.api_url
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
-  pubsub_service_agent_email        = "service-${data.google_project.this.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  pubsub_service_agent_email        = google_project_service_identity.pubsub.email
   labels                            = merge(local.labels, { module = "pubsub" })
 
   depends_on = [module.project_services, module.cloud_run_api]
@@ -165,9 +176,11 @@ module "monitoring" {
 module "budget" {
   source                   = "../../modules/budget"
   project_id               = var.project_id
+  project_number           = data.google_project.this.number
   env                      = local.env
   billing_account          = var.billing_account
-  amount_usd               = var.budget_amount_usd
+  amount                   = var.budget_amount
+  currency_code            = var.budget_currency_code
   notification_channel_ids = module.monitoring.notification_channel_ids
   labels                   = merge(local.labels, { module = "budget" })
 

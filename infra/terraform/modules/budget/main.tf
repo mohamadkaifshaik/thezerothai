@@ -1,4 +1,4 @@
-// Billing budget: $5/month, alerts at 25/50/90/100% actual spend + 100%
+// Billing budget: ~$5/month (in the billing account's currency), alerts at 25/50/90/100% actual spend + 100%
 // forecast, emailed to founders AND published to a Pub/Sub topic so a future
 // automation (e.g. a tiny Cloud Function flipping DEGRADED_MODE) can react.
 //
@@ -15,16 +15,17 @@ resource "google_pubsub_topic" "billing_alerts" {
 
 resource "google_billing_budget" "this" {
   billing_account = var.billing_account
-  display_name    = "Stage 0 budget (${var.env}) — $${var.amount_usd}/month"
+  display_name    = "Stage 0 budget (${var.env}) ${var.amount} ${var.currency_code}/mo"
 
   budget_filter {
-    projects = ["projects/${var.project_id}"]
+    # The API normalizes to the project *number*; using the ID causes a permanent diff.
+    projects = ["projects/${var.project_number}"]
   }
 
   amount {
     specified_amount {
-      currency_code = "USD"
-      units         = tostring(var.amount_usd)
+      currency_code = var.currency_code
+      units         = tostring(var.amount)
     }
   }
 

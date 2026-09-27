@@ -155,10 +155,12 @@ resource "google_project_iam_member" "tf_plan_security_reviewer" {
   member  = "serviceAccount:${google_service_account.tf_plan.email}"
 }
 
-resource "google_project_iam_member" "tf_plan_billing_viewer" {
-  project = var.project_id
-  role    = "roles/billing.viewer"
-  member  = "serviceAccount:${google_service_account.tf_plan.email}"
+// roles/billing.viewer only exists at billing-account level (not on projects). Lets the plan SA refresh
+// the budget resource; read-only.
+resource "google_billing_account_iam_member" "tf_plan_billing_viewer" {
+  billing_account_id = var.billing_account
+  role               = "roles/billing.viewer"
+  member             = "serviceAccount:${google_service_account.tf_plan.email}"
 }
 
 // Read access to remote state. The state bucket itself is created manually

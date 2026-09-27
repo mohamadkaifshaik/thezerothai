@@ -73,7 +73,14 @@ variable "image" {
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
 }
 
-variable "budget_amount_usd" {
-  type    = number
-  default = 5
+variable "budget_amount" {
+  description = "Monthly budget in budget_currency_code units (~$5 at Stage 0)."
+  type        = number
+  default     = 5
+}
+
+variable "budget_currency_code" {
+  description = "Must equal the billing account currency (gcloud billing accounts describe ... --format='value(currencyCode)')."
+  type        = string
+  default     = "USD"
 }

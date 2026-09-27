@@ -2,6 +2,11 @@ variable "project_id" {
   type = string
 }
 
+variable "project_number" {
+  description = "Numeric project number (the budget API normalizes filters to it)."
+  type        = string
+}
+
 variable "env" {
   type = string
 }
@@ -11,9 +16,16 @@ variable "billing_account" {
   type        = string
 }
 
-variable "amount_usd" {
-  type    = number
-  default = 5
+variable "amount" {
+  description = "Monthly budget in currency_code units (whole units)."
+  type        = number
+  default     = 5
+}
+
+variable "currency_code" {
+  description = "Must equal the billing account's currency (e.g. INR for Indian accounts) or the API returns 400."
+  type        = string
+  default     = "USD"
 }
 
 variable "actual_thresholds" {

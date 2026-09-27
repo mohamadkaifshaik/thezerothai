@@ -44,3 +44,8 @@ variable "deploy_extra_conditions" {
   type        = list(string)
   default     = []
 }
+
+variable "billing_account" {
+  description = "Billing account ID (XXXXXX-XXXXXX-XXXXXX); the plan SA gets billing.viewer on it."
+  type        = string
+}
