@@ -1,0 +1,11 @@
+# buf module for all dzeroth public APIs. Owner: architect (see ADR-0002).
+# Run from this directory: `buf lint` and `buf breaking --against '../.git#branch=main,subdir=proto'`.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

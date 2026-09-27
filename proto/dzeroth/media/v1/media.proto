@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+// Media: images only at Stage 0 (ADR-0005). Owner module: backend/internal/media.
+// Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch counter).
+// Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
+// objects are copied to the public-read media bucket (both us-central1).
+package dzeroth.media.v1;
+
+import "dzeroth/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1;mediav1";
+
+service MediaService {
+  // Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
+  // path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+  // Quota: 20 media/day/user (quotas/{uid}). Rejected with DEGRADED_MODE when DEGRADED_MODE != off.
+  // Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
+  // GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
+  // Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
+  rpc CreateUpload(CreateUploadRequest) returns (CreateUploadResponse);
+
+  // Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
+  // (magic bytes) -> SafeSearch on the full image if the monthly Vision counter < 950 -> copy full+thumb to the
+  // public bucket -> READY; or REJECTED (objects deleted). Counter exhausted => READY_UNSCREENED (policy knob,
+  // ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
+  // GCS per image: 2 Class A (copies) + 3 Class B (attrs, ranged read, Vision fetch); deletes are free.
+  // Firestore: reads 5/2 (media docs + Vision counter, cached 60 s), writes 5/2.
+  rpc FinalizeUpload(FinalizeUploadRequest) returns (FinalizeUploadResponse);
+}
+
+enum MediaPurpose {
+  MEDIA_PURPOSE_UNSPECIFIED = 0;
+  // Attach to a post (max 4).
+  MEDIA_PURPOSE_POST = 1;
+  // Profile avatar (exactly 1; full 400 px, thumb 96 px).
+  MEDIA_PURPOSE_AVATAR = 2;
+}
+
+enum MediaStatus {
+  MEDIA_STATUS_UNSPECIFIED = 0;
+  // Reserved, waiting for upload + FinalizeUpload.
+  MEDIA_STATUS_PENDING = 1;
+  // Passed SafeSearch; public.
+  MEDIA_STATUS_READY = 2;
+  // Monthly SafeSearch quota exhausted; published and queued for report-driven review.
+  MEDIA_STATUS_READY_UNSCREENED = 3;
+  // Failed validation or moderation; objects deleted.
+  MEDIA_STATUS_REJECTED = 4;
+}
+
+message UploadItem {
+  // image/webp or image/jpeg (client re-encodes everything else on device).
+  string content_type = 1;
+  int64 full_size_bytes = 2;
+  int64 thumb_size_bytes = 3;
+  int32 width = 4;
+  int32 height = 5;
+  // Base64 MD5 of each file; bound into the signed URL so GCS rejects altered bytes.
+  string full_md5 = 6;
+  string thumb_md5 = 7;
+}
+
+message SignedUpload {
+  string url = 1;
+  // Always "PUT".
+  string method = 2;
+  // Headers the client MUST send exactly (Content-Type, Content-MD5, x-goog-content-length-range).
+  map<string, string> headers = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message UploadTarget {
+  string media_id = 1;
+  SignedUpload full = 2;
+  SignedUpload thumb = 3;
+}
+
+message CreateUploadRequest {
+  string idempotency_key = 1;
+  MediaPurpose purpose = 2;
+  // 1-4 items (exactly 1 for AVATAR).
+  repeated UploadItem items = 3;
+}
+
+message CreateUploadResponse {
+  repeated UploadTarget targets = 1;
+}
+
+message FinalizeItem {
+  string media_id = 1;
+  // BlurHash computed on device; <= 64 chars, base83 charset.
+  string blurhash = 2;
+}
+
+message FinalizeUploadRequest {
+  string idempotency_key = 1;
+  // 1-4 items from the same CreateUpload.
+  repeated FinalizeItem items = 2;
+}
+
+message MediaResult {
+  string media_id = 1;
+  MediaStatus status = 2;
+  // Set when READY or READY_UNSCREENED.
+  dzeroth.common.v1.MediaRef media = 3;
+  // Set when REJECTED; safe to show.
+  string rejection_reason = 4;
+}
+
+message FinalizeUploadResponse {
+  repeated MediaResult results = 1;
+}

@@ -1,0 +1,76 @@
+variable "project_id" {
+  description = "GCP project ID for prod, e.g. \"dzeroth-prod\"."
+  type        = string
+}
+
+variable "billing_account" {
+  description = "Billing account ID, format XXXXXX-XXXXXX-XXXXXX. Same billing account as dev."
+  type        = string
+}
+
+variable "github_repo" {
+  description = "GitHub repo allowed to federate via WIF, as \"owner/name\"."
+  type        = string
+}
+
+variable "founder_emails" {
+  description = "Emails to receive budget/uptime/error alerts."
+  type        = list(string)
+}
+
+variable "region" {
+  description = "Cloud Run / Firestore / Artifact Registry region."
+  type        = string
+  default     = "asia-south1"
+}
+
+variable "firestore_location" {
+  description = <<-EOT
+    ****************************************************************
+    * PERMANENT. Firestore location cannot be changed after the     *
+    * database is created — the only way to move it is export all   *
+    * data, delete the project's Firestore, and reimport elsewhere. *
+    * CONFIRM this value with a human before the first apply.        *
+    ****************************************************************
+    Defaults to "asia-south1" per CLAUDE.md — founder-confirmed 2026-09-27 (ADR-0007).
+  EOT
+  type        = string
+  default     = "asia-south1"
+}
+
+variable "media_bucket_region" {
+  description = "Must be a US region — GCS Always Free storage is US-only. Media bucket is deliberately NOT colocated with Cloud Run/Firestore."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "cors_origins" {
+  description = "Origins allowed to PUT to the upload bucket (production web app domain(s) only — no localhost in prod)."
+  type        = list(string)
+}
+
+variable "android_package_name" {
+  type    = string
+  default = "ai.thezeroth.app"
+}
+
+variable "ios_bundle_id" {
+  type    = string
+  default = "ai.thezeroth.app"
+}
+
+variable "hosting_site_id" {
+  description = "Firebase Hosting site ID — must be globally unique across ALL Firebase projects."
+  type        = string
+}
+
+variable "image" {
+  description = "Placeholder image for the very first apply, before CI has built anything. CI-managed afterwards."
+  type        = string
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
+}
+
+variable "budget_amount_usd" {
+  type    = number
+  default = 5
+}

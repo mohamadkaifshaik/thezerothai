@@ -1,0 +1,230 @@
+syntax = "proto3";
+
+// Social graph: follows, follow requests (private accounts), blocks, mutes. Owner module: backend/internal/graph.
+// Collections owned: graph/{uid} (the caller's whole social context in ONE doc), follows/{followerId}_{followeeId},
+// followRequests/{followerId}_{followeeId}. See ADR-0003.
+// Counters followers_count/following_count live on users/{uid} (identity) and are incremented in the same
+// Firestore batch through the identity module's interface (unit of work, ADR-0002).
+// Idempotency: follows/followRequests use deterministic doc ids (natural key), so Create() + AlreadyExists = replay.
+package dzeroth.graph.v1;
+
+import "dzeroth/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1;graphv1";
+
+service GraphService {
+  // Follow a user; for private accounts creates a follow request instead. Quota: 200 follows/day.
+  // Cap: 5,000 following (graph doc size). Reads: caller graph (cached), target user (cached), target graph
+  // (blocked-by + privacy), quotas/{uid}. Writes: follows doc, caller graph, caller users counter, target users
+  // counter, quotas. Private target: followRequests doc + caller graph.requested + quotas.
+  // Async: 1 notification write (notifications module).
+  // Firestore: reads 4/2, writes 5/5 (+1 async).
+  rpc Follow(FollowRequest) returns (FollowResponse);
+
+  // Unfollow or cancel a pending request. No-op if not following (per cached graph re-checked in the batch precondition).
+  // Firestore: reads 1/0, writes 3/3, deletes 1/1.
+  rpc Unfollow(UnfollowRequest) returns (UnfollowResponse);
+
+  // Incoming follow requests for the caller (private accounts). Hydrated with a batched GetAll of users.
+  // Firestore: reads 100/5 (page + hydration, users cached 60 s), writes 0.
+  rpc ListFollowRequests(ListFollowRequestsRequest) returns (ListFollowRequestsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Accept or decline an incoming request. Replay: request doc already gone => returns current state.
+  // Accept: delete request, create follows, requester graph (following += , requested -=), 2 users counters.
+  // Firestore: reads 1/1, writes 4/4, deletes 1/1.
+  rpc RespondToFollowRequest(RespondToFollowRequestRequest) returns (RespondToFollowRequestResponse);
+
+  // Block: also removes follows in both directions. Idempotent (ArrayUnion).
+  // Worst (mutual follow): caller graph, target graph, both users docs + 2 follows deletes.
+  // Firestore: reads 2/1, writes 4/1, deletes 2/0.
+  rpc Block(BlockRequest) returns (BlockResponse);
+
+  // Firestore: reads 0/0, writes 1/1.
+  rpc Unblock(UnblockRequest) returns (UnblockResponse);
+
+  // Mute hides the target's posts from the caller's timelines only. Idempotent (ArrayUnion).
+  // Firestore: reads 0/0, writes 1/1.
+  rpc Mute(MuteRequest) returns (MuteResponse);
+
+  // Firestore: reads 0/0, writes 1/1.
+  rpc Unmute(UnmuteRequest) returns (UnmuteResponse);
+
+  // Caller's relationship to up to 50 users, computed from the caller's graph doc only (1 read, cached 60 s).
+  // Does not report whether the target follows the caller (that would cost 1 read per user).
+  // Firestore: reads 1/0, writes 0.
+  rpc GetRelationships(GetRelationshipsRequest) returns (GetRelationshipsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Followers of a user, newest first. Private accounts: only the owner and approved followers.
+  // Reads: target user + target graph (visibility) + follows page + GetAll users for hydration (cached 60 s).
+  // Firestore: reads 102/25, writes 0.
+  rpc ListFollowers(ListFollowersRequest) returns (ListFollowersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Accounts a user follows, newest first. Same cost shape as ListFollowers.
+  // Firestore: reads 102/25, writes 0.
+  rpc ListFollowing(ListFollowingRequest) returns (ListFollowingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Caller's blocked accounts (from graph doc) hydrated with GetAll users.
+  // Firestore: reads 51/10, writes 0.
+  rpc ListBlockedUsers(ListBlockedUsersRequest) returns (ListBlockedUsersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Caller's muted accounts (from graph doc) hydrated with GetAll users.
+  // Firestore: reads 51/10, writes 0.
+  rpc ListMutedUsers(ListMutedUsersRequest) returns (ListMutedUsersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+enum FollowState {
+  FOLLOW_STATE_UNSPECIFIED = 0;
+  FOLLOW_STATE_NONE = 1;
+  FOLLOW_STATE_FOLLOWING = 2;
+  // Pending approval by a private account.
+  FOLLOW_STATE_REQUESTED = 3;
+}
+
+message Relationship {
+  string user_id = 1;
+  FollowState follow_state = 2;
+  bool blocking = 3;
+  bool muting = 4;
+}
+
+// A user row in a list, with when the edge was created (unset for blocked/muted: stored as plain uid arrays).
+message UserListItem {
+  dzeroth.common.v1.AuthorSnapshot user = 1;
+  google.protobuf.Timestamp since = 2;
+}
+
+message FollowRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+}
+
+message FollowResponse {
+  Relationship relationship = 1;
+}
+
+message UnfollowRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+}
+
+message UnfollowResponse {
+  Relationship relationship = 1;
+}
+
+message ListFollowRequestsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListFollowRequestsResponse {
+  repeated UserListItem requests = 1;
+  string next_page_token = 2;
+}
+
+message RespondToFollowRequestRequest {
+  string idempotency_key = 1;
+  string requester_user_id = 2;
+  bool accept = 3;
+}
+
+message RespondToFollowRequestResponse {}
+
+message BlockRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+}
+
+message BlockResponse {
+  Relationship relationship = 1;
+}
+
+message UnblockRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+}
+
+message UnblockResponse {
+  Relationship relationship = 1;
+}
+
+message MuteRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+}
+
+message MuteResponse {
+  Relationship relationship = 1;
+}
+
+message UnmuteRequest {
+  string idempotency_key = 1;
+  string user_id = 2;
+}
+
+message UnmuteResponse {
+  Relationship relationship = 1;
+}
+
+message GetRelationshipsRequest {
+  // 1-50 user ids.
+  repeated string user_ids = 1;
+}
+
+message GetRelationshipsResponse {
+  repeated Relationship relationships = 1;
+}
+
+message ListFollowersRequest {
+  string user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListFollowersResponse {
+  repeated UserListItem users = 1;
+  string next_page_token = 2;
+}
+
+message ListFollowingRequest {
+  string user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListFollowingResponse {
+  repeated UserListItem users = 1;
+  string next_page_token = 2;
+}
+
+message ListBlockedUsersRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListBlockedUsersResponse {
+  repeated UserListItem users = 1;
+  string next_page_token = 2;
+}
+
+message ListMutedUsersRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListMutedUsersResponse {
+  repeated UserListItem users = 1;
+  string next_page_token = 2;
+}

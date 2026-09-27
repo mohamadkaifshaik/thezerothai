@@ -5,9 +5,13 @@
 credentials*.json
 .claude/settings.local.json
 cover.out
+cover-internal.out
 coverage/
 .terraform/
 *.tfstate*
+terraform.tfvars
+!terraform.tfvars.example
+*.tfplan
 app/build/
 .dart_tool/
 firebase-debug.log
@@ -15,3 +19,9 @@ firestore-debug.log
 pubsub-debug.log
 ui-debug.log
 .firebase/
+
+# Local editor workspace (gopls); CI builds backend/ as a plain module
+go.work
+go.work.sum
+# Git Bash / Cygwin crash dumps
+*.stackdump

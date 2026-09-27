@@ -1,0 +1,88 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "authorId", "order": "ASCENDING" },
+        { "fieldPath": "isReply", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "authorId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "conversationId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hashtags", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "follows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "followeeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "follows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "followerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "followRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "followeeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "posts", "fieldPath": "text", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "author", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "media", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "embedded", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "mentions", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "replyToHandle", "indexes": [] },
+
+    { "collectionGroup": "users", "fieldPath": "bio", "indexes": [] },
+    { "collectionGroup": "users", "fieldPath": "displayName", "indexes": [] },
+    { "collectionGroup": "users", "fieldPath": "avatarUrl", "indexes": [] },
+    { "collectionGroup": "users", "fieldPath": "avatarThumbUrl", "indexes": [] },
+
+    { "collectionGroup": "graph", "fieldPath": "following", "indexes": [] },
+    { "collectionGroup": "graph", "fieldPath": "blocked", "indexes": [] },
+    { "collectionGroup": "graph", "fieldPath": "muted", "indexes": [] },
+    { "collectionGroup": "graph", "fieldPath": "requested", "indexes": [] },
+
+    { "collectionGroup": "userLikes", "fieldPath": "recent", "indexes": [] },
+    { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },
+
+    { "collectionGroup": "media", "fieldPath": "blurhash", "indexes": [] },
+
+    { "collectionGroup": "idempotency", "fieldPath": "result", "indexes": [] },
+
+    { "collectionGroup": "notifications", "fieldPath": "actor", "indexes": [] }
+  ]
+}

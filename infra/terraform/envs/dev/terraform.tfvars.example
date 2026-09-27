@@ -1,0 +1,32 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# Never commit terraform.tfvars — it's in .gitignore, but double-check before
+# `git add`.
+
+project_id      = "dzeroth-dev"
+billing_account = "XXXXXX-XXXXXX-XXXXXX"
+github_repo     = "your-org/thezerothai"
+
+founder_emails = [
+  "founder1@example.com",
+]
+
+region              = "asia-south1"
+# PERMANENT once created — confirm with the human before first apply.
+firestore_location  = "asia-south1"
+media_bucket_region = "us-central1"
+
+# Must exactly match the web app's real origins once deployed (Firebase
+# Hosting default domain + custom domain, if any). GCS CORS does not support
+# wildcard ports/domains.
+cors_origins = [
+  "http://localhost:5000",
+  "http://localhost:8080",
+]
+
+android_package_name = "com.dzeroth.dzeroth"
+ios_bundle_id         = "com.dzeroth.dzeroth"
+
+# Must be globally unique across ALL Firebase projects, not just yours.
+hosting_site_id = "dzeroth-dev"
+
+budget_amount_usd = 5

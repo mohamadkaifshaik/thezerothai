@@ -1,0 +1,20 @@
+# ko build config (go-service skill: "Build with ko -> distroless static, non-root").
+# Run from backend/: `ko build ./cmd/api --local` (dev) or via CI with KO_DOCKER_REPO set to the
+# Artifact Registry repo (ADR-0007). Cloud Run reads PORT; automaxprocs/GOMEMLIMIT are set in main.go
+# and by the container's cgroup limits, not here.
+defaultBaseImage: gcr.io/distroless/static-debian12:nonroot
+
+builds:
+  - id: api
+    dir: .
+    main: ./cmd/api
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+    goarch:
+      - amd64

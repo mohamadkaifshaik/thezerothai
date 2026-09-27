@@ -1,0 +1,110 @@
+name: Deploy dev
+
+# On every push to main: build the api image with ko, push to dev's
+# Artifact Registry, deploy it to Cloud Run dev at 100% traffic, then deploy
+# Firestore rules/indexes and the web app to Firebase Hosting (dev site).
+# See release-rollout skill. This never touches prod.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # required for WIF; nothing else needs elevated perms
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false # never cancel a deploy mid-flight
+
+env:
+  KO_GO_PATH: ./cmd/api
+
+jobs:
+  deploy:
+    name: Build + deploy dev
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.DEV_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.DEV_CI_DEPLOY_SA_EMAIL }}
+          create_credentials_file: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Skip if backend not buildable yet
+        id: gate
+        run: |
+          if [ ! -f backend/go.mod ]; then
+            echo "::warning::backend/go.mod not present yet — nothing to build. Skipping deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.gate.outputs.skip == 'false'
+        with:
+          go-version-file: backend/go.mod
+
+      - uses: ko-build/setup-ko@v0.9
+        if: steps.gate.outputs.skip == 'false'
+
+      - name: Build + push image with ko
+        if: steps.gate.outputs.skip == 'false'
+        id: build
+        working-directory: backend
+        env:
+          KO_DOCKER_REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          digest=$(ko build "${{ env.KO_GO_PATH }}" --bare -t "${IMAGE_TAG}")
+          echo "image=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Firestore rules + indexes
+        if: steps.gate.outputs.skip == 'false' && hashFiles('firebase.json') != ''
+        run: |
+          npm install -g firebase-tools@13
+          firebase deploy --only firestore:rules,firestore:indexes \
+            --project "${{ vars.DEV_PROJECT_ID }}" --non-interactive
+
+      - name: Deploy Cloud Run revision (100% traffic — dev only)
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          gcloud run deploy "${{ vars.DEV_SERVICE_NAME }}" \
+            --project="${{ vars.DEV_PROJECT_ID }}" \
+            --region="${{ vars.DEV_REGION }}" \
+            --image="${{ steps.build.outputs.image }}" \
+            --quiet
+
+      - uses: subosito/flutter-action@v2
+        if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
+        with:
+          flutter-version: "3.35.x"
+          channel: stable
+
+      - name: Build + deploy web (Firebase Hosting, dev)
+        if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
+        working-directory: app
+        env:
+          # Web calls the API via the Firebase Hosting `/api/**` rewrite, not
+          # the raw Cloud Run URL — same-origin, no CORS needed.
+          API_BASE_URL: /api
+          RECAPTCHA_SITE_KEY: ${{ vars.DEV_RECAPTCHA_SITE_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.DEV_GOOGLE_WEB_CLIENT_ID }}
+          FIREBASE_PROJECT_ID: ${{ vars.DEV_PROJECT_ID }}
+        run: |
+          flutter build web --release \
+            --dart-define=USE_EMULATORS=false \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+          npm install -g firebase-tools@13
+          firebase deploy --only hosting --project "${FIREBASE_PROJECT_ID}" --non-interactive

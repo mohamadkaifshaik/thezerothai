@@ -1,0 +1,120 @@
+import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/onboarding/presentation/create_profile_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
+    implements OnboardingBloc {}
+
+class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
+
+void main() {
+  setUpAll(() {
+    registerFallbackValue(const OnboardingHandleChanged(''));
+    registerFallbackValue(const AuthSignOutRequested());
+  });
+
+  late MockOnboardingBloc onboardingBloc;
+  late MockAuthBloc authBloc;
+
+  setUp(() {
+    onboardingBloc = MockOnboardingBloc();
+    authBloc = MockAuthBloc();
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+    when(() => authBloc.add(any())).thenReturn(null);
+  });
+
+  Widget wrap() {
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthBloc>.value(value: authBloc),
+        BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+      ],
+      child: const MaterialApp(home: CreateProfileScreen()),
+    );
+  }
+
+  testWidgets('disables Continue until a handle is available and named', (
+    tester,
+  ) async {
+    whenListen(
+      onboardingBloc,
+      Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(),
+    );
+
+    await tester.pumpWidget(wrap());
+
+    final continueButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Continue'),
+    );
+    expect(continueButton.onPressed, isNull);
+  });
+
+  testWidgets('enables Continue once the handle is available', (tester) async {
+    whenListen(
+      onboardingBloc,
+      Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        handle: 'kaif',
+        displayName: 'Kaif',
+        handleCheckStatus: HandleCheckStatus.available,
+      ),
+    );
+
+    await tester.pumpWidget(wrap());
+
+    final continueButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Continue'),
+    );
+    expect(continueButton.onPressed, isNotNull);
+  });
+
+  testWidgets('typing a handle dispatches OnboardingHandleChanged', (
+    tester,
+  ) async {
+    whenListen(
+      onboardingBloc,
+      Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(),
+    );
+    when(() => onboardingBloc.add(any())).thenReturn(null);
+
+    await tester.pumpWidget(wrap());
+    await tester.enterText(find.widgetWithText(TextField, 'Handle'), 'kaif');
+
+    final captured = verify(() => onboardingBloc.add(captureAny())).captured;
+    expect(
+      captured.whereType<OnboardingHandleChanged>().map((e) => e.handle),
+      contains('kaif'),
+    );
+  });
+
+  testWidgets('tapping sign out dispatches AuthSignOutRequested', (
+    tester,
+  ) async {
+    whenListen(
+      onboardingBloc,
+      Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(),
+    );
+
+    await tester.pumpWidget(wrap());
+    await tester.tap(find.byIcon(Icons.logout));
+    await tester.pump();
+
+    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+  });
+}

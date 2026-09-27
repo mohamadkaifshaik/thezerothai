@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+// Posts: create/delete, single post, threads. Owner module: backend/internal/posts.
+// Collections owned: posts/{postId}. Uses idempotency/{hash} (platform) for CreatePost because post ids are
+// time-ordered Snowflakes and cannot be derived from the idempotency key (ADR-0003).
+// Timelines (home/profile) live in dzeroth.timeline.v1 and return the PostView defined here.
+package dzeroth.posts.v1;
+
+import "dzeroth/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1;postsv1";
+
+service PostService {
+  // Create a post, reply or quote. Text <= 280 code points after NFC; <= 4 READY media owned by the caller;
+  // <= 10 mentions (resolved via handles/*, cached), <= 10 hashtags (extracted server-side).
+  // Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}).
+  // One atomic batch: Create idempotency doc + Create post + users.postsCount + quotas (+ parent replyCount /
+  // quoted quoteCount). Replay: idempotency doc exists => read it (+1) and return the stored post.
+  // Reads worst: quotas 1 + author user 1 + media 4 + parent 1 + quoted 1 + mention handles 10 + replay 1.
+  // Async: 1 notification per mentioned user + 1 for the parent/quoted author.
+  // Firestore: reads 19/1, writes 6/4 (+<= 11 async notification writes).
+  rpc CreatePost(CreatePostRequest) returns (CreatePostResponse);
+
+  // Delete own post. Sync: delete post doc, decrement users.postsCount (and parent replyCount).
+  // Async `post-delete` job: likes/reposts docs, quote embeds, media objects (batches <= 500, resumable).
+  // Replay/unknown id => success (idempotent). Instance caches evicted locally; others converge in <= 60 s.
+  // Firestore: reads 1/1, writes 2/1, deletes 1/1 (+ async deletes = likes + reposts of the post).
+  rpc DeletePost(DeletePostRequest) returns (DeletePostResponse);
+
+  // A single post. NOT_FOUND if deleted, hidden by visibility, or the author blocks the caller.
+  // Reads: post (cached 60 s) + author graph (blocked-by, cached) + caller graph (cached) + userLikes (cached).
+  // Firestore: reads 4/0-1, writes 0.
+  rpc GetPost(GetPostRequest) returns (GetPostResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Post detail: the focal post, its parent and conversation root, and a page of the conversation in
+  // chronological order (posts where conversationId == root, createdAt ASC). Blocked/muted/invisible
+  // replies are dropped after the read (page may be short; follow next_page_token).
+  // Firestore: reads 56/10 (focal+parent+root 3, graphs 2, userLikes 1, page <= 50), writes 0.
+  rpc GetThread(GetThreadRequest) returns (GetThreadResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+enum PostKind {
+  POST_KIND_UNSPECIFIED = 0;
+  POST_KIND_POST = 1;
+  POST_KIND_REPLY = 2;
+  POST_KIND_QUOTE = 3;
+  // Created by the engagement module (future RPC); stored as a post doc so pull timelines include it.
+  POST_KIND_REPOST = 4;
+}
+
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  VISIBILITY_PUBLIC = 1;
+  // Author is a private account: only approved followers and the author.
+  VISIBILITY_FOLLOWERS = 2;
+}
+
+message Mention {
+  string user_id = 1;
+  string handle = 2;
+}
+
+// A one-level, denormalized copy of another post (quoted or reposted), frozen at write time.
+// Cleared by the post-delete job when the original is deleted.
+message EmbeddedPost {
+  string post_id = 1;
+  dzeroth.common.v1.AuthorSnapshot author = 2;
+  string text = 3;
+  repeated dzeroth.common.v1.MediaRef media = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // True when the original was deleted or became invisible; render a tombstone.
+  bool unavailable = 6;
+}
+
+message Post {
+  // Snowflake, 19-digit zero-padded decimal.
+  string post_id = 1;
+  dzeroth.common.v1.AuthorSnapshot author = 2;
+  PostKind kind = 3;
+  string text = 4;
+  repeated dzeroth.common.v1.MediaRef media = 5;
+  // Set for replies.
+  string reply_to_post_id = 6;
+  // Set for replies, for "Replying to @handle" without an extra read.
+  string reply_to_handle = 7;
+  // Root post id of the thread (== post_id for roots).
+  string conversation_id = 8;
+  // Set for QUOTE and REPOST.
+  EmbeddedPost embedded = 9;
+  // Lower-cased, without '#'.
+  repeated string hashtags = 10;
+  repeated Mention mentions = 11;
+  int64 like_count = 12;
+  int64 repost_count = 13;
+  int64 reply_count = 14;
+  int64 quote_count = 15;
+  Visibility visibility = 16;
+  google.protobuf.Timestamp created_at = 17;
+}
+
+// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s).
+message PostView {
+  Post post = 1;
+  bool liked_by_viewer = 2;
+  bool reposted_by_viewer = 3;
+}
+
+message CreatePostRequest {
+  string idempotency_key = 1;
+  string text = 2;
+  // 0-4 media ids from dzeroth.media.v1 FinalizeUpload (status READY or READY_UNSCREENED).
+  repeated string media_ids = 3;
+  string reply_to_post_id = 4;
+  string quote_of_post_id = 5;
+  // Parallel to media_ids; optional accessibility text <= 1,000 chars each.
+  repeated string media_alt_texts = 6;
+}
+
+message CreatePostResponse {
+  PostView post = 1;
+}
+
+message DeletePostRequest {
+  string idempotency_key = 1;
+  string post_id = 2;
+}
+
+message DeletePostResponse {}
+
+message GetPostRequest {
+  string post_id = 1;
+}
+
+message GetPostResponse {
+  PostView post = 1;
+}
+
+message GetThreadRequest {
+  string post_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message GetThreadResponse {
+  PostView focal = 1;
+  // Unset when the focal post is a root, or the parent is unavailable.
+  PostView parent = 2;
+  // Unset when the focal post is the root.
+  PostView root = 3;
+  // Conversation posts in chronological order (excluding focal/parent/root).
+  repeated PostView replies = 4;
+  string next_page_token = 5;
+}
