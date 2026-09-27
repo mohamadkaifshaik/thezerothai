@@ -100,6 +100,9 @@ resource "google_cloud_run_v2_service" "api" {
       # Service-level `scaling` is unset here; the API echoes back zero defaults, causing a permanent
       # no-op diff. The real caps are template.scaling (min 0 / max 3), which stays managed.
       scaling,
+      # Stamped by every `gcloud run deploy` (client = "gcloud"); pure metadata, would show as drift forever.
+      client,
+      client_version,
     ]
   }
 }
