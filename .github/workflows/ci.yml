@@ -96,7 +96,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21" # firebase-tools 15 requires Java >= 21
 
       - name: Cache Firebase emulator binaries
         # The Firestore/Auth/Pub/Sub/Storage-rules emulators are JARs firebase-tools downloads on first
