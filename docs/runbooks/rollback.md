@@ -16,11 +16,14 @@ gcloud run services update-traffic api \
 Then either fix forward on `main` (next push redeploys) or revert the offending commit.
 
 ## Backend (Cloud Run) — prod
-Prod deploys go `--no-traffic --tag rc` → 10% → 100% (see `release-rollout` skill and `.github/workflows/release-prod.yml`).
+Prod deploys go `--no-traffic --tag rc` (`.github/workflows/release-prod.yml`, automatic on a `v*` tag) → 10% → 100%
+(`.github/workflows/promote-prod.yml`, **manual** `workflow_dispatch`, run once per stage — see `release-rollout`
+skill "Manual-approval model on GitHub Free"). There are no `production-traffic-10` / `production-traffic-100`
+GitHub Environments and no required-reviewer approval to deny — GitHub Free doesn't offer that for private repos.
 
-**If the bad revision hasn't taken 100% traffic yet** (still at rc/10%): just don't approve the next promotion job. No
-rollback needed — deny the pending `production-traffic-10` / `production-traffic-100` GitHub Environment approval, and
-optionally revert traffic on the tag immediately:
+**If the bad revision hasn't taken 100% traffic yet** (still at rc / 10%): just don't run `promote-prod.yml` again
+for that tag — there is no pending approval to deny, since each stage only happens when the founder explicitly
+dispatches it. If 10% traffic is already live and misbehaving, revert it immediately instead of waiting:
 
 ```bash
 gcloud run services update-traffic api \

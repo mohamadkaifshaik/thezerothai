@@ -31,14 +31,15 @@ variable "deploy_ref_description" {
 variable "deploy_extra_conditions" {
   description = <<-EOT
     Additional CEL fragments ANDed into the deploy WIF provider's attribute_condition, beyond the
-    repository + ref checks. Use this to pin `assertion.job_workflow_ref` (so only the exact
-    reusable workflow file — not a modified copy on some other ref — can mint a token) and
-    `assertion.environment` (so a token can only be minted for a job that declares one of the
-    GitHub Environments this deploy actually uses, including the ones with required reviewers).
-    Example (prod):
+    repository + ref checks. Use this to pin `assertion.job_workflow_ref` (so only an exact
+    workflow file — not a modified copy on some other ref — can mint a token) and
+    `assertion.environment` (so a token can only be minted for a job that declares the GitHub
+    Environment this deploy actually uses).
+    Example (prod — release-prod.yml stages a release, promote-prod.yml is the manual traffic
+    promotion; both declare `environment: prod`):
       [
-        "assertion.job_workflow_ref.startsWith('org/repo/.github/workflows/release-prod.yml@refs/tags/v')",
-        "assertion.environment in ['prod', 'production-traffic-10', 'production-traffic-100']",
+        "assertion.job_workflow_ref.startsWith('org/repo/.github/workflows/release-prod.yml@refs/tags/v') || assertion.job_workflow_ref.startsWith('org/repo/.github/workflows/promote-prod.yml@refs/tags/v')",
+        "assertion.environment == 'prod'",
       ]
   EOT
   type        = list(string)

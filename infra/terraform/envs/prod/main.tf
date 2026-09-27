@@ -37,14 +37,22 @@ module "iam" {
   deploy_ref_condition   = "assertion.ref.startsWith('refs/tags/v')"
   deploy_ref_description = "version tags only (refs/tags/v*)"
 
-  # M6: pin the deploy WIF token to the exact release workflow file (a
+  # M6: pin the deploy WIF token to the exact release/promote workflow files (a
   # modified/forked copy on some other ref can't mint a usable token even if
-  # it satisfies repository+ref) and to the GitHub Environments this release
-  # workflow actually uses — including the two with required reviewers, so a
-  # token can never be minted for a job that skips the approval gates.
+  # it satisfies repository+ref) and to the `prod` GitHub Environment both
+  # workflows declare on every job that needs GCP credentials.
+  #
+  # Free-plan trust model (GitHub Free, private repo, single collaborator):
+  # there are no required reviewers and no tag rulesets available, so the
+  # `prod` Environment's deployment policy (tags matching `v*` only) plus
+  # this WIF pin are the whole machine-enforced boundary — the human gate is
+  # the founder running promote-prod.yml deliberately, plus the
+  # production-reviewer `VERDICT: GO` file check inside that workflow. See
+  # docs/runbooks/cloud-bootstrap.md §6/6a; revisit with GitHub Pro/Team
+  # (required reviewers, tag rulesets) via an ADR if collaborators are added.
   deploy_extra_conditions = [
-    "assertion.job_workflow_ref.startsWith('${var.github_repo}/.github/workflows/release-prod.yml@refs/tags/v')",
-    "assertion.environment in ['prod', 'production-traffic-10', 'production-traffic-100']",
+    "assertion.job_workflow_ref.startsWith('${var.github_repo}/.github/workflows/release-prod.yml@refs/tags/v') || assertion.job_workflow_ref.startsWith('${var.github_repo}/.github/workflows/promote-prod.yml@refs/tags/v')",
+    "assertion.environment == 'prod'",
   ]
 
   depends_on = [module.project_services]
