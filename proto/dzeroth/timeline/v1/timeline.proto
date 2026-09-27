@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+// Timelines: pull-on-read with incremental refresh (ADR-0004). Owner module: backend/internal/timeline.
+// Owns no collections; reads posts through the posts module interface and graph/{uid} through the graph module.
+//
+// Token contract (identical for both RPCs, all opaque):
+// - First open, no local cache: send neither token.
+// - Pull-to-refresh / app resume: send since_token from the last response. Only posts newer than it are read.
+// - Infinite scroll: send page_token (= next_page_token of the previous page).
+// - Sending both tokens is INVALID_ARGUMENT.
+// - A refresh that could not reach since_token within one page returns gap_page_token: the client keeps its
+//   cache, shows a "show more" gap row between the new items and the cached ones, and fills it by calling with
+//   page_token = gap_page_token (the token is bounded below by the old since_token, so it never re-reads the cache).
+// - Every response returns since_token; persist it with the cached items.
+// The Stage 2 Memorystore design keeps this contract unchanged.
+package dzeroth.timeline.v1;
+
+import "dzeroth/posts/v1/posts.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1;timelinev1";
+
+service TimelineService {
+  // Chronological posts (excluding replies) from accounts the caller follows, plus the caller's own.
+  // Algorithm: graph/{uid} (cached 60 s) -> followees + self in chunks of 30 -> per-chunk query
+  // `authorId in chunk AND isReply == false AND createdAt (> since | < before) ORDER BY createdAt DESC
+  // LIMIT k`, k = max(1, ceil(2 * page_size / chunks)), <= 4 concurrent -> k-way merge -> return only the
+  // exact prefix (items newer than the newest k-th item of any chunk that filled its limit) -> drop
+  // blocked/muted/invisible -> hydrate viewer flags from userLikes/{uid}. Authors fully covered by the
+  // author-recent instance cache (last 20 posts, 60 s) skip Firestore.
+  // Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
+  // Rate limit: 6 calls/min/uid (in memory).
+  // Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50) / typical refresh ~8
+  //            (F=60: C=3, ~5 new posts, graph + userLikes cached), writes 0.
+  rpc GetHomeTimeline(GetHomeTimelineRequest) returns (GetHomeTimelineResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // A user's posts, newest first. include_replies=false is the "Posts" tab, true is "Replies".
+  // Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
+  // NOT_FOUND if the author blocks the caller. First page per (author, tab) cached 60 s in the instance.
+  // Reads: author user + author graph + caller graph + userLikes (all cached) + page.
+  // Firestore: reads 54/5 (refresh via since_token) or 21 (cold page of 20), writes 0.
+  rpc GetUserTimeline(GetUserTimelineRequest) returns (GetUserTimelineResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message GetHomeTimelineRequest {
+  // 0 => 20; max 50 (clamped).
+  int32 page_size = 1;
+  // Older page (infinite scroll or gap fill).
+  string page_token = 2;
+  // Newer-than refresh.
+  string since_token = 3;
+}
+
+message GetHomeTimelineResponse {
+  // Newest first.
+  repeated dzeroth.posts.v1.PostView posts = 1;
+  // "" => no older posts.
+  string next_page_token = 2;
+  // Persist; send on the next refresh.
+  string since_token = 3;
+  // Non-empty => a refresh gap exists below the returned items (see token contract).
+  string gap_page_token = 4;
+}
+
+message GetUserTimelineRequest {
+  string user_id = 1;
+  bool include_replies = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+  string since_token = 5;
+}
+
+message GetUserTimelineResponse {
+  repeated dzeroth.posts.v1.PostView posts = 1;
+  string next_page_token = 2;
+  string since_token = 3;
+  string gap_page_token = 4;
+}

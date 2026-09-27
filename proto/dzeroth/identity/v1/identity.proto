@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+// Identity: profiles, handles, account lifecycle. Owner module: backend/internal/identity.
+// Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}. See ADR-0003 and ADR-0006.
+// Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
+package dzeroth.identity.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1;identityv1";
+
+service IdentityService {
+  // Creates the caller's profile after Firebase sign-up. Idempotent by uid: a replay returns the existing profile.
+  // Transaction: read users/{uid} + handles/{h}; create users, handles, graph.
+  // Firestore: reads 2/2, writes 3/3.
+  rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse);
+
+  // Handle availability check for the sign-up form. In-memory rate limited (10/min/uid).
+  // Firestore: reads 1/1, writes 0.
+  rpc CheckHandleAvailability(CheckHandleAvailabilityRequest) returns (CheckHandleAvailabilityResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
+  // unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
+  // 1,000 matches, cached 30 s).
+  // Firestore: reads 2/1, writes 0.
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Public profile by id or handle. Returns NOT_FOUND if the profile blocks the caller (no existence leak).
+  // Reads: handles (if by handle) + users + target graph (blocked-by check) + caller graph; all instance-cached 60 s.
+  // Firestore: reads 4/0-1, writes 0.
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Partial update; only fields that are set are changed. Naturally idempotent (sets values).
+  // A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
+  // async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
+  // A change to is_private enqueues the visibility job (writes = author's post count; limited to 1 toggle/day).
+  // Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
+  // Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.
+  // Firestore: reads 2/2, writes 2/2 + deletes 1/1 (+ async snapshot job).
+  rpc ChangeHandle(ChangeHandleRequest) returns (ChangeHandleResponse);
+
+  // Irreversible account deletion. Requires a recent sign-in (ID token auth_time < 5 min).
+  // Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
+  // document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
+  // Firestore (sync part): reads 1/1, writes 1/1.
+  rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
+
+  // Starts a data export (1/day/user). Doc id = hash(uid, idempotency_key) so a replay returns the same export.
+  // Firestore: reads 1/1 (quotas), writes 2/2 (exports doc + quotas).
+  rpc RequestAccountExport(RequestAccountExportRequest) returns (RequestAccountExportResponse);
+
+  // Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored).
+  // Firestore: reads 1/1, writes 0.
+  rpc GetAccountExport(GetAccountExportRequest) returns (GetAccountExportResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+enum AccountStatus {
+  ACCOUNT_STATUS_UNSPECIFIED = 0;
+  ACCOUNT_STATUS_ACTIVE = 1;
+  ACCOUNT_STATUS_SUSPENDED = 2;
+  ACCOUNT_STATUS_DELETING = 3;
+}
+
+message Profile {
+  string user_id = 1;
+  // Display form; uniqueness is on the lower-cased form. 3-15 chars, [A-Za-z0-9_].
+  string handle = 2;
+  // 1-50 chars after NFC normalization.
+  string display_name = 3;
+  // <= 160 chars.
+  string bio = 4;
+  // 400 px avatar; empty if none.
+  string avatar_url = 5;
+  // 96 px avatar for lists; empty if none.
+  string avatar_thumb_url = 6;
+  bool is_private = 7;
+  bool verified = 8;
+  int64 followers_count = 9;
+  int64 following_count = 10;
+  int64 posts_count = 11;
+  google.protobuf.Timestamp created_at = 12;
+}
+
+message CreateProfileRequest {
+  string idempotency_key = 1;
+  string handle = 2;
+  string display_name = 3;
+}
+
+message CreateProfileResponse {
+  Profile profile = 1;
+}
+
+message CheckHandleAvailabilityRequest {
+  string handle = 1;
+}
+
+message CheckHandleAvailabilityResponse {
+  bool available = 1;
+  // Set when the handle is syntactically invalid or reserved; empty otherwise.
+  string reason = 2;
+}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  Profile profile = 1;
+  AccountStatus status = 2;
+  // From the ID token claim (no Firestore read). Posting requires true or a Google/Apple provider.
+  bool email_verified = 3;
+  int64 unread_notification_count = 4;
+}
+
+message GetProfileRequest {
+  oneof target {
+    string user_id = 1;
+    // Case-insensitive.
+    string handle = 2;
+  }
+}
+
+message GetProfileResponse {
+  Profile profile = 1;
+}
+
+message UpdateProfileRequest {
+  string idempotency_key = 1;
+  optional string display_name = 2;
+  optional string bio = 3;
+  // A READY media id with purpose AVATAR owned by the caller; "" removes the avatar.
+  optional string avatar_media_id = 4;
+  optional bool is_private = 5;
+}
+
+message UpdateProfileResponse {
+  Profile profile = 1;
+}
+
+message ChangeHandleRequest {
+  string idempotency_key = 1;
+  string new_handle = 2;
+}
+
+message ChangeHandleResponse {
+  Profile profile = 1;
+}
+
+message DeleteAccountRequest {
+  string idempotency_key = 1;
+}
+
+message DeleteAccountResponse {
+  google.protobuf.Timestamp deletion_requested_at = 1;
+}
+
+enum ExportStatus {
+  EXPORT_STATUS_UNSPECIFIED = 0;
+  EXPORT_STATUS_PENDING = 1;
+  EXPORT_STATUS_READY = 2;
+  EXPORT_STATUS_FAILED = 3;
+}
+
+message RequestAccountExportRequest {
+  string idempotency_key = 1;
+}
+
+message RequestAccountExportResponse {
+  string export_id = 1;
+  ExportStatus status = 2;
+}
+
+message GetAccountExportRequest {
+  string export_id = 1;
+}
+
+message GetAccountExportResponse {
+  string export_id = 1;
+  ExportStatus status = 2;
+  // Only when READY. 15-minute signed GET URL for a private JSON object.
+  string download_url = 3;
+  google.protobuf.Timestamp download_url_expires_at = 4;
+  // The export object and doc are deleted 7 days after creation (Firestore TTL + bucket lifecycle).
+  google.protobuf.Timestamp expires_at = 5;
+}

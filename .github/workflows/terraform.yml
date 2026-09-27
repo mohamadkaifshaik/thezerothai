@@ -1,0 +1,140 @@
+name: Terraform
+
+# fmt / validate / lint / plan ONLY. This workflow never runs `terraform
+# apply` — apply is a deliberate, human-run action (see gcp-terraform skill
+# and infra/terraform/envs/*/versions.tf comments) until an ADR adds a gated
+# apply pipeline. Plan uses a read-only service account (see modules/iam).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # WIF for the read-only plan service account
+  pull-requests: write # to post the plan as a PR comment
+
+env:
+  TF_VERSION: "1.16.2" # must be >= the version that last wrote remote state
+  TFLINT_VERSION: "v0.53.0"
+  CHECKOV_VERSION: "3.2.257"
+
+jobs:
+  plan:
+    name: plan (${{ matrix.env }})
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod]
+    defaults:
+      run:
+        working-directory: infra/terraform/envs/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Skip an env until it has been bootstrapped (first apply is local; see docs/runbooks/cloud-bootstrap.md).
+      - name: Env bootstrapped?
+        id: gate
+        env:
+          WIP: ${{ matrix.env == 'dev' && vars.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || vars.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
+          ENV_NAME: ${{ matrix.env }}
+        run: |
+          if [ -n "$WIP" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$ENV_NAME is not bootstrapped yet; skipping plan"
+          fi
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive -diff ../../
+
+      - name: tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: tflint --init && tflint
+        run: |
+          tflint --init
+          tflint --recursive
+
+      - name: Auth to GCP (WIF, read-only plan SA)
+        if: steps.gate.outputs.run == 'true'
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ matrix.env == 'dev' && vars.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || vars.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ matrix.env == 'dev' && vars.DEV_PLAN_SA_EMAIL || vars.PROD_PLAN_SA_EMAIL }}
+          create_credentials_file: true
+
+      - name: terraform init
+        if: steps.gate.outputs.run == 'true'
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: terraform validate
+        if: steps.gate.outputs.run == 'true'
+        run: terraform validate
+
+      - name: checkov
+        if: steps.gate.outputs.run == 'true'
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/terraform/envs/${{ matrix.env }}
+          soft_fail: true # don't block PRs on checkov MEDIUM+ findings yet; surfaced in the PR checks tab
+          framework: terraform
+
+      - name: terraform plan
+        if: steps.gate.outputs.run == 'true'
+        id: plan
+        # TF_VAR_* env vars instead of -var="..." flags: the JSON list values contain double quotes that
+        # broke shell quoting, and env indirection keeps repo variables out of the script text.
+        env:
+          TF_VAR_project_id: ${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}
+          TF_VAR_billing_account: ${{ vars.BILLING_ACCOUNT }}
+          TF_VAR_github_repo: ${{ github.repository }}
+          TF_VAR_founder_emails: ${{ matrix.env == 'dev' && vars.DEV_FOUNDER_EMAILS_JSON || vars.PROD_FOUNDER_EMAILS_JSON }}
+          TF_VAR_hosting_site_id: ${{ matrix.env == 'dev' && vars.DEV_HOSTING_SITE_ID || vars.PROD_HOSTING_SITE_ID }}
+          TF_VAR_cors_origins: ${{ matrix.env == 'dev' && vars.DEV_CORS_ORIGINS_JSON || vars.PROD_CORS_ORIGINS_JSON }}
+        run: |
+          set -o pipefail
+          # -lock=false: the plan SA is read-only on the state bucket and must not take the apply lock.
+          terraform plan -input=false -no-color -lock=false -out=tfplan | tee plan_output.txt
+
+      - name: Truncate plan for PR comment
+        if: steps.gate.outputs.run == 'true' && (github.event_name == 'pull_request')
+        run: |
+          terraform show -no-color tfplan > plan_full.txt || true
+          head -c 60000 plan_full.txt > plan_comment.txt
+          echo "" >> plan_comment.txt
+          echo "(truncated — full plan in the workflow log)" >> plan_comment.txt
+
+      - name: Comment plan on PR
+        if: steps.gate.outputs.run == 'true' && (github.event_name == 'pull_request')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = [
+              `#### Terraform plan — \`${{ matrix.env }}\``,
+              '```',
+              fs.readFileSync('infra/terraform/envs/${{ matrix.env }}/plan_comment.txt', 'utf8'),
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

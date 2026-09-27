@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+// Shared messages used by every dzeroth API. See ADR-0002 (contracts) and ADR-0003 (data model).
+//
+// Conventions for every service in this repo:
+// - IDs are strings. Post and media IDs are 64-bit Snowflake values rendered as 19-digit zero-padded
+//   decimal strings (lexicographic order == time order). User IDs are Firebase Auth UIDs.
+// - Every mutating RPC takes `idempotency_key`: a client-generated UUID (16-64 chars, [A-Za-z0-9_-]),
+//   generated once per user intent and reused on every retry of that intent. Scoped per user.
+// - List RPCs take `page_size` (0 => 20, max 50, larger values are clamped) and an opaque `page_token`,
+//   and return `next_page_token` ("" => no more). Tokens are opaque base64; never parse them on the client.
+// - Errors use Connect codes; machine-readable detail is attached as an `ErrorDetail` (below).
+// - Each RPC comment carries its Firestore budget: "reads worst/typical, writes worst/typical".
+//   Keep these in sync with docs/reviews/cost-model.md.
+package dzeroth.common.v1;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1";
+
+// Denormalized author data stored inside every post (ADR-0003). May be up to one refresh cycle stale.
+message AuthorSnapshot {
+  string user_id = 1;
+  string handle = 2;
+  string display_name = 3;
+  // Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
+  string avatar_url = 4;
+  bool verified = 5;
+}
+
+// A moderated, publicly readable image (ADR-0005). URLs are immutable and cacheable forever.
+message MediaRef {
+  string media_id = 1;
+  // Full image, <= 1600 px on the long edge.
+  string url = 2;
+  // Thumbnail, 400 px on the long edge. Lists and timelines must use this.
+  string thumb_url = 3;
+  int32 width = 4;
+  int32 height = 5;
+  // BlurHash placeholder computed on device, <= 64 chars.
+  string blurhash = 6;
+  string alt_text = 7;
+}
+
+// Why a request failed, attached to Connect errors as an error detail.
+// Clients branch on `reason`, never on the message text.
+message ErrorDetail {
+  ErrorReason reason = 1;
+  // Safe to show to the user.
+  string message = 2;
+  // Set for RATE_LIMITED / QUOTA_EXCEEDED / DEGRADED_MODE. Clients must not retry before it elapses.
+  google.protobuf.Duration retry_after = 3;
+  // Field name for VALIDATION errors, limit name for quota errors, etc.
+  map<string, string> metadata = 4;
+}
+
+enum ErrorReason {
+  ERROR_REASON_UNSPECIFIED = 0;
+  // INVALID_ARGUMENT: input failed validation; metadata["field"] names the field.
+  ERROR_REASON_VALIDATION = 1;
+  // RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory).
+  ERROR_REASON_RATE_LIMITED = 2;
+  // RESOURCE_EXHAUSTED: per-user daily quota (posts, follows, uploads...); metadata["quota"] names it.
+  ERROR_REASON_QUOTA_EXCEEDED = 3;
+  // UNAVAILABLE: the platform is in degraded mode (readonly or nomedia). Show a banner; do NOT auto-retry.
+  ERROR_REASON_DEGRADED_MODE = 4;
+  // UNAUTHENTICATED: missing/invalid Firebase App Check token.
+  ERROR_REASON_APP_CHECK_REQUIRED = 5;
+  // FAILED_PRECONDITION: caller has a Firebase account but has not called CreateProfile yet.
+  ERROR_REASON_PROFILE_REQUIRED = 6;
+  // FAILED_PRECONDITION: email must be verified (or Google/Apple sign-in used) before this action.
+  ERROR_REASON_EMAIL_NOT_VERIFIED = 7;
+  // ALREADY_EXISTS: handle is taken.
+  ERROR_REASON_HANDLE_TAKEN = 8;
+  // FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts).
+  ERROR_REASON_LIMIT_REACHED = 9;
+  // FAILED_PRECONDITION: referenced media is not READY or not owned by the caller.
+  ERROR_REASON_MEDIA_NOT_READY = 10;
+  // INVALID_ARGUMENT: the same idempotency_key was reused with a different request body.
+  ERROR_REASON_IDEMPOTENCY_KEY_REUSED = 11;
+  // PERMISSION_DENIED: the account is suspended or pending deletion.
+  ERROR_REASON_ACCOUNT_RESTRICTED = 12;
+}

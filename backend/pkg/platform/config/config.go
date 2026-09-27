@@ -1,0 +1,355 @@
+// Package config loads process configuration from environment variables. Cloud Run injects PORT and
+// any Secret Manager-backed env vars; the Firebase/Firestore emulators are honored automatically by
+// their client libraries via FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST / PUBSUB_EMULATOR_HOST,
+// so this package does not special-case them beyond choosing sane local defaults.
+//
+// Loading is a single, cheap pass over os.Getenv — safe to call before ListenAndServe (ADR-0002 cold
+// start budget: nothing heavy in main before the server starts).
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
+type DegradedMode string
+
+const (
+	DegradedOff      DegradedMode = "off"
+	DegradedReadonly DegradedMode = "readonly"
+	DegradedNoMedia  DegradedMode = "nomedia"
+)
+
+func (m DegradedMode) valid() bool {
+	switch m {
+	case DegradedOff, DegradedReadonly, DegradedNoMedia:
+		return true
+	default:
+		return false
+	}
+}
+
+// AppCheckMode controls whether a missing/invalid App Check token rejects the request (ADR-0006 §2).
+type AppCheckMode string
+
+const (
+	AppCheckEnforce AppCheckMode = "enforce"
+	AppCheckMonitor AppCheckMode = "monitor"
+)
+
+func (m AppCheckMode) valid() bool {
+	switch m {
+	case AppCheckEnforce, AppCheckMonitor:
+		return true
+	default:
+		return false
+	}
+}
+
+// RateLimitConfig holds the in-memory token-bucket limits from ADR-0006 §3. Approximate per instance
+// (effective ceiling is ~limit x max-instances).
+type RateLimitConfig struct {
+	PerUserPerMinute            int
+	TimelinePerUserPerMinute    int
+	CheckHandlePerUserPerMinute int
+	LikesPerUserPerMinute       int
+	PerIPPerMinute              int
+}
+
+// QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
+type QuotaConfig struct {
+	PostsPerDay   int
+	FollowsPerDay int
+	MediaPerDay   int
+	ExportsPerDay int
+
+	// Lower quotas for accounts younger than NewAccountWindow.
+	NewAccountPostsPerDay   int
+	NewAccountFollowsPerDay int
+	NewAccountMediaPerDay   int
+	NewAccountWindow        time.Duration
+}
+
+// Config is the full process configuration. Constructed once in main via Load/MustLoad.
+type Config struct {
+	// Port is the HTTP listen port. Cloud Run sets PORT explicitly in dev/prod; defaults to 8081 in local
+	// dev (M10) so it never collides with the Firestore emulator's fixed port 8080 (firebase.json).
+	Port string
+	// ProjectID is the GCP/Firebase project. Required; also used as the Firestore/Auth project.
+	ProjectID string
+	// Env is one of local|dev|prod. Only used for defaults and log fields, never for branching business logic.
+	Env string
+
+	Degraded DegradedMode
+	AppCheck AppCheckMode
+
+	// CursorHMACKey signs opaque pagination cursors (ADR-0003) so clients cannot craft unbounded scans.
+	// Sourced from a Secret Manager-backed env var in dev/prod; read once here at process start.
+	CursorHMACKey []byte
+
+	RateLimit RateLimitConfig
+	Quota     QuotaConfig
+
+	// HandleChangeCooldown is the minimum time between successful ChangeHandle calls.
+	HandleChangeCooldown time.Duration
+
+	// ShutdownTimeout bounds graceful shutdown; Cloud Run gives the process 10s after SIGTERM.
+	ShutdownTimeout time.Duration
+
+	// CacheTTL is the default instance-cache TTL for hot documents (e.g. users/{uid}).
+	CacheTTL time.Duration
+
+	// InternalOIDCAudience/InternalOIDCAllowedEmails configure /internal/* OIDC verification (ADR-0006
+	// §5). Empty only in local dev (no real Pub/Sub push subscriptions exist yet); Load fails closed (M8)
+	// if either is unset outside ENV=local, since an unauthenticated /internal/* in dev/prod would accept
+	// forged Pub/Sub push/Scheduler calls.
+	InternalOIDCAudience      string
+	InternalOIDCAllowedEmails []string
+
+	// CORSAllowedOrigins enables browser CORS on the Connect handlers for exactly these origins (M10).
+	// Empty means CORS is off — the default outside local, since prod/dev web traffic goes through
+	// Firebase Hosting's same-origin `/api/**` rewrite (firebase.json) and never needs a cross-origin
+	// request in the first place. Defaulted to common localhost dev origins when Env == "local"; always
+	// extended with CORS_ALLOWED_ORIGINS if set (comma-separated), for the rare case dev/prod web needs to
+	// call the Cloud Run URL directly instead of through Hosting.
+	CORSAllowedOrigins []string
+
+	// TrustedProxyHops is how many trusted-proxy entries (from the right) of X-Forwarded-For to skip past
+	// to find the real client IP for ratelimit.ClientIP (ADR-0006 §3, amended). Defaults to 1, the original
+	// "rightmost entry" behavior. Through Firebase Hosting -> Cloud Run there may genuinely be more than one
+	// trusted hop appended in front of the real client IP for web traffic, putting every web user in one
+	// shared per-IP bucket if left at 1 — but the exact number has not been measured yet, so this stays
+	// configurable rather than guessed; see pkg/platform/ratelimit's XFF hop-count debug log, meant to
+	// calibrate it from real dev traffic.
+	TrustedProxyHops int
+}
+
+// Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
+func Load() (Config, error) {
+	env := getenv("ENV", "local")
+
+	// FIREBASE_PROJECT_ID is the canonical var (Terraform sets it); GOOGLE_CLOUD_PROJECT, GCP_PROJECT_ID
+	// and GCP_PROJECT are accepted fallbacks so this also runs unmodified under tooling/environments that
+	// only set one of Google's own conventional project-id vars (B2).
+	projectID := firstNonEmpty(
+		os.Getenv("FIREBASE_PROJECT_ID"),
+		os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		os.Getenv("GCP_PROJECT_ID"),
+		os.Getenv("GCP_PROJECT"),
+	)
+	if projectID == "" {
+		if env == "local" {
+			projectID = "demo-dzeroth-local"
+		} else {
+			return Config{}, fmt.Errorf(
+				"config: one of FIREBASE_PROJECT_ID, GOOGLE_CLOUD_PROJECT, GCP_PROJECT_ID or GCP_PROJECT is required in env %q", env)
+		}
+	}
+
+	degraded := DegradedMode(getenv("DEGRADED_MODE", string(DegradedOff)))
+	if !degraded.valid() {
+		return Config{}, fmt.Errorf("config: invalid DEGRADED_MODE %q (want off|readonly|nomedia)", degraded)
+	}
+
+	appCheckDefault := string(AppCheckEnforce)
+	if env == "local" {
+		appCheckDefault = string(AppCheckMonitor)
+	}
+	appCheck := AppCheckMode(getenv("APP_CHECK_MODE", appCheckDefault))
+	if !appCheck.valid() {
+		return Config{}, fmt.Errorf("config: invalid APP_CHECK_MODE %q (want enforce|monitor)", appCheck)
+	}
+
+	cursorKey := os.Getenv("CURSOR_HMAC_KEY")
+	if cursorKey == "" {
+		if env == "local" {
+			cursorKey = "local-dev-only-cursor-hmac-key-not-for-prod"
+		} else {
+			return Config{}, fmt.Errorf(
+				"config: CURSOR_HMAC_KEY is required in env %q (Secret Manager secret %q wired to this env var)", env, "cursor-hmac-key")
+		}
+	}
+
+	shutdownTimeout, err := getDuration("SHUTDOWN_TIMEOUT", 8*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cacheTTL, err := getDuration("CACHE_TTL", 60*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	handleCooldown, err := getDuration("HANDLE_CHANGE_COOLDOWN", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	newAccountWindow, err := getDuration("QUOTA_NEW_ACCOUNT_WINDOW", 24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+
+	rl := RateLimitConfig{}
+	if rl.PerUserPerMinute, err = getInt("RATE_LIMIT_PER_USER_PER_MIN", 60); err != nil {
+		return Config{}, err
+	}
+	if rl.TimelinePerUserPerMinute, err = getInt("RATE_LIMIT_TIMELINE_PER_MIN", 6); err != nil {
+		return Config{}, err
+	}
+	if rl.CheckHandlePerUserPerMinute, err = getInt("RATE_LIMIT_CHECK_HANDLE_PER_MIN", 10); err != nil {
+		return Config{}, err
+	}
+	if rl.LikesPerUserPerMinute, err = getInt("RATE_LIMIT_LIKES_PER_MIN", 30); err != nil {
+		return Config{}, err
+	}
+	if rl.PerIPPerMinute, err = getInt("RATE_LIMIT_PER_IP_PER_MIN", 120); err != nil {
+		return Config{}, err
+	}
+
+	trustedProxyHops, err := getInt("TRUSTED_PROXY_HOPS", 1)
+	if err != nil {
+		return Config{}, err
+	}
+
+	q := QuotaConfig{NewAccountWindow: newAccountWindow}
+	if q.PostsPerDay, err = getInt("QUOTA_POSTS_PER_DAY", 100); err != nil {
+		return Config{}, err
+	}
+	if q.FollowsPerDay, err = getInt("QUOTA_FOLLOWS_PER_DAY", 200); err != nil {
+		return Config{}, err
+	}
+	if q.MediaPerDay, err = getInt("QUOTA_MEDIA_PER_DAY", 20); err != nil {
+		return Config{}, err
+	}
+	if q.ExportsPerDay, err = getInt("QUOTA_EXPORTS_PER_DAY", 1); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountPostsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", 20); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountFollowsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY", 50); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountMediaPerDay, err = getInt("QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", 5); err != nil {
+		return Config{}, err
+	}
+
+	allowedEmails := splitCSV(os.Getenv("INTERNAL_OIDC_ALLOWED_EMAILS"))
+	internalOIDCAudience := os.Getenv("INTERNAL_OIDC_AUDIENCE")
+
+	// M8: fail closed outside local. Without both of these, pkg/platform/pubsubpush would leave
+	// /internal/* (Pub/Sub push, Cloud Scheduler) unauthenticated — acceptable only in local dev, where no
+	// real push subscription exists to forge a call from.
+	if env != "local" {
+		switch {
+		case internalOIDCAudience == "" && len(allowedEmails) == 0:
+			return Config{}, fmt.Errorf("config: INTERNAL_OIDC_AUDIENCE and INTERNAL_OIDC_ALLOWED_EMAILS are both required in env %q", env)
+		case internalOIDCAudience == "":
+			return Config{}, fmt.Errorf("config: INTERNAL_OIDC_AUDIENCE is required in env %q", env)
+		case len(allowedEmails) == 0:
+			return Config{}, fmt.Errorf("config: INTERNAL_OIDC_ALLOWED_EMAILS is required in env %q", env)
+		}
+	}
+
+	// M10: PORT defaults to 8081 in local dev so `go run ./cmd/api` never collides with the Firestore
+	// emulator's fixed port 8080 (firebase.json); Cloud Run always sets PORT explicitly in dev/prod, so
+	// that default is unchanged there.
+	portDefault := "8080"
+	if env == "local" {
+		portDefault = "8081"
+	}
+
+	// M10: CORS is on by default for common local dev origins (Flutter web via `flutter run -d chrome`
+	// talks to the API directly, a different origin than the emulators); off by default otherwise, since
+	// Firebase Hosting's same-origin `/api/**` rewrite means dev/prod web never makes a cross-origin
+	// request. CORS_ALLOWED_ORIGINS can add origins in any env (e.g. a one-off cross-origin dev/test tool).
+	var corsOrigins []string
+	if env == "local" {
+		corsOrigins = []string{"http://localhost:*", "http://127.0.0.1:*"}
+	}
+	corsOrigins = append(corsOrigins, splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS"))...)
+
+	return Config{
+		Port:                      getenv("PORT", portDefault),
+		ProjectID:                 projectID,
+		Env:                       env,
+		Degraded:                  degraded,
+		AppCheck:                  appCheck,
+		CursorHMACKey:             []byte(cursorKey),
+		RateLimit:                 rl,
+		Quota:                     q,
+		HandleChangeCooldown:      handleCooldown,
+		ShutdownTimeout:           shutdownTimeout,
+		CacheTTL:                  cacheTTL,
+		InternalOIDCAudience:      internalOIDCAudience,
+		InternalOIDCAllowedEmails: allowedEmails,
+		CORSAllowedOrigins:        corsOrigins,
+		TrustedProxyHops:          trustedProxyHops,
+	}, nil
+}
+
+// MustLoad calls Load and panics on error. Only safe at process startup (never on a request path).
+func MustLoad() Config {
+	cfg, err := Load()
+	if err != nil {
+		panic(err)
+	}
+	return cfg
+}
+
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// splitCSV parses a comma-separated env var, trimming whitespace and dropping empty entries. Returns nil
+// (not an empty non-nil slice) for an empty input, so callers can treat nil/empty interchangeably as "off".
+func splitCSV(v string) []string {
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func getInt(key string, def int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("config: invalid int for %s: %w", key, err)
+	}
+	return n, nil
+}
+
+func getDuration(key string, def time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("config: invalid duration for %s: %w", key, err)
+	}
+	return d, nil
+}

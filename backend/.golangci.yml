@@ -1,0 +1,57 @@
+version: "2"
+run:
+  tests: true
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - dupl
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  settings:
+    dupl:
+      threshold: 100
+    errcheck:
+      exclude-functions:
+        - (*log/slog.Logger).Info
+        - (*log/slog.Logger).Warn
+    gosec:
+      excludes:
+        - G404
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - all
+        path: gen/
+      - linters:
+          - dupl
+          - gosec
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// Firebase Storage rules (ADR-0005). These govern the Firebase Storage SDKs only; the app does not use them.
+// - Uploads go to <project>-media-upload through V4 signed PUT URLs issued by the API (signed URLs bypass rules).
+//   Client SDK writes are denied everywhere.
+// - Approved images are served from <project>-media via its IAM binding allUsers:roles/storage.objectViewer
+//   at https://storage.googleapis.com/<project>-media/m/<mediaId>[_t].<ext>. The rule below mirrors that for the
+//   SDK path: single-object `get` only (no `list`), and only on the public bucket. The upload bucket name ends in
+//   "-media-upload", so it never matches, and unmoderated objects stay private.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+    match /m/{object} {
+      allow get: if bucket.matches('.*-media$');
+    }
+  }
+}

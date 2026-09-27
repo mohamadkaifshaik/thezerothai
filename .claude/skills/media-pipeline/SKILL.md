@@ -14,7 +14,7 @@ Client ──CreateUpload(count, sizes, types, sha256)──▶ API (media modul
       x-goog-content-length-range: 0,2097152 (full) / 0,262144 (thumb)
 Client ──PUT──▶ gs://<proj>-media-upload/u/<uid>/<mediaId>.webp  and  .../<mediaId>_t.webp
 Client ──FinalizeUpload(mediaId)──▶ API: object metadata check (size, content-type, magic bytes via 512-byte ranged read)
-   → SafeSearch (if monthly Vision counter < 950; else status=READY_UNSCREENED, flagged for report-driven review)
+   → SafeSearch on every image (paid past free 1,000/month; if counter ≥ VISION_MONTHLY_CAP, apply VISION_EXHAUSTED_POLICY — ADR-0005)
    → status READY (copy to public bucket) | REJECTED (delete objects)
 CreatePost(media_ids) → posts module verifies ownership + READY, stores url/thumbUrl/w/h/blurhash in the post
 Delivery: public-read objects at https://storage.googleapis.com/<bucket>/..., Cache-Control: public, max-age=31536000, immutable

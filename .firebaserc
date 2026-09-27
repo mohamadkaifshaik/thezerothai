@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "dev": "dzeroth-dev",
+    "prod": "dzeroth-prod",
+    "default": "dzeroth-dev"
+  }
+}

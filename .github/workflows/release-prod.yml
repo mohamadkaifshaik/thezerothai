@@ -1,0 +1,310 @@
+name: Release prod
+
+# Tag v* (push, or workflow_dispatch run against that tag ref) -> build &
+# push image -> deploy to prod Cloud Run with --no-traffic --tag rc -> smoke
+# test the rc URL.
+# Traffic is NEVER shifted by this first job. Shifting 10% then 100% each
+# require a human approval via a GitHub Environment (see manual setup notes)
+# AND a recorded `VERDICT: GO` from production-reviewer in docs/reviews/.
+# See release-rollout skill + CLAUDE.md rule: "Never shift prod traffic
+# without a passing production-reviewer verdict."
+#
+# Security note (M5/N7): there is deliberately no free-text `tag` input on
+# workflow_dispatch — that let any collaborator with write access type an
+# arbitrary string. Instead the workflow reads `github.ref_name` /
+# `github.ref_type` directly: for `push` it's always the pushed tag; for
+# `workflow_dispatch` the operator must pick a tag ref from GitHub's own
+# ref selector (a branch selection is rejected in the first step). The
+# resolved tag is validated against ^v[0-9]+\.[0-9]+\.[0-9]+$ in the very
+# first step, and every subsequent use of it is via `env:` indirection
+# (shell variable expansion), never spliced directly into a `run:` script
+# via `${{ }}` — so it can't perform script injection against the
+# prod-WIF-authenticated steps that follow.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  KO_GO_PATH: ./cmd/api
+
+jobs:
+  build-and-stage:
+    name: Build image, deploy --no-traffic --tag rc, smoke test
+    runs-on: ubuntu-latest
+    environment: prod
+    outputs:
+      rc_url: ${{ steps.rc_url.outputs.url }}
+      tag: ${{ steps.tagname.outputs.tag }}
+    steps:
+      - name: Resolve + validate release tag
+        id: tagname
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          # N7: no manual tag input — a workflow_dispatch run must itself be
+          # targeted at a tag ref (pick it in GitHub's "Use workflow from"
+          # ref selector). Reject anything dispatched against a branch.
+          if [ "${REF_TYPE}" != "tag" ]; then
+            echo "::error::This workflow must run from a tag ref (got ref_type='${REF_TYPE}', ref_name='${REF_NAME}'). For workflow_dispatch, select a tag under 'Use workflow from', not a branch."
+            exit 1
+          fi
+          tag="${REF_NAME}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '${tag}' does not match ^v[0-9]+.[0-9]+.[0-9]+\$ — refusing to release."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tagname.outputs.tag }}
+
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
+          create_credentials_file: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          # Latest 1.26 patch (stdlib security fixes); go.mod only states the minimum language version.
+          go-version: "1.26.x"
+          check-latest: true
+
+      - uses: ko-build/setup-ko@v0.9
+
+      - name: Build + push image with ko
+        id: build
+        working-directory: backend
+        env:
+          KO_DOCKER_REPO: ${{ vars.PROD_ARTIFACT_REGISTRY_URL }}
+          RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
+        run: |
+          digest=$(ko build "${{ env.KO_GO_PATH }}" --bare -t "${RELEASE_TAG}")
+          echo "image=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Firestore rules + indexes (must be READY before code needs them)
+        if: hashFiles('firebase.json') != ''
+        run: |
+          npm install -g firebase-tools@13
+          firebase deploy --only firestore:rules,firestore:indexes \
+            --project "${{ vars.PROD_PROJECT_ID }}" --non-interactive
+
+      - name: Deploy Cloud Run revision (NO TRAFFIC, tagged rc)
+        run: |
+          gcloud run deploy "${{ vars.PROD_SERVICE_NAME }}" \
+            --project="${{ vars.PROD_PROJECT_ID }}" \
+            --region="${{ vars.PROD_REGION }}" \
+            --image="${{ steps.build.outputs.image }}" \
+            --no-traffic --tag=rc \
+            --quiet
+
+      - name: Resolve rc revision URL
+        id: rc_url
+        run: |
+          url=$(gcloud run services describe "${{ vars.PROD_SERVICE_NAME }}" \
+            --project="${{ vars.PROD_PROJECT_ID }}" \
+            --region="${{ vars.PROD_REGION }}" \
+            --format='value(status.traffic.filter(tag:rc).first().url)')
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          echo "rc revision: ${url}"
+
+      - name: Smoke test rc revision (/healthz)
+        run: |
+          curl -fsS --retry 5 --retry-delay 5 "${{ steps.rc_url.outputs.url }}/healthz"
+
+      # N6: build the web artifact here, BEFORE any prod traffic shift and
+      # before the manual GO gates — a broken web build should fail the
+      # release early, and promote-100 must never build from source after
+      # traffic has already moved to rc. promote-100 only downloads this
+      # artifact and deploys it.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+
+      - name: flutter build web
+        working-directory: app
+        env:
+          # Web calls the API via the Firebase Hosting `/api/**` rewrite, not
+          # the raw Cloud Run URL — same-origin, no CORS needed.
+          API_BASE_URL: /api
+          RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          flutter build web --release \
+            --dart-define=USE_EMULATORS=false \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build-${{ steps.tagname.outputs.tag }}
+          path: app/build/web
+          retention-days: 7
+
+  promote-10:
+    name: "Manual GO required: shift 10% traffic to rc"
+    needs: build-and-stage
+    runs-on: ubuntu-latest
+    environment: production-traffic-10 # GitHub Environment with required reviewers (manual setup, see runbooks)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require a recorded production-reviewer GO verdict
+        env:
+          RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}
+        run: |
+          f="docs/reviews/release-${RELEASE_TAG}-readiness.md"
+          if [ ! -f "$f" ]; then
+            echo "::error::Missing $f — production-reviewer must record VERDICT: GO before traffic can shift."
+            exit 1
+          fi
+          grep -q "VERDICT: GO" "$f" || { echo "::error::$f does not contain 'VERDICT: GO'"; exit 1; }
+
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Shift 10% traffic to rc
+        run: |
+          gcloud run services update-traffic "${{ vars.PROD_SERVICE_NAME }}" \
+            --project="${{ vars.PROD_PROJECT_ID }}" \
+            --region="${{ vars.PROD_REGION }}" \
+            --to-tags=rc=10
+
+      - name: Watch reminder
+        run: |
+          echo "::notice::10% of traffic is now on rc. Watch 5xx ratio, p95 latency and Error Reporting for ~15 minutes before approving the 100% promotion job."
+
+  promote-100:
+    name: "Manual approval required: shift 100% traffic to rc"
+    needs: [build-and-stage, promote-10]
+    runs-on: ubuntu-latest
+    environment: production-traffic-100 # separate GitHub Environment approval — a second, deliberate human decision
+    steps:
+      - name: Auth to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Shift 100% traffic to latest (rc becomes stable)
+        run: |
+          gcloud run services update-traffic "${{ vars.PROD_SERVICE_NAME }}" \
+            --project="${{ vars.PROD_PROJECT_ID }}" \
+            --region="${{ vars.PROD_REGION }}" \
+            --to-latest
+
+      # N6: the web app was already built (from this exact tag) in
+      # build-and-stage, BEFORE the traffic shift — this job only downloads
+      # that artifact and deploys it. It never builds from source here.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-build-${{ needs.build-and-stage.outputs.tag }}
+          path: app/build/web
+
+      - name: Deploy web (Firebase Hosting, prod)
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
+        run: |
+          npm install -g firebase-tools@13
+          firebase deploy --only hosting --project "${FIREBASE_PROJECT_ID}" --non-interactive
+
+  build-android:
+    name: Build Android AAB
+    needs: build-and-stage
+    # N1: hashFiles() cannot be used in a job-level `if:` (only step-level) —
+    # it fails to parse there. app/pubspec.yaml is committed, so this job
+    # always runs; the Flutter build step itself would fail loudly if it ever
+    # went missing, which is the desired behavior (no silent skip).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+
+      - name: flutter build appbundle
+        working-directory: app
+        env:
+          # Mobile talks to Cloud Run directly (no Hosting rewrite available).
+          API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
+          RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          flutter build appbundle --release \
+            --dart-define=USE_EMULATORS=false \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-aab-${{ needs.build-and-stage.outputs.tag }}
+          path: app/build/app/outputs/bundle/release/*.aab
+          retention-days: 30
+
+  build-ios:
+    name: Build iOS (release tags only — macOS runners are expensive)
+    needs: build-and-stage
+    # N1: hashFiles() cannot be used in a job-level `if:` — see build-android.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+
+      - name: flutter build ios (no codesign — TestFlight signing is a separate, documented step)
+        working-directory: app
+        env:
+          # Mobile talks to Cloud Run directly (no Hosting rewrite available).
+          API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
+          RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=USE_EMULATORS=false \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+  rollback-notice:
+    name: Rollback command (informational, runs if promotion fails)
+    needs: [promote-10, promote-100]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::Release failed after a traffic shift. See docs/runbooks/rollback.md."
+          echo "gcloud run services update-traffic ${{ vars.PROD_SERVICE_NAME }} --project=${{ vars.PROD_PROJECT_ID }} --region=${{ vars.PROD_REGION }} --to-revisions=<previous-revision>=100"

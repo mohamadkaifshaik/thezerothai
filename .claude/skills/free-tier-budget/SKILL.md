@@ -62,7 +62,7 @@ Reference numbers for Stage 0 planning (update from real metrics once live):
   `nomedia` stops issuing upload URLs. Flip with `gcloud run services update api --update-env-vars DEGRADED_MODE=readonly`
   (runbook `docs/runbooks/cost-spike.md`). Optional: a tiny Cloud Run function on `billing-alerts` flips it automatically at 100%.
 - **Hard stop (last resort, human decision only):** detaching billing stops everything and can lead to resource deletion. Never automate.
-- **Vision quota counter:** `admin/visionUsage/{yyyymm}` incremented per call; stop at 950 and fall back to report-driven moderation.
+- **Vision counter:** `admin/vision-{yyyymm}` incremented per call. Every image is screened (paid past the free 1,000/month, ADR-0005); stop at `VISION_MONTHLY_CAP` (default 10,000) and fall back to report-driven moderation.
 - The `cost-guard` hook blocks fixed-cost Terraform resources unless the line carries `# cost-approved: ADR-NNNN`.
 
 ## 5. Watching usage (free)

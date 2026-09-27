@@ -1,0 +1,191 @@
+//
+//  Generated code. Do not modify.
+//  source: dzeroth/identity/v1/identity.proto
+//
+
+import "package:connectrpc/connect.dart" as connect;
+import "identity.pb.dart" as dzerothidentityv1identity;
+import "identity.connect.spec.dart" as specs;
+
+extension type IdentityServiceClient (connect.Transport _transport) {
+  /// Creates the caller's profile after Firebase sign-up. Idempotent by uid: a replay returns the existing profile.
+  /// Transaction: read users/{uid} + handles/{h}; create users, handles, graph.
+  /// Firestore: reads 2/2, writes 3/3.
+  Future<dzerothidentityv1identity.CreateProfileResponse> createProfile(
+    dzerothidentityv1identity.CreateProfileRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.createProfile,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Handle availability check for the sign-up form. In-memory rate limited (10/min/uid).
+  /// Firestore: reads 1/1, writes 0.
+  Future<dzerothidentityv1identity.CheckHandleAvailabilityResponse> checkHandleAvailability(
+    dzerothidentityv1identity.CheckHandleAvailabilityRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.checkHandleAvailability,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
+  /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
+  /// 1,000 matches, cached 30 s).
+  /// Firestore: reads 2/1, writes 0.
+  Future<dzerothidentityv1identity.GetMeResponse> getMe(
+    dzerothidentityv1identity.GetMeRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.getMe,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Public profile by id or handle. Returns NOT_FOUND if the profile blocks the caller (no existence leak).
+  /// Reads: handles (if by handle) + users + target graph (blocked-by check) + caller graph; all instance-cached 60 s.
+  /// Firestore: reads 4/0-1, writes 0.
+  Future<dzerothidentityv1identity.GetProfileResponse> getProfile(
+    dzerothidentityv1identity.GetProfileRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.getProfile,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
+  /// A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
+  /// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
+  /// A change to is_private enqueues the visibility job (writes = author's post count; limited to 1 toggle/day).
+  /// Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
+  Future<dzerothidentityv1identity.UpdateProfileResponse> updateProfile(
+    dzerothidentityv1identity.UpdateProfileRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.updateProfile,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
+  /// Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.
+  /// Firestore: reads 2/2, writes 2/2 + deletes 1/1 (+ async snapshot job).
+  Future<dzerothidentityv1identity.ChangeHandleResponse> changeHandle(
+    dzerothidentityv1identity.ChangeHandleRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.changeHandle,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Irreversible account deletion. Requires a recent sign-in (ID token auth_time < 5 min).
+  /// Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
+  /// document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
+  /// Firestore (sync part): reads 1/1, writes 1/1.
+  Future<dzerothidentityv1identity.DeleteAccountResponse> deleteAccount(
+    dzerothidentityv1identity.DeleteAccountRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.deleteAccount,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Starts a data export (1/day/user). Doc id = hash(uid, idempotency_key) so a replay returns the same export.
+  /// Firestore: reads 1/1 (quotas), writes 2/2 (exports doc + quotas).
+  Future<dzerothidentityv1identity.RequestAccountExportResponse> requestAccountExport(
+    dzerothidentityv1identity.RequestAccountExportRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.requestAccountExport,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored).
+  /// Firestore: reads 1/1, writes 0.
+  Future<dzerothidentityv1identity.GetAccountExportResponse> getAccountExport(
+    dzerothidentityv1identity.GetAccountExportRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.IdentityService.getAccountExport,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+}
