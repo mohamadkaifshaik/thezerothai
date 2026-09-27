@@ -1,43 +1,57 @@
-# golangci-lint config (go-service skill). Run from backend/: `golangci-lint run ./...`.
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
 linters:
-  disable-all: true
+  default: none
   enable:
-    - govet
-    - staticcheck
-    - errcheck
-    - ineffassign
-    - unused
-    - gofmt
-    - goimports
-    - misspell
-    - dupl # reuse-first skill: flag copy-pasted blocks instead of extracting a shared helper
-    - gosec
     - bodyclose
-
-linters-settings:
-  dupl:
-    threshold: 100
-  gosec:
-    excludes:
-      - G404 # math/rand is fine for non-cryptographic jitter/backoff; crypto/rand used where it matters (snowflake node id, cursor HMAC key handling)
-  errcheck:
-    exclude-functions:
-      - (*log/slog.Logger).Info
-      - (*log/slog.Logger).Warn
-
+    - dupl
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  settings:
+    dupl:
+      threshold: 100
+    errcheck:
+      exclude-functions:
+        - (*log/slog.Logger).Info
+        - (*log/slog.Logger).Warn
+    gosec:
+      excludes:
+        - G404
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - all
+        path: gen/
+      - linters:
+          - dupl
+          - gosec
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    # Generated code is never hand-edited or linted (ADR-0002).
-    - path: gen/
-      linters:
-        - all
-    - path: _test\.go
-      linters:
-        - dupl
-        - gosec
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

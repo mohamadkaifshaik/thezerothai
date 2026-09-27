@@ -51,12 +51,12 @@ variable "cors_origins" {
 
 variable "android_package_name" {
   type    = string
-  default = "ai.thezeroth.app"
+  default = "com.dzeroth.dzeroth"
 }
 
 variable "ios_bundle_id" {
   type    = string
-  default = "ai.thezeroth.app"
+  default = "com.dzeroth.dzeroth"
 }
 
 variable "hosting_site_id" {
@@ -73,11 +73,11 @@ variable "image" {
 variable "budget_amount" {
   description = "Monthly budget in budget_currency_code units (~$5 at Stage 0)."
   type        = number
-  default     = 5
+  default     = 500
 }
 
 variable "budget_currency_code" {
   description = "Must equal the billing account currency (gcloud billing accounts describe ... --format='value(currencyCode)')."
   type        = string
-  default     = "USD"
+  default     = "INR" # this billing account bills in INR
 }

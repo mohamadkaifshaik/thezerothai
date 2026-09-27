@@ -4,7 +4,6 @@
 package pubsubpush
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -56,8 +55,8 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 // topics (post-delete, account-delete, profile-snapshot-refresh, ...) are implemented by their owning
 // modules; keeps the route present (and OIDC-checked) from day one.
 func PlaceholderHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// No body: echoing r.URL.Path back would reflect attacker-controlled input (gosec G705).
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = fmt.Fprintf(w, "no handler registered for %s yet\n", r.URL.Path)
 	})
 }
