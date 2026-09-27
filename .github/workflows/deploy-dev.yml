@@ -19,7 +19,8 @@ concurrency:
   cancel-in-progress: false # never cancel a deploy mid-flight
 
 env:
-  KO_GO_PATH: ./cmd/api
+  # Not KO_GO_PATH: ko reads that variable as the path to the `go` binary.
+  API_MAIN_PKG: ./cmd/api
 
 jobs:
   deploy:
@@ -67,7 +68,7 @@ jobs:
           KO_DOCKER_REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          digest=$(ko build "${{ env.KO_GO_PATH }}" --bare -t "${IMAGE_TAG}")
+          digest=$(ko build "${API_MAIN_PKG}" --bare -t "${IMAGE_TAG}")
           echo "image=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Firestore rules + indexes
