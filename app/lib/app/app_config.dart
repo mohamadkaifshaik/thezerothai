@@ -21,6 +21,9 @@ import 'package:flutter/foundation.dart';
 /// Release mobile builds have no safe default for [apiBaseUrl] — see
 /// [resolveApiBaseUrl] — so CI/release tooling must always pass
 /// `--dart-define=API_BASE_URL=https://...`.
+/// Firebase project a build is wired to (see `lib/firebase_options*.dart`).
+enum FirebaseEnv { dev, prod }
+
 @immutable
 class AppConfig {
   const AppConfig({
@@ -32,6 +35,7 @@ class AppConfig {
     required this.googleWebClientId,
     required this.appleServiceId,
     required this.appleRedirectUri,
+    required this.firebaseEnv,
   });
 
   /// Base URL of the Connect-RPC API (Cloud Run `api` service, or its local
@@ -67,6 +71,11 @@ class AppConfig {
   /// that completes the OAuth flow — not part of this Flutter app).
   final String appleRedirectUri;
 
+  /// Which Firebase project the build talks to: `dev` (dzeroth-dev, the
+  /// default) or `prod` (dzeroth-prod). Set by release tooling with
+  /// `--dart-define=FIREBASE_ENV=prod`; see [resolveFirebaseEnv].
+  final FirebaseEnv firebaseEnv;
+
   static AppConfig fromEnvironment() {
     // `!kReleaseMode` is itself a compile-time constant expression (kReleaseMode
     // is `const bool.fromEnvironment('dart.vm.product')`), so this stays
@@ -86,7 +95,9 @@ class AppConfig {
     const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
     const appleServiceId = String.fromEnvironment('APPLE_SERVICE_ID');
     const appleRedirectUri = String.fromEnvironment('APPLE_REDIRECT_URI');
+    const definedFirebaseEnv = String.fromEnvironment('FIREBASE_ENV');
 
+    final firebaseEnv = resolveFirebaseEnv(definedFirebaseEnv);
     final apiBaseUrl = resolveApiBaseUrl(
       definedApiBaseUrl: definedApiBaseUrl,
       releaseMode: kReleaseMode,
@@ -102,7 +113,27 @@ class AppConfig {
       googleWebClientId: googleWebClientId,
       appleServiceId: appleServiceId,
       appleRedirectUri: appleRedirectUri,
+      firebaseEnv: firebaseEnv,
     );
+  }
+
+  /// Maps `--dart-define=FIREBASE_ENV=...` to a [FirebaseEnv]. Empty means
+  /// [FirebaseEnv.dev]; anything other than `dev`/`prod` throws
+  /// [AppConfigError], so a typo can never silently ship a prod build wired
+  /// to the dev project (or the reverse).
+  @visibleForTesting
+  static FirebaseEnv resolveFirebaseEnv(String definedFirebaseEnv) {
+    switch (definedFirebaseEnv) {
+      case '':
+      case 'dev':
+        return FirebaseEnv.dev;
+      case 'prod':
+        return FirebaseEnv.prod;
+      default:
+        throw AppConfigError(
+          'Unknown FIREBASE_ENV "$definedFirebaseEnv" (expected dev or prod).',
+        );
+    }
   }
 
   /// Resolves [apiBaseUrl] from an explicit `--dart-define=API_BASE_URL=...`

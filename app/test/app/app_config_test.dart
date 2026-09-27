@@ -66,16 +66,32 @@ void main() {
     });
   });
 
-  group('AppConfig.fromEnvironment', () {
-    test(
-      'defaults useEmulators to true and apiBaseUrl to localhost:8081 '
-      'when nothing is passed (flutter test runs in non-release mode)',
-      () {
-        final config = AppConfig.fromEnvironment();
+  group('AppConfig.resolveFirebaseEnv', () {
+    test('empty and "dev" map to dev', () {
+      expect(AppConfig.resolveFirebaseEnv(''), FirebaseEnv.dev);
+      expect(AppConfig.resolveFirebaseEnv('dev'), FirebaseEnv.dev);
+    });
 
-        expect(config.useEmulators, isTrue);
-        expect(config.apiBaseUrl, 'http://localhost:8081');
-      },
-    );
+    test('"prod" maps to prod', () {
+      expect(AppConfig.resolveFirebaseEnv('prod'), FirebaseEnv.prod);
+    });
+
+    test('anything else throws AppConfigError instead of guessing', () {
+      expect(
+        () => AppConfig.resolveFirebaseEnv('production'),
+        throwsA(isA<AppConfigError>()),
+      );
+    });
+  });
+
+  group('AppConfig.fromEnvironment', () {
+    test('defaults useEmulators to true and apiBaseUrl to localhost:8081 '
+        'when nothing is passed (flutter test runs in non-release mode)', () {
+      final config = AppConfig.fromEnvironment();
+
+      expect(config.useEmulators, isTrue);
+      expect(config.apiBaseUrl, 'http://localhost:8081');
+      expect(config.firebaseEnv, FirebaseEnv.dev);
+    });
   });
 }

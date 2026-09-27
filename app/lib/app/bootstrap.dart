@@ -17,14 +17,16 @@ import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
-import '../firebase_options.dart';
+import '../firebase_options.dart' as dev_firebase;
+import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
 import 'app_widget.dart';
 
 /// Entry point for every flavor/target. Initializes Firebase + App Check,
 /// wires the API client and repositories, bridges `AuthBloc` state into
-/// `OnboardingBloc`, and runs the app — or a friendly "not configured"
-/// screen if `firebase_options.dart` is still the placeholder.
+/// `OnboardingBloc`, and runs the app — or a friendly error screen if the
+/// build's dart-defines are invalid. The Firebase project is chosen by
+/// `--dart-define=FIREBASE_ENV=dev|prod` (default dev).
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -39,7 +41,12 @@ Future<void> bootstrap() async {
     return;
   }
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(
+    options: switch (config.firebaseEnv) {
+      FirebaseEnv.dev => dev_firebase.DefaultFirebaseOptions.currentPlatform,
+      FirebaseEnv.prod => prod_firebase.DefaultFirebaseOptions.currentPlatform,
+    },
+  );
 
   if (config.useEmulators) {
     await fb_auth.FirebaseAuth.instance.useAuthEmulator(
