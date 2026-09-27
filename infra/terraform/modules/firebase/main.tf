@@ -45,6 +45,21 @@ resource "google_firebase_hosting_site" "default" {
   depends_on = [google_firebase_project.default]
 }
 
+// Custom domains on the Hosting site: $0, with a managed TLS certificate on the same CDN. DNS
+// for dzeroth.com lives at Squarespace, which has no API, so records are added by hand from the
+// `custom_domain_dns_records` output. wait_dns_verification = false keeps `apply` from blocking
+// while DNS propagates; Hosting keeps checking and issues the certificate once records resolve.
+resource "google_firebase_hosting_custom_domain" "this" {
+  provider = google-beta
+  for_each = var.custom_domains
+
+  project               = var.project_id
+  site_id               = google_firebase_hosting_site.default.site_id
+  custom_domain         = each.key
+  redirect_target       = each.value.redirect_to
+  wait_dns_verification = false
+}
+
 // App Check: register the web app for reCAPTCHA v3 enforcement, once a site
 // key/secret exists (register at https://www.google.com/recaptcha/admin
 // first — a one-time manual step, see handoff notes). Disabled by default so

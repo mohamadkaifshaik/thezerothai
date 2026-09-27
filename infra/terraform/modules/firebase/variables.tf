@@ -33,3 +33,11 @@ variable "recaptcha_v3_site_secret" {
   default     = ""
   sensitive   = true
 }
+
+variable "custom_domains" {
+  description = "Custom domains for the Hosting site: domain => { redirect_to = null (serve the site) or another domain to 301 to }."
+  type = map(object({
+    redirect_to = optional(string)
+  }))
+  default = {}
+}

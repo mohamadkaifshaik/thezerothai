@@ -184,5 +184,11 @@ module "firebase" {
   ios_bundle_id        = var.ios_bundle_id
   hosting_site_id      = var.hosting_site_id
 
+  # dev.dzeroth.com serves the dev web app. DNS is at Squarespace (manual); see the
+  # custom_domain_dns_records output and docs/runbooks/cloud-bootstrap.md section 7.
+  custom_domains = {
+    "dev.dzeroth.com" = {}
+  }
+
   depends_on = [module.project_services]
 }

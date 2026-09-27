@@ -37,3 +37,12 @@ output "hosting_default_url" {
 output "firestore_location" {
   value = module.firestore.location
 }
+
+output "custom_domain_dns_records" {
+  description = "DNS records to create at the registrar (Squarespace) for each custom domain."
+  value       = module.firebase.custom_domain_dns_records
+}
+
+output "custom_domain_status" {
+  value = module.firebase.custom_domain_status
+}
