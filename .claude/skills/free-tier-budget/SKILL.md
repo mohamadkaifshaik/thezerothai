@@ -23,7 +23,8 @@ Google says these "do not expire, but are subject to change" — re-verify every
 | Cloud Logging | 50 GiB/project/month | don't log request bodies |
 | Compute Engine | 1 e2-micro in us-west1/us-central1/us-east1, 30 GB disk, 1 GB egress | **not used** at Stage 0 (see ADR-0001 option B) |
 | Firebase Auth | Email, Google, Apple sign-in at no cost at our scale | **Phone/SMS OTP is billed per SMS — do not enable** |
-| FCM, Crashlytics, App Check (Play Integrity / App Attest / reCAPTCHA v3) | no cost at our scale | Play Integrity has a daily call quota |
+| FCM, Crashlytics, App Check (Play Integrity / App Attest) | no cost at our scale | Play Integrity has a daily call quota |
+| reCAPTCHA / Fraud Defense (web App Check) | 10,000 assessments/month per organization | **then a flat $8/month** (10k–100k), $0.001 each beyond. Classic v3 is gone. **Not used at Stage 0** (ADR-0006 amendment) |
 | Firebase Hosting | 10 GB stored, 360 MB/day transfer | web app only; API traffic via rewrite counts too |
 
 ## 2. Budget method (required in every plan and ADR)

@@ -60,20 +60,7 @@ resource "google_firebase_hosting_custom_domain" "this" {
   wait_dns_verification = false
 }
 
-// App Check: register the web app for reCAPTCHA v3 enforcement, once a site
-// key/secret exists (register at https://www.google.com/recaptcha/admin
-// first — a one-time manual step, see handoff notes). Disabled by default so
-// bootstrap `apply` doesn't require a secret that can't exist yet.
-// Android (Play Integrity) / iOS (App Attest) providers are attached
-// client-side via the Firebase SDK + console toggle; those Terraform
-// resources need enrollment tokens that don't exist until the client apps
-// first build, so they stay a manual console step too.
-resource "google_firebase_app_check_recaptcha_v3_config" "web" {
-  count = var.enable_recaptcha_app_check ? 1 : 0
-
-  provider    = google-beta
-  project     = var.project_id
-  app_id      = google_firebase_web_app.default.app_id
-  site_secret = var.recaptcha_v3_site_secret
-  token_ttl   = "3600s"
-}
+// App Check: web is deferred at Stage 0 (ADR-0006 amendment 2026-09-27). reCAPTCHA Classic can't be created
+// any more, and reCAPTCHA Enterprise (Fraud Defense) is a flat $8/month past 10k assessments. When revisited:
+// google_recaptcha_enterprise_key + google_firebase_app_check_recaptcha_enterprise_config (1-day token_ttl).
+// Android (Play Integrity) / iOS (App Attest) are registered in the App Check console once store builds exist.
