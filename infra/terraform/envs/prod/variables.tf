@@ -81,3 +81,19 @@ variable "budget_currency_code" {
   type        = string
   default     = "INR" # this billing account bills in INR
 }
+
+# Find with: gcloud services api-keys list --project=<project_id> --format="table(uid,displayName)"
+variable "browser_key_uid" {
+  description = "UID of the Firebase-auto-created browser API key (security audit M3)."
+  type        = string
+}
+
+variable "android_key_uid" {
+  description = "UID of the Firebase-auto-created Android API key (security audit M3)."
+  type        = string
+}
+
+variable "ios_key_uid" {
+  description = "UID of the Firebase-auto-created iOS API key (security audit M3)."
+  type        = string
+}

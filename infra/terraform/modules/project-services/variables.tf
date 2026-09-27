@@ -16,6 +16,7 @@ variable "services" {
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "apikeys.googleapis.com", # manage the Firebase-auto-created API keys (security audit M3)
     "sts.googleapis.com",
     "vision.googleapis.com",
     "firebase.googleapis.com",

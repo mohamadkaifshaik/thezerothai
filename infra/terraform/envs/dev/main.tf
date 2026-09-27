@@ -192,3 +192,74 @@ module "firebase" {
 
   depends_on = [module.project_services]
 }
+
+// Security audit M3: restrict the three Firebase-auto-created API keys
+// (imported by UID, see import_apikeys.tf) instead of leaving them open to
+// any referrer/app/API. See docs/runbooks/cloud-bootstrap.md section 9.
+module "apikeys" {
+  source         = "../../modules/apikeys"
+  project_number = data.google_project.this.number
+
+  browser_key_uid = var.browser_key_uid
+  android_key_uid = var.android_key_uid
+  ios_key_uid     = var.ios_key_uid
+
+  # dev.dzeroth.com is the real domain; the *.web.app / *.firebaseapp.com
+  # fallbacks stay allowed (Firebase Auth's popup/iframe runs on
+  # firebaseapp.com, and .web.app is the Hosting default URL). localhost
+  # entries are dev-only, for `flutter run -d chrome` / `flutter build web`
+  # served locally -- ports match cors_origins' default
+  # (http://localhost:5000, http://localhost:8080).
+  #
+  # NOTE: "http://localhost:*" (a port wildcard) does NOT work -- verified
+  # live against identitytoolkit 2026-09-27: it returns
+  # API_KEY_HTTP_REFERRER_BLOCKED for http://localhost:5000/, same as an
+  # origin not in the list at all. Google's referrer matcher only wildcards
+  # a trailing path segment (the "/*" suffix seen on every other entry here),
+  # not a port number -- list every dev port explicitly instead.
+  browser_allowed_referrers = [
+    "https://dev.dzeroth.com/*",
+    "https://dzeroth-dev.web.app/*",
+    "https://dzeroth-dev.firebaseapp.com/*",
+    "http://localhost:5000/*",
+    "http://localhost:8080/*",
+  ]
+
+  # Baseline every Firebase app needs (Identity Toolkit + Token Service for
+  # Auth, Installations for anonymous install IDs — required by App Check,
+  # which Android/iOS activate; harmless, no PII, if unused). Everything else
+  # Firebase auto-added (Firestore, Realtime DB, Storage, ML Kit, Remote
+  # Config, sqladmin, ...) is dropped: the app's pubspec.yaml only depends on
+  # firebase_core + firebase_auth + firebase_app_check (verified against
+  # app/pubspec.yaml and app/lib/app/bootstrap.dart 2026-09-27) — Firestore is
+  # server-side only (Go Admin SDK), and media uploads go straight to plain
+  # GCS via signed URLs, never through the Firebase Storage SDK.
+  browser_api_targets = [
+    "identitytoolkit.googleapis.com",
+    "securetoken.googleapis.com",
+    "firebaseinstallations.googleapis.com",
+  ]
+
+  # Same baseline plus App Check: Android/iOS call FirebaseAppCheck.activate()
+  # with real attestation providers in release builds (bootstrap.dart) —
+  # unlike web, which defers App Check until a reCAPTCHA Enterprise key exists
+  # (ADR-0006 amendment).
+  android_api_targets = [
+    "identitytoolkit.googleapis.com",
+    "securetoken.googleapis.com",
+    "firebaseinstallations.googleapis.com",
+    "firebaseappcheck.googleapis.com",
+  ]
+  ios_api_targets = [
+    "identitytoolkit.googleapis.com",
+    "securetoken.googleapis.com",
+    "firebaseinstallations.googleapis.com",
+    "firebaseappcheck.googleapis.com",
+  ]
+
+  ios_bundle_id = var.ios_bundle_id
+  # android_allowed_applications left at its default ([]): no Play Console
+  # signing cert yet. See docs/runbooks/cloud-bootstrap.md section 9.
+
+  depends_on = [module.project_services]
+}

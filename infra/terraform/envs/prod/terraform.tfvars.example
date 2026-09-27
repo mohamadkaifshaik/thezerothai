@@ -33,3 +33,8 @@ hosting_site_id = "dzeroth-prod"
 # Must match the billing account currency; ~US$5.
 budget_amount        = 500
 budget_currency_code = "INR"
+
+# From: gcloud services api-keys list --project=dzeroth-prod --format="table(uid,displayName)"
+browser_key_uid = "00000000-0000-0000-0000-000000000000" # Browser key (auto created by Firebase)
+android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto created by Firebase)
+ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created by Firebase)

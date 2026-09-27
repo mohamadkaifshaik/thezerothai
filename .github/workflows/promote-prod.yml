@@ -159,6 +159,29 @@ jobs:
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
           echo "Verified rc revision ${revision} (image ${image}) matches tag ${RELEASE_TAG}"
 
+      # Deliberately no `working-directory:` here — firebase-tools reads
+      # firebase.json from the step's cwd with no upward directory search, so
+      # this must run from $GITHUB_WORKSPACE (repo root), which is where the
+      # real firebase.json (firestore/hosting config) lives. app/firebase.json
+      # is a separate, flutterfire-generated file that only has a "flutter"
+      # key — running from app/ would silently no-op or fail.
+      #
+      # Security audit L5: this MUST run before either traffic shift below
+      # (stage 10 or 100), not just before stage 100 — indexes have to be
+      # READY before the rc revision serves any live traffic, not only before
+      # it serves all of it. release-prod.yml already deployed the same
+      # rules/indexes for this tag before staging the rc revision, so this is
+      # normally a fast, idempotent no-op; it's a safety net if promotion
+      # happens before that had time to finish building, or if rules/indexes
+      # changed since (they shouldn't, for a tag that's already built).
+      - name: Deploy Firestore rules + indexes (must be READY before any traffic shifts)
+        env:
+          FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
+        run: |
+          npm install -g firebase-tools@15
+          firebase deploy --only firestore:rules,firestore:indexes \
+            --project "${FIREBASE_PROJECT_ID}" --non-interactive
+
       - name: Shift 10% traffic to the verified revision
         if: steps.stage.outputs.stage == '10'
         env:
@@ -235,17 +258,21 @@ jobs:
       # step above, which needs `working-directory: app`) — firebase-tools
       # reads firebase.json from the step's cwd with no upward directory
       # search, so this must run from $GITHUB_WORKSPACE (repo root), where
-      # the real firebase.json (hosting.public: app/build/web, firestore,
-      # storage config) lives. app/firebase.json is a separate,
-      # flutterfire-generated file that only has a "flutter" key — running
-      # this from app/ would fail with "No targets in firebase.json match".
-      - name: Deploy web + Firestore rules/indexes (Firebase, prod)
+      # the real firebase.json (hosting.public: app/build/web) lives.
+      # app/firebase.json is a separate, flutterfire-generated file that only
+      # has a "flutter" key — running this from app/ would fail with "No
+      # targets in firebase.json match". firebase-tools is already installed
+      # by the rules/indexes step above, in the same job.
+      #
+      # Hosting only (security audit L5): Firestore rules/indexes were
+      # already deployed above, before any traffic moved. Hosting itself is
+      # deliberately never deployed before the 100% stage.
+      - name: Deploy web (Firebase Hosting, prod)
         if: steps.stage.outputs.stage == '100'
         env:
           FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
         run: |
-          npm install -g firebase-tools@15
-          firebase deploy --only hosting,firestore:rules,firestore:indexes \
+          firebase deploy --only hosting \
             --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
       - name: Rollback command (if this promotion needs to be undone)
