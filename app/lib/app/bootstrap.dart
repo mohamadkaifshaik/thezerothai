@@ -55,20 +55,7 @@ Future<void> bootstrap() async {
     );
   }
 
-  final debugToken = config.appCheckDebugToken.isEmpty
-      ? null
-      : config.appCheckDebugToken;
-  await FirebaseAppCheck.instance.activate(
-    providerAndroid: kDebugMode
-        ? AndroidDebugProvider(debugToken: debugToken)
-        : const AndroidPlayIntegrityProvider(),
-    providerApple: kDebugMode
-        ? AppleDebugProvider(debugToken: debugToken)
-        : const AppleAppAttestProvider(),
-    providerWeb: config.recaptchaSiteKey.isEmpty
-        ? null
-        : ReCaptchaV3Provider(config.recaptchaSiteKey),
-  );
+  await _activateAppCheck(config);
 
   final authRepository = AuthRepository();
   final apiClient = ApiClient(
@@ -113,6 +100,40 @@ Future<void> bootstrap() async {
   }
 
   runApp(AppWidget(authBloc: authBloc, onboardingBloc: onboardingBloc));
+}
+
+/// Activates App Check, but never lets it block startup.
+///
+/// On web, App Check needs a reCAPTCHA v3 site key: without one there is no
+/// valid provider, and the Firebase JS SDK throws from `initializeAppCheck`.
+/// Uncaught, that happens before `runApp` and leaves a white screen. So web
+/// skips App Check until `RECAPTCHA_SITE_KEY` is set. Any activation failure
+/// is logged and startup continues: the API runs App Check in monitor mode
+/// until it's proven (ADR-0006), and `AuthHeadersInterceptor` already sends
+/// no App Check header when no token is available.
+Future<void> _activateAppCheck(AppConfig config) async {
+  if (kIsWeb && config.recaptchaSiteKey.isEmpty) {
+    debugPrint('App Check: no RECAPTCHA_SITE_KEY, skipping on web.');
+    return;
+  }
+  final debugToken = config.appCheckDebugToken.isEmpty
+      ? null
+      : config.appCheckDebugToken;
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: kDebugMode
+          ? AndroidDebugProvider(debugToken: debugToken)
+          : const AndroidPlayIntegrityProvider(),
+      providerApple: kDebugMode
+          ? AppleDebugProvider(debugToken: debugToken)
+          : const AppleAppAttestProvider(),
+      providerWeb: config.recaptchaSiteKey.isEmpty
+          ? null
+          : ReCaptchaV3Provider(config.recaptchaSiteKey),
+    );
+  } catch (e) {
+    debugPrint('App Check activation failed; continuing without it: $e');
+  }
 }
 
 String _emulatorHost(String hostAndPort) => hostAndPort.split(':').first;

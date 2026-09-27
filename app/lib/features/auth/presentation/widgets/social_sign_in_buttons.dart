@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../app/app_config.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// Google + Apple sign-in buttons. Apple is only shown on iOS, macOS and web
@@ -18,10 +19,14 @@ class SocialSignInButtons extends StatelessWidget {
   final VoidCallback onGoogleTap;
   final VoidCallback onAppleTap;
 
-  bool get _showApple =>
-      kIsWeb ||
-      defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.macOS;
+  /// Web needs an Apple Services ID (`APPLE_SERVICE_ID`), otherwise the button
+  /// can only fail. Checked before the platform because on web
+  /// `defaultTargetPlatform` reports the browser's OS (macOS/iOS on Apple devices).
+  bool get _showApple {
+    if (kIsWeb) return AppConfig.appleSignInOnWebConfigured;
+    return defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
 
   @override
   Widget build(BuildContext context) {
