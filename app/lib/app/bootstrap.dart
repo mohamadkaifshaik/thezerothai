@@ -39,11 +39,6 @@ Future<void> bootstrap() async {
     return;
   }
 
-  if (!DefaultFirebaseOptions.isConfigured) {
-    runApp(const _FirebaseNotConfiguredApp());
-    return;
-  }
-
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   if (config.useEmulators) {
@@ -80,14 +75,12 @@ Future<void> bootstrap() async {
     database: database,
   );
 
-  final authBloc =
-      AuthBloc(
-          authRepository: authRepository,
-          googleWebClientId: config.googleWebClientId,
-          appleServiceId: config.appleServiceId,
-          appleRedirectUri: config.appleRedirectUri,
-        )
-        ..add(const AuthSubscriptionRequested());
+  final authBloc = AuthBloc(
+    authRepository: authRepository,
+    googleWebClientId: config.googleWebClientId,
+    appleServiceId: config.appleServiceId,
+    appleRedirectUri: config.appleRedirectUri,
+  )..add(const AuthSubscriptionRequested());
   final onboardingBloc = OnboardingBloc(identityRepository: identityRepository);
 
   // Bridge: OnboardingBloc reacts to sign-in/sign-out, but never talks to
@@ -142,37 +135,6 @@ class _ConfigErrorApp extends StatelessWidget {
                 const SizedBox(height: 16),
                 Text(
                   'Configuration error:\n\n$message',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FirebaseNotConfiguredApp extends StatelessWidget {
-  const _FirebaseNotConfiguredApp();
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.settings_suggest_outlined, size: 40),
-                SizedBox(height: 16),
-                Text(
-                  'Firebase is not configured yet.\n\n'
-                  'Run `flutterfire configure` to generate '
-                  'lib/firebase_options.dart, then restart the app.',
                   textAlign: TextAlign.center,
                 ),
               ],
