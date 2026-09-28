@@ -25,3 +25,6 @@ go.work
 go.work.sum
 # Git Bash / Cygwin crash dumps
 *.stackdump
+
+# Agent git worktrees (Claude Code isolation)
+.claude/worktrees/

@@ -91,6 +91,17 @@ Decision for Stage 0:
   `google_firebase_app_check_recaptcha_enterprise_config` in Terraform with a 1-day token TTL. The app switches to
   `ReCaptchaEnterpriseProvider` (already wired) by setting the `*_RECAPTCHA_SITE_KEY` repo variables. Then enforce.
 
+## Amendment 2026-09-28: pre-auth IP limit and client IP resolution (security audit M1/M2)
+- A **pre-auth per-IP token bucket** (`ratelimit.PreAuthIPMiddleware`, `RATE_LIMIT_PRE_AUTH_IP_PER_MIN`, default 120)
+  now wraps the whole mux as net/http middleware, ahead of the §2 Connect chain. Unauthenticated floods are
+  throttled before any JWT verification. `/health` is exempt. The §2 interceptor order itself is unchanged.
+- **Client IP:** the rightmost `X-Forwarded-For` entry (appended by Google's front end) is trusted. When that entry is a
+  Google-operated egress address (goog.json minus the customer-rentable cloud.json ranges, so it can't be spoofed
+  from a rented VM), the request came through Firebase Hosting and the next entry left is the client. Verified on dev,
+  2026-09-28: direct requests log `xff_hops=1 via_hosting=false`, Hosting requests `xff_hops=2 via_hosting=true`.
+- `CreateProfile` requires `email_verified` for password-provider accounts (audit H1). Google and Apple are exempt.
+- Request bodies are capped at 256 KiB (`connect.WithReadMaxBytes` + `http.MaxBytesHandler`).
+
 ## Handoff
 - backend-developer: `pkg/platform/authn` (ID token + App Check verifiers with cached JWKS, emulator mode via
   `FIREBASE_AUTH_EMULATOR_HOST`), `pkg/platform/ratelimit` (token buckets keyed by uid/IP, LRU-bounded),
