@@ -138,3 +138,10 @@ in GCS; Firebase Auth user deleted last. Export writes a JSON object to a privat
   `idempotencyKeys`, which do not exist in this model, and lacks `exports`); add `index_config {}` to those fields.
 - tester: emulator tests for replay of every mutating RPC (same key twice → same result, writes counted once), key
   reuse with a different body, quota rollover at IST midnight, account-delete resumption after a crash mid-batch.
+
+## Note 2026-09-28: see ADR-0008
+Cross-reference only; no decision above changes. ADR-0008 (social graph slice) adds to the model: `graph/{uid}.blockedBy[]`
+(≤ 10,000, never serialized or exported) and `graph/{uid}.blockedByOverflow` (bool); `quotas/{uid}.blocks` (Block + Mute).
+It defers private accounts, so `followRequests/*` and `graph.requested[]` get no writes until the `private-accounts`
+plan. It also fixes the graph counter invariants and the resumable graph purge (`graph.Eraser`) used by the
+`account-delete` job.

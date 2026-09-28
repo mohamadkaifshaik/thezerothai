@@ -113,3 +113,9 @@ Decision for Stage 0:
   (Play Integrity, App Attest/DeviceCheck; web deferred, see the 2026-09-27 amendment); push/scheduler SA with OIDC; cursor HMAC secret.
 - tester: tokens with wrong audience/issuer/expired, missing App Check, suspended account, per-uid bucket exhaustion,
   quota rollover, new-account quotas, forged `/internal` calls.
+
+## Note 2026-09-28: see ADR-0008
+Cross-reference only; no decision above changes. ADR-0008 D7 adds graph abuse limits as a follow-up to §3–§4: a
+`blocks` daily quota (Block + Mute, 200/day, 50 for new accounts), per-procedure buckets for graph RPCs, an in-memory
+daily cap on list RPCs, and CheckHandleAvailability at 20/min. ADR-0008 D9 is the block-semantics table that
+implements §6 ("NOT_FOUND for blocked-by"), and D6 defines the env-var feature-flag pattern.

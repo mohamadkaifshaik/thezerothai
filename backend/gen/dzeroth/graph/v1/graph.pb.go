@@ -10,6 +10,14 @@
 // Counters followers_count/following_count live on users/{uid} (identity) and are incremented in the same
 // Firestore batch through the identity module's interface (unit of work, ADR-0002).
 // Idempotency: follows/followRequests use deterministic doc ids (natural key), so Create() + AlreadyExists = replay.
+//
+// ADR-0008 (graph slice): private accounts and follow requests are deferred; there are no writes to
+// followRequests/* or graph.requested[] and FOLLOW_STATE_REQUESTED is unreachable until they ship.
+// Every GraphService RPC is behind the FEATURE_GRAPH server flag: when it is off for the caller the RPC returns
+// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads (clients learn the flag from
+// IdentityService.GetMe enabled_features).
+// Block semantics (ADR-0008 D9): if the target blocked the caller, target-facing RPCs behave exactly as for a missing
+// user (NOT_FOUND); GetRelationships and every other response never reveal who blocked the caller.
 
 package graphv1
 
@@ -36,7 +44,7 @@ const (
 	FollowState_FOLLOW_STATE_UNSPECIFIED FollowState = 0
 	FollowState_FOLLOW_STATE_NONE        FollowState = 1
 	FollowState_FOLLOW_STATE_FOLLOWING   FollowState = 2
-	// Pending approval by a private account.
+	// Pending approval by a private account. Unreachable until private accounts ship (ADR-0008 D1).
 	FollowState_FOLLOW_STATE_REQUESTED FollowState = 3
 )
 
@@ -153,9 +161,12 @@ func (x *Relationship) GetMuting() bool {
 
 // A user row in a list, with when the edge was created (unset for blocked/muted: stored as plain uid arrays).
 type UserListItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	User          *v1.AuthorSnapshot     `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
-	Since         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	User  *v1.AuthorSnapshot     `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Since *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
+	// The caller's relationship to `user`, computed from the caller's own graph (0 extra reads), so clients can render
+	// follow buttons on list rows without calling GetRelationships.
+	Relationship  *Relationship `protobuf:"bytes,3,opt,name=relationship,proto3" json:"relationship,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -200,6 +211,13 @@ func (x *UserListItem) GetUser() *v1.AuthorSnapshot {
 func (x *UserListItem) GetSince() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Since
+	}
+	return nil
+}
+
+func (x *UserListItem) GetRelationship() *Relationship {
+	if x != nil {
+		return x.Relationship
 	}
 	return nil
 }
@@ -1510,10 +1528,11 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12@\n" +
 	"\ffollow_state\x18\x02 \x01(\x0e2\x1d.dzeroth.graph.v1.FollowStateR\vfollowState\x12\x1a\n" +
 	"\bblocking\x18\x03 \x01(\bR\bblocking\x12\x16\n" +
-	"\x06muting\x18\x04 \x01(\bR\x06muting\"w\n" +
+	"\x06muting\x18\x04 \x01(\bR\x06muting\"\xbb\x01\n" +
 	"\fUserListItem\x125\n" +
 	"\x04user\x18\x01 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x04user\x120\n" +
-	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\"Q\n" +
+	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x12B\n" +
+	"\frelationship\x18\x03 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\"Q\n" +
 	"\rFollowRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"T\n" +
@@ -1661,49 +1680,50 @@ var file_dzeroth_graph_v1_graph_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.graph.v1.Relationship.follow_state:type_name -> dzeroth.graph.v1.FollowState
 	29, // 1: dzeroth.graph.v1.UserListItem.user:type_name -> dzeroth.common.v1.AuthorSnapshot
 	30, // 2: dzeroth.graph.v1.UserListItem.since:type_name -> google.protobuf.Timestamp
-	1,  // 3: dzeroth.graph.v1.FollowResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
-	1,  // 4: dzeroth.graph.v1.UnfollowResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
-	2,  // 5: dzeroth.graph.v1.ListFollowRequestsResponse.requests:type_name -> dzeroth.graph.v1.UserListItem
-	1,  // 6: dzeroth.graph.v1.BlockResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
-	1,  // 7: dzeroth.graph.v1.UnblockResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
-	1,  // 8: dzeroth.graph.v1.MuteResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
-	1,  // 9: dzeroth.graph.v1.UnmuteResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
-	1,  // 10: dzeroth.graph.v1.GetRelationshipsResponse.relationships:type_name -> dzeroth.graph.v1.Relationship
-	2,  // 11: dzeroth.graph.v1.ListFollowersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	2,  // 12: dzeroth.graph.v1.ListFollowingResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	2,  // 13: dzeroth.graph.v1.ListBlockedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	2,  // 14: dzeroth.graph.v1.ListMutedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	3,  // 15: dzeroth.graph.v1.GraphService.Follow:input_type -> dzeroth.graph.v1.FollowRequest
-	5,  // 16: dzeroth.graph.v1.GraphService.Unfollow:input_type -> dzeroth.graph.v1.UnfollowRequest
-	7,  // 17: dzeroth.graph.v1.GraphService.ListFollowRequests:input_type -> dzeroth.graph.v1.ListFollowRequestsRequest
-	9,  // 18: dzeroth.graph.v1.GraphService.RespondToFollowRequest:input_type -> dzeroth.graph.v1.RespondToFollowRequestRequest
-	11, // 19: dzeroth.graph.v1.GraphService.Block:input_type -> dzeroth.graph.v1.BlockRequest
-	13, // 20: dzeroth.graph.v1.GraphService.Unblock:input_type -> dzeroth.graph.v1.UnblockRequest
-	15, // 21: dzeroth.graph.v1.GraphService.Mute:input_type -> dzeroth.graph.v1.MuteRequest
-	17, // 22: dzeroth.graph.v1.GraphService.Unmute:input_type -> dzeroth.graph.v1.UnmuteRequest
-	19, // 23: dzeroth.graph.v1.GraphService.GetRelationships:input_type -> dzeroth.graph.v1.GetRelationshipsRequest
-	21, // 24: dzeroth.graph.v1.GraphService.ListFollowers:input_type -> dzeroth.graph.v1.ListFollowersRequest
-	23, // 25: dzeroth.graph.v1.GraphService.ListFollowing:input_type -> dzeroth.graph.v1.ListFollowingRequest
-	25, // 26: dzeroth.graph.v1.GraphService.ListBlockedUsers:input_type -> dzeroth.graph.v1.ListBlockedUsersRequest
-	27, // 27: dzeroth.graph.v1.GraphService.ListMutedUsers:input_type -> dzeroth.graph.v1.ListMutedUsersRequest
-	4,  // 28: dzeroth.graph.v1.GraphService.Follow:output_type -> dzeroth.graph.v1.FollowResponse
-	6,  // 29: dzeroth.graph.v1.GraphService.Unfollow:output_type -> dzeroth.graph.v1.UnfollowResponse
-	8,  // 30: dzeroth.graph.v1.GraphService.ListFollowRequests:output_type -> dzeroth.graph.v1.ListFollowRequestsResponse
-	10, // 31: dzeroth.graph.v1.GraphService.RespondToFollowRequest:output_type -> dzeroth.graph.v1.RespondToFollowRequestResponse
-	12, // 32: dzeroth.graph.v1.GraphService.Block:output_type -> dzeroth.graph.v1.BlockResponse
-	14, // 33: dzeroth.graph.v1.GraphService.Unblock:output_type -> dzeroth.graph.v1.UnblockResponse
-	16, // 34: dzeroth.graph.v1.GraphService.Mute:output_type -> dzeroth.graph.v1.MuteResponse
-	18, // 35: dzeroth.graph.v1.GraphService.Unmute:output_type -> dzeroth.graph.v1.UnmuteResponse
-	20, // 36: dzeroth.graph.v1.GraphService.GetRelationships:output_type -> dzeroth.graph.v1.GetRelationshipsResponse
-	22, // 37: dzeroth.graph.v1.GraphService.ListFollowers:output_type -> dzeroth.graph.v1.ListFollowersResponse
-	24, // 38: dzeroth.graph.v1.GraphService.ListFollowing:output_type -> dzeroth.graph.v1.ListFollowingResponse
-	26, // 39: dzeroth.graph.v1.GraphService.ListBlockedUsers:output_type -> dzeroth.graph.v1.ListBlockedUsersResponse
-	28, // 40: dzeroth.graph.v1.GraphService.ListMutedUsers:output_type -> dzeroth.graph.v1.ListMutedUsersResponse
-	28, // [28:41] is the sub-list for method output_type
-	15, // [15:28] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	1,  // 3: dzeroth.graph.v1.UserListItem.relationship:type_name -> dzeroth.graph.v1.Relationship
+	1,  // 4: dzeroth.graph.v1.FollowResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	1,  // 5: dzeroth.graph.v1.UnfollowResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	2,  // 6: dzeroth.graph.v1.ListFollowRequestsResponse.requests:type_name -> dzeroth.graph.v1.UserListItem
+	1,  // 7: dzeroth.graph.v1.BlockResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	1,  // 8: dzeroth.graph.v1.UnblockResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	1,  // 9: dzeroth.graph.v1.MuteResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	1,  // 10: dzeroth.graph.v1.UnmuteResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	1,  // 11: dzeroth.graph.v1.GetRelationshipsResponse.relationships:type_name -> dzeroth.graph.v1.Relationship
+	2,  // 12: dzeroth.graph.v1.ListFollowersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 13: dzeroth.graph.v1.ListFollowingResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 14: dzeroth.graph.v1.ListBlockedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 15: dzeroth.graph.v1.ListMutedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	3,  // 16: dzeroth.graph.v1.GraphService.Follow:input_type -> dzeroth.graph.v1.FollowRequest
+	5,  // 17: dzeroth.graph.v1.GraphService.Unfollow:input_type -> dzeroth.graph.v1.UnfollowRequest
+	7,  // 18: dzeroth.graph.v1.GraphService.ListFollowRequests:input_type -> dzeroth.graph.v1.ListFollowRequestsRequest
+	9,  // 19: dzeroth.graph.v1.GraphService.RespondToFollowRequest:input_type -> dzeroth.graph.v1.RespondToFollowRequestRequest
+	11, // 20: dzeroth.graph.v1.GraphService.Block:input_type -> dzeroth.graph.v1.BlockRequest
+	13, // 21: dzeroth.graph.v1.GraphService.Unblock:input_type -> dzeroth.graph.v1.UnblockRequest
+	15, // 22: dzeroth.graph.v1.GraphService.Mute:input_type -> dzeroth.graph.v1.MuteRequest
+	17, // 23: dzeroth.graph.v1.GraphService.Unmute:input_type -> dzeroth.graph.v1.UnmuteRequest
+	19, // 24: dzeroth.graph.v1.GraphService.GetRelationships:input_type -> dzeroth.graph.v1.GetRelationshipsRequest
+	21, // 25: dzeroth.graph.v1.GraphService.ListFollowers:input_type -> dzeroth.graph.v1.ListFollowersRequest
+	23, // 26: dzeroth.graph.v1.GraphService.ListFollowing:input_type -> dzeroth.graph.v1.ListFollowingRequest
+	25, // 27: dzeroth.graph.v1.GraphService.ListBlockedUsers:input_type -> dzeroth.graph.v1.ListBlockedUsersRequest
+	27, // 28: dzeroth.graph.v1.GraphService.ListMutedUsers:input_type -> dzeroth.graph.v1.ListMutedUsersRequest
+	4,  // 29: dzeroth.graph.v1.GraphService.Follow:output_type -> dzeroth.graph.v1.FollowResponse
+	6,  // 30: dzeroth.graph.v1.GraphService.Unfollow:output_type -> dzeroth.graph.v1.UnfollowResponse
+	8,  // 31: dzeroth.graph.v1.GraphService.ListFollowRequests:output_type -> dzeroth.graph.v1.ListFollowRequestsResponse
+	10, // 32: dzeroth.graph.v1.GraphService.RespondToFollowRequest:output_type -> dzeroth.graph.v1.RespondToFollowRequestResponse
+	12, // 33: dzeroth.graph.v1.GraphService.Block:output_type -> dzeroth.graph.v1.BlockResponse
+	14, // 34: dzeroth.graph.v1.GraphService.Unblock:output_type -> dzeroth.graph.v1.UnblockResponse
+	16, // 35: dzeroth.graph.v1.GraphService.Mute:output_type -> dzeroth.graph.v1.MuteResponse
+	18, // 36: dzeroth.graph.v1.GraphService.Unmute:output_type -> dzeroth.graph.v1.UnmuteResponse
+	20, // 37: dzeroth.graph.v1.GraphService.GetRelationships:output_type -> dzeroth.graph.v1.GetRelationshipsResponse
+	22, // 38: dzeroth.graph.v1.GraphService.ListFollowers:output_type -> dzeroth.graph.v1.ListFollowersResponse
+	24, // 39: dzeroth.graph.v1.GraphService.ListFollowing:output_type -> dzeroth.graph.v1.ListFollowingResponse
+	26, // 40: dzeroth.graph.v1.GraphService.ListBlockedUsers:output_type -> dzeroth.graph.v1.ListBlockedUsersResponse
+	28, // 41: dzeroth.graph.v1.GraphService.ListMutedUsers:output_type -> dzeroth.graph.v1.ListMutedUsersResponse
+	29, // [29:42] is the sub-list for method output_type
+	16, // [16:29] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_graph_v1_graph_proto_init() }

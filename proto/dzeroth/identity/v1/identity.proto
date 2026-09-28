@@ -15,7 +15,8 @@ service IdentityService {
   // Firestore: reads 2/2, writes 3/3.
   rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse);
 
-  // Handle availability check for the sign-up form. In-memory rate limited (10/min/uid).
+  // Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7).
+  // "Taken" is reported even when the handle's owner blocked the caller (accepted residual, ADR-0008 D9).
   // Firestore: reads 1/1, writes 0.
   rpc CheckHandleAvailability(CheckHandleAvailabilityRequest) returns (CheckHandleAvailabilityResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -23,15 +24,17 @@ service IdentityService {
 
   // The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   // unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
-  // 1,000 matches, cached 30 s).
+  // 1,000 matches, cached 30 s). enabled_features comes from server env config (ADR-0008 D6): 0 reads.
   // Firestore: reads 2/1, writes 0.
   rpc GetMe(GetMeRequest) returns (GetMeResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  // Public profile by id or handle. Returns NOT_FOUND if the profile blocks the caller (no existence leak).
-  // Reads: handles (if by handle) + users + target graph (blocked-by check) + caller graph; all instance-cached 60 s.
-  // Firestore: reads 4/0-1, writes 0.
+  // Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
+  // error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
+  // A caller who blocks the target still gets the profile (so they can unblock).
+  // Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s.
+  // Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 0.
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -39,7 +42,9 @@ service IdentityService {
   // Partial update; only fields that are set are changed. Naturally idempotent (sets values).
   // A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
   // async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
-  // A change to is_private enqueues the visibility job (writes = author's post count; limited to 1 toggle/day).
+  // is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
+  // (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
+  // (writes = author's post count; limited to 1 toggle/day).
   // Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
 
@@ -84,6 +89,7 @@ message Profile {
   string avatar_url = 5;
   // 96 px avatar for lists; empty if none.
   string avatar_thumb_url = 6;
+  // Always false until private accounts ship (ADR-0008 D1).
   bool is_private = 7;
   bool verified = 8;
   int64 followers_count = 9;
@@ -120,6 +126,10 @@ message GetMeResponse {
   // From the ID token claim (no Firestore read). Posting requires true or a Google/Apple provider.
   bool email_verified = 3;
   int64 unread_notification_count = 4;
+  // Server feature flags enabled for this caller (ADR-0008 D6), lower snake case, e.g. "graph". A missing name means
+  // off; clients ignore names they don't know. The server stays authoritative: a disabled feature's RPCs return
+  // FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+  repeated string enabled_features = 5;
 }
 
 message GetProfileRequest {

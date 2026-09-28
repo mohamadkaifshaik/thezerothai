@@ -51,6 +51,11 @@ AppException mapConnectError(Object error) {
         return IdempotencyKeyReusedException(message);
       case common.ErrorReason.ERROR_REASON_ACCOUNT_RESTRICTED:
         return AccountRestrictedException(message);
+      // Added in the graph slice (ADR-0008). Until the graph plan's T12 maps
+      // them to typed exceptions they fall through to code-based mapping
+      // (FAILED_PRECONDITION), which keeps current behaviour unchanged.
+      case common.ErrorReason.ERROR_REASON_TARGET_BLOCKED:
+      case common.ErrorReason.ERROR_REASON_FEATURE_DISABLED:
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

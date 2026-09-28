@@ -20,7 +20,8 @@ abstract final class IdentityService {
     dzerothidentityv1identity.CreateProfileResponse.new,
   );
 
-  /// Handle availability check for the sign-up form. In-memory rate limited (10/min/uid).
+  /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7).
+  /// "Taken" is reported even when the handle's owner blocked the caller (accepted residual, ADR-0008 D9).
   /// Firestore: reads 1/1, writes 0.
   static const checkHandleAvailability = connect.Spec(
     '/$name/CheckHandleAvailability',
@@ -32,7 +33,7 @@ abstract final class IdentityService {
 
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
-  /// 1,000 matches, cached 30 s).
+  /// 1,000 matches, cached 30 s). enabled_features comes from server env config (ADR-0008 D6): 0 reads.
   /// Firestore: reads 2/1, writes 0.
   static const getMe = connect.Spec(
     '/$name/GetMe',
@@ -42,9 +43,11 @@ abstract final class IdentityService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// Public profile by id or handle. Returns NOT_FOUND if the profile blocks the caller (no existence leak).
-  /// Reads: handles (if by handle) + users + target graph (blocked-by check) + caller graph; all instance-cached 60 s.
-  /// Firestore: reads 4/0-1, writes 0.
+  /// Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
+  /// error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
+  /// A caller who blocks the target still gets the profile (so they can unblock).
+  /// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s.
+  /// Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 0.
   static const getProfile = connect.Spec(
     '/$name/GetProfile',
     connect.StreamType.unary,
@@ -56,7 +59,9 @@ abstract final class IdentityService {
   /// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
   /// A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
   /// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
-  /// A change to is_private enqueues the visibility job (writes = author's post count; limited to 1 toggle/day).
+  /// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
+  /// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
+  /// (writes = author's post count; limited to 1 toggle/day).
   /// Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
   static const updateProfile = connect.Spec(
     '/$name/UpdateProfile',
