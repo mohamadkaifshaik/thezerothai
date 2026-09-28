@@ -213,18 +213,31 @@ the first prod release deploys web (`promote-prod.yml`, stage 100).
   ```
   PATCH replaces the whole list, so GET `.../config` first and include every existing domain.
 
-### 7c. Auth emails from your own domain (fixes verification mail landing in spam)
-Do this for **prod** (`dzeroth.com`, so mail comes from `noreply@dzeroth.com`). Dev keeps Firebase's default sender:
-`dev.dzeroth.com` is a CNAME, and a CNAME name can't also hold the SPF TXT record this needs. Testers can mark the
-dev email "Not spam" once.
-1. Firebase console (dzeroth-prod) → Authentication → Templates → Email address verification → edit → **Customize
-   domain** → `dzeroth.com`. Firebase shows the records to add: a verification TXT, two DKIM CNAMEs
-   (`firebase1._domainkey`, `firebase2._domainkey`) and an SPF include.
-2. Add them at Squarespace. **SPF:** a name may have only one `v=spf1` record, so *replace* `@ TXT v=spf1 -all`
-   with the SPF value Firebase gives (e.g. `v=spf1 include:_spf.firebasemail.com ~all`). Don't add a second one.
-3. Add DMARC for deliverability: `_dmarc` TXT `v=DMARC1; p=none`. Tighten it to `p=quarantine` once mail is flowing.
-4. Back in Templates: set the sender name (e.g. "dZeroth"), and after the first prod release set **Customize
-   action URL** to `https://dzeroth.com/__/auth/action`, so verification links show your domain.
+### 7c. Auth emails from your own domain (done for prod, 2026-09-28)
+Prod auth emails come from **"dZeroth" <noreply@dzeroth.com>**. Firebase shows `customDomain: dzeroth.com` and
+`useCustomDomain: true`, and the sender display name "dZeroth" is set on the verify, reset and change-email templates.
+Dev keeps Firebase's default sender, because `dev.dzeroth.com` is a CNAME and can't also hold an SPF TXT record.
+
+DNS at Squarespace (Host column as typed in Squarespace; never include `dzeroth.com` in Host, or it gets doubled):
+| Host | Type | Value |
+|---|---|---|
+| `@` | TXT | `v=spf1 include:_spf.firebasemail.com ~all` (the **only** SPF record) |
+| `@` | TXT | `firebase=dzeroth-prod` |
+| `firebase1._domainkey` | CNAME | `mail-dzeroth-com.dkim1._domainkey.firebasemail.com` |
+| `firebase2._domainkey` | CNAME | `mail-dzeroth-com.dkim2._domainkey.firebasemail.com` |
+| `_dmarc` | TXT | `v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s` (a Squarespace default; keep exactly one) |
+
+Still to do:
+- Set the **public-facing name** (Firebase project settings → General) to `dZeroth`, so `%APP_NAME%` in subjects reads well.
+- After the first prod release, set **Customize action URL** to `https://dzeroth.com/__/auth/action`.
+
+### 7d. privacy@dzeroth.com (inbound only, $0)
+Squarespace's free forwarding is disabled for this domain, and Google Workspace and Zoho are paid, so
+**ImprovMX (free: 1 domain, 25 aliases, 500 forwards/day)** forwards `privacy@dzeroth.com` to the founder's Gmail.
+DNS: `@` MX `mx1.improvmx.com` (10) and `@` MX `mx2.improvmx.com` (20). No SPF change is needed: ImprovMX's include
+only matters for its paid SMTP. Replies go out from the founder's Gmail (visible only to that correspondent, never
+published). Gmail filter: `to:privacy@dzeroth.com` → Never send to Spam + label "Privacy requests" (forwarded mail
+otherwise lands in spam). Requests are handled per `docs/runbooks/account-deletion.md`.
 
 ## 8. Verify
 ```bash
