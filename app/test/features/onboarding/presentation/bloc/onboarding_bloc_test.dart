@@ -61,6 +61,28 @@ void main() {
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
+      'populates enabledFeatures from GetMe.enabled_features (ADR-0008 D6), '
+      'at 0 extra reads',
+      setUp: () {
+        final profile = identity.Profile(userId: 'uid-1', handle: 'kaif');
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: profile,
+            enabledFeatures: ['graph'],
+          ),
+        );
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.ready)
+            .having((s) => s.enabledFeatures, 'enabledFeatures', {'graph'}),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
       'renders the cached profile instantly, then reconciles with GetMe',
       setUp: () {
         final cachedProfile = CachedProfile(

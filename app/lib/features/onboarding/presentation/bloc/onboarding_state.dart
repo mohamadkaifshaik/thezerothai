@@ -38,6 +38,12 @@ abstract class OnboardingState with _$OnboardingState {
     @Default('') String handleCheckMessage,
     @Default(false) bool isSubmitting,
     AppException? error,
+    // Server feature flags enabled for the caller (ADR-0008 D6), e.g.
+    // "graph". Populated from `GetMe.enabled_features`, which costs 0 extra
+    // Firestore reads. A cached-profile render (before `GetMe` resolves)
+    // keeps whatever was known from the previous fetch this session; a name
+    // this set doesn't contain is treated as off.
+    @Default(<String>{}) Set<String> enabledFeatures,
   }) = _OnboardingState;
 
   const OnboardingState._();

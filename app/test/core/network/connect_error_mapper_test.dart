@@ -95,34 +95,61 @@ void main() {
       expect(mapConnectError(error), isA<UnauthenticatedException>());
     });
 
-    test(
-      'maps a bare UNAVAILABLE (no ErrorDetail) to a generic retryable '
-      'NetworkException, not DegradedModeException',
-      () {
-        final error = connect.ConnectException(
-          connect.Code.unavailable,
-          'connection reset',
-        );
+    test('maps a bare UNAVAILABLE (no ErrorDetail) to a generic retryable '
+        'NetworkException, not DegradedModeException', () {
+      final error = connect.ConnectException(
+        connect.Code.unavailable,
+        'connection reset',
+      );
 
-        expect(mapConnectError(error), isA<NetworkException>());
-      },
-    );
+      expect(mapConnectError(error), isA<NetworkException>());
+    });
+
+    test('maps UNAVAILABLE with ERROR_REASON_DEGRADED_MODE to '
+        'DegradedModeException', () {
+      final error = _withDetail(
+        connect.Code.unavailable,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_DEGRADED_MODE,
+          message: 'Read-only mode right now',
+        ),
+      );
+
+      expect(mapConnectError(error), isA<DegradedModeException>());
+    });
 
     test(
-      'maps UNAVAILABLE with ERROR_REASON_DEGRADED_MODE to '
-      'DegradedModeException',
+      'maps ERROR_REASON_TARGET_BLOCKED (ADR-0008) to TargetBlockedException',
       () {
         final error = _withDetail(
-          connect.Code.unavailable,
+          connect.Code.failedPrecondition,
           'fallback',
           common.ErrorDetail(
-            reason: common.ErrorReason.ERROR_REASON_DEGRADED_MODE,
-            message: 'Read-only mode right now',
+            reason: common.ErrorReason.ERROR_REASON_TARGET_BLOCKED,
+            message: 'Unblock this account first',
           ),
         );
 
-        expect(mapConnectError(error), isA<DegradedModeException>());
+        final result = mapConnectError(error);
+
+        expect(result, isA<TargetBlockedException>());
+        expect(result.message, 'Unblock this account first');
       },
     );
+
+    test('maps ERROR_REASON_FEATURE_DISABLED (ADR-0008) to '
+        'FeatureDisabledException', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          message: 'Not enabled for this caller',
+        ),
+      );
+
+      expect(mapConnectError(error), isA<FeatureDisabledException>());
+    });
   });
 }

@@ -85,6 +85,19 @@ final class AccountRestrictedException extends AppException {
   const AccountRestrictedException(super.message);
 }
 
+/// The caller blocks the target (e.g. `Follow`). Unblock first; never
+/// auto-unblocked (ADR-0008 D9).
+final class TargetBlockedException extends AppException {
+  const TargetBlockedException(super.message);
+}
+
+/// The feature is not enabled for this caller (server feature flag, or not
+/// built yet, e.g. follow requests). Hide the feature and refresh
+/// `GetMe.enabled_features`; never retry (ADR-0008 D6).
+final class FeatureDisabledException extends AppException {
+  const FeatureDisabledException(super.message);
+}
+
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
 final class NotFoundException extends AppException {
   const NotFoundException(super.message);

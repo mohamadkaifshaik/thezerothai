@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$OnboardingState {
 
- OnboardingStatus get status; identity.Profile? get profile; String get handle; String get displayName; HandleCheckStatus get handleCheckStatus; String get handleCheckMessage; bool get isSubmitting; AppException? get error;
+ OnboardingStatus get status; identity.Profile? get profile; String get handle; String get displayName; HandleCheckStatus get handleCheckStatus; String get handleCheckMessage; bool get isSubmitting; AppException? get error; Set<String> get enabledFeatures;
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $OnboardingStateCopyWith<OnboardingState> get copyWith => _$OnboardingStateCopyW
 @override
 bool operator ==(Object other) {
   final _this = this as OnboardingState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is OnboardingState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.handle, _this.handle) || other.handle == _this.handle)&&(identical(other.displayName, _this.displayName) || other.displayName == _this.displayName)&&(identical(other.handleCheckStatus, _this.handleCheckStatus) || other.handleCheckStatus == _this.handleCheckStatus)&&(identical(other.handleCheckMessage, _this.handleCheckMessage) || other.handleCheckMessage == _this.handleCheckMessage)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.error, _this.error) || other.error == _this.error));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is OnboardingState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.handle, _this.handle) || other.handle == _this.handle)&&(identical(other.displayName, _this.displayName) || other.displayName == _this.displayName)&&(identical(other.handleCheckStatus, _this.handleCheckStatus) || other.handleCheckStatus == _this.handleCheckStatus)&&(identical(other.handleCheckMessage, _this.handleCheckMessage) || other.handleCheckMessage == _this.handleCheckMessage)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.error, _this.error) || other.error == _this.error)&&const DeepCollectionEquality().equals(other.enabledFeatures, _this.enabledFeatures));
 }
 
 
 @override
 int get hashCode {
   final _this = this as OnboardingState;
-  return Object.hash(runtimeType,_this.status,_this.profile,_this.handle,_this.displayName,_this.handleCheckStatus,_this.handleCheckMessage,_this.isSubmitting,_this.error);
+  return Object.hash(runtimeType,_this.status,_this.profile,_this.handle,_this.displayName,_this.handleCheckStatus,_this.handleCheckMessage,_this.isSubmitting,_this.error,const DeepCollectionEquality().hash(_this.enabledFeatures));
 }
 
 @override
 String toString() {
   final _this = this as OnboardingState;
-  return 'OnboardingState(status: ${_this.status}, profile: ${_this.profile}, handle: ${_this.handle}, displayName: ${_this.displayName}, handleCheckStatus: ${_this.handleCheckStatus}, handleCheckMessage: ${_this.handleCheckMessage}, isSubmitting: ${_this.isSubmitting}, error: ${_this.error})';
+  return 'OnboardingState(status: ${_this.status}, profile: ${_this.profile}, handle: ${_this.handle}, displayName: ${_this.displayName}, handleCheckStatus: ${_this.handleCheckStatus}, handleCheckMessage: ${_this.handleCheckMessage}, isSubmitting: ${_this.isSubmitting}, error: ${_this.error}, enabledFeatures: ${_this.enabledFeatures})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $OnboardingStateCopyWith<$Res>  {
   factory $OnboardingStateCopyWith(OnboardingState value, $Res Function(OnboardingState) _then) = _$OnboardingStateCopyWithImpl;
 @useResult
 $Res call({
- OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, bool isSubmitting, AppException? error
+ OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, bool isSubmitting, AppException? error, Set<String> enabledFeatures
 });
 
 
@@ -68,7 +68,7 @@ class _$OnboardingStateCopyWithImpl<$Res>
 
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? isSubmitting = null,Object? error = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? isSubmitting = null,Object? error = freezed,Object? enabledFeatures = null,}) {
   return _then(OnboardingState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as OnboardingStatus,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
@@ -78,7 +78,8 @@ as String,handleCheckStatus: null == handleCheckStatus ? _self.handleCheckStatus
 as HandleCheckStatus,handleCheckMessage: null == handleCheckMessage ? _self.handleCheckMessage : handleCheckMessage // ignore: cast_nullable_to_non_nullable
 as String,isSubmitting: null == isSubmitting ? _self.isSubmitting : isSubmitting // ignore: cast_nullable_to_non_nullable
 as bool,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as AppException?,
+as AppException?,enabledFeatures: null == enabledFeatures ? _self.enabledFeatures : enabledFeatures // ignore: cast_nullable_to_non_nullable
+as Set<String>,
   ));
 }
 
@@ -163,10 +164,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  bool isSubmitting,  AppException? error)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _OnboardingState() when $default != null:
-return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.isSubmitting,_that.error);case _:
+return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.isSubmitting,_that.error,_that.enabledFeatures);case _:
   return orElse();
 
 }
@@ -184,10 +185,10 @@ return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  bool isSubmitting,  AppException? error)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures)  $default,) {final _that = this;
 switch (_that) {
 case _OnboardingState():
-return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.isSubmitting,_that.error);case _:
+return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.isSubmitting,_that.error,_that.enabledFeatures);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -204,10 +205,10 @@ return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  bool isSubmitting,  AppException? error)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures)?  $default,) {final _that = this;
 switch (_that) {
 case _OnboardingState() when $default != null:
-return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.isSubmitting,_that.error);case _:
+return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.isSubmitting,_that.error,_that.enabledFeatures);case _:
   return null;
 
 }
@@ -219,7 +220,7 @@ return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.
 
 
 class _OnboardingState extends OnboardingState {
-  const _OnboardingState({this.status = OnboardingStatus.unknown, this.profile, this.handle = '', this.displayName = '', this.handleCheckStatus = HandleCheckStatus.idle, this.handleCheckMessage = '', this.isSubmitting = false, this.error}): super._();
+  const _OnboardingState({this.status = OnboardingStatus.unknown, this.profile, this.handle = '', this.displayName = '', this.handleCheckStatus = HandleCheckStatus.idle, this.handleCheckMessage = '', this.isSubmitting = false, this.error,  Set<String> enabledFeatures = const <String>{}}): _enabledFeatures = enabledFeatures,super._();
   
 
 @override@JsonKey() final  OnboardingStatus status;
@@ -230,6 +231,13 @@ class _OnboardingState extends OnboardingState {
 @override@JsonKey() final  String handleCheckMessage;
 @override@JsonKey() final  bool isSubmitting;
 @override final  AppException? error;
+ final  Set<String> _enabledFeatures;
+@override@JsonKey() Set<String> get enabledFeatures {
+  if (_enabledFeatures is EqualUnmodifiableSetView) return _enabledFeatures;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableSetView(_enabledFeatures);
+}
+
 
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
@@ -241,18 +249,18 @@ _$OnboardingStateCopyWith<_OnboardingState> get copyWith => __$OnboardingStateCo
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OnboardingState&&(identical(other.status, status) || other.status == status)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.handle, handle) || other.handle == handle)&&(identical(other.displayName, displayName) || other.displayName == displayName)&&(identical(other.handleCheckStatus, handleCheckStatus) || other.handleCheckStatus == handleCheckStatus)&&(identical(other.handleCheckMessage, handleCheckMessage) || other.handleCheckMessage == handleCheckMessage)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.error, error) || other.error == error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OnboardingState&&(identical(other.status, status) || other.status == status)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.handle, handle) || other.handle == handle)&&(identical(other.displayName, displayName) || other.displayName == displayName)&&(identical(other.handleCheckStatus, handleCheckStatus) || other.handleCheckStatus == handleCheckStatus)&&(identical(other.handleCheckMessage, handleCheckMessage) || other.handleCheckMessage == handleCheckMessage)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.error, error) || other.error == error)&&const DeepCollectionEquality().equals(other.enabledFeatures, _enabledFeatures));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,profile,handle,displayName,handleCheckStatus,handleCheckMessage,isSubmitting,error);
+    return Object.hash(runtimeType,status,profile,handle,displayName,handleCheckStatus,handleCheckMessage,isSubmitting,error,const DeepCollectionEquality().hash(_enabledFeatures));
 }
 
 @override
 String toString() {
-    return 'OnboardingState(status: $status, profile: $profile, handle: $handle, displayName: $displayName, handleCheckStatus: $handleCheckStatus, handleCheckMessage: $handleCheckMessage, isSubmitting: $isSubmitting, error: $error)';
+    return 'OnboardingState(status: $status, profile: $profile, handle: $handle, displayName: $displayName, handleCheckStatus: $handleCheckStatus, handleCheckMessage: $handleCheckMessage, isSubmitting: $isSubmitting, error: $error, enabledFeatures: $enabledFeatures)';
 }
 
 
@@ -263,7 +271,7 @@ abstract mixin class _$OnboardingStateCopyWith<$Res> implements $OnboardingState
   factory _$OnboardingStateCopyWith(_OnboardingState value, $Res Function(_OnboardingState) _then) = __$OnboardingStateCopyWithImpl;
 @override @useResult
 $Res call({
- OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, bool isSubmitting, AppException? error
+ OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, bool isSubmitting, AppException? error, Set<String> enabledFeatures
 });
 
 
@@ -280,7 +288,7 @@ class __$OnboardingStateCopyWithImpl<$Res>
 
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? isSubmitting = null,Object? error = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? isSubmitting = null,Object? error = freezed,Object? enabledFeatures = null,}) {
   return _then(_OnboardingState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as OnboardingStatus,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
@@ -290,7 +298,8 @@ as String,handleCheckStatus: null == handleCheckStatus ? _self.handleCheckStatus
 as HandleCheckStatus,handleCheckMessage: null == handleCheckMessage ? _self.handleCheckMessage : handleCheckMessage // ignore: cast_nullable_to_non_nullable
 as String,isSubmitting: null == isSubmitting ? _self.isSubmitting : isSubmitting // ignore: cast_nullable_to_non_nullable
 as bool,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as AppException?,
+as AppException?,enabledFeatures: null == enabledFeatures ? _self._enabledFeatures : enabledFeatures // ignore: cast_nullable_to_non_nullable
+as Set<String>,
   ));
 }
 
