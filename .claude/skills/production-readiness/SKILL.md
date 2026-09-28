@@ -19,7 +19,7 @@ description: The GO/NO-GO production readiness checklist used by the production-
 - [ ] No new fixed-cost resource, or an Accepted ADR covers it (`cost-guard` hook clean)
 - [ ] Budget alerts active; max-instances and per-user quotas unchanged or justified; degraded-mode switch tested on dev
 ### Reliability
-- [ ] Tagged `rc` revision smoke-tested; previous revision identified for rollback
+- [ ] Tagged `candidate` revision smoke-tested; previous revision identified for rollback
 - [ ] Firestore indexes deployed and **READY** before traffic shift
 - [ ] Pub/Sub handlers idempotent; DLQ configured
 - [ ] Data changes are expand/contract

@@ -16,7 +16,7 @@ gcloud run services update-traffic api \
 Then either fix forward on `main` (next push redeploys) or revert the offending commit.
 
 ## Backend (Cloud Run) — prod
-Prod deploys go `--no-traffic --tag rc` (`.github/workflows/release-prod.yml`, automatic on a `v*` tag) → 10% → 100%
+Prod deploys go `--no-traffic --tag candidate` (`.github/workflows/release-prod.yml`, automatic on a `v*` tag) → 10% → 100%
 (`.github/workflows/promote-prod.yml`, **manual** `workflow_dispatch`, run once per stage — see `release-rollout`
 skill "Manual-approval model on GitHub Free"). There are no `production-traffic-10` / `production-traffic-100`
 GitHub Environments and no required-reviewer approval to deny — GitHub Free doesn't offer that for private repos.

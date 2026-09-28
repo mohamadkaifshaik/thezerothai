@@ -22,7 +22,7 @@ description: Test conventions, tooling and commands for Go and Flutter using the
 - `integration_test` against local API + emulators; run on Android emulator and `-d chrome`.
 
 ## E2E / API
-- Go e2e suite in `backend/e2e`: runs against emulators in CI; against the prod `rc` tagged URL as a < 100-request smoke with test accounts.
+- Go e2e suite in `backend/e2e`: runs against emulators in CI; against the prod `candidate` tagged URL as a < 100-request smoke with test accounts.
 
 ## CI cost
 GitHub Actions: cache Go modules, pub cache and the emulator JARs; run Flutter iOS builds only on release tags.

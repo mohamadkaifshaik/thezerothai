@@ -26,7 +26,7 @@ database location cannot be changed after creation (migration = export/import at
 ### Region C. Firestore multi-region `nam5`/`eur3`
 - Cons: highest per-op prices, far from users. Rejected.
 
-### CI/CD A. GitHub Actions + Workload Identity Federation + `ko` + Artifact Registry + `gcloud run deploy --no-traffic --tag rc` (chosen)
+### CI/CD A. GitHub Actions + Workload Identity Federation + `ko` + Artifact Registry + `gcloud run deploy --no-traffic --tag candidate` (chosen)
 - Pros: free minutes for our volume, no SA keys, tagged zero-traffic revision for pre-release checks.
 - Cost: Artifact Registry within 0.5 GB with cleanup policy (keep 3 images, delete untagged after 1 day).
 ### CI/CD B. Cloud Build + Cloud Deploy
@@ -35,7 +35,7 @@ database location cannot be changed after creation (migration = export/import at
 ## Cost impact
 - Fixed monthly cost added: **$0**.
 - Free-tier quota consumed by operations: uptime check on `/healthz` every 15 min from 3 regions ≈ 8.6k Cloud Run
-  requests/month (0.4% of 2M); CI smoke on the `rc` tag ≈ 200 requests/deploy; Artifact Registry ≈ 3 × ~25 MB images;
+  requests/month (0.4% of 2M); CI smoke on the `candidate` tag ≈ 200 requests/deploy; Artifact Registry ≈ 3 × ~25 MB images;
   logs ≈ 1 KiB/request ≈ 0.3 GiB/month at 300 DAU (of 50 GiB); Secret Manager 1–2 versions.
 - Pay-per-use (not free, sub-dollar): API egress to India; Firestore scheduled backups for prod (storage-priced only,
   ≈ cents/month at < 1 GiB — founder-approved 2026-09-27).
@@ -44,7 +44,7 @@ database location cannot be changed after creation (migration = export/import at
 ## Decision
 - **Environments.** `local` (emulators, $0), `dev` (`dzeroth-dev`; internal testers; Cloud Run max 1 instance),
   `prod` (`dzeroth-prod`; max 3 instances). No staging project; pre-release checks run on the tagged zero-traffic
-  `rc` revision in prod against prod data with a dedicated test account.
+  `candidate` revision in prod against prod data with a dedicated test account.
 - **Regions (founder-confirmed 2026-09-27).** Cloud Run `api`, Firestore `(default)` (Native, delete protection
   on, PITR off), Artifact Registry, Pub/Sub push endpoints: `asia-south1`. Media buckets and the Terraform state bucket:
   `us-central1`. Firebase Hosting global.
@@ -61,7 +61,7 @@ database location cannot be changed after creation (migration = export/import at
 - **CI (every PR):** `make ci` (buf lint + breaking, go vet/lint/test, flutter analyze/test), emulator integration
   tests, `terraform fmt/validate/tflint/checkov`, `terraform plan` for dev and prod.
 - **CD:** merge to `main` → `ko build` (distroless, non-root) → push to AR → deploy to dev → smoke. Release tag →
-  `gcloud run deploy --no-traffic --tag rc` in prod → smoke + budget assertions against `rc` URL → production-reviewer
+  `gcloud run deploy --no-traffic --tag candidate` in prod → smoke + budget assertions against `candidate` URL → production-reviewer
   go/no-go → traffic 10% → 100%. Rollback = shift traffic to the previous revision. Terraform apply for prod behind a
   GitHub environment approval. No SA keys anywhere (WIF only).
 - **Cost guardrails:** billing budget $5/month on the billing account, thresholds 25/50/90/100% actual + 100%
@@ -86,5 +86,5 @@ database location cannot be changed after creation (migration = export/import at
   as env config with safe defaults; `/healthz` dependency-free; `/internal/cron/daily` (quota doc cleanup is not needed —
   day rollover is lazy; use it for trending hashtags later and for Vision counter reset checks).
 - frontend-developer: base URL per platform/env (`/api` on web, `run.app` on mobile); banner for degraded mode.
-- tester: CI emulator suite; smoke script used against dev and the `rc` tag, asserting `fs_reads` per RPC ≤ budget.
+- tester: CI emulator suite; smoke script used against dev and the `candidate` tag, asserting `fs_reads` per RPC ≤ budget.
 - sre-performance: own `docs/reviews/cost-model.md` actuals weekly.

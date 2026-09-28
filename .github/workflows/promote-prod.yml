@@ -1,7 +1,7 @@
 name: Promote prod
 
 # Manual, founder-run traffic promotion for a release already staged by
-# release-prod.yml (image built, deployed --no-traffic --tag rc, smoke
+# release-prod.yml (image built, deployed --no-traffic --tag candidate, smoke
 # tested). This workflow is workflow_dispatch ONLY — there is no `push`
 # trigger, so it never runs automatically.
 #
@@ -15,7 +15,7 @@ name: Promote prod
 #   2. the checks in this workflow: dispatch must be from a tag ref matching
 #      ^v[0-9]+\.[0-9]+\.[0-9]+$, a docs/reviews/release-<tag>-readiness.md
 #      with `VERDICT: GO` must exist for that exact tag, and the revision
-#      currently holding the `rc` traffic tag must be provably built from
+#      currently holding the `candidate` traffic tag must be provably built from
 #      that same tag (not a stale rc left over from a different release).
 # CLAUDE.md rule: "Never shift prod traffic without a passing
 # production-reviewer verdict" — enforced by the VERDICT: GO check below on
@@ -127,9 +127,9 @@ jobs:
           # jq, not a gcloud --format projection: gcloud has no first() transform (verified; it errors).
           revision=$(gcloud run services describe "${SERVICE}" \
             --project="${PROJECT}" --region="${REGION}" \
-            --format=json | jq -r '[.status.traffic[]? | select(.tag == "rc") | .revisionName] | first // empty')
+            --format=json | jq -r '[.status.traffic[]? | select(.tag == "candidate") | .revisionName] | first // empty')
           if [ -z "${revision}" ]; then
-            echo "::error::No revision is currently tagged 'rc' on ${SERVICE}. Run release-prod.yml for ${RELEASE_TAG} first."
+            echo "::error::No revision is currently tagged 'candidate' on ${SERVICE}. Run release-prod.yml for ${RELEASE_TAG} first."
             exit 1
           fi
 

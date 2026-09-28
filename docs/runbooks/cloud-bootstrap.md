@@ -136,7 +136,7 @@ policies) plus a manual human step, not an approximation of the paid controls:
    token.
 3. **`promote-prod.yml` is `workflow_dispatch`-only and re-validates on every run**: the ref must be a tag matching
    `^v[0-9]+\.[0-9]+\.[0-9]+$`, `docs/reviews/release-<tag>-readiness.md` must contain `VERDICT: GO` for that exact
-   tag, and the revision behind the `rc` traffic tag must be provably built from that tag (its Artifact Registry
+   tag, and the revision behind the `candidate` traffic tag must be provably built from that tag (its Artifact Registry
    image tag) before any `gcloud run services update-traffic` runs.
 4. **The founder is the only collaborator.** Running `promote-prod.yml` — choosing a stage and clicking "Run
    workflow" — **is** the approval; there is no other human available to review it, and GitHub Free has no feature
