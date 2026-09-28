@@ -104,7 +104,8 @@ jobs:
             echo "::error::Missing $f — production-reviewer must record VERDICT: GO before any traffic can shift."
             exit 1
           fi
-          grep -q "VERDICT: GO" "$f" || { echo "::error::$f does not contain 'VERDICT: GO'"; exit 1; }
+          # Whole-line match: a NO-GO report that merely mentions the GO string must not pass.
+          grep -qx "VERDICT: GO" "$f" || { echo "::error::$f has no line that is exactly 'VERDICT: GO'"; exit 1; }
 
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@v2
