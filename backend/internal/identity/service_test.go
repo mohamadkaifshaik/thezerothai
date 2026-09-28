@@ -21,10 +21,11 @@ type fakeRepo struct {
 	createErr error
 	changeErr error
 
-	createCalls     int
-	updateCalls     int
-	changeCalls     int
-	getProfileCalls int
+	createCalls      int
+	updateCalls      int
+	changeCalls      int
+	getProfileCalls  int
+	getProfilesCalls int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -130,6 +131,17 @@ func (f *fakeRepo) ChangeHandle(_ context.Context, uid, newHandle, newHandleLowe
 
 func (f *fakeRepo) UnreadNotificationCount(_ context.Context, uid string, _ time.Time) (int64, error) {
 	return f.unread[uid], nil
+}
+
+func (f *fakeRepo) GetProfiles(_ context.Context, uids []string) (map[string]Profile, error) {
+	f.getProfilesCalls++
+	out := make(map[string]Profile, len(uids))
+	for _, uid := range uids {
+		if p, ok := f.profiles[uid]; ok {
+			out[uid] = p
+		}
+	}
+	return out, nil
 }
 
 func newTestService(repo Repo) *service {
@@ -318,6 +330,195 @@ func TestGetProfile_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// fakeBlockChecker is a table-driven-friendly BlockChecker fake (ADR-0008 T6): the ONLY fake in
+// service_test.go (testing-strategy skill: table-driven, fakes) exercising the GetProfile block-enforcement
+// path independent of graph.Service, whose emulator-backed transactions are exercised separately.
+type fakeBlockChecker struct {
+	blockedBy map[string]map[string]bool // viewer -> set of targets that blocked viewer
+	err       error
+	calls     int
+}
+
+func (f *fakeBlockChecker) IsBlockedBy(_ context.Context, viewerUID, targetUID string) (bool, error) {
+	f.calls++
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.blockedBy[viewerUID][targetUID], nil
+}
+
+// TestGetProfile_BlockedByTarget_NotFound (ADR-0008 D9): byte-identical NOT_FOUND to a missing profile.
+func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
+	repo := newFakeRepo()
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{"uid-a": {"uid-b": true}}}
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithBlockChecker(bc)).(*service)
+
+	gotErr := func() error {
+		_, err := svc.GetProfile(context.Background(), "uid-a", ProfileTarget{UserID: "uid-b"})
+		return err
+	}()
+	wantErr := notFoundErr()
+	assertNotFound(t, gotErr)
+	if gotErr.Error() != wantErr.Error() {
+		t.Errorf("GetProfile(blocked) error = %q, want byte-identical to the missing-profile error %q", gotErr, wantErr)
+	}
+	if bc.calls != 1 {
+		t.Errorf("IsBlockedBy calls = %d, want 1", bc.calls)
+	}
+}
+
+// TestGetProfile_CallerBlocksTarget_StillVisible (ADR-0008 D9): "the caller can still view a target they
+// blocked, so they can unblock" — IsBlockedBy is asked "did the TARGET block the VIEWER", never the reverse.
+func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
+	repo := newFakeRepo()
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// uid-b never blocked uid-a; only uid-a -> uid-b's block would live in graph.blocked, which this
+	// BlockChecker fake has no notion of (Block enforcement here is one-directional by design, ADR-0008 D9).
+	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{}}
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithBlockChecker(bc)).(*service)
+
+	p, err := svc.GetProfile(context.Background(), "uid-a", ProfileTarget{UserID: "uid-b"})
+	if err != nil {
+		t.Fatalf("GetProfile() error = %v, want the profile to still be visible", err)
+	}
+	if p.UserID != "uid-b" {
+		t.Fatalf("unexpected profile: %+v", p)
+	}
+}
+
+func TestGetProfile_NilBlockChecker_NoOp(t *testing.T) {
+	repo := newFakeRepo()
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	svc := newTestService(repo) // no WithBlockChecker
+	if _, err := svc.GetProfile(context.Background(), "uid-a", ProfileTarget{UserID: "uid-b"}); err != nil {
+		t.Fatalf("GetProfile() error = %v, want no block enforcement when unwired", err)
+	}
+}
+
+func TestGetProfile_OwnProfile_SkipsBlockCheck(t *testing.T) {
+	repo := newFakeRepo()
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-a", "Alice", "alice", "Alice", time.Now()); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{"uid-a": {"uid-a": true}}}
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithBlockChecker(bc)).(*service)
+	if _, err := svc.GetProfile(context.Background(), "uid-a", ProfileTarget{UserID: "uid-a"}); err != nil {
+		t.Fatalf("GetProfile(self) error = %v", err)
+	}
+	if bc.calls != 0 {
+		t.Errorf("IsBlockedBy calls = %d, want 0 for a caller viewing their own profile", bc.calls)
+	}
+}
+
+// fakeFeatureFlags is a minimal FeatureFlags fake for GetMe tests (ADR-0008 T3/D6).
+type fakeFeatureFlags struct{ enabled []string }
+
+func (f *fakeFeatureFlags) EnabledFeatures(string) []string { return f.enabled }
+
+func TestGetMe_EnabledFeatures(t *testing.T) {
+	repo := newFakeRepo()
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now()); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithFeatureFlags(&fakeFeatureFlags{enabled: []string{"graph"}})).(*service)
+	res, err := svc.GetMe(context.Background(), "uid-1")
+	if err != nil {
+		t.Fatalf("GetMe() error = %v", err)
+	}
+	if len(res.EnabledFeatures) != 1 || res.EnabledFeatures[0] != "graph" {
+		t.Errorf("EnabledFeatures = %v, want [graph]", res.EnabledFeatures)
+	}
+}
+
+func TestGetMe_NilFeatureFlags_NoOp(t *testing.T) {
+	repo := newFakeRepo()
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now()); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	svc := newTestService(repo)
+	res, err := svc.GetMe(context.Background(), "uid-1")
+	if err != nil {
+		t.Fatalf("GetMe() error = %v", err)
+	}
+	if len(res.EnabledFeatures) != 0 {
+		t.Errorf("EnabledFeatures = %v, want empty", res.EnabledFeatures)
+	}
+}
+
+// TestGetProfiles_CacheFirstThenBatch (ADR-0008 T6): cached hits cost 0 repo calls; misses go through one
+// GetProfiles (GetAll) call; missing/non-ACTIVE ids are silently dropped.
+func TestGetProfiles_CacheFirstThenBatch(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	ctx := context.Background()
+	for _, uid := range []string{"uid-a", "uid-b"} {
+		if _, err := svc.CreateProfile(ctx, uid, validKey, "handle"+uid[len(uid)-1:], "Name"); err != nil {
+			t.Fatalf("CreateProfile(%s): %v", uid, err)
+		}
+	}
+	// uid-c exists in the repo but was never fetched through svc, so it's a cache miss; uid-ghost doesn't
+	// exist at all and must be silently dropped. Seeded directly on the repo (bypassing handle validation).
+	if _, _, err := repo.CreateProfile(ctx, "uid-c", "handlec", "handlec", "Name", time.Now()); err != nil {
+		t.Fatalf("seed uid-c: %v", err)
+	}
+
+	before := repo.getProfilesCalls
+	got, err := svc.GetProfiles(ctx, []string{"uid-a", "uid-b", "uid-c", "uid-ghost"})
+	if err != nil {
+		t.Fatalf("GetProfiles() error = %v", err)
+	}
+	if repo.getProfilesCalls != before+1 {
+		t.Errorf("getProfilesCalls = %d, want %d (one batched call for the misses)", repo.getProfilesCalls, before+1)
+	}
+	if len(got) != 3 {
+		t.Fatalf("GetProfiles() = %d entries, want 3 (uid-ghost dropped): %+v", len(got), got)
+	}
+	for _, uid := range []string{"uid-a", "uid-b", "uid-c"} {
+		if _, ok := got[uid]; !ok {
+			t.Errorf("expected %s in result", uid)
+		}
+	}
+
+	// A second call for the same ids now costs 0 repo calls (uid-a/uid-b were already cached; uid-c was
+	// cached as a side effect of the first GetProfiles call).
+	before2 := repo.getProfilesCalls
+	if _, err := svc.GetProfiles(ctx, []string{"uid-a", "uid-b", "uid-c"}); err != nil {
+		t.Fatalf("GetProfiles() error = %v", err)
+	}
+	if repo.getProfilesCalls != before2 {
+		t.Errorf("getProfilesCalls = %d, want %d (fully cached)", repo.getProfilesCalls, before2)
+	}
+}
+
+func TestForget_EvictsProfileAndUnreadCount(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	ctx := context.Background()
+	if _, err := svc.CreateProfile(ctx, "uid-1", validKey, "Alice", "Alice A."); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if _, err := svc.GetMe(ctx, "uid-1"); err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if _, ok := svc.cache.GetProfile("uid-1"); !ok {
+		t.Fatal("expected uid-1 to be cached before Forget")
+	}
+	svc.Forget("uid-1")
+	if _, ok := svc.cache.GetProfile("uid-1"); ok {
+		t.Error("expected Forget to evict the cached profile")
+	}
+	if _, ok := svc.cache.GetUnreadCount("uid-1"); ok {
+		t.Error("expected Forget to evict the cached unread count")
+	}
+}
+
 // TestGetProfile_InvalidUserID (minor fix, phase0 code review): user_id is caller-supplied and must be
 // validated (length/charset) like every other input, not passed straight to a Firestore lookup.
 func TestGetProfile_InvalidUserID(t *testing.T) {
@@ -380,7 +581,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 	}
 	newName := "Alice B."
 	newBio := "hello world"
-	isPrivate := true
+	isPrivate := false // ADR-0008 D1 (L9): true is rejected; false stays accepted.
 
 	got, err := svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{
 		IdempotencyKey: validKey, DisplayName: &newName, Bio: &newBio, IsPrivate: &isPrivate,
@@ -388,11 +589,28 @@ func TestUpdateProfile_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateProfile() error = %v", err)
 	}
-	if got.DisplayName != newName || got.Bio != newBio || !got.IsPrivate {
+	if got.DisplayName != newName || got.Bio != newBio || got.IsPrivate {
 		t.Fatalf("unexpected profile: %+v", got)
 	}
 	if cached, _ := svc.cache.GetProfile("uid-1"); cached.DisplayName != newName {
 		t.Fatal("expected UpdateProfile to refresh the cache from the write, not a re-read")
+	}
+}
+
+// TestUpdateProfile_RejectsIsPrivateTrue closes L9 (ADR-0008 D1): private accounts are deferred, so
+// is_private=true is rejected with VALIDATION and 0 writes.
+func TestUpdateProfile_RejectsIsPrivateTrue(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	if _, err := svc.CreateProfile(context.Background(), "uid-1", validKey, "Alice", "Alice A."); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	before := repo.updateCalls
+	isPrivate := true
+	_, err := svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{IdempotencyKey: validKey, IsPrivate: &isPrivate})
+	wantValidationField(t, err, "is_private")
+	if repo.updateCalls != before {
+		t.Errorf("updateCalls = %d, want %d (0 writes)", repo.updateCalls, before)
 	}
 }
 

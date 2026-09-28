@@ -58,6 +58,9 @@ type ProfileTarget struct {
 type MeResult struct {
 	Profile                 Profile
 	UnreadNotificationCount int64
+	// EnabledFeatures is the caller's server feature flags (ADR-0008 D6), e.g. ["graph"]. Nil when no
+	// FeatureFlags provider was wired (Phase 0 default) — GetMe still returns 0 reads either way.
+	EnabledFeatures []string
 }
 
 // UpdateProfileParams carries only the fields the caller wants to change (nil = unchanged), matching the
@@ -130,6 +133,38 @@ type Repo interface {
 	// UnreadNotificationCount runs a count() aggregation on users/{uid}/notifications with
 	// createdAt > since.
 	UnreadNotificationCount(ctx context.Context, uid string, since time.Time) (int64, error)
+	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids; ADR-0008 T6). Ids
+	// with no document are simply absent from the result map (not an error).
+	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
+}
+
+// FeatureFlags reports which server feature flags (ADR-0008 D6) are enabled for a caller, for
+// GetMeResponse.enabled_features. 0 Firestore reads. Implemented by pkg/platform/flags.Registry; declared
+// here (rather than identity importing that package's concrete type into its exported API) so identity's
+// dependency stays interface-shaped (ADR-0002).
+type FeatureFlags interface {
+	EnabledFeatures(uid string) []string
+}
+
+// BlockChecker lets GetProfile ask "did target block viewer" without identity importing graph (ADR-0008:
+// "identity declares a consumer-side interface identity.BlockChecker in its api.go... graph implements it
+// ... graph never gets imported by identity" — the same pattern as GraphInitializer below). Backed by the
+// viewer's own cached graph.Snapshot.BlockedBy (0 extra reads on a cache hit; ADR-0008 D2's blockedBy-cap
+// overflow fallback may add one read on the rare account that has been blocked by more than 10,000 users).
+type BlockChecker interface {
+	IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error)
+}
+
+// Directory is the batched, cache-first profile lookup other modules use to hydrate list rows (ADR-0008
+// T6/T9: "checks the cache first, then does one GetAll for misses (<= 50)... Reuse getProfileCached and
+// Cache; no second cache"). GetProfiles silently drops uids with no profile or a non-ACTIVE status — callers
+// drop the corresponding row rather than erroring. Forget evicts uid's cached profile and unread count
+// immediately after another module's own commit changed users/{uid} counters (via Counters), so a
+// subsequent read on this instance reflects the write without waiting out the cache TTL (CLAUDE.md: "update
+// the instance cache from written data instead of re-reading").
+type Directory interface {
+	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
+	Forget(uids ...string)
 }
 
 // GraphInitializer is the minimal seam identity depends on to create the caller's empty social-graph

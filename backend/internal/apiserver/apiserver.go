@@ -25,6 +25,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/health"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/httpcors"
@@ -79,6 +80,10 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		return nil, nil, fmt.Errorf("app check verifier: %w", err)
 	}
 
+	// --- feature flags (ADR-0008 D6) ---
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph)
+	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
+
 	// --- modules ---
 	// graph.FirestoreRepo is the minimal seam identity depends on to create the empty graph/{uid} doc in
 	// the CreateProfile transaction (backend/internal/graph doc comment). The full GraphService is not
@@ -86,7 +91,9 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	graphRepo := graph.NewFirestoreRepo(fsClient)
 	identityRepo := identity.NewFirestoreRepo(fsClient, graphRepo)
 	identityCache := identity.NewCache(cfg.CacheTTL)
-	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown)
+	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
+		identity.WithFeatureFlags(featureFlags),
+	)
 	identityServer := identity.NewServer(identitySvc)
 
 	// posts, timeline, engagement, media, notifications, search, moderation, admin, and the full graph

@@ -20,11 +20,33 @@ type service struct {
 	cache                *Cache
 	handleChangeCooldown time.Duration
 	now                  func() time.Time
+	blockChecker         BlockChecker
+	features             FeatureFlags
+}
+
+// Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
+// (ADR-0008 T6): a variadic option keeps every existing New(repo, cache, cooldown) call site compiling
+// unchanged rather than forcing a positional-argument churn across every test file.
+type Option func(*service)
+
+// WithBlockChecker wires the graph module's block check into GetProfile (ADR-0008 D9). Nil (the default)
+// disables the check, matching the Phase 0 bootstrap's behavior.
+func WithBlockChecker(bc BlockChecker) Option {
+	return func(s *service) { s.blockChecker = bc }
+}
+
+// WithFeatureFlags wires GetMe.enabled_features (ADR-0008 D6). Nil (the default) reports no flags.
+func WithFeatureFlags(ff FeatureFlags) Option {
+	return func(s *service) { s.features = ff }
 }
 
 // New builds the identity Service.
-func New(repo Repo, c *Cache, handleChangeCooldown time.Duration) Service {
-	return &service{repo: repo, cache: c, handleChangeCooldown: handleChangeCooldown, now: time.Now}
+func New(repo Repo, c *Cache, handleChangeCooldown time.Duration, opts ...Option) Service {
+	s := &service{repo: repo, cache: c, handleChangeCooldown: handleChangeCooldown, now: time.Now}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func notFoundErr() error {
@@ -101,27 +123,32 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 }
 
 // GetMe: reads 2 worst case (profile + unread count, both cache misses), 1 typical (ADR-0003/proto).
+// enabled_features (ADR-0008 D6) comes from the FeatureFlags provider, 0 extra reads.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	profile, err := s.getProfileCached(ctx, uid)
 	if err != nil {
 		return MeResult{}, err
 	}
+	var enabled []string
+	if s.features != nil {
+		enabled = s.features.EnabledFeatures(uid)
+	}
 	if n, ok := s.cache.GetUnreadCount(uid); ok {
-		return MeResult{Profile: profile, UnreadNotificationCount: n}, nil
+		return MeResult{Profile: profile, UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
 	}
 	n, err := s.repo.UnreadNotificationCount(ctx, uid, profile.NotificationsSeenAt)
 	if err != nil {
 		return MeResult{}, fmt.Errorf("identity: get me %s: %w", uid, err)
 	}
 	s.cache.SetUnreadCount(uid, n)
-	return MeResult{Profile: profile, UnreadNotificationCount: n}, nil
+	return MeResult{Profile: profile, UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
 }
 
-// GetProfile: reads up to 2 (handle resolve + profile; both cacheable). TODO(Phase 1): once the graph
-// module exists, add the blocked-by check here and return NOT_FOUND instead of the profile (ADR-0003:
-// "no existence leak") — tracked, not implemented, because graph.Service doesn't exist in this
-// bootstrap yet (see backend/internal/graph).
-func (s *service) GetProfile(ctx context.Context, _ string, target ProfileTarget) (Profile, error) {
+// GetProfile: reads up to 2 (handle resolve + profile; both cacheable), +1 more when BlockChecker is wired
+// and misses its own cache (ADR-0008 D9/D2: proto worst case 3, +1 on a viewer's blockedByOverflow). If the
+// target blocked the caller, returns the byte-identical NOT_FOUND used for a missing profile (ADR-0006 §6:
+// "no existence leak") — the caller can still view a target they themselves blocked, so they can unblock.
+func (s *service) GetProfile(ctx context.Context, callerUID string, target ProfileTarget) (Profile, error) {
 	uid := target.UserID
 	if uid == "" {
 		if target.Handle == "" {
@@ -145,7 +172,20 @@ func (s *service) GetProfile(ctx context.Context, _ string, target ProfileTarget
 			uid = resolved
 		}
 	}
-	return s.getProfileCached(ctx, uid)
+	profile, err := s.getProfileCached(ctx, uid)
+	if err != nil {
+		return Profile{}, err
+	}
+	if s.blockChecker != nil && callerUID != "" && callerUID != uid {
+		blocked, err := s.blockChecker.IsBlockedBy(ctx, callerUID, uid)
+		if err != nil {
+			return Profile{}, fmt.Errorf("identity: block check %s -> %s: %w", callerUID, uid, err)
+		}
+		if blocked {
+			return Profile{}, notFoundErr()
+		}
+	}
+	return profile, nil
 }
 
 // UpdateProfile: reads 1, writes 1 in Phase 0 (avatar_media_id verification needs the media module,
@@ -163,6 +203,11 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	}
 	if params.AvatarMediaID != nil && *params.AvatarMediaID != "" {
 		return Profile{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY, "avatar uploads are not available yet")
+	}
+	// ADR-0008 D1 (L9): private accounts are deferred. is_private=false stays accepted (already the only
+	// value profiles can hold); is_private=true is rejected before any read, 0 writes.
+	if params.IsPrivate != nil && *params.IsPrivate {
+		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
 	now := s.now().UTC()
@@ -233,6 +278,56 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	}
 	// TODO(Phase 1): publish `profile-snapshot-refresh` (ADR-0003).
 	return profile, nil
+}
+
+// GetProfiles implements Directory: cache-first, then one GetAll for misses (ADR-0008 T6). Ids with no
+// ACTIVE profile (missing, or a status other than ACTIVE) are simply absent from the result.
+func (s *service) GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error) {
+	out := make(map[string]Profile, len(uids))
+	var misses []string
+	for _, uid := range uids {
+		if p, ok := s.cache.GetProfile(uid); ok {
+			if p.Status == AccountStatusActive {
+				out[uid] = p
+			}
+			continue
+		}
+		if s.cache.GetNotFound(uid) {
+			continue
+		}
+		misses = append(misses, uid)
+	}
+	if len(misses) == 0 {
+		return out, nil
+	}
+	fetched, err := s.repo.GetProfiles(ctx, misses)
+	if err != nil {
+		return nil, fmt.Errorf("identity: get profiles: %w", err)
+	}
+	found := make(map[string]struct{}, len(fetched))
+	for uid, p := range fetched {
+		found[uid] = struct{}{}
+		s.cache.SetProfile(p)
+		if p.Status == AccountStatusActive {
+			out[uid] = p
+		}
+	}
+	for _, uid := range misses {
+		if _, ok := found[uid]; !ok {
+			s.cache.SetNotFound(uid)
+		}
+	}
+	return out, nil
+}
+
+// Forget implements Directory: evicts uid's cached profile and unread count on this instance (CLAUDE.md:
+// "update the instance cache from written data instead of re-reading" — this is the eviction half, called
+// by another module right after its own commit changed users/{uid} through Counters).
+func (s *service) Forget(uids ...string) {
+	for _, uid := range uids {
+		s.cache.InvalidateProfile(uid)
+		s.cache.InvalidateUnreadCount(uid)
+	}
 }
 
 // AccountStatus backs pkg/platform/authn.AccountStatusProvider; reuses the same 60s cache as every

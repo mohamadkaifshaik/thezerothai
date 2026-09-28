@@ -403,6 +403,37 @@ func (r *FirestoreRepo) AddFollowingCount(b store.Batch, uid string, delta int64
 	b.Update(r.userRef(uid), []firestore.Update{{Path: "followingCount", Value: firestore.Increment(delta)}})
 }
 
+// GetProfiles batch-reads uids via one GetAll (ADR-0008 T6; CLAUDE.md rule 6: "batch known IDs with GetAll
+// after checking the cache"). Callers are responsible for capping len(uids) at 50 (identity.Directory's
+// caller, graph, only ever passes misses from its own cache-first pass). Missing docs are silently omitted,
+// not an error (Firestore's GetAll returns a non-existent snapshot for them, never a NotFound error).
+func (r *FirestoreRepo) GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error) {
+	out := make(map[string]Profile, len(uids))
+	if len(uids) == 0 {
+		return out, nil
+	}
+	refs := make([]*firestore.DocumentRef, len(uids))
+	for i, uid := range uids {
+		refs[i] = r.userRef(uid)
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	budget.FromContext(ctx).AddReads(int64(len(uids)))
+	if err != nil {
+		return nil, fmt.Errorf("identity: get profiles: %w", err)
+	}
+	for i, snap := range snaps {
+		if !snap.Exists() {
+			continue
+		}
+		var d userDoc
+		if err := snap.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("identity: decode profile %s: %w", uids[i], err)
+		}
+		out[uids[i]] = d.toProfile(uids[i])
+	}
+	return out, nil
+}
+
 // unreadNotificationCountCap bounds UnreadNotificationCount's query (rule 5: "every query has a Limit") so
 // a very prolific account's unread count can never cost more than the 1 read documented below — Firestore
 // bills a count() aggregation as 1 read per ~1,000 matched docs, so without a cap a heavy notification
