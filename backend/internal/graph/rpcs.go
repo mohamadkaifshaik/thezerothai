@@ -240,13 +240,6 @@ func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetU
 	return rel, nil
 }
 
-func (s *service) GetRelationships(ctx context.Context, callerUID string, targetUIDs []string) ([]Relationship, error) {
-	if err := s.checkFlag(callerUID); err != nil {
-		return nil, err
-	}
-	return nil, unimplemented()
-}
-
 func (s *service) ListFollowers(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error) {
 	if err := s.checkFlag(callerUID); err != nil {
 		return Page{}, err
@@ -255,20 +248,6 @@ func (s *service) ListFollowers(ctx context.Context, callerUID, targetUID string
 }
 
 func (s *service) ListFollowing(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error) {
-	if err := s.checkFlag(callerUID); err != nil {
-		return Page{}, err
-	}
-	return Page{}, unimplemented()
-}
-
-func (s *service) ListBlockedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
-	if err := s.checkFlag(callerUID); err != nil {
-		return Page{}, err
-	}
-	return Page{}, unimplemented()
-}
-
-func (s *service) ListMutedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	if err := s.checkFlag(callerUID); err != nil {
 		return Page{}, err
 	}

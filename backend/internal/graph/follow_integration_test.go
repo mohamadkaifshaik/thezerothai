@@ -53,6 +53,7 @@ func newWired(t *testing.T) wired {
 		Repo:                    graphRepo,
 		Cache:                   graph.NewCache(time.Minute),
 		Flags:                   alwaysOnFlags{},
+		CursorKey:               []byte("test-cursor-key"),
 		FollowsPerDay:           200,
 		NewAccountFollowsPerDay: 50,
 		BlocksPerDay:            200,

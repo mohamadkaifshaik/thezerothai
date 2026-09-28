@@ -53,6 +53,10 @@ type Repo interface {
 	Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error)
 	// Unmute is never quota-gated. changed=false means "wasn't muting" (0 writes).
 	Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
+
+	// GetLists reads graph/{uid} once (1 read) and returns the ordered blocked/muted arrays (insertion order,
+	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
+	GetLists(ctx context.Context, uid string) (Lists, error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).
@@ -60,6 +64,8 @@ type Deps struct {
 	Repo  Repo
 	Cache *Cache
 	Flags FlagChecker
+	// CursorKey signs opaque page tokens (config.CursorHMACKey, ADR-0003).
+	CursorKey []byte
 
 	FollowsPerDay           int64
 	NewAccountFollowsPerDay int64
@@ -81,6 +87,7 @@ type service struct {
 	repo      Repo
 	cache     *Cache
 	flags     FlagChecker
+	cursorKey []byte
 	directory identity.Directory
 	now       func() time.Time
 
@@ -97,6 +104,7 @@ func New(d Deps) *service {
 		repo:                    d.Repo,
 		cache:                   d.Cache,
 		flags:                   d.Flags,
+		cursorKey:               d.CursorKey,
 		now:                     time.Now,
 		followsPerDay:           d.FollowsPerDay,
 		newAccountFollowsPerDay: d.NewAccountFollowsPerDay,

@@ -49,6 +49,9 @@ type fakeRepo struct {
 	unmuteChanged bool
 	unmuteErr     error
 	unmuteCalls   int
+
+	lists     map[string]Lists
+	listCalls int
 }
 
 func (f *fakeRepo) Block(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (BlockResult, error) {
@@ -85,6 +88,14 @@ func (f *fakeRepo) Unmute(_ context.Context, _, _ string, _ time.Time) (Relation
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{snapshots: map[string]Snapshot{}}
+}
+
+func (f *fakeRepo) GetLists(_ context.Context, uid string) (Lists, error) {
+	f.listCalls++
+	if f.err != nil {
+		return Lists{}, f.err
+	}
+	return f.lists[uid], nil
 }
 
 func (f *fakeRepo) GetSnapshot(_ context.Context, uid string) (Snapshot, error) {

@@ -577,3 +577,20 @@ func (r *FirestoreRepo) Unmute(ctx context.Context, callerUID, targetUID string,
 	}
 	return rel, changed, nil
 }
+
+// Lists is one read of graph/{uid} for the own-list RPCs: the ordered arrays plus the Snapshot of the same doc.
+type Lists struct {
+	Snapshot Snapshot
+	// Blocked and Muted are in insertion order (ArrayUnion appends), oldest first.
+	Blocked []string
+	Muted   []string
+}
+
+// GetLists implements Repo: 1 read.
+func (r *FirestoreRepo) GetLists(ctx context.Context, uid string) (Lists, error) {
+	d, err := r.getGraph(ctx, uid)
+	if err != nil {
+		return Lists{}, err
+	}
+	return Lists{Snapshot: d.toSnapshot(), Blocked: d.Blocked, Muted: d.Muted}, nil
+}
