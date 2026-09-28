@@ -33,7 +33,9 @@ func (f *fakeCountersBatch) Update(ref *firestore.DocumentRef, u []firestore.Upd
 	}{ref, u})
 	return f
 }
-func (f *fakeCountersBatch) Delete(*firestore.DocumentRef, ...firestore.Precondition) store.Batch { return f }
+func (f *fakeCountersBatch) Delete(*firestore.DocumentRef, ...firestore.Precondition) store.Batch {
+	return f
+}
 
 func TestUserDoc_ToProfile_RoundTrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
