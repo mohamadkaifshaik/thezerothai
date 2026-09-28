@@ -18,7 +18,9 @@ class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
 void main() {
   setUpAll(() {
-    registerFallbackValue(const AuthEmailSignInRequested(email: '', password: ''));
+    registerFallbackValue(
+      const AuthEmailSignInRequested(email: '', password: ''),
+    );
   });
 
   Widget wrap(AuthBloc bloc) {
@@ -99,6 +101,15 @@ void main() {
 
       expect(find.text('Create your account'), findsOneWidget);
     });
+
+    testWidgets('shows just the Privacy Policy link, no sentence', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(authBloc));
+
+      expect(find.text('Privacy Policy'), findsOneWidget);
+      expect(find.textContaining('18 or older'), findsNothing);
+    });
   });
 
   group('with a seeded AuthBloc state (presentational)', () {
@@ -121,9 +132,7 @@ void main() {
     });
 
     testWidgets('shows a failure message and dismisses it', (tester) async {
-      const failureState = AuthState(
-        failure: AuthFailure.invalidCredentials(),
-      );
+      const failureState = AuthState(failure: AuthFailure.invalidCredentials());
       whenListen(
         authBloc,
         Stream.value(failureState),

@@ -24,18 +24,16 @@ void main() {
 
   setUp(() {
     identityRepository = MockIdentityRepository();
-    when(
-      () => identityRepository.cachedOwnProfile(any()),
-    ).thenAnswer((_) async => null);
+    when(() => identityRepository.cachedOwnProfile(any()))
+        .thenAnswer((_) async => null);
   });
 
   group('OnboardingBloc', () {
     blocTest<OnboardingBloc, OnboardingState>(
       'goes to profileRequired when GetMe throws ProfileRequiredException',
       setUp: () {
-        when(
-          () => identityRepository.getMe(),
-        ).thenThrow(const ProfileRequiredException('create a profile'));
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
@@ -49,9 +47,8 @@ void main() {
       'goes to ready with the profile on success',
       setUp: () {
         final profile = identity.Profile(userId: 'uid-1', handle: 'kaif');
-        when(() => identityRepository.getMe()).thenAnswer(
-          (_) async => identity.GetMeResponse(profile: profile),
-        );
+        when(() => identityRepository.getMe())
+            .thenAnswer((_) async => identity.GetMeResponse(profile: profile));
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
@@ -80,12 +77,16 @@ void main() {
           postsCount: 0,
           cachedAt: DateTime(2024),
         );
-        when(
-          () => identityRepository.cachedOwnProfile('uid-1'),
-        ).thenAnswer((_) async => cachedProfile);
-        when(() => identityRepository.profileFromCache(cachedProfile)).thenReturn(
-          identity.Profile(userId: 'uid-1', handle: 'kaif', displayName: 'Kaif (cached)'),
-        );
+        when(() => identityRepository.cachedOwnProfile('uid-1'))
+            .thenAnswer((_) async => cachedProfile);
+        when(() => identityRepository.profileFromCache(cachedProfile))
+            .thenReturn(
+              identity.Profile(
+                userId: 'uid-1',
+                handle: 'kaif',
+                displayName: 'Kaif (cached)',
+              ),
+            );
         when(() => identityRepository.getMe()).thenAnswer(
           (_) async => identity.GetMeResponse(
             profile: identity.Profile(
@@ -127,10 +128,11 @@ void main() {
     blocTest<OnboardingBloc, OnboardingState>(
       'handle availability check marks an available handle',
       setUp: () {
-        when(() => identityRepository.checkHandleAvailability('kaif')).thenAnswer(
-          (_) async =>
-              identity.CheckHandleAvailabilityResponse(available: true),
-        );
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenAnswer(
+              (_) async =>
+                  identity.CheckHandleAvailabilityResponse(available: true),
+            );
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       act: (bloc) => bloc.add(const OnboardingHandleChanged('kaif')),
@@ -206,12 +208,13 @@ void main() {
       'maps a taken handle (server reason "") to friendly text, never the '
       'raw reason code',
       setUp: () {
-        when(() => identityRepository.checkHandleAvailability('kaif')).thenAnswer(
-          (_) async => identity.CheckHandleAvailabilityResponse(
-            available: false,
-            reason: '',
-          ),
-        );
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenAnswer(
+              (_) async => identity.CheckHandleAvailabilityResponse(
+                available: false,
+                reason: '',
+              ),
+            );
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       act: (bloc) => bloc.add(const OnboardingHandleChanged('kaif')),
@@ -238,7 +241,9 @@ void main() {
             displayName: 'Kaif',
             idempotencyKey: any(named: 'idempotencyKey'),
           ),
-        ).thenAnswer((_) async => identity.Profile(userId: 'uid-1', handle: 'kaif'));
+        ).thenAnswer(
+          (_) async => identity.Profile(userId: 'uid-1', handle: 'kaif'),
+        );
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       seed: () => const OnboardingState(
@@ -257,6 +262,69 @@ void main() {
         isA<OnboardingState>()
             .having((s) => s.status, 'status', OnboardingStatus.ready)
             .having((s) => s.isSubmitting, 'isSubmitting', false),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'goes to emailVerificationRequired when CreateProfile throws '
+      'EmailNotVerifiedException, instead of a bare error',
+      setUp: () {
+        when(
+          () => identityRepository.createProfile(
+            handle: 'kaif',
+            displayName: 'Kaif',
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenThrow(const EmailNotVerifiedException('verify your email'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(
+        handle: 'kaif',
+        displayName: 'Kaif',
+        handleCheckStatus: HandleCheckStatus.available,
+      ),
+      act: (bloc) => bloc.add(const OnboardingProfileSubmitted()),
+      expect: () => [
+        const OnboardingState(
+          handle: 'kaif',
+          displayName: 'Kaif',
+          handleCheckStatus: HandleCheckStatus.available,
+          isSubmitting: true,
+        ),
+        isA<OnboardingState>()
+            .having(
+              (s) => s.status,
+              'status',
+              OnboardingStatus.emailVerificationRequired,
+            )
+            .having((s) => s.isSubmitting, 'isSubmitting', false)
+            .having((s) => s.error, 'error', isA<EmailNotVerifiedException>())
+            // The handle/name the user typed must survive so they can retry
+            // Continue after verifying without retyping anything.
+            .having((s) => s.handle, 'handle', 'kaif')
+            .having((s) => s.displayName, 'displayName', 'Kaif'),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'OnboardingEmailVerificationDismissed returns to the create-profile '
+      'form, keeping the typed handle/name',
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(
+        status: OnboardingStatus.emailVerificationRequired,
+        handle: 'kaif',
+        displayName: 'Kaif',
+        handleCheckStatus: HandleCheckStatus.available,
+        error: EmailNotVerifiedException('verify your email'),
+      ),
+      act: (bloc) => bloc.add(const OnboardingEmailVerificationDismissed()),
+      expect: () => [
+        const OnboardingState(
+          status: OnboardingStatus.profileRequired,
+          handle: 'kaif',
+          displayName: 'Kaif',
+          handleCheckStatus: HandleCheckStatus.available,
+        ),
       ],
     );
   });

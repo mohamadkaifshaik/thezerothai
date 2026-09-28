@@ -4,9 +4,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
+import '../../auth/presentation/widgets/verify_email_view.dart';
 import 'bloc/onboarding_bloc.dart';
 import 'bloc/onboarding_event.dart';
 import 'bloc/onboarding_state.dart';
+
+/// Shown as [OnboardingStatus.emailVerificationRequired]'s banner when the
+/// server's error message is empty — kept friendly and specific to this
+/// screen rather than a generic fallback (`_handleTakenMessage`-style
+/// constant, see the `onboarding_bloc` file).
+const _emailNotVerifiedBanner =
+    "Verify your email before we can create your profile.";
 
 class CreateProfileScreen extends StatefulWidget {
   const CreateProfileScreen({super.key});
@@ -28,6 +36,22 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final onboardingStatus = context.select(
+      (OnboardingBloc bloc) => bloc.state.status,
+    );
+    if (onboardingStatus == OnboardingStatus.emailVerificationRequired) {
+      final message = context.select(
+        (OnboardingBloc bloc) => bloc.state.error?.message,
+      );
+      return VerifyEmailView(
+        banner: (message == null || message.isEmpty)
+            ? _emailNotVerifiedBanner
+            : message,
+        onBack: () => context.read<OnboardingBloc>().add(
+          const OnboardingEmailVerificationDismissed(),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create your profile'),
@@ -41,8 +65,13 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
         ],
       ),
       body: BlocConsumer<OnboardingBloc, OnboardingState>(
+        // Excludes emailVerificationRequired: that error is already shown as
+        // VerifyEmailView's banner (see the early return above) rather than
+        // a redundant snackbar.
         listenWhen: (previous, current) =>
-            current.error != null && previous.error != current.error,
+            current.error != null &&
+            previous.error != current.error &&
+            current.status != OnboardingStatus.emailVerificationRequired,
         listener: (context, state) {
           final error = state.error;
           if (error == null) return;
@@ -76,11 +105,11 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                         helperMaxLines: 2,
                         errorText:
                             state.handleCheckStatus ==
-                                    HandleCheckStatus.unavailable
-                                ? (state.handleCheckMessage.isEmpty
-                                      ? 'That handle is taken.'
-                                      : null)
-                                : null,
+                                HandleCheckStatus.unavailable
+                            ? (state.handleCheckMessage.isEmpty
+                                  ? 'That handle is taken.'
+                                  : null)
+                            : null,
                         suffixIcon: switch (state.handleCheckStatus) {
                           HandleCheckStatus.checking => const Padding(
                             padding: EdgeInsets.all(12),
@@ -109,7 +138,9 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                     TextField(
                       controller: _displayNameController,
                       textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(labelText: 'Display name'),
+                      decoration: const InputDecoration(
+                        labelText: 'Display name',
+                      ),
                       onChanged: (value) => context.read<OnboardingBloc>().add(
                         OnboardingDisplayNameChanged(value),
                       ),

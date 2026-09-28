@@ -35,3 +35,12 @@ final class OnboardingDisplayNameChanged extends OnboardingEvent {
 final class OnboardingProfileSubmitted extends OnboardingEvent {
   const OnboardingProfileSubmitted();
 }
+
+/// Dispatched when the user taps back on the email-verification prompt shown
+/// after `CreateProfile` returns `ERROR_REASON_EMAIL_NOT_VERIFIED` (see
+/// `OnboardingStatus.emailVerificationRequired`). Returns to the
+/// create-profile form — the handle and display name the user already typed
+/// are kept — so they can retry once their email is verified.
+final class OnboardingEmailVerificationDismissed extends OnboardingEvent {
+  const OnboardingEmailVerificationDismissed();
+}

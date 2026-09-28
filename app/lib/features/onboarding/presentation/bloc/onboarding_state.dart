@@ -13,6 +13,13 @@ enum OnboardingStatus {
   /// `GetMe` returned `ERROR_REASON_PROFILE_REQUIRED` — show create-profile.
   profileRequired,
 
+  /// `CreateProfile` returned `ERROR_REASON_EMAIL_NOT_VERIFIED` — the client
+  /// thought the address was verified (it gated the form on `AuthBloc`'s
+  /// cached Firebase user), but the ID token the server checked was stale.
+  /// `CreateProfileScreen` shows `VerifyEmailView` in place so the user can
+  /// force a fresh token, then go back and retry.
+  emailVerificationRequired,
+
   /// The caller has a profile. Onboarding is done.
   ready,
   error,

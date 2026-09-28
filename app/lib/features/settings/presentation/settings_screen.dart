@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/widgets/privacy_policy_link.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 
@@ -23,6 +24,13 @@ class SettingsScreen extends StatelessWidget {
               title: const Text('Email'),
               subtitle: Text(user!.email!),
             ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('Privacy Policy'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => launchPrivacyPolicy(context),
+          ),
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.logout),

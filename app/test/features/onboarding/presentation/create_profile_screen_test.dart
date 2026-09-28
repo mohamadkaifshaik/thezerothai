@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -116,5 +117,49 @@ void main() {
     await tester.pump();
 
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+  });
+
+  testWidgets(
+    'shows VerifyEmailView with a banner when CreateProfile found the '
+    "caller's email unverified",
+    (tester) async {
+      whenListen(
+        onboardingBloc,
+        Stream<OnboardingState>.empty(),
+        initialState: const OnboardingState(
+          status: OnboardingStatus.emailVerificationRequired,
+          handle: 'kaif',
+          displayName: 'Kaif',
+          error: EmailNotVerifiedException('please verify your email'),
+        ),
+      );
+
+      await tester.pumpWidget(wrap());
+
+      expect(find.text('Verify your email'), findsOneWidget);
+      expect(find.text('please verify your email'), findsOneWidget);
+      // The create-profile form is gone, not just covered.
+      expect(find.text('Create your profile'), findsNothing);
+      expect(find.widgetWithText(FilledButton, 'Continue'), findsNothing);
+    },
+  );
+
+  testWidgets('tapping back on the email-verification prompt dispatches '
+      'OnboardingEmailVerificationDismissed', (tester) async {
+    whenListen(
+      onboardingBloc,
+      Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        status: OnboardingStatus.emailVerificationRequired,
+      ),
+    );
+
+    await tester.pumpWidget(wrap());
+    await tester.tap(find.byType(BackButton));
+    await tester.pump();
+
+    verify(
+      () => onboardingBloc.add(const OnboardingEmailVerificationDismissed()),
+    ).called(1);
   });
 }

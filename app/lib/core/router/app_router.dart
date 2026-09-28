@@ -21,9 +21,11 @@ import 'main_shell.dart';
 /// navigation is instant and never burns an extra `GetMe` (CLAUDE.md prime
 /// directive: the client is our cheapest cache).
 class AppRouter {
-  AppRouter({required AuthBloc authBloc, required OnboardingBloc onboardingBloc})
-    : _authBloc = authBloc,
-      _onboardingBloc = onboardingBloc;
+  AppRouter({
+    required AuthBloc authBloc,
+    required OnboardingBloc onboardingBloc,
+  }) : _authBloc = authBloc,
+       _onboardingBloc = onboardingBloc;
 
   final AuthBloc _authBloc;
   final OnboardingBloc _onboardingBloc;
@@ -68,9 +70,7 @@ class AppRouter {
           GoRoute(
             path: '/profile/:handle',
             builder: (context, state) => AuthGate(
-              child: ProfileScreen(
-                handle: state.pathParameters['handle']!,
-              ),
+              child: ProfileScreen(handle: state.pathParameters['handle']!),
             ),
           ),
           GoRoute(
@@ -113,6 +113,10 @@ class AppRouter {
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
       case OnboardingStatus.error:
+      case OnboardingStatus.emailVerificationRequired:
+        // CreateProfileScreen renders VerifyEmailView in place for this
+        // status; no URL change (same pattern as needsEmailVerification
+        // above).
         return null;
     }
   }
