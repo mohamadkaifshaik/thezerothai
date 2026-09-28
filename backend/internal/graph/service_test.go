@@ -52,6 +52,10 @@ type fakeRepo struct {
 
 	lists     map[string]Lists
 	listCalls int
+
+	edges         []Edge
+	edgeCalls     int
+	lastEdgeQuery EdgeQuery
 }
 
 func (f *fakeRepo) Block(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (BlockResult, error) {
@@ -88,6 +92,30 @@ func (f *fakeRepo) Unmute(_ context.Context, _, _ string, _ time.Time) (Relation
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{snapshots: map[string]Snapshot{}}
+}
+
+// ListEdges filters f.edges (kept newest first by the test) the way the Firestore query would.
+func (f *fakeRepo) ListEdges(_ context.Context, q EdgeQuery) ([]Edge, error) {
+	f.edgeCalls++
+	f.lastEdgeQuery = q
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []Edge
+	started := q.After == nil
+	for _, e := range f.edges {
+		if (q.Followers && e.FolloweeID != q.UID) || (!q.Followers && e.FollowerID != q.UID) {
+			continue
+		}
+		if !started {
+			started = e.DocID == q.After.DocID
+			continue
+		}
+		if len(out) < q.Limit {
+			out = append(out, e)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeRepo) GetLists(_ context.Context, uid string) (Lists, error) {
@@ -140,7 +168,7 @@ func (f *fakeDirectory) GetProfiles(_ context.Context, uids []string) (map[strin
 	}
 	out := make(map[string]identity.Profile, len(uids))
 	for _, uid := range uids {
-		if p, ok := f.profiles[uid]; ok {
+		if p, ok := f.profiles[uid]; ok && p.Status == identity.AccountStatusActive { // mirrors the real Directory
 			out[uid] = p
 		}
 	}

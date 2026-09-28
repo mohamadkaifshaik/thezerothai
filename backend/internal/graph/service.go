@@ -57,6 +57,9 @@ type Repo interface {
 	// GetLists reads graph/{uid} once (1 read) and returns the ordered blocked/muted arrays (insertion order,
 	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
 	GetLists(ctx context.Context, uid string) (Lists, error)
+
+	// ListEdges returns one page of follow edges, newest first (ADR-0008 T10). <= q.Limit reads.
+	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).
