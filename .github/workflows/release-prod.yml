@@ -1,7 +1,7 @@
 name: Release prod
 
 # Tag v* (push, or workflow_dispatch run against that tag ref) -> build &
-# push image -> deploy to prod Cloud Run with --no-traffic --tag rc -> smoke
+# push image -> deploy to prod Cloud Run with --no-traffic --tag candidate -> smoke
 # test the rc URL -> build mobile release artifacts.
 #
 # This workflow NEVER shifts prod traffic and NEVER deploys Firebase Hosting.
@@ -41,7 +41,7 @@ env:
 
 jobs:
   build-and-stage:
-    name: Build image, deploy --no-traffic --tag rc, smoke test
+    name: Build image, deploy --no-traffic --tag candidate, smoke test
     runs-on: ubuntu-latest
     environment: prod
     outputs:
@@ -114,7 +114,7 @@ jobs:
           firebase deploy --only firestore:rules,firestore:indexes \
             --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
-      - name: Deploy Cloud Run revision (NO TRAFFIC, tagged rc)
+      - name: Deploy Cloud Run revision (NO TRAFFIC, tagged candidate)
         env:
           SERVICE: ${{ vars.PROD_SERVICE_NAME }}
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
@@ -125,7 +125,7 @@ jobs:
             --project="${PROJECT}" \
             --region="${REGION}" \
             --image="${IMAGE}" \
-            --no-traffic --tag=rc \
+            --no-traffic --tag=candidate \
             --quiet
 
       - name: Resolve rc revision URL
@@ -139,9 +139,9 @@ jobs:
           url=$(gcloud run services describe "${SERVICE}" \
             --project="${PROJECT}" \
             --region="${REGION}" \
-            --format=json | jq -r '[.status.traffic[]? | select(.tag == "rc") | .url] | first // empty')
+            --format=json | jq -r '[.status.traffic[]? | select(.tag == "candidate") | .url] | first // empty')
           if [ -z "${url}" ]; then
-            echo "::error::No traffic tag 'rc' found on ${SERVICE} after the --no-traffic --tag=rc deploy."
+            echo "::error::No traffic tag 'candidate' found on ${SERVICE} after the --no-traffic --tag=candidate deploy."
             exit 1
           fi
           echo "url=${url}" >> "$GITHUB_OUTPUT"

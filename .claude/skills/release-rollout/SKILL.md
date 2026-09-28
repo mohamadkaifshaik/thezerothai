@@ -8,17 +8,17 @@ description: Release process for the Cloud Run API (tagged zero-traffic revision
 ## Backend (Cloud Run)
 1. Merge to main → GitHub Actions: `make ci` → `ko build` → push to Artifact Registry (tag = git SHA) → deploy to **dev** (100%).
 2. Tag `vX.Y.Z` (push, or `workflow_dispatch` run picking that tag) → `.github/workflows/release-prod.yml` deploys to
-   **prod** as a new revision with **no traffic**: `gcloud run deploy api --image=<img>@<digest> --no-traffic --tag=rc
-   --region=asia-south1`, smoke tests `/health` on the `rc` URL, and builds mobile release artifacts (Android AAB,
+   **prod** as a new revision with **no traffic**: `gcloud run deploy api --image=<img>@<digest> --no-traffic --tag=candidate
+   --region=asia-south1`, smoke tests `/health` on the `candidate` URL, and builds mobile release artifacts (Android AAB,
    iOS `--no-codesign`) with prod `--dart-define`s. It never shifts traffic and never deploys Firebase Hosting.
 3. `production-reviewer` writes `VERDICT: GO` in `docs/reviews/release-vX.Y.Z-readiness.md`.
 4. **Manual promotion — `.github/workflows/promote-prod.yml`, `workflow_dispatch` only, run from the `vX.Y.Z` tag
    ref, input `stage` = `10` or `100`.** The founder runs it once with `stage=10`, watches ~15 min (5xx ratio, p95,
    Error Reporting), then runs it again with `stage=100`. Each run independently re-checks the `VERDICT: GO` file and
-   that the revision currently behind the `rc` traffic tag was actually built from *this* tag (checked via that
+   that the revision currently behind the `candidate` traffic tag was actually built from *this* tag (checked via that
    image's Artifact Registry tag, since Cloud Run always pins a revision to a resolved digest) before touching
    traffic — `gcloud run services update-traffic api --to-revisions=<rc-revision>=10`, then later `...=100`. Always
-   `--to-revisions`, never `--to-latest` (a newer tag could have been staged as a fresh `rc` in the meantime).
+   `--to-revisions`, never `--to-latest` (a newer tag could have been staged as a fresh `candidate` in the meantime).
    `stage=100` also builds the web bundle fresh from the tag *before* shifting traffic, then runs
    `firebase deploy --only hosting,firestore:rules,firestore:indexes` — Hosting is never deployed before 100%.
 5. Rollback: `gcloud run services update-traffic api --to-revisions=<previous>=100` (seconds). Turn feature flags off first if feature-related.

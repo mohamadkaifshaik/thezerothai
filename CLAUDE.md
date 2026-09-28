@@ -105,7 +105,7 @@ docs/runbooks/
 
 - **local** — Firebase Emulator Suite (Firestore, Auth, Pub/Sub, Storage) + `go run` + `flutter run`. $0, used for all development and integration tests.
 - **dev** — GCP project `dzeroth-dev` on the same billing account; Firestore free quota is per project, Cloud Run's is shared per billing account. Used for cloud smoke tests and internal testers.
-- **prod** — GCP project `dzeroth-prod`. Pre-release checks run on a **tagged, zero-traffic revision** (`--no-traffic --tag rc`), then traffic is shifted.
+- **prod** — GCP project `dzeroth-prod`. Pre-release checks run on a **tagged, zero-traffic revision** (`--no-traffic --tag candidate`), then traffic is shifted.
   No separate staging project at Stage 0.
 
 ## The team (subagents in `.claude/agents/`)

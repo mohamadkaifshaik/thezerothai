@@ -9,7 +9,7 @@ The `v0.1.0` tag is created on the commit that sets the final line to GO. Before
 changed.
 
 Status labels: **PASS**, **FAIL** (blocking), **ACCEPTED** (a risk you sign off in §4), **GATED** (checked after
-release-prod stages the new revision under the `rc` tag; a pass/fail gate in §5), **N/A**.
+release-prod stages the new revision under the `candidate` tag; a pass/fail gate in §5), **N/A**.
 
 ## 1. Inputs
 | Input | Status | Evidence |
@@ -131,9 +131,9 @@ use the Logs Explorer substitute in §5. The uptime check is green. There are 3 
 
 **P2 — after release-prod's `build-and-stage` job succeeds**
 1. Record the run URL, the image digest and the rc revision name (these go into the P7 addendum).
-2. Check traffic: `api-00002-fnn` at 100%, and the new revision at 0% with tag `rc`.
+2. Check traffic: `api-00002-fnn` at 100%, and the new revision at 0% with tag `candidate`.
 3. All 7 composite indexes are `READY`, and `cloud.firestore` rules are released.
-4. Smoke-test the rc URL (`https://rc---api-jgr3aiensq-el.a.run.app`):
+4. Smoke-test the rc URL (`https://candidate---api-jgr3aiensq-el.a.run.app`):
    - a. `/health` returns 200 `ok` (not the hello HTML), with a cold start under 1.5 s.
    - b. An unauthenticated GetMe returns 401.
    - c. With a prod test account (`accounts:signUp` using the web key and `Referer: https://dzeroth.com/`):

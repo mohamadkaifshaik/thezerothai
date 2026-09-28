@@ -18,7 +18,7 @@ Skip stages the plan marks N/A (e.g., no design change → skip 2) — every sub
 | 4 | Test | `tester` | `docs/reviews/test-report-<slug>.md` = PASS (incl. budget assertions) |
 | 5 | Review (parallel) | `code-reviewer`, `security-auditor` | APPROVE, no Critical/High |
 | 6 | Cost & perf | `sre-performance` | cost-model updated; emulator load smoke; free quotas hold |
-| 7 | Stage | `production-deployer` | deployed to dev; prod `rc` tagged revision with no traffic, smoke passes |
+| 7 | Stage | `production-deployer` | deployed to dev; prod `candidate` tagged revision with no traffic, smoke passes |
 | 8 | Gate | `production-reviewer` | `VERDICT: GO` |
 | 9 | Release | `production-deployer` | 10% → 100% traffic, watched 15 min (ask human before 100%) |
 
