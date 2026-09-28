@@ -163,6 +163,7 @@ class Profile extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   void clearAvatarThumbUrl() => $_clearField(6);
 
+  /// Always false until private accounts ship (ADR-0008 D1).
   @$pb.TagNumber(7)
   $core.bool get isPrivate => $_getBF(6);
   @$pb.TagNumber(7)
@@ -555,6 +556,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     AccountStatus? status,
     $core.bool? emailVerified,
     $fixnum.Int64? unreadNotificationCount,
+    $core.Iterable<$core.String>? enabledFeatures,
   }) {
     final result = GetMeResponse._();
     if (profile != null) result.profile = profile;
@@ -562,6 +564,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     if (emailVerified != null) result.emailVerified = emailVerified;
     if (unreadNotificationCount != null)
       result.unreadNotificationCount = unreadNotificationCount;
+    if (enabledFeatures != null) result.enabledFeatures.addAll(enabledFeatures);
     return result;
   }
 
@@ -585,6 +588,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
         enumValues: AccountStatus.values)
     ..aOB(3, _omitFieldNames ? '' : 'emailVerified')
     ..aInt64(4, _omitFieldNames ? '' : 'unreadNotificationCount')
+    ..pPS(5, _omitFieldNames ? '' : 'enabledFeatures')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -647,6 +651,12 @@ class GetMeResponse extends $pb.GeneratedMessage {
   $core.bool hasUnreadNotificationCount() => $_has(3);
   @$pb.TagNumber(4)
   void clearUnreadNotificationCount() => $_clearField(4);
+
+  /// Server feature flags enabled for this caller (ADR-0008 D6), lower snake case, e.g. "graph". A missing name means
+  /// off; clients ignore names they don't know. The server stays authoritative: a disabled feature's RPCs return
+  /// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get enabledFeatures => $_getList(4);
 }
 
 enum GetProfileRequest_Target { userId, handle, notSet }
@@ -1558,7 +1568,8 @@ class IdentityServiceApi {
       _client.invoke<CreateProfileResponse>(ctx, 'IdentityService',
           'CreateProfile', request, CreateProfileResponse());
 
-  /// Handle availability check for the sign-up form. In-memory rate limited (10/min/uid).
+  /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7).
+  /// "Taken" is reported even when the handle's owner blocked the caller (accepted residual, ADR-0008 D9).
   /// Firestore: reads 1/1, writes 0.
   $async.Future<CheckHandleAvailabilityResponse> checkHandleAvailability(
           $pb.ClientContext? ctx, CheckHandleAvailabilityRequest request) =>
@@ -1571,16 +1582,18 @@ class IdentityServiceApi {
 
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
-  /// 1,000 matches, cached 30 s).
+  /// 1,000 matches, cached 30 s). enabled_features comes from server env config (ADR-0008 D6): 0 reads.
   /// Firestore: reads 2/1, writes 0.
   $async.Future<GetMeResponse> getMe(
           $pb.ClientContext? ctx, GetMeRequest request) =>
       _client.invoke<GetMeResponse>(
           ctx, 'IdentityService', 'GetMe', request, GetMeResponse());
 
-  /// Public profile by id or handle. Returns NOT_FOUND if the profile blocks the caller (no existence leak).
-  /// Reads: handles (if by handle) + users + target graph (blocked-by check) + caller graph; all instance-cached 60 s.
-  /// Firestore: reads 4/0-1, writes 0.
+  /// Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
+  /// error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
+  /// A caller who blocks the target still gets the profile (so they can unblock).
+  /// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s.
+  /// Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 0.
   $async.Future<GetProfileResponse> getProfile(
           $pb.ClientContext? ctx, GetProfileRequest request) =>
       _client.invoke<GetProfileResponse>(
@@ -1589,7 +1602,9 @@ class IdentityServiceApi {
   /// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
   /// A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
   /// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
-  /// A change to is_private enqueues the visibility job (writes = author's post count; limited to 1 toggle/day).
+  /// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
+  /// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
+  /// (writes = author's post count; limited to 1 toggle/day).
   /// Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
   $async.Future<UpdateProfileResponse> updateProfile(
           $pb.ClientContext? ctx, UpdateProfileRequest request) =>

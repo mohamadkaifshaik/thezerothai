@@ -142,7 +142,8 @@ type Profile struct {
 	// 400 px avatar; empty if none.
 	AvatarUrl string `protobuf:"bytes,5,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
 	// 96 px avatar for lists; empty if none.
-	AvatarThumbUrl string                 `protobuf:"bytes,6,opt,name=avatar_thumb_url,json=avatarThumbUrl,proto3" json:"avatar_thumb_url,omitempty"`
+	AvatarThumbUrl string `protobuf:"bytes,6,opt,name=avatar_thumb_url,json=avatarThumbUrl,proto3" json:"avatar_thumb_url,omitempty"`
+	// Always false until private accounts ship (ADR-0008 D1).
 	IsPrivate      bool                   `protobuf:"varint,7,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
 	Verified       bool                   `protobuf:"varint,8,opt,name=verified,proto3" json:"verified,omitempty"`
 	FollowersCount int64                  `protobuf:"varint,9,opt,name=followers_count,json=followersCount,proto3" json:"followers_count,omitempty"`
@@ -511,8 +512,12 @@ type GetMeResponse struct {
 	// From the ID token claim (no Firestore read). Posting requires true or a Google/Apple provider.
 	EmailVerified           bool  `protobuf:"varint,3,opt,name=email_verified,json=emailVerified,proto3" json:"email_verified,omitempty"`
 	UnreadNotificationCount int64 `protobuf:"varint,4,opt,name=unread_notification_count,json=unreadNotificationCount,proto3" json:"unread_notification_count,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Server feature flags enabled for this caller (ADR-0008 D6), lower snake case, e.g. "graph". A missing name means
+	// off; clients ignore names they don't know. The server stays authoritative: a disabled feature's RPCs return
+	// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+	EnabledFeatures []string `protobuf:"bytes,5,rep,name=enabled_features,json=enabledFeatures,proto3" json:"enabled_features,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetMeResponse) Reset() {
@@ -571,6 +576,13 @@ func (x *GetMeResponse) GetUnreadNotificationCount() int64 {
 		return x.UnreadNotificationCount
 	}
 	return 0
+}
+
+func (x *GetMeResponse) GetEnabledFeatures() []string {
+	if x != nil {
+		return x.EnabledFeatures
+	}
+	return nil
 }
 
 type GetProfileRequest struct {
@@ -1257,12 +1269,13 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x1fCheckHandleAvailabilityResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x0e\n" +
-	"\fGetMeRequest\"\xe6\x01\n" +
+	"\fGetMeRequest\"\x91\x02\n" +
 	"\rGetMeResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".dzeroth.identity.v1.AccountStatusR\x06status\x12%\n" +
 	"\x0eemail_verified\x18\x03 \x01(\bR\remailVerified\x12:\n" +
-	"\x19unread_notification_count\x18\x04 \x01(\x03R\x17unreadNotificationCount\"R\n" +
+	"\x19unread_notification_count\x18\x04 \x01(\x03R\x17unreadNotificationCount\x12)\n" +
+	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\"R\n" +
 	"\x11GetProfileRequest\x12\x19\n" +
 	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x12\x18\n" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +

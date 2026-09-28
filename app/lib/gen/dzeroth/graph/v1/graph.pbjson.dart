@@ -81,6 +81,14 @@ const UserListItem$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'since'
     },
+    {
+      '1': 'relationship',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.graph.v1.Relationship',
+      '10': 'relationship'
+    },
   ],
 };
 
@@ -88,7 +96,8 @@ const UserListItem$json = {
 final $typed_data.Uint8List userListItemDescriptor = $convert.base64Decode(
     'CgxVc2VyTGlzdEl0ZW0SNQoEdXNlchgBIAEoCzIhLmR6ZXJvdGguY29tbW9uLnYxLkF1dGhvcl'
     'NuYXBzaG90UgR1c2VyEjAKBXNpbmNlGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFt'
-    'cFIFc2luY2U=');
+    'cFIFc2luY2USQgoMcmVsYXRpb25zaGlwGAMgASgLMh4uZHplcm90aC5ncmFwaC52MS5SZWxhdG'
+    'lvbnNoaXBSDHJlbGF0aW9uc2hpcA==');
 
 @$core.Deprecated('Use followRequestDescriptor instead')
 const FollowRequest$json = {

@@ -63,6 +63,11 @@ const (
 	ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED ErrorReason = 11
 	// PERMISSION_DENIED: the account is suspended or pending deletion.
 	ErrorReason_ERROR_REASON_ACCOUNT_RESTRICTED ErrorReason = 12
+	// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
+	ErrorReason_ERROR_REASON_TARGET_BLOCKED ErrorReason = 13
+	// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
+	// follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+	ErrorReason_ERROR_REASON_FEATURE_DISABLED ErrorReason = 14
 )
 
 // Enum value maps for ErrorReason.
@@ -81,6 +86,8 @@ var (
 		10: "ERROR_REASON_MEDIA_NOT_READY",
 		11: "ERROR_REASON_IDEMPOTENCY_KEY_REUSED",
 		12: "ERROR_REASON_ACCOUNT_RESTRICTED",
+		13: "ERROR_REASON_TARGET_BLOCKED",
+		14: "ERROR_REASON_FEATURE_DISABLED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -96,6 +103,8 @@ var (
 		"ERROR_REASON_MEDIA_NOT_READY":        10,
 		"ERROR_REASON_IDEMPOTENCY_KEY_REUSED": 11,
 		"ERROR_REASON_ACCOUNT_RESTRICTED":     12,
+		"ERROR_REASON_TARGET_BLOCKED":         13,
+		"ERROR_REASON_FEATURE_DISABLED":       14,
 	}
 )
 
@@ -401,7 +410,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xc4\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x88\x04\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -416,7 +425,9 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1cERROR_REASON_MEDIA_NOT_READY\x10\n" +
 	"\x12'\n" +
 	"#ERROR_REASON_IDEMPOTENCY_KEY_REUSED\x10\v\x12#\n" +
-	"\x1fERROR_REASON_ACCOUNT_RESTRICTED\x10\fBCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1fERROR_REASON_ACCOUNT_RESTRICTED\x10\f\x12\x1f\n" +
+	"\x1bERROR_REASON_TARGET_BLOCKED\x10\r\x12!\n" +
+	"\x1dERROR_REASON_FEATURE_DISABLED\x10\x0eBCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

@@ -75,6 +75,7 @@
     { "collectionGroup": "graph", "fieldPath": "blocked", "indexes": [] },
     { "collectionGroup": "graph", "fieldPath": "muted", "indexes": [] },
     { "collectionGroup": "graph", "fieldPath": "requested", "indexes": [] },
+    { "collectionGroup": "graph", "fieldPath": "blockedBy", "indexes": [] },
 
     { "collectionGroup": "userLikes", "fieldPath": "recent", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },

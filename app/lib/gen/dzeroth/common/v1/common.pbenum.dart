@@ -66,6 +66,15 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_ACCOUNT_RESTRICTED = ErrorReason._(
       12, _omitEnumNames ? '' : 'ERROR_REASON_ACCOUNT_RESTRICTED');
 
+  /// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
+  static const ErrorReason ERROR_REASON_TARGET_BLOCKED =
+      ErrorReason._(13, _omitEnumNames ? '' : 'ERROR_REASON_TARGET_BLOCKED');
+
+  /// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
+  /// follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+  static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
+      ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -80,10 +89,12 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_MEDIA_NOT_READY,
     ERROR_REASON_IDEMPOTENCY_KEY_REUSED,
     ERROR_REASON_ACCOUNT_RESTRICTED,
+    ERROR_REASON_TARGET_BLOCKED,
+    ERROR_REASON_FEATURE_DISABLED,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 12);
+      $pb.ProtobufEnum.$_initByValueList(values, 14);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

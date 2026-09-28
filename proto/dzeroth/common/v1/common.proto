@@ -80,4 +80,9 @@ enum ErrorReason {
   ERROR_REASON_IDEMPOTENCY_KEY_REUSED = 11;
   // PERMISSION_DENIED: the account is suspended or pending deletion.
   ERROR_REASON_ACCOUNT_RESTRICTED = 12;
+  // FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
+  ERROR_REASON_TARGET_BLOCKED = 13;
+  // FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
+  // follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+  ERROR_REASON_FEATURE_DISABLED = 14;
 }

@@ -22,7 +22,7 @@ class FollowState extends $pb.ProtobufEnum {
   static const FollowState FOLLOW_STATE_FOLLOWING =
       FollowState._(2, _omitEnumNames ? '' : 'FOLLOW_STATE_FOLLOWING');
 
-  /// Pending approval by a private account.
+  /// Pending approval by a private account. Unreachable until private accounts ship (ADR-0008 D1).
   static const FollowState FOLLOW_STATE_REQUESTED =
       FollowState._(3, _omitEnumNames ? '' : 'FOLLOW_STATE_REQUESTED');
 

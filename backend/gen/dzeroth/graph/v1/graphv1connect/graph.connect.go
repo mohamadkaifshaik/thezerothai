@@ -8,6 +8,14 @@
 // Counters followers_count/following_count live on users/{uid} (identity) and are incremented in the same
 // Firestore batch through the identity module's interface (unit of work, ADR-0002).
 // Idempotency: follows/followRequests use deterministic doc ids (natural key), so Create() + AlreadyExists = replay.
+//
+// ADR-0008 (graph slice): private accounts and follow requests are deferred; there are no writes to
+// followRequests/* or graph.requested[] and FOLLOW_STATE_REQUESTED is unreachable until they ship.
+// Every GraphService RPC is behind the FEATURE_GRAPH server flag: when it is off for the caller the RPC returns
+// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads (clients learn the flag from
+// IdentityService.GetMe enabled_features).
+// Block semantics (ADR-0008 D9): if the target blocked the caller, target-facing RPCs behave exactly as for a missing
+// user (NOT_FOUND); GetRelationships and every other response never reveal who blocked the caller.
 package graphv1connect
 
 import (
@@ -76,49 +84,69 @@ const (
 
 // GraphServiceClient is a client for the dzeroth.graph.v1.GraphService service.
 type GraphServiceClient interface {
-	// Follow a user; for private accounts creates a follow request instead. Quota: 200 follows/day.
-	// Cap: 5,000 following (graph doc size). Reads: caller graph (cached), target user (cached), target graph
-	// (blocked-by + privacy), quotas/{uid}. Writes: follows doc, caller graph, caller users counter, target users
-	// counter, quotas. Private target: followRequests doc + caller graph.requested + quotas.
-	// Async: 1 notification write (notifications module).
-	// Firestore: reads 4/2, writes 5/5 (+1 async).
+	// Follow a public user. Quota: 200 follows/day (50 for accounts < 24 h). Cap: 5,000 following (graph doc size).
+	// Transaction: caller graph + quotas/{uid} read fresh; target and caller users docs from the 60 s instance cache.
+	// Writes: follows doc, caller graph, caller users counter, target users counter, quotas.
+	// Errors: self => VALIDATION; target missing, not active, or blocked the caller => NOT_FOUND; caller blocks the
+	// target => FAILED_PRECONDITION + TARGET_BLOCKED; private target (legacy data) => FEATURE_DISABLED; at the cap =>
+	// LIMIT_REACHED; over quota => QUOTA_EXCEEDED. Replay (already following) => FOLLOWING, 0 writes.
+	// No notification write in this slice (the notifications plan adds its own budget).
+	// Firestore: reads 4/2 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 5/5; replay reads 2/2, writes 0.
 	Follow(context.Context, *connect.Request[v1.FollowRequest]) (*connect.Response[v1.FollowResponse], error)
-	// Unfollow or cancel a pending request. No-op if not following (per cached graph re-checked in the batch precondition).
-	// Firestore: reads 1/0, writes 3/3, deletes 1/1.
+	// Unfollow. Blind batch: delete follows doc (Exists precondition) + caller graph following -= + 2 users counters.
+	// Not following => NONE with 0 writes (the precondition fails the whole batch).
+	// Firestore: reads 0/0, writes 3/3 (0 on no-op), deletes 1/1.
 	Unfollow(context.Context, *connect.Request[v1.UnfollowRequest]) (*connect.Response[v1.UnfollowResponse], error)
-	// Incoming follow requests for the caller (private accounts). Hydrated with a batched GetAll of users.
-	// Firestore: reads 100/5 (page + hydration, users cached 60 s), writes 0.
+	// Incoming follow requests for the caller (private accounts).
+	// Until private accounts ship (ADR-0008 D1): always FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+	// Firestore: reads 0/0, writes 0 (planned when enabled: reads 100/5, page + hydration, users cached 60 s).
 	ListFollowRequests(context.Context, *connect.Request[v1.ListFollowRequestsRequest]) (*connect.Response[v1.ListFollowRequestsResponse], error)
 	// Accept or decline an incoming request. Replay: request doc already gone => returns current state.
-	// Accept: delete request, create follows, requester graph (following += , requested -=), 2 users counters.
-	// Firestore: reads 1/1, writes 4/4, deletes 1/1.
+	// Until private accounts ship (ADR-0008 D1): always FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+	// Planned: delete request, create follows, requester graph (following += , requested -=), 2 users counters.
+	// Firestore: reads 0/0, writes 0 (planned when enabled: reads 1/1, writes 4/4, deletes 1/1).
 	RespondToFollowRequest(context.Context, *connect.Request[v1.RespondToFollowRequestRequest]) (*connect.Response[v1.RespondToFollowRequestResponse], error)
-	// Block: also removes follows in both directions. Idempotent (ArrayUnion).
-	// Worst (mutual follow): caller graph, target graph, both users docs + 2 follows deletes.
-	// Firestore: reads 2/1, writes 4/1, deletes 2/0.
+	// Block: removes follows in both directions (Unblock does not restore them).
+	// Transaction reads both graphs + quotas/{uid}. Writes: caller graph (blocked +=, following -=), target graph
+	// (blockedBy +=, following -=), quotas (blocks) and, when edges existed, both users docs (counter decrements
+	// combined per doc) + follows deletes. Worst = mutual follow.
+	// Quota: 200 blocks+mutes/day (50 for accounts < 24 h). Cap: 2,000 blocked => LIMIT_REACHED.
+	// Self => VALIDATION; unknown user => NOT_FOUND. Replay (already blocking) => blocking=true, 0 writes.
+	// Firestore: reads 3/3, writes 5/3, deletes 2/0.
 	Block(context.Context, *connect.Request[v1.BlockRequest]) (*connect.Response[v1.BlockResponse], error)
-	// Firestore: reads 0/0, writes 1/1.
+	// Removes the block on both sides (caller blocked -=, target blockedBy -=). Follows are not restored.
+	// Caller graph is read fresh; not blocking => 0 writes. Never quota-gated.
+	// Firestore: reads 1/1, writes 2/2 (0 on no-op).
 	Unblock(context.Context, *connect.Request[v1.UnblockRequest]) (*connect.Response[v1.UnblockResponse], error)
-	// Mute hides the target's posts from the caller's timelines only. Idempotent (ArrayUnion).
-	// Firestore: reads 0/0, writes 1/1.
+	// Mute hides the target's posts from the caller's timelines and notifications only; never visible to the target.
+	// Transaction reads caller graph + quotas/{uid}; writes caller graph (muted +=) + quotas (blocks).
+	// Quota: shared with Block. Cap: 2,000 muted => LIMIT_REACHED. Replay (already muting) => 0 writes.
+	// Firestore: reads 2/2, writes 2/2 (0 on replay).
 	Mute(context.Context, *connect.Request[v1.MuteRequest]) (*connect.Response[v1.MuteResponse], error)
-	// Firestore: reads 0/0, writes 1/1.
+	// Caller graph is read fresh; not muting => 0 writes. Never quota-gated.
+	// Firestore: reads 1/1, writes 1/1 (0 on no-op).
 	Unmute(context.Context, *connect.Request[v1.UnmuteRequest]) (*connect.Response[v1.UnmuteResponse], error)
 	// Caller's relationship to up to 50 users, computed from the caller's graph doc only (1 read, cached 60 s).
 	// Does not report whether the target follows the caller (that would cost 1 read per user).
-	// Firestore: reads 1/0, writes 0.
+	// Never reflects blocks against the caller: a user who blocked the caller looks like a stranger (only the
+	// caller's own blocking/muting bits are reported). The caller's own id => NONE.
+	// Firestore: reads 1/0.5 (graph cached 60 s), writes 0.
 	GetRelationships(context.Context, *connect.Request[v1.GetRelationshipsRequest]) (*connect.Response[v1.GetRelationshipsResponse], error)
-	// Followers of a user, newest first. Private accounts: only the owner and approved followers.
-	// Reads: target user + target graph (visibility) + follows page + GetAll users for hydration (cached 60 s).
-	// Firestore: reads 102/25, writes 0.
+	// Followers of a user, newest first. NOT_FOUND if the target is missing, not active, or blocked the caller.
+	// Rows for users the caller blocks or who blocked the caller are dropped (pages may be short; follow
+	// next_page_token). Each row carries the caller's relationship to that user (0 extra reads).
+	// Reads: target user + caller graph (both cached 60 s) + follows page (Limit page_size) + GetAll users hydration.
+	// Firestore: reads 102/30, writes 0.
 	ListFollowers(context.Context, *connect.Request[v1.ListFollowersRequest]) (*connect.Response[v1.ListFollowersResponse], error)
-	// Accounts a user follows, newest first. Same cost shape as ListFollowers.
-	// Firestore: reads 102/25, writes 0.
+	// Accounts a user follows, newest first. Same visibility, row filtering and cost shape as ListFollowers.
+	// Firestore: reads 102/30, writes 0.
 	ListFollowing(context.Context, *connect.Request[v1.ListFollowingRequest]) (*connect.Response[v1.ListFollowingResponse], error)
-	// Caller's blocked accounts (from graph doc) hydrated with GetAll users.
+	// Caller's blocked accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
+	// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
 	// Firestore: reads 51/10, writes 0.
 	ListBlockedUsers(context.Context, *connect.Request[v1.ListBlockedUsersRequest]) (*connect.Response[v1.ListBlockedUsersResponse], error)
-	// Caller's muted accounts (from graph doc) hydrated with GetAll users.
+	// Caller's muted accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
+	// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
 	// Firestore: reads 51/10, writes 0.
 	ListMutedUsers(context.Context, *connect.Request[v1.ListMutedUsersRequest]) (*connect.Response[v1.ListMutedUsersResponse], error)
 }
@@ -305,49 +333,69 @@ func (c *graphServiceClient) ListMutedUsers(ctx context.Context, req *connect.Re
 
 // GraphServiceHandler is an implementation of the dzeroth.graph.v1.GraphService service.
 type GraphServiceHandler interface {
-	// Follow a user; for private accounts creates a follow request instead. Quota: 200 follows/day.
-	// Cap: 5,000 following (graph doc size). Reads: caller graph (cached), target user (cached), target graph
-	// (blocked-by + privacy), quotas/{uid}. Writes: follows doc, caller graph, caller users counter, target users
-	// counter, quotas. Private target: followRequests doc + caller graph.requested + quotas.
-	// Async: 1 notification write (notifications module).
-	// Firestore: reads 4/2, writes 5/5 (+1 async).
+	// Follow a public user. Quota: 200 follows/day (50 for accounts < 24 h). Cap: 5,000 following (graph doc size).
+	// Transaction: caller graph + quotas/{uid} read fresh; target and caller users docs from the 60 s instance cache.
+	// Writes: follows doc, caller graph, caller users counter, target users counter, quotas.
+	// Errors: self => VALIDATION; target missing, not active, or blocked the caller => NOT_FOUND; caller blocks the
+	// target => FAILED_PRECONDITION + TARGET_BLOCKED; private target (legacy data) => FEATURE_DISABLED; at the cap =>
+	// LIMIT_REACHED; over quota => QUOTA_EXCEEDED. Replay (already following) => FOLLOWING, 0 writes.
+	// No notification write in this slice (the notifications plan adds its own budget).
+	// Firestore: reads 4/2 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 5/5; replay reads 2/2, writes 0.
 	Follow(context.Context, *connect.Request[v1.FollowRequest]) (*connect.Response[v1.FollowResponse], error)
-	// Unfollow or cancel a pending request. No-op if not following (per cached graph re-checked in the batch precondition).
-	// Firestore: reads 1/0, writes 3/3, deletes 1/1.
+	// Unfollow. Blind batch: delete follows doc (Exists precondition) + caller graph following -= + 2 users counters.
+	// Not following => NONE with 0 writes (the precondition fails the whole batch).
+	// Firestore: reads 0/0, writes 3/3 (0 on no-op), deletes 1/1.
 	Unfollow(context.Context, *connect.Request[v1.UnfollowRequest]) (*connect.Response[v1.UnfollowResponse], error)
-	// Incoming follow requests for the caller (private accounts). Hydrated with a batched GetAll of users.
-	// Firestore: reads 100/5 (page + hydration, users cached 60 s), writes 0.
+	// Incoming follow requests for the caller (private accounts).
+	// Until private accounts ship (ADR-0008 D1): always FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+	// Firestore: reads 0/0, writes 0 (planned when enabled: reads 100/5, page + hydration, users cached 60 s).
 	ListFollowRequests(context.Context, *connect.Request[v1.ListFollowRequestsRequest]) (*connect.Response[v1.ListFollowRequestsResponse], error)
 	// Accept or decline an incoming request. Replay: request doc already gone => returns current state.
-	// Accept: delete request, create follows, requester graph (following += , requested -=), 2 users counters.
-	// Firestore: reads 1/1, writes 4/4, deletes 1/1.
+	// Until private accounts ship (ADR-0008 D1): always FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
+	// Planned: delete request, create follows, requester graph (following += , requested -=), 2 users counters.
+	// Firestore: reads 0/0, writes 0 (planned when enabled: reads 1/1, writes 4/4, deletes 1/1).
 	RespondToFollowRequest(context.Context, *connect.Request[v1.RespondToFollowRequestRequest]) (*connect.Response[v1.RespondToFollowRequestResponse], error)
-	// Block: also removes follows in both directions. Idempotent (ArrayUnion).
-	// Worst (mutual follow): caller graph, target graph, both users docs + 2 follows deletes.
-	// Firestore: reads 2/1, writes 4/1, deletes 2/0.
+	// Block: removes follows in both directions (Unblock does not restore them).
+	// Transaction reads both graphs + quotas/{uid}. Writes: caller graph (blocked +=, following -=), target graph
+	// (blockedBy +=, following -=), quotas (blocks) and, when edges existed, both users docs (counter decrements
+	// combined per doc) + follows deletes. Worst = mutual follow.
+	// Quota: 200 blocks+mutes/day (50 for accounts < 24 h). Cap: 2,000 blocked => LIMIT_REACHED.
+	// Self => VALIDATION; unknown user => NOT_FOUND. Replay (already blocking) => blocking=true, 0 writes.
+	// Firestore: reads 3/3, writes 5/3, deletes 2/0.
 	Block(context.Context, *connect.Request[v1.BlockRequest]) (*connect.Response[v1.BlockResponse], error)
-	// Firestore: reads 0/0, writes 1/1.
+	// Removes the block on both sides (caller blocked -=, target blockedBy -=). Follows are not restored.
+	// Caller graph is read fresh; not blocking => 0 writes. Never quota-gated.
+	// Firestore: reads 1/1, writes 2/2 (0 on no-op).
 	Unblock(context.Context, *connect.Request[v1.UnblockRequest]) (*connect.Response[v1.UnblockResponse], error)
-	// Mute hides the target's posts from the caller's timelines only. Idempotent (ArrayUnion).
-	// Firestore: reads 0/0, writes 1/1.
+	// Mute hides the target's posts from the caller's timelines and notifications only; never visible to the target.
+	// Transaction reads caller graph + quotas/{uid}; writes caller graph (muted +=) + quotas (blocks).
+	// Quota: shared with Block. Cap: 2,000 muted => LIMIT_REACHED. Replay (already muting) => 0 writes.
+	// Firestore: reads 2/2, writes 2/2 (0 on replay).
 	Mute(context.Context, *connect.Request[v1.MuteRequest]) (*connect.Response[v1.MuteResponse], error)
-	// Firestore: reads 0/0, writes 1/1.
+	// Caller graph is read fresh; not muting => 0 writes. Never quota-gated.
+	// Firestore: reads 1/1, writes 1/1 (0 on no-op).
 	Unmute(context.Context, *connect.Request[v1.UnmuteRequest]) (*connect.Response[v1.UnmuteResponse], error)
 	// Caller's relationship to up to 50 users, computed from the caller's graph doc only (1 read, cached 60 s).
 	// Does not report whether the target follows the caller (that would cost 1 read per user).
-	// Firestore: reads 1/0, writes 0.
+	// Never reflects blocks against the caller: a user who blocked the caller looks like a stranger (only the
+	// caller's own blocking/muting bits are reported). The caller's own id => NONE.
+	// Firestore: reads 1/0.5 (graph cached 60 s), writes 0.
 	GetRelationships(context.Context, *connect.Request[v1.GetRelationshipsRequest]) (*connect.Response[v1.GetRelationshipsResponse], error)
-	// Followers of a user, newest first. Private accounts: only the owner and approved followers.
-	// Reads: target user + target graph (visibility) + follows page + GetAll users for hydration (cached 60 s).
-	// Firestore: reads 102/25, writes 0.
+	// Followers of a user, newest first. NOT_FOUND if the target is missing, not active, or blocked the caller.
+	// Rows for users the caller blocks or who blocked the caller are dropped (pages may be short; follow
+	// next_page_token). Each row carries the caller's relationship to that user (0 extra reads).
+	// Reads: target user + caller graph (both cached 60 s) + follows page (Limit page_size) + GetAll users hydration.
+	// Firestore: reads 102/30, writes 0.
 	ListFollowers(context.Context, *connect.Request[v1.ListFollowersRequest]) (*connect.Response[v1.ListFollowersResponse], error)
-	// Accounts a user follows, newest first. Same cost shape as ListFollowers.
-	// Firestore: reads 102/25, writes 0.
+	// Accounts a user follows, newest first. Same visibility, row filtering and cost shape as ListFollowers.
+	// Firestore: reads 102/30, writes 0.
 	ListFollowing(context.Context, *connect.Request[v1.ListFollowingRequest]) (*connect.Response[v1.ListFollowingResponse], error)
-	// Caller's blocked accounts (from graph doc) hydrated with GetAll users.
+	// Caller's blocked accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
+	// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
 	// Firestore: reads 51/10, writes 0.
 	ListBlockedUsers(context.Context, *connect.Request[v1.ListBlockedUsersRequest]) (*connect.Response[v1.ListBlockedUsersResponse], error)
-	// Caller's muted accounts (from graph doc) hydrated with GetAll users.
+	// Caller's muted accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
+	// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
 	// Firestore: reads 51/10, writes 0.
 	ListMutedUsers(context.Context, *connect.Request[v1.ListMutedUsersRequest]) (*connect.Response[v1.ListMutedUsersResponse], error)
 }

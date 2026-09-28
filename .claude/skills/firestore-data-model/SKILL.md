@@ -16,7 +16,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 |---|---|---|---|
 | `users/{uid}` | handle, handleLower, displayName, bio, avatarUrl, isPrivate, followersCount, followingCount, postsCount, postsToday, postsDay, unreadNotifs, createdAt | signup, profile edit, counters | cache 60 s in instance |
 | `handles/{handleLower}` | uid | signup / rename (transaction `Create` → uniqueness) | 1 read on lookup |
-| `graph/{uid}` | following[] (uids), blocked[], muted[], updatedAt | follow/unfollow/block/mute (`ArrayUnion/ArrayRemove`) | **1 read = whole social context** for timeline filtering. 1 MiB doc ≈ 25k uids → cap following at 5,000 |
+| `graph/{uid}` | following[] (≤ 5,000), blocked[] (≤ 2,000), muted[] (≤ 2,000), requested[] (≤ 500, unused until private accounts), blockedBy[] (≤ 10,000; never serialized/exported), blockedByOverflow (bool), updatedAt | follow/unfollow/block/mute (`ArrayUnion/ArrayRemove`); Block/Unblock also write the target's `blockedBy` (ADR-0008) | **1 read = whole social context** incl. both block directions. ≈ 566 KB at all caps (28-char UIDs) < 1 MiB. Arrays exempt from indexing |
 | `follows/{followerId}_{followeeId}` | followerId, followeeId, createdAt | follow | for followers/following list pages only |
 | `posts/{postId}` | authorId, author{handle,displayName,avatarUrl}, text, media[{url,thumbUrl,w,h,blurhash}], replyToId, quoteOfId, conversationId, hashtags[], mentions[], likeCount, repostCount, replyCount, visibility, createdAt | create/delete, counter increments | author snapshot denormalized; refreshed lazily by a job when a profile changes |
 | `likes/{postId}_{uid}` | postId, uid, createdAt | like (`Create`; AlreadyExists = no-op) | |
@@ -25,13 +25,17 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | `users/{uid}/notifications/{id}` | type, actor snapshot, postId, createdAt, expireAt (TTL 90 d) | like/reply/follow/mention | TTL deletes are billed (cheap) |
 | `media/{mediaId}` | ownerId, status (PENDING/READY/REJECTED), objectPath, thumbPath, bytes, contentType, createdAt, expireAt (TTL 2 d while PENDING) | upload init / finalize | |
 | `reports/{id}` | reporterId, targetType, targetId, reason, status | report | |
-| `admin/visionUsage` / `admin/config` | monthly counters, feature flags | rare | cache 5 min |
+| `quotas/{uid}` | day (IST), posts, follows, blocks (Block + Mute), uploads, exports | quota'd mutations, same batch/txn | 1 read + 1 write per quota'd call (ADR-0003, ADR-0008 D7) |
+| `admin/vision-{yyyymm}` / `admin/config` | monthly counters, ops switches | rare | cache 5 min. Feature flags are **env vars**, not this doc (ADR-0008 D6) |
 
 ## Operation cost table (keep in sync with code)
 | Operation | Reads | Writes |
 |---|---|---|
 | Sign up | 1 (handle check) | 3 (users, handles, graph) |
-| Follow | 1 (graph, often cached) | 4 (follows doc, graph, 2 user counters) |
+| Follow (ADR-0008) | 4 worst / 2 typical (caller graph + quotas fresh in txn; users cached) | 5 (follows doc, graph, 2 user counters, quotas); replay 0 |
+| Unfollow | 0 (blind batch, `Exists` precondition) | 3 + 1 delete; no-op 0 |
+| Block (ADR-0008) | 3 (both graphs, quotas) | 5 worst / 3 typical (2 graphs, quotas, + 2 users counters if edges) + ≤ 2 deletes |
+| Unblock / Mute / Unmute | 1 / 2 / 1 | 2 / 2 / 1 (0 on no-op or replay) |
 | Create post | 1 (user, cached) | 2 (post, user counters) + 1 per mention notification |
 | Like | 0–1 | 3 (like doc, post counter, userLikes) + 1 notification |
 | Home timeline refresh | 1 (graph) + ceil(following/30) queries + new posts | 0 |
