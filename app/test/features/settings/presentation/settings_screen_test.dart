@@ -3,6 +3,9 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,21 +14,34 @@ import 'package:mocktail/mocktail.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
+class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
+    implements OnboardingBloc {}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(const AuthSignOutRequested());
   });
 
   late MockAuthBloc authBloc;
+  late MockOnboardingBloc onboardingBloc;
 
   setUp(() {
     authBloc = MockAuthBloc();
     when(() => authBloc.add(any())).thenReturn(null);
+    onboardingBloc = MockOnboardingBloc();
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(),
+    );
   });
 
   Widget wrap() {
-    return BlocProvider<AuthBloc>.value(
-      value: authBloc,
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthBloc>.value(value: authBloc),
+        BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+      ],
       child: const MaterialApp(home: SettingsScreen()),
     );
   }
@@ -77,5 +93,39 @@ void main() {
     await tester.pumpWidget(wrap());
 
     expect(find.text('Privacy Policy'), findsOneWidget);
+  });
+
+  testWidgets('hides "Blocked accounts"/"Muted accounts" when the graph flag '
+      'is off, and never offers a private-account toggle', (tester) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+
+    await tester.pumpWidget(wrap());
+
+    expect(find.text('Blocked accounts'), findsNothing);
+    expect(find.text('Muted accounts'), findsNothing);
+    expect(find.textContaining('Private account'), findsNothing);
+  });
+
+  testWidgets('shows "Blocked accounts"/"Muted accounts" when the graph flag '
+      'is on', (tester) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(enabledFeatures: {'graph'}),
+    );
+
+    await tester.pumpWidget(wrap());
+
+    expect(find.text('Blocked accounts'), findsOneWidget);
+    expect(find.text('Muted accounts'), findsOneWidget);
   });
 }
