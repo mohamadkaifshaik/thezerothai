@@ -403,6 +403,23 @@ func (r *FirestoreRepo) AddFollowingCount(b store.Batch, uid string, delta int64
 	b.Update(r.userRef(uid), []firestore.Update{{Path: "followingCount", Value: firestore.Increment(delta)}})
 }
 
+// AddCounts combines both counter deltas into one Update() call (ADR-0008 D3: "combined per doc") so a
+// caller changing both on the same uid pays for one write, not two. A zero delta is omitted; if both are
+// zero, nothing is appended to b at all.
+func (r *FirestoreRepo) AddCounts(b store.Batch, uid string, followingDelta, followersDelta int64) {
+	var updates []firestore.Update
+	if followingDelta != 0 {
+		updates = append(updates, firestore.Update{Path: "followingCount", Value: firestore.Increment(followingDelta)})
+	}
+	if followersDelta != 0 {
+		updates = append(updates, firestore.Update{Path: "followersCount", Value: firestore.Increment(followersDelta)})
+	}
+	if len(updates) == 0 {
+		return
+	}
+	b.Update(r.userRef(uid), updates)
+}
+
 // GetProfiles batch-reads uids via one GetAll (ADR-0008 T6; CLAUDE.md rule 6: "batch known IDs with GetAll
 // after checking the cache"). Callers are responsible for capping len(uids) at 50 (identity.Directory's
 // caller, graph, only ever passes misses from its own cache-first pass). Missing docs are silently omitted,

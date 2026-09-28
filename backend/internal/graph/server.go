@@ -171,63 +171,56 @@ func (s *Server) Unmute(ctx context.Context, req *connect.Request[graphv1.Unmute
 }
 
 func (s *Server) GetRelationships(ctx context.Context, req *connect.Request[graphv1.GetRelationshipsRequest]) (*connect.Response[graphv1.GetRelationshipsResponse], error) {
-	uid, err := callerUID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rels, err := s.svc.GetRelationships(ctx, uid, req.Msg.GetUserIds())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&graphv1.GetRelationshipsResponse{Relationships: toProtoRelationships(rels)}), nil
+	return respond(ctx, func(uid string) (*graphv1.GetRelationshipsResponse, error) {
+		rels, err := s.svc.GetRelationships(ctx, uid, req.Msg.GetUserIds())
+		if err != nil {
+			return nil, err
+		}
+		return &graphv1.GetRelationshipsResponse{Relationships: toProtoRelationships(rels)}, nil
+	})
 }
 
+//nolint:dupl // mirrors ListFollowing over distinct generated proto types
 func (s *Server) ListFollowers(ctx context.Context, req *connect.Request[graphv1.ListFollowersRequest]) (*connect.Response[graphv1.ListFollowersResponse], error) {
-	uid, err := callerUID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	page, err := s.svc.ListFollowers(ctx, uid, req.Msg.GetUserId(), req.Msg.GetPageSize(), req.Msg.GetPageToken())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&graphv1.ListFollowersResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}), nil
+	return respond(ctx, func(uid string) (*graphv1.ListFollowersResponse, error) {
+		page, err := s.svc.ListFollowers(ctx, uid, req.Msg.GetUserId(), req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return &graphv1.ListFollowersResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}, err
+	})
 }
 
+//nolint:dupl // mirrors ListFollowers over distinct generated proto types
 func (s *Server) ListFollowing(ctx context.Context, req *connect.Request[graphv1.ListFollowingRequest]) (*connect.Response[graphv1.ListFollowingResponse], error) {
-	uid, err := callerUID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	page, err := s.svc.ListFollowing(ctx, uid, req.Msg.GetUserId(), req.Msg.GetPageSize(), req.Msg.GetPageToken())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&graphv1.ListFollowingResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}), nil
+	return respond(ctx, func(uid string) (*graphv1.ListFollowingResponse, error) {
+		page, err := s.svc.ListFollowing(ctx, uid, req.Msg.GetUserId(), req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return &graphv1.ListFollowingResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}, err
+	})
 }
 
 func (s *Server) ListBlockedUsers(ctx context.Context, req *connect.Request[graphv1.ListBlockedUsersRequest]) (*connect.Response[graphv1.ListBlockedUsersResponse], error) {
-	uid, err := callerUID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	page, err := s.svc.ListBlockedUsers(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&graphv1.ListBlockedUsersResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}), nil
+	return respond(ctx, func(uid string) (*graphv1.ListBlockedUsersResponse, error) {
+		page, err := s.svc.ListBlockedUsers(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return &graphv1.ListBlockedUsersResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}, err
+	})
 }
 
 func (s *Server) ListMutedUsers(ctx context.Context, req *connect.Request[graphv1.ListMutedUsersRequest]) (*connect.Response[graphv1.ListMutedUsersResponse], error) {
+	return respond(ctx, func(uid string) (*graphv1.ListMutedUsersResponse, error) {
+		page, err := s.svc.ListMutedUsers(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return &graphv1.ListMutedUsersResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}, err
+	})
+}
+
+// respond resolves the caller uid, runs fn and wraps the result; on error the response is discarded.
+func respond[M any](ctx context.Context, fn func(uid string) (*M, error)) (*connect.Response[M], error) {
 	uid, err := callerUID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	page, err := s.svc.ListMutedUsers(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	msg, err := fn(uid)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&graphv1.ListMutedUsersResponse{Users: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}), nil
+	return connect.NewResponse(msg), nil
 }
 
 // ListFollowRequests and RespondToFollowRequest stay Unimplemented-shaped-as-FEATURE_DISABLED regardless of

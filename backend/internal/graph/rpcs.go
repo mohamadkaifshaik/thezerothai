@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"connectrpc.com/connect"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // errNotBuiltYet's message is deliberately generic (mirrors identity/server.go's errUnimplementedPhase1
@@ -113,32 +115,129 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 	return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
 }
 
+func (s *service) blockLimits() dailyLimits {
+	return dailyLimits{Standard: s.blocksPerDay, NewAccount: s.newAccountBlocksPerDay, NewAccountWindow: s.newAccountWindow}
+}
+
+// Block (ADR-0008 T8). Firestore: reads 3/3, writes 5/3, deletes 2/0.
 func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
-	return Relationship{}, unimplemented()
+	if idempotencyKeyIssue(idempotencyKey) {
+		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
+	}
+	if targetUserIDIssue(targetUID) {
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+	}
+	if callerUID == targetUID {
+		return Relationship{}, selfActionErr("user_id")
+	}
+
+	result, err := s.repo.Block(ctx, callerUID, targetUID, s.blockLimits(), s.now())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFoundOrBlocked):
+			return Relationship{}, notFoundErr()
+		}
+		var lim *LimitReachedError
+		if errors.As(err, &lim) {
+			return Relationship{}, limitReachedErr(lim.Limit)
+		}
+		return Relationship{}, fmt.Errorf("graph: block %s -> %s: %w", callerUID, targetUID, err)
+	}
+	if result.Outcome == OutcomeCreated {
+		s.cache.Invalidate(callerUID)
+		s.cache.Invalidate(targetUID)
+		s.directory.Forget(callerUID, targetUID)
+		if result.BlockedByOverflowHit {
+			// Logged here (post-commit), not inside the retryable transaction, so a transaction retry never
+			// double-logs (ADR-0008 D2/handoff: "ERROR blockedby_cap_reached").
+			slog.Default().Error("blockedby_cap_reached", "target_uid_hash", logger.HashUID(targetUID))
+		}
+	}
+	return result.Relationship, nil
 }
 
+// Unblock (ADR-0008 T8). Firestore: reads 1/1, writes 2/2 (0 on no-op).
 func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
-	return Relationship{}, unimplemented()
+	if idempotencyKeyIssue(idempotencyKey) {
+		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
+	}
+	if targetUserIDIssue(targetUID) {
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+	}
+	if callerUID == targetUID {
+		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
+	}
+
+	rel, changed, err := s.repo.Unblock(ctx, callerUID, targetUID, s.now())
+	if err != nil {
+		return Relationship{}, fmt.Errorf("graph: unblock %s -> %s: %w", callerUID, targetUID, err)
+	}
+	if changed {
+		s.cache.Invalidate(callerUID)
+		s.cache.Invalidate(targetUID)
+		s.directory.Forget(callerUID, targetUID)
+	}
+	return rel, nil
 }
 
+// Mute (ADR-0008 T8). Firestore: reads 2/2, writes 2/2 (0 on replay).
 func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
-	return Relationship{}, unimplemented()
+	if idempotencyKeyIssue(idempotencyKey) {
+		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
+	}
+	if targetUserIDIssue(targetUID) {
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+	}
+	if callerUID == targetUID {
+		return Relationship{}, selfActionErr("user_id")
+	}
+
+	rel, outcome, err := s.repo.Mute(ctx, callerUID, targetUID, s.blockLimits(), s.now())
+	if err != nil {
+		var lim *LimitReachedError
+		if errors.As(err, &lim) {
+			return Relationship{}, limitReachedErr(lim.Limit)
+		}
+		return Relationship{}, fmt.Errorf("graph: mute %s -> %s: %w", callerUID, targetUID, err)
+	}
+	if outcome == OutcomeCreated {
+		s.cache.Invalidate(callerUID)
+	}
+	return rel, nil
 }
 
+// Unmute (ADR-0008 T8). Firestore: reads 1/1, writes 1/1 (0 on no-op).
 func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
-	return Relationship{}, unimplemented()
+	if idempotencyKeyIssue(idempotencyKey) {
+		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
+	}
+	if targetUserIDIssue(targetUID) {
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+	}
+	if callerUID == targetUID {
+		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
+	}
+
+	rel, changed, err := s.repo.Unmute(ctx, callerUID, targetUID, s.now())
+	if err != nil {
+		return Relationship{}, fmt.Errorf("graph: unmute %s -> %s: %w", callerUID, targetUID, err)
+	}
+	if changed {
+		s.cache.Invalidate(callerUID)
+	}
+	return rel, nil
 }
 
 func (s *service) GetRelationships(ctx context.Context, callerUID string, targetUIDs []string) ([]Relationship, error) {

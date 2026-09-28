@@ -43,6 +43,16 @@ type Repo interface {
 	Follow(ctx context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
 	// Unfollow is a blind batch (ADR-0008 T7): changed=false, nil error means "wasn't following" (0 writes).
 	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
+
+	// Block runs the whole Block transaction (ADR-0008 T8). limits picks the new-account vs standard quota
+	// tier internally (from the graph doc's own Firestore creation time, 0 extra reads).
+	Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error)
+	// Unblock is never quota-gated (ADR-0008 D9). changed=false means "wasn't blocking" (0 writes).
+	Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
+	// Mute runs the whole Mute transaction (ADR-0008 T8), sharing the same quota kind/limits as Block.
+	Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error)
+	// Unmute is never quota-gated. changed=false means "wasn't muting" (0 writes).
+	Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).
@@ -158,13 +168,6 @@ func (s *service) followsLimit(newAccount bool) int64 {
 		return s.newAccountFollowsPerDay
 	}
 	return s.followsPerDay
-}
-
-func (s *service) blocksLimit(newAccount bool) int64 {
-	if newAccount {
-		return s.newAccountBlocksPerDay
-	}
-	return s.blocksPerDay
 }
 
 func featureDisabledErr() error {

@@ -30,6 +30,57 @@ type fakeRepo struct {
 	unfollowChanged bool
 	unfollowErr     error
 	unfollowCalls   int
+
+	blockResult BlockResult
+	blockErr    error
+	blockCalls  int
+
+	unblockRel     Relationship
+	unblockChanged bool
+	unblockErr     error
+	unblockCalls   int
+
+	muteResult  Relationship
+	muteOutcome MutationOutcome
+	muteErr     error
+	muteCalls   int
+
+	unmuteRel     Relationship
+	unmuteChanged bool
+	unmuteErr     error
+	unmuteCalls   int
+}
+
+func (f *fakeRepo) Block(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (BlockResult, error) {
+	f.blockCalls++
+	if f.blockErr != nil {
+		return BlockResult{}, f.blockErr
+	}
+	return f.blockResult, nil
+}
+
+func (f *fakeRepo) Unblock(_ context.Context, _, _ string, _ time.Time) (Relationship, bool, error) {
+	f.unblockCalls++
+	if f.unblockErr != nil {
+		return Relationship{}, false, f.unblockErr
+	}
+	return f.unblockRel, f.unblockChanged, nil
+}
+
+func (f *fakeRepo) Mute(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (Relationship, MutationOutcome, error) {
+	f.muteCalls++
+	if f.muteErr != nil {
+		return Relationship{}, "", f.muteErr
+	}
+	return f.muteResult, f.muteOutcome, nil
+}
+
+func (f *fakeRepo) Unmute(_ context.Context, _, _ string, _ time.Time) (Relationship, bool, error) {
+	f.unmuteCalls++
+	if f.unmuteErr != nil {
+		return Relationship{}, false, f.unmuteErr
+	}
+	return f.unmuteRel, f.unmuteChanged, nil
 }
 
 func newFakeRepo() *fakeRepo {

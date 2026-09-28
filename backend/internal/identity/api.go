@@ -98,6 +98,11 @@ type Counters interface {
 	AddPostsCount(b store.Batch, uid string, delta int64)
 	AddFollowersCount(b store.Batch, uid string, delta int64)
 	AddFollowingCount(b store.Batch, uid string, delta int64)
+	// AddCounts combines a followingCount and a followersCount delta into a single Update() call — i.e. one
+	// write, not two — for the case where both counters on the *same* uid's doc change together (ADR-0008
+	// D3: Block's counter decrements are "combined per doc"). A zero delta is simply omitted from the
+	// update; if both are zero, no write is appended at all.
+	AddCounts(b store.Batch, uid string, followingDelta, followersDelta int64)
 }
 
 // Repo is the storage seam service.go depends on; repo_firestore.go is the Firestore implementation,

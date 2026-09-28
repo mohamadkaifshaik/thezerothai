@@ -74,7 +74,7 @@ details) are not catalogued here — only what other code should import and reus
 | Item | Location | Use it for |
 |---|---|---|
 | identity.Service | backend/internal/identity/api.go | CreateProfile, CheckHandleAvailability, GetMe, GetProfile, UpdateProfile, ChangeHandle, AccountStatus. The only thing identity's Connect handler (server.go) depends on. |
-| identity.Counters | backend/internal/identity/api.go | Cross-module counter increments on `users/{uid}` (posts/followers/following counts) via `store.Batch` — implemented by identity.FirestoreRepo, unused until posts/graph exist |
+| identity.Counters | backend/internal/identity/api.go | Cross-module counter increments on `users/{uid}` (posts/followers/following counts) via `store.Batch` — implemented by identity.FirestoreRepo, used by graph (Follow/Block/Unfollow; `AddCounts` merges both counters on one doc into one write) |
 | identity.GraphInitializer | backend/internal/identity/api.go | The one seam identity depends on to create `graph/{uid}` inside CreateProfile's transaction; implemented by graph.FirestoreRepo (backend/internal/graph) until the full GraphService exists |
 
 ## Not implemented yet (Phase 0 bootstrap)
