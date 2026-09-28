@@ -106,3 +106,28 @@ func TestListMutedUsers_Integration_RelationshipFilled(t *testing.T) {
 		t.Errorf("relationship = %+v", got)
 	}
 }
+
+// ADR-0008 D9: A blocks B and B blocks A -> A's own ListBlockedUsers hides B (showing B would reveal that
+// B blocked A, while GetProfile(B) says NOT_FOUND).
+func TestListBlockedUsers_Integration_HidesUsersWhoBlockedCaller(t *testing.T) {
+	w := newWired(t)
+	mustCreateProfile(t, w.identity, "uid-a", "usera")
+	mustCreateProfile(t, w.identity, "uid-b", "userb")
+	mustCreateProfile(t, w.identity, "uid-c", "userc")
+	ctx := context.Background()
+	for _, target := range []string{"uid-b", "uid-c"} {
+		if _, err := w.graph.Block(ctx, "uid-a", key1, target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := w.graph.Block(ctx, "uid-b", key2, "uid-a"); err != nil {
+		t.Fatal(err)
+	}
+	page, err := w.graph.ListBlockedUsers(ctx, "uid-a", 20, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].User.UserID != "uid-c" {
+		t.Errorf("rows = %+v, want only uid-c", page.Items)
+	}
+}

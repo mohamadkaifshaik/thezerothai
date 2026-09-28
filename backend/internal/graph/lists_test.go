@@ -267,3 +267,24 @@ func TestPageNewestFirst_ClampsOutOfRangePosition(t *testing.T) {
 func cursorAt(pos int64, uid string) cursor.Cursor {
 	return cursor.Cursor{CreatedAt: time.UnixMicro(pos).UTC(), DocID: uid}
 }
+
+// ADR-0008 D9 (own lists): users in caller.blockedBy are hidden, never hydrated, and the page still paginates.
+func TestListOwnArray_HidesBlockedByUsers(t *testing.T) {
+	repo, dir := ownListFixture(6)
+	l := repo.lists["uid-1"]
+	l.Snapshot.BlockedBy = map[string]bool{"u06": true, "u05": true}
+	repo.lists["uid-1"] = l
+	svc := newTestServiceWithDirectory(repo, dir, Deps{CursorKey: []byte("k")})
+
+	p1, err := svc.ListBlockedUsers(context.Background(), "uid-1", 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p1.Items) != 0 || p1.NextPageToken == "" {
+		t.Fatalf("p1 = %v token=%q, want an empty page that still continues", uidsOf(p1), p1.NextPageToken)
+	}
+	p2, err := svc.ListBlockedUsers(context.Background(), "uid-1", 2, p1.NextPageToken)
+	if err != nil || fmt.Sprint(uidsOf(p2)) != "[u04 u03]" {
+		t.Fatalf("p2 = %v, %v", uidsOf(p2), err)
+	}
+}

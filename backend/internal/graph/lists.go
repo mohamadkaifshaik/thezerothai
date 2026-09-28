@@ -72,14 +72,26 @@ func (s *service) listOwnArray(ctx context.Context, callerUID string, pageSize i
 
 	uids, hasMore, lastIdx := pageNewestFirst(arr, cur, limits.ClampPageSize(pageSize))
 	page := Page{}
-	if len(uids) == 0 {
+	// ADR-0008 D9 (own lists): users in caller.blockedBy are hidden, otherwise showing them here while
+	// GetProfile says NOT_FOUND would reveal that they blocked the caller. Filtered before hydration so
+	// they cost no reads. The entry stays in the array and reappears when that user unblocks.
+	visible := uids[:0:0]
+	for _, uid := range uids {
+		if !lists.Snapshot.isBlockedBy(uid) {
+			visible = append(visible, uid)
+		}
+	}
+	if len(visible) == 0 {
+		if hasMore {
+			page.NextPageToken = s.ownArrayToken(arr, lastIdx)
+		}
 		return page, nil
 	}
-	profiles, err := s.directory.GetProfiles(ctx, uids)
+	profiles, err := s.directory.GetProfiles(ctx, visible)
 	if err != nil {
 		return Page{}, fmt.Errorf("graph: list own array: hydrate: %w", err)
 	}
-	for _, uid := range uids {
+	for _, uid := range visible {
 		p, ok := profiles[uid]
 		if !ok {
 			// Deleted or inactive: dropped from the page. Stale entries left behind (muted[] of a purged
@@ -89,9 +101,13 @@ func (s *service) listOwnArray(ctx context.Context, callerUID string, pageSize i
 		page.Items = append(page.Items, ListItem{User: p, Relationship: relationshipFor(lists.Snapshot, uid)})
 	}
 	if hasMore {
-		page.NextPageToken = cursor.Encode(s.cursorKey, cursor.Cursor{CreatedAt: time.UnixMicro(int64(lastIdx)).UTC(), DocID: arr[lastIdx]})
+		page.NextPageToken = s.ownArrayToken(arr, lastIdx)
 	}
 	return page, nil
+}
+
+func (s *service) ownArrayToken(arr []string, lastIdx int) string {
+	return cursor.Encode(s.cursorKey, cursor.Cursor{CreatedAt: time.UnixMicro(int64(lastIdx)).UTC(), DocID: arr[lastIdx]})
 }
 
 // pageNewestFirst walks arr (insertion order, oldest first) from the newest end. The cursor records the
