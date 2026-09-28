@@ -7,6 +7,7 @@ import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
+import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -82,6 +83,26 @@ class AppRouter {
             ),
           ),
           GoRoute(
+            path: '/profile/:handle/followers',
+            builder: (context, state) => AuthGate(
+              child: GraphListScreen(
+                handle: state.pathParameters['handle']!,
+                userId: state.extra as String?,
+                initialTab: GraphListTab.followers,
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/profile/:handle/following',
+            builder: (context, state) => AuthGate(
+              child: GraphListScreen(
+                handle: state.pathParameters['handle']!,
+                userId: state.extra as String?,
+                initialTab: GraphListTab.following,
+              ),
+            ),
+          ),
+          GoRoute(
             path: settingsPath,
             builder: (context, state) =>
                 const AuthGate(child: SettingsScreen()),
@@ -143,6 +164,9 @@ class AppRouter {
   static final _graphOnlyRoutes = RegExp(
     r'^/settings/(?:blocked|muted)$',
   );
+  static final _followersOrFollowing = RegExp(
+    r'^/profile/([^/]+)/(?:followers|following)$',
+  );
 
   /// Graph-only routes redirect away when the graph feature flag is off for
   /// this caller (ADR-0008 D6) — belt-and-suspenders alongside hiding the
@@ -152,6 +176,8 @@ class AppRouter {
       return null;
     }
     if (_graphOnlyRoutes.hasMatch(loc)) return settingsPath;
+    final match = _followersOrFollowing.firstMatch(loc);
+    if (match != null) return profilePath(match.group(1)!);
     return null;
   }
 }
