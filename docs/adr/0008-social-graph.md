@@ -1,5 +1,5 @@
 # 0008. Social graph slice: follows, blocks, mutes, feature flags and graph quotas
-Status: Accepted — all items except D12 (export contents), which is **Proposed** pending a founder call (see D12).
+Status: Accepted. All items, including D12 (export contents), which the founder decided on 2026-09-28.
 Date: 2026-09-28
 Deciders: architect, founder (D1: private accounts and follow requests deferred — founder decision, 2026-09-28)
 
@@ -300,14 +300,12 @@ list about B. NOT_FOUND is **byte-identical** to the missing-user error (same co
   deterministic notification id per (follower, followee) so re-follows and redeliveries dedupe.
 - The graph budget therefore has no "+1 async" write; the notifications plan adds its own row.
 
-### D12. Export contents (Q12) — **Proposed: needs a founder call**
-- Proposed: the export (and `opsctl export-graph` now) contains following and followers (uids + handles), blocked and
-  muted. It excludes `blockedBy` — who blocked the subject is data about third parties, and revealing it defeats
-  blocking (X and others don't disclose it).
-- Why a founder call: this is a legal interpretation of the data-principal's right of access (DPDP Act; GDPR if EU
-  users appear), not an engineering choice. It does not block v0.2.0: `opsctl export-graph` implements the proposed
-  default, and flipping it later is a one-line change. The founder confirms before the in-app export ships, or before
-  the first real export request, whichever is first.
+### D12. Export contents (Q12) — **Accepted (founder decision, 2026-09-28)**
+- The export (and `opsctl export-graph` now) contains following and followers (uids + handles), blocked and muted.
+- It **never** includes `blockedBy`, meaning who has blocked the subject. That's data about third parties, and revealing
+  it would defeat blocking (X and others don't disclose it either).
+- Founder decision (2026-09-28): "data export should never list who blocked the user". This applies to the manual
+  runbook export, `opsctl export-graph` and the future in-app export alike.
 
 ### D13. Profile screen ownership (Q13) — Accepted (plan default)
 This plan builds the profile header (identity data + graph actions); the posts/profile-timeline plan adds the tabs and
@@ -341,7 +339,7 @@ body. The header is a separate widget listed in `docs/ui-catalog.md` so the two 
   rows.
 - Follow-up: the `firestore-data-model` skill tables are updated with this ADR (graph row, Follow/Block rows,
   quotas); sre-performance restates cost-model §2–§4 (T21); runbooks `account-deletion.md`, `abuse-spike.md` and a new
-  `graph.md` (T22); the `private-accounts` plan with its visibility-job section; D12 founder call.
+  `graph.md` (T22); the `private-accounts` plan with its visibility-job section.
 - Revisit when: a `users` doc sustains > 1 write/s; an account nears 5,000 following at scale; graph cache memory
   > 70% of an instance; T20 finds the 60 s block staleness or the handle-availability residual unacceptable; or
   Firestore > 1.5M reads/day.
