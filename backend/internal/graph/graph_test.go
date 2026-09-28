@@ -25,7 +25,7 @@ func (f *fakeBatch) Create(ref *firestore.DocumentRef, data interface{}) store.B
 	return f
 }
 func (f *fakeBatch) Update(*firestore.DocumentRef, []firestore.Update) store.Batch { return f }
-func (f *fakeBatch) Delete(*firestore.DocumentRef) store.Batch                     { return f }
+func (f *fakeBatch) Delete(*firestore.DocumentRef, ...firestore.Precondition) store.Batch { return f }
 
 func TestInitGraph_CreatesEmptyDocAtCorrectPath(t *testing.T) {
 	client := &firestore.Client{}

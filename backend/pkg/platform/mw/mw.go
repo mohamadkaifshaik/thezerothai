@@ -161,6 +161,9 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 				"xff_hops", info.XFFHops,
 				"via_hosting", info.ViaHosting,
 			}
+			if info.LimitName != "" {
+				attrs = append(attrs, "limit_name", info.LimitName)
+			}
 			if trace != "" {
 				attrs = append(attrs, logger.TraceKey, trace)
 			}

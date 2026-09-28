@@ -49,6 +49,25 @@ func New(client *firestore.Client) *Store {
 	return &Store{client: client}
 }
 
+// KeyFormatValid reports whether key matches the common.proto idempotency_key convention (16-64 chars of
+// [A-Za-z0-9_-]). Every mutating RPC validates this, whether or not it also stores a Record via Get/Put
+// above — natural-key mutations (follows/likes/users) only need the format check (ADR-0008: "idempotency_key
+// is validated for format and not stored. No idempotency docs").
+func KeyFormatValid(key string) bool {
+	if len(key) < 16 || len(key) > 64 {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // Key derives the deterministic doc id sha256(uid|rpc|key) (ADR-0003).
 func Key(uid, rpc, idempotencyKey string) string {
 	sum := sha256.Sum256([]byte(uid + "|" + rpc + "|" + idempotencyKey))

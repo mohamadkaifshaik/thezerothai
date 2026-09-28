@@ -8,6 +8,28 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
+func TestKeyFormatValid(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"valid 16 chars", "0123456789abcdef", true},
+		{"valid with dash/underscore", "abc-DEF_012345678", true},
+		{"too short", "short", false},
+		{"too long", "0123456789012345678901234567890123456789012345678901234567890123456789", false},
+		{"invalid char", "abcdefghijklmno!", false},
+		{"empty", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := KeyFormatValid(tc.key); got != tc.want {
+				t.Errorf("KeyFormatValid(%q) = %v, want %v", tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestKey_DeterministicAndScoped(t *testing.T) {
 	k1 := Key("uid-1", "CreatePost", "client-key-a")
 	k2 := Key("uid-1", "CreatePost", "client-key-a")
@@ -76,4 +98,4 @@ func (f *fakeBatch) Create(_ *firestore.DocumentRef, data interface{}) store.Bat
 	return f
 }
 func (f *fakeBatch) Update(*firestore.DocumentRef, []firestore.Update) store.Batch { return f }
-func (f *fakeBatch) Delete(*firestore.DocumentRef) store.Batch                     { return f }
+func (f *fakeBatch) Delete(*firestore.DocumentRef, ...firestore.Precondition) store.Batch { return f }
