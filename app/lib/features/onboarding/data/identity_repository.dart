@@ -9,9 +9,11 @@ import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 /// sync, so `GetMe`/`GetProfile` are only ever a Firestore read the client
 /// couldn't avoid, never a redundant one (CLAUDE.md prime directive).
 class IdentityRepository {
-  IdentityRepository({required ApiClient apiClient, required AppDatabase database})
-    : _apiClient = apiClient,
-      _database = database;
+  IdentityRepository({
+    required ApiClient apiClient,
+    required AppDatabase database,
+  }) : _apiClient = apiClient,
+       _database = database;
 
   final ApiClient _apiClient;
   final AppDatabase _database;
@@ -26,11 +28,28 @@ class IdentityRepository {
   /// a Firebase account but hasn't called [createProfile] yet.
   Future<identity.GetMeResponse> getMe() {
     return guardApiCall(() async {
-      final response = await _apiClient.identity.getMe(
-        identity.GetMeRequest(),
-      );
+      final response = await _apiClient.identity.getMe(identity.GetMeRequest());
       await _cacheProfile(response.profile);
       return response;
+    });
+  }
+
+  /// Public profile by id or handle (case-insensitive on the server).
+  /// Throws [NotFoundException] (via [guardApiCall]) if the target is
+  /// missing, not active, or blocked the caller — byte-identical either way
+  /// (ADR-0008 D9): never let the UI hint at which one it was.
+  Future<identity.Profile> getProfile({String? userId, String? handle}) {
+    assert(
+      (userId == null) != (handle == null),
+      'getProfile takes exactly one of userId or handle',
+    );
+    return guardApiCall(() async {
+      final request = userId != null
+          ? identity.GetProfileRequest(userId: userId)
+          : identity.GetProfileRequest(handle: handle);
+      final response = await _apiClient.identity.getProfile(request);
+      await _cacheProfile(response.profile);
+      return response.profile;
     });
   }
 

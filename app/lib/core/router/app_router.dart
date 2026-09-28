@@ -35,7 +35,14 @@ class AppRouter {
   static const onboardingPath = '/onboarding';
   static const homePath = '/home';
   static const settingsPath = '/settings';
+  // The routes themselves land with T14 (followers/following) and T15
+  // (Settings' Blocked/Muted accounts); these constants are defined now so
+  // `ProfileHeader`'s count links have a single source of truth to push to.
+  static const blockedAccountsPath = '/settings/blocked';
+  static const mutedAccountsPath = '/settings/muted';
   static String profilePath(String handle) => '/profile/$handle';
+  static String followersPath(String handle) => '/profile/$handle/followers';
+  static String followingPath(String handle) => '/profile/$handle/following';
 
   late final GoRouter router = GoRouter(
     initialLocation: '/',
