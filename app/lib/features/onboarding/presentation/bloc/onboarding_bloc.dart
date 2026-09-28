@@ -18,9 +18,20 @@ final _handlePattern = RegExp(r'^[a-z0-9_]{3,15}$');
 /// in sync manually (small, rarely-changed list) so the common case of a
 /// reserved handle gets an instant message instead of a round trip.
 const _reservedHandles = {
-  'admin', 'administrator', 'api', 'www', 'root',
-  'dzeroth', 'support', 'help', 'about', 'settings',
-  'null', 'undefined', 'moderator', 'official',
+  'admin',
+  'administrator',
+  'api',
+  'www',
+  'root',
+  'dzeroth',
+  'support',
+  'help',
+  'about',
+  'settings',
+  'null',
+  'undefined',
+  'moderator',
+  'official',
 };
 
 const _handleFormatMessage =
@@ -59,6 +70,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       emit(state.copyWith(displayName: event.displayName));
     });
     on<OnboardingProfileSubmitted>(_onProfileSubmitted);
+    on<OnboardingEmailVerificationDismissed>((event, emit) {
+      emit(
+        state.copyWith(status: OnboardingStatus.profileRequired, error: null),
+      );
+    });
   }
 
   final IdentityRepository _identityRepository;
@@ -104,7 +120,10 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     try {
       final response = await _identityRepository.getMe();
       emit(
-        state.copyWith(status: OnboardingStatus.ready, profile: response.profile),
+        state.copyWith(
+          status: OnboardingStatus.ready,
+          profile: response.profile,
+        ),
       );
     } on ProfileRequiredException {
       emit(state.copyWith(status: OnboardingStatus.profileRequired));
@@ -215,6 +234,20 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           isSubmitting: false,
           handleCheckStatus: HandleCheckStatus.unavailable,
           handleCheckMessage: e.message,
+        ),
+      );
+    } on EmailNotVerifiedException catch (e) {
+      // The client gated the form on AuthBloc's cached Firebase user, but the
+      // ID token the server checked was stale (e.g. the force-refresh after
+      // "I've verified" failed — see AuthBloc._onVerificationCheckRequested).
+      // Send the user back through verification instead of a bare error
+      // snackbar: CreateProfileScreen renders VerifyEmailView in place for
+      // this status, and its "I've verified" button forces a fresh token.
+      emit(
+        state.copyWith(
+          isSubmitting: false,
+          status: OnboardingStatus.emailVerificationRequired,
+          error: e,
         ),
       );
     } on AppException catch (e) {

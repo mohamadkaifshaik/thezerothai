@@ -11,9 +11,21 @@ import '../bloc/auth_event.dart';
 /// all require a verified email). Not a separate route — it's rendered by
 /// whichever screen is on top of the [AuthBloc] when `status ==
 /// AuthStatus.needsEmailVerification`, so it works from sign-up without
-/// adding a new URL.
+/// adding a new URL. `CreateProfileScreen` reuses it the same way for
+/// `OnboardingStatus.emailVerificationRequired` (passing [banner] and
+/// [onBack]), when `CreateProfile` finds the caller's ID token stale.
 class VerifyEmailView extends StatelessWidget {
-  const VerifyEmailView({super.key});
+  const VerifyEmailView({super.key, this.banner, this.onBack});
+
+  /// Optional context-specific note shown above the standard instructions,
+  /// e.g. why the caller landed here from somewhere other than sign-up.
+  final String? banner;
+
+  /// When set, the app bar shows a back action (instead of relying on the
+  /// navigator, since this view is swapped in in place, not pushed) that
+  /// returns to whatever screen showed this view — sign-out stays available
+  /// alongside it.
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +33,7 @@ class VerifyEmailView extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Verify your email'),
+        leading: onBack == null ? null : BackButton(onPressed: onBack),
         actions: [
           IconButton(
             tooltip: 'Sign out',
@@ -38,6 +51,14 @@ class VerifyEmailView extends StatelessWidget {
             children: [
               const Icon(Icons.mark_email_unread_outlined, size: 40),
               const SizedBox(height: AppSpacing.md),
+              if (banner != null && banner!.isNotEmpty) ...[
+                Text(
+                  banner!,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
               Text(
                 'We sent a verification link to ${state.user?.email ?? 'your email'}.\n'
                 "Tap the link, then come back and press \"I've verified\".",
@@ -72,7 +93,9 @@ class VerifyEmailView extends StatelessWidget {
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
                   child: Text(
                     state.failure!.message,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ),
             ],

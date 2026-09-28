@@ -122,6 +122,20 @@ void main() {
 
       expect(find.text('Welcome back'), findsOneWidget);
     });
+
+    testWidgets('shows the 18+/privacy notice with a Privacy Policy link', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(authBloc));
+
+      expect(
+        find.text(
+          "By signing up you confirm you're 18 or older and agree to our ",
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Privacy Policy'), findsOneWidget);
+    });
   });
 
   group('with a seeded AuthBloc state (presentational)', () {

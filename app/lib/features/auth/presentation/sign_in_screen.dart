@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/privacy_policy_link.dart';
 import '../domain/auth_failure.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
@@ -45,15 +46,16 @@ class SignInScreen extends StatelessWidget {
                       EmailPasswordForm(
                         submitLabel: 'Sign in',
                         isSubmitting: state.isSubmitting,
-                        onSubmit: (email, password) => context
-                            .read<AuthBloc>()
-                            .add(
+                        onSubmit: (email, password) =>
+                            context.read<AuthBloc>().add(
                               AuthEmailSignInRequested(
                                 email: email,
                                 password: password,
                               ),
                             ),
                       ),
+                      const SizedBox(height: AppSpacing.sm),
+                      const PrivacyPolicyLink(),
                       const SizedBox(height: AppSpacing.lg),
                       const Row(
                         children: [

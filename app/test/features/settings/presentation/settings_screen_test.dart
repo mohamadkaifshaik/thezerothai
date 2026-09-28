@@ -66,4 +66,16 @@ void main() {
 
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
   });
+
+  testWidgets('shows a "Privacy Policy" list tile', (tester) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+
+    await tester.pumpWidget(wrap());
+
+    expect(find.text('Privacy Policy'), findsOneWidget);
+  });
 }

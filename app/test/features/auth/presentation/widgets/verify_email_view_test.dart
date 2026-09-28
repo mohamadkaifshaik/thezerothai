@@ -39,9 +39,7 @@ void main() {
     isPasswordProvider: true,
   );
 
-  testWidgets('shows the pending email and a failure message', (
-    tester,
-  ) async {
+  testWidgets('shows the pending email and a failure message', (tester) async {
     whenListen(
       authBloc,
       Stream<AuthState>.empty(),
@@ -76,9 +74,8 @@ void main() {
     await tester.pumpWidget(wrap());
     await tester.tap(find.text("I've verified"));
 
-    verify(
-      () => authBloc.add(const AuthEmailVerificationCheckRequested()),
-    ).called(1);
+    verify(() => authBloc.add(const AuthEmailVerificationCheckRequested()))
+        .called(1);
   });
 
   testWidgets('tapping Resend email dispatches the resend event', (
@@ -96,8 +93,55 @@ void main() {
     await tester.pumpWidget(wrap());
     await tester.tap(find.text('Resend email'));
 
-    verify(
-      () => authBloc.add(const AuthEmailVerificationResendRequested()),
-    ).called(1);
+    verify(() => authBloc.add(const AuthEmailVerificationResendRequested()))
+        .called(1);
+  });
+
+  testWidgets('has no back button and no banner by default', (tester) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(
+        status: AuthStatus.needsEmailVerification,
+        user: user,
+      ),
+    );
+
+    await tester.pumpWidget(wrap());
+
+    expect(find.byType(BackButton), findsNothing);
+  });
+
+  testWidgets('shows the banner and a back button when provided', (
+    tester,
+  ) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(
+        status: AuthStatus.needsEmailVerification,
+        user: user,
+      ),
+    );
+    var backTapped = false;
+
+    await tester.pumpWidget(
+      BlocProvider<AuthBloc>.value(
+        value: authBloc,
+        child: MaterialApp(
+          home: VerifyEmailView(
+            banner: 'Verify your email to finish creating your profile.',
+            onBack: () => backTapped = true,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.text('Verify your email to finish creating your profile.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byType(BackButton));
+    expect(backTapped, isTrue);
   });
 }
