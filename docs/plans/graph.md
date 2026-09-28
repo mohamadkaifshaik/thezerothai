@@ -581,7 +581,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
 - **Acceptance criteria.**
   - Given 45 followers, then scrolling loads 3 pages and shows no duplicates.
   - Given a row's user is followed, then its button shows Following with no extra RPC.
-  - Given `RATE_LIMITED` (list cap), then a friendly "Try again later" view appears with no auto-retry storm.
+  - Given `RATE_LIMITED` (list cap), then a friendly view appears (shared `AppErrorView` text: "You're doing that a bit too fast. Give it a moment and try again.") with no auto-retry storm.
   - Given the flag is off, then the route redirects to the profile.
 - **Test notes.** Widget tests with a fake repository: pagination, empty, error, rate-limited.
 - **Observability.** —
@@ -595,6 +595,8 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - Given 3 blocked users, then the list shows 3. Unblock removes the row, and the profile then shows Follow.
   - Given an empty list, then an explanatory empty state appears.
   - Given the flag is off, then the entries are hidden.
+  - Given the flag is off and the user opens `/settings/blocked` or `/settings/muted` directly, then the route redirects to `/settings`.
+    **Interim decision (2026-09-29, founder):** `/settings` is the temporary flag-off target. Revisit after the graph rollout and change it then.
 - **Test notes.** Widget tests: list, unblock, undo, empty, error.
 - **Observability.** —
 - **Budget.** 1 request per page.
