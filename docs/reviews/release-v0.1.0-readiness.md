@@ -209,7 +209,7 @@ rollback. Never detach billing without your explicit decision.
     1. With `true`, `accounts:signUp` with the web key returned `ADMIN_ONLY_OPERATION`.
     2. With `false`, sign-up succeeded.
     3. Test users were deleted, and the flag is back to off.
-- **B3 — Sign §9: OPEN.**
+- **B3 — Founder sign-off: CLOSED 2026-09-28** (§9).
 
 Also done: `promote-prod.yml` now requires a line that is exactly `VERDICT: GO` (`grep -qx`), so this NO-GO file
 can't pass the gate by accident.
@@ -225,9 +225,9 @@ First public release of dZeroth (web, https://dzeroth.com).
 
 ## 9. Sign-off (required)
 I accept the risks in §4 and confirm that the B1 and B2 evidence is recorded in §7.
-- [ ] 2FA is enabled on GitHub account `mohamadkaifshaik`.
-- [ ] 2FA is enabled on the Google account that is Owner of `dzeroth-prod`.
+- [x] 2FA is enabled on GitHub account `mohamadkaifshaik`.
+- [x] 2FA is enabled on the Google account that is Owner of `dzeroth-prod`.
 
-Approved by: ______________________ (founder)  Date: __________
+Approved by: Kaif Mohamad Shaik (founder), in chat: "I accept the §4 risks, 2FA is on for both"  Date: 2026-09-28
 
-VERDICT: NO-GO — only B3 remains (founder sign-off in §9, including both 2FA confirmations). Once it's signed, change this line to the exact GO form (the gate needs a line that reads exactly `VERDICT: ` followed by `GO`), merge, and then tag v0.1.0.
+VERDICT: GO
