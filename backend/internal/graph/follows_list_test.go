@@ -56,8 +56,8 @@ func TestListFollowers_PagesCoverAllOnce(t *testing.T) {
 	if len(seen) != 45 || seen[0] != "f45" || seen[44] != "f01" {
 		t.Errorf("seen = %v", seen)
 	}
-	if repo.lastEdgeQuery.Limit != 21 {
-		t.Errorf("edge query limit = %d, want page_size+1 = 21", repo.lastEdgeQuery.Limit)
+	if repo.lastEdgeQuery.Limit != 20 {
+		t.Errorf("edge query limit = %d, want page_size = 20 (ADR-0008: no +1 over-read)", repo.lastEdgeQuery.Limit)
 	}
 }
 
@@ -67,8 +67,8 @@ func TestListFollowers_PageSizeClamped(t *testing.T) {
 	if _, err := svc.ListFollowers(context.Background(), "uid-1", "uid-t", 100, ""); err != nil {
 		t.Fatal(err)
 	}
-	if repo.lastEdgeQuery.Limit != 51 {
-		t.Errorf("limit = %d, want 51 (50 clamped + 1)", repo.lastEdgeQuery.Limit)
+	if repo.lastEdgeQuery.Limit != 50 {
+		t.Errorf("limit = %d, want 50 (clamped)", repo.lastEdgeQuery.Limit)
 	}
 }
 
@@ -198,5 +198,23 @@ func TestListFollowers_EmptyAndFlagOff(t *testing.T) {
 	off := newTestServiceWithRepo(repo, false)
 	if _, err := off.ListFollowing(context.Background(), "uid-1", "uid-t", 20, ""); err == nil {
 		t.Error("expected FEATURE_DISABLED")
+	}
+}
+
+// ADR-0008 "List paging": a full page always carries a token; the exact-multiple total costs one empty call.
+func TestListFollowers_ExactMultipleEndsWithEmptyPage(t *testing.T) {
+	repo, dir := followersFixture(4)
+	svc := newTestServiceWithDirectory(repo, dir, Deps{CursorKey: []byte("k")})
+	p1, err := svc.ListFollowers(context.Background(), "uid-1", "uid-t", 2, "")
+	if err != nil || len(p1.Items) != 2 || p1.NextPageToken == "" {
+		t.Fatalf("p1 = %v %q %v", uidsOf(p1), p1.NextPageToken, err)
+	}
+	p2, err := svc.ListFollowers(context.Background(), "uid-1", "uid-t", 2, p1.NextPageToken)
+	if err != nil || len(p2.Items) != 2 || p2.NextPageToken == "" {
+		t.Fatalf("p2 = %v %q %v", uidsOf(p2), p2.NextPageToken, err)
+	}
+	p3, err := svc.ListFollowers(context.Background(), "uid-1", "uid-t", 2, p2.NextPageToken)
+	if err != nil || len(p3.Items) != 0 || p3.NextPageToken != "" {
+		t.Fatalf("p3 = %v %q %v", uidsOf(p3), p3.NextPageToken, err)
 	}
 }

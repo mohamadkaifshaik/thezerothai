@@ -11,8 +11,8 @@ import (
 )
 
 // ListFollowers (ADR-0008 T10): who follows targetUID, newest first. Firestore: reads 2 (caller graph +
-// target profile, both cache-first) + <= page_size+1 edges + <= page_size profiles (one GetAll) = 102 worst
-// at page_size 50, 43 cold at 20; writes 0.
+// target profile, both cache-first) + <= page_size edges + <= page_size profiles (one GetAll) = 102 worst at
+// page_size 50, 42 cold at 20; writes 0.
 func (s *service) ListFollowers(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listFollowEdges(ctx, callerUID, targetUID, pageSize, pageToken, true)
 }
@@ -57,14 +57,13 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 	}
 
 	size := limits.ClampPageSize(pageSize)
-	edges, err := s.repo.ListEdges(ctx, EdgeQuery{UID: targetUID, Followers: followers, Limit: size + 1, After: after})
+	edges, err := s.repo.ListEdges(ctx, EdgeQuery{UID: targetUID, Followers: followers, Limit: size, After: after})
 	if err != nil {
 		return Page{}, fmt.Errorf("graph: list edges: %w", err)
 	}
-	hasMore := len(edges) > size
-	if hasMore {
-		edges = edges[:size]
-	}
+	// ADR-0008 "List paging": Limit(page_size), not +1 - a token is issued whenever the query returned a
+	// full page (one empty final call when the total is an exact multiple of the page size).
+	hasMore := len(edges) == size
 	if len(edges) == 0 {
 		return Page{}, nil
 	}

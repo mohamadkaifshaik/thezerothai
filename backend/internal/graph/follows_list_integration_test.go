@@ -46,7 +46,7 @@ func TestListFollowers_Integration_PagesAndBudget(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		budgettest.Assert(t, "GraphService.ListFollowers (page 20)", counter, budgettest.Budget{Reads: 2 + 21 + 20})
+		budgettest.Assert(t, "GraphService.ListFollowers (page 20)", counter, budgettest.Budget{Reads: 2 + 20 + 20})
 		sizes = append(sizes, len(page.Items))
 		for _, it := range page.Items {
 			seen = append(seen, it.User.UserID)
