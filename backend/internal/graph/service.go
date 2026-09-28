@@ -20,19 +20,36 @@ type FlagChecker interface {
 	Enabled(uid, name string) bool
 }
 
+// MutationOutcome is Created, Replay or Noop for the state-setting mutations (Follow/Block/Mute); the
+// log field ADR-0008 calls "outcome" (created|replay|noop|rejected:<reason>).
+type MutationOutcome string
+
+const (
+	OutcomeCreated MutationOutcome = "created"
+	OutcomeReplay  MutationOutcome = "replay"
+	OutcomeNoop    MutationOutcome = "noop"
+)
+
 // Repo is graph's storage seam; service.go depends on this, repo_firestore.go implements it against
-// Firestore, unit tests use an in-memory fake.
+// Firestore (identity.Counters is wired into the FirestoreRepo itself via SetCounters, since the counter
+// increments must land in the same transaction/batch as the edge change — ADR-0008 D3), unit tests use an
+// in-memory fake.
 type Repo interface {
 	// GetSnapshot reads graph/{uid} (Reader.Snapshot's cache-miss path). Missing doc -> empty Snapshot, no error.
 	GetSnapshot(ctx context.Context, uid string) (Snapshot, error)
+
+	// Follow runs the whole Follow transaction (ADR-0008 T7). dailyLimit is the caller's resolved
+	// follows/day cap (service.go picks the new-account or standard limit before calling this).
+	Follow(ctx context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
+	// Unfollow is a blind batch (ADR-0008 T7): changed=false, nil error means "wasn't following" (0 writes).
+	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).
 type Deps struct {
-	Repo     Repo
-	Cache    *Cache
-	Counters identity.Counters
-	Flags    FlagChecker
+	Repo  Repo
+	Cache *Cache
+	Flags FlagChecker
 
 	FollowsPerDay           int64
 	NewAccountFollowsPerDay int64
@@ -53,7 +70,6 @@ type Deps struct {
 type service struct {
 	repo      Repo
 	cache     *Cache
-	counters  identity.Counters
 	flags     FlagChecker
 	directory identity.Directory
 	now       func() time.Time
@@ -70,7 +86,6 @@ func New(d Deps) *service {
 	return &service{
 		repo:                    d.Repo,
 		cache:                   d.Cache,
-		counters:                d.Counters,
 		flags:                   d.Flags,
 		now:                     time.Now,
 		followsPerDay:           d.FollowsPerDay,
@@ -136,6 +151,20 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 		return false
 	}
 	return now.Sub(p.CreatedAt) < s.newAccountWindow
+}
+
+func (s *service) followsLimit(newAccount bool) int64 {
+	if newAccount {
+		return s.newAccountFollowsPerDay
+	}
+	return s.followsPerDay
+}
+
+func (s *service) blocksLimit(newAccount bool) int64 {
+	if newAccount {
+		return s.newAccountBlocksPerDay
+	}
+	return s.blocksPerDay
 }
 
 func featureDisabledErr() error {

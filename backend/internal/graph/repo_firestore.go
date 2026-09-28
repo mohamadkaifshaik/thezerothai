@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -89,14 +90,23 @@ type followDoc struct {
 
 // FirestoreRepo implements Repo (and identity.GraphInitializer) against the shared Firestore client.
 type FirestoreRepo struct {
-	client *firestore.Client
-	quota  *quota.Store
+	client   *firestore.Client
+	quota    *quota.Store
+	counters identity.Counters
 }
 
 // NewFirestoreRepo builds a FirestoreRepo. Unchanged signature from the Phase 0 bootstrap so every existing
-// call site (identity's GraphInitializer wiring) keeps compiling.
+// call site (identity's GraphInitializer wiring, and every InitGraph-only test) keeps compiling. Call
+// SetCounters once identity.Counters is available (required before any Follow/Unfollow/Block/Mute call).
 func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
 	return &FirestoreRepo{client: client, quota: quota.New(client)}
+}
+
+// SetCounters wires identity.Counters (users/{uid} followers/following count increments). The counter
+// writes must land in the exact same transaction/batch as the edge change (ADR-0008 D3), which is why this
+// lives on the repo rather than being called by service.go with its own separate batch.
+func (r *FirestoreRepo) SetCounters(c identity.Counters) {
+	r.counters = c
 }
 
 func (r *FirestoreRepo) graphRef(uid string) *firestore.DocumentRef {
@@ -165,4 +175,111 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 		return Snapshot{}, err
 	}
 	return d.toSnapshot(), nil
+}
+
+// Follow runs the whole Follow transaction (ADR-0008 T7/D2/D9). Precedence, matching the proto/ADR order:
+// blocked-by (incl. the D2 overflow fallback) -> caller-blocks-target -> target-private -> replay ->
+// following-cap -> quota. Reads: caller graph + quotas always (2), +1 target graph only for an overflowed
+// caller. Writes on success: follows doc, caller graph update, 2 counter increments, quota reservation (5);
+// 0 on replay.
+func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+	var rel Relationship
+	outcome := OutcomeCreated
+	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		counter := budget.FromContext(ctx)
+
+		callerDoc, err := r.getGraphTx(ctx, tx, callerUID)
+		if err != nil {
+			return err
+		}
+
+		blockedByTarget := callerDoc.hasBlockedBy(targetUID)
+		if !blockedByTarget && callerDoc.BlockedByOverflow {
+			targetDoc, err := r.getGraphTx(ctx, tx, targetUID)
+			if err != nil {
+				return err
+			}
+			blockedByTarget = targetDoc.hasBlocked(callerUID)
+		}
+		if blockedByTarget {
+			return ErrNotFoundOrBlocked
+		}
+		if callerDoc.hasBlocked(targetUID) {
+			return ErrCallerBlocksTarget
+		}
+
+		rec, err := r.quota.Get(ctx, tx, callerUID)
+		if err != nil {
+			return err
+		}
+
+		if targetIsPrivate {
+			return ErrTargetPrivate
+		}
+
+		if callerDoc.hasFollowing(targetUID) {
+			outcome = OutcomeReplay
+			rel = Relationship{UserID: targetUID, FollowState: FollowStateFollowing, Muting: callerDoc.hasMuted(targetUID)}
+			return nil
+		}
+		if len(callerDoc.Following) >= maxFollowing {
+			return &LimitReachedError{Limit: "following"}
+		}
+
+		b := store.NewFirestoreTxBatch(tx, counter)
+		if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Follows, dailyLimit); err != nil {
+			return err
+		}
+		b.Create(r.followRef(callerUID, targetUID), followDoc{FollowerID: callerUID, FolloweeID: targetUID, CreatedAt: now})
+		b.Update(r.graphRef(callerUID), []firestore.Update{
+			{Path: "following", Value: firestore.ArrayUnion(targetUID)},
+			{Path: "updatedAt", Value: now},
+		})
+		r.counters.AddFollowingCount(b, callerUID, 1)
+		r.counters.AddFollowersCount(b, targetUID, 1)
+		if b.Err() != nil {
+			return b.Err()
+		}
+
+		outcome = OutcomeCreated
+		rel = Relationship{UserID: targetUID, FollowState: FollowStateFollowing, Muting: callerDoc.hasMuted(targetUID)}
+		return nil
+	})
+	if err != nil {
+		return Relationship{}, "", err
+	}
+	return rel, outcome, nil
+}
+
+// Unfollow is a blind batch (ADR-0008 T7/D3): delete the follows doc with an Exists precondition, so a
+// replay (already unfollowed, or never followed) fails the whole batch atomically and costs 0 writes — the
+// precondition also makes this safe to race against Block, which deletes the same edge with the same
+// precondition (ADR-0008 D3 invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").
+func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
+	counter := budget.FromContext(ctx)
+	b := store.NewFirestoreBatch(r.client, counter)
+	b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
+	b.Update(r.graphRef(callerUID), []firestore.Update{
+		{Path: "following", Value: firestore.ArrayRemove(targetUID)},
+		{Path: "updatedAt", Value: now},
+	})
+	r.counters.AddFollowingCount(b, callerUID, -1)
+	r.counters.AddFollowersCount(b, targetUID, -1)
+
+	if err := b.Commit(ctx); err != nil {
+		if isPreconditionFailed(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("graph: unfollow %s -> %s: %w", callerUID, targetUID, err)
+	}
+	return true, nil
+}
+
+// isPreconditionFailed reports whether err is the Firestore error for a failed batch precondition (e.g.
+// Exists on a doc that doesn't exist) — Firestore surfaces this as NotFound or FailedPrecondition depending
+// on the SDK/emulator version, so both are treated as "the precondition wasn't met" (ADR-0008 T7/D10: a
+// no-op, not a real error).
+func isPreconditionFailed(err error) bool {
+	code := status.Code(err)
+	return code == codes.NotFound || code == codes.FailedPrecondition
 }

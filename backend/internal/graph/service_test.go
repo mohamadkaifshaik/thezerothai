@@ -14,10 +14,22 @@ import (
 )
 
 // fakeRepo is an in-memory Repo for service-layer unit tests (testing-strategy skill: table-driven, fakes).
+// Follow/Unfollow (and Block/Mute/etc. as later tickets land) are controlled via the *Result/*Err fields so
+// each test can pin exactly what the "transaction" would have decided, without a real Firestore emulator.
 type fakeRepo struct {
 	snapshots map[string]Snapshot
 	err       error
 	calls     int
+
+	followResult   Relationship
+	followOutcome  MutationOutcome
+	followErr      error
+	followCalls    int
+	lastFollowArgs []interface{}
+
+	unfollowChanged bool
+	unfollowErr     error
+	unfollowCalls   int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -33,6 +45,49 @@ func (f *fakeRepo) GetSnapshot(_ context.Context, uid string) (Snapshot, error) 
 		return s, nil
 	}
 	return Snapshot{Following: map[string]bool{}, Blocked: map[string]bool{}, Muted: map[string]bool{}, BlockedBy: map[string]bool{}, Requested: map[string]bool{}}, nil
+}
+
+func (f *fakeRepo) Follow(_ context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+	f.followCalls++
+	f.lastFollowArgs = []interface{}{callerUID, targetUID, targetIsPrivate, dailyLimit, now}
+	if f.followErr != nil {
+		return Relationship{}, "", f.followErr
+	}
+	return f.followResult, f.followOutcome, nil
+}
+
+func (f *fakeRepo) Unfollow(_ context.Context, _, _ string, _ time.Time) (bool, error) {
+	f.unfollowCalls++
+	if f.unfollowErr != nil {
+		return false, f.unfollowErr
+	}
+	return f.unfollowChanged, nil
+}
+
+// fakeDirectory is a minimal identity.Directory fake.
+type fakeDirectory struct {
+	profiles     map[string]identity.Profile
+	err          error
+	forgotten    []string
+	forgetCalled int
+}
+
+func (f *fakeDirectory) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[string]identity.Profile, len(uids))
+	for _, uid := range uids {
+		if p, ok := f.profiles[uid]; ok {
+			out[uid] = p
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeDirectory) Forget(uids ...string) {
+	f.forgetCalled++
+	f.forgotten = append(f.forgotten, uids...)
 }
 
 // fakeFlags is a minimal FlagChecker fake.
@@ -51,6 +106,21 @@ func newTestServiceWithRepo(repo Repo, flagsOn bool) *service {
 		Cache: NewCache(time.Minute),
 		Flags: &fakeFlags{on: map[string]bool{"uid-1:graph": flagsOn, "uid-a:graph": flagsOn, "uid-b:graph": flagsOn}},
 	})
+}
+
+// newTestServiceWithDirectory is newTestServiceWithRepo plus a wired identity.Directory, for RPCs (Follow,
+// Unfollow) that need one.
+func newTestServiceWithDirectory(repo Repo, dir identity.Directory, deps Deps) *service {
+	deps.Repo = repo
+	if deps.Cache == nil {
+		deps.Cache = NewCache(time.Minute)
+	}
+	if deps.Flags == nil {
+		deps.Flags = &fakeFlags{on: map[string]bool{"uid-1:graph": true, "uid-a:graph": true, "uid-b:graph": true}}
+	}
+	svc := New(deps)
+	svc.SetDirectory(dir)
+	return svc
 }
 
 func assertAPIErr(t *testing.T, err error, code connect.Code, reason commonv1.ErrorReason) {
@@ -205,12 +275,12 @@ func TestFlagGuard_DisabledRejectsEveryRPC(t *testing.T) {
 	}
 }
 
+// TestFlagGuard_EnabledPassesThrough uses GetRelationships (still Unimplemented pending T9) so it only
+// exercises the guard itself, not a fully-wired RPC's own dependencies (e.g. Follow needs identity.Directory).
 func TestFlagGuard_EnabledPassesThrough(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestServiceWithRepo(repo, true)
-	_, err := svc.Follow(context.Background(), "uid-1", "k", "uid-2")
-	// Past the flag guard, T7 hasn't landed yet in this test file's scope; either Unimplemented (skeleton)
-	// or a real result is acceptable here — this test only pins "not FEATURE_DISABLED".
+	_, err := svc.GetRelationships(context.Background(), "uid-1", []string{"uid-2"})
 	var ae *apierr.Error
 	if errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
 		t.Fatalf("expected the flag-enabled caller to pass the guard, got FEATURE_DISABLED")
