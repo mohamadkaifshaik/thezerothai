@@ -91,12 +91,17 @@ func Recover(log *slog.Logger) connect.UnaryInterceptorFunc {
 }
 
 // Logging emits exactly one JSON log line per request, always at INFO (observability skill: "One log line
-// per request, INFO"): rpc, uid_hash, latency_ms, code, fs_reads/fs_writes/fs_deletes, cache_hit is left to
-// callers via context if needed. It also seeds the request's budget.Counter, trace correlation field, and
-// logger.RequestInfo (M2): uid_hash and app_check_failed are populated by authn's interceptors, which run
+// per request, INFO"): rpc, uid_hash, latency_ms, code, fs_reads/fs_writes/fs_deletes, xff_hops,
+// via_hosting; cache_hit is left to callers via context if needed. It also seeds the request's
+// budget.Counter, trace correlation field, and logger.RequestInfo: uid_hash and app_check_failed are
+// populated by authn's interceptors, xff_hops/via_hosting by ratelimit.Interceptor (M2) — all of which run
 // *after* this one in the chain and can only hand data back up to this log line through the mutable
 // logger.RequestInfo pointer, never through ctx.WithValue alone (a context value set downstream is
-// invisible to an ancestor holding the original ctx).
+// invisible to an ancestor holding the original ctx). M2 (2026-09-27 security audit): xff_hops/via_hosting
+// used to only be logged at Debug from inside the rate limiter, a level Cloud Run's default (Info) drops
+// before it is ever written — folding them into this always-emitted line is what makes TRUSTED_PROXY_HOPS
+// measurable from real traffic without adding a second log line (observability skill: don't add custom log
+// lines beyond what is needed).
 //
 // Logging is also the last-resort error shaper and Error-Reporting fallback (M3/N5 — see the package doc
 // comment for why it must be outermost). If the error coming back from next() is already a *connect.Error,
@@ -153,6 +158,8 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 				"fs_writes", counter.Writes(),
 				"fs_deletes", counter.Deletes(),
 				"app_check_failed", info.AppCheckFailed,
+				"xff_hops", info.XFFHops,
+				"via_hosting", info.ViaHosting,
 			}
 			if trace != "" {
 				attrs = append(attrs, logger.TraceKey, trace)

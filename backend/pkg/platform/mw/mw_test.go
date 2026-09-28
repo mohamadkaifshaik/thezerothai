@@ -258,6 +258,37 @@ func TestLogging_RecordsUIDHashAndAppCheckFailed(t *testing.T) {
 // exact algorithm, only that Logging calls it with the RequestInfo.UID an inner interceptor set.
 var expectedUIDHash = logger.HashUID("uid-1")
 
+// TestLogging_RecordsXFFHopsAndViaHosting (M2): ratelimit.Interceptor sets these on the same mutable
+// logger.RequestInfo pointer (see TestLogging_RecordsUIDHashAndAppCheckFailed above for why a plain
+// ctx.WithValue from an inner interceptor cannot reach this outermost one); the actual producer is
+// exercised in pkg/platform/ratelimit/interceptor_test.go.
+func TestLogging_RecordsXFFHopsAndViaHosting(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	srv := newTestServer(t, testProcedure, func(ctx context.Context, req *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+		info := logger.RequestInfoFromContext(ctx)
+		if info == nil {
+			t.Fatal("expected mw.Logging to have attached a logger.RequestInfo")
+		}
+		info.XFFHops = 2
+		info.ViaHosting = true
+		return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+	}, mw.Logging(log, "demo-project"))
+
+	if _, err := callTestServer(t, srv, testProcedure); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"xff_hops":2`) {
+		t.Errorf("log output missing xff_hops=2; got: %s", out)
+	}
+	if !strings.Contains(out, `"via_hosting":true`) {
+		t.Errorf("log output missing via_hosting=true; got: %s", out)
+	}
+}
+
 func TestLogging_RecordsErrorCode(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))

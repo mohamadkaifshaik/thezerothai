@@ -101,6 +101,14 @@ type RequestInfo struct {
 	// AppCheckFailed records whether App Check verification failed even though the request was allowed
 	// through in APP_CHECK_MODE=monitor (set by authn.AppCheckInterceptor).
 	AppCheckFailed bool
+	// XFFHops is the number of comma-separated X-Forwarded-For entries seen, and ViaHosting records
+	// whether the rightmost one was recognized as a Google Front End / Firebase Hosting egress address
+	// rather than the real client (set by ratelimit.Interceptor; see ratelimit.ResolveClientIP). M2,
+	// 2026-09-27 security audit: this is what makes TRUSTED_PROXY_HOPS measurable from real dev traffic —
+	// the previous mechanism logged the same count at Debug, which Cloud Run's default Info level drops
+	// before it is ever written. Deliberately a count and a bool, never an IP address (PII).
+	XFFHops    int
+	ViaHosting bool
 }
 
 type requestInfoCtxKey struct{}

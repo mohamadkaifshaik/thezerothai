@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -21,6 +22,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/apiserver"
@@ -61,6 +63,45 @@ func newAnonymousIDToken(t *testing.T) (idToken, uid string) {
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatalf("decode id token response: %v: %s", err, body)
+	}
+	return out.IDToken, out.LocalID
+}
+
+// newPasswordIDToken mints a fresh Firebase Auth emulator email/password user via the same
+// identitytoolkit REST API as newAnonymousIDToken, with an email+password instead of an anonymous signup.
+// The emulator matches real Firebase behavior here: a brand-new email/password account starts with
+// emailVerified: false (returnSecureToken alone never verifies it) — exactly the account H1 (2026-09-27
+// security audit) must block from CreateProfile until it verifies.
+func newPasswordIDToken(t *testing.T, email, password string) (idToken, uid string) {
+	t.Helper()
+	authHost := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST")
+	url := fmt.Sprintf("http://%s/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key", authHost)
+	reqBody, err := json.Marshal(map[string]any{
+		"email":             email,
+		"password":          password,
+		"returnSecureToken": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal password signUp request: %v", err)
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("mint password id token: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read password id token response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("mint password id token: status %d: %s", resp.StatusCode, body)
+	}
+	var out struct {
+		IDToken string `json:"idToken"`
+		LocalID string `json:"localId"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode password id token response: %v: %s", err, body)
 	}
 	return out.IDToken, out.LocalID
 }
@@ -130,6 +171,28 @@ func assertCode(t *testing.T, err error, want connect.Code) {
 	if got := connect.CodeOf(err); got != want {
 		t.Fatalf("code = %v (%v), want %v", got, err, want)
 	}
+}
+
+// assertErrorReason checks both the Connect code and the dzeroth.common.v1.ErrorDetail.Reason carried in
+// the error's details (apierr.ToConnect's shape, pkg/platform/apierr) — the exact ErrorReason enum value
+// the client's connect_error_mapper.dart switches on.
+func assertErrorReason(t *testing.T, err error, wantCode connect.Code, wantReason commonv1.ErrorReason) {
+	t.Helper()
+	assertCode(t, err, wantCode)
+	var cerr *connect.Error
+	if !errors.As(err, &cerr) {
+		t.Fatalf("error is %T, want *connect.Error", err)
+	}
+	for _, d := range cerr.Details() {
+		msg, derr := d.Value()
+		if derr != nil {
+			continue
+		}
+		if detail, ok := msg.(*commonv1.ErrorDetail); ok && detail.GetReason() == wantReason {
+			return
+		}
+	}
+	t.Fatalf("expected ErrorReason %v in details, got none matching (err: %v)", wantReason, err)
 }
 
 // TestE2E_Healthz: /health (and its /healthz alias) is a plain http.HandlerFunc outside the Connect interceptor chain (no auth,
@@ -298,4 +361,99 @@ func TestE2E_RateLimitRunsBeforeAccountStatus(t *testing.T) {
 	// Firestore.
 	_, err = client.GetMe(context.Background(), authedRequest(idToken, &identityv1.GetMeRequest{}))
 	assertCode(t, err, connect.CodeResourceExhausted)
+}
+
+// TestE2E_CreateProfile_UnverifiedPasswordEmail_Rejected (H1, docs/reviews/security-audit-v0.1.0.md): the
+// Firebase Auth emulator mints unverified email/password users by default, exactly like real Firebase —
+// real end-to-end proof that CreateProfile rejects such a caller with EMAIL_NOT_VERIFIED before ever
+// reaching Firestore, over the real Connect interceptor chain and real Admin-SDK token verification.
+func TestE2E_CreateProfile_UnverifiedPasswordEmail_Rejected(t *testing.T) {
+	skipIfNoEmulators(t)
+	client, _ := newTestServer(t, config.DegradedOff)
+	email := fmt.Sprintf("h1-unverified-%d@example.com", rand.Int63())
+	idToken, _ := newPasswordIDToken(t, email, "correct horse battery staple")
+
+	_, err := client.CreateProfile(context.Background(), authedRequest(idToken, &identityv1.CreateProfileRequest{
+		IdempotencyKey: "e2e-h1-unverified-idempotency-key",
+		Handle:         uniqueHandle("e2eh1"),
+		DisplayName:    "Should Not Be Created",
+	}))
+	assertErrorReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED)
+
+	// Confirm the rejected CreateProfile really did not create a profile.
+	_, err = client.GetMe(context.Background(), authedRequest(idToken, &identityv1.GetMeRequest{}))
+	assertCode(t, err, connect.CodeFailedPrecondition) // PROFILE_REQUIRED, not the EMAIL_NOT_VERIFIED above
+}
+
+// doXFFRequest issues method/url with an X-Forwarded-For header, simulating what Cloud Run's front end
+// would append for a direct client at xff (httptest's raw loopback connections carry no such header on
+// their own, unlike real Cloud Run traffic — pkg/platform/ratelimit.ResolveClientIP has nothing to key on
+// without it).
+func doXFFRequest(t *testing.T, method, url, xff string, body []byte) *http.Response {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", xff)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	return resp
+}
+
+// TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth (M1, docs/reviews/security-audit-v0.1.0.md): a flood of
+// completely unauthenticated requests (no Authorization header at all) to a real RPC path must be rejected
+// once the caller's IP exceeds the pre-auth budget — proof the rejection happens as plain net/http
+// middleware in front of the Connect handler chain, not the post-auth ratelimit.Interceptor. /health must
+// stay exempt throughout, for the same source IP.
+func TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth(t *testing.T) {
+	skipIfNoEmulators(t)
+	_, baseURL := newTestServerCfg(t, func(cfg *config.Config) {
+		cfg.RateLimit.PreAuthIPPerMinute = 1
+	})
+	rpcURL := baseURL + identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
+	const xff = "203.0.113.55"
+
+	resp1 := doXFFRequest(t, http.MethodPost, rpcURL, xff, []byte(`{}`))
+	defer resp1.Body.Close()
+	if resp1.StatusCode == http.StatusTooManyRequests {
+		t.Fatalf("first request should not be pre-auth-limited yet, got %d", resp1.StatusCode)
+	}
+
+	resp2 := doXFFRequest(t, http.MethodPost, rpcURL, xff, []byte(`{}`))
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second request from the same IP status = %d, want 429 (pre-auth limiter)", resp2.StatusCode)
+	}
+
+	healthResp := doXFFRequest(t, http.MethodGet, baseURL+"/health", xff, nil)
+	defer healthResp.Body.Close()
+	if healthResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /health status = %d, want 200 (exempt from the pre-auth limiter)", healthResp.StatusCode)
+	}
+}
+
+// TestE2E_MaxRequestBodyRejected (hardening, docs/reviews/security-audit-v0.1.0.md informational finding):
+// a body over limits.MaxRequestBytes must never reach the handler/service layer — http.MaxBytesHandler
+// wraps the whole mux in apiserver.Build.
+func TestE2E_MaxRequestBodyRejected(t *testing.T) {
+	skipIfNoEmulators(t)
+	_, baseURL := newTestServer(t, config.DegradedOff)
+
+	oversized := bytes.Repeat([]byte("a"), 300*1024) // > 256 KiB (limits.MaxRequestBytes)
+	resp, err := http.Post(baseURL+identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure, "application/json", bytes.NewReader(oversized))
+	if err != nil {
+		t.Fatalf("POST oversized body: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 400 {
+		t.Fatalf("oversized body status = %d, want a 4xx/5xx rejection", resp.StatusCode)
+	}
 }

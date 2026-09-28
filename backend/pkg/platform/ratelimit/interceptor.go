@@ -2,7 +2,6 @@ package ratelimit
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // Config wires the interceptor: PerProcedure overrides the per-uid Default limiter for specific hot
@@ -22,41 +22,39 @@ type Config struct {
 	PerProcedure map[string]*Limiter
 	IP           *Limiter
 
-	// TrustedProxyHops is how many comma-separated entries from the *right* of X-Forwarded-For to count
-	// past to find the real client IP (see ClientIP). Defaults to 1 (the pre-existing, ADR-0006 §3
-	// behavior: trust exactly one hop, appended by Google's front end / Firebase Hosting). Configurable via
-	// config.Config.TrustedProxyHops (env TRUSTED_PROXY_HOPS) because the *actual* number of hops Firebase
-	// Hosting -> Cloud Run adds in front of the real client IP has not been measured yet in dev — don't
-	// guess it here; see the XFF hop-count debug log below, meant to help calibrate it.
+	// TrustedProxyHops, left at the default (<=1), lets ResolveClientIP's Google-egress detection decide
+	// whether to count one extra hop in from the right (see its doc comment). Set above 1 only as an
+	// explicit operator override for a topology that heuristic does not fit — e.g. a proxy hop we have
+	// since added in front of Cloud Run that ResolveClientIP cannot recognize by IP. Configurable via
+	// config.Config.TrustedProxyHops (env TRUSTED_PROXY_HOPS).
 	TrustedProxyHops int
-
-	// Log, if non-nil, gets one DebugContext line per request with the X-Forwarded-For hop count (never the
-	// IPs themselves — they're PII) so TrustedProxyHops can be calibrated from real dev traffic instead of
-	// guessed. Optional so existing callers/tests that build a Config without a logger keep working.
-	Log *slog.Logger
 }
 
 // Interceptor enforces per-uid and per-IP token buckets. Must run after authn.IDTokenInterceptor so a
 // verified uid is available; falls back to IP-only limiting if somehow no uid is present.
+//
+// This is the *inside-the-Connect-chain* limiter (ADR-0006 §2/§3): it still does real JWT-verify work
+// upstream of it (App Check + ID token) before this ever runs. PreAuthIPMiddleware (httpmiddleware.go) is
+// the separate, coarser *pre-auth* limiter added for M1 (docs/reviews/security-audit-v0.1.0.md) that runs as plain
+// net/http middleware in front of the whole Connect handler, before any of that verification work happens
+// — the two are independent Limiter instances (see apiserver.Build) so a request is never double-charged
+// against the same bucket.
 func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
-	hops := cfg.TrustedProxyHops
-	if hops < 1 {
-		hops = 1
-	}
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			if cfg.Log != nil {
-				cfg.Log.DebugContext(ctx, "xff hop count",
-					"xff_hops", XFFHopCount(req.Header()),
-					"trusted_proxy_hops", hops,
-				)
+			result := ResolveClientIP(req.Header(), cfg.TrustedProxyHops)
+			// M2: xff_hops/via_hosting ride the request's existing logger.RequestInfo pointer so mw.Logging's
+			// one INFO-level line per request carries them — the previous approach (a separate DebugContext
+			// log call here) never surfaced in prod, since Cloud Run's default log level is Info and Debug
+			// lines are dropped before they're ever written (the exact defect this replaces).
+			if info := logger.RequestInfoFromContext(ctx); info != nil {
+				info.XFFHops = result.Hops
+				info.ViaHosting = result.ViaHosting
 			}
-			if cfg.IP != nil {
-				ip := ClientIP(req.Header(), hops)
-				if ip != "" {
-					if ok, wait := cfg.IP.Allow(ip); !ok {
-						return nil, rateLimited(wait)
-					}
+
+			if cfg.IP != nil && result.IP != "" {
+				if ok, wait := cfg.IP.Allow(result.IP); !ok {
+					return nil, rateLimited(wait)
 				}
 			}
 
@@ -88,32 +86,77 @@ func rateLimited(wait time.Duration) error {
 	).WithRetryAfter(wait))
 }
 
-// ClientIP extracts the caller's IP from X-Forwarded-For, counting `hops` entries in from the right
-// (ADR-0006 §3, amended): entries appended by our own infra (Firebase Hosting / Google's front end) sit at
-// the right end and can't be spoofed by the client, unlike the leftmost, client-supplied entries — but
-// through a hop like Firebase Hosting -> Cloud Run there may be more than one such trusted hop, so the
-// rightmost entry (hops=1) is not always the real client IP. `hops` should equal exactly how many trusted
-// proxy hops sit between the client and us; less than 1 is treated as 1 (the original, always-safe
-// behavior: never read a client-supplied entry).
-func ClientIP(h http.Header, hops int) string {
+// ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is
+// safe to log (M2): Hops and ViaHosting are a count and a bool, never an address, and are meant to be
+// attached to logger.RequestInfo so mw.Logging's one-line-per-request log can carry xff_hops/via_hosting
+// without ever logging an IP (PII; see ratelimit.Interceptor).
+type ClientIPResult struct {
+	IP         string
+	Hops       int
+	ViaHosting bool
+}
+
+// ResolveClientIP extracts the caller's real IP from X-Forwarded-For (ADR-0006 §3, as amended by the
+// 2026-09-27 security audit's M2 finding).
+//
+// Facts about our two ingress paths (confirmed live by that audit):
+//   - Mobile calls Cloud Run directly: Google Front End (GFE) appends exactly one entry, the real client
+//     IP, at the *rightmost* position of X-Forwarded-For. Any entries to its left are supplied by the
+//     caller and are trivially spoofable — never trusted.
+//   - Web calls go through the Firebase Hosting `/api/**` rewrite (firebase.json): Hosting is itself a
+//     Google-run reverse proxy sitting in front of Cloud Run, so by that same "rightmost entry is appended
+//     by whoever just connected to us, and that append can't be forged by anything upstream of it" logic,
+//     GFE (fronting Cloud Run) appends *Hosting's own egress IP* as the new rightmost entry — a real
+//     Google address (the audit observed 66.249.x.x live) — and the entry Hosting itself appended one
+//     position to the left of that is the real browser IP, exactly as non-spoofable as the direct-path
+//     case, just one hop further in.
+//
+// So: the rightmost entry is always trustworthy by construction (it is never something the original
+// caller could have supplied — only the proxy immediately in front of us appends it), and the only open
+// question is whether that proxy is *our own infrastructure* (Hosting) rather than the end user.
+// isGoogleEgressIP answers that, and — critically — its allowlist deliberately excludes Google Cloud's
+// customer-assignable ranges (googleEgressCIDRs' doc comment), so a positive match cannot be an address an
+// attacker rented for themselves; only then do we step one entry to the left.
+//
+// trustedProxyHops, if > 1, is an explicit operator override (config.Config.TrustedProxyHops /
+// TRUSTED_PROXY_HOPS) that skips the detection above and always counts that many entries in from the
+// right — an escape hatch for a future topology this heuristic does not fit. Left at the default (<=1),
+// the detection above runs; when the rightmost entry is not recognized as Google's own, this is exactly
+// the original "trust the rightmost entry" behavior (safe default when offline evidence is inconclusive).
+func ResolveClientIP(h http.Header, trustedProxyHops int) ClientIPResult {
 	xff := h.Get("X-Forwarded-For")
 	if xff == "" {
-		return ""
-	}
-	if hops < 1 {
-		hops = 1
+		return ClientIPResult{}
 	}
 	parts := strings.Split(xff, ",")
-	idx := len(parts) - hops
-	if idx < 0 {
-		idx = 0
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
 	}
-	return strings.TrimSpace(parts[idx])
+	hops := len(parts)
+	idx := hops - 1
+
+	var viaHosting bool
+	switch {
+	case trustedProxyHops > 1:
+		// Explicit operator override: ignore the heuristic, count a fixed number of hops in from the right.
+		idx = hops - trustedProxyHops
+		if idx < 0 {
+			idx = 0
+		}
+	case isGoogleEgressIP(parts[idx]) && idx > 0:
+		viaHosting = true
+		idx--
+	}
+	return ClientIPResult{IP: parts[idx], Hops: hops, ViaHosting: viaHosting}
+}
+
+// ClientIP is ResolveClientIP for callers that only need the IP string.
+func ClientIP(h http.Header, hops int) string {
+	return ResolveClientIP(h, hops).IP
 }
 
 // XFFHopCount returns the number of comma-separated entries in X-Forwarded-For, or 0 if the header is
-// absent. It is safe to log (a count, not an address — never PII): the intended use is calibrating
-// TRUSTED_PROXY_HOPS from real traffic in dev, per request, without ever logging an IP.
+// absent. Safe to log on its own (a count, never an address).
 func XFFHopCount(h http.Header) int {
 	xff := h.Get("X-Forwarded-For")
 	if xff == "" {

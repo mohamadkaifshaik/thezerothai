@@ -98,6 +98,97 @@ func TestClientIP_HopsConfigurable(t *testing.T) {
 	}
 }
 
+// TestResolveClientIP_DirectPath: mobile calling Cloud Run directly — GFE appends exactly one entry, the
+// real client IP, at the rightmost position. It is not a recognized Google address, so it is trusted as-is
+// (M2, ADR-0006 §3 amendment).
+func TestResolveClientIP_DirectPath(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Forwarded-For", "203.0.113.7")
+
+	got := ResolveClientIP(h, 1)
+	if got.IP != "203.0.113.7" {
+		t.Errorf("IP = %q, want the single (real client) entry", got.IP)
+	}
+	if got.ViaHosting {
+		t.Error("ViaHosting = true, want false on the direct path")
+	}
+	if got.Hops != 1 {
+		t.Errorf("Hops = %d, want 1", got.Hops)
+	}
+}
+
+// TestResolveClientIP_HostingPath: web calling through the Firebase Hosting `/api/**` rewrite — GFE (in
+// front of Cloud Run) appends Hosting's own egress IP at the rightmost position; Hosting itself appended
+// the real browser IP one position to the left of that before forwarding. 66.249.64.10 is inside the range
+// the audit observed live as Cloud Run's httpRequest.remoteIp for exactly this path.
+func TestResolveClientIP_HostingPath(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Forwarded-For", "198.51.100.9, 66.249.64.10")
+
+	got := ResolveClientIP(h, 1)
+	if got.IP != "198.51.100.9" {
+		t.Errorf("IP = %q, want the real browser IP one hop left of the Hosting egress address", got.IP)
+	}
+	if !got.ViaHosting {
+		t.Error("ViaHosting = false, want true: rightmost entry is a recognized Google egress IP")
+	}
+	if got.Hops != 2 {
+		t.Errorf("Hops = %d, want 2", got.Hops)
+	}
+}
+
+// TestResolveClientIP_SpoofedXFFOnDirectPath: an attacker calling Cloud Run directly (no Hosting involved)
+// cannot control the rightmost entry — GFE appends its own observed peer IP there — but can prepend
+// whatever it likes to the left, including an address that *looks* like a Google range. That must never
+// cause us to walk left: only the rightmost entry's ownership is ever consulted.
+func TestResolveClientIP_SpoofedXFFOnDirectPath(t *testing.T) {
+	h := http.Header{}
+	// "66.249.64.1" here is attacker-supplied (prepended by the caller itself), not appended by any real
+	// Google proxy; "6.6.6.6" is the attacker's real IP, appended last by GFE.
+	h.Set("X-Forwarded-For", "66.249.64.1, 6.6.6.6")
+
+	got := ResolveClientIP(h, 1)
+	if got.IP != "6.6.6.6" {
+		t.Errorf("IP = %q, want the rightmost (GFE-appended) entry, not the spoofed left entry", got.IP)
+	}
+	if got.ViaHosting {
+		t.Error("ViaHosting = true, want false: the Google-looking address is spoofed, not the rightmost entry")
+	}
+}
+
+// TestResolveClientIP_HostingEgressWithNothingToItsLeft: defensive edge case — if the rightmost entry is
+// recognized as Google's own but there is nothing to its left (should not happen in our real topology,
+// where Hosting always appends the browser IP before forwarding), fall back to that entry rather than
+// index out of range.
+func TestResolveClientIP_HostingEgressWithNothingToItsLeft(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Forwarded-For", "66.249.64.10")
+
+	got := ResolveClientIP(h, 1)
+	if got.IP != "66.249.64.10" {
+		t.Errorf("IP = %q, want the only entry present", got.IP)
+	}
+	if got.ViaHosting {
+		t.Error("ViaHosting = true, want false: there is no entry to its left to attribute as the real client")
+	}
+}
+
+// TestResolveClientIP_ExplicitHopsOverrideSkipsHostingDetection: TrustedProxyHops > 1 is an explicit
+// operator override (ResolveClientIP's doc comment) — it must count hops literally and skip the
+// Google-egress heuristic entirely, even when the entry it lands on happens to look Google-owned.
+func TestResolveClientIP_ExplicitHopsOverrideSkipsHostingDetection(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Forwarded-For", "1.2.3.4, 66.249.64.10, 9.9.9.9")
+
+	got := ResolveClientIP(h, 2)
+	if got.IP != "66.249.64.10" {
+		t.Errorf("IP = %q, want the literal hops=2 entry regardless of it looking Google-owned", got.IP)
+	}
+	if got.ViaHosting {
+		t.Error("ViaHosting = true, want false: an explicit hops override bypasses detection entirely")
+	}
+}
+
 func TestXFFHopCount(t *testing.T) {
 	tests := []struct {
 		name string
