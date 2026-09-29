@@ -99,6 +99,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// land in the same transaction/batch as the edge change (ADR-0008 D3), hence a repo-level setter rather
 	// than service.go opening its own separate write.
 	graphRepo.SetCounters(identityRepo)
+	graphRepo.SetProfiles(identityRepo)
 	identityCache := identity.NewCache(cfg.CacheTTL)
 	graphCache := graph.NewCache(cfg.CacheTTL)
 

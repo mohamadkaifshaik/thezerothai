@@ -48,6 +48,7 @@ func newWired(t *testing.T) wired {
 	graphRepo := graph.NewFirestoreRepo(client)
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
+	graphRepo.SetProfiles(identityRepo)
 
 	graphSvc := graph.New(graph.Deps{
 		Repo:                    graphRepo,

@@ -53,6 +53,11 @@ type fakeRepo struct {
 	lists     map[string]Lists
 	listCalls int
 
+	lastPurgeCP Checkpoint
+	purgeNext   Checkpoint
+	purgeDone   bool
+	purgeErr    error
+
 	edges         []Edge
 	edgeCalls     int
 	lastEdgeQuery EdgeQuery
@@ -397,4 +402,9 @@ func TestIsNewAccount(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (f *fakeRepo) PurgeUser(_ context.Context, _ string, cp Checkpoint) (Checkpoint, bool, error) {
+	f.lastPurgeCP = cp
+	return f.purgeNext, f.purgeDone, f.purgeErr
 }

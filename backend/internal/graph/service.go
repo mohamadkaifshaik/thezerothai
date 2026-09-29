@@ -58,6 +58,8 @@ type Repo interface {
 	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
 	GetLists(ctx context.Context, uid string) (Lists, error)
 
+	Eraser
+
 	// ListEdges returns one page of follow edges, newest first (ADR-0008 T10). <= q.Limit reads.
 	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
 }
@@ -199,4 +201,14 @@ func limitReachedErr(limit string) error {
 
 func selfActionErr(field string) error {
 	return apierr.Validation(field, "cannot target yourself")
+}
+
+var _ Eraser = (*service)(nil)
+
+// PurgeUser implements Eraser by delegating to the repo (ADR-0008 D10); the local cache entry for uid is
+// dropped so this instance stops serving the purged graph.
+func (s *service) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
+	next, done, err := s.repo.PurgeUser(ctx, uid, cp)
+	s.cache.Invalidate(uid)
+	return next, done, err
 }

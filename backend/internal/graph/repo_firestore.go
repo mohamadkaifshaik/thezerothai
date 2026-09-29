@@ -94,6 +94,7 @@ type FirestoreRepo struct {
 	client   *firestore.Client
 	quota    *quota.Store
 	counters identity.Counters
+	profiles ProfileReader
 }
 
 // NewFirestoreRepo builds a FirestoreRepo. Unchanged signature from the Phase 0 bootstrap so every existing

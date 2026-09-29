@@ -85,7 +85,10 @@ type Page struct {
 
 // Checkpoint resumes Eraser.PurgeUser across calls (ADR-0008 D10). Zero value starts from the beginning.
 type Checkpoint struct {
+	// Step is 1-5 (see purge.go); 0 means "start".
 	Step int
+	// Offset is the number of blocked/blockedBy entries already processed in steps 3-4.
+	Offset int
 }
 
 // Service is the Connect handler's dependency (server.go) and also implements Reader, FollowEvents,
