@@ -2,3 +2,8 @@
 *.sh      text eol=lf
 Makefile  text eol=lf
 *.go      text eol=lf
+
+# Flutter regenerates these as LF on every pub get/analyze/test; keep them LF on Windows checkouts so they never show as modified.
+app/linux/flutter/generated_plugin*   text eol=lf
+app/macos/Flutter/GeneratedPluginRegistrant.swift text eol=lf
+app/windows/flutter/generated_plugin*   text eol=lf
