@@ -14,6 +14,7 @@ import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/graph/data/graph_repository.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -68,6 +69,14 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     database: database,
   );
+  final graphRepository = GraphRepository(
+    apiClient: apiClient,
+    database: database,
+  );
+  // Warm the in-memory relationship cache from the caller's cached
+  // `following` set before the first frame, so FollowButton can render
+  // "Following" instantly on a warm start (CLAUDE.md prime directive).
+  await graphRepository.primeFromDatabase();
 
   final authBloc = AuthBloc(
     authRepository: authRepository,
@@ -86,8 +95,9 @@ Future<void> bootstrap() async {
     if (user == null && lastUser != null) {
       onboardingBloc.add(const OnboardingUserSignedOut());
       // Wipe the local cache so the next user on a shared device never sees
-      // a stale profile (privacy: CLAUDE.md rule 10).
+      // a stale profile or relationship (privacy: CLAUDE.md rule 10).
       unawaited(database.clearAll());
+      graphRepository.clearCache();
     } else if (user != null &&
         state.status == AuthStatus.authenticated &&
         user.uid != lastUser?.uid) {
@@ -99,7 +109,14 @@ Future<void> bootstrap() async {
     onboardingBloc.add(OnboardingUserAuthenticated(authBloc.state.user!));
   }
 
-  runApp(AppWidget(authBloc: authBloc, onboardingBloc: onboardingBloc));
+  runApp(
+    AppWidget(
+      authBloc: authBloc,
+      onboardingBloc: onboardingBloc,
+      identityRepository: identityRepository,
+      graphRepository: graphRepository,
+    ),
+  );
 }
 
 /// Activates App Check, but never lets it block startup.

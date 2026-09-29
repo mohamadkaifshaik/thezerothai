@@ -123,6 +123,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         state.copyWith(
           status: OnboardingStatus.ready,
           profile: response.profile,
+          enabledFeatures: response.enabledFeatures.toSet(),
         ),
       );
     } on ProfileRequiredException {

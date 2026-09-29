@@ -722,16 +722,240 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
   }
 }
 
+class $FollowingCacheEntriesTable extends FollowingCacheEntries
+    with TableInfo<$FollowingCacheEntriesTable, CachedFollowing> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FollowingCacheEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [userId, cachedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'following_cache_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedFollowing> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {userId};
+  @override
+  CachedFollowing map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedFollowing(
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+    );
+  }
+
+  @override
+  $FollowingCacheEntriesTable createAlias(String alias) {
+    return $FollowingCacheEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedFollowing extends DataClass implements Insertable<CachedFollowing> {
+  /// Uid of an account the signed-in user follows. Primary key.
+  final String userId;
+
+  /// When this row was written, so it can be pruned or judged stale later.
+  final DateTime cachedAt;
+  const CachedFollowing({required this.userId, required this.cachedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['user_id'] = Variable<String>(userId);
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    return map;
+  }
+
+  FollowingCacheEntriesCompanion toCompanion(bool nullToAbsent) {
+    return FollowingCacheEntriesCompanion(
+      userId: Value(userId),
+      cachedAt: Value(cachedAt),
+    );
+  }
+
+  factory CachedFollowing.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedFollowing(
+      userId: serializer.fromJson<String>(json['userId']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'userId': serializer.toJson<String>(userId),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+    };
+  }
+
+  CachedFollowing copyWith({String? userId, DateTime? cachedAt}) =>
+      CachedFollowing(
+        userId: userId ?? this.userId,
+        cachedAt: cachedAt ?? this.cachedAt,
+      );
+  CachedFollowing copyWithCompanion(FollowingCacheEntriesCompanion data) {
+    return CachedFollowing(
+      userId: data.userId.present ? data.userId.value : this.userId,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedFollowing(')
+          ..write('userId: $userId, ')
+          ..write('cachedAt: $cachedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(userId, cachedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedFollowing &&
+          other.userId == this.userId &&
+          other.cachedAt == this.cachedAt);
+}
+
+class FollowingCacheEntriesCompanion extends UpdateCompanion<CachedFollowing> {
+  final Value<String> userId;
+  final Value<DateTime> cachedAt;
+  final Value<int> rowid;
+  const FollowingCacheEntriesCompanion({
+    this.userId = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  FollowingCacheEntriesCompanion.insert({
+    required String userId,
+    required DateTime cachedAt,
+    this.rowid = const Value.absent(),
+  }) : userId = Value(userId),
+       cachedAt = Value(cachedAt);
+  static Insertable<CachedFollowing> custom({
+    Expression<String>? userId,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (userId != null) 'user_id': userId,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  FollowingCacheEntriesCompanion copyWith({
+    Value<String>? userId,
+    Value<DateTime>? cachedAt,
+    Value<int>? rowid,
+  }) {
+    return FollowingCacheEntriesCompanion(
+      userId: userId ?? this.userId,
+      cachedAt: cachedAt ?? this.cachedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('FollowingCacheEntriesCompanion(')
+          ..write('userId: $userId, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $ProfileCacheEntriesTable profileCacheEntries =
       $ProfileCacheEntriesTable(this);
+  late final $FollowingCacheEntriesTable followingCacheEntries =
+      $FollowingCacheEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [profileCacheEntries];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    profileCacheEntries,
+    followingCacheEntries,
+  ];
 }
 
 typedef $$ProfileCacheEntriesTableCreateCompanionBuilder =
@@ -1098,10 +1322,185 @@ typedef $$ProfileCacheEntriesTableProcessedTableManager =
       CachedProfile,
       PrefetchHooks Function()
     >;
+typedef $$FollowingCacheEntriesTableCreateCompanionBuilder =
+    FollowingCacheEntriesCompanion Function({
+      required String userId,
+      required DateTime cachedAt,
+      Value<int> rowid,
+    });
+typedef $$FollowingCacheEntriesTableUpdateCompanionBuilder =
+    FollowingCacheEntriesCompanion Function({
+      Value<String> userId,
+      Value<DateTime> cachedAt,
+      Value<int> rowid,
+    });
+
+class $$FollowingCacheEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $FollowingCacheEntriesTable> {
+  $$FollowingCacheEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$FollowingCacheEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $FollowingCacheEntriesTable> {
+  $$FollowingCacheEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$FollowingCacheEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $FollowingCacheEntriesTable> {
+  $$FollowingCacheEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+}
+
+class $$FollowingCacheEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $FollowingCacheEntriesTable,
+          CachedFollowing,
+          $$FollowingCacheEntriesTableFilterComposer,
+          $$FollowingCacheEntriesTableOrderingComposer,
+          $$FollowingCacheEntriesTableAnnotationComposer,
+          $$FollowingCacheEntriesTableCreateCompanionBuilder,
+          $$FollowingCacheEntriesTableUpdateCompanionBuilder,
+          (
+            CachedFollowing,
+            BaseReferences<
+              _$AppDatabase,
+              $FollowingCacheEntriesTable,
+              CachedFollowing
+            >,
+          ),
+          CachedFollowing,
+          PrefetchHooks Function()
+        > {
+  $$FollowingCacheEntriesTableTableManager(
+    _$AppDatabase db,
+    $FollowingCacheEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$FollowingCacheEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$FollowingCacheEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$FollowingCacheEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> userId = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => FollowingCacheEntriesCompanion(
+                userId: userId,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String userId,
+                required DateTime cachedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => FollowingCacheEntriesCompanion.insert(
+                userId: userId,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$FollowingCacheEntriesTable, CachedFollowing>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $FollowingCacheEntriesTable,
+                    CachedFollowing
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$FollowingCacheEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $FollowingCacheEntriesTable,
+      CachedFollowing,
+      $$FollowingCacheEntriesTableFilterComposer,
+      $$FollowingCacheEntriesTableOrderingComposer,
+      $$FollowingCacheEntriesTableAnnotationComposer,
+      $$FollowingCacheEntriesTableCreateCompanionBuilder,
+      $$FollowingCacheEntriesTableUpdateCompanionBuilder,
+      (
+        CachedFollowing,
+        BaseReferences<
+          _$AppDatabase,
+          $FollowingCacheEntriesTable,
+          CachedFollowing
+        >,
+      ),
+      CachedFollowing,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
   $$ProfileCacheEntriesTableTableManager get profileCacheEntries =>
       $$ProfileCacheEntriesTableTableManager(_db, _db.profileCacheEntries);
+  $$FollowingCacheEntriesTableTableManager get followingCacheEntries =>
+      $$FollowingCacheEntriesTableTableManager(_db, _db.followingCacheEntries);
 }

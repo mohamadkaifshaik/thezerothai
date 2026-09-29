@@ -51,11 +51,15 @@ AppException mapConnectError(Object error) {
         return IdempotencyKeyReusedException(message);
       case common.ErrorReason.ERROR_REASON_ACCOUNT_RESTRICTED:
         return AccountRestrictedException(message);
-      // Added in the graph slice (ADR-0008). Until the graph plan's T12 maps
-      // them to typed exceptions they fall through to code-based mapping
-      // (FAILED_PRECONDITION), which keeps current behaviour unchanged.
+      // Added in the graph slice (ADR-0008 D5/D9): the caller blocks the
+      // target (e.g. Follow) — unblock first, never auto-unblocked.
       case common.ErrorReason.ERROR_REASON_TARGET_BLOCKED:
+        return TargetBlockedException(message);
+      // ADR-0008 D6: the server feature flag is off for this caller (or the
+      // RPC isn't built yet, e.g. follow requests). Clients hide the feature
+      // and refresh GetMe.enabled_features; never retry.
       case common.ErrorReason.ERROR_REASON_FEATURE_DISABLED:
+        return FeatureDisabledException(message);
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

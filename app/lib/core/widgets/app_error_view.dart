@@ -48,6 +48,23 @@ class AppErrorView extends StatelessWidget {
         'This account is restricted.',
         false,
       ),
+      // Byte-identical wording for "missing" and "blocked me" (ADR-0008 D9):
+      // never let the UI hint at which one it actually was.
+      NotFoundException() => (
+        Icons.person_off_outlined,
+        "This account doesn't exist.",
+        false,
+      ),
+      TargetBlockedException() => (
+        Icons.block_outlined,
+        'You blocked this account. Unblock them first to do that.',
+        false,
+      ),
+      FeatureDisabledException() => (
+        Icons.hourglass_empty_outlined,
+        "This feature isn't available yet.",
+        false,
+      ),
       _ => (Icons.error_outline, error.message, true),
     };
 

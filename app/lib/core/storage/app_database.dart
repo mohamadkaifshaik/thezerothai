@@ -30,7 +30,25 @@ class ProfileCacheEntries extends Table {
   Set<Column> get primaryKey => {userId};
 }
 
-@DriftDatabase(tables: [ProfileCacheEntries])
+/// Local cache of the signed-in user's own `following` set (ADR-0008 /
+/// graph plan T12), so `FollowButton` and follow lists can render
+/// "Following" instantly on a warm start, before `GetRelationships` or a
+/// list RPC ever runs (the client is our cheapest cache — CLAUDE.md prime
+/// directive). Only ever holds the *current* signed-in user's own follows;
+/// wiped on sign-out along with [ProfileCacheEntries] (see [clearAll]).
+@DataClassName('CachedFollowing')
+class FollowingCacheEntries extends Table {
+  /// Uid of an account the signed-in user follows. Primary key.
+  TextColumn get userId => text()();
+
+  /// When this row was written, so it can be pruned or judged stale later.
+  DateTimeColumn get cachedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {userId};
+}
+
+@DriftDatabase(tables: [ProfileCacheEntries, FollowingCacheEntries])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
@@ -38,7 +56,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      // v1 -> v2 (graph plan T12): additive table, no data migration needed.
+      if (from < 2) {
+        await m.createTable(followingCacheEntries);
+      }
+    },
+  );
 
   Future<CachedProfile?> profileByUserId(String userId) {
     return (select(
@@ -62,10 +91,33 @@ class AppDatabase extends _$AppDatabase {
     )..where((t) => t.userId.equals(userId))).go();
   }
 
+  /// All uids the signed-in user is cached as following.
+  Future<List<String>> cachedFollowingIds() async {
+    final rows = await select(followingCacheEntries).get();
+    return [for (final row in rows) row.userId];
+  }
+
+  Future<void> upsertFollowing(String userId) {
+    return into(followingCacheEntries).insertOnConflictUpdate(
+      FollowingCacheEntriesCompanion.insert(
+        userId: userId,
+        cachedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> removeFollowing(String userId) {
+    return (delete(
+      followingCacheEntries,
+    )..where((t) => t.userId.equals(userId))).go();
+  }
+
   /// Wipes all cached data. Called on sign-out so the next user on a shared
-  /// device never sees a stale profile (privacy: CLAUDE.md rule 10).
-  Future<void> clearAll() {
-    return delete(profileCacheEntries).go();
+  /// device never sees a stale profile or follow list (privacy: CLAUDE.md
+  /// rule 10).
+  Future<void> clearAll() async {
+    await delete(profileCacheEntries).go();
+    await delete(followingCacheEntries).go();
   }
 
   static QueryExecutor _openConnection() {

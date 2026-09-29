@@ -24,3 +24,17 @@
 | EmailPasswordForm | app/lib/features/auth/presentation/widgets/email_password_form.dart | shared email/password fields + validation for sign-in and sign-up |
 | SocialSignInButtons | app/lib/features/auth/presentation/widgets/social_sign_in_buttons.dart | Google + (platform-gated) Apple sign-in buttons |
 | VerifyEmailView | app/lib/features/auth/presentation/widgets/verify_email_view.dart | full-screen "verify your email" prompt (no dedicated route); reused by CreateProfileScreen (`banner`/`onBack`) for `ERROR_REASON_EMAIL_NOT_VERIFIED` from CreateProfile |
+| FollowButton | app/lib/shared/widgets/follow_button.dart | Follow/Following/Unblock/Requested action; reads a `RelationshipCubit` provided above it — one per profile header or list row |
+| kFeatureGraph | app/lib/features/graph/domain/graph_feature_flag.dart | the `"graph"` feature-flag name (ADR-0008 D6) — never hardcode the string elsewhere |
+| isGraphEnabled / graphEnabledSnapshot | app/lib/features/graph/presentation/graph_feature_flags.dart | gate every graph UI element and route on `GetMe.enabled_features` (via `OnboardingBloc`) |
+| GraphRepository / GraphPage | app/lib/features/graph/data/graph_repository.dart | `GraphService` client + session relationship cache (primed from list rows and the drift `following` cache); follow/unfollow/block/unblock/mute/unmute + paged lists |
+| RelationshipCubit / RelationshipState | app/lib/features/graph/presentation/bloc/relationship_cubit.dart | optimistic follow/block/mute state for one (viewer, target) pair, with rollback |
+| relationshipErrorMessage | app/lib/features/graph/presentation/graph_error_messages.dart | friendly snackbar text for graph-action `AppException`s |
+| ProfileHeader | app/lib/features/profile/presentation/widgets/profile_header.dart | avatar/name/handle/bio/counts/FollowButton/block-mute menu for `ProfileScreen` (ADR-0008 D13: the posts plan owns the tabs/body below it) |
+| showBlockConfirmationDialog | app/lib/features/profile/presentation/widgets/block_confirmation_dialog.dart | the "Block this account?" confirmation sheet |
+| ProfileCubit / ProfileState | app/lib/features/profile/presentation/bloc/profile_cubit.dart | loads `GetProfile` + the viewer's relationship for one handle |
+| UserListCubit / UserListState | app/lib/features/graph/presentation/bloc/user_list_cubit.dart | pages any `FetchGraphPage` (followers/following/blocked/muted) with load-more, pull-to-refresh, and optimistic remove/restore |
+| PagedUserList | app/lib/features/graph/presentation/widgets/paged_user_list.dart | renders a `UserListCubit`'s loading/ready/error/rate-limited/empty states as a scrollable, prefetching list |
+| UserListRow | app/lib/features/graph/presentation/widgets/user_list_row.dart | one row (avatar, name, handle, trailing) in any graph user list; defaults to a `FollowButton` seeded from `UserListItem.relationship` |
+| BlockedAccountsScreen / MutedAccountsScreen | app/lib/features/graph/presentation/managed_accounts_screen.dart | Settings → Blocked/Muted accounts, optimistic unblock/unmute + undo |
+| GraphListScreen | app/lib/features/graph/presentation/graph_list_screen.dart | `/profile/:handle/followers` and `/profile/:handle/following`, tabbed, paged; lazy per-tab `UserListCubit`, flag-off redirects to the profile |
