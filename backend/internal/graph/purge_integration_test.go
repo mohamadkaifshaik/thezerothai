@@ -165,6 +165,7 @@ func TestPurgeUser_Integration_ConcurrentRunsNoDoubleDecrement(t *testing.T) {
 
 func TestPurgeUser_Integration_StepBudgets(t *testing.T) {
 	w := purgeFixture(t)
+	w.SkipInvariantSweep("deliberately stops after purge step 1, a legitimately mid-purge (inconsistent) state")
 	ctx, counter := budget.WithCounter(context.Background())
 	if _, _, err := w.graph.repo.PurgeUser(ctx, "uid-u", graph.Checkpoint{}); err != nil {
 		t.Fatal(err)
@@ -175,6 +176,7 @@ func TestPurgeUser_Integration_StepBudgets(t *testing.T) {
 
 func TestPurgeUser_Integration_MissingCounterpartIsSkipped(t *testing.T) {
 	w := newWired(t)
+	w.SkipInvariantSweep("edge-only seeding: ghost counterparts have no users/graph docs by design")
 	mustCreateProfile(t, w.identity, "uid-u", "useru")
 	mustCreateProfile(t, w.identity, "uid-real", "userreal")
 	ctx := context.Background()
@@ -203,6 +205,7 @@ func TestPurgeUser_Integration_MultiBatch(t *testing.T) {
 		t.Skip("creates 260 profiles")
 	}
 	w := newWired(t)
+	w.SkipInvariantSweep("edge-only seeding: the test asserts counters decrement from a seeded 0 to -1")
 	mustCreateProfile(t, w.identity, "uid-u", "useru")
 	const n = 260
 	for i := 0; i < n; i++ {

@@ -10,62 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/firestore"
-
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
-
-const (
-	key1 = "0123456789abcdef"
-	key2 = "fedcba9876543210"
-	key3 = "0123456789fedcba"
-)
-
-func graphArrays(t *testing.T, client *firestore.Client, uid string) map[string][]string {
-	t.Helper()
-	snap, err := client.Collection("graph").Doc(uid).Get(context.Background())
-	if err != nil {
-		t.Fatalf("get graph/%s: %v", uid, err)
-	}
-	out := map[string][]string{}
-	for _, f := range []string{"following", "blocked", "muted", "blockedBy"} {
-		v, err := snap.DataAt(f)
-		if err != nil {
-			continue
-		}
-		for _, x := range v.([]interface{}) {
-			out[f] = append(out[f], x.(string))
-		}
-	}
-	return out
-}
-
-func docExists(t *testing.T, client *firestore.Client, path string) bool {
-	t.Helper()
-	_, err := client.Doc(path).Get(context.Background())
-	return err == nil
-}
-
-func counts(t *testing.T, w wired, uid string) (following, followers int64) {
-	t.Helper()
-	me, err := w.identity.GetMe(context.Background(), uid)
-	if err != nil {
-		t.Fatalf("GetMe(%s): %v", uid, err)
-	}
-	return me.Profile.FollowingCount, me.Profile.FollowersCount
-}
-
-func contains(vals []string, v string) bool {
-	for _, x := range vals {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
 
 func TestBlock_Integration_MutualFollow_Budget(t *testing.T) {
 	w := newWired(t)
