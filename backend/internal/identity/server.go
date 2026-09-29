@@ -103,6 +103,7 @@ func (s *Server) GetMe(ctx context.Context, _ *connect.Request[identityv1.GetMeR
 		Status:                  toProtoStatus(result.Profile.Status),
 		EmailVerified:           claims.EmailVerified,
 		UnreadNotificationCount: result.UnreadNotificationCount,
+		EnabledFeatures:         result.EnabledFeatures,
 	}), nil
 }
 

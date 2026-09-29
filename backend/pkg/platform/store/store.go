@@ -22,7 +22,12 @@ type Batch interface {
 	Set(ref *firestore.DocumentRef, data interface{}, opts ...firestore.SetOption) Batch
 	Create(ref *firestore.DocumentRef, data interface{}) Batch
 	Update(ref *firestore.DocumentRef, updates []firestore.Update) Batch
-	Delete(ref *firestore.DocumentRef) Batch
+	// Delete's variadic preconditions (added for ADR-0008 T7/D10) let a caller require firestore.Exists so
+	// a whole atomic batch/transaction fails (0 writes) instead of silently deleting nothing when the
+	// document is already gone — Unfollow's blind-batch replay safety and the purge cascade's
+	// two-concurrent-runs safety both depend on this. Existing callers passing no preconditions are
+	// unaffected (backward compatible).
+	Delete(ref *firestore.DocumentRef, preconditions ...firestore.Precondition) Batch
 }
 
 // FirestoreBatch adapts *firestore.WriteBatch to Batch and owns committing it.
@@ -54,8 +59,8 @@ func (b *FirestoreBatch) Update(ref *firestore.DocumentRef, updates []firestore.
 	return b
 }
 
-func (b *FirestoreBatch) Delete(ref *firestore.DocumentRef) Batch {
-	b.wb.Delete(ref)
+func (b *FirestoreBatch) Delete(ref *firestore.DocumentRef, preconditions ...firestore.Precondition) Batch {
+	b.wb.Delete(ref, preconditions...)
 	b.counter.AddDeletes(1)
 	return b
 }
@@ -115,8 +120,8 @@ func (b *FirestoreTxBatch) Update(ref *firestore.DocumentRef, updates []firestor
 	return b
 }
 
-func (b *FirestoreTxBatch) Delete(ref *firestore.DocumentRef) Batch {
-	b.noteErr(b.tx.Delete(ref))
+func (b *FirestoreTxBatch) Delete(ref *firestore.DocumentRef, preconditions ...firestore.Precondition) Batch {
+	b.noteErr(b.tx.Delete(ref, preconditions...))
 	b.counter.AddDeletes(1)
 	return b
 }

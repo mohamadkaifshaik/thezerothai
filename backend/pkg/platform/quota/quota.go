@@ -31,6 +31,9 @@ const (
 	Follows Kind = "follows"
 	Uploads Kind = "uploads"
 	Exports Kind = "exports"
+	// Blocks counts both Block and Mute calls (ADR-0008 D7): they share one daily counter. Unblock/Unmute
+	// are never quota-gated.
+	Blocks Kind = "blocks"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -53,6 +56,8 @@ type Record struct {
 	Follows int64  `firestore:"follows"`
 	Uploads int64  `firestore:"uploads"`
 	Exports int64  `firestore:"exports"`
+	// Blocks counts Block + Mute calls (ADR-0008 D7).
+	Blocks int64 `firestore:"blocks"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -65,6 +70,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Uploads
 	case Exports:
 		return r.Exports
+	case Blocks:
+		return r.Blocks
 	default:
 		return 0
 	}
@@ -80,6 +87,8 @@ func (r *Record) increment(k Kind) {
 		r.Uploads++
 	case Exports:
 		r.Exports++
+	case Blocks:
+		r.Blocks++
 	}
 }
 

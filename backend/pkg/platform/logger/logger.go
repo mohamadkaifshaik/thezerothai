@@ -109,6 +109,11 @@ type RequestInfo struct {
 	// before it is ever written. Deliberately a count and a bool, never an IP address (PII).
 	XFFHops    int
 	ViaHosting bool
+	// LimitName identifies which in-memory limiter rejected the request (set by ratelimit.Interceptor,
+	// e.g. "graph_list_daily" for the ADR-0008 T4 per-uid daily list cap), empty when nothing was rejected
+	// or the rejection came from elsewhere (a Firestore quota). Observability skill / ADR-0008: every graph
+	// RPC logs limit_name so `abuse-spike.md` can query rejections by limiter.
+	LimitName string
 }
 
 type requestInfoCtxKey struct{}

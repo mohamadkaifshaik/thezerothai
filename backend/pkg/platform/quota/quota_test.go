@@ -29,7 +29,9 @@ func (f *fakeBatch) Create(_ *firestore.DocumentRef, data interface{}) store.Bat
 	return f
 }
 func (f *fakeBatch) Update(_ *firestore.DocumentRef, _ []firestore.Update) store.Batch { return f }
-func (f *fakeBatch) Delete(_ *firestore.DocumentRef) store.Batch                       { return f }
+func (f *fakeBatch) Delete(_ *firestore.DocumentRef, _ ...firestore.Precondition) store.Batch {
+	return f
+}
 
 func TestStore_RefPath(t *testing.T) {
 	client := &firestore.Client{}

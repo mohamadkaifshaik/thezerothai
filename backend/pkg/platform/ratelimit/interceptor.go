@@ -28,6 +28,19 @@ type Config struct {
 	// since added in front of Cloud Run that ResolveClientIP cannot recognize by IP. Configurable via
 	// config.Config.TrustedProxyHops (env TRUSTED_PROXY_HOPS).
 	TrustedProxyHops int
+
+	// DailyCaps applies an additional per-uid-per-instance daily cap (ADR-0008 D7/T4: "an extension of the
+	// existing limiter... don't write a second limiter") on top of the per-minute limiters above, keyed by
+	// fully-qualified Connect procedure. Checked after PerProcedure/Default so a burst is still rejected by
+	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
+	// per-request line can be queried by limiter (e.g. "graph_list_daily").
+	DailyCaps map[string]NamedDailyCap
+}
+
+// NamedDailyCap pairs a DailyCap with the name it reports in logs/metadata when it rejects a call.
+type NamedDailyCap struct {
+	Name string
+	Cap  *DailyCap
 }
 
 // Interceptor enforces per-uid and per-IP token buckets. Must run after authn.IDTokenInterceptor so a
@@ -64,11 +77,19 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 					limiter = l
 				}
 			}
-			if limiter != nil {
-				uid, ok := authn.UIDFromContext(ctx)
-				if ok {
-					if allowed, wait := limiter.Allow(uid); !allowed {
-						return nil, rateLimited(wait)
+			uid, hasUID := authn.UIDFromContext(ctx)
+			if limiter != nil && hasUID {
+				if allowed, wait := limiter.Allow(uid); !allowed {
+					return nil, rateLimited(wait)
+				}
+			}
+			if cfg.DailyCaps != nil && hasUID {
+				if named, ok := cfg.DailyCaps[req.Spec().Procedure]; ok && named.Cap != nil {
+					if !named.Cap.Allow(uid) {
+						if info := logger.RequestInfoFromContext(ctx); info != nil {
+							info.LimitName = named.Name
+						}
+						return nil, rateLimited(0)
 					}
 				}
 			}

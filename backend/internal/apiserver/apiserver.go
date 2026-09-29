@@ -19,12 +19,14 @@ import (
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 
+	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/health"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/httpcors"
@@ -79,18 +81,52 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		return nil, nil, fmt.Errorf("app check verifier: %w", err)
 	}
 
+	// --- feature flags (ADR-0008 D6) ---
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph)
+	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
+
 	// --- modules ---
-	// graph.FirestoreRepo is the minimal seam identity depends on to create the empty graph/{uid} doc in
-	// the CreateProfile transaction (backend/internal/graph doc comment). The full GraphService is not
-	// registered — Phase 0 scope is identity only.
+	// graph.FirestoreRepo backs both identity.GraphInitializer (creating the empty graph/{uid} doc inside
+	// CreateProfile's transaction, unchanged since the Phase 0 bootstrap) and the full GraphService
+	// (ADR-0008). graph depends on identity.Directory/Counters directly; identity depends on graph only
+	// through the consumer-side identity.BlockChecker interface it declares itself (identity/api.go) — no
+	// import cycle. graph.Service needs identity.Directory (implemented by identitySvc) and identitySvc
+	// needs graph.Service as its BlockChecker: SetDirectory breaks that construction-order cycle (see
+	// graph.service's doc comment) — safe because it runs once, synchronously, before ListenAndServe.
 	graphRepo := graph.NewFirestoreRepo(fsClient)
 	identityRepo := identity.NewFirestoreRepo(fsClient, graphRepo)
+	// identityRepo implements identity.Counters (AddFollowersCount/AddFollowingCount); the increments must
+	// land in the same transaction/batch as the edge change (ADR-0008 D3), hence a repo-level setter rather
+	// than service.go opening its own separate write.
+	graphRepo.SetCounters(identityRepo)
+	graphRepo.SetProfiles(identityRepo)
 	identityCache := identity.NewCache(cfg.CacheTTL)
-	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown)
-	identityServer := identity.NewServer(identitySvc)
+	graphCache := graph.NewCache(cfg.CacheTTL)
 
-	// posts, timeline, engagement, media, notifications, search, moderation, admin, and the full graph
-	// module are not implemented in this Phase 0 bootstrap; their Connect servers are not registered.
+	graphSvc := graph.New(graph.Deps{
+		Repo:                    graphRepo,
+		Cache:                   graphCache,
+		Flags:                   featureFlags,
+		CursorKey:               cfg.CursorHMACKey,
+		FollowsPerDay:           int64(cfg.Quota.FollowsPerDay),
+		NewAccountFollowsPerDay: int64(cfg.Quota.NewAccountFollowsPerDay),
+		BlocksPerDay:            int64(cfg.Quota.BlocksPerDay),
+		NewAccountBlocksPerDay:  int64(cfg.Quota.NewAccountBlocksPerDay),
+		NewAccountWindow:        cfg.Quota.NewAccountWindow,
+	})
+	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
+		identity.WithFeatureFlags(featureFlags),
+		identity.WithBlockChecker(graphSvc),
+	)
+	// identitySvc's concrete type also implements identity.Directory (GetProfiles/Forget); asserted here
+	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
+	graphSvc.SetDirectory(identitySvc.(identity.Directory))
+
+	identityServer := identity.NewServer(identitySvc)
+	graphServer := graph.NewServer(graphSvc)
+
+	// posts, timeline, engagement, media, notifications, search, moderation, admin are not implemented in
+	// this bootstrap; their Connect servers are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -105,6 +141,14 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	rlDefault := ratelimit.NewLimiter(cfg.RateLimit.PerUserPerMinute, idleBucketTTL)
 	rlCheckHandle := ratelimit.NewLimiter(cfg.RateLimit.CheckHandlePerUserPerMinute, idleBucketTTL)
 	rlIP := ratelimit.NewLimiter(cfg.RateLimit.PerIPPerMinute, idleBucketTTL)
+
+	// ADR-0008 D7: Follow/Unfollow 30/min, Block/Unblock/Mute/Unmute 20/min, lists 20/min; GetRelationships
+	// uses rlDefault (the 60/min default). A shared DailyCap (not a second limiter) backs the per-uid daily
+	// list cap (T4), logged as limit_name "graph_list_daily".
+	rlGraphFollow := ratelimit.NewLimiter(cfg.RateLimit.GraphFollowPerMinute, idleBucketTTL)
+	rlGraphBlock := ratelimit.NewLimiter(cfg.RateLimit.GraphBlockPerMinute, idleBucketTTL)
+	rlGraphList := ratelimit.NewLimiter(cfg.RateLimit.GraphListPerMinute, idleBucketTTL)
+	graphListDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphListCallsPerDay, 24*time.Hour)
 
 	// M1: rate limit (and degraded mode, also a free in-memory check) now run *before* account status.
 	// Previously account status ran first, so a caller who never completes sign-up (no users/{uid}) could
@@ -126,6 +170,22 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 			Default: rlDefault,
 			PerProcedure: map[string]*ratelimit.Limiter{
 				identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
+				graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
+				graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,
+				graphv1connect.GraphServiceBlockProcedure:                         rlGraphBlock,
+				graphv1connect.GraphServiceUnblockProcedure:                       rlGraphBlock,
+				graphv1connect.GraphServiceMuteProcedure:                          rlGraphBlock,
+				graphv1connect.GraphServiceUnmuteProcedure:                        rlGraphBlock,
+				graphv1connect.GraphServiceListFollowersProcedure:                 rlGraphList,
+				graphv1connect.GraphServiceListFollowingProcedure:                 rlGraphList,
+				graphv1connect.GraphServiceListBlockedUsersProcedure:              rlGraphList,
+				graphv1connect.GraphServiceListMutedUsersProcedure:                rlGraphList,
+			},
+			DailyCaps: map[string]ratelimit.NamedDailyCap{
+				graphv1connect.GraphServiceListFollowersProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
+				graphv1connect.GraphServiceListFollowingProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
+				graphv1connect.GraphServiceListBlockedUsersProcedure: {Name: "graph_list_daily", Cap: graphListDailyCap},
+				graphv1connect.GraphServiceListMutedUsersProcedure:   {Name: "graph_list_daily", Cap: graphListDailyCap},
 			},
 			IP:               rlIP,
 			TrustedProxyHops: cfg.TrustedProxyHops,
@@ -146,6 +206,9 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// doc comment); http.MaxBytesHandler below caps the raw bytes read off the socket before that.
 	path, handler := identityv1connect.NewIdentityServiceHandler(identityServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(path, handler)
+
+	graphPath, graphHandler := graphv1connect.NewGraphServiceHandler(graphServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(graphPath, graphHandler)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here

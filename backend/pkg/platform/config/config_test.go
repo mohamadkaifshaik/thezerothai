@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 func clearEnv(t *testing.T) {
@@ -16,6 +18,10 @@ func clearEnv(t *testing.T) {
 		"QUOTA_POSTS_PER_DAY", "QUOTA_FOLLOWS_PER_DAY", "QUOTA_MEDIA_PER_DAY", "QUOTA_EXPORTS_PER_DAY",
 		"QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", "QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY", "QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY",
 		"INTERNAL_OIDC_AUDIENCE", "INTERNAL_OIDC_ALLOWED_EMAILS", "CORS_ALLOWED_ORIGINS", "TRUSTED_PROXY_HOPS",
+		"FEATURE_GRAPH", "FEATURE_GRAPH_ALLOWLIST", "FEATURE_GRAPH_PERCENT",
+		"QUOTA_BLOCKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY",
+		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
+		"LIST_CALLS_PER_DAY",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -271,6 +277,96 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 	if len(cfg.InternalOIDCAllowedEmails) != 2 {
 		t.Fatalf("InternalOIDCAllowedEmails = %v", cfg.InternalOIDCAllowedEmails)
+	}
+}
+
+// TestLoad_FeatureGraphDefaults (ADR-0008 D6 rollout plan): off in prod, on in dev and local by default.
+func TestLoad_FeatureGraphDefaults(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want flags.Mode
+	}{
+		{"local", "local", flags.On},
+		{"dev", "dev", flags.On},
+		{"prod", "prod", flags.Off},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("ENV", tt.env)
+			if tt.env != "local" {
+				t.Setenv("FIREBASE_PROJECT_ID", "dzeroth-x")
+				t.Setenv("CURSOR_HMAC_KEY", "x-secret")
+				t.Setenv("INTERNAL_OIDC_AUDIENCE", "https://api-xyz.a.run.app")
+				t.Setenv("INTERNAL_OIDC_ALLOWED_EMAILS", "sa@x.iam.gserviceaccount.com")
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.FeatureGraph.Mode != tt.want {
+				t.Errorf("FeatureGraph.Mode = %q, want %q", cfg.FeatureGraph.Mode, tt.want)
+			}
+			if cfg.FeatureGraph.Name != "graph" {
+				t.Errorf("FeatureGraph.Name = %q, want graph", cfg.FeatureGraph.Name)
+			}
+		})
+	}
+}
+
+func TestLoad_FeatureGraphInvalidModeFailsFast(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("FEATURE_GRAPH", "maybe")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for an invalid FEATURE_GRAPH value")
+	}
+}
+
+func TestLoad_FeatureGraphOverride(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("FEATURE_GRAPH", "allowlist")
+	t.Setenv("FEATURE_GRAPH_ALLOWLIST", "uid-a,uid-b")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeatureGraph.Mode != flags.Allowlist {
+		t.Errorf("FeatureGraph.Mode = %q, want allowlist", cfg.FeatureGraph.Mode)
+	}
+	if _, ok := cfg.FeatureGraph.Allowlist["uid-a"]; !ok {
+		t.Error("expected uid-a in FeatureGraph.Allowlist")
+	}
+}
+
+// TestLoad_GraphQuotaAndRateLimitDefaults locks in the ADR-0008 D7 numbers.
+func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Quota.BlocksPerDay != 200 {
+		t.Errorf("Quota.BlocksPerDay = %d, want 200", cfg.Quota.BlocksPerDay)
+	}
+	if cfg.Quota.NewAccountBlocksPerDay != 50 {
+		t.Errorf("Quota.NewAccountBlocksPerDay = %d, want 50", cfg.Quota.NewAccountBlocksPerDay)
+	}
+	if cfg.RateLimit.GraphFollowPerMinute != 30 {
+		t.Errorf("RateLimit.GraphFollowPerMinute = %d, want 30", cfg.RateLimit.GraphFollowPerMinute)
+	}
+	if cfg.RateLimit.GraphBlockPerMinute != 20 {
+		t.Errorf("RateLimit.GraphBlockPerMinute = %d, want 20", cfg.RateLimit.GraphBlockPerMinute)
+	}
+	if cfg.RateLimit.GraphListPerMinute != 20 {
+		t.Errorf("RateLimit.GraphListPerMinute = %d, want 20", cfg.RateLimit.GraphListPerMinute)
+	}
+	if cfg.RateLimit.GraphListCallsPerDay != 100 {
+		t.Errorf("RateLimit.GraphListCallsPerDay = %d, want 100", cfg.RateLimit.GraphListCallsPerDay)
+	}
+	// R-N8: CheckHandleAvailability raised from 10 to 20/min.
+	if cfg.RateLimit.CheckHandlePerUserPerMinute != 20 {
+		t.Errorf("RateLimit.CheckHandlePerUserPerMinute = %d, want 20", cfg.RateLimit.CheckHandlePerUserPerMinute)
 	}
 }
 

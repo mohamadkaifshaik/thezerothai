@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
@@ -65,6 +67,15 @@ type RateLimitConfig struct {
 	// a flood backstop, not the fine-grained per-uid/IP limiting PerIPPerMinute already does once a request
 	// is inside the Connect chain (a separate bucket; see ratelimit.PreAuthIPMiddleware).
 	PreAuthIPPerMinute int
+
+	// Graph per-procedure buckets (ADR-0008 D7). GetRelationships uses PerUserPerMinute (the 60/min default).
+	GraphFollowPerMinute int // Follow, Unfollow
+	GraphBlockPerMinute  int // Block, Unblock, Mute, Unmute
+	GraphListPerMinute   int // ListFollowers, ListFollowing, ListBlockedUsers, ListMutedUsers
+
+	// GraphListCallsPerDay is the in-memory daily cap on list RPCs per uid per instance (ADR-0008 D7/T4:
+	// "an extension of the existing limiter", ratelimit.DailyCap), logged as limit_name "graph_list_daily".
+	GraphListCallsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -79,6 +90,11 @@ type QuotaConfig struct {
 	NewAccountFollowsPerDay int
 	NewAccountMediaPerDay   int
 	NewAccountWindow        time.Duration
+
+	// BlocksPerDay/NewAccountBlocksPerDay cover Block + Mute together (ADR-0008 D7, quota.Blocks).
+	// Unblock/Unmute are never quota-gated.
+	BlocksPerDay           int
+	NewAccountBlocksPerDay int
 }
 
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
@@ -134,6 +150,10 @@ type Config struct {
 	// themselves) on the one per-request INFO line (pkg/platform/mw.Logging) so this can be measured from
 	// real dev traffic instead of guessed.
 	TrustedProxyHops int
+
+	// FeatureGraph is the ADR-0008 D6 server feature flag gating every GraphService RPC. Loaded from
+	// FEATURE_GRAPH / FEATURE_GRAPH_ALLOWLIST / FEATURE_GRAPH_PERCENT (pkg/platform/flags).
+	FeatureGraph flags.Spec
 }
 
 // Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
@@ -206,7 +226,8 @@ func Load() (Config, error) {
 	if rl.TimelinePerUserPerMinute, err = getInt("RATE_LIMIT_TIMELINE_PER_MIN", 6); err != nil {
 		return Config{}, err
 	}
-	if rl.CheckHandlePerUserPerMinute, err = getInt("RATE_LIMIT_CHECK_HANDLE_PER_MIN", 10); err != nil {
+	// R-N8 (2026-09-28 readiness review / ADR-0008 D7): raised from 10 to 20/min.
+	if rl.CheckHandlePerUserPerMinute, err = getInt("RATE_LIMIT_CHECK_HANDLE_PER_MIN", 20); err != nil {
 		return Config{}, err
 	}
 	if rl.LikesPerUserPerMinute, err = getInt("RATE_LIMIT_LIKES_PER_MIN", 30); err != nil {
@@ -218,6 +239,22 @@ func Load() (Config, error) {
 	if rl.PreAuthIPPerMinute, err = getInt("RATE_LIMIT_PRE_AUTH_IP_PER_MIN", 120); err != nil {
 		return Config{}, err
 	}
+	// ADR-0008 D7: Follow/Unfollow 30/min; Block/Unblock/Mute/Unmute 20/min; lists 20/min; GetRelationships
+	// uses PerUserPerMinute (the 60/min default) — no separate config needed for it.
+	if rl.GraphFollowPerMinute, err = getInt("RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", 30); err != nil {
+		return Config{}, err
+	}
+	if rl.GraphBlockPerMinute, err = getInt("RATE_LIMIT_GRAPH_BLOCK_PER_MIN", 20); err != nil {
+		return Config{}, err
+	}
+	if rl.GraphListPerMinute, err = getInt("RATE_LIMIT_GRAPH_LIST_PER_MIN", 20); err != nil {
+		return Config{}, err
+	}
+	graphListCallsPerDay, err := getInt("LIST_CALLS_PER_DAY", 100)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.GraphListCallsPerDay = int64(graphListCallsPerDay)
 
 	trustedProxyHops, err := getInt("TRUSTED_PROXY_HOPS", 1)
 	if err != nil {
@@ -246,6 +283,13 @@ func Load() (Config, error) {
 	if q.NewAccountMediaPerDay, err = getInt("QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", 5); err != nil {
 		return Config{}, err
 	}
+	// ADR-0008 D7: Block + Mute share one daily counter (quota.Blocks).
+	if q.BlocksPerDay, err = getInt("QUOTA_BLOCKS_PER_DAY", 200); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountBlocksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", 50); err != nil {
+		return Config{}, err
+	}
 
 	allowedEmails := splitCSV(os.Getenv("INTERNAL_OIDC_ALLOWED_EMAILS"))
 	internalOIDCAudience := os.Getenv("INTERNAL_OIDC_AUDIENCE")
@@ -262,6 +306,17 @@ func Load() (Config, error) {
 		case len(allowedEmails) == 0:
 			return Config{}, fmt.Errorf("config: INTERNAL_OIDC_ALLOWED_EMAILS is required in env %q", env)
 		}
+	}
+
+	// ADR-0008 D6/rollout plan: off in prod, on in dev and local by default (an operator can always
+	// override via FEATURE_GRAPH). LoadSpec fails startup fast on an invalid mode/percent.
+	graphDefaultMode := flags.On
+	if env == "prod" {
+		graphDefaultMode = flags.Off
+	}
+	featureGraph, err := flags.LoadSpec("GRAPH", "graph", graphDefaultMode)
+	if err != nil {
+		return Config{}, err
 	}
 
 	// M10: PORT defaults to 8081 in local dev so `go run ./cmd/api` never collides with the Firestore
@@ -298,6 +353,7 @@ func Load() (Config, error) {
 		InternalOIDCAllowedEmails: allowedEmails,
 		CORSAllowedOrigins:        corsOrigins,
 		TrustedProxyHops:          trustedProxyHops,
+		FeatureGraph:              featureGraph,
 	}, nil
 }
 

@@ -6,6 +6,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
 var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,15}$`)
@@ -53,21 +55,19 @@ func bioIssue(s string) bool {
 
 // userIDIssue reports whether id is not a plausible Firebase UID (length/charset; see userIDRe).
 func userIDIssue(id string) bool {
-	return !userIDRe.MatchString(id)
+	return !ValidUserID(id)
 }
 
-// idempotencyKeyIssue mirrors the common.proto convention: 16-64 chars, [A-Za-z0-9_-].
+// ValidUserID reports whether id is a plausible Firebase UID (length/charset; see userIDRe). Exported so
+// other modules that accept a caller-supplied user id in their own requests (e.g. graph's Follow/Block
+// target) can reuse this instead of duplicating the regex (reuse-first) — graph already depends on this
+// package for identity.Directory/Counters.
+func ValidUserID(id string) bool {
+	return userIDRe.MatchString(id)
+}
+
+// idempotencyKeyIssue mirrors the common.proto convention: 16-64 chars, [A-Za-z0-9_-]. Delegates to the
+// shared pkg/platform/idempotency validator (reuse-first: this used to be a local copy of the same regex).
 func idempotencyKeyIssue(key string) bool {
-	if len(key) < 16 || len(key) > 64 {
-		return true
-	}
-	for _, r := range key {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
-			continue
-		default:
-			return true
-		}
-	}
-	return false
+	return !idempotency.KeyFormatValid(key)
 }
