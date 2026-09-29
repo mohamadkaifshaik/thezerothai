@@ -218,7 +218,9 @@ func export(ctx context.Context, b *backends, uid, outFile string, out io.Writer
 	}
 	w := out
 	if outFile != "" {
-		f, err := os.OpenFile(outFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		// outFile is an operator-supplied CLI path (founder ADC tool); O_EXCL refuses to overwrite, 0600 perms.
+		f, err := os.OpenFile(outFile, //nolint:gosec // G703: intentional operator-chosen path
+			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			return fmt.Errorf("create %s: %w", outFile, err)
 		}

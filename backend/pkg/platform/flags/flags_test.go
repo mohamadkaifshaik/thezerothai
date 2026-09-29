@@ -124,11 +124,12 @@ func TestRegistry_Percent_Distribution(t *testing.T) {
 	enabled := 0
 	for i := 0; i < n; i++ {
 		uid := "uid-" + strconv.Itoa(i)
-		if r.Enabled(uid, "graph") {
+		first := r.Enabled(uid, "graph")
+		if first {
 			enabled++
 		}
 		// Determinism: same uid always yields the same result.
-		if r.Enabled(uid, "graph") != r.Enabled(uid, "graph") {
+		if r.Enabled(uid, "graph") != first {
 			t.Fatalf("Enabled(%q) is not deterministic", uid)
 		}
 	}
