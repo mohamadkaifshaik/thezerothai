@@ -278,7 +278,7 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 	}
 	var scratch budget.Counter
 	b := store.NewFirestoreBatch(r.client, &scratch)
-	skipped := 0
+	skipped, updates := 0, 0
 	for _, other := range chunk {
 		if checkExists && !exists[other] {
 			skipped++
@@ -286,6 +286,12 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 			continue
 		}
 		b.Update(r.graphRef(other), []firestore.Update{{Path: field, Value: firestore.ArrayRemove(uid)}})
+		updates++
+	}
+	if updates == 0 {
+		// D-1: every counterpart in this chunk is gone; Firestore rejects an empty WriteBatch, which used to
+		// wedge the purge on this chunk forever. Nothing to write, the checkpoint just advances.
+		return skipped, nil
 	}
 	if err := b.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("graph: purge array: %w", err)

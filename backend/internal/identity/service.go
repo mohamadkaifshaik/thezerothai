@@ -11,6 +11,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // service is the default Service implementation: business rules + validation over a Repo, backed by an
@@ -71,7 +72,7 @@ func (s *service) getProfileCached(ctx context.Context, uid string) (Profile, er
 			s.cache.SetNotFound(uid)
 			return Profile{}, notFoundErr()
 		}
-		return Profile{}, fmt.Errorf("identity: get profile %s: %w", uid, err)
+		return Profile{}, logger.RedactErr(fmt.Errorf("identity: get profile: %w", err), uid)
 	}
 	s.cache.SetProfile(p)
 	return p, nil
@@ -96,7 +97,7 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 		if errors.Is(err, ErrHandleTaken) {
 			return Profile{}, apierr.New(connect.CodeAlreadyExists, commonv1.ErrorReason_ERROR_REASON_HANDLE_TAKEN, "handle is taken")
 		}
-		return Profile{}, fmt.Errorf("identity: create profile %s: %w", uid, err)
+		return Profile{}, logger.RedactErr(fmt.Errorf("identity: create profile: %w", err), uid)
 	}
 	s.cache.SetProfile(profile)
 	return profile, nil
@@ -138,7 +139,7 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	}
 	n, err := s.repo.UnreadNotificationCount(ctx, uid, profile.NotificationsSeenAt)
 	if err != nil {
-		return MeResult{}, fmt.Errorf("identity: get me %s: %w", uid, err)
+		return MeResult{}, logger.RedactErr(fmt.Errorf("identity: get me: %w", err), uid)
 	}
 	s.cache.SetUnreadCount(uid, n)
 	return MeResult{Profile: profile, UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
@@ -153,6 +154,11 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	if uid == "" {
 		if target.Handle == "" {
 			return Profile{}, apierr.Validation("target", "user_id or handle is required")
+		}
+		// L3: only a well-formed handle can exist; anything else (reserved doc-id shape, over-long) would
+		// otherwise reach Firestore as an invalid document id and surface as INTERNAL.
+		if !handleRe.MatchString(target.Handle) || reservedDocID(target.Handle) {
+			return Profile{}, apierr.Validation("handle", "handle must be 3-15 characters: letters, numbers, underscore")
 		}
 	} else if userIDIssue(uid) {
 		return Profile{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
@@ -176,10 +182,16 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	if err != nil {
 		return Profile{}, err
 	}
+	// M3 (security review, ADR-0008 D9): a SUSPENDED or DELETING profile is invisible to everyone but its
+	// owner, with the byte-identical NOT_FOUND a missing user gets, by id and by handle alike. 0 extra reads.
+	// This is also what keeps "handle taken + NOT_FOUND" ambiguous between blocked-by, suspended and deleting.
+	if profile.Status != AccountStatusActive && callerUID != uid {
+		return Profile{}, notFoundErr()
+	}
 	if s.blockChecker != nil && callerUID != "" && callerUID != uid {
 		blocked, err := s.blockChecker.IsBlockedBy(ctx, callerUID, uid)
 		if err != nil {
-			return Profile{}, fmt.Errorf("identity: block check %s -> %s: %w", callerUID, uid, err)
+			return Profile{}, logger.RedactErr(fmt.Errorf("identity: block check: %w", err), callerUID, uid)
 		}
 		if blocked {
 			return Profile{}, notFoundErr()
@@ -231,7 +243,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		if errors.Is(err, ErrNotFound) {
 			return Profile{}, notFoundErr()
 		}
-		return Profile{}, fmt.Errorf("identity: update profile %s: %w", uid, err)
+		return Profile{}, logger.RedactErr(fmt.Errorf("identity: update profile: %w", err), uid)
 	}
 	s.cache.SetProfile(profile)
 	// TODO(Phase 1): if DisplayName/AvatarURL changed, publish `profile-snapshot-refresh`; if IsPrivate
@@ -269,7 +281,7 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 		case errors.Is(err, ErrNotFound):
 			return Profile{}, notFoundErr()
 		default:
-			return Profile{}, fmt.Errorf("identity: change handle %s: %w", uid, err)
+			return Profile{}, logger.RedactErr(fmt.Errorf("identity: change handle: %w", err), uid)
 		}
 	}
 	s.cache.SetProfile(profile)

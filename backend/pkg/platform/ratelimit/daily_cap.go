@@ -30,15 +30,17 @@ type dailyCounter struct {
 	count int64
 }
 
-// NewDailyCap builds a DailyCap allowing limit calls/key/IST-day. idleTTL bounds memory (a key idle for
-// idleTTL is evicted regardless of its count, alongside maxTrackedDailyKeys).
-func NewDailyCap(limit int64, idleTTL time.Duration) *DailyCap {
+// NewDailyCap builds a DailyCap allowing limit calls/key/IST-day. Memory is bounded by maxTrackedDailyKeys
+// (LRU) only: there is deliberately no idle TTL. L1 (security review): an entry TTL made a counter vanish
+// 24h after its first use (mid-day), granting a second full allowance inside one IST day; the IST midnight
+// rollover in Allow is the only reset. A stale entry from a previous day is reset lazily on its next Allow.
+func NewDailyCap(limit int64) *DailyCap {
 	if limit <= 0 {
 		limit = 1
 	}
 	return &DailyCap{
 		limit: limit,
-		items: cache.New[string, *dailyCounter](maxTrackedDailyKeys, idleTTL),
+		items: cache.New[string, *dailyCounter](maxTrackedDailyKeys, 0),
 		now:   time.Now,
 	}
 }

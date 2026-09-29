@@ -27,7 +27,7 @@ func relationshipIDsIssue(ids []string) (field, reason string) {
 	}
 	for _, id := range ids {
 		if targetUserIDIssue(id) {
-			return "user_ids", "every user_id must be 1-128 characters of [A-Za-z0-9_-]"
+			return "user_ids", "every user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__"
 		}
 	}
 	return "", ""

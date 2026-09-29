@@ -20,6 +20,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
+// Unfollow's bounded retry on a lost lock race (D1).
+const (
+	unfollowMaxAttempts  = 6
+	unfollowRetryBackoff = 25 * time.Millisecond // doubled per retry: 25, 50, 100, 200, 400 ms
+)
+
 const (
 	graphCollection   = "graph"
 	followsCollection = "follows"
@@ -299,28 +305,54 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 // precondition also makes this safe to race against Block, which deletes the same edge with the same
 // precondition (ADR-0008 D3 invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").
 func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
-	// Ops are counted into a scratch counter and only folded into the request counter on a successful commit:
-	// a failed Exists precondition is a no-op that performs (and bills) no writes.
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
-	b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
-	b.Update(r.graphRef(callerUID), []firestore.Update{
-		{Path: "following", Value: firestore.ArrayRemove(targetUID)},
-		{Path: "updatedAt", Value: now},
-	})
-	r.counters.AddFollowingCount(b, callerUID, -1)
-	r.counters.AddFollowersCount(b, targetUID, -1)
-
-	if err := b.Commit(ctx); err != nil {
-		if isPreconditionFailed(err) {
-			return false, nil
+	// D1: unlike RunTransaction, a bare batch commit is not retried by the SDK when it loses a lock race with a
+	// Follow/Block transaction on the same docs (Aborted). Retry a bounded number of times with a short
+	// backoff; the budget is unchanged (0R/3W/1D) because a failed attempt writes nothing and each attempt
+	// counts into its own scratch counter that is only folded into the request counter on success.
+	var lastErr error
+	for attempt := 0; attempt < unfollowMaxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case <-time.After(unfollowRetryBackoff << (attempt - 1)):
+			}
 		}
-		return false, fmt.Errorf("graph: unfollow %s -> %s: %w", callerUID, targetUID, err)
+		var scratch budget.Counter
+		b := store.NewFirestoreBatch(r.client, &scratch)
+		b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
+		b.Update(r.graphRef(callerUID), []firestore.Update{
+			{Path: "following", Value: firestore.ArrayRemove(targetUID)},
+			{Path: "updatedAt", Value: now},
+		})
+		r.counters.AddFollowingCount(b, callerUID, -1)
+		r.counters.AddFollowersCount(b, targetUID, -1)
+
+		err := b.Commit(ctx)
+		switch {
+		case err == nil:
+			counter := budget.FromContext(ctx)
+			counter.AddWrites(scratch.Writes())
+			counter.AddDeletes(scratch.Deletes())
+			return true, nil
+		case isPreconditionFailed(err):
+			// Ops were counted into scratch only: a failed Exists precondition is a no-op that performs (and
+			// bills) no writes.
+			return false, nil
+		case isContention(err):
+			lastErr = err
+		default:
+			return false, fmt.Errorf("graph: unfollow: %w", err)
+		}
 	}
-	counter := budget.FromContext(ctx)
-	counter.AddWrites(scratch.Writes())
-	counter.AddDeletes(scratch.Deletes())
-	return true, nil
+	return false, fmt.Errorf("%w: %v", ErrContention, lastErr)
+}
+
+// isContention reports whether err is Firestore's lost-lock-race answer (Aborted, or the emulator's
+// "Transaction lock timeout" surfaced as such): safe to retry, nothing was written.
+func isContention(err error) bool {
+	code := status.Code(err)
+	return code == codes.Aborted
 }
 
 // isPreconditionFailed reports whether err is the Firestore error for a failed batch precondition (e.g.

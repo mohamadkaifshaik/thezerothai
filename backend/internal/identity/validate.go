@@ -29,7 +29,7 @@ var reservedHandles = map[string]struct{}{
 // handleFormatIssue returns "invalid_format", "reserved", or "" (ok). It never reads Firestore — pure
 // validation, safe to call before any quota/rate-limit check.
 func handleFormatIssue(handle string) string {
-	if !handleRe.MatchString(handle) {
+	if !handleRe.MatchString(handle) || reservedDocID(handle) {
 		return "invalid_format"
 	}
 	if _, reserved := reservedHandles[strings.ToLower(handle)]; reserved {
@@ -63,7 +63,15 @@ func userIDIssue(id string) bool {
 // target) can reuse this instead of duplicating the regex (reuse-first) — graph already depends on this
 // package for identity.Directory/Counters.
 func ValidUserID(id string) bool {
-	return userIDRe.MatchString(id)
+	return userIDRe.MatchString(id) && !reservedDocID(id)
+}
+
+// reservedDocID reports whether id has the form __x__, which Firestore rejects as a document id (security
+// review L3: such ids used to pass validation and surface as INTERNAL + an ERROR log line on demand). Both
+// uids (users/graph/follows docs) and handles (handles/{lower}) become document ids, so both validators
+// call this. Real Firebase uids and handles created through CreateProfile can never have this shape.
+func reservedDocID(id string) bool {
+	return len(id) >= 4 && strings.HasPrefix(id, "__") && strings.HasSuffix(id, "__")
 }
 
 // idempotencyKeyIssue mirrors the common.proto convention: 16-64 chars, [A-Za-z0-9_-]. Delegates to the

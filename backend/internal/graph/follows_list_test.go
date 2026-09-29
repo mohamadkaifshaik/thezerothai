@@ -156,7 +156,13 @@ func TestListFollowers_ShortPageStillPaginates(t *testing.T) {
 
 func TestListFollowers_Errors(t *testing.T) {
 	key := []byte("k")
-	badBinding := cursor.Encode(key, cursor.Cursor{CreatedAt: time.Now(), DocID: "f01_someone-else"})
+	// Sealed for the right (caller, list, target) but with a doc id that does not belong to this list.
+	badBinding := cursor.Encode(key, edgeCursorBinding("uid-1", "uid-t", true), cursor.Cursor{CreatedAt: time.Now(), DocID: "f01_someone-else"})
+	// Sealed for a different caller / target / list kind.
+	otherCaller := cursor.Encode(key, edgeCursorBinding("uid-2", "uid-t", true), cursor.Cursor{CreatedAt: time.Now(), DocID: "f01_uid-t"})
+	otherTarget := cursor.Encode(key, edgeCursorBinding("uid-1", "uid-x", true), cursor.Cursor{CreatedAt: time.Now(), DocID: "f01_uid-t"})
+	otherList := cursor.Encode(key, edgeCursorBinding("uid-1", "uid-t", false), cursor.Cursor{CreatedAt: time.Now(), DocID: "f01_uid-t"})
+	expired := cursor.EncodeAt(key, edgeCursorBinding("uid-1", "uid-t", true), cursor.Cursor{CreatedAt: time.Now(), DocID: "f01_uid-t"}, time.Now().Add(-2*cursor.TTL))
 	tests := []struct {
 		name   string
 		target string
@@ -167,6 +173,11 @@ func TestListFollowers_Errors(t *testing.T) {
 		{"bad target id", "bad id!", "", nil, true},
 		{"garbage token", "uid-t", "garbage", nil, true},
 		{"token from another list", "uid-t", badBinding, nil, true},
+		{"token issued to another caller", "uid-t", otherCaller, nil, true},
+		{"token issued for another target", "uid-t", otherTarget, nil, true},
+		{"followers token replayed on following", "uid-t", otherList, nil, true},
+		{"expired token", "uid-t", expired, nil, true},
+		{"reserved doc id target", "__x__", "", nil, true},
 		{"repo error", "uid-t", "", func(r *fakeRepo, _ *fakeDirectory) { r.err = errors.New("boom") }, false},
 		{"directory error", "uid-t", "", func(_ *fakeRepo, d *fakeDirectory) { d.err = errors.New("boom") }, false},
 	}

@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -49,15 +48,7 @@ const reportedErrorType = "type.googleapis.com/google.devtools.clouderrorreporti
 // log line it produces — Error Reporting groups/alerts on the message text, and errors.Is/As alone would
 // leave it invisible there — so this walks the chain and appends any cause not already present in the
 // accumulated message (avoiding redundant text for the fmt.Errorf case, where it already is).
-func causeChain(err error) string {
-	msg := err.Error()
-	for cause := errors.Unwrap(err); cause != nil; cause = errors.Unwrap(cause) {
-		if causeMsg := cause.Error(); !strings.Contains(msg, causeMsg) {
-			msg += ": " + causeMsg
-		}
-	}
-	return msg
-}
+func causeChain(err error) string { return logger.CauseChain(err) }
 
 // reportError logs err (its full cause chain, via causeChain) plus a stack trace as an Error-Reporting-
 // shaped ERROR entry (M3). The stack trace is captured here, at the interceptor, not at the original

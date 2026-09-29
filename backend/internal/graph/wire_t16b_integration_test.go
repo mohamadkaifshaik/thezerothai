@@ -16,9 +16,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -88,12 +88,51 @@ type rig struct {
 
 	mu      sync.Mutex
 	counter *budget.Counter // Firestore ops of the most recent server-side call
+
+	// errLog captures what mw.ErrorMapping logs (JSON lines; INTERNAL errors are logged at ERROR).
+	errLog *syncBuffer
+}
+
+// syncBuffer is a goroutine-safe bytes.Buffer for the server-side log capture.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// errorLines returns the captured log lines at ERROR severity.
+func (r *rig) errorLines() []string {
+	var out []string
+	for _, l := range strings.Split(r.errLog.String(), "\n") {
+		if strings.Contains(l, `"level":"ERROR"`) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // newRig serves the wired services over HTTP. listDailyCap <= 0 disables the daily list cap.
 func newRig(t *testing.T, w wired, listDailyCap int64) *rig {
 	t.Helper()
-	r := &rig{w: w}
+	return newRigWithMutationCap(t, w, listDailyCap, 0)
+}
+
+// newRigWithMutationCap is newRig plus the shared graph_mutation_daily cap over the six graph mutations,
+// wired exactly like apiserver.Build does. mutationDailyCap <= 0 disables it.
+func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap int64) *rig {
+	t.Helper()
+	r := &rig{w: w, errLog: &syncBuffer{}}
 
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
@@ -112,7 +151,7 @@ func newRig(t *testing.T, w wired, listDailyCap int64) *rig {
 	})
 	rl := ratelimit.Config{}
 	if listDailyCap > 0 {
-		dc := ratelimit.NewDailyCap(listDailyCap, 24*time.Hour)
+		dc := ratelimit.NewDailyCap(listDailyCap)
 		rl.DailyCaps = map[string]ratelimit.NamedDailyCap{}
 		for _, p := range []string{
 			graphv1connect.GraphServiceListFollowersProcedure,
@@ -123,7 +162,23 @@ func newRig(t *testing.T, w wired, listDailyCap int64) *rig {
 			rl.DailyCaps[p] = ratelimit.NamedDailyCap{Name: "graph_list_daily", Cap: dc}
 		}
 	}
-	opts := connect.WithInterceptors(setUID, count, ratelimit.Interceptor(rl), mw.ErrorMapping(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	if mutationDailyCap > 0 {
+		mc := ratelimit.NewDailyCap(mutationDailyCap)
+		if rl.DailyCaps == nil {
+			rl.DailyCaps = map[string]ratelimit.NamedDailyCap{}
+		}
+		for _, p := range []string{
+			graphv1connect.GraphServiceFollowProcedure,
+			graphv1connect.GraphServiceUnfollowProcedure,
+			graphv1connect.GraphServiceBlockProcedure,
+			graphv1connect.GraphServiceUnblockProcedure,
+			graphv1connect.GraphServiceMuteProcedure,
+			graphv1connect.GraphServiceUnmuteProcedure,
+		} {
+			rl.DailyCaps[p] = ratelimit.NamedDailyCap{Name: "graph_mutation_daily", Cap: mc}
+		}
+	}
+	opts := connect.WithInterceptors(setUID, count, ratelimit.Interceptor(rl), mw.ErrorMapping(slog.New(slog.NewJSONHandler(r.errLog, nil))))
 
 	mux := http.NewServeMux()
 	idPath, idH := identityv1connect.NewIdentityServiceHandler(identity.NewServer(w.identity), opts)
