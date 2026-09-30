@@ -89,6 +89,26 @@ module "secrets" {
   depends_on = [module.project_services]
 }
 
+// Graph slice (T23, ADR-0008 D6/D7). Names and defaults mirror backend/pkg/platform/config/config.go and
+// backend/pkg/platform/flags; caps are code, so a change here needs a cost note in the PR.
+// FEATURE_GRAPH: off | allowlist | percent | on. The rollout (allowlist -> percent -> on) is driven by
+// changing var.feature_graph* here, not by ad-hoc `gcloud run services update`, so state never drifts.
+locals {
+  graph_env_vars = [
+    { name = "FEATURE_GRAPH", value = var.feature_graph },
+    { name = "FEATURE_GRAPH_ALLOWLIST", value = var.feature_graph_allowlist },
+    { name = "FEATURE_GRAPH_PERCENT", value = tostring(var.feature_graph_percent) },
+    { name = "QUOTA_BLOCKS_PER_DAY", value = "200" },
+    { name = "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", value = "50" },
+    { name = "LIST_CALLS_PER_DAY", value = "100" },
+    { name = "GRAPH_MUTATIONS_PER_DAY", value = "500" },
+    { name = "RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", value = "30" },
+    { name = "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", value = "20" },
+    { name = "RATE_LIMIT_GRAPH_LIST_PER_MIN", value = "20" },
+    { name = "RATE_LIMIT_CHECK_HANDLE_PER_MIN", value = "20" },
+  ]
+}
+
 module "cloud_run_api" {
   source                            = "../../modules/cloud-run-api"
   project_id                        = var.project_id
@@ -108,10 +128,12 @@ module "cloud_run_api" {
     { name = "CURSOR_HMAC_KEY", secret = module.secrets.generated_secret_ids["cursor-hmac-key"] },
   ]
 
-  extra_env_vars = [
+  extra_env_vars = concat([
     { name = "MEDIA_UPLOAD_BUCKET", value = module.media_buckets.upload_bucket_name },
     { name = "MEDIA_BUCKET", value = module.media_buckets.media_bucket_name },
-  ]
+    ],
+    local.graph_env_vars,
+  )
 
   depends_on = [module.project_services, module.secrets]
 }
