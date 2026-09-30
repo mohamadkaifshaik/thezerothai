@@ -272,7 +272,7 @@ angle), the fix, and new tests tagged **→ T16a** (mutations/quotas/races) or *
 - **Evidence.** The request line (`mw.go:152-170`) has `rpc, code, fs_*, limit_name` but no ErrorReason, so
   `QUOTA_EXCEEDED` and per-minute `RATE_LIMITED` both appear as `code="resource_exhausted"`. There is no emitter for
   the ADR-0008 "Required log fields": `graph_op`, `outcome`, `feature_disabled`, `txn_attempts`, `edges_removed`,
-  `rows_filtered`, `hydration_misses` and `graph_cache_hit` (grep finds 0 emitters).
+  `rows_filtered`, `confirmed_missing` and `graph_cache_hit` (grep finds 0 emitters).
 - **Impact.** T25 rollout monitoring (`feature_disabled`) and M2 detection (`outcome=replay`) rely on proxies. See §6
   for the queries that work today.
 - **Fix.** Add `reason` (from the `ErrorDetail` of the shaped `connect.Error`) to the request line. Add `GraphOp` and

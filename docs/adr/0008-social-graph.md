@@ -344,7 +344,7 @@ body. The header is a separate widget listed in `docs/ui-catalog.md` so the two 
   hand-kept list); reads keep working.
 - **Required log fields** (every graph RPC): `graph_op`, `outcome` (`created|replay|noop|rejected:<reason>`),
   `fs_reads`, `fs_writes`, `fs_deletes`, `graph_cache_hit`, `txn_attempts` (WARN when > 3), plus `edges_removed`
-  (Block), `rows_filtered` and `hydration_misses` (lists), `feature_disabled=true` (flag rejections),
+  (Block), `rows_filtered` and `confirmed_missing` (lists), `feature_disabled=true` (flag rejections),
   `limit_name` (limits), ERROR `blockedby_cap_reached`, `graph_purge_batch` and `purge_missing_counterpart` (purge).
   Never log the contents of graph arrays.
 
@@ -425,6 +425,8 @@ Cost impact per-RPC table.** Every other decision above stands. Follow-up ticket
   update on `graph/{caller}` (+1 write, and only on a page that found such a uid). That costs 0 extra reads, because
   hydration's `GetAll` already knows which docs don't exist. SUSPENDED and DELETING users are never removed. They are
   hidden from the page as today. The clean-up is best effort: a failure logs WARN and never fails the list RPC.
+  Exception: under `DEGRADED_MODE=readonly` the list RPCs are let through (NO_SIDE_EFFECTS) but the clean-up write is
+  skipped (`Deps.ReadOnly`), so that mode stays write-free; the entries go on a later call once the mode is off.
   Arrays stay unindexed, so the clean-up is still the only way to reach other users' `muted[]`. Residue now lasts
   until the muter next opens that list, not forever. That is acceptable for a pseudonymous id whose account,
   profile, handle and Auth user are all gone.

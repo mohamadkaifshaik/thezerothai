@@ -65,6 +65,8 @@ func (w wired) SkipInvariantSweep(reason string) { w.sweep.skipReason = reason }
 type graphSvcHandle struct {
 	graph.Service
 	repo *graph.FirestoreRepo
+	// setDirectory re-wires the service's identity.Directory (e.g. with a test decorator).
+	setDirectory func(identity.Directory)
 }
 
 // wiredOption tweaks the graph.Deps newWired builds (flags, quota tiers, new-account window).
@@ -91,7 +93,22 @@ func withQuotas(follows, newFollows, blocks, newBlocks int64) wiredOption {
 func newWired(t *testing.T, opts ...wiredOption) wired {
 	t.Helper()
 	client := newTestClient(t)
+	w := newInstance(client, opts...)
+	// Registered after newTestClient's client.Close cleanup, so (LIFO) it runs while the client is still open.
+	t.Cleanup(func() {
+		if w.sweep.skipReason != "" {
+			t.Logf("invariant sweep skipped: %s", w.sweep.skipReason)
+			return
+		}
+		assertGraphInvariants(t, client)
+	})
+	return w
+}
 
+// newInstance wires one identity+graph pair (one "Cloud Run instance": its own caches) on an existing
+// Firestore client, without the invariant sweep. Call it twice on one client to model two instances sharing
+// a database; newWired is the single-instance form.
+func newInstance(client *firestore.Client, opts ...wiredOption) wired {
 	graphRepo := graph.NewFirestoreRepo(client)
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
@@ -117,16 +134,7 @@ func newWired(t *testing.T, opts ...wiredOption) wired {
 	)
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
-	w := wired{client: client, identity: identitySvc, graph: &graphSvcHandle{Service: graphSvc, repo: graphRepo}, sweep: &invariantSweep{}}
-	// Registered after newTestClient's client.Close cleanup, so (LIFO) it runs while the client is still open.
-	t.Cleanup(func() {
-		if w.sweep.skipReason != "" {
-			t.Logf("invariant sweep skipped: %s", w.sweep.skipReason)
-			return
-		}
-		assertGraphInvariants(t, client)
-	})
-	return w
+	return wired{client: client, identity: identitySvc, graph: &graphSvcHandle{Service: graphSvc, repo: graphRepo, setDirectory: graphSvc.SetDirectory}, sweep: &invariantSweep{}}
 }
 
 func mustCreateProfile(t *testing.T, svc identity.Service, uid, handle string) {

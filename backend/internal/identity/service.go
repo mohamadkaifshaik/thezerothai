@@ -295,6 +295,16 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 // GetProfiles implements Directory: cache-first, then one GetAll for misses (ADR-0008 T6). Ids with no
 // ACTIVE profile (missing, or a status other than ACTIVE) are simply absent from the result.
 func (s *service) GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error) {
+	found, _, err := s.LookupProfiles(ctx, uids)
+	return found, err
+}
+
+// LookupProfiles implements Directory (ADR-0008 T27): GetProfiles plus the uids CONFIRMED to have no
+// users/{uid} document by the GetAll issued in this call. Same cost as GetProfiles (cache-first, one GetAll
+// for misses, 0 extra reads). Non-ACTIVE users are in neither result. A uid known missing only from the
+// short negative cache is also in neither: a clean-up must rest on a fresh read, so a re-created profile
+// can't be mistaken for a deleted one.
+func (s *service) LookupProfiles(ctx context.Context, uids []string) (map[string]Profile, []string, error) {
 	out := make(map[string]Profile, len(uids))
 	var misses []string
 	for _, uid := range uids {
@@ -310,26 +320,26 @@ func (s *service) GetProfiles(ctx context.Context, uids []string) (map[string]Pr
 		misses = append(misses, uid)
 	}
 	if len(misses) == 0 {
-		return out, nil
+		return out, nil, nil
 	}
 	fetched, err := s.repo.GetProfiles(ctx, misses)
 	if err != nil {
-		return nil, fmt.Errorf("identity: get profiles: %w", err)
+		return nil, nil, fmt.Errorf("identity: get profiles: %w", err)
 	}
-	found := make(map[string]struct{}, len(fetched))
 	for uid, p := range fetched {
-		found[uid] = struct{}{}
 		s.cache.SetProfile(p)
 		if p.Status == AccountStatusActive {
 			out[uid] = p
 		}
 	}
+	var missing []string
 	for _, uid := range misses {
-		if _, ok := found[uid]; !ok {
+		if _, ok := fetched[uid]; !ok {
 			s.cache.SetNotFound(uid)
+			missing = append(missing, uid)
 		}
 	}
-	return out, nil
+	return out, missing, nil
 }
 
 // Forget implements Directory: evicts uid's cached profile and unread count on this instance (CLAUDE.md:
