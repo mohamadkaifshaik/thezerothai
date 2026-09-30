@@ -26,22 +26,83 @@ curl -s "${H[@]}" "https://firestore.googleapis.com/v1/projects/$P/databases/(de
 
 ## 3a. Export (a right-to-access / portability request)
 Send the user their data as JSON: the `users/<uid>` document from step 2, plus the Auth record (email, provider,
-created and last-login times) from `accounts:lookup`. Phase 1 will add posts, follows and likes here as those modules
-ship. Don't include internal fields such as `status`.
+created and last-login times) from `accounts:lookup`, plus the graph export below. Phase 1 will add posts and likes
+here as those modules ship. Don't include internal fields such as `status`.
+
+**Graph export** (`opsctl export-graph`, ADR-0008 D12). It runs from the `backend/` directory with Application Default
+Credentials (`gcloud auth application-default login` once) and always needs an explicit `--project`. A `*-prod`
+project asks you to type the project id to continue. It reads only, and writes JSON with `userId`, `following`,
+`followers`, `blocked` and `muted` (uids + handles).
+```bash
+cd backend
+go run ./cmd/opsctl export-graph --project $P --uid "$UID_" --out "$HOME/export-graph-<hashed-uid>.json"
+```
+`--out` refuses to overwrite an existing file (created 0600); without it the JSON goes to stdout. **The export never
+contains who blocked the user (`blockedBy`)**. That's third-party data and revealing it defeats blocking (founder
+decision 2026-09-28). Never add it by hand from the Firestore document. Send the file over the same confirmed email
+thread, then delete your local copy.
 
 ## 3b. Delete
+Order matters: **the graph purge comes before `users/{uid}` is deleted**, because the purge decrements the counters on
+other users' `users/*` docs and its start gate reads this user's profile (ADR-0008 D10).
+
+**Step 0. Mark the account DELETING and stop it signing in.** `opsctl purge-graph` refuses to run unless
+`users/{uid}.status` is `DELETING` and `updatedAt` is at least **120 s** old (2x the 60 s instance cache, so no
+instance still treats the user as ACTIVE and creates a new edge mid-purge). Set both fields (`updatedAt` is what the
+gate measures from), disable the Auth user so no fresh token keeps working, then wait two minutes.
+```bash
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+curl -s "${H[@]}" -X PATCH \
+  "https://firestore.googleapis.com/v1/projects/$P/databases/(default)/documents/users/$UID_?updateMask.fieldPaths=status&updateMask.fieldPaths=updatedAt" \
+  -d "{\"fields\":{\"status\":{\"stringValue\":\"DELETING\"},\"updatedAt\":{\"timestampValue\":\"$NOW\"}}}"
+curl -s -X POST "${H[@]}" -d "{\"localId\":\"$UID_\",\"disableUser\":true}" \
+  "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:update"
+```
+
+**Step 1. Purge the graph.** Dry run first (prints counts, writes nothing), then the real run. It is resumable and safe
+to re-run: it deletes the follow edges both ways, fixes the other users' `followersCount` / `followingCount` and their
+`following` / `blockedBy` / `blocked` arrays, then deletes `graph/{uid}`. A cost of about 200 reads, 300 writes and
+200 deletes for a user with 100 followers and 100 following.
+```bash
+cd backend
+go run ./cmd/opsctl purge-graph --project $P --uid "$UID_" --dry-run
+go run ./cmd/opsctl purge-graph --project $P --uid "$UID_"      # ends with "purged: reads=.. writes=.. deletes=.."
+```
+`--skip-start-gate` bypasses the DELETING and 120 s check. Use it only for an account that has no `users/{uid}` doc
+any more, or a dev test account, and say so in your tracker. If a run stops with "giving up after 5 consecutive
+errors", re-run the same command; it resumes from what is left.
+
+**Step 2. Delete the rest.**
 ```bash
 npx -y firebase-tools@15 firestore:delete "users/$UID_" --recursive --project $P --force   # profile + subcollections
 npx -y firebase-tools@15 firestore:delete "handles/<handleLower>" --project $P --force     # frees the handle
-npx -y firebase-tools@15 firestore:delete "graph/$UID_" --project $P --force               # follow-graph doc
 curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:delete" \
   -d "{\"localId\":\"$UID_\"}"                                                               # Firebase Auth user
 ```
+(The old `firestore:delete graph/$UID_` step is gone: it left counters and the other side of every edge behind.)
+
+- **Other users' mute and block lists:** other users' `muted[]` / `blocked[]` entries that still name the deleted uid
+  are not found by the purge (Firestore arrays aren't indexed). They are cleaned lazily when those users next open
+  their muted or blocked list (ADR-0008 D10, T27). No action is needed.
 - **Media:** Phase 0 has no avatars or posts, so there's nothing to delete. When media ships, also delete
   `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
   Phase 1 module lands.
 - **Backups:** prod weekly Firestore backups keep data for up to **14 days**, and deleted data ages out with them.
   Say so in the reply. Logs hold only a hashed uid.
+
+## Drill record (T22 acceptance)
+The graph deletion steps above have **not yet been drilled** end to end on `dzeroth-dev`. Acceptance: a dev test
+account with follows and blocks is deleted by following this runbook, leaves no graph residue (checked with the T16a
+invariant checker), and the steps take under 10 minutes.
+
+| Field | Result |
+|---|---|
+| Date | PENDING (not yet run) |
+| Environment | dev (`dzeroth-dev`) |
+| Duration | PENDING (target < 10 min) |
+| Residue check (T16a checker) | PENDING |
+
+Fill this table in after the drill. Until then T22 is not fully closed.
 
 ## 4. Confirm and record
 Reply to the user that the deletion or export is done (mention the 14-day backup expiry for deletions). Record the
