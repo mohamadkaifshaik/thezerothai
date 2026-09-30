@@ -65,6 +65,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 - Deleting a post deletes its doc and its likes/reposts in a background Pub/Sub job; timeline caches invalidated; clients drop unknown IDs on refresh.
 - Account deletion: Pub/Sub job batches (≤ 500 ops per batch) over posts, follows, likes, notifications, media objects, graph doc, then the Firebase Auth user. Must be resumable.
 - Export: same traversal written to a JSON file in a private GCS object with a 24 h signed URL.
+- **Follow-edge invariant (ADR-0009, standing):** for any account that can call graph RPCs (ACTIVE), `follows/{a}_{b}` exists ⇔ `b ∈ graph/{a}.following` ⇔ both `users/{a}` and `users/{b}` exist. Only the account under purge (`DELETING`, rejected by the account-status interceptor) may violate it. This is why Unfollow's blind batch treats a failed precondition as a correct 0-write NONE with no extra read. Every new writer of `follows`, `following` or `users/*` deletes (follow requests, account restore/import, an automated deletion job, T27 extended to `following`) must preserve it and re-check ADR-0009's reopen criteria. Deletion is one-way once purge step 1 has run, and `users/{uid}` is deleted only after the purge dry run shows 0/0 edges (`docs/runbooks/account-deletion.md`).
 
 ## Migrations
 Firestore is schemaless: add fields with defaults in Go structs; backfill with a throttled Cloud Run job (watch the 20k writes/day quota — spread across days or accept a few cents).

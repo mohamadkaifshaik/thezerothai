@@ -69,8 +69,25 @@ go run ./cmd/opsctl purge-graph --project $P --uid "$UID_" --dry-run
 go run ./cmd/opsctl purge-graph --project $P --uid "$UID_"      # ends with "purged: reads=.. writes=.. deletes=.."
 ```
 `--skip-start-gate` bypasses the DELETING and 120 s check. Use it only for an account that has no `users/{uid}` doc
-any more, or a dev test account, and say so in your tracker. If a run stops with "giving up after 5 consecutive
-errors", re-run the same command; it resumes from what is left.
+any more (the S2 repair below), or a dev test account, and say so in your tracker. If a run stops with "giving up
+after 5 consecutive errors", re-run the same command; it resumes from what is left.
+
+**Deletion is one-way once Step 1 has started** (ADR-0009). Purge step 1 deletes the user's outgoing `follows` edges
+but leaves their own `graph/{uid}.following` and `followingCount` alone until the purge finishes. So after the first
+real (not `--dry-run`) `purge-graph` run, never set `status` back to `ACTIVE` and never re-enable the Auth user, even
+if the purge stopped part way: the user would be left following accounts they can't unfollow (ADR-0009 state S1) with
+a wrong `followingCount`. If the user changes their mind, finish the deletion and ask them to sign up again. Restoring
+an account needs a new plan with its own ADR. (Before Step 1 has run, reverting Step 0 is still safe.)
+
+**Step 2 precondition: the dry run shows 0/0 edges.** After the real run has printed `purged:`, run the dry run again:
+```bash
+go run ./cmd/opsctl purge-graph --project $P --uid "$UID_" --dry-run
+# must print: dry-run: outgoing_edges=0 incoming_edges=0 blocked=0 blocked_by=0 (nothing written)
+```
+This costs 2 count reads plus 1 read of the (already deleted) `graph/{uid}`. If either edge count is not 0, do **not**
+start Step 2: re-run the real `purge-graph` and check again. A run that ended with "giving up after 5 consecutive
+errors" is not finished, however far it got. Deleting `users/{uid}` while an edge to it still exists leaves every
+remaining follower unable to unfollow the account (ADR-0009 state S2; repair below).
 
 **Step 2. Delete the rest.**
 ```bash
@@ -91,6 +108,23 @@ curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P
 If the user is still listed, re-run the `accounts:delete` call. **Never re-enable an Auth user whose `users/{uid}` doc
 was deleted:** with no profile the uid counts as deleted, so T27's lazy clean-up will already have removed it (or will
 remove it) from other users' `blocked[]` / `muted[]`; a returning uid would come back without those blocks and mutes.
+
+**Repair: Step 2 ran before the purge finished (ADR-0009 state S2).** Symptom: a user reports they can't unfollow an
+account that no longer exists (Unfollow answers "not following", but the account stays in their Following list), or
+a residue check finds a `follows` edge to or from a uid that has no `users/{uid}` doc. Finish the purge for the
+**deleted** uid. The start gate has to be skipped because it can't read a profile that is gone:
+```bash
+cd backend
+go run ./cmd/opsctl purge-graph --project $P --uid "<deleted uid>" --dry-run            # expect edges > 0
+go run ./cmd/opsctl purge-graph --project $P --uid "<deleted uid>" --skip-start-gate    # ends with "purged: ..."
+go run ./cmd/opsctl purge-graph --project $P --uid "<deleted uid>" --dry-run            # must show 0/0 edges
+```
+The purge resumes by query: it deletes the remaining edges and, for each follower, removes the uid from their
+`following` and decrements their `followingCount` (a missing `graph/{uid}` counts as empty). Then check the affected
+followers' counters with the count-and-set procedure in `docs/runbooks/graph.md` section 2, and record the repair in
+your tracker. The emulator test `TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs`
+(`backend/internal/graph/unfollow_noop_invariant_integration_test.go`) pins this path; it has not yet been run
+against a cloud project.
 
 - **Other users' mute and block lists:** other users' `muted[]` / `blocked[]` entries that still name the deleted uid
   are not found by the purge (Firestore arrays aren't indexed). The lazy clean-up on read (ADR-0008 D10, ticket T27,
