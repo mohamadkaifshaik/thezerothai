@@ -1,5 +1,22 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-10-01 -->
+<!-- Draft — last updated 2026-09-30 -->
+<!--
+  MAINTAINERS: this policy is still a DRAFT. Do not remove the Draft marker until ALL of these are resolved:
+  1. Legal/privacy review of the whole text (not done; this is not legal advice).
+  2. T27 (remove a deleted user's uid from other users' muted[] lists) shipped, or the bounded deferral is
+     confirmed by the founder (proposed: owner backend-developer, ship before `percent` rollout and before
+     in-app deletion / store submission, target 2026-10-31).
+  3. Age: no age check exists today; legal review must decide what wording/mechanism DPDP needs for under-18s.
+  4. DPDP Grievance Officer: name and contact of the responsible person (none named here).
+  5. Governing law / jurisdiction wording (none here).
+  6. ImprovMX terms and retention, and Gmail retention for privacy@ mail: obtain and verify.
+  7. Confirm in a browser network trace that the web app loads CanvasKit, fonts and Firebase SDK scripts
+     from gstatic.com (static inspection of the prod bundle only so far).
+  8. Confirm the Firebase / Google Cloud data processing terms linked below apply to our accounts
+     (accepted/incorporated), and re-check the links.
+  9. Graph rollout decision (FEATURE_GRAPH stage) and deploy this policy before any real user is allowlisted.
+  10. In-app deletion/export are not built; store submission needs them. No dates promised here on purpose.
+-->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -88,7 +105,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>dZeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 1 October 2026</p>
+    <p class="updated">Last updated: 30 September 2026</p>
 
     <p>
       dZeroth ("dZeroth", "we", "us") is a text-first social app at
@@ -210,15 +227,21 @@
         Authentication (sign-in, including Google sign-in), Cloud Firestore
         (our database), Cloud Run (our servers), Cloud Logging (server logs)
         and Firebase Hosting (serves the website and passes app requests to
-        our servers). Google doesn't use this data for its own purposes
-        beyond running these services.
+        our servers). We use Google as a processor. Under Google's
+        <a href="https://firebase.google.com/terms/data-processing-terms">Firebase Data Processing and Security Terms</a>
+        and <a href="https://cloud.google.com/terms/data-processing-addendum">Cloud Data Processing Addendum</a>,
+        Google processes customer data to provide, secure and monitor the
+        services and as we instruct through our use of them. Please read those
+        terms for the details; we don't restate them here.
       </li>
       <li>
-        <strong>Google, when you load the web app.</strong> The web app may
-        load parts of its code and default fonts from Google's servers
-        (gstatic.com), and Google sign-in loads Google scripts and a Google
-        sign-in window, so Google can see your IP address and browser details
-        when that happens.
+        <strong>Google, when you load the web app.</strong> The web app loads
+        its rendering engine, fonts and the Firebase SDK scripts from Google's
+        servers (gstatic.com), and Google sign-in loads Google scripts and a
+        Google sign-in window. When that happens Google may see your IP
+        address and standard request details such as your browser type. This
+        is based on inspecting our published web app; we have not yet
+        confirmed it with a browser network trace.
       </li>
       <li>
         <strong>Apple.</strong> Only if you choose Sign in with Apple. Apple
@@ -263,7 +286,7 @@
       <li>Follows, blocks and mutes: for as long as your account exists, or until you unfollow, unblock or unmute. They are deleted when your account is deleted (see below).</li>
       <li>Server logs: kept for about 30 days (Google Cloud Logging's default), then deleted.</li>
       <li>Database backups: weekly, each kept for 14 days, then deleted.</li>
-      <li>Mail to privacy@dzeroth.com: kept in the founder's inbox for as long as needed to handle your request and any follow-up.</li>
+      <li>Mail to privacy@dzeroth.com: kept in the founder's Gmail inbox. We have not set a fixed retention period for these emails yet.</li>
     </ul>
 
     <h2>Your rights</h2>
@@ -272,7 +295,7 @@
       <li><strong>Access</strong> the personal data we hold about you.</li>
       <li><strong>Correct</strong> inaccurate data.</li>
       <li><strong>Delete</strong> your account and associated data.</li>
-      <li><strong>Export</strong> your data in a portable format (JSON). Today an export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles). It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. We send it to the email address on the account.</li>
+      <li><strong>Export</strong> your data in a portable format (JSON). Today an export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles). It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. We prepare it by hand with an internal tool (there is no in-app export yet) and send it to the email address on the account.</li>
       <li><strong>Withdraw consent</strong> where we rely on it, or raise a grievance about how we've handled your data.</li>
     </ul>
     <p>
@@ -291,20 +314,19 @@
       database backups for up to 14 days, as described above. Server logs
       containing the hashed version of your user ID stay until they expire
       (about 30 days). One thing can outlast that: if someone muted you, your
-      account ID (a random string, not your name or handle) can stay in their
-      muted list until we ship the clean-up that removes it. It is not
-      visible to anyone and no longer points to a profile.
+      account ID (an internal identifier, not your name or handle) may remain
+      in that person's private muted list until a clean-up that removes it
+      ships. We have not set a date for it. Only the person who muted you can
+      have that list read back, the app does not show it for accounts that no
+      longer exist, and it is not part of any profile.
     </p>
 
     <h2>Age requirement</h2>
     <p>
-      dZeroth is for users aged <strong>18 and over</strong>. We don't have a
-      way to verify a parent or guardian's consent for younger users (as
-      India's Digital Personal Data Protection Act requires for anyone under
-      18), so we don't knowingly allow accounts for people under 18. The app does not
-      yet check your age at sign-up. If you
-      believe someone under 18 has created an account, email us and we'll
-      remove it.
+      dZeroth is intended for people aged <strong>18 and over</strong>.
+      The app does not currently check your age at sign-up. If you believe
+      someone under 18 has created an account, email us at
+      <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>.
     </p>
 
     <h2>Security</h2>
