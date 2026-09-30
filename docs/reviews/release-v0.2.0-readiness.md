@@ -448,4 +448,6 @@ History: earlier on 2026-09-30 the founder set these two records back to PENDING
 
 Approved by: Kaif Mohamad Shaik (founder), in chat, for the §4 risk decisions only (§7 blockers not waived by this sign-off; B4 and B6 closed separately on 2026-09-30)  Date: 2026-09-30
 
-VERDICT: PENDING
+**Verdict set by the founder (Kaif Mohamad Shaik), by direct instruction in chat, 2026-09-30.** The founder asked for the verdict to be changed from PENDING to approved; it is written as `GO` because `promote-prod.yml` matches that exact line. This was NOT issued by the `production-reviewer` agent, and no production-readiness review was run for it. Still open when this was set: B7 (CI run on the tag commit, §5 P0.4) and the tagging order in §4.2 (this verdict must be on `main` before `v0.2.0` is pushed). The Draft marker on the privacy policy and its legal checklist are not closed by this verdict.
+
+VERDICT: GO
