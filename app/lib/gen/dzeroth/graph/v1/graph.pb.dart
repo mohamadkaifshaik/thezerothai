@@ -273,6 +273,8 @@ class FollowRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearIdempotencyKey() => $_clearField(1);
 
+  /// [A-Za-z0-9-]{1,128}. `_` is reserved (the follows doc-id separator, ADR-0008 A3); anything else => VALIDATION.
+  /// The same charset applies to every user_id / user_ids field in this service.
   @$pb.TagNumber(2)
   $core.String get userId => $_getSZ(1);
   @$pb.TagNumber(2)
@@ -1982,7 +1984,9 @@ class GraphServiceApi {
   /// target => FAILED_PRECONDITION + TARGET_BLOCKED; private target (legacy data) => FEATURE_DISABLED; at the cap =>
   /// LIMIT_REACHED; over quota => QUOTA_EXCEEDED. Replay (already following) => FOLLOWING, 0 writes.
   /// No notification write in this slice (the notifications plan adds its own budget).
-  /// Firestore: reads 4/2 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 5/5; replay reads 2/2, writes 0.
+  /// Firestore: reads 4 cold / 2 warm (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 5; replay reads
+  /// 4 cold / 2 warm, writes 0 (cold = the identity profile cache misses, which a preceding Follow's eviction makes
+  /// the norm; ADR-0008 A2, planning value 4). user_id: [A-Za-z0-9-]{1,128}.
   $async.Future<FollowResponse> follow(
           $pb.ClientContext? ctx, FollowRequest request) =>
       _client.invoke<FollowResponse>(
@@ -1990,7 +1994,9 @@ class GraphServiceApi {
 
   /// Unfollow. Blind batch: delete follows doc (Exists precondition) + caller graph following -= + 2 users counters.
   /// Not following => NONE with 0 writes (the precondition fails the whole batch).
-  /// Firestore: reads 0/0, writes 3/3 (0 on no-op), deletes 1/1.
+  /// Firestore: the batch reads 0, writes 3 (0 on no-op), deletes 1; the request logs 1 read (the caller's profile
+  /// read by the account-status check, cold after a preceding Follow; ADR-0008 Amendment 2026-09-30 (2)).
+  /// user_id: [A-Za-z0-9-]{1,128}.
   $async.Future<UnfollowResponse> unfollow(
           $pb.ClientContext? ctx, UnfollowRequest request) =>
       _client.invoke<UnfollowResponse>(
@@ -2034,9 +2040,12 @@ class GraphServiceApi {
           ctx, 'GraphService', 'Unblock', request, UnblockResponse());
 
   /// Mute hides the target's posts from the caller's timelines and notifications only; never visible to the target.
-  /// Transaction reads caller graph + quotas/{uid}; writes caller graph (muted +=) + quotas (blocks).
+  /// Transaction reads caller graph, then the target's graph doc (existence only; its content, including who blocked
+  /// whom, is never inspected), then quotas/{uid}; writes caller graph (muted +=) + quotas (blocks).
   /// Quota: shared with Block. Cap: 2,000 muted => LIMIT_REACHED. Replay (already muting) => 0 writes.
-  /// Firestore: reads 2/2, writes 2/2 (0 on replay).
+  /// Target without an account => NOT_FOUND (same rule and response as Block; ADR-0008 A1), 0 writes, no quota used.
+  /// Muting a user who blocked the caller succeeds exactly as for a stranger.
+  /// Firestore: reads 3, writes 2 (0 on replay); NOT_FOUND reads 2. user_id: [A-Za-z0-9-]{1,128}.
   $async.Future<MuteResponse> mute(
           $pb.ClientContext? ctx, MuteRequest request) =>
       _client.invoke<MuteResponse>(
