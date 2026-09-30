@@ -91,18 +91,32 @@ curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P
   Say so in the reply. Logs hold only a hashed uid.
 
 ## Drill record (T22 acceptance)
-The graph deletion steps above have **not yet been drilled** end to end on `dzeroth-dev`. Acceptance: a dev test
-account with follows and blocks is deleted by following this runbook, leaves no graph residue (checked with the T16a
-invariant checker), and the steps take under 10 minutes.
+The graph deletion steps above were drilled end to end on `dzeroth-dev` on 2026-09-30, following this runbook as
+written. The test account (C) had a mutual follow with A, a follow from B that was removed by a mutual block with B,
+and mutes on A and B; A also muted C. All three accounts were throwaway, and all of them and their data were deleted
+afterwards.
 
 | Field | Result |
 |---|---|
-| Date | PENDING (not yet run) |
+| Date | 2026-09-30 |
 | Environment | dev (`dzeroth-dev`) |
-| Duration | PENDING (target < 10 min) |
-| Residue check (T16a checker) | PENDING |
+| Duration | 3 min 47 s end to end (export, Step 0 including the 125 s wait, dry run, purge, Step 2). About 100 s of that was active work. Target < 10 min: met |
+| Purge output | dry run `outgoing_edges=1 incoming_edges=1 blocked=1 blocked_by=1`; real run `purged: reads=6 writes=5 deletes=3` |
+| Residue check | PASS. No `follows/*` doc involving C; A and B counters correct (A followers 1 to 0, B unchanged); C no longer in A/B `following`, `blocked` or `blockedBy`. Only `A.muted[]` still named C, the documented lazy residue |
+| Commands that failed as written | None |
 
-Fill this table in after the drill. Until then T22 is not fully closed.
+**Residue check.** `assertGraphInvariants` (T16a) is an integration-build-tag Go test helper that loads the whole
+graph from an emulator, so it can't be pointed at a cloud project. For the drill the same invariants (I1 edge and
+`following[]`, I2 counters equal edge counts, I3 `blocked`/`blockedBy` symmetry, I4 no edge while blocked) were
+checked over the accounts involved by reading `follows` (queries on `followerId` and `followeeId` for the uids),
+`graph/{uid}` and `users/{uid}` through the Firestore REST API, before and after the purge, then that no `follows`
+doc, `graph/{C}` or `users/{C}` remained.
+
+**Notes from the drill (no runbook step was wrong):**
+- `opsctl export-graph --out FILE` prints nothing on success; check the exit code and the file.
+- Step 2 assumes `npx firebase-tools` is already logged in (`firebase login`); the drill machine was.
+- From a git worktree nested under a directory with a `go.work` file, `go run ./cmd/opsctl` fails with "directory
+  is contained in a module that is not one of the workspace modules"; set `GOWORK=off`. The main checkout is unaffected.
 
 ## 4. Confirm and record
 Reply to the user that the deletion or export is done (mention the 14-day backup expiry for deletions). Record the
