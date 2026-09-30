@@ -234,7 +234,7 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
 	var rel Relationship
 	outcome := OutcomeCreated
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 
 		callerDoc, _, err := r.getGraphTx(ctx, tx, callerUID)
@@ -331,11 +331,13 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 		err := b.Commit(ctx)
 		switch {
 		case err == nil:
+			noteTxnAttempts(ctx, attempt+1)
 			counter := budget.FromContext(ctx)
 			counter.AddWrites(scratch.Writes())
 			counter.AddDeletes(scratch.Deletes())
 			return true, nil
 		case isPreconditionFailed(err):
+			noteTxnAttempts(ctx, attempt+1)
 			// Ops were counted into scratch only: a failed Exists precondition is a no-op that performs (and
 			// bills) no writes.
 			return false, nil
@@ -345,7 +347,22 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 			return false, fmt.Errorf("graph: unfollow: %w", err)
 		}
 	}
+	noteTxnAttempts(ctx, unfollowMaxAttempts)
 	return false, fmt.Errorf("%w: %v", ErrContention, lastErr)
+}
+
+// runTx is client.RunTransaction plus the ADR-0008 D3 contention signal: it counts how many times the
+// callback ran (the SDK retries Aborted transactions internally) and records txn_attempts on the request
+// log line. More than txnWarnAttempts attempts also emits one WARN, the measurement that decides the
+// sharded-counter ADR. A callback re-run costs reads again, but budget.Counter is unchanged by this wrapper.
+func (r *FirestoreRepo) runTx(ctx context.Context, fn func(context.Context, *firestore.Transaction) error) error {
+	attempts := 0
+	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		attempts++
+		return fn(ctx, tx)
+	})
+	noteTxnAttempts(ctx, attempts)
+	return err
 }
 
 // isContention reports whether err is Firestore's lost-lock-race answer (Aborted, or the emulator's
@@ -388,7 +405,7 @@ type BlockResult struct {
 // deletes: up to 2 follows docs (mutual follow). Typical (no prior edges): 3 writes, 0 deletes.
 func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error) {
 	var result BlockResult
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 
 		callerDoc, callerCreatedAt, err := r.getGraphTx(ctx, tx, callerUID)
@@ -498,7 +515,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
 	var rel Relationship
 	changed := false
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 		callerDoc, _, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {
@@ -536,7 +553,7 @@ func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string
 func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error) {
 	var rel Relationship
 	outcome := OutcomeCreated
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 		callerDoc, createdAt, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {
@@ -584,7 +601,7 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 func (r *FirestoreRepo) Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
 	var rel Relationship
 	changed := false
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 		callerDoc, _, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {

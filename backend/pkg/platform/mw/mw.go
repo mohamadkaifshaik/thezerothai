@@ -155,6 +155,9 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 			if info.LimitName != "" {
 				attrs = append(attrs, "limit_name", info.LimitName)
 			}
+			for _, a := range info.Fields() {
+				attrs = append(attrs, a)
+			}
 			if trace != "" {
 				attrs = append(attrs, logger.TraceKey, trace)
 			}

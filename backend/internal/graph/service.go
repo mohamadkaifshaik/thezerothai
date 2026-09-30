@@ -136,8 +136,10 @@ var _ identity.BlockChecker = (*service)(nil)
 // a hit.
 func (s *service) Snapshot(ctx context.Context, uid string) (Snapshot, error) {
 	if snap, ok := s.cache.Get(uid); ok {
+		noteCacheHit(ctx, true)
 		return snap, nil
 	}
+	noteCacheHit(ctx, false)
 	snap, err := s.repo.GetSnapshot(ctx, uid)
 	if err != nil {
 		return Snapshot{}, err
@@ -228,6 +230,7 @@ var _ Eraser = (*service)(nil)
 // PurgeUser implements Eraser by delegating to the repo (ADR-0008 D10); the local cache entry for uid is
 // dropped so this instance stops serving the purged graph.
 func (s *service) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
+	logger.SetRequestField(ctx, fieldOp, "purge")
 	next, done, err := s.repo.PurgeUser(ctx, uid, cp)
 	s.cache.Invalidate(uid)
 	return next, done, err
