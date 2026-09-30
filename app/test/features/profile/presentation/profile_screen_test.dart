@@ -179,4 +179,135 @@ void main() {
     expect(find.text("This account doesn't exist."), findsOneWidget);
     expect(find.text('server text, never shown'), findsNothing);
   });
+
+  // T17 sweep: block/mute affordances of ProfileHeader (overflow menu, confirmation dialog, banner Unblock).
+  void arrangeOtherProfile({bool blocking = false}) {
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        enabledFeatures: const {'graph'},
+        profile: identity.Profile(userId: 'viewer-uid', handle: 'viewer'),
+      ),
+    );
+    when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+      (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+    );
+    when(() => graphRepository.relationshipFor('target-uid')).thenAnswer(
+      (_) async => graph.Relationship(
+        userId: 'target-uid',
+        followState: graph.FollowState.FOLLOW_STATE_NONE,
+        blocking: blocking,
+      ),
+    );
+  }
+
+  testWidgets('Block asks for confirmation; Cancel never calls the API', (
+    tester,
+  ) async {
+    arrangeOtherProfile();
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Block'));
+    await tester.pumpAndSettle();
+    expect(find.text('Block this account?'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    verifyNever(
+      () => graphRepository.block(
+        userId: any(named: 'userId'),
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    );
+    expect(find.textContaining('You blocked'), findsNothing);
+  });
+
+  testWidgets('confirming Block calls the API and shows the banner', (
+    tester,
+  ) async {
+    arrangeOtherProfile();
+    when(
+      () => graphRepository.block(
+        userId: 'target-uid',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer(
+      (_) async => graph.Relationship(userId: 'target-uid', blocking: true),
+    );
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Block'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+    await tester.pumpAndSettle();
+
+    verify(
+      () => graphRepository.block(
+        userId: 'target-uid',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).called(1);
+    expect(find.textContaining('You blocked @kaif'), findsOneWidget);
+    expect(find.text('Follow'), findsNothing);
+  });
+
+  testWidgets('the banner Unblock button unblocks and restores Follow', (
+    tester,
+  ) async {
+    arrangeOtherProfile(blocking: true);
+    when(
+      () => graphRepository.unblock(
+        userId: 'target-uid',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer((_) async => graph.Relationship(userId: 'target-uid'));
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(TextButton, 'Unblock'));
+    await tester.pumpAndSettle();
+
+    verify(
+      () => graphRepository.unblock(
+        userId: 'target-uid',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).called(1);
+    expect(find.textContaining('You blocked'), findsNothing);
+    expect(find.text('Follow'), findsOneWidget);
+  });
+
+  testWidgets('the overflow menu Mute calls the API', (tester) async {
+    arrangeOtherProfile();
+    when(
+      () => graphRepository.mute(
+        userId: 'target-uid',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer(
+      (_) async => graph.Relationship(userId: 'target-uid', muting: true),
+    );
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mute'));
+    await tester.pumpAndSettle();
+
+    verify(
+      () => graphRepository.mute(
+        userId: 'target-uid',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).called(1);
+  });
 }

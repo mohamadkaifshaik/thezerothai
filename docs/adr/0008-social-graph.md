@@ -2,6 +2,9 @@
 Status: Accepted. All items, including D12 (export contents), which the founder decided on 2026-09-28.
 Amended 2026-09-30 ("Amendment 2026-09-30: M4 decisions" below): Mute target existence, the cold/warm budget
 convention (supersedes the per-RPC table in Cost impact) and the `_` uid invariant for edge doc ids.
+Amended 2026-09-30 ("Amendment 2026-09-30 (2): Follow planning value 4, Unfollow logged read, `Forget` kept" below):
+measured T17/T18 numbers replace A2's Follow planning value (3 → 4) and add Unfollow's logged interceptor read; the
+founder's decision to keep `directory.Forget` is recorded with its reopen criteria.
 Date: 2026-09-28
 Deciders: architect, founder (D1: private accounts and follow requests deferred — founder decision, 2026-09-28)
 
@@ -450,8 +453,12 @@ rows that don't depend on a cache shouldn't carry noise.
   Proto budget comments use the form `reads 4 cold / 2 warm`.
 - Planning values: Follow uses **3** (the caller doc is cold because of `Forget`, the target is warm from the
   profile or list row the user just saw). Read paths keep the cost-model §1 hit-rate assumptions they already used.
+  **Superseded by B1 of Amendment 2026-09-30 (2): Follow plans at 4** (measured 3.96–3.98 reads/call, T18). The
+  convention itself (cold / warm / planning) stands.
 
-**Corrected per-RPC table (supersedes the Cost impact table; measured T16a values marked †):**
+**Corrected per-RPC table (supersedes the Cost impact table; measured T16a values marked †).** The Follow-created
+planning cell (3 → 4, reads/DAU 1.5 → 2.0), the Unfollow planning cell (0 → 1 logged) and the slice total (12.3 →
+12.9) are **superseded by the B-table in Amendment 2026-09-30 (2)**; kept here for history.
 
 | RPC / case | reads cold | reads warm | reads planning | writes (worst / typical) | deletes | Cloud Run ms | calls/DAU/day | reads/DAU | writes/DAU | deletes/DAU |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -532,6 +539,8 @@ trigger the collision today. The data is dev-only; prod has `FEATURE_GRAPH=off`.
   - A1 removes the junk-`muted[]` doc-size vector. The D2 worst case goes back to ≈ 566 KB.
 - **Trigger to revisit A2's planning value:** measured `graph_cache_hit` on Follow (L8 log fields) in the T25
   post-release data. If Follow averages < 2.5 reads/call in prod, the planning value goes down, and vice versa.
+  **Fired on emulator data before T25:** T18 measured 3.96–3.98; see Amendment 2026-09-30 (2). The 12.3 figures above
+  are superseded by that amendment's cost impact.
 
 ### Consequences (amendment)
 - Positive:
@@ -567,6 +576,135 @@ trigger the collision today. The data is dev-only; prod has `FEATURE_GRAPH=off`.
 - **frontend-developer:** no contract change. Mute can now return NOT_FOUND. Handle it the same way as a NOT_FOUND
   from Follow or Block: the identical "This account doesn't exist" view (original frontend handoff). Verify that the
   mute action's error path uses it.
+
+## Amendment 2026-09-30 (2): Follow planning value 4, Unfollow logged read, `Forget` kept
+Status: Accepted. Deciders: architect; founder (B2, keep `directory.Forget` semantics — decision relayed to the
+architect on 2026-09-30, confirmed by the founder's review and merge of this amendment). No fixed cost and no
+non-negotiable rule bends.
+
+Inputs: `docs/reviews/loadtest-graph.md` (T18, PR #32), `docs/reviews/test-report-graph.md` (T17, PR #34),
+`docs/reviews/cost-model.md` and `cost-report-v0.2.0.md` (T21, PR #33), `backend/internal/graph/rpcs.go`
+(`directory.Forget` after committed Follow, Unfollow, Block and Unblock), `backend/internal/identity/service.go`
+(`GetProfile`). This amendment **supersedes A2's Follow planning value and the A2 table's Follow-created planning
+cell, Unfollow planning cell and slice total.** The A2 cold/warm/planning convention and every other A1–A3 decision
+stand.
+
+### Context
+- **Follow.** T18 (emulator k6, 20 rps × 2 min, cold API per run) measured a mean of **3.96 reads/call** in the
+  follow/unfollow churn run (1,200 Follows) and **3.98** in the follow-only run (2,400 Follows), max 4. 96–99% of calls
+  hit the A2 cold ceiling. A2's planning value (3) assumed the target's `users` doc is warm from the profile or list
+  row the user just saw. That doesn't hold: a successful Follow calls `directory.Forget(caller, target)`, so the
+  caller's profile is cold on the caller's next request (`AccountStatusInterceptor` re-reads it), and the target's
+  profile is cold on the next Follow of that target by anyone on that instance. With max 3 instances and scale to
+  zero, a warm target is the exception at Stage 0. The 4 reads are: caller `users` doc (interceptor, then cache hit in
+  `GetProfiles`), target `users` doc, caller `graph` (fresh, in the transaction), `quotas/{uid}` (fresh, in the
+  transaction).
+- **Unfollow.** T18 logged **1.00 read/call**; the ADR says 0. The Unfollow batch itself still reads 0 (blind batch,
+  `Exists` precondition; 3 writes, 1 delete, T17 budget tests unchanged). The logged read is the caller's
+  `AccountStatusInterceptor` profile read, cold because the preceding Follow's `Forget` evicted it. `fs_reads` is
+  per request, so it includes interceptor reads.
+- **GetProfile with block check.** T17 (`TestT17_GetProfile_BlockEnforcement_Budget`) measured **2 reads cold**,
+  0 warm and 2 on the blocked-by NOT_FOUND path; the budget says 3. See B3.
+
+### Options
+- **A. Keep `Forget`; plan Follow at 4 and log Unfollow at 1 (chosen, founder decision B2).**
+  - Pros: no code change; the cached counters can't be wrong (below); the planning value equals a measured number and
+    the ceiling the tests already assert, so the cost model can't be surprised upwards by this row again.
+  - Cons: +0.5 reads/DAU on Follow and +0.1 logged on Unfollow versus A2.
+  - Cost: idle $0. Marginal +0.6 reads/DAU ≈ +180 reads/day at 300 DAU (0.36% of the free quota). Priced as overage
+    (the whole-product model is past the free line at ~262 DAU): ≈ $0.003/month at 300 DAU, ≈ $0.03/month at 3k DAU,
+    ≈ $0.33/month at 30k DAU.
+- **B. T30: apply the counter deltas to the cached `users` entries in place instead of `Forget`.**
+  - Pros: Follow back to ≈ 2–3 reads planning (−0.5 to −1.0 reads/DAU); an immediate Follow replay is warm.
+  - Cons: the instance cache would hold counts computed locally rather than read. `FieldValue.Increment` is blind, so
+    the instance doesn't know the committed value. A delta applied to an entry that was refilled from Firestore after
+    the commit double-counts; a delta applied to an entry loaded before a concurrent Follow on another instance keeps a
+    wrong base for up to 60 s; replays and Aborted/retried transactions must be told apart from commits. Each is a new
+    test surface on a shared identity cache.
+  - Cost: saves ≤ 1.0 read/DAU ≈ 300 reads/day at 300 DAU (0.6% of quota): ≈ $0.005/month at 300 DAU, ≈ $0.05 at 3k.
+- **C. `Forget` the target only, keep the caller cached.** Saves ≈ 0.5 read/DAU (≈ $0.003/month at 300 DAU), but the
+  caller's own profile header, the one place the user looks right after following, shows a stale `followingCount`
+  for up to 60 s. Rejected: the most visible staleness for the smallest saving.
+
+### Cost impact
+- **Fixed monthly cost added: $0.** No new service, API, env var or Terraform resource.
+- **Corrected rows (supersede the matching A2 cells; everything else in the A2 table stands):**
+
+| RPC / case | reads cold | reads warm | reads planning | writes (worst / typical) | deletes | calls/DAU/day | reads/DAU | writes/DAU | deletes/DAU |
+|---|---|---|---|---|---|---|---|---|---|
+| Follow, created | 4† (+1 if caller `blockedByOverflow`) | 2† | **4** (measured 3.96–3.98, T18) | 5 / 5† | 0 | 0.5 | **2.0** (was 1.5) | 2.5 | 0 |
+| Unfollow | 0† own + 1 logged (interceptor, caller profile cold after `Forget`) | 0 | **1 logged** (0 in the batch itself) | 3 / 3† (0 on no-op) | 1† | 0.1 | **0.1** (was 0) | 0.3 | 0.1 |
+| IdentityService.GetProfile (block check) | 3 (unchanged; by-id measured 2†, see B3) | 0† | 0–1 (unchanged) | 0 | 0 | 3 | ±0 | 0 | 0 |
+| **Graph slice total** | | | | | | ≈ 4.0 requests | **≈ 12.9** (was 12.3) | ≈ 2.9 | ≈ 0.1 |
+
+  † measured (T16a/T17 budget tests, T18 k6 means). The Unfollow 0.1 is a profile read the identity rows also model,
+  so it slightly double-counts, on the safe side. T21 additionally re-plans ListFollowers page 20 at 30.5 (measured
+  midpoint), which gives graph ≈ 13.1 reads/DAU; `cost-model.md` (sre-performance) is the running table and uses 13.1.
+- **Free-tier quota (released v0.2.0 scope, identity + graph ≈ 20.4 reads, 3.1 writes, 0.1 deletes per DAU, T21):**
+  - At 300 DAU: ≈ 6.1k reads/day (**12.2%** of the free quota, 15% of the 80% line), 0.93k writes (4.6%), 30 deletes
+    (0.2%), ≈ 36k Cloud Run requests/month for graph (1.8%).
+  - Read quota runs out at ≈ **2,450 DAU** (was 2,550); 80% line ≈ **1,960 DAU** (was 2,040). Writes ≈ 6,450 DAU;
+    deletes ≈ 200k; Cloud Run requests unchanged.
+  - Overage at 2× the read cliff (≈ 4.9k DAU): reads ≈ $0.90/month. At 10× (≈ 24.5k DAU): reads ≈ $8.10/month,
+    writes ≈ $3.00/month (upper-bound list prices, cost-model §7).
+  - Whole product (with the `[planned]` rows): 80% reads crossover ≈ 210 DAU, full quota ≈ 262 DAU (T21, already on
+    Follow = 4). The `Forget`-attributable reads (≈ 1.1 reads/DAU of ≈ 191) move that crossover by ≈ 1 DAU (< 1%).
+- **Abuse bounds:** unchanged from the M4 amendment. The per-account worst after the M2 cap already used Follow = 4
+  (≤ 500 × 4 × 3 ≈ 6k reads/day).
+- **Trigger:** none from free-tier-budget §6 fires; this is a measurement correction, not a scale-up.
+
+### Decision
+- **B1. Follow's planning value is 4 reads** (= the cold ceiling, measured). Unfollow's planning value is **1 logged
+  read** per call: 0 in the batch itself, 1 from the caller's `AccountStatusInterceptor` profile read. Per-DAU math,
+  load-test acceptance ("mean `fs_reads` ≤ planning") and the cost model use these values. `budgettest` ceilings don't
+  change (Follow 4 cold / 2 warm; Unfollow's own batch 0 / 3 / 1). If T25 prod data shows Follow averaging < 3.5
+  reads/call over 7 days, the planning value may drop to the measured mean (rounded up to 0.5).
+- **B2. Keep `directory.Forget(caller, target)` after committed graph mutations (founder decision, 2026-09-30).**
+  Reason: correctness of the cached profile counters. After a commit, `followersCount`/`followingCount` changed by a
+  blind server-side `Increment`, so no instance knows the new value without reading it. Evicting guarantees the next
+  read on this instance, including the caller's own profile header right after following, reflects committed state;
+  option B's local deltas can double-count or keep a wrong base (see Options), and option C shows the caller a stale
+  count exactly when they look. The price is ≈ 1.1 reads/DAU (≤ 2 per Follow, ≤ 1 on the next request), cents per
+  month at every Stage 0–1 scale. T30 (in-place update) stays optional backlog and is **not** scheduled.
+  - **Evidence that reopens B2** (any one, measured, sustained 7 days):
+    1. A measured budget breach at the 80% line: the released scope's Firestore reads in prod reach 40k/day while
+       `Forget`-attributable reads (Follow reads above the warm 2, plus interceptor re-reads right after a graph
+       mutation) are ≥ 5% of daily reads.
+    2. The cost-model crossover moves materially: removing `Forget`-attributable reads would move the whole-product
+       80% read crossover by ≥ 10% (today < 1%). At the current model that needs Follow at ≈ 9 calls/DAU/day instead
+       of 0.5, so a measured Follow rate ≥ 5 calls/DAU/day is the early signal to re-run the numbers.
+    3. Follow churn shows up as a top read source in an `abuse-spike.md` incident.
+    4. A counter design that makes in-place updates exact (for example counts moved off the cached profile, or a
+       Stage 2 shared cache per CLAUDE.md) ships for another reason.
+  - **Status against that evidence today:** T21 puts identity + graph at **12.2%** of the read quota at 300 DAU (15%
+    of the 80% line) and the crossover shift at < 1%. Neither criterion is close, so B2 stands.
+- **B3. GetProfile with block check stays at 3 reads cold (tightening candidate, not changed).** T17 measured 2 cold,
+  but only for `ProfileTarget{UserID}` (every case in `TestT17_GetProfile_BlockEnforcement_Budget` targets by id). By
+  handle, a handle-cache miss adds the `handles/{handleLower}` read (`identity/service.go`, `ResolveHandle`), so the
+  cold worst case is 3: handle + target `users` + viewer `graph` (+1 if the viewer is overflowed, D2). The evidence
+  supports splitting the row into "by id 2 cold / by handle 3 cold", not lowering the ceiling. That split lands only
+  after a by-handle cold case is measured (tester handoff); per-DAU cost is unchanged either way (planning 0–1).
+
+### Consequences
+- Positive: planning numbers now equal measured numbers for every graph mutation; T18's "Follow FAIL vs planning 3"
+  becomes a pass at 4 without tuning anything; the `fs_reads` vs ADR-row mismatch on Unfollow is explained, not
+  hidden; counters stay exact.
+- Negative: +0.6 reads/DAU on the graph slice (12.3 → 12.9, or 13.1 with T21's list re-plan); read cliff for the
+  released scope moves ≈ 100 DAU earlier (2,550 → 2,450). Both are cents.
+- Follow-up: proto and skill comment updates ride with T29 (listed in Handoff); the by-handle GetProfile budget case.
+- Revisit: the B2 reopen evidence above; B1's prod check in T25.
+
+### Handoff
+- **backend-developer:** no code change. Keep `Forget` in `graph/rpcs.go`. T30 stays unscheduled (B2).
+- **tester:** no ceiling changes. Add a by-handle cold case to `TestT17_GetProfile_BlockEnforcement_Budget` (expect 3;
+  cold handle cache) so B3's split can be decided. Load-test acceptance for Follow uses planning 4.
+- **sre-performance:** `cost-model.md` (PR #33) already uses Follow = 4 and Unfollow = 1 logged; no change. In T25,
+  report Follow mean reads/call and the share of `Forget`-attributable reads (B2 criterion 1).
+- **architect (T29, with T26/T28):** `graph.proto` Follow comment → `reads 4 cold / 2 warm, planning 4 (ADR-0008 B1);
+  replay 4 cold / 2 warm`; Unfollow comment → note the caller's interceptor profile read (+1 when cold) outside the
+  batch; `firestore-data-model` skill Follow row `4 cold / 2 warm, planning 4`, Unfollow row `0 own (+1 interceptor)`.
+- **planner:** T30 in `docs/plans/graph.md` is parked behind the B2 reopen criteria (updated in this change).
+- **frontend-developer / production-deployer:** nothing.
 
 ## Handoff
 - **backend-developer:** T3 `pkg/platform/flags` per D6 (salted bucketing, fail-fast parsing, retirement rule) and

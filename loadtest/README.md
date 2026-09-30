@@ -31,6 +31,14 @@ how many requests k6 manages to fire.
 | Scenario | File | RPC under test | What it checks |
 |---|---|---|---|
 | `identity_getme` | `identity_getme.js` | `IdentityService.GetMe` | Steady-state (mostly cache-hit) latency and error rate for the highest-frequency identity call (cost-model.md: 4 calls/DAU/day) |
+| `graph_follow` | `graph_follow.js` | `GraphService.Follow` / `Unfollow` | 50-user churn at 20 rps; Follow p95 < 500 ms; `MODE=follow_only` for a no-Unfollow variant |
+| `graph_lists` | `graph_lists.js` | `GraphService.ListFollowers` (+ `GetRelationships` at 5 rps) | 100 callers, 5 targets with 99 followers; ListFollowers p95 < 400 ms |
+
+The graph scenarios share `graph_common.js`, and `analyze_logs.js` turns the API log into per-RPC mean/p95
+`fs_reads`. They share 127.0.0.1, so raise `RATE_LIMIT_PER_IP_PER_MIN` and `RATE_LIMIT_PRE_AUTH_IP_PER_MIN` on the
+API for the run (and only those). To run beside another emulator suite, use `firebase.graph-loadtest.json`
+(Firestore 18080, Auth 19099, Pub/Sub 18085, Storage 19199) and API `PORT=18081`, with `API_URL` and
+`AUTH_EMULATOR_HOST` set accordingly. Measured results and findings: `docs/reviews/loadtest-graph.md`.
 
 Run one with:
 

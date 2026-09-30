@@ -103,3 +103,31 @@ variable "ios_key_uid" {
   # Not a secret: the UID only identifies the key (the key string itself ships in the app).
   default = "0bbd8085-c7ab-4077-bebf-938efd9384ba"
 }
+
+variable "feature_graph" {
+  description = "FEATURE_GRAPH rollout mode for the graph slice (ADR-0008 D6): off | allowlist | percent | on."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_graph)
+    error_message = "feature_graph must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_graph_allowlist" {
+  description = "FEATURE_GRAPH_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_graph_percent" {
+  description = "FEATURE_GRAPH_PERCENT: 0-100, only meaningful when feature_graph = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_graph_percent >= 0 && var.feature_graph_percent <= 100 && floor(var.feature_graph_percent) == var.feature_graph_percent
+    error_message = "feature_graph_percent must be an integer 0-100."
+  }
+}

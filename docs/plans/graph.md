@@ -114,6 +114,9 @@ Notes on the budget:
   - Worst-case reads add the target and caller `users` docs on a cache miss. The caller doc is needed for the
     new-account quota (created < 24 h).
   - This matches the proto's 4/2 and 5/5. The "+1 async" notification is dropped for this slice.
+  - **Superseded (ADR-0008 Amendment 2026-09-30 (2), B1):** Follow plans at **4 reads** (measured 3.96–3.98, T18),
+    2.0 reads/DAU; Unfollow logs 1 read (the caller's interceptor profile read; 0 in the batch). Graph ≈ 12.9
+    reads/DAU (13.1 with T21's list re-plan). The table above is kept as the original plan.
 - **Block:** worst case is a mutual follow: 2 graphs + 2 `users` (both counter pairs are combined per doc) + `quotas`
   = 5 writes, plus 2 `follows` deletes.
   - Typical case with no follow edges: 2 graphs + `quotas` = 3 writes.
@@ -822,7 +825,9 @@ validator).
 Deltas to existing tickets:
 - **T16a:** Follow replay asserts 4 R cold and 2 R warm (A2), not "2". Add the A1 Mute cases and the A3 `_` cases
   below.
-- **T21:** graph reads/DAU = 12.3, using the ADR A2 table and planning values.
+- **T21:** graph reads/DAU = 12.3, using the ADR A2 table and planning values. **Updated by ADR-0008 Amendment
+  2026-09-30 (2):** Follow plans at 4 (not 3) and Unfollow logs 1, so 12.9 (13.1 with T21's measured list
+  midpoint).
 - **T22:** `account-deletion.md` states that other users' `muted[]`/`blocked[]` entries for the deleted uid are cleaned
   lazily (T27).
 
@@ -922,10 +927,14 @@ Deltas to existing tickets:
 ### T30 — (Optional) Update cached profiles in place after graph mutations instead of `Forget`  [owner: backend-developer] [size: S] [depends: T7] [blocks: nothing]
 - **Description.** After a committed Follow, Unfollow or Block, apply the counter deltas to this instance's cached
   `users` entries instead of evicting them. This follows the CLAUDE.md read-your-writes rule: update the cache from
-  written data. That brings Follow's planning cost from 3 R back to 2 R, and makes an immediate replay warm.
-- **Acceptance criteria.** Given two consecutive Follows by A on one instance, then the second reads 2 (not 3).
-  Given GetProfile(A) right after, then the counts reflect the follow with 0 reads.
-- **Budget.** −0.5 reads/DAU. Do this only if T25 data shows Follow averaging > 2.5 reads/call.
+  written data. That brings Follow's planning cost from 4 R (measured, ADR-0008 Amendment 2026-09-30 (2) B1) back to
+  2–3 R, and makes an immediate replay warm.
+- **Acceptance criteria.** Given two consecutive Follows by A on one instance of targets whose profiles are cached,
+  then the second reads 2 (not 4). Given GetProfile(A) right after, then the counts reflect the follow with 0 reads.
+- **Budget.** Up to −1.0 reads/DAU (0.5 Follows × ≤ 2 reads) plus the Unfollow interceptor read (−0.1).
+- **Parked (founder decision, ADR-0008 Amendment 2026-09-30 (2) B2):** `Forget` is kept for counter correctness. The
+  old "> 2.5 reads/call" trigger is replaced by the B2 reopen criteria (80%-line breach with `Forget`-attributable
+  reads ≥ 5% of daily reads, or a ≥ 10% crossover shift). Do not schedule unless one of them is met.
 
 ---
 
