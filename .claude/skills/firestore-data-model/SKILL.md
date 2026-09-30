@@ -16,7 +16,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 |---|---|---|---|
 | `users/{uid}` | handle, handleLower, displayName, bio, avatarUrl, isPrivate, followersCount, followingCount, postsCount, postsToday, postsDay, unreadNotifs, createdAt | signup, profile edit, counters | cache 60 s in instance |
 | `handles/{handleLower}` | uid | signup / rename (transaction `Create` → uniqueness) | 1 read on lookup |
-| `graph/{uid}` | following[] (≤ 5,000), blocked[] (≤ 2,000), muted[] (≤ 2,000), requested[] (≤ 500, unused until private accounts), blockedBy[] (≤ 10,000; never serialized/exported), blockedByOverflow (bool), updatedAt | follow/unfollow/block/mute (`ArrayUnion/ArrayRemove`); Block/Unblock also write the target's `blockedBy` (ADR-0008) | **1 read = whole social context** incl. both block directions. ≈ 566 KB at all caps (28-char UIDs) < 1 MiB. Arrays exempt from indexing |
+| `graph/{uid}` | following[] (≤ 5,000), blocked[] (≤ 2,000), muted[] (≤ 2,000), requested[] (≤ 500, unused until private accounts), blockedBy[] (≤ 10,000; never serialized/exported), blockedByOverflow (bool), updatedAt | follow/unfollow/block/mute (`ArrayUnion/ArrayRemove`); own-list lazy clean-up (T27: ListBlockedUsers/ListMutedUsers `ArrayRemove` of uids with no users doc, skipped under DEGRADED_MODE=readonly); Block/Unblock also write the target's `blockedBy` (ADR-0008) | **1 read = whole social context** incl. both block directions. ≈ 566 KB at all caps (28-char UIDs) < 1 MiB. Arrays exempt from indexing |
 | `follows/{followerId}_{followeeId}` | followerId, followeeId, createdAt | follow | for followers/following list pages only |
 | `posts/{postId}` | authorId, author{handle,displayName,avatarUrl}, text, media[{url,thumbUrl,w,h,blurhash}], replyToId, quoteOfId, conversationId, hashtags[], mentions[], likeCount, repostCount, replyCount, visibility, createdAt | create/delete, counter increments | author snapshot denormalized; refreshed lazily by a job when a profile changes |
 | `likes/{postId}_{uid}` | postId, uid, createdAt | like (`Create`; AlreadyExists = no-op) | |
@@ -32,10 +32,10 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | Operation | Reads | Writes |
 |---|---|---|
 | Sign up | 1 (handle check) | 3 (users, handles, graph) |
-| Follow (ADR-0008) | 4 worst / 2 typical (caller graph + quotas fresh in txn; users cached) | 5 (follows doc, graph, 2 user counters, quotas); replay 0 |
-| Unfollow | 0 (blind batch, `Exists` precondition) | 3 + 1 delete; no-op 0 |
+| Follow (ADR-0008 A2) | 4 cold / 2 warm (+1 if caller `blockedByOverflow`); planning value 4 (caller graph + quotas fresh in txn; users cache misses after a `Forget`) | 5 (follows doc, graph, 2 user counters, quotas); replay 0 writes, reads 4 cold / 2 warm |
+| Unfollow | batch 0 (blind, `Exists` precondition); request logs 1 (caller profile read by the account-status interceptor, cold after a Follow) | 3 + 1 delete; no-op 0 |
 | Block (ADR-0008) | 3 (both graphs, quotas) | 5 worst / 3 typical (2 graphs, quotas, + 2 users counters if edges) + ≤ 2 deletes |
-| Unblock / Mute / Unmute | 1 / 2 / 1 | 2 / 2 / 1 (0 on no-op or replay) |
+| Unblock / Mute / Unmute | 1 / 3 / 1 (Mute: caller graph + target graph existence + quotas, ADR-0008 A1; Mute of a uid with no `graph` doc = NOT_FOUND after 2 reads, 0 writes; Mute replay 3 reads) | 2 / 2 / 1 (0 on no-op or replay) |
 | Create post | 1 (user, cached) | 2 (post, user counters) + 1 per mention notification |
 | Like | 0–1 | 3 (like doc, post counter, userLikes) + 1 notification |
 | Home timeline refresh | 1 (graph) + ceil(following/30) queries + new posts | 0 |
@@ -58,12 +58,14 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 - Transactions only where invariants need them (handle uniqueness, like/unlike toggles). Keep them small.
 - Read-your-writes: after a mutation, update the instance cache from the written data instead of re-reading.
 - IDs: Snowflake (time-ordered) as decimal strings for posts/media. Fine below ~500 writes/s to a collection; revisit at Stage 2.
+- **A uid never contains `_`** (ADR-0008 A3). `_` is the composite-key separator in `follows`, `likes` and `reposts` doc ids, so `a_b_c` would otherwise be ambiguous. A uid matches `^[A-Za-z0-9-]{1,128}$` (`pkg/platform/ids.ValidUID`), enforced on target ids, on the caller uid in authn, and in the single `edgeID` helper in `internal/graph`. A provider or import that issues `_` needs a new ADR before it is enabled.
 - Idempotency: deterministic doc ID from `hash(uid, idempotency_key)` for creates; replay returns the existing doc.
 
 ## Deletes & privacy
 - Deleting a post deletes its doc and its likes/reposts in a background Pub/Sub job; timeline caches invalidated; clients drop unknown IDs on refresh.
 - Account deletion: Pub/Sub job batches (≤ 500 ops per batch) over posts, follows, likes, notifications, media objects, graph doc, then the Firebase Auth user. Must be resumable.
 - Export: same traversal written to a JSON file in a private GCS object with a 24 h signed URL.
+- **Follow-edge invariant (ADR-0009, standing):** for any account that can call graph RPCs (ACTIVE), `follows/{a}_{b}` exists ⇔ `b ∈ graph/{a}.following` ⇔ both `users/{a}` and `users/{b}` exist. Only the account under purge (`DELETING`, rejected by the account-status interceptor) may violate it. This is why Unfollow's blind batch treats a failed precondition as a correct 0-write NONE with no extra read. Every new writer of `follows`, `following` or `users/*` deletes (follow requests, account restore/import, an automated deletion job, T27 extended to `following`) must preserve it and re-check ADR-0009's reopen criteria. Deletion is one-way once purge step 1 has run, and `users/{uid}` is deleted only after the purge dry run shows 0/0 edges (`docs/runbooks/account-deletion.md`).
 
 ## Migrations
 Firestore is schemaless: add fields with defaults in Go structs; backfill with a throttled Cloud Run job (watch the 20k writes/day quota — spread across days or accept a few cents).

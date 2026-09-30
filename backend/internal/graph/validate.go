@@ -3,6 +3,7 @@ package graph
 import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 )
 
 // idempotencyKeyIssue mirrors the common.proto convention (16-64 chars, [A-Za-z0-9_-]), delegating to the
@@ -18,16 +19,16 @@ func targetUserIDIssue(id string) bool {
 }
 
 // relationshipIDsIssue validates GetRelationshipsRequest.user_ids (ADR-0008: "1-50 ids").
-func relationshipIDsIssue(ids []string) (field, reason string) {
-	if len(ids) == 0 {
+func relationshipIDsIssue(userIDs []string) (field, reason string) {
+	if len(userIDs) == 0 {
 		return "user_ids", "at least one user_id is required"
 	}
-	if len(ids) > 50 {
+	if len(userIDs) > 50 {
 		return "user_ids", "at most 50 user_ids are allowed"
 	}
-	for _, id := range ids {
+	for _, id := range userIDs {
 		if targetUserIDIssue(id) {
-			return "user_ids", "every user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__"
+			return "user_ids", "every " + ids.UIDMessage
 		}
 	}
 	return "", ""

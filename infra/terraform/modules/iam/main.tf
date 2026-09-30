@@ -248,7 +248,15 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
     "attribute.repository" = "assertion.repository"
   }
 
-  attribute_condition = "assertion.repository == '${var.github_repo}'"
+  # Plan tokens are for humans' PRs/dispatches in THIS repo only. Dependabot never gets one (any dependency or
+  # workflow change it proposes would run with id-token: write), and only pull_request / workflow_dispatch events
+  # qualify (no pull_request_target, push or schedule). Fork PRs never receive an OIDC token from GitHub and are
+  # additionally skipped in terraform.yml. Applies to dev and prod alike.
+  attribute_condition = join(" && ", [
+    "assertion.repository == '${var.github_repo}'",
+    "assertion.actor != 'dependabot[bot]'",
+    "assertion.event_name in ['pull_request', 'workflow_dispatch']",
+  ])
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

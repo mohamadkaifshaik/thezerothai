@@ -28,3 +28,6 @@ go.work.sum
 
 # Agent git worktrees (Claude Code isolation)
 .claude/worktrees/
+
+# firebase auth:export dumps contain user PII; never commit
+users.json

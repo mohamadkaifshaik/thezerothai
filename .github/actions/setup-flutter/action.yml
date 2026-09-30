@@ -1,0 +1,45 @@
+name: Setup Flutter (SHA-pinned, no third-party action)
+description: >
+  Installs the Flutter SDK from a git tag whose commit is verified against an expected SHA.
+  Replaces subosito/flutter-action, whose composite steps call actions/cache by tag and are
+  therefore rejected by the repo's "require actions pinned to a full-length commit SHA" setting.
+inputs:
+  version:
+    description: Flutter release tag, e.g. 3.47.5
+    required: true
+  sha:
+    description: Expected commit SHA of that tag (bump both together; see docs/runbooks/dependency-updates.md)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cache Flutter SDK
+      id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/flutter
+        key: flutter-${{ runner.os }}-${{ runner.arch }}-${{ inputs.sha }}
+
+    - name: Clone Flutter ${{ inputs.version }}
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+        git clone --depth 1 --branch "$VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+        actual=$(git -C "$HOME/flutter" rev-parse HEAD)
+        if [ "$actual" != "$SHA" ]; then
+          echo "::error::Flutter tag $VERSION resolved to $actual, expected $SHA"
+          rm -rf "$HOME/flutter"
+          exit 1
+        fi
+
+    - name: Add Flutter to PATH and warm up
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+        echo "$HOME/flutter/bin/cache/dart-sdk/bin" >> "$GITHUB_PATH"
+        "$HOME/flutter/bin/flutter" --version

@@ -16,7 +16,7 @@ on:
 permissions:
   contents: read
   id-token: write # WIF for the read-only plan service account
-  pull-requests: write # to post the plan as a PR comment
+  pull-requests: write # to post the plan SUMMARY (counts only) as a PR comment
 
 env:
   TF_VERSION: "1.16.2" # must be >= the version that last wrote remote state
@@ -36,23 +36,63 @@ jobs:
       run:
         working-directory: infra/terraform/envs/${{ matrix.env }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Skip an env until it has been bootstrapped (first apply is local; see docs/runbooks/cloud-bootstrap.md).
       - name: Env bootstrapped?
         id: gate
         env:
-          WIP: ${{ matrix.env == 'dev' && vars.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || vars.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
+          # Secrets (not vars): the provider resource name embeds the project number; secrets are auto-masked in logs.
+          WIP: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || secrets.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
           ENV_NAME: ${{ matrix.env }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
         run: |
-          if [ -n "$WIP" ]; then
+          # Neither Dependabot nor fork PRs may ever receive a GCP identity (dev or prod): anything they change
+          # (action/provider versions, workflow files) would run in a job holding id-token: write. The job still
+          # SUCCEEDS (fmt and tflint still run; only the GCP-credentialed steps are skipped) so a required status
+          # check named "plan (dev)" / "plan (prod)" stays green rather than pending forever.
+          # Defence in depth: the WIF plan provider's attribute_condition (modules/iam) also rejects these.
+          if [ "$ACTOR" = "dependabot[bot]" ] || { [ "$EVENT" = "pull_request" ] && [ "$HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Dependabot or fork PR; GCP auth and terraform plan skipped for $ENV_NAME"
+            {
+              echo "### Terraform plan ($ENV_NAME): skipped"
+              echo "Dependabot and fork runs do not receive GCP credentials. fmt and tflint still ran."
+              echo "A maintainer must review the change locally or by pushing it to a branch in this repo."
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$WIP" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "::notice::$ENV_NAME is not bootstrapped yet; skipping plan"
           fi
 
-      - uses: hashicorp/setup-terraform@v3
+      # Mask identifiers before any step that could print them. Secrets are already masked as whole values; this
+      # also masks their parts (each founder email, the billing ID) and the project ID, which would otherwise
+      # appear unmasked if a tool echoes them individually. Values come from secrets, so this step's env is masked too.
+      - name: Mask identifiers
+        if: steps.gate.outputs.run == 'true'
+        env:
+          M_BILLING: ${{ secrets.BILLING_ACCOUNT }}
+          M_EMAILS: ${{ matrix.env == 'dev' && secrets.DEV_FOUNDER_EMAILS_JSON || secrets.PROD_FOUNDER_EMAILS_JSON }}
+          M_SA: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_SA_EMAIL || secrets.PROD_PLAN_SA_EMAIL }}
+          M_PROJECT: ${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}
+        run: |
+          for v in "$M_BILLING" "$M_SA" "$M_PROJECT"; do
+            [ -n "$v" ] && echo "::add-mask::$v"
+          done
+          # Mask each founder email individually.
+          if [ -n "$M_EMAILS" ]; then
+            echo "$M_EMAILS" | jq -r '.[]?' | while IFS= read -r e; do
+              [ -n "$e" ] && echo "::add-mask::$e"
+            done
+          fi
+          exit 0
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
@@ -61,7 +101,7 @@ jobs:
         run: terraform fmt -check -recursive -diff ../../
 
       - name: tflint
-        uses: terraform-linters/setup-tflint@v4
+        uses: terraform-linters/setup-tflint@90f302c255ef959cbfb4bd10581afecdb7ece3e6 # v4.1.1
         with:
           tflint_version: ${{ env.TFLINT_VERSION }}
 
@@ -73,15 +113,17 @@ jobs:
       - name: Auth to GCP (WIF, read-only plan SA)
         if: steps.gate.outputs.run == 'true'
         id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
-          workload_identity_provider: ${{ matrix.env == 'dev' && vars.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || vars.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ matrix.env == 'dev' && vars.DEV_PLAN_SA_EMAIL || vars.PROD_PLAN_SA_EMAIL }}
+          workload_identity_provider: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || secrets.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_SA_EMAIL || secrets.PROD_PLAN_SA_EMAIL }}
           create_credentials_file: true
 
       - name: terraform init
         if: steps.gate.outputs.run == 'true'
-        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: terraform init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
 
       - name: terraform validate
         if: steps.gate.outputs.run == 'true'
@@ -89,7 +131,7 @@ jobs:
 
       - name: checkov
         if: steps.gate.outputs.run == 'true'
-        uses: bridgecrewio/checkov-action@v12
+        uses: bridgecrewio/checkov-action@5798bad4f6dd9c1fb67ae3ec10d42d8fb67037c4 # v12.3126.0
         with:
           directory: infra/terraform/envs/${{ matrix.env }}
           soft_fail: true # don't block PRs on checkov MEDIUM+ findings yet; surfaced in the PR checks tab
@@ -102,39 +144,64 @@ jobs:
         # broke shell quoting, and env indirection keeps repo variables out of the script text.
         env:
           TF_VAR_project_id: ${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}
-          TF_VAR_billing_account: ${{ vars.BILLING_ACCOUNT }}
+          TF_VAR_billing_account: ${{ secrets.BILLING_ACCOUNT }}
           TF_VAR_github_repo: ${{ github.repository }}
-          TF_VAR_founder_emails: ${{ matrix.env == 'dev' && vars.DEV_FOUNDER_EMAILS_JSON || vars.PROD_FOUNDER_EMAILS_JSON }}
+          TF_VAR_founder_emails: ${{ matrix.env == 'dev' && secrets.DEV_FOUNDER_EMAILS_JSON || secrets.PROD_FOUNDER_EMAILS_JSON }}
           TF_VAR_hosting_site_id: ${{ matrix.env == 'dev' && vars.DEV_HOSTING_SITE_ID || vars.PROD_HOSTING_SITE_ID }}
           TF_VAR_cors_origins: ${{ matrix.env == 'dev' && vars.DEV_CORS_ORIGINS_JSON || vars.PROD_CORS_ORIGINS_JSON }}
         run: |
-          set -o pipefail
           # -lock=false: the plan SA is read-only on the state bucket and must not take the apply lock.
-          terraform plan -input=false -no-color -lock=false -out=tfplan | tee plan_output.txt
+          # Output goes to a file, NOT the public log (a plan embeds project numbers, SA emails, IAM members).
+          if ! terraform plan -input=false -no-color -lock=false -out=tfplan > plan_output.txt 2>&1; then
+            echo "::error::terraform plan failed. Redacted tail of the error follows (emails and long numbers removed)."
+            tail -n 40 plan_output.txt               | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/<email>/g; s/[0-9]{6,}/<num>/g; s/[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}/<billing>/g'
+            exit 1
+          fi
 
-      - name: Truncate plan for PR comment
-        if: steps.gate.outputs.run == 'true' && (github.event_name == 'pull_request')
+      - name: Plan summary (counts only)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ENV_NAME: ${{ matrix.env }}
         run: |
-          terraform show -no-color tfplan > plan_full.txt || true
-          head -c 60000 plan_full.txt > plan_comment.txt
-          echo "" >> plan_comment.txt
-          echo "(truncated — full plan in the workflow log)" >> plan_comment.txt
+          terraform show -json tfplan > plan.json
+          jq -r '
+            [.resource_changes[] | .change.actions | select(. != ["no-op"] and . != ["read"])] as $c
+            | "add=\([$c[] | select(. == ["create"])] | length) change=\([$c[] | select(. == ["update"])] | length) destroy=\([$c[] | select(. == ["delete"])] | length) replace=\([$c[] | select(. == ["delete","create"] or . == ["create","delete"])] | length)"
+          ' plan.json > counts.txt
+          {
+            echo "### Terraform plan ($ENV_NAME)"
+            echo
+            echo "Counts: $(cat counts.txt)"
+            echo
+            echo "Changed resource addresses (no attribute values):"
+            echo '```'
+            jq -r '.resource_changes[] | select(.change.actions != ["no-op"] and .change.actions != ["read"]) | "\(.change.actions | join("+"))  \(.address)"' plan.json
+            echo '```'
+          } | tee plan_summary.md >> "$GITHUB_STEP_SUMMARY"
+          rm -f plan.json
 
-      - name: Comment plan on PR
+      - name: Comment plan summary on PR
         if: steps.gate.outputs.run == 'true' && (github.event_name == 'pull_request')
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const fs = require('fs');
+            const marker = '<!-- tf-plan-summary:${{ matrix.env }} -->';
+            const counts = fs.readFileSync('infra/terraform/envs/${{ matrix.env }}/counts.txt', 'utf8').trim();
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
-              `#### Terraform plan — \`${{ matrix.env }}\``,
-              '```',
-              fs.readFileSync('infra/terraform/envs/${{ matrix.env }}/plan_comment.txt', 'utf8'),
-              '```',
+              marker,
+              `#### Terraform plan: \`${{ matrix.env }}\``,
+              counts,
+              '',
+              `Resource addresses are in the [run summary](${runUrl}). The full plan is deliberately not published (public repo); run it locally to see attribute values.`,
             ].join('\n');
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body,
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, per_page: 100,
             });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }

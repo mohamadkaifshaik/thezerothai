@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -60,6 +62,8 @@ type Repo interface {
 	// GetLists reads graph/{uid} once (1 read) and returns the ordered blocked/muted arrays (insertion order,
 	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
 	GetLists(ctx context.Context, uid string) (Lists, error)
+	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[] (T27). 1 write, 0 reads.
+	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
 
 	Eraser
 
@@ -74,6 +78,10 @@ type Deps struct {
 	Flags FlagChecker
 	// CursorKey signs opaque page tokens (config.CursorHMACKey, ADR-0003).
 	CursorKey []byte
+	// ReadOnly is true when DEGRADED_MODE=readonly (config.DegradedReadonly). The list RPCs are
+	// NO_SIDE_EFFECTS, so the degraded interceptor lets them through; ReadOnly makes the T27 lazy clean-up
+	// skip its one write so that mode stays write-free.
+	ReadOnly bool
 
 	FollowsPerDay           int64
 	NewAccountFollowsPerDay int64
@@ -98,6 +106,7 @@ type service struct {
 	cursorKey []byte
 	directory identity.Directory
 	now       func() time.Time
+	readOnly  bool
 
 	followsPerDay           int64
 	newAccountFollowsPerDay int64
@@ -114,6 +123,7 @@ func New(d Deps) *service {
 		flags:                   d.Flags,
 		cursorKey:               d.CursorKey,
 		now:                     time.Now,
+		readOnly:                d.ReadOnly,
 		followsPerDay:           d.FollowsPerDay,
 		newAccountFollowsPerDay: d.NewAccountFollowsPerDay,
 		blocksPerDay:            d.BlocksPerDay,
@@ -217,6 +227,13 @@ func contentionErr() error {
 func (s *service) internalErr(op string, err error, uids ...string) error {
 	if errors.Is(err, ErrContention) || isContention(err) {
 		return contentionErr()
+	}
+	// A client disconnect or deadline is not a server fault: no INTERNAL, no ERROR line (S4).
+	switch {
+	case errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled:
+		return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled")
+	case errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
+		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded")
 	}
 	return logger.RedactErr(fmt.Errorf("graph: %s: %w", op, err), uids...)
 }
