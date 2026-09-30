@@ -230,6 +230,23 @@ func TestListOwnArray_Errors(t *testing.T) {
 		_, err := svc.ListBlockedUsers(context.Background(), "uid-1", 5, p.NextPageToken)
 		assertAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 	})
+	t.Run("token issued to another caller / another list", func(t *testing.T) {
+		repo, dir := ownListFixture(30)
+		repo.lists["uid-2"] = repo.lists["uid-1"]
+		svc := newTestServiceWithDirectory(repo, dir, Deps{CursorKey: []byte("k"),
+			Flags: &fakeFlags{on: map[string]bool{"uid-1:graph": true, "uid-2:graph": true}}})
+		p, err := svc.ListBlockedUsers(context.Background(), "uid-1", 5, "")
+		if err != nil || p.NextPageToken == "" {
+			t.Fatalf("page = %+v, %v", p, err)
+		}
+		_, err = svc.ListBlockedUsers(context.Background(), "uid-2", 5, p.NextPageToken)
+		assertAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
+		_, err = svc.ListMutedUsers(context.Background(), "uid-1", 5, p.NextPageToken)
+		assertAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
+		if _, err = svc.ListBlockedUsers(context.Background(), "uid-1", 5, p.NextPageToken); err != nil {
+			t.Fatalf("the owner's own token must still work: %v", err)
+		}
+	})
 	t.Run("repo error", func(t *testing.T) {
 		repo, dir := ownListFixture(3)
 		repo.err = errors.New("boom")

@@ -451,18 +451,13 @@ func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 			"truncated to 10 chars":     tok[:10],
 			"appended junk":             tok + "AAAA",
 			"garbage":                   "not-a-token!!",
-			"signed with the wrong key": cursor.Encode(wrongKey, cursor.Cursor{CreatedAt: time.Now().UTC(), DocID: "uid-f001_" + uidH}),
+			"signed with the wrong key": cursor.Encode(wrongKey, "any-binding", cursor.Cursor{CreatedAt: time.Now().UTC(), DocID: "uid-f001_" + uidH}),
 			"another list's token":      valid[otherList(name)],
 		}
 		for label, token := range bad {
 			t.Run(name+"/"+label, func(t *testing.T) {
 				err := call(token)
 				if err == nil {
-					// Own-list tokens carry only a uid and an array position, so another list's token is a
-					// legitimate position there (see the "own-list token is not user-bound" subtest).
-					if label == "another list's token" && (name == "ListBlockedUsers" || name == "ListMutedUsers") {
-						return
-					}
 					t.Fatalf("token accepted")
 				}
 				info := decodeErr(t, err)
@@ -482,12 +477,12 @@ func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 		key := []byte("test-cursor-key")
 		forged := map[string]func() error{
 			"followers cursor of another target": func() error {
-				tok := cursor.Encode(key, cursor.Cursor{CreatedAt: time.Now().UTC(), DocID: "uid-f001_" + uidH2})
+				tok := cursor.Encode(key, "any-binding", cursor.Cursor{CreatedAt: time.Now().UTC(), DocID: "uid-f001_" + uidH2})
 				_, err := a.graph.ListFollowers(ctx, connect.NewRequest(&graphv1.ListFollowersRequest{UserId: uidH, PageToken: tok}))
 				return err
 			},
 			"following cursor of another user": func() error {
-				tok := cursor.Encode(key, cursor.Cursor{CreatedAt: time.Now().UTC(), DocID: uidH + "_uid-f001"})
+				tok := cursor.Encode(key, "any-binding", cursor.Cursor{CreatedAt: time.Now().UTC(), DocID: uidH + "_uid-f001"})
 				_, err := a.graph.ListFollowing(ctx, connect.NewRequest(&graphv1.ListFollowingRequest{UserId: uidH2, PageToken: tok}))
 				return err
 			},
@@ -516,21 +511,20 @@ func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 		}
 	})
 
-	// Own lists: tokens are not bound to a user (T9 stores only a uid + array position). Another user's token is
-	// accepted but can only ever page through the *caller's own* array, so nothing of the token owner's is
-	// disclosed. Asserted so a future change to "reject" or to "leak" is a conscious one.
-	t.Run("own-list token is not user-bound and leaks nothing", func(t *testing.T) {
+	// Own lists (T16b D-5, security review M1): tokens are bound to the caller and the list. Another user's
+	// blocked-list token is rejected outright instead of paging the presenter's own array from a foreign
+	// position.
+	t.Run("own-list token is bound to the caller", func(t *testing.T) {
 		tokX := valid["ListBlockedUsers"] // X's blocked-list token
-		resp, err := r.as(uidV).graph.ListBlockedUsers(ctx, connect.NewRequest(&graphv1.ListBlockedUsersRequest{PageSize: 20, PageToken: tokX}))
-		if err != nil {
-			t.Fatalf("cross-user own-list token: %v", err)
+		_, err := r.as(uidV).graph.ListBlockedUsers(ctx, connect.NewRequest(&graphv1.ListBlockedUsersRequest{PageSize: 20, PageToken: tokX}))
+		if err == nil {
+			t.Fatal("cross-user own-list token accepted")
 		}
-		// V blocked f010,f011,f050,f077,f100 only; whatever comes back must be among those.
-		allowed := map[string]bool{fUID(10): true, fUID(11): true, fUID(50): true, fUID(77): true, fUID(100): true}
-		for _, u := range uidsOf(resp.Msg.GetUsers()) {
-			if !allowed[u] {
-				t.Errorf("V's list contains %s which V never blocked", u)
-			}
+		if info := decodeErr(t, err); info.Code != connect.CodeInvalidArgument || info.Meta["field"] != "page_token" {
+			t.Errorf("error = %+v", info)
+		}
+		if ops := r.lastOps(); ops.Reads() != 0 {
+			t.Errorf("rejected token still cost %d reads, want 0", ops.Reads())
 		}
 	})
 	assertGraphInvariants(t, r.w.client)

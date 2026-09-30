@@ -2,6 +2,8 @@ package graph
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -9,6 +11,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // graphFlagName is the wire name GraphService RPCs check (ADR-0008 D6: FEATURE_GRAPH <-> "graph").
@@ -197,6 +200,23 @@ func targetBlockedErr() error {
 
 func limitReachedErr(limit string) error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit reached").WithMeta("limit", limit)
+}
+
+// contentionErr is the retryable answer for a write that kept losing lock races (D1): UNAVAILABLE, never
+// INTERNAL, so clients and the SLO alert treat it as transient.
+func contentionErr() error {
+	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
+		WithRetryAfter(time.Second)
+}
+
+// internalErr is the one place a mutation's unexpected repo error is shaped: lost lock races become the
+// retryable contentionErr; anything else is wrapped with the raw uids redacted (security review L4), because
+// mw.ErrorMapping logs the whole cause chain at ERROR and Firestore's own error text embeds document paths.
+func (s *service) internalErr(op string, err error, uids ...string) error {
+	if errors.Is(err, ErrContention) || isContention(err) {
+		return contentionErr()
+	}
+	return logger.RedactErr(fmt.Errorf("graph: %s: %w", op, err), uids...)
 }
 
 func selfActionErr(field string) error {

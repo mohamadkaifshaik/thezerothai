@@ -8,6 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // ListFollowers (ADR-0008 T10): who follows targetUID, newest first. Firestore: reads 2 (caller graph +
@@ -27,9 +28,9 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 		return Page{}, err
 	}
 	if targetUserIDIssue(targetUID) {
-		return Page{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Page{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
-	after, err := s.decodeEdgeCursor(pageToken, targetUID, followers)
+	after, err := s.decodeEdgeCursor(callerUID, pageToken, targetUID, followers)
 	if err != nil {
 		return Page{}, err
 	}
@@ -39,27 +40,27 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 	// no edge reads. IsBlockedBy is cache-first and applies the D2 overflow fallback.
 	blockedBy, err := s.IsBlockedBy(ctx, callerUID, targetUID)
 	if err != nil {
-		return Page{}, fmt.Errorf("graph: list edges: %w", err)
+		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: %w", err), callerUID, targetUID)
 	}
 	if blockedBy {
 		return Page{}, notFoundErr()
 	}
 	targets, err := s.directory.GetProfiles(ctx, []string{targetUID})
 	if err != nil {
-		return Page{}, fmt.Errorf("graph: list edges: target: %w", err)
+		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: target: %w", err), callerUID, targetUID)
 	}
 	if _, ok := targets[targetUID]; !ok {
 		return Page{}, notFoundErr()
 	}
 	snap, err := s.Snapshot(ctx, callerUID)
 	if err != nil {
-		return Page{}, fmt.Errorf("graph: list edges: %w", err)
+		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: %w", err), callerUID, targetUID)
 	}
 
 	size := limits.ClampPageSize(pageSize)
 	edges, err := s.repo.ListEdges(ctx, EdgeQuery{UID: targetUID, Followers: followers, Limit: size, After: after})
 	if err != nil {
-		return Page{}, fmt.Errorf("graph: list edges: %w", err)
+		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: %w", err), callerUID, targetUID)
 	}
 	// ADR-0008 "List paging": Limit(page_size), not +1 - a token is issued whenever the query returned a
 	// full page (one empty final call when the total is an exact multiple of the page size).
@@ -74,7 +75,7 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 	}
 	profiles, err := s.directory.GetProfiles(ctx, ids)
 	if err != nil {
-		return Page{}, fmt.Errorf("graph: list edges: hydrate: %w", err)
+		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: hydrate: %w", err), append([]string{callerUID, targetUID}, ids...)...)
 	}
 
 	page := Page{}
@@ -91,15 +92,25 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 	}
 	if hasMore {
 		last := edges[len(edges)-1]
-		page.NextPageToken = cursor.Encode(s.cursorKey, cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.DocID})
+		page.NextPageToken = cursor.Encode(s.cursorKey, edgeCursorBinding(callerUID, targetUID, followers), cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.DocID})
 	}
 	return page, nil
 }
 
+// edgeCursorBinding ties a page token to (caller, list kind, target) via the AEAD additional data (security
+// review M1): a token issued to one caller, or for another user's list, fails to open for anyone else.
+func edgeCursorBinding(callerUID, targetUID string, followers bool) string {
+	kind := "following"
+	if followers {
+		kind = "followers"
+	}
+	return callerUID + "|" + kind + "|" + targetUID
+}
+
 // decodeEdgeCursor verifies the token and that its doc id belongs to this list (a followers token replayed
 // against following, or another user's list, is rejected rather than silently skipping rows).
-func (s *service) decodeEdgeCursor(token, targetUID string, followers bool) (*cursor.Cursor, error) {
-	cur, err := cursor.Decode(s.cursorKey, token)
+func (s *service) decodeEdgeCursor(callerUID, token, targetUID string, followers bool) (*cursor.Cursor, error) {
+	cur, err := cursor.Decode(s.cursorKey, edgeCursorBinding(callerUID, targetUID, followers), token)
 	if err != nil {
 		return nil, apierr.Validation("page_token", "invalid page_token")
 	}

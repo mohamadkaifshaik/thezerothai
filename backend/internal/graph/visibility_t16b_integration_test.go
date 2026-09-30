@@ -428,10 +428,6 @@ func TestNotFound_Integration_ByteIdentical(t *testing.T) {
 			}
 			for _, tg := range targets {
 				err := p.call(tg.id, tg.handle)
-				if err == nil && strings.HasPrefix(p.name, "GetProfile") && tg.label != "blocked-by" {
-					t.Logf("DEFECT D-2: %s returns the profile of a %s account; ADR-0008 D9 implies NOT_FOUND", p.name, tg.label)
-					continue
-				}
 				got := r.rec.last()
 				info := decodeErr(t, err)
 				if got.Status != ref.Status || got.CType != ref.CType || string(got.Body) != string(ref.Body) {

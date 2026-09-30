@@ -1,19 +1,23 @@
 package cursor
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 )
+
+const bind = "uid-a|followers|uid-b"
 
 func TestEncodeDecode_RoundTrip(t *testing.T) {
 	key := []byte("test-key")
 	want := Cursor{CreatedAt: time.Now().UTC().Truncate(time.Microsecond), DocID: "0000000000000000001"}
 
-	token := Encode(key, want)
+	token := Encode(key, bind, want)
 	if token == "" {
 		t.Fatal("Encode returned empty token")
 	}
-	got, err := Decode(key, token)
+	got, err := Decode(key, bind, token)
 	if err != nil {
 		t.Fatalf("Decode() error = %v", err)
 	}
@@ -23,7 +27,7 @@ func TestEncodeDecode_RoundTrip(t *testing.T) {
 }
 
 func TestDecode_EmptyTokenIsFirstPage(t *testing.T) {
-	c, err := Decode([]byte("key"), "")
+	c, err := Decode([]byte("key"), bind, "")
 	if err != nil {
 		t.Fatalf("Decode(\"\") error = %v", err)
 	}
@@ -32,44 +36,77 @@ func TestDecode_EmptyTokenIsFirstPage(t *testing.T) {
 	}
 }
 
-func TestDecode_WrongKeyFails(t *testing.T) {
-	token := Encode([]byte("key-a"), Cursor{CreatedAt: time.Now(), DocID: "1"})
-	if _, err := Decode([]byte("key-b"), token); err != ErrInvalid {
-		t.Fatalf("Decode with wrong key: err = %v, want ErrInvalid", err)
+func TestDecode_Rejects(t *testing.T) {
+	now := time.Now()
+	c := Cursor{CreatedAt: now, DocID: "uid-c_uid-b"}
+	key := []byte("key-a")
+	good := EncodeAt(key, bind, c, now)
+	mid := len(good) / 2
+	flip := "a"
+	if good[mid] == 'a' {
+		flip = "b"
+	}
+
+	tests := []struct {
+		name    string
+		key     []byte
+		binding string
+		token   string
+		at      time.Time
+	}{
+		{"wrong key", []byte("key-b"), bind, good, now},
+		{"wrong caller", key, "uid-x|followers|uid-b", good, now},
+		{"wrong list", key, "uid-a|following|uid-b", good, now},
+		{"wrong target", key, "uid-a|followers|uid-y", good, now},
+		{"tampered", key, bind, good[:mid] + flip + good[mid+1:], now},
+		{"truncated", key, bind, good[:10], now},
+		{"expired", key, bind, good, now.Add(TTL + time.Second)},
+		{"issued in the future", key, bind, good, now.Add(-2 * clockSkew)},
+		{"garbage", key, bind, "not-base64!!", now},
+		{"short", key, bind, "YQ", now},
+		{"v1 format", key, bind, base64.RawURLEncoding.EncodeToString([]byte("123|uid|c2ln")), now},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := DecodeAt(tc.key, tc.binding, tc.token, tc.at); err != ErrInvalid {
+				t.Fatalf("err = %v, want ErrInvalid", err)
+			}
+		})
 	}
 }
 
-func TestDecode_TamperedTokenFails(t *testing.T) {
-	key := []byte("key")
-	token := Encode(key, Cursor{CreatedAt: time.Now(), DocID: "1"})
-	// Flip a character in the middle of the token rather than the last one: base64's final character
-	// can have "don't care" bits that decode to the same bytes, which would make this test flaky.
-	mid := len(token) / 2
-	flip := byte('a')
-	if token[mid] == 'a' {
-		flip = 'b'
-	}
-	tampered := token[:mid] + string(flip) + token[mid+1:]
-	if _, err := Decode(key, tampered); err != ErrInvalid {
-		t.Fatalf("Decode(tampered): err = %v, want ErrInvalid", err)
+func TestDecode_ValidUntilTTL(t *testing.T) {
+	now := time.Now()
+	tok := EncodeAt([]byte("k"), bind, Cursor{CreatedAt: now, DocID: "1"}, now)
+	if _, err := DecodeAt([]byte("k"), bind, tok, now.Add(TTL-time.Second)); err != nil {
+		t.Fatalf("token inside TTL rejected: %v", err)
 	}
 }
 
-func TestDecode_GarbageFails(t *testing.T) {
-	cases := []string{"not-base64!!", "", "YQ", "!!!"}
-	for _, tc := range cases {
-		if tc == "" {
-			continue // valid "first page" case, tested separately
-		}
-		if _, err := Decode([]byte("key"), tc); err != ErrInvalid {
-			t.Errorf("Decode(%q): err = %v, want ErrInvalid", tc, err)
-		}
+// TestToken_IsOpaque is the M1 regression: neither the raw token nor its base64 decoding contains the doc id
+// or a readable structure.
+func TestToken_IsOpaque(t *testing.T) {
+	const doc = "uid-hidden_uid-target"
+	tok := EncodeAt([]byte("k"), bind, Cursor{CreatedAt: time.Now(), DocID: doc}, time.Now())
+	if strings.Contains(tok, "uid-hidden") {
+		t.Fatal("token contains the doc id")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "uid-hidden") || strings.Contains(string(raw), "uid-target") {
+		t.Fatal("decoded token is readable")
+	}
+	// Two tokens for the same cursor differ (random nonce).
+	if tok == EncodeAt([]byte("k"), bind, Cursor{CreatedAt: time.Now(), DocID: doc}, time.Now()) {
+		t.Fatal("tokens are deterministic")
 	}
 }
 
 func TestDecode_EmptyDocIDFails(t *testing.T) {
-	token := Encode([]byte("key"), Cursor{CreatedAt: time.Now(), DocID: ""})
-	if _, err := Decode([]byte("key"), token); err != ErrInvalid {
+	token := Encode([]byte("key"), bind, Cursor{CreatedAt: time.Now(), DocID: ""})
+	if _, err := Decode([]byte("key"), bind, token); err != ErrInvalid {
 		t.Fatalf("Decode with empty doc id: err = %v, want ErrInvalid", err)
 	}
 }

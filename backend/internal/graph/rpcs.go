@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -29,7 +28,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
 	if callerUID == targetUID {
 		return Relationship{}, selfActionErr("user_id")
@@ -37,7 +36,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 
 	profiles, err := s.directory.GetProfiles(ctx, []string{callerUID, targetUID})
 	if err != nil {
-		return Relationship{}, fmt.Errorf("graph: follow %s -> %s: %w", callerUID, targetUID, err)
+		return Relationship{}, s.internalErr("follow", err, callerUID, targetUID)
 	}
 	target, ok := profiles[targetUID]
 	if !ok {
@@ -72,7 +71,7 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 	if errors.As(err, &lim) {
 		return limitReachedErr(lim.Limit)
 	}
-	return fmt.Errorf("graph: follow %s -> %s: %w", callerUID, targetUID, err)
+	return s.internalErr("follow", err, callerUID, targetUID)
 }
 
 // Unfollow (ADR-0008 T7): a blind batch, idempotent. Not following (or a replayed/racing Unfollow) is
@@ -85,7 +84,7 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
 	if callerUID == targetUID {
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
@@ -93,7 +92,7 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 
 	changed, err := s.repo.Unfollow(ctx, callerUID, targetUID, s.now())
 	if err != nil {
-		return Relationship{}, fmt.Errorf("graph: unfollow %s -> %s: %w", callerUID, targetUID, err)
+		return Relationship{}, s.internalErr("unfollow", err, callerUID, targetUID)
 	}
 	if changed {
 		s.cache.Invalidate(callerUID)
@@ -115,7 +114,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
 	if callerUID == targetUID {
 		return Relationship{}, selfActionErr("user_id")
@@ -131,7 +130,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 		if errors.As(err, &lim) {
 			return Relationship{}, limitReachedErr(lim.Limit)
 		}
-		return Relationship{}, fmt.Errorf("graph: block %s -> %s: %w", callerUID, targetUID, err)
+		return Relationship{}, s.internalErr("block", err, callerUID, targetUID)
 	}
 	if result.Outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
@@ -155,7 +154,7 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
 	if callerUID == targetUID {
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
@@ -163,7 +162,7 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 
 	rel, changed, err := s.repo.Unblock(ctx, callerUID, targetUID, s.now())
 	if err != nil {
-		return Relationship{}, fmt.Errorf("graph: unblock %s -> %s: %w", callerUID, targetUID, err)
+		return Relationship{}, s.internalErr("unblock", err, callerUID, targetUID)
 	}
 	if changed {
 		s.cache.Invalidate(callerUID)
@@ -182,7 +181,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
 	if callerUID == targetUID {
 		return Relationship{}, selfActionErr("user_id")
@@ -194,7 +193,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 		if errors.As(err, &lim) {
 			return Relationship{}, limitReachedErr(lim.Limit)
 		}
-		return Relationship{}, fmt.Errorf("graph: mute %s -> %s: %w", callerUID, targetUID, err)
+		return Relationship{}, s.internalErr("mute", err, callerUID, targetUID)
 	}
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
@@ -211,7 +210,7 @@ func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-]")
+		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
 	}
 	if callerUID == targetUID {
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
@@ -219,7 +218,7 @@ func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetU
 
 	rel, changed, err := s.repo.Unmute(ctx, callerUID, targetUID, s.now())
 	if err != nil {
-		return Relationship{}, fmt.Errorf("graph: unmute %s -> %s: %w", callerUID, targetUID, err)
+		return Relationship{}, s.internalErr("unmute", err, callerUID, targetUID)
 	}
 	if changed {
 		s.cache.Invalidate(callerUID)

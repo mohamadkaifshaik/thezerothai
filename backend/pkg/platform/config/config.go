@@ -76,6 +76,18 @@ type RateLimitConfig struct {
 	// GraphListCallsPerDay is the in-memory daily cap on list RPCs per uid per instance (ADR-0008 D7/T4:
 	// "an extension of the existing limiter", ratelimit.DailyCap), logged as limit_name "graph_list_daily".
 	GraphListCallsPerDay int64
+
+	// GraphMutationsPerDay is the in-memory daily cap on ALL graph mutations (Follow, Unfollow, Block,
+	// Unblock, Mute, Unmute share one counter) per uid per instance, ratelimit.DailyCap, logged as
+	// limit_name "graph_mutation_daily" (security review M2). It bounds the read cost of replays and no-ops,
+	// which reserve no Firestore quota (ADR-0008 D7) but still read 1-3 docs each.
+	//
+	// Default 500. Worst case per account per day: 500 calls x 3 reads (Block replay is the most expensive
+	// mutation: caller graph + target graph + quotas) x 3 instances (the cap is per instance, max-instances 3)
+	// = 4,500 reads, versus 172.8k/day (Follow + Block replay loops at the per-minute buckets) before the cap,
+	// and ADR-0008's accepted 30.6k/day list-scraping bound. Legitimate use fits with room: 200 follows +
+	// 200 blocks/mutes (the Firestore quotas) plus their undos is under 500.
+	GraphMutationsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -255,6 +267,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.GraphListCallsPerDay = int64(graphListCallsPerDay)
+	graphMutationsPerDay, err := getInt("GRAPH_MUTATIONS_PER_DAY", 500)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.GraphMutationsPerDay = int64(graphMutationsPerDay)
 
 	trustedProxyHops, err := getInt("TRUSTED_PROXY_HOPS", 1)
 	if err != nil {

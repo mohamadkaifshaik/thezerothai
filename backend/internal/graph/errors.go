@@ -12,6 +12,9 @@ var (
 	ErrCallerBlocksTarget = errors.New("graph: caller blocks target")
 	// ErrTargetPrivate: the target's stored isPrivate is true (legacy data only, ADR-0008 D1).
 	ErrTargetPrivate = errors.New("graph: target is private")
+	// ErrContention: a non-transactional write kept losing lock races with concurrent transactions and its
+	// bounded retries are exhausted (Unfollow, D1). Mapped to a retryable UNAVAILABLE, never INTERNAL.
+	ErrContention = errors.New("graph: write contention")
 )
 
 // LimitReachedError names which cap was hit (ADR-0008: following 5,000 / blocked 2,000 / muted 2,000), for

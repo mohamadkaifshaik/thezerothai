@@ -12,6 +12,7 @@ package graph_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +20,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
@@ -1077,17 +1076,15 @@ func TestT16a_Race_FollowUnfollowFlapping(t *testing.T) {
 		}
 		return err
 	})
+	// D1 fixed: a lost lock race is retried, and if the (emulator's slow, coarse) locks still beat every retry
+	// the call answers the documented retryable UNAVAILABLE. Anything else, INTERNAL above all, is a failure.
 	for i, err := range errs {
 		if err == nil {
 			continue
 		}
-		// KNOWN DEFECT (T16a-D1, reported to backend-developer): Unfollow's blind batch commit is not retried
-		// when it loses a lock race with Follow transactions on the same docs; the emulator answers Aborted
-		// ("Transaction lock timeout") and the service maps it to INTERNAL instead of retrying or returning
-		// a retryable code. Tolerated here (and only here, only for Unfollow, only Aborted) because the
-		// property under test is data integrity, asserted below. Remove this tolerance when D1 is fixed.
-		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted && i%2 == 1 {
-			t.Logf("T16a-D1: Unfollow call %d aborted under contention: %v", i, err)
+		var ae *apierr.Error
+		if errors.As(err, &ae) && ae.Code == connect.CodeUnavailable {
+			t.Logf("call %d: retryable UNAVAILABLE after exhausted retries: %v", i, err)
 			continue
 		}
 		t.Errorf("call %d: %v", i, err)

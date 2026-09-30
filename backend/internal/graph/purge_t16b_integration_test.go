@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 
 	"cloud.google.com/go/firestore"
@@ -283,8 +282,8 @@ func TestPurge_Integration_CrashInsideMultiBatchStep(t *testing.T) {
 
 // Steps 3-4 across the 500-entry chunk boundary, with counterparts that no longer exist mixed in: the real
 // counterparts in every chunk are still cleaned, and no missing counterpart's graph doc is resurrected. Every
-// chunk holds at least one real counterpart; a chunk of only-missing counterparts is defect D-1 (see
-// TestPurge_Integration_ChunkOfOnlyMissingCounterparts_KnownDefect).
+// chunk holds at least one real counterpart; a chunk of only-missing counterparts is covered by
+// TestPurge_Integration_ChunkOfOnlyMissingCounterparts.
 func TestPurge_Integration_ArrayStepsAcrossChunksAndMissingCounterparts(t *testing.T) {
 	w := newWired(t)
 	realBlocked := []string{"uid-r1", "uid-r2", "uid-r3"} // blocked[] indices 0, 500, 1000
@@ -373,15 +372,11 @@ func TestPurge_Integration_ArrayStepsAcrossChunksAndMissingCounterparts(t *testi
 	assertGraphInvariants(t, w.client)
 }
 
-// TestPurge_Integration_ChunkOfOnlyMissingCounterparts_KnownDefect reproduces defect D-1: when every entry of a
-// blocked/blockedBy chunk belongs to a user whose graph doc no longer exists, removeFromCounterparts builds an
-// empty batch and Commit fails ("cannot commit empty WriteBatch"), so PurgeUser returns the same error on
-// every retry and the purge can never reach step 5. Skipped by default so the suite stays green; run with
-// T16B_KNOWN_DEFECTS=1 to see it fail. Delete the skip once purge.go removeFromCounterparts is fixed.
-func TestPurge_Integration_ChunkOfOnlyMissingCounterparts_KnownDefect(t *testing.T) {
-	if os.Getenv("T16B_KNOWN_DEFECTS") == "" {
-		t.Skip("known defect D-1 (purge.go removeFromCounterparts empty batch); set T16B_KNOWN_DEFECTS=1 to reproduce")
-	}
+// TestPurge_Integration_ChunkOfOnlyMissingCounterparts is the D-1 regression: when every entry of a
+// blocked/blockedBy chunk belongs to a user whose graph doc no longer exists, removeFromCounterparts has
+// nothing to write and must skip the commit (Firestore rejects an empty WriteBatch) so the purge advances to
+// step 5 instead of failing identically on every retry.
+func TestPurge_Integration_ChunkOfOnlyMissingCounterparts(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, pU, "pgu")
 	mustCreateProfile(t, w.identity, "uid-r1", "pgr1")
@@ -398,7 +393,7 @@ func TestPurge_Integration_ChunkOfOnlyMissingCounterparts_KnownDefect(t *testing
 	for i := 0; i < 20; i++ {
 		next, done, err := w.graph.repo.PurgeUser(ctx, pU, cp)
 		if err != nil {
-			t.Fatalf("D-1 reproduced: PurgeUser at %+v: %v", cp, err)
+			t.Fatalf("PurgeUser at %+v: %v", cp, err)
 		}
 		if done {
 			return

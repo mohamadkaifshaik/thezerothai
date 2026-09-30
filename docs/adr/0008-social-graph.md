@@ -84,7 +84,7 @@ requests/DAU/day). Rejected: pure cost, no benefit.
 |---|---|---|---|---|---|---|---|---|
 | Follow | 4 / 2 (+1 if caller's `blockedByOverflow`, D2) | 5 / 5 | 0 | 60 | 0.5 | 1.0 | 2.5 | 0 |
 | ↳ Follow replay (already following) | 2 / 2 | 0 | 0 | 30 | — | — | — | — |
-| Unfollow (blind batch, `Exists` precondition) | 0 / 0 | 3 / 3 (0 on no-op) | 1 / 1 | 40 | 0.1 | 0 | 0.3 | 0.1 |
+| Unfollow (blind batch, `Exists` precondition; retried on Aborted*) | 0 / 0 | 3 / 3 (0 on no-op) | 1 / 1 | 40 | 0.1 | 0 | 0.3 | 0.1 |
 | Block | 3 / 3 | 5 / 3 | 2 / 0 | 60 | 0.02 | 0.06 | 0.06 | ~0 |
 | Unblock | 1 / 1 | 2 / 2 (0 on no-op) | 0 | 30 | 0.005 | ~0 | 0.01 | 0 |
 | Mute | 2 / 2 | 2 / 2 (0 on replay) | 0 | 30 | 0.02 | 0.04 | 0.04 | 0 |
@@ -107,6 +107,9 @@ requests/DAU/day). Rejected: pure cost, no benefit.
   ≈ $8.10/month, writes ≈ $3.30/month. **Whole product (cost-model §2):** graph moves ≈ 10.2 → 11.8 reads and
   3.35 → 2.9 writes per DAU; the reads crossover moves from ~213 to ~211 DAU on the 80% line. sre-performance
   restates §2–§4 in T21.
+- \* Unfollow retries its batch up to 6 times (exponential backoff, <= ~0.8 s) on a lost lock race (Aborted; security-review follow-up D1). A failed
+  attempt writes nothing and only the committed attempt is counted, so the row's budget is unchanged; an exhausted
+  retry returns UNAVAILABLE (retryable), never INTERNAL.
 - **$ for the slice:** idle $0; 300 DAU ≈ $0.06/month (marginal, all graph reads priced as overage); 3k DAU ≈
   $1.70/month (reads $0.64, writes $0.47, requests $0.14, vCPU $0.43).
 - **Abuse bounds per account per day** (inputs to the T20 security review): follow/unfollow churn ≈ 1.6k writes (8% of
@@ -227,6 +230,11 @@ differs from the plan's defaults the item says **"Changed vs plan"** and why.
 - CheckHandleAvailability 10 → **20/min** per uid (closes R-N8).
 - All numbers are config/env (rule 11).
 
+- **Amendment (security review L3/M3).** Ids of the form `__x__` are rejected as VALIDATION by the shared uid/handle
+  validators (Firestore reserves them), and GetProfile (by id and by handle) returns the byte-identical missing-user
+  NOT_FOUND for SUSPENDED and DELETING profiles unless the caller is the owner (0 extra reads). That restores the
+  premise of the handle-availability residual accepted in D9.
+
 ### D8. Staleness (Q8) — Accepted (plan default)
 - Mutations read the graph fresh inside their transaction; read paths use the 60 s instance cache (ADR-0004 staleness
   budget), updated in place on the instance that committed the change. A just-blocked user may see the blocker's
@@ -320,9 +328,13 @@ body. The header is a separate widget listed in `docs/ui-catalog.md` so the two 
   return a `next_page_token` whenever the query returned a full page. The plan's `+1` over-read made the worst case 103,
   not the 102 it documents, and costs 1 read on every page; without it, the only extra cost is one empty final call
   (1 read) when the total is an exact multiple of the page size. Pages may be short because of row filtering; clients
-  follow `next_page_token` (as ADR-0004). Cursor = `cursor.Encode(createdAt, docId)` (HMAC-signed, ADR-0003).
+  follow `next_page_token` (as ADR-0004). Cursor = `cursor.Encode(key, binding, {createdAt, docId})`. **Amended (security review M1):** tokens are sealed with
+  AES-256-GCM (key = HKDF-SHA256 of `CURSOR_HMAC_KEY`, no new secret), so they are opaque and cannot leak the doc id
+  of a row the block filter hid; they are bound (AEAD data) to `caller|followers-or-following|target`, and expire after
+  24 h. Tampered, foreign or expired tokens are INVALID_ARGUMENT/VALIDATION at 0 reads; pre-amendment tokens fail the
+  same way (clients restart the list).
 - **ListBlockedUsers/ListMutedUsers paging:** newest first (reverse array order), token = last uid returned + its
-  position; if that uid was removed meanwhile, resume at the first entry older than the recorded position.
+  position, sealed and bound to the caller and the list (`caller|own-blocked` / `caller|own-muted`, T16b D-5); if that uid was removed meanwhile, resume at the first entry older than the recorded position.
 - **Idempotency:** all graph mutations are state-setting with natural keys (ADR-0003), so `idempotency_key` is
   validated for format and not stored. No idempotency docs.
 - **Degraded mode:** `DEGRADED_MODE=readonly` rejects every mutating graph RPC (derived from `idempotency_level`, no
