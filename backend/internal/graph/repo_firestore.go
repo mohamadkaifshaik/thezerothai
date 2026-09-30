@@ -7,6 +7,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -23,7 +24,7 @@ import (
 // Unfollow's bounded retry on a lost lock race (D1).
 const (
 	unfollowMaxAttempts  = 6
-	unfollowRetryBackoff = 25 * time.Millisecond // doubled per retry: 25, 50, 100, 200, 400 ms
+	unfollowRetryBackoff = 25 * time.Millisecond // ceiling doubled per retry: 25..400 ms; full jitter picks [0, ceiling)
 )
 
 const (
@@ -101,6 +102,10 @@ type FirestoreRepo struct {
 	quota    *quota.Store
 	counters identity.Counters
 	profiles ProfileReader
+
+	// Test seams for Unfollow's retry loop; nil means production behaviour (real commit, jittered timer).
+	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
+	backoff     func(ctx context.Context, ceiling time.Duration) error
 }
 
 // NewFirestoreRepo builds a FirestoreRepo. Unchanged signature from the Phase 0 bootstrap so every existing
@@ -312,10 +317,9 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 	var lastErr error
 	for attempt := 0; attempt < unfollowMaxAttempts; attempt++ {
 		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return false, ctx.Err()
-			case <-time.After(unfollowRetryBackoff << (attempt - 1)):
+			if err := r.wait(ctx, unfollowRetryBackoff<<(attempt-1)); err != nil {
+				noteTxnAttempts(ctx, attempt)
+				return false, fmt.Errorf("graph: unfollow: %w", err)
 			}
 		}
 		var scratch budget.Counter
@@ -328,7 +332,7 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 		r.counters.AddFollowingCount(b, callerUID, -1)
 		r.counters.AddFollowersCount(b, targetUID, -1)
 
-		err := b.Commit(ctx)
+		err := r.commit(ctx, b)
 		switch {
 		case err == nil:
 			noteTxnAttempts(ctx, attempt+1)
@@ -349,6 +353,29 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 	}
 	noteTxnAttempts(ctx, unfollowMaxAttempts)
 	return false, fmt.Errorf("%w: %v", ErrContention, lastErr)
+}
+
+func (r *FirestoreRepo) commit(ctx context.Context, b *store.FirestoreBatch) error {
+	if r.commitBatch != nil {
+		return r.commitBatch(ctx, b)
+	}
+	return b.Commit(ctx)
+}
+
+// wait sleeps for a full-jitter delay in [0, ceiling), returning ctx.Err() if the context ends first. Full
+// jitter de-synchronises the retries of concurrent Unfollows that lost the same lock race.
+func (r *FirestoreRepo) wait(ctx context.Context, ceiling time.Duration) error {
+	if r.backoff != nil {
+		return r.backoff(ctx, ceiling)
+	}
+	t := time.NewTimer(rand.N(ceiling))
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // runTx is client.RunTransaction plus the ADR-0008 D3 contention signal: it counts how many times the
