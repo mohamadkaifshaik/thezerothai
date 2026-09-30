@@ -330,6 +330,10 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 // replay (already unfollowed, or never followed) fails the whole batch atomically and costs 0 writes — the
 // precondition also makes this safe to race against Block, which deletes the same edge with the same
 // precondition (ADR-0008 D3 invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").
+//
+// ADR-0009 invariant: for an ACTIVE caller, the edge exists <=> the target is in the caller's following
+// <=> both users docs exist. So a failed precondition means there is nothing to undo, and Unfollow returns
+// (false, nil) without revealing why (never followed, already unfollowed, or target gone).
 func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
 	// D1: unlike RunTransaction, a bare batch commit is not retried by the SDK when it loses a lock race with a
 	// Follow/Block transaction on the same docs (Aborted). Retry a bounded number of times with a short
@@ -368,7 +372,8 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 		case isPreconditionFailed(err):
 			noteTxnAttempts(ctx, attempt+1)
 			// Ops were counted into scratch only: a failed Exists precondition is a no-op that performs (and
-			// bills) no writes.
+			// bills) no writes. ADR-0009: for an ACTIVE caller, edge <=> following entry <=> both users docs
+			// exist, so this is a correct no-op; (false, nil) deliberately does not reveal which case it was.
 			return false, nil
 		case isContention(err):
 			lastErr = err
@@ -427,7 +432,9 @@ func isContention(err error) bool {
 // isPreconditionFailed reports whether err is the Firestore error for a failed batch precondition (e.g.
 // Exists on a doc that doesn't exist) — Firestore surfaces this as NotFound or FailedPrecondition depending
 // on the SDK/emulator version, so both are treated as "the precondition wasn't met" (ADR-0008 T7/D10: a
-// no-op, not a real error).
+// no-op, not a real error). ADR-0009: NotFound/FailedPrecondition on Unfollow is a correct no-op because the
+// invariant (edge <=> following entry <=> both users docs exist) holds for ACTIVE callers; callers return
+// (false, nil) and never reveal why.
 func isPreconditionFailed(err error) bool {
 	code := status.Code(err)
 	return code == codes.NotFound || code == codes.FailedPrecondition

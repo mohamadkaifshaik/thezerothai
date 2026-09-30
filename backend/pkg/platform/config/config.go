@@ -17,6 +17,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
+// MaxCacheTTL is the upper bound for CACHE_TTL (ADR-0009 T33): the account-deletion start gate is 120 s, so
+// instance caches must expire well inside it.
+const MaxCacheTTL = 60 * time.Second
+
 // DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
 type DegradedMode string
 
@@ -221,6 +225,13 @@ func Load() (Config, error) {
 	cacheTTL, err := getDuration("CACHE_TTL", 60*time.Second)
 	if err != nil {
 		return Config{}, err
+	}
+	// ADR-0009 T33: the account-deletion start gate is 120 s; instance caches must expire well inside it so
+	// a purge cannot race a stale cache entry.
+	if cacheTTL > MaxCacheTTL {
+		return Config{}, fmt.Errorf(
+			"config: CACHE_TTL %v exceeds the maximum of %.0fs: the account-deletion start gate is 120s and the instance cache TTL must stay below it so PurgeUser cannot race stale caches (ADR-0009)",
+			cacheTTL, MaxCacheTTL.Seconds())
 	}
 	handleCooldown, err := getDuration("HANDLE_CHANGE_COOLDOWN", 7*24*time.Hour)
 	if err != nil {
