@@ -178,10 +178,11 @@ jobs:
         with:
           ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Setup Flutter
+        uses: ./.github/actions/setup-flutter
         with:
-          flutter-version: "3.47.5"
-          channel: stable
+          version: "3.47.5"
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
       - name: flutter build appbundle
         working-directory: app
@@ -220,10 +221,11 @@ jobs:
         with:
           ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Setup Flutter
+        uses: ./.github/actions/setup-flutter
         with:
-          flutter-version: "3.47.5"
-          channel: stable
+          version: "3.47.5"
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
       - name: flutter build ios (no codesign — TestFlight signing is a separate, documented step)
         working-directory: app

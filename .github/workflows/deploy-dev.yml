@@ -103,11 +103,12 @@ jobs:
           url=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
           curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Setup Flutter
         if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
+        uses: ./.github/actions/setup-flutter
         with:
-          flutter-version: "3.47.5"
-          channel: stable
+          version: "3.47.5"
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
       - name: Build + deploy web (Firebase Hosting, dev)
         if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
