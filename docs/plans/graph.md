@@ -781,8 +781,8 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
     and security reviews, the cost report, runbooks, release notes, the rollback target (the current prod revision),
     the flag plan, and the L9 check result.
   - production-reviewer runs the `production-readiness` checklist and must write `VERDICT: GO`.
-  - Tag `v0.2.0`. `release-prod` stages a `candidate` revision with **`FEATURE_GRAPH=allowlist`** (founder + 2
-    prod smoke test accounts).
+  - Tag `v0.2.0`. `release-prod` stages a `candidate` revision with **`FEATURE_GRAPH=allowlist`** (allowlist = the 2
+    prod smoke accounts smoke-a and smoke-b only; no founder or real-user account).
   - P2 smoke on `candidate`:
     - the v0.1.0 identity checks;
     - the T17 graph smoke with allowlisted accounts;
@@ -857,7 +857,7 @@ Deltas to existing tickets:
 - **Budget.** Mute 3 R / 2 W (+1 read vs today); NOT_FOUND 2 R / 0 W; replay 3 R / 0 W. At 0.02 calls/DAU that's
   +0.02 reads/DAU.
 
-### T27 — Lazy clean-up of missing uids in own blocked/muted lists (ADR-0008 A1, D10 refinement)  [owner: backend-developer] [size: S] [depends: T9] [blocks: account-lifecycle plan; not v0.2.0, not T25]
+### T27 — Lazy clean-up of missing uids in own blocked/muted lists (ADR-0008 A1, D10 refinement)  [owner: backend-developer] [size: S] [depends: T9] [blocks: account-lifecycle plan; not v0.2.0; target 2026-10-31 (bounded), blocks percent, in-app deletion and store submission]
 - **Description.**
   - Extend `identity.Directory` (reuse-first: a new method, no second cache). For example,
     `LookupProfiles(ctx, uids) (found map[string]Profile, missing []string, err)`, where `missing` means "no

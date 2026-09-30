@@ -147,7 +147,7 @@ are the Dependabot and Actions-pinning items (the letters collide).
 | Item | Risk | Decision | Rationale (evidence) | Mitigation | Owner | Follow-up date / trigger |
 |---|---|---|---|---|---|---|
 | R-1 (T26: Mute has no existence check; sec-L2, ADR-0008 A1) | Junk uids in the caller's own `muted[]`, cap 2,000, about 258 KB per graph doc | **ACCEPT** (allowlist only) | Bounded by the cap and by the caller's own doc; no other user affected. Confirmed unbuilt: `graph-code-review.md` N6 | 2 allowlisted accounts; `graph_mutation_daily` cap 500 (#27) | BE (T26) | Ship before T25 `percent` |
-| R-2 (T27: `muted[]`/`blocked[]` residue of a deleted uid in other users' docs) | Right-to-delete gap (CLAUDE.md rule 10): a deleted account's pseudonymous uid persists in others' arrays; confirmed by the drill 2026-09-30 (`account-deletion.md` drill table) | **ACCEPT for smoke-a/smoke-b only. DEFER for any real user, `percent`, in-app deletion and store submission** | It is a privacy residue, so it cannot be accepted for real users. Smoke data is synthetic and the accounts are deleted after the watch. Condition (b) is **met**: #41 and #42 merged; `account-deletion.md` lines 85-88 now say T27 is not built. Condition (c) is **not met**: privacy draft #37 is unmerged | Runbook wording fixed; smoke accounts interact only with each other; purge per runbook | BE (T27), F (#37 Q3 wording) | T27 before any real user is allowlisted or `percent`; blocks the in-app deletion plan. Proposed target 2026-10-31 |
+| R-2 (T27: `muted[]`/`blocked[]` residue of a deleted uid in other users' docs) | Right-to-delete gap (CLAUDE.md rule 10): a deleted account's pseudonymous uid persists in others' arrays; confirmed by the drill 2026-09-30 (`account-deletion.md` drill table) | **ACCEPT for smoke-a/smoke-b only, as a BOUNDED TEMPORARY risk (target 2026-10-31, founder-approved 2026-10-01). DEFER for any real user, `percent`, in-app deletion and store submission** | It is a privacy residue, so it cannot be accepted for real users. Smoke data is synthetic and the accounts are deleted after the watch. Condition (b) is **met**: #41 and #42 merged; `account-deletion.md` lines 85-88 now say T27 is not built. Condition (c) is **not met**: privacy draft #37 is unmerged | Runbook wording fixed; smoke accounts interact only with each other; purge per runbook | BE (T27), F (#37 Q3 wording) | **Follow-up date 2026-10-31 (approved, bounded; not an indefinite acceptance).** T27 must ship before `percent`, before in-app deletion and before store submission, and before any real user is allowlisted. Owner: backend-developer, ticket T27 (`docs/plans/graph.md`) |
 | R-3 (T28: `_` still a legal uid character; ADR A3, sec-I2) | Edge id `{a}_{b}` collides only for uids containing `_` | **ACCEPT** (allowlist only) | Bounded: Firebase-issued uids do not contain `_` (ADR A3). The one-off `auth:export` count on dev and prod has **not been run: unverified** that no existing uid has `_` | Allowlist is 2 known uids; confirm neither contains `_` when their uids are recorded | BE (T28), PD (count) | Run the count and ship T28 before T25 `percent` |
 | R-4a (sec-L5: Block/purge race leaves a dangling `blocked[]` entry) | Dangling uid in an array, never shown | **ACCEPT** | Bounded, same class as R-2 (T27 clears it); purge is founder-run and rare | Runbook Step 0 gate (DELETING + 120 s) | BE | Backlog; fold into T27 |
 | R-4b (sec-L6: opsctl `--skip-start-gate` needs no extra confirmation, no target banner, dry-run prints `blocked_by`) | Data-loss risk from a destructive operator tool | **DEFER** | I will not recommend accepting an unhardened destructive path. Bounded to the founder as sole operator, and the runbook's 6b part is handled | Use only on smoke accounts; never pass `--skip-start-gate`; check `--project` before running; keep dry-run output private | BE | Harden before opsctl touches any real user's data or before `percent`. Target 2026-10-31 |
@@ -170,8 +170,8 @@ are the Dependabot and Actions-pinning items (the letters collide).
 | v0.1.0 L1 (default Compute SA has Editor) | Standing over-privileged identity | **DEFER** | Nothing runs as it (v0.1.0 §4), but removal was promised for "the next infra PR" and I cannot verify it happened: unverified | Nothing runs as it | PD | Remove the role in the next infra PR (needs founder OK); target 2026-10-12 |
 | v0.1.0 L2, L3 (`ci-deploy` `firebase.viewer`; CSP Report-Only) | Narrow read role; CSP not enforced | **ACCEPT** | L2 is mintable only by the pinned workflows at `v*` tags in `prod`; L3 has other headers in place (v0.1.0 §4) | As stated | PD | Enforce CSP before `percent` (proposed) |
 | v0.1.0 L8 (no password policy, MFA off) | Account takeover | **ACCEPT only with the two 2FA confirmations in §9; otherwise REJECT** | Condition carried from v0.1.0; the confirmations are unchecked | Founder 2FA on GitHub and the Owner Google account | F | Confirm at sign-off |
-| v0.1.0 L6 (Dependabot off, no osv-scanner) | Unpatched dependencies, no automated scan | **REJECTED as an acceptance. Not renewed.** | The v0.1.0 acceptance expires **2026-10-12** and must not be renewed. Not done: `.github/` contains only `workflows/` (checked on this branch) | Work tracked in the in-flight PR branch `chore/dependabot-and-pinned-actions`; `govulncheck` in `ci.yml` meanwhile | PD | **Hard date 2026-10-12** |
-| v0.1.0 L7 (Actions pinned by tag, not SHA) | Supply-chain risk in CI that holds prod WIF | **REJECTED as an acceptance. Not renewed.** | Same expiry **2026-10-12**; same branch `chore/dependabot-and-pinned-actions` | WIF pin to repo, tag ref, workflow file and environment | PD | **Hard date 2026-10-12** |
+| v0.1.0 L6 (Dependabot off, no osv-scanner) | Unpatched dependencies, no automated scan | **REJECTED as an acceptance. Not renewed. PARTIALLY CLOSED 2026-10-01** | The v0.1.0 acceptance expires **2026-10-12** and must not be renewed. Dependabot is done (#45, `.github/dependabot.yml`). Remaining: pin `govulncheck`, `firebase-tools`, `ko` and `gcloud` to exact versions; add `osv-scanner`; enable the repo setting "require full-length SHA pinning" | Remaining work tracked in issue #46; `govulncheck` in `ci.yml` meanwhile | PD | **HARD deadline 2026-10-12, not renewed** (issue #46) |
+| v0.1.0 L7 (Actions pinned by tag, not SHA) | Supply-chain risk in CI that holds prod WIF | **CLOSED by #45 (2026-10-01)** | All GitHub Actions are SHA-pinned (#45 merged). `deploy-dev` passed on the pinned workflows (run 36682278696, main `71972bf`). **`release-prod` and `promote-prod` pinned paths are untested until the tag** | WIF pin to repo, tag ref, workflow file and environment | PD | Verify at the tag (P2, P3); the remaining hardening is under L6 / issue #46 |
 | R-N1 (Error Reporting API disabled) | Errors visible only via a Logs Explorer query | **ACCEPT** | Substitute query in §5 P2.8 and P6; 0 cost | Manual watch | PD | Enable the API before `percent` (needs founder OK) |
 | R-N3 (5xx alert is a fixed rate; `/health` touches neither Firestore nor Auth) | Silent partial outage | **ACCEPT** | Covered by the manual 7-day watch (§5 P6) | Manual watch, uptime check | SEC, PD | Revisit at `percent` |
 | R-N5, R-N7, R-N9 (`/` cache rule; pubspec `1.0.0+1`; prod Identity Platform config not in Terraform) | Cosmetic or config drift | **ACCEPT** | Bounded, documented in v0.1.0 §4 | Admin-API changes documented | PD | N9 with the next infra PR |
@@ -179,6 +179,20 @@ are the Dependabot and Actions-pinning items (the letters collide).
 | R-N12 (UGC: block exists, no report tool) | Store-policy and abuse-handling gap | **ACCEPT for allowlist. DEFER for real users and store submission** | No UGC beyond profile text in v0.2.0 and 2 accounts | Allowlist scope | BE, frontend | Before any store submission or `percent` |
 
 The founder signs in §9; the boxes there stay unchecked. Nothing in this table is a GO.
+
+### 4.2 Founder decisions recorded 2026-09-30 / 2026-10-01
+Recorded by the production-deployer at the founder's instruction. These are decisions, not sign-offs: the §9 boxes stay
+unchecked and only the `production-reviewer` may change the verdict line.
+
+1. **Release decisions (approved).**
+   - Prod Terraform apply is done (2026-09-30): `FEATURE_GRAPH=allowlist` for smoke-a and smoke-b only; revision `api-00005-9df` at 0% traffic; `api-00003-tiw` serves 100% (reported, not re-verified here; verify at P2.2 and P2.7).
+   - Tagging `v0.2.0` is **approved in principle but BLOCKED** until (a) both 2FA confirmations in §9 are completed by the designated human reviewers and (b) the `production-reviewer` has written the verdict. Once both confirmations are done, the production-reviewer issues the final verdict.
+   - `promote-prod.yml` requires an exact line `VERDICT: GO` (`grep -qx`) in this file at the tagged commit. Therefore the tag must be pushed **only after the verdict is recorded on `main`**. Tagging first would make promotion fail.
+   - 2FA confirmations: PENDING - to be completed by the designated human reviewers (not by the assistant).
+2. **Privacy #37 blocks ANY real-user allowlisting.** smoke-a and smoke-b remain the only allowlisted accounts. The allowlist must not expand until the outstanding privacy decisions (#37 Q1 to Q7) are resolved and the published policy matches the implementation.
+3. **Dependabot PRs #47 to #55 (and any new routine ones) are HELD until after v0.2.0.** Not merged during the release window. A security triage of them is in progress for critical/high or release-blocking issues; escalate immediately if any is found. Triage result: **pending**. The pinned Actions from #45 are merged and `deploy-dev` passed on them (run 36682278696, main `71972bf`). The `release-prod` and `promote-prod` pinned paths are **untested until the tag**.
+4. **T27 (lazy `muted[]` clean-up), target 2026-10-31: APPROVED as a BOUNDED TEMPORARY risk**, not an indefinite acceptance. Owner backend-developer (ticket T27), follow-up date 2026-10-31. R-2 remains ACCEPT for smoke accounts only. T27 must ship before `percent`, before in-app deletion and before store submission. `percent` rollout stays **BLOCKED** on T26, T27, T28, S3 and S4.
+5. **L6 remaining work** is tracked in issue #46 with a **HARD deadline of 2026-10-12, not renewed**. L6 is partially closed (Dependabot done in #45). Remaining: pin govulncheck, firebase-tools, ko and gcloud to exact versions; add osv-scanner; enable the repo setting "require full-length SHA pinning". L7 is closed by #45.
 
 ### 4.1 Background detail
 The founder accepts or rejects each item. "Expires" says when it stops being acceptable. Items marked *Recommend reject*
@@ -228,7 +242,7 @@ are the ones I would not sign without a fix. Where this detail and the table in 
 
 **Process and release**
 - **R-P1 — Privacy policy update (#37) is a draft, unpublished.** Prod's live `/privacy` does not describe the graph.
-  Allowlist is founder + 2 smoke accounts, so no third party's data is processed *as long as they only follow and block
+  Allowlist is smoke-a and smoke-b only (the earlier "founder + 2 smoke" wording is superseded), so no third party's data is processed *as long as they only follow and block
   each other*. **Condition to accept:** during `allowlist` the three accounts interact only with one another, and #37 is merged and
   published (Hosting deploy) **before any real user is added to the allowlist and before `percent`**. Open questions in #37
   (Q1 Draft marker and timing, Q2 runbook now fixed, Q3 muted residue wording, Q4 block-inference sentence, Q5 timestamps,
@@ -258,7 +272,7 @@ are the ones I would not sign without a fix. Where this detail and the table in 
 - **L1, L2, L3, L8** (default Compute SA Editor; `ci-deploy` `firebase.viewer`; CSP Report-Only; no password policy and MFA off).
   L8's condition is the two 2FA confirmations in §9.
 - **L6 (Dependabot off, no osv-scanner) and L7 (Actions pinned by tag)** were accepted for 2 weeks after launch. Launch was
-  2026-09-28, so **they expire 2026-10-12**. Neither is done (`.github/` has only `workflows/`).
+  2026-09-28, so **they expire 2026-10-12**. Update 2026-10-01: L7 is closed and Dependabot is done (#45); the rest of L6 is issue #46, hard deadline 2026-10-12 (§4.2 item 5).
 - **R-N1** Error Reporting API disabled (Logs Explorer substitute). **R-N3** 5xx alert is a fixed rate and `/health` touches
   neither Firestore nor Auth. **R-N5** `/` cache rule. **R-N7** `app/pubspec.yaml` is still `1.0.0+1` (cosmetic).
   **R-N9** prod Identity Platform config is not in Terraform. **R-N11** mobile artifacts use dev's Android config. **R-N12**
@@ -267,7 +281,7 @@ are the ones I would not sign without a fix. Where this detail and the table in 
 
 ## 5. Promotion procedure (any failed gate means stop and roll back per §6)
 **P0 — before tagging**
-1. Close B1 to B4 in §7. Sign §9. The reviewer changes the last line to `VERDICT: GO`.
+1. Close B1 to B4 in §7. Sign §9 (both 2FA confirmations by the designated human reviewers). The reviewer changes the last line to `VERDICT: GO`. **Ordering (founder decision 2026-10-01):** `promote-prod.yml` requires an exact `VERDICT: GO` line at the tagged commit, so the verdict must be recorded on `main` **before** `v0.2.0` is pushed (steps 2 to 6 below).
 2. Merge #41 (docs), decide #37 (R-P1), and merge the reviewer's GO PR.
 3. Create the 2 prod smoke accounts (verified email; step P2.4a). Record their uids. Apply the allowlist (R-P2 option 1).
 4. Run `gh workflow run CI --ref main` on the final commit and record the run ID (all jobs green).
@@ -402,16 +416,16 @@ Status as of 2026-09-30 after merging `origin/main` (`5df9305`).
 - **B3 — Prod smoke accounts: partly resolved, unverified.** The allowlist names smoke-a and smoke-b (reported), so the accounts exist or their uids are known. Still to confirm at P2.5: verified emails and profiles, a non-allowlisted account C, and that neither uid contains `_` (R-3). Their uids may be recorded in this document.
 - **B4 — Privacy policy #37 (R-P1): OPEN.** #37 is still OPEN. Not a blocker for the smoke accounts only, and it must stay that way; it is a hard gate for any real user and `percent`. Founder answers Q1-Q7.
 - **B5 — Docs defect (R-2): RESOLVED.** #41 and #42 merged; `account-deletion.md` lines 85-88 now say the residue persists until T27.
-- **New — B6 — Founder sign-off and both 2FA confirmations (§9) are unchecked.** Needed before the reviewer can write GO.
+- **New — B6 — Founder sign-off and both 2FA confirmations (§9) are unchecked: OPEN.** PENDING - to be completed by the designated human reviewers (not by the assistant). Needed before the reviewer can write GO; tagging `v0.2.0` is BLOCKED on it (§4.2).
 - **New — B7 — CI run on the tag commit** (`gh workflow run CI --ref main`) not yet run (§5 P0.4). GATED.
 - **Blocks T25 `percent` (not `allowlist` with trusted smoke accounts):** T26 (Mute existence), T27 (`muted[]` residue), T28 (`_` uid rule, plus the `auth:export` count), T29 (proto comments/skill, lands with T26), code-review S3 (race test) and S4 (retry jitter, cancel mapping), sec-L7 (page-size lever), sec-L9 decision, the L8 fields, opsctl hardening (R-4b), M6 App Check decision. T27 also blocks in-app account deletion. T30 is parked.
-- **Expiring, not renewable:** v0.1.0 L6 (Dependabot, osv-scanner) and L7 (SHA-pinned Actions) are **REJECTED as acceptances**. Work is in the in-flight branch `chore/dependabot-and-pinned-actions`. **Hard date 2026-10-12.**
-- **Follow-ups (docs, not edited here):** update `cost-model.md` section 9 and the `cost-report-v0.2.0.md` "Dashboard notes" (they say no code emits `graph_op`; #36 changed that); ADR-0003 delete-path note for `quotas/{uid}` (S1); re-check `quotas/{uid}` on the next deletion drill and on the smoke-account cleanup; correct the "founder + 2 smoke accounts" wording in the scope line, §1 and §5 to "smoke-a and smoke-b only" (the allowlist, as reported, does not contain the founder's account).
+- **Expiring, not renewable:** v0.1.0 L6 is **partially closed** (Dependabot done in #45; exact-version pins for govulncheck/firebase-tools/ko/gcloud, `osv-scanner` and the "require full-length SHA pinning" repo setting remain, issue #46). **HARD deadline 2026-10-12, not renewed.** L7 is **closed by #45**.
+- **Follow-ups (docs, not edited here):** update `cost-model.md` section 9 and the `cost-report-v0.2.0.md` "Dashboard notes" (they say no code emits `graph_op`; #36 changed that); ADR-0003 delete-path note for `quotas/{uid}` (S1); re-check `quotas/{uid}` on the next deletion drill and on the smoke-account cleanup; the "founder + 2 smoke accounts" wording is now corrected to "smoke-a and smoke-b only" (2026-10-01, also in `docs/plans/graph.md`; the allowlist does not contain the founder's account). Release notes §8 wording fixed too.
 - **Recommended, not blocking:** enable `clouderrorreporting.googleapis.com` (R-N1); pubspec version (R-N7); remove default Compute SA Editor (v0.1.0 L1).
 
 ## 8. Release notes — v0.2.0
 Social graph for dZeroth (web, https://dzeroth.com). **Not visible to users yet:** the feature is off in production and enabled
-for the founder and two test accounts only. It turns on for everyone in later steps.
+for two internal test accounts only. It turns on for everyone in later steps.
 - Follow and unfollow accounts; see followers and following counts and lists (public accounts).
 - Block an account: it can no longer follow you or see your profile, and follows between you are removed both ways. Blocks and mutes are not
   disclosed to the other account. Mute an account silently. Settings lists your blocked and muted accounts.
@@ -422,11 +436,13 @@ for the founder and two test accounts only. It turns on for everyone in later st
 
 ## 9. Sign-off (required)
 I accept or reject each item in §4, and confirm the §7 blockers are closed or explicitly waived.
-- [ ] R-1  [ ] R-2 (with conditions b and c)  [ ] R-3  [ ] R-4  [ ] R-5  [ ] R-6  [ ] R-7  [ ] R-8  [ ] R-9  [ ] R-10
+- [ ] R-1  [ ] R-2 (with conditions b and c; bounded to 2026-10-31)  [ ] R-3  [ ] R-4  [ ] R-5  [ ] R-6  [ ] R-7  [ ] R-8  [ ] R-9  [ ] R-10
 - [ ] R-P1 (privacy condition)  [ ] R-P2 (option chosen: ___)  [ ] R-P3  [ ] R-P4
-- [ ] Carried v0.1.0 items per §4.0 (v0.1.0 L6 and L7 are rejected as acceptances, not renewed; hard date 2026-10-12)
-- [ ] 2FA is still enabled on GitHub account `mohamadkaifshaik`.
-- [ ] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`.
+- [ ] Carried v0.1.0 items per §4.0 (v0.1.0 L6 partially closed, remainder in issue #46 with hard date 2026-10-12, not renewed; L7 closed by #45)
+- [ ] 2FA is still enabled on GitHub account `mohamadkaifshaik`. PENDING - to be completed by the designated human reviewers (not by the assistant)
+- [ ] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`. PENDING - to be completed by the designated human reviewers (not by the assistant)
+
+All boxes above are intentionally unchecked. The assistant does not tick any sign-off box (the founder decisions in §4.2 are recorded as decisions, not as sign-offs).
 
 Approved by: ______  Date: ______
 
