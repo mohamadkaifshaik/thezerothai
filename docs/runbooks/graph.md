@@ -59,6 +59,17 @@ repairing data.
 5. A `follows` edge with no matching `graph.following` entry (or the reverse) is repaired by hand the same way, or,
    for an abusive or deleted account, by the graph purge in `account-deletion.md`.
 
+**Symptom: "a user can't unfollow an account that no longer exists."** Unfollow answers "not following" (NONE), but
+the account stays in the user's Following list and count. This is ADR-0009 state S2: `users/{b}` was deleted
+(account-deletion Step 2) before `purge-graph` finished for `b`, so the counter update in Unfollow's batch fails and
+the whole batch is a no-op. No API path produces it; only the deletion steps run out of order. Don't hand-edit the
+edge. Run the repair in `docs/runbooks/account-deletion.md` ("Repair: Step 2 ran before the purge finished"):
+`opsctl purge-graph --skip-start-gate` for the deleted uid, then the dry run must show 0/0 edges, then check the
+followers' counters with steps 1 to 3 above. If instead the edge doc is missing while the uid is still in the
+caller's `following` (state S1), the only producers are an account set back to ACTIVE after purge step 1 (forbidden:
+deletion is one-way, ADR-0009) or a hand edit. For the first, finish that account's deletion; for the second, repair
+by hand as in step 5 and record the cause.
+
 Do not build an automatic recount job at Stage 0 (ADR-0008 D3).
 
 ## 3. Transaction contention (UNAVAILABLE "temporarily busy")

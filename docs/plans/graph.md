@@ -389,6 +389,8 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - **Unfollow** is a blind batch:
     - `Delete(follows/{a}_{b}, Exists)`, `ArrayRemove` on the caller's following, and decrement both counters.
     - A `NotFound` on commit means not following: return NONE (idempotent, 0 writes).
+    - That answer is correct by the standing edge invariant of ADR-0009 (for an ACTIVE caller, the edge, the
+      `following` entry and both `users` docs exist together), so no extra read is added (review N4, closed).
   - Idempotency key: validate its format and don't store it. Natural keys make both RPCs replay-safe (ADR-0003).
 - **Acceptance criteria.**
   - Given A doesn't follow B, when A follows B, then `follows/A_B` exists, B ∈ `graph/A.following`,
@@ -1058,6 +1060,7 @@ Added by the planner, 2026-09-30.
 | Deferring private accounts disappoints users, or `isPrivate=true` exists in prod | Medium / low | L9 closed (reject + prod count check in T23); `private-accounts` plan queued next to posts |
 | A list-scraping account burns most of the daily read quota | Low / cents | Daily list cap, buckets, logs query, `abuse-spike.md`; lever: page_size 20 for other users' lists |
 | Counter drift from a bug in non-transactional paths | Low / medium (visible counts) | All counter changes sit in the same batch or transaction as the edge change; invariant checker; runbook repair |
+| A user can't unfollow an account whose `users` doc was deleted before its purge finished (review N4, ADR-0009 S1/S2) | Very low (ops error only) / medium for that user | Standing edge invariant (ADR-0009) pinned by T32; `CACHE_TTL ≤ 60 s` startup check (T33); runbook Step 2 needs a 0/0-edge dry run, deletion is one-way, S2 repair via `purge-graph --skip-start-gate` (T34) |
 | Hot `users/{uid}` doc with > 1 follow/s (a viral account) causes contention | Very low at Stage 0 | Measured through `txn_attempts`; sharded counters need an ADR (free-tier-budget §6) |
 | The profile screen is owned by two plans (graph now, posts later) | Medium / low | This plan builds only the header; the posts plan extends the body; ui-catalog entry |
 | The manual deletion runbook becomes wrong once graph data exists | High if T22 is skipped | T22 is a hard dependency of T24 (readiness checks the runbook) |

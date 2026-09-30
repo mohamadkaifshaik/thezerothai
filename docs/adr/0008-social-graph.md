@@ -5,6 +5,8 @@ convention (supersedes the per-RPC table in Cost impact) and the `_` uid invaria
 Amended 2026-09-30 ("Amendment 2026-09-30 (2): Follow planning value 4, Unfollow logged read, `Forget` kept" below):
 measured T17/T18 numbers replace A2's Follow planning value (3 → 4) and add Unfollow's logged interceptor read; the
 founder's decision to keep `directory.Forget` is recorded with its reopen criteria.
+Amended 2026-09-30 ("Amendment 2026-09-30 (3): pointer to ADR-0009" below): D3 invariant 1 is extended by the
+standing invariant in ADR-0009; no decision here changes.
 Date: 2026-09-28
 Deciders: architect, founder (D1: private accounts and follow requests deferred — founder decision, 2026-09-28)
 
@@ -707,6 +709,18 @@ stand.
   batch; `firestore-data-model` skill Follow row `4 cold / 2 warm, planning 4`, Unfollow row `0 own (+1 interceptor)`.
 - **planner:** T30 in `docs/plans/graph.md` is parked behind the B2 reopen criteria (updated in this change).
 - **frontend-developer / production-deployer:** nothing.
+
+## Amendment 2026-09-30 (3): pointer to ADR-0009
+Documentation only; no decision in this ADR changes and the D3 text above stays as accepted.
+- **D3 invariant 1** (`follows/{a}_{b}` exists ⇔ `b ∈ graph/{a}.following`) is extended by the standing invariant in
+  [ADR-0009](0009-unfollow-noop-invariant.md): for any ACTIVE account, the edge, the `following` entry and both
+  `users/{a}` and `users/{b}` docs exist together; only the account under purge may violate it, and it can't call RPCs.
+- Consequence for D3's "How each mutation keeps them": Unfollow's blind batch answering NONE on any failed
+  precondition (edge `Exists` or a counter `Update` on a missing `users` doc) is correct under that invariant, so the
+  0-read Unfollow budget (A2, B1) stands. The ops paths that could break it (deleting `users/{uid}` before the purge
+  finishes, un-deleting after purge step 1, `CACHE_TTL` above 60 s, half the 120 s start gate) are closed by ADR-0009 E:
+  `docs/runbooks/account-deletion.md` and the `CACHE_TTL ≤ 60 s` startup check.
+- Review item N4 (`docs/reviews/graph-code-review.md`) is closed by ADR-0009. Cost impact: $0, +0 reads/writes.
 
 ## Handoff
 - **backend-developer:** T3 `pkg/platform/flags` per D6 (salted bucketing, fail-fast parsing, retirement rule) and
