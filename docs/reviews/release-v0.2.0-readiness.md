@@ -1,0 +1,373 @@
+# Release readiness — v0.2.0 (social graph: follow, block, mute, lists; flag off, then allowlist)
+
+Inputs prepared by the production-deployer agent, 2026-09-30 (ticket T24, `docs/plans/graph.md`). **This is an input
+package, not a verdict.** The `production-reviewer` runs the `production-readiness` checklist over it and owns the final
+line. Nothing was tagged, applied, deployed or changed. Evidence below comes from git, `gh` and read-only
+`gcloud ... describe/list` calls on 2026-09-30. Where a claim came from the caller and I could not re-verify it, it is
+labelled **(reported)**.
+
+Scope: the API (identity changes plus the new `GraphService`) goes to Cloud Run `api` in `dzeroth-prod` as a
+`--no-traffic --tag candidate` revision, then 10%, then 100%. The web bundle goes to Firebase Hosting at `stage=100`. The
+graph itself stays behind `FEATURE_GRAPH`: prod serves it to **founder + 2 prod smoke accounts only** (`allowlist`).
+The `percent` and `on` stages are T25 and need their own addendum (§4, §7). **No store submission.**
+
+Release candidate: `main` at or after `ee48c19`.
+- Last backend change: `c558c9c` (#36, graph log fields).
+- Since then: #38 (`859166a`, one test file) and #31 (`d397c70`, Terraform env vars, dev and prod) plus docs.
+  `git diff --stat c558c9c ee48c19 -- backend app proto firebase infra Makefile` is 5 files: 4 Terraform env files and
+  `mutations_integration_test.go`.
+- Diff against v0.1.0: `git diff --stat v0.1.0 ee48c19 -- backend app proto firebase firebase.json infra .github Makefile`
+  is 142 files, +18106/-598. That is the whole graph slice, so P0.3 compares against the final release commit instead
+  (§5).
+
+Status labels as in v0.1.0: **PASS**, **FAIL** (blocking), **ACCEPTED** (a risk you sign off in §4), **GATED** (checked
+after `release-prod` stages the revision; pass/fail gate in §5), **N/A**, **OPEN** (input missing, see §7).
+The verdict is the last line of this file and is `PENDING` until the reviewer changes it.
+
+## 1. Inputs
+| Input | Status | Evidence |
+|---|---|---|
+| Plan with cost rows | PASS | `docs/plans/graph.md` (T1–T30, per-RPC budget table, abuse bounds, rollout plan, rollback triggers). Its Follow, Mute and slice-total numbers are superseded by ADR-0008 amendments, noted in the plan |
+| ADRs | PASS | `docs/adr/0008-social-graph.md`, Accepted. D1 (private accounts deferred, founder 2026-09-28) and D12 (export contents, founder 2026-09-28). **Amendment 2026-09-30** (#28): A1 Mute checks the target's graph doc exists, A2 cold/warm budgets, A3 `_` reserved in uids. **Amendment 2026-09-30 (2)** (#35): Follow plans at 4 reads, Unfollow logs 1 read, `directory.Forget` kept (founder), with B2 reopen criteria |
+| Test report | PASS (caveats) | `docs/reviews/test-report-graph.md` (#34): `VERDICT: PASS`. `make ci` green (Flutter 143 tests), `make test-int` 722 then 723 PASS, `internal/` coverage 89.4% (gate 70%), every measured RPC at or under budget, visibility matrix and invariant sweeps pass. Caveats in §4 (flaky test, no `-race` on Windows, smoke not yet run on cloud) |
+| CI on the release commit | PASS at PR head / **GATED at tag** | CI runs on PRs only (`ci.yml` `on: pull_request`). Latest code-bearing PR head: `6a945fe` (#38), run 36673550097, both jobs success. The Linux log shows `go test -race` in **both** `make ci` and `make test-int`, which closes the test report's "no -race" caveat for that head. Run `gh workflow run CI --ref main` on the final release commit (it has `workflow_dispatch`) and record the run ID before tagging |
+| Code review | **OPEN** (B2) | T19 requires `docs/reviews/graph-code-review.md` with 0 open blockers. **The file does not exist on `origin/main`.** Only `phase0-code-review.md` exists. Per-PR review comments were not checked. The security review and the tester's budget assertions cover much of the same ground, but the checklist item is not evidenced |
+| Security review | PASS (conditional, see below) | `docs/reviews/security-review-graph.md` (#24): 0 Critical, 0 High, 4 Medium, 9 Low. Current status in the table below |
+| Cost report | PASS | `docs/reviews/cost-report-v0.2.0.md` (#33) and `docs/reviews/cost-model.md`: identity + graph at 300 DAU is 6.1k reads/day (12.2% of quota), 0.93k writes (4.6%), 30 deletes. Emulator load numbers in `docs/reviews/loadtest-graph.md` (#32). Section 3 |
+| No unapproved fixed-cost resource | PASS | #31 adds env vars only. Cost report states `cost-guard` clean (0 forbidden resources). `api` stays min 0, max 3, 1 vCPU, 512 Mi, concurrency 80 (checked live on `api-00004-5b2`) |
+| Terraform prod | PASS **(reported)** | Prod env-var apply done 2026-09-30: 0 added, 2 changed, 0 destroyed. Consistent with live state: `api-00004-5b2` was created 2026-09-30T06:17:47Z with the graph env vars and `FEATURE_GRAPH=off`. The plan/apply run ID was not supplied |
+| Rollback target identified | PASS | `api-00003-tiw` (v0.1.0, image `sha256:74fe11b1...`) is at 100% with the `candidate` tag. Section 6 |
+| L9 (v0.1.0): `isPrivate` not enforced | PASS **(reported)** | Code: `UpdateProfile(is_private=true)` is rejected with VALIDATION (T6; `TestT16b` covers it, test report section 6). Prod data: `count(users where isPrivate == true)` = **0**, read-only check 2026-09-30 (reported; not re-run here) |
+| Firestore indexes | GATED | All 7 composite indexes READY on prod and dev today. `graph.blockedBy` is index-exempt in `firestore.indexes.json` but the exemption is **not yet on prod** (prod field overrides for `graph`: following, blocked, muted, requested). `release-prod` deploys `firestore:rules,firestore:indexes` before the revision. P2.3 checks it |
+| Dev validation | PASS **(reported)** | Dev applied; feature flag `graph=on` (verified: `FEATURE_GRAPH=on` on the live dev revision); T17 smoke passed on dev; T22 deletion drill passed (below). Dev now serves `api-00037-52x` (the one you named, `api-00035-znb`, is older; docs-only merges since redeployed dev). No artifact for the dev smoke run is in the repo, so attach its output at P7 |
+| Runbooks | PASS with a docs defect | `account-deletion.md` (#30, drill record #40), `graph.md` (#30, log fields #39), `abuse-spike.md` section 5a (#30), `cost-spike.md`, `rollback.md`. **Defect:** `graph.md` section 4 and `account-deletion.md` say muted/blocked lists self-clean deleted uids on read (T27), but T27 is not built. Fix for `graph.md` is open PR #41. `account-deletion.md` lines 84-86 make the same claim and #41 does not touch them |
+| Feature flags and rollout plan | PASS | Section 5 and 6. Prod default `off` (verified live). Config fails fast on invalid values (`flags.go`) |
+| Privacy policy | **OPEN** (B4) | Draft PR #37 (`app/web/privacy.html`) is **not merged and not published**. See §4 R-P1 |
+| Mobile | N/A | Web only. `release-prod` still builds AAB/iOS artifacts from the tag; do not distribute (v0.1.0 R-N11) |
+
+### Security findings: status on `origin/main` (verified in code, 2026-09-30)
+| ID | Sev | Status | Where (PR) and evidence |
+|---|---|---|---|
+| M1 page tokens leak hidden uids | Medium | **FIXED** (#27) | `pkg/platform/cursor/cursor.go`: AES-256-GCM, key from HKDF of `CURSOR_HMAC_KEY`, bound to caller/list/target, 24 h TTL (`TTL`). Old tokens are rejected as VALIDATION. `security_fixes_integration_test.go` |
+| M2 replay amplification | Medium | **FIXED** (#27) | `apiserver.go`: `graph_mutation_daily` DailyCap on all 6 mutations; `GRAPH_MUTATIONS_PER_DAY` default 500 (also set on prod `api-00004-5b2`) |
+| M3 GetProfile serves non-ACTIVE | Medium | **FIXED** (#27) | `identity/service.go`: non-ACTIVE and caller != owner returns the missing-user NOT_FOUND. `identity/security_fixes_test.go` |
+| M4 deletion runbook bypasses purge | Medium | **FIXED as a runbook, drilled** (#30, #40) | `account-deletion.md`: Step 0 DELETING + `updatedAt` + 120 s, `opsctl purge-graph`, then delete `users`/`handles`/Auth; `export-graph` in 3a. Drill 2026-09-30 on `dzeroth-dev`: PASS, 3 min 47 s (target < 10 min). Residue check clean except `A.muted[]` still naming the deleted uid (see T27 below) |
+| L1 daily caps reset after 24 h | Low | **FIXED** (#27) | `ratelimit/daily_cap.go`: no idle TTL; IST midnight is the only reset |
+| L2 Mute accepts nonexistent ids; lazy clean-up | Low | **OPEN** | Decided in ADR A1 (#28). Fix = T26 (Mute existence) and T27 (lazy clean-up); **neither built**. `Mute` in `repo_firestore.go` has no existence check |
+| L3 reserved ids `__x__` cause 500s | Low | **FIXED for `__x__`** (#27); `_` rule OPEN | `reservedDocID` in `identity/validate.go`. `userIDRe` is still `^[A-Za-z0-9_-]{1,128}$`. ADR A3 `_` reservation = T28, not built |
+| L4 raw uids in ERROR logs | Low | **FIXED** (#27) | `logger.RedactErr` around graph error chains (`follows_list.go`, `lists.go`) |
+| L5 Block/purge race leaves dangling entry | Low | **OPEN** | Backlog. Block does not check ACTIVE; Unblock still updates the target graph unconditionally |
+| L6 opsctl hardening | Low | **PARTLY** | 6b handled in the runbook (Step 0 sets `updatedAt`). Still open: `--skip-start-gate` needs no extra confirmation, no target banner, no SA-key refusal, dry-run prints `blocked_by` |
+| L7 page-size lever for other users' lists | Low | **OPEN** | No `GRAPH_OTHER_LIST_MAX_PAGE_SIZE` in code or Terraform |
+| L8 log fields | Low | **PARTLY** (#36, #39) | Emitted on the request line: `graph_op`, `outcome`, `txn_attempts`, `graph_cache_hit`, `edges_removed`, `feature_disabled` (`internal/graph/observe.go`). **Not emitted:** `rows_filtered`, `hydration_misses`, `lazy_removed`, purge fields, and the ErrorReason `reason` on the request line, so `QUOTA_EXCEEDED` is still heuristic |
+| L9 (security) Block/Mute behind the Follow flag | Low | **OPEN** | `checkFlag` guards every RPC. Harmless at `allowlist` (testers only) |
+| D1 (Unfollow Aborted) | n/a | **FIXED** (#27, #29) | Bounded retry with backoff; exhausted retry is UNAVAILABLE, not INTERNAL (runbook `graph.md` section 3) |
+| I1–I9 | Info | Accepted per review | I5 to I8 listed in §4 |
+
+Security verdict in the review: "CONDITIONAL: releasable once M3 and M4 are fixed and the M1/M2 allowlist-stage
+acceptances are signed." M1, M2, M3 are now fixed (no acceptance needed). M4 is fixed. The review's own condition for
+**`percent`** additionally needs M2, L1, L3 fixed (done for `__x__`) and, from the ADR follow-ups, T26 and T28 (§7).
+
+## 2. Checklist (`production-readiness`)
+**Quality: GATED / one OPEN.** `make ci` and `make test-int` are green with `-race` on Linux CI at `6a945fe`. Tag-commit CI
+run is required (§5 P0). Code-review record is missing (B2).
+
+**Security: PASS with acceptances in §4.**
+- 0 Critical, 0 High open. The four Mediums are fixed (table above).
+- `govulncheck ./...` is a step in `ci.yml` (job passed on run 36673550097). `osv-scanner` is not in CI (carried v0.1.0 L6).
+- Firestore rules are deny-all and released by `release-prod`. `blockedBy` never appears in a proto field, a response or
+  the export (test report section 6: serialized-JSON grep PASS).
+- App Check is `monitor` (carried M6). WIF is pinned to repo, `refs/tags/v*`, the two workflows and `environment==prod`.
+  No SA keys.
+
+**Cost: PASS.** Section 3. No new fixed-cost resource. Budget alerts (₹500/month per project) unchanged. Caps unchanged:
+max 3, min 0, concurrency 80, 512 Mi. New caps are env vars in Terraform: `QUOTA_BLOCKS_PER_DAY` 200,
+`QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY` 50, `LIST_CALLS_PER_DAY` 100, `GRAPH_MUTATIONS_PER_DAY` 500,
+`RATE_LIMIT_GRAPH_FOLLOW_PER_MIN` 30, `RATE_LIMIT_GRAPH_BLOCK_PER_MIN` 20, `RATE_LIMIT_GRAPH_LIST_PER_MIN` 20,
+`RATE_LIMIT_CHECK_HANDLE_PER_MIN` 20 (closes R-N8). Cost impact of these caps: bounded by the cost report's abuse table,
+worst case about 1.6k writes/day per abusive account, list scrape up to 61% of the daily read quota, all at the
+allowlist stage limited to 3 accounts. Degraded-mode switch was drilled on dev in v0.1.0 (B1); unchanged code path.
+Graph mutations are rejected in `readonly` (test report section 6).
+
+**Reliability: GATED.** Indexes and the `candidate` smoke are §5 P2. Data change is expand-only (`blockedBy` missing on
+old docs reads as empty; old code ignores it). No backfill. Pub/Sub and DLQ unchanged. Rollback target is the
+identical v0.1.0 image (§6).
+
+**Operability: PASS with R-N1 carried.** Error Reporting API is still disabled; the Logs Explorer `severity>=ERROR` query
+is the substitute (P2.5, P6). Runbooks exist (see the docs defect in §1). Release notes in §8. Flags default OFF in prod
+(verified live: `FEATURE_GRAPH=off`, `FEATURE_GRAPH_ALLOWLIST` empty, `FEATURE_GRAPH_PERCENT=0`). Rollout plan with triggers
+is §5 and §6.
+
+**Clients: GATED.** Web only. Graph UI is hidden unless `GetMe.enabled_features` contains `graph` (T12, widget tests). Web
+bundle size for the v0.2.0 build has not been measured (plan estimated about +150 KB); check in the `promote-prod`
+stage-100 build log (P4). v0.1.0 baseline was about 0.7 MB gzip of own JS.
+
+**Compliance: OPEN.** Delete and export now cover `graph/{uid}`, `follows/*` and the counters through `opsctl`
+(runbook, drilled). The one exception is other users' `muted[]` residue (§4 R-2). The privacy policy update is a draft
+(R-P1). UGC "block" now exists, which partly closes v0.1.0 R-N12; a report flow does not.
+
+## 3. Cost at the Stage 0 target (identity + graph, from `cost-report-v0.2.0.md`)
+| Quota | Per DAU/day | At 300 DAU | % of free | vs the 80% line |
+|---|---|---|---|---|
+| Firestore reads (50k/day) | 20.4 (identity 7.3 + graph 13.1) | 6.1k | 12.2% | 15.3% of the line |
+| Firestore writes (20k/day) | 3.1 | 0.93k | 4.6% | 5.8% |
+| Firestore deletes (20k/day) | 0.1 | 30 | 0.15% | 0.2% |
+| Cloud Run requests (2M/month, shared) | ~11.3 | ~102k/month plus uptime/CI | ~8% | large |
+
+- Sensitivities all pass: every graph cache cold gives 7.5k reads/day (15%); identity at its documented worst gives 10.0k (20%).
+- Follow plans at 4 reads (measured 3.96 to 3.98, emulator k6); Unfollow logs 1; lists 30.5 (midpoint of 20.2 warm and 41 cold).
+- Reads run out at about 2,450 DAU for identity + graph. The whole-product model (with unreleased likes, notifications,
+  timeline rows) crosses the 80% line at about 210 DAU. That is unchanged by v0.2.0's gate and remains an open finding in
+  `cost-model.md` section 3.
+- **Not measured:** everything above is emulator-measured or planning values. There are no real cloud p95 or cold-start numbers for v0.2.0;
+  P2 and P6 supply the first ones. `cost-model.md` prices are unverified upper bounds (carried R-N6).
+- **Stale text:** `cost-model.md` section 9 and `cost-report-v0.2.0.md` "Dashboard notes" say no code emits `graph_op` yet.
+  #36 changed that after they were written. Update at T25.
+- Launch-burst note: allowlist only, so the plan's 30k-write burst risk does not apply until `percent`.
+
+## 4. Risk acceptances needing human sign-off (sign in §9)
+The founder accepts or rejects each item. "Expires" says when it stops being acceptable. Items marked *Recommend reject*
+are the ones I would not sign without a fix.
+
+**Graph-specific**
+- **R-1 — T26 not built: Mute does not check the target exists (security L2, ADR A1).** Accepts: junk uids (up to 128
+  chars) in the caller's own `muted[]`, cap 2,000, about 258 KB worst case per graph doc. Reachable only by the 3
+  allowlisted accounts. **Expires:** blocks T25 `percent`.
+- **R-2 — T27 not built: other users' `muted[]` (and dangling `blocked[]`) keep the uid of a deleted account.** The drill
+  confirmed the residue (`A.muted[]` still named C). It is a pseudonymous uid, not an email or handle, and is never shown.
+  The runbooks (`graph.md` section 4, `account-deletion.md` lines 84-86, and privacy draft #37) currently *say the opposite
+  or promise a clean-up*. Accepting means: (a) you accept the residue for now, (b) you approve merging #41 and fixing the
+  `account-deletion.md` wording, (c) the privacy wording matches. **Expires:** blocks the account-lifecycle (in-app
+  deletion) plan and any store submission; not a `percent` blocker. *Recommend accept with (b) and (c) as conditions.*
+- **R-3 — T28 not built: `_` is still a legal uid character (ADR A3, security I2).** Edge ids `{a}_{b}` could collide only for
+  uids containing `_`. Firebase-issued uids never contain `_`. The one-off `firebase auth:export` count on dev and prod
+  (expected 0) is part of T28 and has **not** been run. **Expires:** blocks `percent`.
+- **R-4 — Security L5, L6 (except 6b), L7 open.** L5 dangling `blocked[]` after a purge race; L6 opsctl gate bypass without a
+  second confirmation and no target banner (founder-only tool); L7 no page-size lever for other users' lists (a
+  code change plus deploy instead of an env update during a scraping incident). **Expires:** L7 before `percent`; L5, L6
+  backlog.
+- **R-5 — Security L8 partly open.** No `reason` on the request line, and no `rows_filtered`, `hydration_misses`,
+  `lazy_removed` or purge fields (log fields shipped in #36: `graph_op`, `outcome`, `txn_attempts`, `graph_cache_hit`,
+  `edges_removed`, `feature_disabled`). Consequence: `QUOTA_EXCEEDED` spikes are found by the heuristic query in §5 P6, and hydration and filter
+  cost cannot be split out per RPC. **Expires:** before `percent` (rollout monitoring uses `feature_disabled` and `outcome`, which exist).
+- **R-6 — Security L9: Block, Unblock, Mute, Unmute are behind the same flag as Follow.** At `allowlist` no other user can
+  reach a tester, so no one is followed without a way to block. **Expires:** the first `percent` stage (a flag-on user could follow a flag-off user
+  who cannot block). *Recommend fixing before `percent`, not before v0.2.0.*
+- **R-7 — ADR-0008 D9 residual: `CheckHandleAvailability` says "taken" while `GetProfile` says NOT_FOUND.** The security
+  review recommends ACCEPT on condition that M3 is fixed (**it is**) and that product copy never promises a block is secret.
+  The privacy draft (#37, Q4) touches this. Already recorded in ADR-0008 D9; the review asks for it in this section too.
+- **R-8 — Accepted residuals from the review:** D8 staleness (up to 60 s on other instances; Follow reads fresh in its
+  transaction so no edge can be created), D2 overflow (needs 10,000 blockers of one account; fail-closed paths tested),
+  I5 (export lists the subject's own blocked entries), I6 (mutual block leaves no UI path to unblock), I7 (Follow NOT_FOUND
+  timing), I8 (blocker's last-seen profile stays in the blocked user's local cache until sign-out).
+- **R-9 — Test caveats.**
+  - `TestT16a_Race_ConcurrentDuplicateBlocksAndMutes` was flaky on the emulator (roughly 1 in 10 to 20 before de-flake).
+    PR #38 (`6a945fe`, "realistic contention and sequential replay") changed the test; CI run 36673550097 passed once after
+    it. There is no larger post-fix sample.
+  - CI run `f9ae82e` (an earlier de-flake attempt) failed, before #38.
+  - The remote-mode graph smoke has never run against a cloud URL except on dev (reported). Its first prod run is P2.
+  - Flutter: no golden or `integration_test` harness (outside T17).
+  - Test-report D-T17-2 (`Makefile` `FIREBASE :=` on Windows) is unfixed. It affects local runs only.
+- **R-10 — Follow costs 4 reads, not the plan's 3 (ADR amendment 2), because `directory.Forget` is kept (founder decision).**
+  Cost, about 1.1 reads/DAU. Reopens on the B2 criteria only.
+
+**Process and release**
+- **R-P1 — Privacy policy update (#37) is a draft, unpublished.** Prod's live `/privacy` does not describe the graph.
+  Allowlist is founder + 2 smoke accounts, so no third party's data is processed *as long as they only follow and block
+  each other*. **Condition to accept:** during `allowlist` the three accounts interact only with one another, and #37 is merged and
+  published (Hosting deploy) **before any real user is added to the allowlist and before `percent`**. Open questions in #37
+  (Q1 Draft marker and timing, Q2 runbook now fixed, Q3 muted residue wording, Q4 block-inference sentence, Q5 timestamps,
+  Q7 logged-out visibility) need your answers. Alternative: merge #37 before tagging so `stage=100` ships it with the
+  web bundle; that describes a feature that only 3 accounts can use.
+- **R-P2 — Candidate is staged with the wrong flag unless you choose a procedure (B1).** Plan says `candidate` runs
+  `FEATURE_GRAPH=allowlist`. `release-prod.yml` runs `gcloud run deploy --image ... --no-traffic --tag=candidate` with no env
+  flags, so the new revision **inherits the service template env**, which today is `FEATURE_GRAPH=off`, empty allowlist. Two ways
+  to get allowlist on the candidate; both need your OK:
+  1. *(recommended)* Before tagging, create the smoke accounts, then apply the prod Terraform variables
+     `feature_graph = "allowlist"` and `feature_graph_allowlist = "<uid1>,<uid2>,<uid3>"` (plan first, then OK). This creates a
+     template revision that gets no traffic (traffic and image are `ignore_changes`; `api-00003-tiw` keeps 100%). `release-prod`
+     then inherits it. Terraform stays the source of truth, so no drift.
+  2. After `release-prod`, run the drilled pinned-traffic update on the `candidate` revision with
+     `--update-env-vars FEATURE_GRAPH=allowlist,FEATURE_GRAPH_ALLOWLIST=...`, keeping the tag, then reconcile Terraform later.
+     This creates a second revision behind the tag (same image), and `promote-prod` still passes its image-tag check,
+     but Terraform will show drift until reconciled.
+  Also decide who is the third allowlisted uid: the founder's existing prod account.
+- **R-P3 — `promote-prod` is the approval.** No second reviewer on GitHub Free (carried from v0.1.0). Unchanged.
+- **R-P4 — Rolling back to v0.1.0 code re-opens two gaps for graph data that already exists:** `GetProfile` no longer
+  applies block hiding (old code has no `BlockChecker`), and `UpdateProfile(is_private=true)` is accepted again. Data is
+  untouched, and at `allowlist` only 3 accounts have graph data. Turn the flag off first (§6).
+
+**Carried from v0.1.0 (§4 there), still open**
+- **M4 (tf-plan `roles/viewer`, WIF pinned to repo only)** expires when a second collaborator is added.
+- **M6 App Check monitor-only** with the compensating controls listed in v0.1.0 §4. The graph adds its own caps, listed in §2 Cost.
+- **L1, L2, L3, L8** (default Compute SA Editor; `ci-deploy` `firebase.viewer`; CSP Report-Only; no password policy and MFA off).
+  L8's condition is the two 2FA confirmations in §9.
+- **L6 (Dependabot off, no osv-scanner) and L7 (Actions pinned by tag)** were accepted for 2 weeks after launch. Launch was
+  2026-09-28, so **they expire 2026-10-12**. Neither is done (`.github/` has only `workflows/`).
+- **R-N1** Error Reporting API disabled (Logs Explorer substitute). **R-N3** 5xx alert is a fixed rate and `/health` touches
+  neither Firestore nor Auth. **R-N5** `/` cache rule. **R-N7** `app/pubspec.yaml` is still `1.0.0+1` (cosmetic).
+  **R-N9** prod Identity Platform config is not in Terraform. **R-N11** mobile artifacts use dev's Android config. **R-N12**
+  UGC: block exists now, no report tool.
+- **v0.1.0 L9 is closed by this release** (reject + 0 private users), not carried.
+
+## 5. Promotion procedure (any failed gate means stop and roll back per §6)
+**P0 — before tagging**
+1. Close B1 to B4 in §7. Sign §9. The reviewer changes the last line to `VERDICT: GO`.
+2. Merge #41 (docs), decide #37 (R-P1), and merge the reviewer's GO PR.
+3. Create the 2 prod smoke accounts (verified email; step P2.4a). Record their uids. Apply the allowlist (R-P2 option 1).
+4. Run `gh workflow run CI --ref main` on the final commit and record the run ID (all jobs green).
+5. `git diff --stat ee48c19 <tag-commit> -- backend app proto firebase firebase.json infra Makefile` must show only what you approved (today: nothing beyond the 5 files listed at the top, which are already in `ee48c19`).
+6. `git tag v0.2.0 <tag-commit> && git push origin v0.2.0`. This triggers `release-prod.yml`.
+
+**P2 — after `release-prod`'s `build-and-stage` succeeds** (candidate URL from the run log; v0.1.0's was
+`https://candidate---api-jgr3aiensq-el.a.run.app`)
+1. Record the run URL, the image digest (`ko` output) and the candidate revision name for the P7 addendum. Expect the
+   next revision name after `api-00004-5b2`.
+2. Traffic: `gcloud run services describe api --project=dzeroth-prod --region=asia-south1 --format='yaml(status.traffic)'`
+   shows `api-00003-tiw` at 100% and the new revision at 0% with tag `candidate`. (Before the release, `candidate` points at
+   `api-00003-tiw`; it moves at deploy.)
+3. Indexes and rules: 7 composite indexes `READY` (`gcloud firestore indexes composite list --project=dzeroth-prod`), and
+   `gcloud firestore indexes fields list --project=dzeroth-prod --filter="name~graph"` shows 5 overrides including `blockedBy` (0 indexes).
+4. Identity checks on the candidate URL (same as v0.1.0):
+   - a. `/health` 200 `ok`, cold start under 1.5 s.
+   - b. Unauthenticated GetMe returns 401.
+   - c. Sign-in with the prod **web** key. **The key is referrer-restricted** (found on dev; prod's allows
+     `https://dzeroth.com/`), so REST sign-in needs a Referer header:
+     ```bash
+     curl -s -X POST "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$WEB_KEY" \
+       -H 'Content-Type: application/json' -H 'Referer: https://dzeroth.com/' \
+       -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"returnSecureToken\":true}"    # -> idToken (do not echo it)
+     ```
+   - d. A **new** unverified account: GetMe returns PROFILE_REQUIRED; CheckHandleAvailability ok; CreateProfile returns
+     EMAIL_NOT_VERIFIED. Delete it afterwards.
+   - e. The verification email comes from noreply@dzeroth.com and passes DKIM/DMARC.
+5. Graph smoke on the candidate with **allowlisted** accounts A and B (both need verified emails and profiles; set
+   `emailVerified` through the Identity Toolkit admin API with the founder's login, as in the deletion runbook's REST style, or
+   verify from the emailed link):
+   ```bash
+   cd backend
+   E2E_GRAPH_BASE_URL="<candidate url>" E2E_GRAPH_ID_TOKEN_A="$TOK_A" E2E_GRAPH_ID_TOKEN_B="$TOK_B" \
+     GOWORK=off go test -tags=integration -count=1 -run TestE2E_GraphSmoke_FollowListBlockUnblock ./e2e/
+   ```
+   Base URL is the direct Cloud Run candidate URL, with no `/api` prefix (that prefix exists only behind Hosting). Tokens
+   last 1 h. Remote mode resolves uid and handle from GetMe and polls up to 90 s for the 60 s graph cache on a peer
+   instance. About 17 requests, 15 reads, 12 writes. It cleans up (Unblock, Unfollow with fresh keys) and is re-runnable.
+   Expected: PASS.
+6. Non-allowlisted account C (verified email and a profile; without a profile the call stops at PROFILE_REQUIRED before the
+   flag check): call `GraphService/GetRelationships`, `Follow` and `ListFollowers` on the candidate. Each must return
+   FAILED_PRECONDITION with reason `ERROR_REASON_FEATURE_DISABLED` and log `feature_disabled=true`, 0 reads.
+   `IdentityService/GetMe` for C must not list `graph` in `enabled_features`; for A and B it must.
+7. Startup log on the candidate shows `feature_flags` with graph mode `allowlist` (`jsonPayload.message="feature_flags"`).
+8. Logs Explorer for the candidate revision, from the deploy time: 0 entries with `severity>=ERROR`, 0 with
+   `httpRequest.status>=500`:
+   ```
+   resource.type="cloud_run_revision" AND resource.labels.service_name="api"
+   AND resource.labels.revision_name="<candidate>" AND (severity>=ERROR OR httpRequest.status>=500)
+   ```
+   Expected WARNINGs: Cloud Run request logs for the deliberate 4xx calls only.
+9. Clean up smoke state: `opsctl purge-graph` (Step 0 gate applies) and the deletion runbook for the throwaway account C;
+   keep A and B for P6 and delete them after the 24 h watch.
+
+**P3 — `promote-prod.yml` stage=10** (run from the `v0.2.0` tag ref). Watch 15 minutes. Uptime green, P2.8 stays 0, warm p95 not over
+twice baseline. Re-run P2.5 once against the 10% traffic (the main URL) to confirm both revisions behave.
+
+**P4 — `promote-prod.yml` stage=100** (**ask the founder first**). Builds web from the tag, shifts to 100%, `/health`, deploys Hosting. Record the web bundle size from the build log (target < 3 MB;
+v0.1.0 about 0.7 MB gzip own JS). After it: `api-<new>` at 100%, `api-00003-tiw` still present (rollback target).
+
+**P5 — smoke `https://dzeroth.com` in a clean browser profile**
+1. Page loads, `/privacy` 200, www 301 to apex, `/api/health` 200. Whether `/privacy` shows the new text depends on R-P1.
+2. Sign in as a non-allowlisted account: **no** graph UI anywhere (no Follow button, no followers/following links, no
+   "Blocked accounts" or "Muted accounts" in Settings). Direct navigation to `/settings/blocked` redirects to `/settings`.
+3. Sign in as allowlisted A: Follow/Following, block and mute menu, followers/following list, Settings entries all appear.
+4. Email sign-up and Google sign-in still work (regression of v0.1.0 P5).
+5. Prod logs show `via_hosting=true`, `xff_hops=2`, 0 errors. Security headers present.
+
+**P6 — watch at +1 h, +24 h, then daily for 7 days** (plus the v0.1.0 items: budget emails, uptime check, `daily-maintenance`).
+Base filter: `B = resource.type="cloud_run_revision" AND resource.labels.service_name="api"`.
+- Errors and 5xx: `B AND severity>=ERROR` expect 0; `B AND httpRequest.status>=500` expect 0. Use `--freshness=1h` / `24h` with
+  `gcloud logging read '<filter>' --project=dzeroth-prod`.
+- **Graph reads and writes by operation** (works without Log Analytics; counts and sums over the window):
+  ```bash
+  gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="api" AND jsonPayload.graph_op:*' \
+    --project=dzeroth-prod --freshness=24h --format=json |
+  jq 'group_by(.jsonPayload.graph_op) | map({graph_op: .[0].jsonPayload.graph_op, calls: length,
+      fs_reads: (map(.jsonPayload.fs_reads // 0) | add), fs_writes: (map(.jsonPayload.fs_writes // 0) | add),
+      fs_deletes: (map(.jsonPayload.fs_deletes // 0) | add)})'
+  ```
+  Logs Explorer form: `B AND jsonPayload.graph_op!=""`, then group by `graph_op`. Compare with the budget: Follow at most 4 R / 5 W, Unfollow 3 W / 1 D,
+  Block 3 R / 5 W / 2 D, lists at most 102 R. Expect a handful of calls only (3 accounts).
+- **`feature_disabled` count:** `B AND jsonPayload.feature_disabled=true`. Expect only the smoke account C's calls. Anything else means
+  a real client is calling graph RPCs while the flag is off for it (UI leak). Cross-check `jsonPayload.outcome="rejected:feature_disabled"`.
+- Contention and rejections: `B AND jsonPayload.message="graph_txn_contention"`; `B AND jsonPayload.code="unavailable" AND jsonPayload.rpc:"GraphService/"`;
+  `B AND jsonPayload.limit_name="graph_list_daily"`; `B AND jsonPayload.limit_name="graph_mutation_daily"`;
+  `B AND jsonPayload.message="blockedby_cap_reached"` (must be 0).
+- `QUOTA_EXCEEDED` (heuristic, R-5): `B AND jsonPayload.code="resource_exhausted" AND jsonPayload.fs_reads>0 AND NOT jsonPayload.limit_name:*`.
+- Firestore usage (console, Usage tab): under 2k reads/day and under 1k writes/day at launch; instances not pinned at 3; the
+  `Firestore reads > 40k` alert quiet.
+- Latency: request-log `latency_ms` for `GraphService` and for `GetMe`/`GetProfile` (baselines from v0.1.0: GetMe 270 ms, CheckHandleAvailability 85 ms, CreateProfile 500 ms; graph
+  targets from the plan: Follow < 500 ms, GetRelationships < 150 ms, lists < 400 ms). There is no cloud baseline for graph
+  RPCs yet; P2 and the first watch create it.
+- Record: results at +1 h and +24 h go into `docs/reviews/release-v0.2.0-postrelease.md` (P7).
+
+**P7 — addendum.** Commit `docs/reviews/release-v0.2.0-postrelease.md`: digest, run IDs (release-prod, both promotes, CI on the tag commit), candidate
+revision, the dev smoke output, P2 to P6 results, and the allowlist procedure used (R-P2).
+
+## 6. Rollback triggers and plan
+**Rollback target: `api-00003-tiw`** (v0.1.0). Serving at 100% now, tag `candidate`, image
+`asia-south1-docker.pkg.dev/dzeroth-prod/api/api@sha256:74fe11b1e1ccb673cc994580c90c7cafa2d19af8ce7005891c3a4bf567f66270`,
+created 2026-09-28T03:40:50Z. `api-00004-5b2` (created 2026-09-30T06:17:47Z by the Terraform env-var apply) has the graph env vars and
+`FEATURE_GRAPH=off` with the **same image**; it is `Retired` (no traffic, not the rollback target). Record the real target
+again at P2.2, because a new revision may have been created by R-P2 option 1 before the tag.
+
+**Triggers (any one):**
+- P2 or P5 failure; any 5xx on smoke calls; a 5xx ratio over 2% with at least 50 requests in any 15-minute window;
+- warm p95 over twice the dev baseline on any graph RPC or on GetProfile/GetMe, or cold start over 3 s;
+- any `severity>=ERROR` you can't explain;
+- Firestore over 15k reads/day or 5k writes/day in week 1 (plan) — the v0.1.0 stricter figure is 10k reads/day, use the lower until 100 real users exist;
+- over 20 `QUOTA_EXCEEDED quota=follows` per day, or `graph_list_daily` rejections from more than 3 uids (abuse: `abuse-spike.md` 5a);
+- a counter/edge invariant violation found by the smoke test;
+- `feature_disabled=true` from a uid that is not the smoke account (UI leak);
+- any budget alert or the uptime alert.
+
+**Actions, lightest first** (each is instant except the env update, which needs the pinned-traffic procedure of `cost-spike.md`):
+1. **Graph problem only:** `FEATURE_GRAPH=off` (pinned-traffic env update, then reconcile Terraform). Data stays; `blockedBy` is expand-only and older code ignores it.
+2. Tighten quotas or caps by env (`QUOTA_FOLLOWS_PER_DAY`, `LIST_CALLS_PER_DAY`, ...).
+3. **Before 100% traffic:** `gcloud run services update-traffic api --project=dzeroth-prod --region=asia-south1 --to-revisions=api-00003-tiw=100`. Do not run stage 100.
+4. **After 100%:** the same command (seconds). Then Hosting: web is one release back, so `firebase hosting:clone` from the v0.1.0 release (or the console's previous release); v0.1.0's web has no graph UI, so a flag
+   flip is enough if the API is healthy. Always `--to-revisions`, never `--to-latest`.
+5. `DEGRADED_MODE=readonly` with the pinned-traffic procedure for abuse or cost.
+6. Severe incident: `firebase hosting:disable --project dzeroth-prod`, then route the API to the previous revision. Never detach billing without your explicit decision.
+
+Firestore rules and indexes: the new `blockedBy` exemption and unchanged composite indexes need no rollback. See R-P4 for what rolling back to v0.1.0 code loses.
+
+## 7. Blocking items (for the reviewer and the founder)
+- **B1 — Candidate flag procedure (R-P2).** Choose option 1 or 2 and record which. Without it the candidate runs `off` and P2.5 cannot pass.
+- **B2 — Code review record missing.** `docs/reviews/graph-code-review.md` (T19) is absent. Either `code-reviewer` writes it (0 open blockers), or you record an explicit acceptance here.
+- **B3 — Prod smoke accounts do not exist yet.** Need 2 accounts with verified emails and profiles (plus the founder's existing account for the allowlist, plus a non-allowlisted C). Their uids feed the allowlist. Nothing was created by me.
+- **B4 — Privacy policy #37 (R-P1).** Answer its open questions; decide whether it publishes with this tag or before `percent`.
+- **B5 — Docs defect (R-2).** Merge #41; fix `account-deletion.md` lines 84-86 to say the `muted[]` residue is not cleaned (T27 not built).
+- **Blocks T25 `percent` (not this release):** T26 (Mute existence), T28 (`_` uid rule, plus the `auth:export` count), T29 (proto comments/skill, lands with T26), L7 (page-size lever), the L9 (security) decision, and the L8 fields you want for monitoring. T27 blocks in-app account deletion. T30 is parked (B2).
+- **Recommended, not blocking:** enable Dependabot and SHA-pin Actions before 2026-10-12; enable `clouderrorreporting.googleapis.com` (R-N1); update stale `cost-model.md` section 9; pubspec version (R-N7).
+
+## 8. Release notes — v0.2.0
+Social graph for dZeroth (web, https://dzeroth.com). **Not visible to users yet:** the feature is off in production and enabled
+for the founder and two test accounts only. It turns on for everyone in later steps.
+- Follow and unfollow accounts; see followers and following counts and lists (public accounts).
+- Block an account: it can no longer follow you or see your profile, and follows between you are removed both ways. Blocks and mutes are not
+  disclosed to the other account. Mute an account silently. Settings lists your blocked and muted accounts.
+- `GetMe` now reports which features are enabled for you. Private accounts are not available yet: turning on "private" is rejected (closes v0.1.0 L9). Handle-availability checks allow 20 per minute (was 10).
+- Operations: per-user quotas and rate limits for graph actions, a kill switch (`FEATURE_GRAPH`), delete/export tooling (`opsctl`) and new runbooks.
+- Known limits: no posts or timeline yet, so following changes nothing you see beyond counts and lists; no follow notifications; no report tool; account deletion and export are still by email
+  (privacy@dzeroth.com); no mobile apps; a deleted account's id may linger in other users' muted lists (R-2).
+
+## 9. Sign-off (required)
+I accept or reject each item in §4, and confirm the §7 blockers are closed or explicitly waived.
+- [ ] R-1  [ ] R-2 (with conditions b and c)  [ ] R-3  [ ] R-4  [ ] R-5  [ ] R-6  [ ] R-7  [ ] R-8  [ ] R-9  [ ] R-10
+- [ ] R-P1 (privacy condition)  [ ] R-P2 (option chosen: ___)  [ ] R-P3  [ ] R-P4
+- [ ] Carried v0.1.0 items, including that L6 and L7 expire 2026-10-12
+- [ ] 2FA is still enabled on GitHub account `mohamadkaifshaik`.
+- [ ] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`.
+
+Approved by: ______  Date: ______
+
+VERDICT: PENDING
