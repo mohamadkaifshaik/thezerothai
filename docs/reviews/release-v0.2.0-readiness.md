@@ -436,14 +436,16 @@ for two internal test accounts only. It turns on for everyone in later steps.
 
 ## 9. Sign-off (required)
 I accept or reject each item in §4, and confirm the §7 blockers are closed or explicitly waived.
-- [ ] R-1  [ ] R-2 (with conditions b and c; bounded to 2026-10-31)  [ ] R-3  [ ] R-4  [ ] R-5  [ ] R-6  [ ] R-7  [ ] R-8  [ ] R-9  [ ] R-10
-- [ ] R-P1 (privacy condition)  [ ] R-P2 (option chosen: ___)  [ ] R-P3  [ ] R-P4
-- [ ] Carried v0.1.0 items per §4.0 (v0.1.0 L6 partially closed, remainder in issue #46 with hard date 2026-10-12, not renewed; L7 closed by #45)
+- [x] R-1  [x] R-2 (with conditions b and c; bounded to 2026-10-31)  [x] R-3  [x] R-4  [x] R-5  [x] R-6  [x] R-7  [x] R-8  [x] R-9  [x] R-10
+- [x] R-P1 (privacy condition)  [x] R-P2 (option chosen: Terraform apply first, option 1, as answered by the founder in chat)  [x] R-P3  [x] R-P4
+- [x] Carried v0.1.0 items per §4.0 (v0.1.0 L6 partially closed, remainder in issue #46 with hard date 2026-10-12, not renewed; L7 closed by #45)
+
+**Founder sign-off of the §4 risk decisions (recorded by the assistant from chat, 2026-09-30):** "I accept the §4 risk decisions as recorded in readiness PR #43, including R-1 through R-10, R-P1 through R-P4, and the recorded carried-item decisions. Use this statement as my explicit sign-off for the §4 risk acceptance. Do not alter the risk decisions or their mitigations." The boxes above record exactly that statement. The decisions and mitigations in §4 are unchanged, including every DEFER and REJECT and the scoping of each ACCEPT to `allowlist` with only smoke-a and smoke-b. This statement does **not** address the §7 blockers (B1 to B4, B6, B7): those are not waived by it.
 - [x] 2FA is still enabled on GitHub account `mohamadkaifshaik`. Confirmed by the account owner (founder) in chat, 2026-09-30: "Yes 2FA is still enabled on both Google and github." Recorded here by the assistant from that statement; the assistant did not check the account setting itself.
 - [x] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`. Confirmed by the account owner (founder) in chat, 2026-09-30, same statement. Recorded by the assistant from that statement; not independently checked.
 
-The two 2FA lines are the only boxes recorded, and only from the founder's statement above. Every other sign-off box is intentionally unchecked: the assistant does not tick sign-offs (the founder decisions in §4.2 are recorded as decisions, not as sign-offs). The repository names no separate "designated reviewers"; these two lines are account-setting confirmations by the account owner (v0.1.0 precedent: recorded from chat on 2026-09-28).
+The §9 boxes above are recorded only from the founder's own chat statements quoted next to them (the two 2FA confirmations and the §4 risk sign-off); the assistant recorded them and did not verify the account settings itself. The repository names no separate "designated reviewers"; the 2FA lines are account-setting confirmations by the account owner (v0.1.0 precedent: recorded from chat on 2026-09-28). The §7 blockers are not covered by these statements and remain as listed in §7.
 
-Approved by: ______  Date: ______
+Approved by: Kaif Mohamad Shaik (founder), in chat, for the §4 risk decisions and the two 2FA confirmations only (§7 blockers not waived)  Date: 2026-09-30
 
 VERDICT: PENDING
