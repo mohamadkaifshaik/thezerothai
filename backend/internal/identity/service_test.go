@@ -26,6 +26,7 @@ type fakeRepo struct {
 	changeCalls      int
 	getProfileCalls  int
 	getProfilesCalls int
+	resolveCalls     int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -46,6 +47,7 @@ func (f *fakeRepo) GetProfile(_ context.Context, uid string) (Profile, error) {
 }
 
 func (f *fakeRepo) ResolveHandle(_ context.Context, handleLower string) (string, error) {
+	f.resolveCalls++
 	uid, ok := f.handles[handleLower]
 	if !ok {
 		return "", ErrNotFound
