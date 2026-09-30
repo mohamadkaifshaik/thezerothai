@@ -2,12 +2,14 @@ package authn
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -80,6 +82,15 @@ func IDTokenInterceptor(verifier IDTokenVerifier) connect.UnaryInterceptorFunc {
 					connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED,
 					"invalid or expired sign-in, please sign in again",
 				).WithCause(err))
+			}
+			// ADR-0008 A3: a uid outside [A-Za-z0-9-]{1,128} (notably one containing the `_` composite-key
+			// separator) never reaches a module. Rejected before any Firestore read.
+			if !ids.ValidUID(claims.UID) {
+				slog.Default().Warn("uid_format_rejected", "uid_hash", logger.HashUID(claims.UID))
+				return nil, apierr.ToConnect(apierr.New(
+					connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED,
+					"invalid or expired sign-in, please sign in again",
+				))
 			}
 			if info := logger.RequestInfoFromContext(ctx); info != nil {
 				info.UID = claims.UID

@@ -69,8 +69,25 @@ go run ./cmd/opsctl purge-graph --project $P --uid "$UID_" --dry-run
 go run ./cmd/opsctl purge-graph --project $P --uid "$UID_"      # ends with "purged: reads=.. writes=.. deletes=.."
 ```
 `--skip-start-gate` bypasses the DELETING and 120 s check. Use it only for an account that has no `users/{uid}` doc
-any more, or a dev test account, and say so in your tracker. If a run stops with "giving up after 5 consecutive
-errors", re-run the same command; it resumes from what is left.
+any more (the S2 repair below), or a dev test account, and say so in your tracker. If a run stops with "giving up
+after 5 consecutive errors", re-run the same command; it resumes from what is left.
+
+**Deletion is one-way once Step 1 has started** (ADR-0009). Purge step 1 deletes the user's outgoing `follows` edges
+but leaves their own `graph/{uid}.following` and `followingCount` alone until the purge finishes. So after the first
+real (not `--dry-run`) `purge-graph` run, never set `status` back to `ACTIVE` and never re-enable the Auth user, even
+if the purge stopped part way: the user would be left following accounts they can't unfollow (ADR-0009 state S1) with
+a wrong `followingCount`. If the user changes their mind, finish the deletion and ask them to sign up again. Restoring
+an account needs a new plan with its own ADR. (Before Step 1 has run, reverting Step 0 is still safe.)
+
+**Step 2 precondition: the dry run shows 0/0 edges.** After the real run has printed `purged:`, run the dry run again:
+```bash
+go run ./cmd/opsctl purge-graph --project $P --uid "$UID_" --dry-run
+# must print: dry-run: outgoing_edges=0 incoming_edges=0 blocked=0 blocked_by=0 (nothing written)
+```
+This costs 2 count reads plus 1 read of the (already deleted) `graph/{uid}`. If either edge count is not 0, do **not**
+start Step 2: re-run the real `purge-graph` and check again. A run that ended with "giving up after 5 consecutive
+errors" is not finished, however far it got. Deleting `users/{uid}` while an edge to it still exists leaves every
+remaining follower unable to unfollow the account (ADR-0009 state S2; repair below).
 
 **Step 2. Delete the rest.**
 ```bash
@@ -82,10 +99,38 @@ curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P
 ```
 (The old `firestore:delete graph/$UID_` step is gone: it left counters and the other side of every edge behind.)
 
+**Verify `accounts:delete` succeeded.** Step 0 only *disables* the Auth user; the call above is what removes it, and
+it can fail silently in a `curl -s` pipeline. Confirm the user is gone (expect no `users` in the response):
+```bash
+curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:lookup" \
+  -d "{\"localId\":[\"$UID_\"]}"
+```
+If the user is still listed, re-run the `accounts:delete` call. **Never re-enable an Auth user whose `users/{uid}` doc
+was deleted:** with no profile the uid counts as deleted, so T27's lazy clean-up will already have removed it (or will
+remove it) from other users' `blocked[]` / `muted[]`; a returning uid would come back without those blocks and mutes.
+
+**Repair: Step 2 ran before the purge finished (ADR-0009 state S2).** Symptom: a user reports they can't unfollow an
+account that no longer exists (Unfollow answers "not following", but the account stays in their Following list), or
+a residue check finds a `follows` edge to or from a uid that has no `users/{uid}` doc. Finish the purge for the
+**deleted** uid. The start gate has to be skipped because it can't read a profile that is gone:
+```bash
+cd backend
+go run ./cmd/opsctl purge-graph --project $P --uid "<deleted uid>" --dry-run            # expect edges > 0
+go run ./cmd/opsctl purge-graph --project $P --uid "<deleted uid>" --skip-start-gate    # ends with "purged: ..."
+go run ./cmd/opsctl purge-graph --project $P --uid "<deleted uid>" --dry-run            # must show 0/0 edges
+```
+The purge resumes by query: it deletes the remaining edges and, for each follower, removes the uid from their
+`following` and decrements their `followingCount` (a missing `graph/{uid}` counts as empty). Then check the affected
+followers' counters with the count-and-set procedure in `docs/runbooks/graph.md` section 2, and record the repair in
+your tracker. The emulator test `TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs`
+(`backend/internal/graph/unfollow_noop_invariant_integration_test.go`) pins this path; it has not yet been run
+against a cloud project.
+
 - **Other users' mute and block lists:** other users' `muted[]` / `blocked[]` entries that still name the deleted uid
-  are not found by the purge (Firestore arrays aren't indexed). The lazy clean-up on read (ADR-0008 D10, ticket T27)
-  is **not built yet**, so those entries persist until T27 ships (the read path only skips missing uids). This is a
-  tracked, accepted residual; do not hand-edit other users' documents.
+  are not found by the purge (Firestore arrays aren't indexed). The lazy clean-up on read (ADR-0008 D10, ticket T27,
+  built) removes them from the owner's own array the next time the owner opens ListMutedUsers / ListBlockedUsers
+  (uids with no `users/{uid}` doc only; SUSPENDED/DELETING are kept). So the residue is bounded by "until that
+  user next opens the list", not permanent. Do not hand-edit other users' documents.
 - **Media:** Phase 0 has no avatars or posts, so there's nothing to delete. When media ships, also delete
   `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
   Phase 1 module lands.
@@ -104,7 +149,7 @@ afterwards.
 | Environment | dev (`dzeroth-dev`) |
 | Duration | 3 min 47 s end to end (export, Step 0 including the 125 s wait, dry run, purge, Step 2). About 100 s of that was active work. Target < 10 min: met |
 | Purge output | dry run `outgoing_edges=1 incoming_edges=1 blocked=1 blocked_by=1`; real run `purged: reads=6 writes=5 deletes=3` |
-| Residue check | PASS. No `follows/*` doc involving C; A and B counters correct (A followers 1 to 0, B unchanged); C no longer in A/B `following`, `blocked` or `blockedBy`. Only `A.muted[]` still named C: T27's clean-up is not built, so this persists (accepted residual). The check did **not** look for `quotas/{uid}` (added to Step 2 after the T19 review); re-check it on the next drill |
+| Residue check | PASS. No `follows/*` doc involving C; A and B counters correct (A followers 1 to 0, B unchanged); C no longer in A/B `following`, `blocked` or `blockedBy`. Only `A.muted[]` still named C: T27's clean-up was not built at drill time. With T27 shipped, re-run and expect `A.muted[]` to drop C after A calls ListMutedUsers (until then that entry is the expected residue). The check did **not** look for `quotas/{uid}` (added to Step 2 after the T19 review); re-check it on the next drill |
 | Commands that failed as written | None |
 
 **Residue check.** `assertGraphInvariants` (T16a) is an integration-build-tag Go test helper that loads the whole

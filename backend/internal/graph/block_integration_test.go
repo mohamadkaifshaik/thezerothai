@@ -128,7 +128,7 @@ func TestMute_Integration_OnlyCallerGraphChanges(t *testing.T) {
 	if err != nil || !rel.Muting {
 		t.Fatalf("Mute = %+v, %v", rel, err)
 	}
-	budgettest.Assert(t, "GraphService.Mute", counter, budgettest.Budget{Reads: 2, Writes: 2})
+	budgettest.Assert(t, "GraphService.Mute", counter, budgettest.Budget{Reads: 3, Writes: 2})
 	if a := graphArrays(t, w.client, "uid-a"); !contains(a["muted"], "uid-b") {
 		t.Errorf("a = %v", a)
 	}
@@ -141,7 +141,7 @@ func TestMute_Integration_OnlyCallerGraphChanges(t *testing.T) {
 	if _, err := w.graph.Mute(ctx2, "uid-a", key2, "uid-b"); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "GraphService.Mute (replay)", c2, budgettest.Budget{Reads: 2, Writes: 0})
+	budgettest.Assert(t, "GraphService.Mute (replay)", c2, budgettest.Budget{Reads: 3, Writes: 0})
 
 	ctx3, c3 := budget.WithCounter(context.Background())
 	rel, err = w.graph.Unmute(ctx3, "uid-a", key3, "uid-b")

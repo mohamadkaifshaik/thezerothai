@@ -40,10 +40,11 @@ jobs:
           check-latest: true
           cache: false
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Setup Flutter
+        uses: ./.github/actions/setup-flutter
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
+          version: ${{ env.FLUTTER_VERSION }}
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
@@ -72,8 +73,24 @@ jobs:
       - name: govulncheck
         if: hashFiles('backend/go.mod') != ''
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           cd backend && govulncheck ./...
+
+      # Exact release binary, sha256-verified (osv-scanner has no Dependabot ecosystem; bump per
+      # docs/runbooks/dependency-updates.md). Scans lock files only, so it needs no Go/Flutter toolchain state.
+      # Fails on ANY finding not listed in osv-scanner.toml (narrow, expiring ignores). Reachability
+      # analysis is off: govulncheck above is the reachability gate, and this step must be deterministic.
+      - name: osv-scanner (go.mod + pubspec.lock)
+        env:
+          OSV_SCANNER_VERSION: v2.6.0
+          OSV_SCANNER_SHA256: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+        run: |
+          curl -fsSL -o /tmp/osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  /tmp/osv-scanner" | sha256sum -c -
+          chmod +x /tmp/osv-scanner
+          /tmp/osv-scanner scan --config=osv-scanner.toml --no-call-analysis=go \
+            -L backend/go.mod -L app/pubspec.lock
 
   emulator-integration:
     name: make test-int (Firebase emulators)
@@ -112,7 +129,7 @@ jobs:
             firebase-emulators-${{ runner.os }}-v15-
 
       - name: Install firebase-tools
-        run: npm install -g firebase-tools@15
+        run: npm install -g firebase-tools@15.32.0
 
       - name: make test-int
         if: hashFiles('Makefile') != '' && hashFiles('firebase.json') != ''

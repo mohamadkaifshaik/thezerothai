@@ -835,3 +835,34 @@ func assertNotFound(t *testing.T, err error) {
 		t.Fatalf("Code = %v, want NotFound", ae.Code)
 	}
 }
+
+// TestLookupProfiles_MissingVsInactive (ADR-0008 T27): missing means "GetAll confirmed no doc"; SUSPENDED and
+// DELETING are in neither found nor missing; a uid only negatively cached is not reported missing again.
+func TestLookupProfiles_MissingVsInactive(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	ctx := context.Background()
+	repo.profiles["uid-a"] = Profile{UserID: "uid-a", Status: AccountStatusActive}
+	repo.profiles["uid-s"] = Profile{UserID: "uid-s", Status: AccountStatusSuspended}
+	repo.profiles["uid-d"] = Profile{UserID: "uid-d", Status: AccountStatusDeleting}
+
+	found, missing, err := svc.LookupProfiles(ctx, []string{"uid-a", "uid-s", "uid-d", "uid-ghost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := found["uid-a"]; !ok || len(found) != 1 {
+		t.Errorf("found = %v, want only uid-a", found)
+	}
+	if len(missing) != 1 || missing[0] != "uid-ghost" {
+		t.Errorf("missing = %v, want [uid-ghost] (never SUSPENDED/DELETING)", missing)
+	}
+	if repo.getProfilesCalls != 1 {
+		t.Errorf("getProfilesCalls = %d, want 1", repo.getProfilesCalls)
+	}
+
+	// Negative-cached now: no extra read, and not reported missing again (clean-up needs a fresh read).
+	_, missing, err = svc.LookupProfiles(ctx, []string{"uid-ghost"})
+	if err != nil || len(missing) != 0 || repo.getProfilesCalls != 1 {
+		t.Errorf("second lookup: missing=%v err=%v calls=%d", missing, err, repo.getProfilesCalls)
+	}
+}

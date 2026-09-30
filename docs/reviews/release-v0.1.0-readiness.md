@@ -95,7 +95,7 @@ use the Logs Explorer substitute in §5. The uptime check is green. There are 3 
 - **L3 — The CSP is Report-Only with no reporting endpoint.** `X-Frame-Options: DENY`, nosniff and Referrer-Policy are
   enforced, and Flutter renders to canvas. Enforce the CSP after a Phase 1 sign-in regression pass.
 - **L6 — Dependabot is off, tool versions are unpinned, and there's no osv-scanner.** The tree is clean today. Enable
-  within 2 weeks of launch. **Status: Dependabot part closed by PR #45** (see `docs/runbooks/dependency-updates.md`; tool pins and osv-scanner remain).
+  within 2 weeks of launch. **Status: Dependabot part closed by PR #45; fully closed by PR #57 once merged** (tool pins for govulncheck, firebase-tools, ko and gcloud, plus an osv-scanner CI step; see `docs/runbooks/dependency-updates.md`). Not renewed: hard deadline 2026-10-12 (issue #46).
 - **L7 — Actions are pinned by tag, not SHA.** The WIF pin and a single collaborator bound the risk. SHA-pin within 2 weeks. **Status: closed by PR #45.**
 - **L8 — No password policy and MFA off.** Accepted **on condition of the 2FA confirmations in §9**. Add a password
   policy (≥ 8 characters) in Phase 1.

@@ -69,7 +69,10 @@ land before T24 (fixed in PR #42). S3 and S4 should land before T25 `percent`, t
 - N4: `isPreconditionFailed` treats NotFound from any op in the Unfollow batch as "not following"
   (`repo_firestore.go:339-343,379-382`), including the `users/{target}` counter update, so an edge whose target doc is
   gone cannot be removed; consider a WARN (no uids) when the precondition fails but `following` still contains the
-  target.
+  target. **Closed 2026-09-30 by ADR-0009** (`docs/adr/0009-unfollow-noop-invariant.md`): the stuck states are
+  unreachable through the API under the standing edge invariant, so no read or WARN was added. Pinned by T32 (PR #64,
+  `unfollow_noop_invariant_integration_test.go`); the ops producers are closed by T33 (PR #63, `CACHE_TTL ≤ 60 s`) and
+  T34 (`account-deletion.md` Step 2 precondition, one-way deletion, S2 repair).
 - N5: Flutter `relationship_cubit.dart:54-67` shares one idempotency key between follow/unfollow (and block/unblock,
   mute/unmute); harmless while ADR-0008 does not store keys, wrong once rule-4 storage applies.
 - N6: tracked, not v0.2.0 blockers: Mute has no target-existence check (T26, `repo_firestore.go:549-597`); uids still

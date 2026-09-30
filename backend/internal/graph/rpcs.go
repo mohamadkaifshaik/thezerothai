@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -19,7 +20,8 @@ func (s *service) checkFlag(callerUID string) error {
 // Follow (ADR-0008 T7). Validation order: flag -> idempotency key format -> target id format -> self ->
 // (via identity.Directory, cache-first) target missing/inactive -> repo transaction (blocked-by, blocks,
 // private, replay, cap, quota — see repo_firestore.go's Follow doc comment for that precedence).
-// Firestore: reads 4/2 (+1 on an overflowed caller), writes 5/5; replay reads 2/2, writes 0.
+// Firestore: reads 4 cold / 2 warm (+1 on an overflowed caller), writes 5; replay reads 4 cold / 2 warm, writes 0
+// (ADR-0008 A2; cold = caller and target profiles both miss the identity cache, which a preceding Follow's Forget makes the norm).
 func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "follow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -29,7 +31,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Relationship{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	if callerUID == targetUID {
 		return Relationship{}, selfActionErr("user_id")
@@ -77,7 +79,8 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 }
 
 // Unfollow (ADR-0008 T7): a blind batch, idempotent. Not following (or a replayed/racing Unfollow) is
-// NONE with 0 writes. Firestore: reads 0/0, writes 3/3 (0 on no-op), deletes 1/1.
+// NONE with 0 writes. Firestore: the batch reads 0, writes 3 (0 on no-op), deletes 1; the request line logs 1 read
+// (the caller's AccountStatusInterceptor profile read, cold after a Forget; ADR-0008 Amendment 2026-09-30 (2)).
 func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unfollow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -87,7 +90,7 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Relationship{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	if callerUID == targetUID {
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
@@ -119,7 +122,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Relationship{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	if callerUID == targetUID {
 		return Relationship{}, selfActionErr("user_id")
@@ -162,7 +165,7 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Relationship{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	if callerUID == targetUID {
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
@@ -181,7 +184,8 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 	return rel, nil
 }
 
-// Mute (ADR-0008 T8). Firestore: reads 2/2, writes 2/2 (0 on replay).
+// Mute (ADR-0008 T8, A1). Firestore: reads 3 (caller graph, target graph existence, quotas), writes 2 (0 on replay);
+// target without a graph doc => NOT_FOUND after 2 reads, 0 writes (same rule as Block; no blockedBy branching).
 func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "mute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -191,7 +195,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Relationship{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	if callerUID == targetUID {
 		return Relationship{}, selfActionErr("user_id")
@@ -199,6 +203,9 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 
 	rel, outcome, err := s.repo.Mute(ctx, callerUID, targetUID, s.blockLimits(), s.now())
 	if err != nil {
+		if errors.Is(err, ErrNotFoundOrBlocked) {
+			return Relationship{}, notFoundErr()
+		}
 		var lim *LimitReachedError
 		if errors.As(err, &lim) {
 			return Relationship{}, limitReachedErr(lim.Limit)
@@ -222,7 +229,7 @@ func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	if targetUserIDIssue(targetUID) {
-		return Relationship{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Relationship{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	if callerUID == targetUID {
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil

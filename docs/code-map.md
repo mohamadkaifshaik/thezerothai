@@ -79,7 +79,9 @@ details) are not catalogued here — only what other code should import and reus
 | Item | Location | Use it for |
 |---|---|---|
 | identity.Service | backend/internal/identity/api.go | CreateProfile, CheckHandleAvailability, GetMe, GetProfile, UpdateProfile, ChangeHandle, AccountStatus. The only thing identity's Connect handler (server.go) depends on. |
-| identity.ValidUserID | backend/internal/identity/validate.go | The one uid validator for caller-supplied user ids (charset, 1-128, and NOT the Firestore-reserved `__x__` shape, L3); graph reuses it. Handles get the same reserved-shape check in `handleFormatIssue` / GetProfile |
+| identity.ValidUserID | backend/internal/identity/validate.go | Delegates to ids.ValidUID (below) for caller-supplied user ids; graph reuses it. Handles get the same reserved-shape check in `handleFormatIssue` / GetProfile |
+| ids.ValidUID / ids.UIDMessage | backend/pkg/platform/ids | The one uid predicate `^[A-Za-z0-9-]{1,128}$` (no `_`: composite-key separator, ADR-0008 A3; also rules out `__x__`) plus the shared user_id validation message. Used by authn.IDTokenInterceptor (caller uid, WARN `uid_format_rejected`), identity.ValidUserID and graph validation. Edge doc ids are built only by `edgeID` in internal/graph/repo_firestore.go |
+| identity.Directory / LookupProfiles | backend/internal/identity/api.go | Cross-module batch profile hydration (GetProfiles, Forget). LookupProfiles also returns the uids whose users doc was confirmed absent (excludes SUSPENDED/DELETING); graph list RPCs use it for the T27 lazy clean-up |
 | identity.Counters | backend/internal/identity/api.go | Cross-module counter increments on `users/{uid}` (posts/followers/following counts) via `store.Batch` — implemented by identity.FirestoreRepo, used by graph (Follow/Block/Unfollow; `AddCounts` merges both counters on one doc into one write) |
 | identity.GraphInitializer | backend/internal/identity/api.go | The one seam identity depends on to create `graph/{uid}` inside CreateProfile's transaction; implemented by graph.FirestoreRepo (backend/internal/graph) until the full GraphService exists |
 

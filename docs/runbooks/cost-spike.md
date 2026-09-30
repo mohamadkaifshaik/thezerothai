@@ -16,7 +16,9 @@
 
 ## Flip degraded mode (stops the bleeding, keeps read paths alive)
 `DEGRADED_MODE`: `readonly` rejects writes (`ERROR_REASON_DEGRADED_MODE`, "temporarily read-only") while reads keep
-working; `nomedia` stops issuing upload URLs; `off` is normal.
+working; `nomedia` stops issuing upload URLs; `off` is normal. In `readonly` the list RPCs still run (they are
+NO_SIDE_EFFECTS) but the T27 lazy clean-up of deleted uids in ListBlockedUsers / ListMutedUsers is skipped (0 writes;
+DEBUG `graph_lazy_cleanup_skipped_readonly`); stale entries are cleaned on a list call after the mode is back to `off`.
 
 **Important:** `gcloud run services update --update-env-vars` creates a **new revision**. In prod, `promote-prod.yml`
 pins traffic to a named revision (`--to-revisions`), so that new revision gets **0% traffic and nothing changes**.
