@@ -306,7 +306,7 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 	// idempotent (the Exists precondition turns a replay into a no-op), so retrying Aborted is safe; each
 	// attempt rebuilds the batch so the scratch counter never double-counts.
 	var err error
-	for attempt := 0; attempt < unfollowMaxAttempts; attempt++ {
+	for attempt := range unfollowMaxAttempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
