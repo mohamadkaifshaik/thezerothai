@@ -2078,7 +2078,8 @@ class GraphServiceApi {
 
   /// Caller's blocked accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
   /// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
-  /// Firestore: reads 51/10, writes 0.
+  /// Firestore: reads 51/10, writes 0, plus at most +1 write (one ArrayRemove of at most 50 ids, T27) on a page
+  /// that finds a uid with no users doc, once per stale entry.
   $async.Future<ListBlockedUsersResponse> listBlockedUsers(
           $pb.ClientContext? ctx, ListBlockedUsersRequest request) =>
       _client.invoke<ListBlockedUsersResponse>(ctx, 'GraphService',
@@ -2086,7 +2087,8 @@ class GraphServiceApi {
 
   /// Caller's muted accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
   /// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
-  /// Firestore: reads 51/10, writes 0.
+  /// Firestore: reads 51/10, writes 0, plus at most +1 write (one ArrayRemove of at most 50 ids, T27) on a page
+  /// that finds a uid with no users doc, once per stale entry.
   $async.Future<ListMutedUsersResponse> listMutedUsers(
           $pb.ClientContext? ctx, ListMutedUsersRequest request) =>
       _client.invoke<ListMutedUsersResponse>(ctx, 'GraphService',

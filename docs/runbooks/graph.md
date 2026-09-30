@@ -98,6 +98,9 @@ unchanged.
   Since T27 the lazy clean-up (ADR-0008 D10) removes such a uid from a user's **own** array the next time that
   user opens ListMutedUsers / ListBlockedUsers: one `ArrayRemove` on their own `graph/{uid}` (at most one page,
   50 ids, one write, 0 extra reads). Only uids with no `users/{uid}` doc are removed; SUSPENDED and DELETING
-  users stay. The request log line carries `hydration_misses` and `lazy_removed` (counts); a failed clean-up logs
+  users stay. The request log line carries `confirmed_missing` (only uids whose users doc a fresh read confirmed
+  absent on that page; excludes SUSPENDED/DELETING and negatively-cached uids) and `lazy_removed` (counts; 0 when
+  nothing was written). Under `DEGRADED_MODE=readonly` the clean-up write is skipped (`lazy_removed=0`, DEBUG
+  `graph_lazy_cleanup_skipped_readonly`). A failed clean-up logs
   WARN `graph_lazy_cleanup_failed` and the list still succeeds. Residue therefore lasts until the muter next
   opens that list. There is no manual step; do not hand-edit other users' documents.

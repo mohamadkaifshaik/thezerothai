@@ -465,7 +465,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - Given a tampered token, then `VALIDATION` is returned.
   - Given ListBlockedUsers, then reads ≤ 1 + page_size.
 - **Test notes.** Budget assertions; a cursor-tamper test; a "removed item between pages" test.
-- **Observability.** `graph_op`, `fs_reads`, `hydration_misses`.
+- **Observability.** `graph_op`, `fs_reads`, `confirmed_missing`.
 - **Budget.** GetRelationships 1/0.5; List{Blocked,Muted} 51/10.
 
 ### T10 — ListFollowers, ListFollowing  [owner: backend-developer] [size: M] [depends: T6, T9]
@@ -860,7 +860,7 @@ Deltas to existing tickets:
 ### T27 — Lazy clean-up of missing uids in own blocked/muted lists (ADR-0008 A1, D10 refinement)  [owner: backend-developer] [size: S] [depends: T9] [blocks: account-lifecycle plan; not v0.2.0, not T25]
 - **Status: built (PR feat/graph-t27-lazy-cleanup).** `identity.Directory.LookupProfiles` (found + confirmed-missing; a
   negative-cache-only miss is not reported), `graph.Repo.RemoveOwnArrayEntries` (blind ArrayRemove + updatedAt on
-  the caller's own doc, NotFound = no-op), `lazyCleanup` in `lists.go`. Fields `hydration_misses`, `lazy_removed`.
+  the caller's own doc, NotFound = no-op), `lazyCleanup` in `lists.go`. Fields `confirmed_missing`, `lazy_removed`.
   Emulator-measured: cleaning page = 4 R / 1 W (1 graph + 3 profile docs), repeat call = 4 R / 0 W.
 - **Description.**
   - Extend `identity.Directory` (reuse-first: a new method, no second cache). For example,
@@ -873,7 +873,7 @@ Deltas to existing tickets:
     snapshot on this instance.
   - Best effort: on error, log WARN `graph_lazy_cleanup_failed`. The list RPC still succeeds. The page result is
     unchanged, because missing rows were already dropped.
-  - Log `hydration_misses` and `lazy_removed=<n>`, counts only. Never log uids.
+  - Log `confirmed_missing` and `lazy_removed=<n>`, counts only. Never log uids.
   - The page token computation must not shift because of the removal. Tokens resume by uid plus recorded position
     (ADR-0008 "ListBlockedUsers/ListMutedUsers paging"), which already tolerates removed entries.
 - **Acceptance criteria.**

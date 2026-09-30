@@ -82,6 +82,16 @@ curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P
 ```
 (The old `firestore:delete graph/$UID_` step is gone: it left counters and the other side of every edge behind.)
 
+**Verify `accounts:delete` succeeded.** Step 0 only *disables* the Auth user; the call above is what removes it, and
+it can fail silently in a `curl -s` pipeline. Confirm the user is gone (expect no `users` in the response):
+```bash
+curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:lookup" \
+  -d "{\"localId\":[\"$UID_\"]}"
+```
+If the user is still listed, re-run the `accounts:delete` call. **Never re-enable an Auth user whose `users/{uid}` doc
+was deleted:** with no profile the uid counts as deleted, so T27's lazy clean-up will already have removed it (or will
+remove it) from other users' `blocked[]` / `muted[]`; a returning uid would come back without those blocks and mutes.
+
 - **Other users' mute and block lists:** other users' `muted[]` / `blocked[]` entries that still name the deleted uid
   are not found by the purge (Firestore arrays aren't indexed). The lazy clean-up on read (ADR-0008 D10, ticket T27,
   built) removes them from the owner's own array the next time the owner opens ListMutedUsers / ListBlockedUsers

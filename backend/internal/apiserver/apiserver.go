@@ -108,6 +108,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		Cache:                   graphCache,
 		Flags:                   featureFlags,
 		CursorKey:               cfg.CursorHMACKey,
+		ReadOnly:                cfg.Degraded == config.DegradedReadonly,
 		FollowsPerDay:           int64(cfg.Quota.FollowsPerDay),
 		NewAccountFollowsPerDay: int64(cfg.Quota.NewAccountFollowsPerDay),
 		BlocksPerDay:            int64(cfg.Quota.BlocksPerDay),

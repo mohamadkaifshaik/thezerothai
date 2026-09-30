@@ -65,8 +65,8 @@ func TestListOwnArray_LazyCleanup(t *testing.T) {
 			if !reflect.DeepEqual(rc.uids, []string{"gone2", "gone1"}) && !reflect.DeepEqual(rc.uids, []string{"gone1", "gone2"}) {
 				t.Errorf("removed = %v, want only the two deleted uids (never the SUSPENDED one)", rc.uids)
 			}
-			if field(info, fieldLazyGone) != int64(2) || field(info, fieldMisses) != int64(2) {
-				t.Errorf("fields lazy_removed=%v hydration_misses=%v, want 2/2", field(info, fieldLazyGone), field(info, fieldMisses))
+			if field(info, fieldLazyGone) != int64(2) || field(info, fieldConfirmedMissing) != int64(2) {
+				t.Errorf("fields lazy_removed=%v confirmed_missing=%v, want 2/2", field(info, fieldLazyGone), field(info, fieldConfirmedMissing))
 			}
 
 			// Second call: the array is clean, so no write. The suspended entry is still there.
@@ -191,5 +191,60 @@ func TestListOwnArray_NoCleanupOnDirectoryError(t *testing.T) {
 	}
 	if len(repo.removeCalls) != 0 {
 		t.Error("must not clean up when hydration failed")
+	}
+}
+
+// DEGRADED_MODE=readonly lets the (NO_SIDE_EFFECTS) list RPCs through, so the lazy clean-up must not write.
+func TestListOwnArray_LazyCleanup_ReadOnlySkipsWrite(t *testing.T) {
+	for _, kind := range []string{"blocked", "muted"} {
+		t.Run(kind, func(t *testing.T) {
+			repo, dir := cleanupFixture(kind)
+			svc := newTestServiceWithDirectory(repo, dir, Deps{CursorKey: []byte("k"), ReadOnly: true})
+			list := svc.ListBlockedUsers
+			if kind == "muted" {
+				list = svc.ListMutedUsers
+			}
+			ctx, info := obsCtx()
+			page, err := list(ctx, "uid-1", 50, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := uidsOf(page), []string{"live", "old"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("page = %v, want %v", got, want)
+			}
+			if len(repo.removeCalls) != 0 {
+				t.Errorf("remove calls = %d, want 0 in readonly mode", len(repo.removeCalls))
+			}
+			if field(info, fieldLazyGone) != int64(0) || field(info, fieldConfirmedMissing) != int64(2) {
+				t.Errorf("fields lazy_removed=%v confirmed_missing=%v, want 0/2", field(info, fieldLazyGone), field(info, fieldConfirmedMissing))
+			}
+		})
+	}
+}
+
+// The early-return path (every entry on the page hidden by blockedBy) still reports both fields as 0.
+func TestListOwnArray_EarlyReturnSetsCleanupFields(t *testing.T) {
+	repo := newFakeRepo()
+	repo.lists = map[string]Lists{"uid-1": {Muted: []string{"x"}, Snapshot: Snapshot{Muted: map[string]bool{"x": true}, BlockedBy: map[string]bool{"x": true}}}}
+	svc := newTestServiceWithDirectory(repo, &fakeDirectory{}, Deps{CursorKey: []byte("k")})
+	ctx, info := obsCtx()
+	if _, err := svc.ListMutedUsers(ctx, "uid-1", 50, ""); err != nil {
+		t.Fatal(err)
+	}
+	if field(info, fieldConfirmedMissing) != int64(0) || field(info, fieldLazyGone) != int64(0) {
+		t.Errorf("fields = %v/%v, want 0/0", field(info, fieldConfirmedMissing), field(info, fieldLazyGone))
+	}
+}
+
+// The kind guard rejects anything but blocked/muted before touching Firestore (a zero repo has no client, so
+// reaching the write would panic).
+func TestRemoveOwnArrayEntries_RejectsOtherKinds(t *testing.T) {
+	for _, kind := range []string{"following", "blockedBy", "requested", ""} {
+		t.Run(kind, func(t *testing.T) {
+			r := &FirestoreRepo{}
+			if err := r.RemoveOwnArrayEntries(context.Background(), "uid-1", kind, []string{"x"}, time.Now()); err == nil {
+				t.Fatalf("kind %q: expected error", kind)
+			}
+		})
 	}
 }

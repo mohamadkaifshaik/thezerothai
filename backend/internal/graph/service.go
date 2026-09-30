@@ -78,6 +78,10 @@ type Deps struct {
 	Flags FlagChecker
 	// CursorKey signs opaque page tokens (config.CursorHMACKey, ADR-0003).
 	CursorKey []byte
+	// ReadOnly is true when DEGRADED_MODE=readonly (config.DegradedReadonly). The list RPCs are
+	// NO_SIDE_EFFECTS, so the degraded interceptor lets them through; ReadOnly makes the T27 lazy clean-up
+	// skip its one write so that mode stays write-free.
+	ReadOnly bool
 
 	FollowsPerDay           int64
 	NewAccountFollowsPerDay int64
@@ -102,6 +106,7 @@ type service struct {
 	cursorKey []byte
 	directory identity.Directory
 	now       func() time.Time
+	readOnly  bool
 
 	followsPerDay           int64
 	newAccountFollowsPerDay int64
@@ -118,6 +123,7 @@ func New(d Deps) *service {
 		flags:                   d.Flags,
 		cursorKey:               d.CursorKey,
 		now:                     time.Now,
+		readOnly:                d.ReadOnly,
 		followsPerDay:           d.FollowsPerDay,
 		newAccountFollowsPerDay: d.NewAccountFollowsPerDay,
 		blocksPerDay:            d.BlocksPerDay,

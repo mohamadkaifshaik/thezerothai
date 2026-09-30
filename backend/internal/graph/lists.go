@@ -88,6 +88,8 @@ func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, page
 		}
 	}
 	if len(visible) == 0 {
+		logger.SetRequestField(ctx, fieldConfirmedMissing, 0)
+		logger.SetRequestField(ctx, fieldLazyGone, 0)
 		if hasMore {
 			page.NextPageToken = s.ownArrayToken(callerUID, kind, arr, lastIdx)
 		}
@@ -117,11 +119,17 @@ func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, page
 
 // lazyCleanup removes uids confirmed to have no users/{uid} doc from the caller's OWN array (ADR-0008 D10
 // refinement, T27). At most one page (<= 50 ids) and one write; 0 reads. Best effort: a failure is logged
-// as a WARN with a count only and never fails the list RPC. No raw uids are logged.
+// as a WARN with a count only and never fails the list RPC. No raw uids are logged. Under
+// DEGRADED_MODE=readonly the list RPCs still run (they are NO_SIDE_EFFECTS) but must stay write-free, so the
+// write is skipped (DEBUG only); the stale entries are cleaned up on a later call once the mode is off.
 func (s *service) lazyCleanup(ctx context.Context, callerUID, kind string, missing []string) {
-	logger.SetRequestField(ctx, fieldMisses, len(missing))
+	logger.SetRequestField(ctx, fieldConfirmedMissing, len(missing))
 	logger.SetRequestField(ctx, fieldLazyGone, 0)
 	if len(missing) == 0 {
+		return
+	}
+	if s.readOnly {
+		slog.DebugContext(ctx, "graph_lazy_cleanup_skipped_readonly", "kind", kind, "count", len(missing))
 		return
 	}
 	if err := s.repo.RemoveOwnArrayEntries(ctx, callerUID, kind, missing, s.now()); err != nil {

@@ -17,14 +17,16 @@ import (
 // and no new middleware. fs_reads/fs_writes/fs_deletes/limit_name are already emitted by mw.Logging.
 // Values are enums, counts and bools only - never uids or graph array contents (security review L4).
 const (
-	fieldOp         = "graph_op"
-	fieldOutcome    = "outcome"
-	fieldCacheHit   = "graph_cache_hit"
-	fieldEdgesGone  = "edges_removed"
-	fieldFlagOff    = "feature_disabled"
-	fieldMisses     = "hydration_misses"
-	fieldLazyGone   = "lazy_removed"
-	fieldTxnAttempt = "txn_attempts"
+	fieldOp        = "graph_op"
+	fieldOutcome   = "outcome"
+	fieldCacheHit  = "graph_cache_hit"
+	fieldEdgesGone = "edges_removed"
+	fieldFlagOff   = "feature_disabled"
+	// confirmed_missing counts only uids whose users/{uid} doc a fresh read confirmed absent on this page;
+	// SUSPENDED/DELETING users and negatively-cached uids are not counted (see identity.Directory).
+	fieldConfirmedMissing = "confirmed_missing"
+	fieldLazyGone         = "lazy_removed"
+	fieldTxnAttempt       = "txn_attempts"
 )
 
 // begin records graph_op and returns the finisher to defer as `defer begin(ctx, "follow")(&err)` on a
