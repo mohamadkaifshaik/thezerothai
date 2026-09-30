@@ -413,6 +413,9 @@ func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
 		t.Errorf("read budget defaults = %d/%d/%d, want 2000/500/100",
 			cfg.RateLimit.ReadBudgetPerUIDPerDay, cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay, cfg.RateLimit.CheckHandleCallsPerDay)
 	}
+	if cfg.RateLimit.AccountOpsCallsPerDay != 20 {
+		t.Errorf("RateLimit.AccountOpsCallsPerDay = %d, want 20 (ADR-0010 D5 A6)", cfg.RateLimit.AccountOpsCallsPerDay)
+	}
 	// R-N8: CheckHandleAvailability raised from 10 to 20/min.
 	if cfg.RateLimit.CheckHandlePerUserPerMinute != 20 {
 		t.Errorf("RateLimit.CheckHandlePerUserPerMinute = %d, want 20", cfg.RateLimit.CheckHandlePerUserPerMinute)
@@ -433,7 +436,7 @@ func TestMustLoad_PanicsOnError(t *testing.T) {
 // m3: a zero or negative read-budget / check-handle cap would lock every uid out after one call, so Load
 // rejects it instead of treating it as "disabled".
 func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
-	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY"} {
+	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY", "ACCOUNT_OPS_CALLS_PER_DAY"} {
 		for _, val := range []string{"0", "-5"} {
 			t.Run(key+"="+val, func(t *testing.T) {
 				clearEnv(t)

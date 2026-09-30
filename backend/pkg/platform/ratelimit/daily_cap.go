@@ -98,18 +98,28 @@ func (d *DailyCap) Allow(key string) bool {
 // (Firestore reads): the check runs before the call and the actual cost is charged after by Release.
 //
 // It rejects (ok=false) when spent >= limit (the cap is reached: the caller retries at IST midnight) and,
-// once WithMaxCallReads is set, also when another call is already in flight and spent + maxCallReads >
-// limit (M1: near the cap only ONE call may be in flight, so concurrent callers cannot each pass the
-// check and all overshoot; the caller retries in about a second, see IsTransient). An admitted call must
-// be settled with exactly one Release.
+// once WithMaxCallReads (M) is set, also when inflight > 0 and spent + (inflight+1) * M > limit (ADR-0010 D5
+// A1: every in-flight call is assumed to spend M, so the invariant spent + inflight * M <= limit - 1 + M
+// holds at any concurrency and the counter never passes limit - 1 + M; the caller retries in about a
+// second, see IsTransient). An admitted call must be settled with exactly one Release.
 func (d *DailyCap) Reserve(key string) (ok bool, spent int64) {
 	c := d.lock(key)
 	defer c.mu.Unlock()
-	if c.count >= d.limit || (c.inflight > 0 && c.count+d.maxCallReads > d.limit) {
+	if c.count >= d.limit || (c.inflight > 0 && c.count+int64(c.inflight+1)*d.maxCallReads > d.limit) {
 		return false, c.count
 	}
 	c.inflight++
 	return true, c.count
+}
+
+// MaxCallReads returns the per-call hold M set by WithMaxCallReads (0 when unset).
+func (d *DailyCap) MaxCallReads() int64 { return d.maxCallReads }
+
+// Inflight returns how many calls Reserve admitted for key and Release has not settled yet. Log-only.
+func (d *DailyCap) Inflight(key string) int {
+	c := d.lock(key)
+	defer c.mu.Unlock()
+	return c.inflight
 }
 
 // IsTransient reports whether a Reserve rejection that saw spent units is only the single-flight guard

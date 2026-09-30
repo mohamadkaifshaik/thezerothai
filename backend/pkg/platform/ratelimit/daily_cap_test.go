@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -165,11 +166,15 @@ func TestDailyCap_ReserveReturnsSpentAndRelease(t *testing.T) {
 func TestDailyCap_SingleFlightNearCap(t *testing.T) {
 	d := NewDailyCap(2000).WithMaxCallReads(269)
 
+	// A1: the k-th concurrent call is admitted while spent + k*M <= limit. At 1,000 spent that is 3 calls.
 	d.Charge("far", 1000)
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		if ok, _ := d.Reserve("far"); !ok {
 			t.Fatalf("call %d far from the cap must be admitted concurrently", i)
 		}
+	}
+	if ok, spent := d.Reserve("far"); ok || !d.IsTransient(spent) {
+		t.Fatalf("4th concurrent call at 1,000 spent: ok=%v, want a transient rejection (1000 + 4*269 > 2000)", ok)
 	}
 
 	d.Charge("near", 1999)
@@ -186,11 +191,61 @@ func TestDailyCap_SingleFlightNearCap(t *testing.T) {
 		t.Fatalf("after reaching the cap: ok=%v transient=%v, want rejected and not transient", ok, d.IsTransient(spent))
 	}
 
-	d.Charge("edge", 2000-269) // spent + max == limit is not "over": both admitted
+	d.Charge("edge", 2000-2*269) // spent + 2*max == limit is not "over": two calls admitted, not three
 	for i := 0; i < 2; i++ {
 		if ok, _ := d.Reserve("edge"); !ok {
-			t.Fatalf("call %d at spent+max == limit must be admitted", i)
+			t.Fatalf("call %d at spent+(inflight+1)*max == limit must be admitted", i)
 		}
+	}
+	if ok, _ := d.Reserve("edge"); ok {
+		t.Fatal("third call would make spent + 3*max > limit")
+	}
+
+	// A fresh day allows floor(2000/269) = 7 calls in flight (ADR-0010 D5 A1, "legitimate parallelism").
+	n := 0
+	for {
+		ok, _ := d.Reserve("fresh")
+		if !ok {
+			break
+		}
+		n++
+	}
+	if n != 7 {
+		t.Fatalf("calls in flight on a fresh day = %d, want 7", n)
+	}
+}
+
+// TestDailyCap_InvariantAtAnyConcurrency (A1): from many starting spends, every admitted call spends exactly
+// M; the final count never passes limit - 1 + M, however many callers race.
+func TestDailyCap_InvariantAtAnyConcurrency(t *testing.T) {
+	const (
+		limit = 2000
+		m     = 269
+		herd  = 32
+	)
+	for _, start := range []int64{0, 500, 1000, 1462, 1463, 1731, 1900, 1999} {
+		t.Run(fmt.Sprintf("start=%d", start), func(t *testing.T) {
+			d := NewDailyCap(limit).WithMaxCallReads(m)
+			d.Charge("u", start)
+			admitted := 0
+			for i := 0; i < herd; i++ { // all admitted calls overlap: none releases until the herd is done
+				if ok, _ := d.Reserve("u"); ok {
+					admitted++
+				}
+			}
+			if got := d.Inflight("u"); got != admitted {
+				t.Fatalf("Inflight = %d, want %d", got, admitted)
+			}
+			for i := 0; i < admitted; i++ {
+				d.Release("u", m)
+			}
+			if got, bound := d.Spent("u"), int64(limit-1+m); got > bound {
+				t.Fatalf("spent = %d exceeds the A1 bound %d after %d admitted", got, bound, admitted)
+			}
+			if d.Inflight("u") != 0 {
+				t.Fatal("slots leaked")
+			}
+		})
 	}
 }
 

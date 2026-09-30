@@ -27,6 +27,10 @@ const MaxCacheTTL = 60 * time.Second
 // doc comment; tests use this constant, not a literal.
 const ReadBudgetMaxCallReads = 269
 
+// IPReadBudgetMaxCallReads is the per-call hold of the IP read budget (ADR-0010 D5 A1): every IP-keyed call
+// (CheckHandleAvailability, CreateProfile, the profile-less calls of a marked uid) reads at most 1 doc.
+const IPReadBudgetMaxCallReads = 2
+
 // DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
 type DegradedMode string
 
@@ -104,13 +108,18 @@ type RateLimitConfig struct {
 	// typical day of ~183 reads). Per instance: worst case per account per IST day is 3 instances x
 	// (2,000 - 1 + ReadBudgetMaxCallReads = 269) = 6,804 reads (13.6% of the free 50k/day) versus ~86k-259k before.
 	ReadBudgetPerUIDPerDay int64
-	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv6: /64) daily read budget enforced only on
-	// profile-exempt procedures (CreateProfile, CheckHandleAvailability), env
-	// READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Worst case ~1,503 reads/day per IP over 3 instances.
+	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv6: /64) daily read budget (ADR-0010 D5 A3-A4): enforced
+	// on CheckHandleAvailability and on the calls of a verified caller seen without a profile, charge-only on
+	// CreateProfile; env READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Worst case per IP and instance
+	// lifetime is 500 - 1 + IPReadBudgetMaxCallReads = 501 reads, ~1,503 over 3 instances.
 	ReadBudgetPerIPNoProfilePerDay int64
 	// CheckHandleCallsPerDay is the per-uid daily call cap on CheckHandleAvailability (a ratelimit.DailyCap,
 	// limit_name "check_handle_daily"), env CHECK_HANDLE_CALLS_PER_DAY, default 100.
 	CheckHandleCallsPerDay int64
+	// AccountOpsCallsPerDay is the per-uid daily call cap shared by DeleteAccount, RequestAccountExport and
+	// GetAccountExport (ADR-0010 D5 A6; a ratelimit.DailyCap, limit_name "account_ops_daily"), env
+	// ACCOUNT_OPS_CALLS_PER_DAY, default 20. Those calls are charge-only on the read budget, so this is their bound.
+	AccountOpsCallsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -317,12 +326,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.CheckHandleCallsPerDay = int64(checkHandleCalls)
+	accountOpsCalls, err := getInt("ACCOUNT_OPS_CALLS_PER_DAY", 20)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.AccountOpsCallsPerDay = int64(accountOpsCalls)
 	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
 	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
 	for name, v := range map[string]int{
 		"READ_BUDGET_PER_UID_PER_DAY":           readBudgetUID,
 		"READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY": readBudgetIP,
 		"CHECK_HANDLE_CALLS_PER_DAY":            checkHandleCalls,
+		"ACCOUNT_OPS_CALLS_PER_DAY":             accountOpsCalls,
 	} {
 		if v <= 0 {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)

@@ -117,6 +117,11 @@ locals {
     { name = "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", value = "50" },
     { name = "LIST_CALLS_PER_DAY", value = "100" },
     { name = "GRAPH_MUTATIONS_PER_DAY", value = "500" },
+    # ADR-0010 D5 read budget (rule 11: caps are config). Must match the config.go defaults.
+    { name = "READ_BUDGET_PER_UID_PER_DAY", value = "2000" },
+    { name = "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", value = "500" },
+    { name = "CHECK_HANDLE_CALLS_PER_DAY", value = "100" },
+    { name = "ACCOUNT_OPS_CALLS_PER_DAY", value = "20" },
     { name = "RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", value = "20" },
     { name = "RATE_LIMIT_GRAPH_LIST_PER_MIN", value = "20" },
