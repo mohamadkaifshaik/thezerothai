@@ -5,6 +5,7 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -15,7 +16,7 @@ const idleBucketTTL = 10 * time.Minute
 // rateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
 // call caps and the ADR-0010 D5 read budget (uid, plus IP on profileExempt procedures). It is a function of
 // cfg alone so the guard test (guard_test.go) can inspect exactly what Build wires.
-func rateLimitConfig(cfg config.Config, profileExempt map[string]struct{}) ratelimit.Config {
+func rateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlDefault := ratelimit.NewLimiter(cfg.RateLimit.PerUserPerMinute, idleBucketTTL)
 	rlCheckHandle := ratelimit.NewLimiter(cfg.RateLimit.CheckHandlePerUserPerMinute, idleBucketTTL)
 	rlIP := ratelimit.NewLimiter(cfg.RateLimit.PerIPPerMinute, idleBucketTTL)
@@ -33,6 +34,8 @@ func rateLimitConfig(cfg config.Config, profileExempt map[string]struct{}) ratel
 	graphMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphMutationsPerDay)
 	// ADR-0010 D5 / T3: CheckHandleAvailability call cap, limit_name "check_handle_daily".
 	checkHandleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CheckHandleCallsPerDay)
+	// ADR-0010 D5 A6: limit_name "account_ops_daily", shared by DeleteAccount, RequestAccountExport, GetAccountExport.
+	accountOpsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.AccountOpsCallsPerDay)
 
 	return ratelimit.Config{
 		Default: rlDefault,
@@ -63,13 +66,27 @@ func rateLimitConfig(cfg config.Config, profileExempt map[string]struct{}) ratel
 			graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: checkHandleDailyCap},
+
+			// A6: ONE shared call cap for the three charge-only account operations (their only bound).
+			identityv1connect.IdentityServiceDeleteAccountProcedure:        {Name: "account_ops_daily", Cap: accountOpsDailyCap},
+			identityv1connect.IdentityServiceRequestAccountExportProcedure: {Name: "account_ops_daily", Cap: accountOpsDailyCap},
+			identityv1connect.IdentityServiceGetAccountExportProcedure:     {Name: "account_ops_daily", Cap: accountOpsDailyCap},
 		},
 		// ADR-0010 D5: covers every procedure; ReadBudgetExempt stays empty (guard_test.go). WithMaxCallReads
 		// arms the single-flight guard near the cap (review M1).
 		ReadBudget:   ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerUIDPerDay).WithMaxCallReads(config.ReadBudgetMaxCallReads),
-		ReadBudgetIP: ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay).WithMaxCallReads(config.ReadBudgetMaxCallReads),
-		// ADR-0010 D5 amendment (review M2, CLAUDE.md rule 10): charged, never rejected. Each entry needs a
-		// reason in guard_test.go allowedReadBudgetChargeOnly.
+		ReadBudgetIP: ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay).WithMaxCallReads(config.IPReadBudgetMaxCallReads),
+		// ADR-0010 D5 A4: CheckHandleAvailability is enforced on the IP key; CreateProfile is charge-only, so one
+		// abuser behind a shared IPv4 address cannot block sign-ups for everyone behind it. Together they must
+		// equal profileExemptProcedures (guard test, security L6).
+		ReadBudgetIPEnforce: map[string]struct{}{
+			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {},
+		},
+		ReadBudgetIPChargeOnly: map[string]struct{}{
+			identityv1connect.IdentityServiceCreateProfileProcedure: {},
+		},
+		// ADR-0010 D5 A6 (review M2, CLAUDE.md rule 10): charged, never rejected. Each entry needs a reason in
+		// guard_test.go allowedReadBudgetChargeOnly and a DailyCaps entry below (account_ops_daily).
 		ReadBudgetChargeOnly: map[string]struct{}{
 			// Right to delete: must work for a user who has spent today's budget (App Store / Play / DPDP).
 			identityv1connect.IdentityServiceDeleteAccountProcedure: {},
@@ -78,8 +95,18 @@ func rateLimitConfig(cfg config.Config, profileExempt map[string]struct{}) ratel
 			// Polls the export produced by RequestAccountExport; must not be blocked while that job is pending.
 			identityv1connect.IdentityServiceGetAccountExportProcedure: {},
 		},
-		ProfileExempt:    profileExempt,
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	}
+}
+
+// profileExemptProcedures is the set of procedures allowed before a profile exists (ADR-0006 §2). Build and the
+// guard test share it, so the ratelimit IP sets cannot drift from it.
+func profileExemptProcedures() map[string]struct{} {
+	return authn.ProfileExemptProcedures(
+		identityv1connect.IdentityServiceCreateProfileProcedure,
+		// CheckHandleAvailability is read-only and must work before a profile exists (sign-up form);
+		// see the ADR-0006 deviation note in pkg/platform/authn.ProfileExemptProcedures.
+		identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure,
+	)
 }

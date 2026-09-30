@@ -60,6 +60,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		Handler:           mux,
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
+		// ADR-0010 D5 A5: bound the header size (default 1 MiB) so a huge X-Forwarded-For cannot be pushed
+		// through the IP-keyed structures.
+		MaxHeaderBytes: 64 << 10,
 		// IdleTimeout bounds how long a kept-alive connection with no in-flight request may sit open;
 		// without it http.Server never times those out on its own (minor fix from the phase0 code review).
 		IdleTimeout: 120 * time.Second,

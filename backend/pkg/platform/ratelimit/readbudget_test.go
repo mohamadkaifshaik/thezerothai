@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,8 +190,8 @@ func TestReadBudget_InFlightGuardRejectsWithShortRetryAndReleases(t *testing.T) 
 	if got := d.GetRetryAfter().AsDuration(); got != ratelimit.RetryAfterInFlight {
 		t.Fatalf("in-flight rejection retry_after = %v, want 1s", got)
 	}
-	if d.GetMetadata()["limit"] != "read_budget_daily" {
-		t.Errorf("limit = %q, want read_budget_daily", d.GetMetadata()["limit"])
+	if d.GetMetadata()["limit"] != "read_budget_inflight" {
+		t.Errorf("limit = %q, want read_budget_inflight (A7)", d.GetMetadata()["limit"])
 	}
 	if handled.Load() != 1 {
 		t.Fatalf("handler ran %d times; the rejected call must not reach it", handled.Load())
@@ -254,12 +255,12 @@ func TestReadBudget_ChargeOnlyProceduresAreNeverRejected(t *testing.T) {
 			ipCap := ratelimit.NewDailyCap(500)
 			cfg := ratelimit.Config{
 				ReadBudget: uidCap, ReadBudgetIP: ipCap,
-				ProfileExempt:        map[string]struct{}{procedure: {}},
+				ReadBudgetIPEnforce:  map[string]struct{}{procedure: {}},
 				ReadBudgetChargeOnly: tt.chargeOnly,
 			}
 			rig := newBudgetServer(t, "uid-a", cfg, 3, nil)
 			uidCap.Charge("uid-a", 5000)
-			ipCap.Charge(ratelimit.IPBudgetKey("203.0.113.9"), 5000)
+			ipCap.Charge(ipKey("203.0.113.9"), 5000)
 			err := call(t, rig.srv, "203.0.113.9")
 			if !tt.wantOK {
 				assertResourceExhausted(t, err)
@@ -271,7 +272,7 @@ func TestReadBudget_ChargeOnlyProceduresAreNeverRejected(t *testing.T) {
 			if got := uidCap.Spent("uid-a"); got != 5003 {
 				t.Errorf("uid spent = %d, want 5003 (reads are still charged)", got)
 			}
-			if got := ipCap.Spent(ratelimit.IPBudgetKey("203.0.113.9")); got != 5003 {
+			if got := ipCap.Spent(ipKey("203.0.113.9")); got != 5003 {
 				t.Errorf("ip spent = %d, want 5003", got)
 			}
 		})
@@ -293,12 +294,12 @@ func TestReadBudget_RejectionLogsWhichKeyTripped(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			uidCap := ratelimit.NewDailyCap(2000)
 			ipCap := ratelimit.NewDailyCap(500)
-			cfg := ratelimit.Config{ReadBudget: uidCap, ReadBudgetIP: ipCap, ProfileExempt: map[string]struct{}{procedure: {}}}
+			cfg := ratelimit.Config{ReadBudget: uidCap, ReadBudgetIP: ipCap, ReadBudgetIPEnforce: map[string]struct{}{procedure: {}}}
 			rig := newBudgetServer(t, "uid-a", cfg, 1, nil)
 			if tt.uidOver {
 				uidCap.Charge("uid-a", 2000)
 			} else {
-				ipCap.Charge(ratelimit.IPBudgetKey("203.0.113.9"), 500)
+				ipCap.Charge(ipKey("203.0.113.9"), 500)
 			}
 			d := rateLimitDetail(t, call(t, rig.srv, "203.0.113.9"))
 			if d.GetMetadata()["limit"] != "read_budget_daily" {
@@ -326,7 +327,7 @@ func TestReadBudget_IPBudgetOnlyOnProfileExemptProcedures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ipCap := ratelimit.NewDailyCap(500)
-			cfg := ratelimit.Config{ReadBudget: ratelimit.NewDailyCap(2000), ReadBudgetIP: ipCap, ProfileExempt: tt.profileExempt}
+			cfg := ratelimit.Config{ReadBudget: ratelimit.NewDailyCap(2000), ReadBudgetIP: ipCap, ReadBudgetIPEnforce: tt.profileExempt}
 			// 5 different uids behind one IP spend 100 reads each = 500.
 			for i := 0; i < 5; i++ {
 				rig := newBudgetServer(t, "sybil-"+string(rune('a'+i)), cfg, 100, nil)
@@ -349,7 +350,7 @@ func TestReadBudget_IPBudgetOnlyOnProfileExemptProcedures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("a caller with a profile must not be IP-limited: %v", err)
 			}
-			if ipCap.Spent(ratelimit.IPBudgetKey("203.0.113.9")) != 0 {
+			if ipCap.Spent(ipKey("203.0.113.9")) != 0 {
 				t.Error("IP budget must not be charged on non-exempt procedures")
 			}
 		})
@@ -359,9 +360,9 @@ func TestReadBudget_IPBudgetOnlyOnProfileExemptProcedures(t *testing.T) {
 // TestReadBudget_IPv6KeyedBy64: a host rotating addresses inside its /64 shares one budget; another /64 does not.
 func TestReadBudget_IPv6KeyedBy64(t *testing.T) {
 	cfg := ratelimit.Config{
-		ReadBudget:    ratelimit.NewDailyCap(2000),
-		ReadBudgetIP:  ratelimit.NewDailyCap(100),
-		ProfileExempt: map[string]struct{}{procedure: {}},
+		ReadBudget:          ratelimit.NewDailyCap(2000),
+		ReadBudgetIP:        ratelimit.NewDailyCap(100),
+		ReadBudgetIPEnforce: map[string]struct{}{procedure: {}},
 	}
 	rig := newBudgetServer(t, "uid-a", cfg, 100, nil)
 	if err := call(t, rig.srv, "2001:db8:1:2::1"); err != nil {
@@ -373,18 +374,41 @@ func TestReadBudget_IPv6KeyedBy64(t *testing.T) {
 	}
 }
 
+// ipKey is IPBudgetKey for inputs the test knows are valid.
+func ipKey(ip string) string {
+	k, ok := ratelimit.IPBudgetKey(ip)
+	if !ok {
+		panic("test IP does not parse: " + ip)
+	}
+	return k
+}
+
+// TestIPBudgetKey (A5): only canonical netip strings come out; raw input never does.
 func TestIPBudgetKey(t *testing.T) {
-	tests := []struct{ in, want string }{
-		{"203.0.113.9", "203.0.113.9"},
-		{"::ffff:203.0.113.9", "203.0.113.9"},
-		{"2001:db8:1:2::1", "2001:db8:1:2::/64"},
-		{"2001:db8:1:2:ffff:ffff:ffff:ffff", "2001:db8:1:2::/64"},
-		{"2001:db8:1:3::1", "2001:db8:1:3::/64"},
-		{"not-an-ip", "not-an-ip"},
+	tests := []struct {
+		in     string
+		want   string
+		wantOK bool
+	}{
+		{"203.0.113.9", "203.0.113.9", true},
+		{"::ffff:203.0.113.9", "203.0.113.9", true},
+		{"2001:db8:1:2::1", "2001:db8:1:2::/64", true},
+		{"2001:DB8:1:2:FFFF:ffff:ffff:ffff", "2001:db8:1:2::/64", true},
+		{"2001:db8:1:3::1", "2001:db8:1:3::/64", true},
+		{"fe80::1%eth0", "fe80::/64", true}, // the zone is dropped
+		{"not-an-ip", "", false},
+		{"", "", false},
+		{"203.0.113.9:443", "", false},
+		{"1.2.3.4, 5.6.7.8", "", false},
+		{strings.Repeat("a", 5000), "", false},
 	}
 	for _, tt := range tests {
-		if got := ratelimit.IPBudgetKey(tt.in); got != tt.want {
-			t.Errorf("IPBudgetKey(%q) = %q, want %q", tt.in, got, tt.want)
+		got, ok := ratelimit.IPBudgetKey(tt.in)
+		if got != tt.want || ok != tt.wantOK {
+			t.Errorf("IPBudgetKey(%.40q) = (%q, %v), want (%q, %v)", tt.in, got, ok, tt.want, tt.wantOK)
+		}
+		if len(got) > 43 {
+			t.Errorf("key %q is longer than 43 bytes", got)
 		}
 	}
 }

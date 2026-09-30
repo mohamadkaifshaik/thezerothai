@@ -18,23 +18,15 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// signInProviderPassword is the Firebase `firebase.sign_in_provider` claim value (authn.Claims
-// .SignInProvider) for email/password accounts — the only provider Firebase does not itself guarantee a
-// verified email for. Google and Apple sign-in verify the email upstream before Firebase ever issues a
-// token for it (ADR-0006 §1: "email verification required before posting, following, uploading"; H1,
-// 2026-09-27 security audit, applies that requirement at the earliest point a new account touches
-// Firestore — CreateProfile). Anonymous/phone sign-in are disabled at Stage 0 (ADR-0006 §1, CLAUDE.md), so
-// in practice this only ever distinguishes password from google.com/apple.com.
-const signInProviderPassword = "password"
-
 // requireVerifiedEmailForPassword enforces H1 (2026-09-27 security audit): a password-provider account
-// must have a verified email before creating a profile. Unscripted signups otherwise let an attacker mint
-// Firebase email/password accounts by the thousand per hour per IP and squat handles / burn the Firestore
-// write quota (docs/reviews/security-audit-v0.1.0.md). Google/Apple sign-in are never blocked here,
-// regardless of the (redundant, in their case) email_verified claim value.
+// must have a verified email before creating a profile (ADR-0006 §1). Unscripted signups otherwise let an
+// attacker mint Firebase email/password accounts by the thousand per hour per IP and squat handles / burn
+// the Firestore write quota (docs/reviews/security-audit-v0.1.0.md). Google/Apple sign-in are never blocked
+// here. The predicate is authn.Claims.UnverifiedPassword, which authn.VerifiedIdentityInterceptor (ADR-0010
+// D5 A2) applies earlier at 0 reads; this check stays as defence in depth for a chain without the gate.
 func requireVerifiedEmailForPassword(ctx context.Context) error {
 	claims, _ := authn.ClaimsFromContext(ctx)
-	if claims.SignInProvider != signInProviderPassword || claims.EmailVerified {
+	if !claims.UnverifiedPassword() {
 		return nil
 	}
 	return apierr.New(

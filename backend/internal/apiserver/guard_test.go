@@ -63,7 +63,51 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.ReadBudgetPerUIDPerDay = 2000
 	cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay = 500
 	cfg.RateLimit.CheckHandleCallsPerDay = 100
+	cfg.RateLimit.AccountOpsCallsPerDay = 20
 	return cfg
+}
+
+// ipSetViolations asserts the ADR-0010 D5 A4 sets (security L6): the IP key is wired, and the enforced and
+// charge-only IP sets partition the profile-exempt procedures exactly, with no procedure in both. exempt is the
+// set Build uses (profileExemptProcedures).
+func ipSetViolations(rl ratelimit.Config, exempt map[string]struct{}) []string {
+	var out []string
+	if rl.ReadBudgetIP == nil {
+		out = append(out, "ReadBudgetIP is not wired (ADR-0010 D5 A3-A4)")
+	}
+	for p := range rl.ReadBudgetIPEnforce {
+		if _, dup := rl.ReadBudgetIPChargeOnly[p]; dup {
+			out = append(out, "procedure "+p+" is both IP-enforced and IP-charge-only")
+		}
+	}
+	for p := range exempt {
+		_, e := rl.ReadBudgetIPEnforce[p]
+		_, c := rl.ReadBudgetIPChargeOnly[p]
+		if !e && !c {
+			out = append(out, "profile-exempt procedure "+p+" is not classified as IP-enforced or IP-charge-only")
+		}
+	}
+	for _, set := range []map[string]struct{}{rl.ReadBudgetIPEnforce, rl.ReadBudgetIPChargeOnly} {
+		for p := range set {
+			if _, ok := exempt[p]; !ok {
+				out = append(out, "procedure "+p+" is in an IP set but is not profile-exempt")
+			}
+		}
+	}
+	return out
+}
+
+// accountOpsViolations asserts every charge-only procedure has a DailyCaps entry named account_ops_daily (A6):
+// without it GetAccountExport alone could read ~259k docs/day per uid.
+func accountOpsViolations(rl ratelimit.Config) []string {
+	var out []string
+	for p := range rl.ReadBudgetChargeOnly {
+		named, ok := rl.DailyCaps[p]
+		if !ok || named.Cap == nil || named.Name != "account_ops_daily" {
+			out = append(out, "charge-only procedure "+p+" has no account_ops_daily DailyCaps entry")
+		}
+	}
+	return out
 }
 
 // readBudgetGuardViolations is the guard's logic, split from the enumeration so a mutation test can feed it a
@@ -110,9 +154,105 @@ func TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered(t *testing.T) {
 	// allowedReadBudgetExemptions: procedure -> why it may skip the read budget. Empty by ADR-0010 D5.
 	allowedReadBudgetExemptions := map[string]string{}
 
-	rl := rateLimitConfig(defaultRateLimitCfg(), nil)
+	rl := rateLimitConfig(defaultRateLimitCfg())
 	for _, v := range readBudgetGuardViolations(rl, noSideEffectsProcedures(t), allowedReadBudgetExemptions, allowedReadBudgetChargeOnly) {
 		t.Error(v)
+	}
+	for _, v := range ipSetViolations(rl, profileExemptProcedures()) {
+		t.Error(v)
+	}
+	for _, v := range accountOpsViolations(rl) {
+		t.Error(v)
+	}
+}
+
+// TestIPSetsAndAccountOpsGuard_MutationChecks proves the A4/A6 guards can fail.
+func TestIPSetsAndAccountOpsGuard_MutationChecks(t *testing.T) {
+	const newExempt = "/dzeroth.posts.v1.PostService/SomethingExempt"
+	exempt := profileExemptProcedures()
+	withNew := map[string]struct{}{newExempt: {}}
+	for p := range exempt {
+		withNew[p] = struct{}{}
+	}
+	tests := []struct {
+		name   string
+		mutate func(*ratelimit.Config)
+		exempt map[string]struct{}
+		want   string // "" = no violation
+		fn     func(ratelimit.Config, map[string]struct{}) []string
+	}{
+		{"unmutated IP sets", func(*ratelimit.Config) {}, exempt, "", ipSetViolations},
+		{"new exempt procedure is unclassified", func(*ratelimit.Config) {}, withNew, "profile-exempt procedure " + newExempt, ipSetViolations},
+		{"IP budget unwired", func(c *ratelimit.Config) { c.ReadBudgetIP = nil }, exempt, "ReadBudgetIP is not wired", ipSetViolations},
+		{"CreateProfile becomes enforced too", func(c *ratelimit.Config) {
+			c.ReadBudgetIPEnforce[identityv1connect.IdentityServiceCreateProfileProcedure] = struct{}{}
+		}, exempt, "both IP-enforced and IP-charge-only", ipSetViolations},
+		{"IP set names a non-exempt procedure", func(c *ratelimit.Config) {
+			c.ReadBudgetIPChargeOnly[identityv1connect.IdentityServiceGetMeProcedure] = struct{}{}
+		}, exempt, "is not profile-exempt", ipSetViolations},
+		{"unmutated account ops", func(*ratelimit.Config) {}, nil, "", func(c ratelimit.Config, _ map[string]struct{}) []string { return accountOpsViolations(c) }},
+		{"account op loses its daily cap", func(c *ratelimit.Config) {
+			delete(c.DailyCaps, identityv1connect.IdentityServiceGetAccountExportProcedure)
+		}, nil, "charge-only procedure " + identityv1connect.IdentityServiceGetAccountExportProcedure, func(c ratelimit.Config, _ map[string]struct{}) []string { return accountOpsViolations(c) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rl := rateLimitConfig(defaultRateLimitCfg())
+			tt.mutate(&rl)
+			got := strings.Join(tt.fn(rl, tt.exempt), "\n")
+			if tt.want == "" && got != "" {
+				t.Fatalf("unexpected violations: %s", got)
+			}
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Fatalf("violations %q do not contain %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAccountOps_21stCallIsRateLimitedEvenOverTheReadBudget (A6): through the wired config, DeleteAccount is
+// never rejected by the read budget (the uid is over it), but the shared account_ops_daily cap stops the 21st
+// call of the IST day across the three account operations.
+func TestAccountOps_21stCallIsRateLimitedEvenOverTheReadBudget(t *testing.T) {
+	cfg := defaultRateLimitCfg()
+	cfg.RateLimit.PerUserPerMinute = 100000
+	cfg.RateLimit.PerIPPerMinute = 100000
+	rl := rateLimitConfig(cfg)
+	rl.ReadBudget.Charge("uid-ops", 5000) // far over the read budget
+	procs := []string{
+		identityv1connect.IdentityServiceDeleteAccountProcedure,
+		identityv1connect.IdentityServiceRequestAccountExportProcedure,
+		identityv1connect.IdentityServiceGetAccountExportProcedure,
+	}
+	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-ops"}), req)
+		}
+	})
+	opts := connect.WithInterceptors(setUID, ratelimit.Interceptor(rl))
+	mux := http.NewServeMux()
+	for _, p := range procs {
+		mux.Handle(p, connect.NewUnaryHandler(p,
+			func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+			}, opts))
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	invoke := func(proc string) error {
+		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
+		_, err := c.CallUnary(context.Background(), connect.NewRequest(&commonv1.ErrorDetail{}))
+		return err
+	}
+	for i := 0; i < 20; i++ {
+		if err := invoke(procs[i%3]); err != nil {
+			t.Fatalf("account op %d must pass (charge-only on the read budget): %v", i+1, err)
+		}
+	}
+	err := invoke(procs[0])
+	var ce *connect.Error
+	if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
+		t.Fatalf("21st account op: err = %v, want ResourceExhausted", err)
 	}
 }
 
@@ -157,7 +297,7 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rl := rateLimitConfig(defaultRateLimitCfg(), nil)
+			rl := rateLimitConfig(defaultRateLimitCfg())
 			tt.mutate(&rl)
 			allowedCO := tt.allowedCO
 			if allowedCO == nil {
@@ -175,7 +315,7 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 		})
 	}
 	// An empty enumeration must fail rather than pass vacuously.
-	if v := readBudgetGuardViolations(rateLimitConfig(defaultRateLimitCfg(), nil), nil, nil, allowedReadBudgetChargeOnly); len(v) == 0 {
+	if v := readBudgetGuardViolations(rateLimitConfig(defaultRateLimitCfg()), nil, nil, allowedReadBudgetChargeOnly); len(v) == 0 {
 		t.Error("empty procedure list must be a violation")
 	}
 }
@@ -189,7 +329,7 @@ func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
 	cfg.RateLimit.CheckHandlePerUserPerMinute = 100000 // isolate the daily cap from the per-minute bucket
 	cfg.RateLimit.PerIPPerMinute = 100000
 	proc := identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
-	rl := rateLimitConfig(cfg, authn.ProfileExemptProcedures(proc))
+	rl := rateLimitConfig(cfg)
 
 	const uidHeader = "X-Test-UID"
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {

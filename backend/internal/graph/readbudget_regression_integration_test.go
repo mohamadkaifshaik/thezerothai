@@ -11,7 +11,6 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -29,10 +28,8 @@ func TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults(t *testing.
 	r := newRigWithMutationCap(t, w, 0, 0, func(c *ratelimit.Config) {
 		c.ReadBudget = uidCap
 		c.ReadBudgetIP = ipCap
-		c.ProfileExempt = authn.ProfileExemptProcedures(
-			identityv1connect.IdentityServiceCreateProfileProcedure,
-			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure,
-		)
+		c.ReadBudgetIPEnforce = map[string]struct{}{identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {}}
+		c.ReadBudgetIPChargeOnly = map[string]struct{}{identityv1connect.IdentityServiceCreateProfileProcedure: {}}
 		c.DailyCaps = map[string]ratelimit.NamedDailyCap{
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: ratelimit.NewDailyCap(100)},
 		}

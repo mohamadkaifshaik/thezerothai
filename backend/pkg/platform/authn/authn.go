@@ -18,6 +18,17 @@ type Claims struct {
 	AuthTime       time.Time
 }
 
+// SignInProviderPassword is the Firebase `firebase.sign_in_provider` claim value for email/password
+// accounts, the only provider Firebase does not itself guarantee a verified email for (Google and Apple
+// verify it upstream; anonymous/phone sign-in are disabled at Stage 0, ADR-0006 §1).
+const SignInProviderPassword = "password"
+
+// UnverifiedPassword is the ADR-0010 D5 A2 / T7 predicate: a password-provider account whose email is not
+// verified. Such an account cannot own a profile (CreateProfile refuses it, audit H1 2026-09-27).
+func (c Claims) UnverifiedPassword() bool {
+	return c.SignInProvider == SignInProviderPassword && !c.EmailVerified
+}
+
 // IDTokenVerifier verifies a Firebase Auth ID token from the `Authorization: Bearer` header.
 type IDTokenVerifier interface {
 	VerifyIDToken(ctx context.Context, idToken string) (Claims, error)

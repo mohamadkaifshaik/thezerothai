@@ -101,6 +101,29 @@ func IDTokenInterceptor(verifier IDTokenVerifier) connect.UnaryInterceptorFunc {
 	return connect.UnaryInterceptorFunc(interceptor)
 }
 
+// VerifiedIdentityInterceptor is the ADR-0010 D5 A2 gate: it rejects an unverified password account
+// (Claims.UnverifiedPassword) from the ID-token claims alone, with 0 Firestore reads and before the rate
+// limiter, so a minted uid never creates a limiter key or a read. emailGated lists the profile-exempt
+// procedures (CheckHandleAvailability, CreateProfile) that answer FAILED_PRECONDITION + EMAIL_NOT_VERIFIED;
+// every other procedure answers PROFILE_REQUIRED, which is truthful because such an account has no profile.
+// Must run after IDTokenInterceptor.
+func VerifiedIdentityInterceptor(emailGated map[string]struct{}) connect.UnaryInterceptorFunc {
+	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			claims, ok := ClaimsFromContext(ctx)
+			if !ok || !claims.UnverifiedPassword() {
+				return next(ctx, req)
+			}
+			logger.SetRequestField(ctx, "gate", "email_unverified")
+			if _, gated := emailGated[req.Spec().Procedure]; gated {
+				return nil, apierr.ToConnect(apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, "please verify your email before creating a profile"))
+			}
+			return nil, apierr.ToConnect(apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first"))
+		}
+	}
+	return connect.UnaryInterceptorFunc(interceptor)
+}
+
 // AccountStatus mirrors identityv1.AccountStatus without importing the identity module (platform code
 // must not depend on any internal/<module>; ADR-0002). Callers pass a small adapter.
 type AccountStatus int
@@ -156,6 +179,11 @@ func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]
 				return nil, apierr.New(connect.CodeInternal, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "internal error").WithCause(err)
 			}
 			if !exists {
+				// ADR-0010 D5 A3: tell the rate limiter (which wraps this interceptor) that a verified
+				// caller has no profile, so it charges the call to the IP key.
+				if info := logger.RequestInfoFromContext(ctx); info != nil {
+					info.ProfileRequired = true
+				}
 				return nil, apierr.ToConnect(apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first"))
 			}
 			switch status {

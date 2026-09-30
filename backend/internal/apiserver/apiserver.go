@@ -130,12 +130,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
-	profileExempt := authn.ProfileExemptProcedures(
-		identityv1connect.IdentityServiceCreateProfileProcedure,
-		// CheckHandleAvailability is read-only and must work before a profile exists (sign-up form);
-		// see the ADR-0006 deviation note in pkg/platform/authn.ProfileExemptProcedures.
-		identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure,
-	)
+	profileExempt := profileExemptProcedures()
 
 	// M1: rate limit (and degraded mode, also a free in-memory check) now run *before* account status.
 	// Previously account status ran first, so a caller who never completes sign-up (no users/{uid}) could
@@ -153,7 +148,10 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		mw.Recover(log),
 		authn.AppCheckInterceptor(appCheckVerifier, authn.Mode(cfg.AppCheck)),
 		authn.IDTokenInterceptor(idVerifier),
-		ratelimit.Interceptor(rateLimitConfig(cfg, profileExempt)),
+		// ADR-0010 D5 A2: 0-read verified-identity gate. Unverified password accounts never reach the rate
+		// limiter, so a minted uid creates no limiter key and no Firestore read.
+		authn.VerifiedIdentityInterceptor(profileExempt),
+		ratelimit.Interceptor(rateLimitConfig(cfg)),
 		degraded.Interceptor(cfg.Degraded, degraded.ProcedureSet{} /* no media procedures registered yet */),
 		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt),
 		mw.ErrorMapping(log),
