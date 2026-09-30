@@ -936,6 +936,86 @@ Deltas to existing tickets:
   old "> 2.5 reads/call" trigger is replaced by the B2 reopen criteria (80%-line breach with `Forget`-attributable
   reads ≥ 5% of daily reads, or a ≥ 10% crossover shift). Do not schedule unless one of them is met.
 
+### T31 — Flutter: Mute NOT_FOUND and `_`-uid VALIDATION handled like Follow/Block (client side of T26/T28)  [owner: frontend-developer] [size: S] [depends: — (T26/T28 merged in PR #60; nothing blocking)] [blocks: nothing]
+Added by the planner, 2026-09-30.
+- **Context.**
+  - Since PR #60, Mute returns the same `notFoundErr()` as Block when `graph/{target}` doesn't exist (never existed or
+    purged). A target `user_id` outside `^[A-Za-z0-9-]{1,128}$` gets INVALID_ARGUMENT `VALIDATION`. A malformed
+    *caller* uid gets UNAUTHENTICATED.
+  - The client has **no Follow- or Block-specific NOT_FOUND branch**. All three share one generic path, and Mute already
+    uses it:
+    - `app/lib/features/graph/presentation/bloc/relationship_cubit.dart:103-129` (`_mutate`): optimistic emit, then on
+      any `AppException` it rolls back to `previous` with `isUpdating: false, error: e`. Follow is `:54-60`, Block is
+      `:71-79`, and Mute is `:89-94`, which goes through the same `_mutate`.
+    - `app/lib/features/graph/presentation/graph_error_messages.dart:20`:
+      `NotFoundException() => "This account doesn't exist anymore."`.
+    - The snackbar listeners are `app/lib/features/profile/presentation/widgets/profile_header.dart:57-67` (the
+      overflow-menu Mute at `:274-275`) and `app/lib/shared/widgets/follow_button.dart:28-36`.
+    - The Muted-accounts Undo (re-mute) is `app/lib/features/graph/presentation/managed_accounts_screen.dart:106-125`.
+      On any error it leaves the row out and shows `relationshipErrorMessage`, the same as the Block undo.
+  - So this ticket is **mostly verification and tests**, with one small gap fix. It adds no new pattern.
+- **Description.**
+  1. **Don't change the NOT_FOUND flow.** Mute NOT_FOUND must go through `_mutate`: `muting` rolls back to its previous
+     value (false), the snackbar says "This account doesn't exist anymore.", and the menu shows "Mute" again.
+     - **Cache rollback:** none needed. `GraphRepository.mute` (`app/lib/features/graph/data/graph_repository.dart:191-203`)
+       calls `_cache` only after a successful response, so the session relationship map is never written on error.
+     - Mute never touches the drift `cachedFollowingIds` table, so there is no disk state to roll back.
+     - The only optimistic state is the cubit's own, and `_mutate` already restores it.
+  2. **Gap fix: `ValidationException` shows raw server text.** `graph_error_messages.dart:21` (`_ => error.message`)
+     currently surfaces the server's `"1-128 characters of [A-Za-z0-9-]"` for every graph action. Add one arm to the
+     existing switch: `ValidationException() => "This account doesn't exist anymore."`. That's the same wording as
+     NOT_FOUND: for the user, an id the server can't accept is an account that isn't there. uids always come from
+     server responses, so this indicates a client or data bug. Record a Crashlytics non-fatal (the T12 rule for
+     unexpected `AppException`s) with the reason only, never the uid.
+  3. **VALIDATION is not retryable.**
+     - `RetryInterceptor` already skips Mute. It retries only `noSideEffects` specs (`app/lib/core/network/interceptors.dart:89-92`),
+       and INVALID_ARGUMENT isn't in `_retryableCodes` (`:79-83`). Don't change it.
+     - Don't add an auto-retry or a "Retry" snackbar action for `ValidationException` or `NotFoundException` on any
+       graph action. A manual re-tap still reuses `_muteKey` (`relationship_cubit.dart:89-91`), the same as Follow and
+       Block.
+     - UNAUTHENTICATED for a malformed caller uid goes to the existing `UnauthenticatedException` handling. That's out
+       of scope here.
+  4. **No BLoC state or event changes.** `RelationshipState` (`relationship_state.dart`) already carries
+     `relationship`, `isUpdating` and `error`. There are no new events, fields or freezed regeneration. If step 2 needs
+     the Crashlytics call, put it in `relationshipErrorMessage`'s caller listeners, not in the cubit.
+  5. There are no new screens, so no new-screen widget test is required. The tests below extend the existing files.
+- **Acceptance criteria.**
+  - Given the profile header of a target whose `graph` doc is gone, when the user taps overflow → Mute and the server
+    returns NOT_FOUND, then `muting` shows true optimistically, then rolls back to false, the snackbar reads "This
+    account doesn't exist anymore.", the menu item reads "Mute", and no retry request is sent (`verify(...).called(1)`).
+  - Given the same NOT_FOUND, then `GraphRepository.cached(userId)` is unchanged from before the tap.
+  - Given Mute returns `ValidationException` (a `_` uid), then the state rolls back the same way, the snackbar shows
+    the same wording and **never** the server message, and exactly 1 request is sent.
+  - Given the Muted-accounts screen, when Unmute succeeds and then Undo (re-mute) returns NOT_FOUND, then the row stays
+    removed and the snackbar shows the NOT_FOUND wording. This matches the Block undo.
+  - Given Follow and Block return `ValidationException`, then they show the same new wording. There's one mapping
+    arm, shared by all actions.
+  - Given `flutter analyze` and `flutter test`, then both are clean, with 0 new warnings.
+- **Test notes for tester.**
+  - **Bloc** (`app/test/features/graph/presentation/bloc/relationship_cubit_test.dart`): add a `group('mute')` with
+    `blocTest`s modelled on the existing follow rollback test (`:64-97`), covering NOT_FOUND → `[muting: true,
+    isUpdating: true]` then `[muting: false, isUpdating: false, error: isA<NotFoundException>()]`, and the same for
+    `ValidationException`. Add the missing Follow and Block NOT_FOUND rollback cases too, so all three are pinned
+    equally.
+  - **Widget** (`app/test/features/profile/presentation/profile_screen_test.dart`, next to "the overflow menu Mute calls
+    the API" at `:288-312`): Mute → NOT_FOUND shows the snackbar text and the menu reverts to "Mute". Mute →
+    VALIDATION doesn't show the raw server text (assert `find.textContaining('A-Za-z0-9')` finds nothing).
+  - **Widget** (`app/test/features/graph/presentation/managed_accounts_screen_test.dart`): the Undo → NOT_FOUND case
+    above.
+  - **Unit:** a `relationshipErrorMessage(ValidationException(...))` case, in a new
+    `app/test/features/graph/presentation/graph_error_messages_test.dart` if no test file for it exists.
+- **Observability.**
+  - Crashlytics non-fatal `graph_validation_rejected` (action name only, no uid) on `ValidationException` from a graph
+    mutation.
+  - No non-fatal for NOT_FOUND, because a purged or never-existing target is an expected outcome.
+  - There is no web error telemetry yet (R-N12).
+- **Budget.**
+  - Client-only change: **0 new RPCs, 0 new backend reads or writes**, and no retries added.
+  - For reference, the server cost per Mute call (T26) is **3 R / 2 W**; NOT_FOUND is **2 R / 0 W**, VALIDATION is
+    **0 R / 0 W**, and replay is 3 R / 0 W.
+  - At 0.02 Mute calls per DAU per day, that's ≈ 0.06 reads/DAU, already counted in T21.
+  - A manual re-tap after NOT_FOUND costs another 2 R, bounded by the Mute bucket (20/min) and the `blocks` quota.
+
 ---
 
 ## Rollout plan
