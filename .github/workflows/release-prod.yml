@@ -68,7 +68,7 @@ jobs:
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ steps.tagname.outputs.tag }}
 
@@ -168,7 +168,7 @@ jobs:
     # went missing, which is the desired behavior (no silent skip).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
 
@@ -210,7 +210,7 @@ jobs:
     # N1: hashFiles() cannot be used in a job-level `if:` — see build-android.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
 
