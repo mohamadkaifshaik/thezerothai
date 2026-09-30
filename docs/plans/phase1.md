@@ -68,9 +68,13 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
 - **Dependencies.** None. It must be merged **and deployed to prod** before any public (non-allowlist) rollout of P1's
   read paths.
 - **Firestore budget.** 0 reads and 0 writes added (in memory).
-  - Worst case per abusive account per day after the fix: ≤ (read budget − 1 + one call's worst case 269) × 3
-    instances = (2,000 − 1 + 269) × 3 = **6,804 reads** (13.6% of free), against ~86k–259k today (ADR-0010 D5).
-  - Profile-less callers: ≤ 1,503 reads per IP (IPv6: per /64), charged only on profile-exempt procedures.
+  - Worst case per verified account after the fix (ADR-0010 D5 as amended): **2,308 reads per instance lifetime**
+    (2,000 − 1 + 269 with the in-flight hold, + 40 for charge-only account operations), ≤ 6,924/day with 3 steady
+    instances (13.8% of free), against ~86k–259k today. The counters are in memory, so deliberate instance cycling
+    can reach ≈ 623k/day (residual R2, founder acceptance required).
+  - Unverified password accounts: 0 reads (a verified-identity gate answers from token claims). Verified callers
+    without a profile: ≤ 501 reads per IP (IPv6: per /64) per instance lifetime on the IP key, plus their own uid
+    budget.
 - **Cost line.** $0. It lowers the worst case and doesn't change the typical case.
 - **Done when.**
   - The budget interceptor is live in prod.

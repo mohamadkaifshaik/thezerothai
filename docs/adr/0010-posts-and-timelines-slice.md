@@ -1,8 +1,13 @@
 # 0010. Posts and timelines slice (Phase 1 P0 + P1): slice decisions, visibility, read budget
 Status: Proposed (architect, 2026-09-30). Becomes Accepted when the founder merges it. No fixed cost is added and no
-non-negotiable rule bends. Four items change the plan's defaults or earlier numbers and are listed for the founder
-under "Founder attention" at the end.
-Date: 2026-09-30
+non-negotiable rule bends. The items that change the plan's defaults or earlier numbers are listed for the founder
+under "Founder attention" at the end. **Two residual risks need the founder's explicit acceptance** (D5 "Residual
+risk", R1 and R2).
+Date: 2026-09-30. **Amended 2026-09-30** after the P0 reviews (`p0-read-budget-security-review.md` H1, M1–M4, L1;
+`p0-read-budget-code-review.md` M1, M2): D5 is rewritten (A1–A7), and Options 2b/2c, Cost impact, D15, D20,
+Consequences, Handoff and Founder attention follow it. The earlier D5 statements "overshoot is bounded by one call"
+and "profile-less ≈ 1,503 reads/day per IP" were wrong (concurrency, instance churn and non-exempt RPCs). The numbers
+below replace them.
 Deciders: architect, founder (on merge)
 
 Inputs: `docs/plans/posts-and-timeline.md` (Q1–Q12, T1–T27), `docs/plans/phase1.md` (P0, P1, D1–D5),
@@ -43,6 +48,13 @@ Facts from the code that shape the numbers below:
 - For an older page at F = 60 (C = 3, page 20), `k = ceil(40/3) = 14`. Two dense chunks return 14 each, so the page
   reads ≈ 29 docs, not the 20–23 the plan assumed. That is ADR-0004's by-design over-read (bound `C + 2·page`), and
   it is now priced honestly.
+- **Every read-budget counter is in memory, per Cloud Run instance** (`ratelimit.DailyCap`). It resets whenever an
+  instance starts: after scale-to-zero, on scale-out, and on every new revision. A bound stated "per day" is really a
+  bound per instance lifetime (P0 security review M2).
+- **A password account is free to mint and needs no verified email until CreateProfile** (audit H1). Before this
+  amendment such a uid could call any non-exempt RPC for 1 Firestore read (`AccountStatusInterceptor`), charged only
+  to itself (P0 security review H1). The ID token already carries `email_verified` and `sign_in_provider`, so the
+  server can recognise these callers for 0 reads.
 
 ## Options
 $ uses the `cost-model.md` §7 upper bounds ($0.06 per 100k reads, $0.18 per 100k writes). "300 DAU" and "3k DAU" are
@@ -67,11 +79,34 @@ overage (upper bound).
 ### 2. Bounding read abuse across all RPCs (P0)
 - **A. Per-uid daily Firestore read budget fed by `budget.Counter` (chosen, D5).** One mechanism covers every current
   and future RPC, charged with the reads actually spent (interceptor reads included). It adds a per-IP budget for
-  profile-exempt calls and a CI guard. $0, 0 Firestore ops, ≈ 13 MiB of memory.
+  profile-exempt calls and a CI guard. $0, 0 Firestore ops, a few MiB of memory at Stage 0 (D15).
 - **B. Per-procedure daily call caps only** (extend `DailyCaps` to every read RPC). It can't bound a mix of RPCs whose
   costs differ 1 to 269×. It needs a hand-kept list and silently misses new RPCs. $0. Rejected.
 - **C. Enforce web App Check (reCAPTCHA)** to stop scripted clients. That is a flat $8/month past 10k assessments,
   and the founder declined it (phase1 D3). It also doesn't bound a real signed-in account. Rejected at Stage 0.
+
+### 2b. Callers without a profile (P0 security review H1)
+- **A. A 0-read verified-identity gate, plus IP charging for verified callers without a profile (chosen, D5 A2–A3).**
+  Unverified password accounts are the only kind that is free to mint. They are answered from ID-token claims with 0
+  reads. $0 and 0 Firestore ops. It removes ≈ 518k reads/day of exposure per IPv4 address and ≈ 14.4M per IPv6 /64
+  (security H1).
+- **B. Mark and IP-charge only** (the review's fixes 1–4). $0. A uid is unknown on its first call to each instance,
+  and the mark lives in memory, so every minted uid still gets 1 unchecked read per instance lifetime. The per-/64
+  per-minute limiter (≈ 518k/day) stays the only real bound. Kept only as A's second layer.
+- **C. A custom claim set at CreateProfile.** Also 0 reads, but it adds an Identity Toolkit call inside CreateProfile
+  with a partial-failure state that needs a repair path, a backfill of existing profiles, and a forced token refresh
+  in every client. A gets the same 0-read result from a claim Firebase already issues. Rejected.
+- **D. Enforce App Check (reCAPTCHA on web).** A flat $8/month step past 10k assessments, declined by the founder
+  (phase1 D3). Rejected at Stage 0. It stays the escalation lever for residual R1.
+
+### 2c. Per-instance counters and instance churn (P0 security review M2)
+- **A. State the bounds per instance lifetime, record founder acceptance, and pre-design the fix behind a trigger
+  (chosen, D5 "Residual risk").** $0, 0 Firestore ops.
+- **B. Persist the counter now.** On SIGTERM, flush each uid's spend ≥ 100; seed a new instance from the `users` doc
+  the account-status interceptor already reads (0 extra reads). $0 fixed, ≈ 300–600 writes/day at 300 DAU (1.5–3% of
+  the free writes), plus SIGTERM-path code and tests. Deferred until its trigger fires: the risk today is
+  ≤ ≈ $0.12/day per actor in the realistic case, and detection exists.
+- **C. A shared counter in Memorystore.** ≈ $35/month fixed. Rejected (Stage 2 ADR).
 
 ### 3. DeletePost on a post the caller doesn't own (Q4)
 - **A. NOT_FOUND for another user's post, success for unknown ids (plan default).** This is an **oracle**. "Delete
@@ -97,6 +132,9 @@ overage (upper bound).
 - **Fixed monthly cost added: $0.** No new GCP service, API, Pub/Sub topic, Scheduler job or Terraform resource. New
   env vars go on the existing `api` service (D5, D14, D15, Handoff). The indexes already exist (D19). `cost-guard`
   has nothing to flag.
+- **The D5 amendment adds no Firestore operation.** The verified-identity gate, the in-flight hold and the IP charge
+  are in memory. The gate removes ≈ 1 read per call made by minted, unverified accounts. The instance-churn fix is
+  pre-designed but not built (Option 2c).
 
 ### Per-RPC budget (supersedes the plan's table; the proto comments carry these numbers)
 The ADR-0008 A2 convention applies:
@@ -123,6 +161,8 @@ F = following, C = ceil((F+1)/30) ≤ 167, p = page size ≤ 50.
 | `AccountStatusInterceptor` caller read on P1 requests | 1 | 0 | 1 on each home refresh (TTL = refresh spacing), 0.5 on the other 5.15 requests | 0 | 0 | — | 13.15 req | 10.6 | 0 | 0 |
 | Identity CheckHandleAvailability (P0: negative cache 10 s, daily cap) | 1 | 0 | unchanged | 0 | 0 | 15 | — | ±0 | 0 | 0 |
 | Identity GetProfile (P0: negative handle cache 10 s) | 3 (+1 overflow) | 0 | unchanged | 0 | 0 | 20 | — | ±0 | 0 | 0 |
+| Unverified password caller, any RPC (D5 A2 gate) | 0 (was 1 per uid per 10 s per instance on non-exempt RPCs) | 0 | 0 | 0 | 0 | — | — | ±0 | 0 | 0 |
+| DeleteAccount / RequestAccountExport / GetAccountExport (D5 A6: charge-only, `account_ops_daily`) | 2 each (interceptor + 1), unchanged | 1 | unchanged | unchanged | unchanged | — | — | ±0 | ±0 | ±0 |
 | **P0 + P1 total** | | | | | | | **≈ 13.15 req** | **≈ 162.2** | **≈ 4.05** | **≈ 1.05** |
 
 **Change vs plan (133.9 → 162.2 reads/DAU):** the interceptor line +10.6, refresh overhead with the graph cold +8,
@@ -157,7 +197,7 @@ Released scope after P1 = v0.2.0 (20.4 R, 3.1 W, 0.1 D, ≈ 11.3 requests per DA
 - **Trigger** (free-tier-budget §6): none fires. Firestore > 1.5M reads/day is ≈ 8.2k DAU on this model.
 
 ## Decision
-Adopt option 1B, 2A, 3C and 4A, with D1–D20 below. Q1–Q12 are the plan's questions. **"Changed vs plan"** marks every
+Adopt option 1B, 2A (with 2b-A and 2c-A from the P0-review amendment), 3C and 4A, with D1–D20 below. Q1–Q12 are the plan's questions. **"Changed vs plan"** marks every
 override, with the reason.
 
 ### D1. Flag (Q1): one `FEATURE_POSTS`. Accepted (plan default)
@@ -202,51 +242,177 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
 - No async job in P1: a root post has no dependants until P3/P4/P5. The P4 `post-delete` job is added with the
   first dependant.
 
-### D5. P0 read budget (Q5). Accepted numbers, **with two refinements**
+### D5. P0 read budget (Q5). Accepted numbers, **with refinements; amended after the P0 reviews (A1–A7)**
 - **Mechanism.** Generalise `ratelimit.DailyCap` (T3) so one counter type counts either calls or units, with the same
   IST-day reset, LRU of 100k keys and no idle TTL (security L1).
-  - Inside `ratelimit.Interceptor`, before `next`: reject if the key's spent units ≥ cap.
-  - After `next`: `Charge(key, budget.FromContext(ctx).Reads())`. The counter comes from `mw.Logging`, which is
-    outermost, so the charge includes interceptor reads.
+  - Inside `ratelimit.Interceptor`, before `next`: `Reserve` each budget key of the call (A1 decides admission).
+  - After `next`, in a `defer` so a panic still settles it: `Release(key, budget.FromContext(ctx).Reads())`. The
+    counter comes from `mw.Logging`, which is outermost, so the charge includes interceptor reads.
   - Charge on success and on error alike.
 - **Numbers (config, rule 11):**
   - `READ_BUDGET_PER_UID_PER_DAY = 2000`
   - `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY = 500`
   - `CHECK_HANDLE_CALLS_PER_DAY = 100` (a `DailyCaps` entry, `limit_name=check_handle_daily`)
+  - **new:** `ACCOUNT_OPS_CALLS_PER_DAY = 20` (a `DailyCaps` entry, `limit_name=account_ops_daily`, A6)
+  - code constants, not env (lowering them would silently break the bound): `readBudgetMaxCallReads = 269`,
+    `ipBudgetMaxCallReads = 2`, `profileLessMarkTTL = 10 min`.
+  - `config.Load` rejects any of the env values `<= 0` (code review m3).
   - negative handle cache 10 s: reuse identity's `notFoundTTL`, applied to `ResolveHandle` NotFound, used by
     CheckHandleAvailability, GetProfile-by-handle and `ResolveHandles`.
-- **Rejection:** RESOURCE_EXHAUSTED + `RATE_LIMITED`, `retry_after` = time to the next IST midnight,
-  `metadata["limit"]` = `read_budget_daily` or `check_handle_daily`. The log carries `limit_name` with the same value.
-  0 Firestore reads, because the interceptor runs before account status.
-- **Refinement 1 (IP key scope).** The IP budget is charged and enforced **only on profile-exempt procedures**
-  (today CreateProfile and CheckHandleAvailability). The rate-limit interceptor runs before account status, so
-  "caller without a profile" isn't known there, but "exempt procedure" is known mechanically. Callers with a profile
-  are never IP-limited on other procedures. That matters in India, where carrier-grade NAT puts thousands of real
-  users behind one IP.
-- **Refinement 2 (IPv6).** The IP key is the full IPv4 address, or the **/64 prefix** of an IPv6 address. A single
-  host rotates freely inside its /64, so a full-address key is not a bound.
-- **Guard test (T3.5):** every registered procedure with `IdempotencyLevel == NoSideEffects` must be covered (all
-  are, because the budget applies to every procedure). The exemption list is empty and must stay explained.
+- **A1. In-flight hold: the overshoot is one call per key per instance lifetime, at any concurrency** (security M1,
+  code M1).
+  - Each unit budget has a per-call hold M: **269** for the uid key (the largest cold ceiling in this ADR,
+    GetHomeTimeline `2 + C + 2p`) and **2** for the IP key (every IP-keyed call reads at most 1 doc).
+  - `Reserve(key)`:
+    - rejects as **daily** when `count ≥ cap`;
+    - rejects as **transient** when `inflight > 0` and `count + (inflight + 1) · M > cap`;
+    - otherwise admits the call and increments `inflight`.
+  - `Release(key, n)` adds the actual reads `n` and decrements `inflight`.
+  - Invariant: `count + inflight · M ≤ cap − 1 + M`, as long as no call reads more than M. So the counter never passes
+    `cap − 1 + M` in one instance lifetime (2,268 for a uid, 501 for an IP), however many calls run in parallel.
+  - **Not enough:** the code review's `inflight > 0 && count + M > cap`. Calls admitted in parallel below `cap − M`
+    still land later: six home refreshes admitted at 1,000 end at ≈ 2,614.
+  - Legitimate parallelism: `max(1, floor((cap − spent) / M))` calls may be in flight. That is 7 on a fresh day, and 1
+    once spent > 1,462. A transient rejection costs 0 reads, and the client retries it once (Handoff).
+  - A new RPC with a cold ceiling above 269 raises the constant in the same PR (T23 check). At runtime, a call that
+    reads more than M logs WARN `read_budget_over_max=true`, because the bound assumes that never happens.
+- **A2. Verified-identity gate: unverified password accounts cost 0 reads** (security H1, the primary fix).
+  - A new `authn` interceptor runs right after `IDTokenInterceptor` and before the rate limiter. It uses the T7
+    predicate: `sign_in_provider == "password" && !email_verified`, the check `identity.requireVerifiedEmailForPassword`
+    makes today, moved to `pkg/platform/authn`.
+  - For such a caller:
+    - CheckHandleAvailability and CreateProfile return FAILED_PRECONDITION + `EMAIL_NOT_VERIFIED`;
+    - every other procedure returns FAILED_PRECONDITION + `PROFILE_REQUIRED`, with the account-status interceptor's
+      message.
+  - Either way it costs 0 Firestore reads and creates no limiter key, so minted uids cannot fill the LRUs (security L5).
+  - `PROFILE_REQUIRED` is truthful. Since audit H1 (2026-09-27) CreateProfile refuses unverified password accounts, so
+    such an account has no profile. The client's `GetMe → PROFILE_REQUIRED → create-profile` flow is unchanged.
+  - **Change vs ADR-0006 §2:** CheckHandleAvailability stays profile-exempt but now needs a verified email for
+    password accounts. Google and Apple sign-ins are unaffected. A password user verifies the email before the form
+    can check handle availability (Founder attention 5).
+  - **Preconditions:** before the gate reaches prod, a one-off check shows that no password account with
+    `emailVerified=false` owns a `users` doc (T26). Any future email-change flow must use `verifyBeforeUpdateEmail`, so
+    a verified account never becomes unverified.
+- **A3. Verified callers without a profile are charged to their IP key** (H1, second layer).
+  - On its `!exists` branch, `AccountStatusInterceptor` sets `RequestInfo.ProfileRequired = true`.
+  - After `next`, when that flag is set, the rate limiter charges the call's reads to the caller's IP key (unless the
+    call already reserved it) and marks the uid in a per-instance `profileLess` LRU (100k entries, TTL 10 min; reuse
+    `cache.LRU`, no new limiter type).
+  - Before `next`, a marked uid calling a non-exempt procedure also reserves the IP key. If the IP budget is spent,
+    the call is rejected with `retry_after` = 10 min, because the mark may be stale (a user who just created a profile
+    on another instance).
+  - A successful CreateProfile on this instance removes the mark.
+  - A caller whose profile this instance has seen is never marked, so real users behind carrier-grade NAT keep
+    Refinement 1's protection.
+- **A4. IP key scopes** (security M3).
+  - **Enforced** (reserve and charge): CheckHandleAvailability, and the non-exempt calls of a marked uid (A3).
+  - **Charge-only:** CreateProfile. The IP key never rejects it; it is already bounded by the verified email, the
+    per-uid budget and the `handles` transaction. One abuser behind a shared IPv4 address can no longer block sign-ups
+    for everyone behind it.
+  - Config: explicit sets `ReadBudgetIPEnforce` and `ReadBudgetIPChargeOnly`. The guard test asserts
+    `ProfileExempt == Enforce ∪ ChargeOnly` (security L6), so a new exempt procedure must be classified.
+- **A5. IP key form** (security M4, H1 item 4, Refinement 2).
+  - `ResolveClientIP`: if the chosen entry (after the Google-egress step or the `TRUSTED_PROXY_HOPS` override) does not
+    parse as an IP, fall back to the rightmost entry, which the Google front end appended. If that does not parse
+    either, there is no IP key (as today without X-Forwarded-For, which happens only locally).
+  - `IPBudgetKey(ip) (key string, ok bool)` returns only a canonical `netip` string: the IPv4 address, or the IPv6 /64
+    prefix (≤ 43 bytes). It never returns raw input.
+  - Every IP-keyed structure uses it: `PreAuthIPMiddleware`'s limiter, the in-chain `cfg.IP` per-minute limiter and
+    `ReadBudgetIP`. Rotating addresses inside a /64 no longer escapes the per-minute limits.
+  - The API's `http.Server` sets `MaxHeaderBytes = 64 KiB`.
+- **A6. Account operations are charge-only on the uid budget** (code review M2, rule 10).
+  - DeleteAccount, RequestAccountExport and GetAccountExport are charged to the uid budget but never rejected by it
+    (no Reserve, no hold). A user at the cap can still delete or export.
+  - Their own bound is a shared `DailyCaps` entry, `account_ops_daily`: 20 calls per uid per IST day per instance.
+    Each call reads at most 2 docs (interceptor + 1), so at most 40 reads per instance lifetime. Real flows use at most
+    5 calls (request, a few polls, delete). Without this cap, GetAccountExport alone could read ≈ 259k docs/day per uid
+    under the 60/min default bucket.
+  - The guard test asserts that the charge-only set is exactly these three, each with a comment and a `DailyCaps`
+    entry.
+- **A7. Rejections and logs** (security L1, code m7). The client-visible metadata is unchanged except for the new
+  transient value.
+
+| Cause | Client error | `metadata["limit"]` | `retry_after` | log `limit_name` | log `read_budget_key` | Reads |
+|---|---|---|---|---|---|---|
+| uid budget spent | RESOURCE_EXHAUSTED + `RATE_LIMITED` | `read_budget_daily` | to IST midnight | `read_budget_daily` | `uid` | 0 |
+| IP budget spent, CheckHandleAvailability | same | `read_budget_daily` | to IST midnight | `read_budget_daily` | `ip` | 0 |
+| IP budget spent, marked uid on a non-exempt RPC (A3) | same | `read_budget_daily` | 10 min | `read_budget_daily` | `ip` | 0 |
+| in-flight hold (A1) | same | `read_budget_inflight` | 1 s | `read_budget_inflight` | `uid` or `ip` | 0 |
+| CheckHandleAvailability calls | same | `check_handle_daily` | to IST midnight | `check_handle_daily` | — | 0 |
+| account operations (A6) | same | `account_ops_daily` | to IST midnight | `account_ops_daily` | — | 0 |
+| unverified password account (A2) | FAILED_PRECONDITION + `EMAIL_NOT_VERIFIED` (exempt RPCs) or `PROFILE_REQUIRED` (all others) | — | — | — (`gate=email_unverified`) | — | 0 |
+
+  - `read_budget_spent` is always the uid's spend. `read_budget_ip_spent` is the IP key's spend whenever that key was
+    reserved, charged or rejected. The IP address itself is never logged.
+  - `profile_required=true` when A3 marks a uid.
+  - The daily rejections run before account status, so they cost 0 reads (unchanged).
+- **Refinement 1 (IP key scope)** is replaced by A3–A4. Callers with a profile are still never IP-limited. The IP key
+  applies to CheckHandleAvailability (enforced), CreateProfile (charge-only) and marked uids without a profile
+  (enforced). That matters in India, where carrier-grade NAT puts thousands of real users behind one IP.
+- **Refinement 2 (IPv6)** is kept: the IP key is the full IPv4 address, or the **/64 prefix** of an IPv6 address. A5
+  extends it to both per-minute IP limiters.
+- **Guard test (T3.5):** every registered procedure with `IdempotencyLevel == NoSideEffects` must be covered (all are,
+  because the budget applies to every procedure). `ReadBudgetExempt` is empty and must stay explained. The test also
+  asserts the A4 and A6 sets and that `ReadBudgetIP` is wired, using the same exported helper `Build` uses (L6).
 - **Math: typical use against the cap.**
   - Released scope after P1: ≈ 183 reads/DAU/day. Whole Phase 1 model: 191 (cost-model §2), ≈ 215 after T25.
   - The cap is **≈ 9–11× a typical day**.
   - Heavy but legitimate, F = 300 (C = 11): 20 refreshes × (2 + 11 + 5) = 360; 10 older pages × (2 + 11·4) = 460;
     4 profile pages × 23 = 92; 10 GetPost × 4 = 40; GetMe and others ≈ 30. That totals **≈ 980**, under the cap.
-  - F = 1,000 (C = 34) reaches ≈ 1,700 on the same day and is close to the cap.
+  - F = 1,000 (C = 34) reaches ≈ 1,700 on the same day and is close to the cap. Past 1,462 its parallel calls go one
+    at a time (A1), and the client's single silent retry covers that.
   - F = 5,000 hits it after ≈ 11 refreshes.
   - Accepted residual: an account following more than ~1,000 others can hit the cap on a heavy day. It gets a
     non-blocking banner and keeps its cache (T17), and the cap is raised via env. There are no such accounts at
     Stage 0.
-- **Math: worst-case abusive totals.**
-  - Overshoot is bounded by one call's worst case. The cap is checked before the call, so a call starting at 1,999
-    can add up to 269. Per instance: 2,000 − 1 + 269 = 2,268.
-  - Across max 3 instances: **≤ 6,804 reads per account per IST day (13.6% of the free quota, ≈ $0.004/day)**. Before
-    P0 it was ≈ 86k–259k.
-  - Profile-less, per IP (or /64): (500 − 1 + 2) × 3 ≈ **1,503 reads/day**. CheckHandleAvailability: ≤ 100 × 3 =
-    300 calls/uid/day.
-  - Sybils with profiles still multiply the per-account bound. About 7 such accounts exhaust a day's free reads, at
-    ≈ $0.12/month per account per day of abuse. That is visible as `limit_name=read_budget_daily` and handled by
-    `abuse-spike.md`. App Check enforcement stays declined (D3 of phase1).
+- **Math: worst-case abusive totals (replaces the earlier figures).**
+  - Every counter lives in instance memory, so each bound is per key **per instance lifetime**. A per-day figure is
+    that bound times the lifetimes an attacker gets:
+    - **steady:** at most 3 instances all day (max-instances 3);
+    - **rollout day:** the tagged `candidate` revision and the serving revision run side by side, at most 6;
+    - **idle cycling:** spend, stay idle until the instance scales to zero, repeat. With ≥ 15 min idle to reach zero
+      and ≥ 1 min to spend, that is at most 90 lifetimes per instance slot per day. One actor holds at most 7 calls in
+      flight (A1), which keeps one instance busy: ≤ 90 lifetimes a day. Forcing 3 instances every cycle needs other
+      load: ≤ 270, the ceiling.
+    - Cloud Run chooses the idle-to-zero time ("up to 15 min"). T22/T26 measure it in dev; a shorter time scales the
+      idle-cycling rows up linearly.
+  - Prices are marginal, at the `cost-model.md` §7 upper bound of $0.06 per 100k reads (at 300 DAU the released scope
+    is already past the free line).
+
+| Actor | Per instance lifetime | Per IST day, steady | Rollout day | Idle cycling, one actor | Ceiling (270 lifetimes) |
+|---|---|---|---|---|---|
+| Unverified password accounts (any number, any IP) | 0 | 0 | 0 | 0 | 0 |
+| One verified account, with or without a profile | 2,000 − 1 + 269 + 20 × 2 = **2,308** | ≤ 6,924 (13.8% of free, ≈ $0.004) | ≤ 13,848 | ≈ 208k (4.2× free, ≈ $0.12) | ≈ 623k (12.5× free, ≈ $0.37; ≈ $11/month if repeated daily) |
+| One IPv4 address or IPv6 /64, IP key (CheckHandleAvailability + marked uids) | 500 − 1 + 2 = **501** | ≤ 1,503 | ≤ 3,006 | ≈ 45k | ≈ 135k |
+| Same IP: first calls of V verified, unmarked uids without a profile | ≤ V per 10 min | ≤ 432 · V (V = 5: 2,160) | ≤ 864 · V | — | ≤ 518k (the per-minute IP limiter: 120/min per instance, now per /64) |
+
+  - For comparison: before P0 one account could spend ≈ 86k–259k/day. Before this amendment, minted unverified uids
+    gave ≈ 518k/day per IPv4 address and ≈ 14.4M/day per IPv6 /64 (security H1). Those rows are now 0.
+  - Every non-zero row needs a verified identity: a verified mailbox (password), or a Google or Apple account. The
+    uids in the last row are each also held to their own 2,308 per lifetime.
+- **Residual risk: needs FOUNDER acceptance, recorded in the release readiness report before the T27 `percent`
+  step.**
+  - **R1. Verified sybils.** Each verified account adds up to its own bound: ≤ 6,924 reads/day in steady state. About
+    8 such accounts exhaust a day's 50k free reads (≈ $0.03/day of overage for all 8). A catch-all mail domain makes
+    verified password accounts cheap to mint. The levers are the Firebase sign-up throttle, the sign-up kill switch,
+    disabling accounts, and App Check enforcement (declined at Stage 0, phase1 D3; an $8/month step past 10k
+    assessments).
+  - **R2. Instance churn.** The bounds are per instance lifetime, not per day. One verified account that idle-cycles
+    instances all night can reach ≈ 208k reads/day (≈ $0.12/day). The ceiling with forced scale-out is ≈ 623k/day
+    (≈ $0.37/day, ≈ $11/month if repeated every day), which would trip the $5 budget alert in about two weeks.
+    - Detection: the same `uid_hash` rejected with `read_budget_daily` on 3 or more distinct instances (the log
+      entry's `labels.instanceId`) in one IST day, or a budget alert driven by reads.
+    - Response: `abuse-spike.md` (disable the account).
+    - **Pre-designed fix, not built (Option 2c-B):** on SIGTERM, flush each uid's spend ≥ 100 reads with one
+      `Increment` on `users/{uid}.readSpent{day, n}`; seed a new instance's counter from the `users` doc the
+      account-status interceptor already reads (0 extra reads). ≈ 300–600 writes/day at 300 DAU, $0 fixed. It bounds
+      an account at ≈ cap + 100 per extra lifetime. **Trigger:** the detection matches on 2 days in any 7, or one
+      budget alert is attributable to reads.
+  - Proposed acceptance wording (the founder copies it, dated, into the readiness report): *"I accept ADR-0010 D5
+    residuals R1 and R2. At Stage 0 each verified account can spend up to about 6.9k Firestore reads a day in steady
+    state, and up to about 623k a day (about $0.37) in the worst case if it deliberately cycles Cloud Run instances.
+    Verified sybil accounts multiply this. The controls are the budget alerts, the abuse-spike runbook, and the
+    pre-designed persisted counter behind its trigger."*
 
 ### D6. Visibility (Q6). Accepted (plan default), made exhaustive
 A = caller, B = author. NOT_FOUND strings are **byte-identical within each RPC**:
@@ -427,7 +593,13 @@ Applied in this order in `internal/posts/text` (pure):
     used lowers W (D13).
 - **Unchanged:** graph (5k), identity profiles, handles and negative caches (20k each), and the new negative handle
   entries share identity's `notFound` LRU. `userLikes` (5k) arrives with P5.
-- **In-memory limiters:** ≈ 100k uid keys + 100k IP keys × ~64 B ≈ 13 MiB.
+- **In-memory limiters:** an entry is ≈ 200–250 B (key, counter, list element, map; security L5), not 64 B, so a
+  full 100k-key LRU is ≈ 20–25 MiB. There are six `DailyCap`s (uid and IP read budgets, `check_handle_daily`,
+  `graph_list_daily`, `graph_mutation_daily`, `account_ops_daily`), the per-minute limiters and the D5 A3
+  `profileLess` LRU. Filling all of them would need 100k distinct verified uids (or /64s) calling every RPC on one
+  instance in one IST day, and would not fit in 512 MiB. At Stage 0 each holds hundreds of keys (< 5 MiB in total).
+  The A2 gate keeps unverified uids out of every limiter, and A5 keeps IP keys canonical and short. If instance
+  memory passes 70%, lower the LRU key limits (`maxTrackedKeys`, `maxTrackedDailyKeys`) before the cache sizes.
 - **Total:** new caches ≤ 113 MiB worst, ≈ 40 MiB typical. With existing caches (≈ 35 MiB typical) that stays inside
   the ~150 MiB budget of the 512 MiB instance. sre-performance watches instance memory, and above 70% the sizes
   shrink via env.
@@ -480,8 +652,12 @@ query must therefore order `createdAt DESC, __name__ DESC` explicitly. That is r
 ### D20. Required log fields
 All go through `logger.RequestInfo.Set`, one line per request. **Never logged:** post text, handles, hashtag
 strings, mention lists, tokens, and graph arrays.
-- **Every request (existing and T3):** `rpc`, `fs_reads`, `fs_writes`, `fs_deletes`, `read_budget_spent` (the uid's
-  total after the charge), `limit_name` (on rejections), `feature_disabled=true` (flag rejections).
+- **Every request (existing and T3):** `rpc`, `fs_reads`, `fs_writes`, `fs_deletes`, `feature_disabled=true` (flag
+  rejections), and the D5 A7 fields:
+  - `read_budget_spent` (the uid's total after the charge) and `read_budget_ip_spent` (when the IP key was used);
+  - `limit_name` and `read_budget_key` (`uid` or `ip`) on rejections;
+  - `profile_required=true` (A3 mark), `gate=email_unverified` (A2), WARN `read_budget_over_max=true` (A1).
+  - The IP address is never logged.
 - **posts (T5, T8, T9):**
   - `posts_op` (`create|delete|get`);
   - `outcome` (`created|replay|deleted|noop|noop:not_owner|found|not_found|rejected:<reason>`);
@@ -507,7 +683,8 @@ strings, mention lists, tokens, and graph arrays.
 - **Positive:**
   - Every P1 RPC has a cold ceiling that includes the reads the request actually spends, so the P0 budget, the tests
     and the cost model agree.
-  - One read-budget mechanism bounds every RPC, current and future, at ≤ 6.8k reads per account per day.
+  - One read-budget mechanism bounds every RPC, current and future: 2,308 reads per verified account per instance
+    lifetime (≤ 6.9k a day in steady state), and minted, unverified accounts cost 0 reads.
   - The since watermark removes a silent post-loss bug before any user sees it.
   - Timeline tokens survive overnight.
   - Indic hashtags work.
@@ -520,6 +697,10 @@ strings, mention lists, tokens, and graph arrays.
   - A heavy user following more than ~1,000 accounts can hit the daily read cap.
   - Suspended authors stay in followers' Home until P7.
   - DeletePost returns success for posts the caller doesn't own. That is correct, but it surprises API readers.
+  - The read bounds are per instance lifetime, not per day. Deliberate instance cycling and verified sybils are
+    residuals the founder must accept (D5 R1, R2).
+  - Password sign-ups must verify their email before the handle check works (D5 A2).
+  - Near the cap an account runs one call at a time; extra parallel calls get a 1 s retry (D5 A1).
 - **Follow-up:**
   - T2 applies the proto comments.
   - The `firestore-data-model` skill is updated (this change).
@@ -531,12 +712,29 @@ strings, mention lists, tokens, and graph arrays.
   - a T22/P9 measurement differs from a planning value by more than 25%;
   - legitimate `read_budget_daily` rejections appear in logs;
   - instance memory exceeds 70%;
+  - the D5 R2 detection matches on 2 days in any 7, or a budget alert is attributable to reads (build the persisted
+    counter, Option 2c-B);
+  - legitimate `read_budget_inflight` retries show up in logs (switch the hold from one global M to per-procedure
+    ceilings);
   - older-page reads exceed 1.4 × page size (lever: the `k` factor);
   - Firestore exceeds 1.5M reads/day (Stage 2 ADR, `timeline` skill).
 
 ## Handoff
 - **backend-developer:**
-  - **T3:** D5, including the two refinements, `metadata["limit"]`, the IPv6 /64 key and the guard test.
+  - **T3:** D5 as amended (A1–A7). The P0 branch already has part of A1; its admission rule must change as below.
+    1. A1 hold: `Reserve` rejects when `count ≥ cap` or when `inflight > 0 && count + (inflight + 1) · M > cap`;
+       `Release(key, n)` runs in a `defer`; M = 269 (uid) and 2 (IP) as code constants; the transient rejection is
+       `read_budget_inflight` with a 1 s `retry_after`; WARN `read_budget_over_max` when a call reads more than M.
+    2. A2 gate interceptor right after `IDTokenInterceptor`, using the T7 predicate; 0 reads, no limiter keys.
+    3. A3: `RequestInfo.ProfileRequired`, the `profileLess` LRU (10 min), the IP charge after `next`, the IP reserve
+       for marked uids, and the unmark on CreateProfile.
+    4. A4: explicit enforced and charge-only IP sets; CreateProfile is charge-only.
+    5. A5: `ResolveClientIP` falls back to the rightmost entry; `IPBudgetKey` returns `(key, ok)`; both per-minute IP
+       limiters key by it; `MaxHeaderBytes = 64 KiB`.
+    6. A6: `ReadBudgetChargeOnly` = DeleteAccount, RequestAccountExport, GetAccountExport, plus `account_ops_daily`.
+    7. A7 log fields. `config.Load` rejects values ≤ 0. Fix the `config.go`, `daily_cap.go` and `interceptor.go`
+       comments that still say "overshoot is one call" or "≈ 1,503 reads/IP".
+    8. The guard test also covers the A4 and A6 sets and the `ReadBudgetIP` wiring.
   - **T4:** D1; the buckets as in the plan (home 6/min, user 30/min, create 10/min, delete 20/min, GetPost 60/min).
   - **T5:** D15 (caches, config keys), D18, D19 query shapes with explicit `__name__ DESC`, `Reader.ByAuthors`
     taking only uncovered authors.
@@ -551,10 +749,17 @@ strings, mention lists, tokens, and graph arrays.
   - **T12:** D11, D16, D6.
   - **T13:** D13 watermark, D15 coverage rules, D6 home column.
   - **New config (all env, rule 11):** `READ_BUDGET_PER_UID_PER_DAY=2000`,
-    `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY=500`, `CHECK_HANDLE_CALLS_PER_DAY=100`, `TIMELINE_SETTLE_WINDOW=15s`
-    (validated ≥ 15 s), `TIMELINE_TOKEN_TTL=720h`, `CACHE_POSTS_ENTRIES=20000`, `CACHE_AUTHOR_RECENT_ENTRIES=1000`,
-    plus the T4 rate-limit keys.
+    `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY=500`, `CHECK_HANDLE_CALLS_PER_DAY=100`, `ACCOUNT_OPS_CALLS_PER_DAY=20`,
+    `TIMELINE_SETTLE_WINDOW=15s` (validated ≥ 15 s), `TIMELINE_TOKEN_TTL=720h`, `CACHE_POSTS_ENTRIES=20000`,
+    `CACHE_AUTHOR_RECENT_ENTRIES=1000`, plus the T4 rate-limit keys. The A1 holds and the A3 mark TTL are code
+    constants, not env.
   - Log fields per D20.
+- **architect (follow-up; comment-only proto, rides with the T3 PR, `buf breaking` clean):**
+  - `common.proto` RATE_LIMITED lists `read_budget_inflight` (1 s `retry_after`, retry once) and `account_ops_daily`.
+  - `identity.proto`: CheckHandleAvailability needs a verified email for password accounts (`EMAIL_NOT_VERIFIED`, 0
+    reads) and its IP budget is enforced; CreateProfile is charge-only on the IP key; DeleteAccount,
+    RequestAccountExport and GetAccountExport are never rejected by the read budget (`account_ops_daily` instead);
+    the file header says unverified password callers get `PROFILE_REQUIRED` at 0 reads.
 - **frontend-developer:**
   - Dedupe timeline items by `post_id` on every refresh (D13).
   - On VALIDATION with `field=since_token` or `page_token`, drop the token and cold-open (D14).
@@ -566,16 +771,32 @@ strings, mention lists, tokens, and graph arrays.
   - Blocked-author banners come from local relationship data (D6).
   - `RATE_LIMITED` with `metadata.limit=read_budget_daily` shows a "daily limit reached" banner over the cache, with
     no retry before `retry_after`.
+  - `RATE_LIMITED` with `metadata.limit=read_budget_inflight` is transient: retry once, silently, after
+    `retry_after` (1 s); show an error only if the retry also fails.
+  - CheckHandleAvailability returning `EMAIL_NOT_VERIFIED` shows the existing "verify your email" banner on the
+    create-profile screen instead of availability. After the user verifies, refresh the ID token
+    (`getIdToken(true)`) before calling again.
+  - CheckHandleAvailability returning `RATE_LIMITED` (any limit): stop live checks and let CreateProfile's
+    `HANDLE_TAKEN` decide.
   - DeletePost success always removes the item locally.
 - **production-deployer (T26):**
   - Add the new env vars to `cloud-run-api` for dev and prod: `FEATURE_POSTS` dev `on`, prod `off`, plus the keys
     listed for the backend.
   - Plan-then-OK before apply.
   - Verify that the three posts indexes are READY (D19) in dev and prod before any traffic.
+  - Before the D5 A2 gate reaches prod: list password accounts with `emailVerified=false` (Admin SDK
+    `accounts:batchGet`, free) and confirm none owns a `users` doc. Record the count, never the uids.
   - No new resources, and nothing for `cost-guard` to flag.
   - Runbooks:
     - `posts.md`: index missing ⇒ FAILED_PRECONDITION; read-budget rejections ⇒ raise via env; the settle window;
-    - `abuse-spike.md`: query `limit_name=read_budget_daily` by uid count;
+    - `abuse-spike.md` (D5 A7 and "Residual risk"): Logs Explorer filters, not SQL (Log Analytics is not enabled;
+      security L2), on `jsonPayload.limit_name` = `read_budget_daily`, `read_budget_inflight`, `check_handle_daily`
+      or `account_ops_daily`, split by `jsonPayload.read_budget_key` (`uid`: a heavy account or sybils; `ip`: a farm
+      behind one address); counts of `jsonPayload.gate="email_unverified"` (minted-account floods, now 0 reads) and
+      `jsonPayload.profile_required=true`; the R2 churn check (one `uid_hash` rejected on ≥ 3 distinct
+      `labels.instanceId` in an IST day); the levers in order: disable the account, the sign-up kill switch, lower
+      `READ_BUDGET_PER_UID_PER_DAY`, `FEATURE_POSTS=off`. It must say that `DEGRADED_MODE=readonly` does not reduce
+      reads;
     - `account-deletion.md`: purge-posts before purge-graph and before deleting `users`.
 - **tester (T19–T21):**
   - D6 is the matrix oracle; every cell is a case, including the overflow row and both-block.
@@ -588,14 +809,28 @@ strings, mention lists, tokens, and graph arrays.
   - D14 tamper, cross-binding (home↔user, since↔page, caller A↔B) and expiry at 30 d + 1 s.
   - DeletePost on another user's post and on an unknown id is byte-identical success with 0 writes.
   - Hashtag and mention example tables (D7, D8).
+  - D5 read budget (T3/T20):
+    - N parallel calls at spent 0 and at `cap − 1` never push the counter past `cap − 1 + M`; the rest get
+      `read_budget_inflight` with a 1 s `retry_after`;
+    - an unverified password uid gets `PROFILE_REQUIRED` on GetMe and `EMAIL_NOT_VERIFIED` on CheckHandleAvailability,
+      with 0 reads;
+    - a verified uid without a profile rotating on GetMe is charged to its /64, then rejected with
+      `read_budget_key=ip`; CreateProfile still succeeds from that IP;
+    - DeleteAccount, RequestAccountExport and GetAccountExport succeed for a uid at the cap;
+    - a malformed X-Forwarded-For entry falls back to the rightmost entry; two addresses in one /64 share the
+      per-minute IP buckets.
 - **sre-performance (T22, T25):**
   - Use the Cost impact table's planning values and the interceptor line.
   - Report measured means for refresh overhead, older-page reads/page, `since_clamped` rate and interceptor
     cold share.
   - Restate `cost-model.md` §2–§5 (whole product ≈ 215 reads/DAU) and §9 queries by `posts_op`/`timeline_op`.
+  - Measure Cloud Run's idle-to-zero time in dev (last request to `instance_count` 0) and restate the D5 churn rows if
+    it is under 15 min.
 - **security-auditor (T24):**
   - Confirm D4 (no oracle) and the D6 byte-identity.
-  - Review the D14 30-day TTL, D5's IP scope, the IPv6 /64 key and the sybil residual.
+  - Re-review the P0 closure against D5 A1–A7 (H1, M1, M3, M4, L1, L6) and confirm that residuals R1 and R2 match
+    the code.
+  - Review the D14 30-day TTL.
   - Confirm the D9 bidi control rejection and that no text is logged (D20).
 - **planner (plan deltas):**
   - Q4 → D4 (T9 criteria: "someone else's post ⇒ success, 0 writes, byte-identical to an unknown id").
@@ -607,11 +842,22 @@ strings, mention lists, tokens, and graph arrays.
   - T8 gets the transaction deadline and the per-attempt Snowflake.
   - The P7 plan gets the suspended-content takedown (D10).
 
-## Founder attention (no approval needed unless you disagree; nothing here adds a fixed cost)
+## Founder attention (items 1–6 need no approval unless you disagree; item 7 needs your explicit acceptance; nothing here adds a fixed cost)
 1. **Reads at 300 DAU: 110% of free, up from the plan's 93%.** That is ≈ $0.09/month, inside D1 ("accept pay-per-use").
    The 40k/day alert will fire near 219 DAU. It is a planned signal, not an incident.
 2. **DeletePost on someone else's post returns success (0 writes)** instead of NOT_FOUND. This avoids a
    "who blocked me" oracle.
 3. **`since` refreshes may return a few posts twice** (the client dedupes). This fixes silently lost posts.
-4. **Daily read cap of 2,000 per account per instance.** An account following more than ~1,000 others can hit it on
-   a heavy day, and the cap can be raised by env.
+4. **Daily read cap of 2,000 per account per instance lifetime.** An account following more than ~1,000 others can
+   hit it on a heavy day, and the cap can be raised by env. Near the cap an account runs one call at a time; extra
+   parallel calls are retried after 1 s (D5 A1).
+5. **Password sign-ups verify their email before the handle check works** (D5 A2). Google and Apple sign-ins are
+   unaffected. This is what makes mass-created accounts cost 0 reads. It refines ADR-0006 §2, which let
+   CheckHandleAvailability run before verification.
+6. **Account deletion and export are never blocked by the read budget** (D5 A6). They have their own cap of 20 calls
+   a day per instance, far above the ≤ 5 a real user needs.
+7. **Your acceptance is needed for residual risks R1 and R2** (D5 "Residual risk"). Verified sybil accounts multiply
+   the per-account bound (about 8 exhaust the free reads for a day). One account that deliberately cycles instances
+   can reach ≈ 623k reads (≈ $0.37) a day in the worst case. Copy the acceptance wording from D5, dated, into the
+   release readiness report. It is a condition for the T27 `percent` step. Without it P0 stays open and the rollout
+   stops at `allowlist`.
