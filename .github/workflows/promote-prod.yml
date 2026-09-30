@@ -115,6 +115,9 @@ jobs:
           create_credentials_file: true
 
       - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
+        with:
+          # Exact Cloud SDK pin (issue #46 / L6); bump per docs/runbooks/dependency-updates.md.
+          version: "587.0.0"
 
       - name: Resolve the rc revision and verify it matches this tag
         id: rc_rev
@@ -179,7 +182,7 @@ jobs:
         env:
           FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
         run: |
-          npm install -g firebase-tools@15
+          npm install -g firebase-tools@15.32.0
           firebase deploy --only firestore:rules,firestore:indexes \
             --project "${FIREBASE_PROJECT_ID}" --non-interactive
 

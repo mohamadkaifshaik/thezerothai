@@ -64,7 +64,7 @@ Founder-approved scope: the blockers plus the cheap fixes.
 | L5 | **Fixed.** Firestore rules and indexes deploy before any prod traffic shift; storage.rules documented as emulator-only (buckets are protected by IAM and PAP) | PR #13 |
 | L10 | **Fixed.** Generic Unimplemented message | PR #14 |
 | — | **Hardening.** 256 KiB request cap | PR #14 |
-| L6 | **Closed for Dependabot** (`.github/dependabot.yml`: gomod, pub, github-actions, terraform). Still open: `govulncheck@latest` and other run-time tool versions are unpinned, and there's no osv-scanner (listed in `docs/runbooks/dependency-updates.md`) | PR #45 |
+| L6 | **Dependabot part closed by PR #45** (`.github/dependabot.yml`: gomod, pub, github-actions, terraform). **Fully closed by PR #NN once merged:** govulncheck v1.8.0, firebase-tools 15.32.0, ko v0.19.1 and Cloud SDK 587.0.0 pinned exactly; osv-scanner v2.6.0 (sha256-verified binary) runs in `ci.yml` and fails on any finding outside `osv-scanner.toml` (GO-2026-5932 and GO-2026-6443 ignored until 2026-11-30, unreachable per govulncheck). Setting the repo's "require SHA-pinned actions" is a founder UI step (runbook), not part of L6's code fix | PR #45, PR #NN |
 | L7 | **Closed.** All 36 third-party `uses:` in `.github/workflows/*.yml` (16 distinct actions) are SHA-pinned with version comments; Dependabot github-actions keeps them current. Enabling the `sha_pinning_required` repo setting is a follow-up | PR #45 |
 
 **Accepted for v0.1.0 (written risk acceptance goes in the readiness report):** M4 (tf-plan has `roles/viewer`, and its WIF
