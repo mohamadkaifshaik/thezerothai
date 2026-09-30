@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-09-27 -->
+<!-- Draft — last updated 2026-09-30 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -88,7 +88,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>dZeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 27 September 2026</p>
+    <p class="updated">Last updated: 30 September 2026</p>
 
     <p>
       dZeroth ("dZeroth", "we", "us") is a text-first social app at
@@ -119,10 +119,18 @@
         avatar image, once you create a profile.
       </li>
       <li>
-        <strong>Posts and activity.</strong> As posting, media uploads, likes
-        and follows ship, we'll store the posts you write, images you upload,
-        and who you like and follow — all of this is planned but not all of
-        it exists yet.
+        <strong>Social graph.</strong> The accounts you follow and the
+        accounts that follow you, the accounts you block, and the accounts
+        you mute. For each follow we store when it happened. We also keep a
+        follower count and a following count on each profile. Your
+        follower and following counts, and the lists of who follows whom,
+        are visible to other users. Your blocked and muted lists are not:
+        only you can see them.
+      </li>
+      <li>
+        <strong>Posts and activity.</strong> As posting, media uploads and
+        likes ship, we'll store the posts you write, images you upload, and
+        what you like. Those parts are planned and don't exist yet.
       </li>
       <li>
         <strong>Technical data.</strong> Our servers keep operational logs
@@ -137,12 +145,36 @@
     <h2>Why we collect it</h2>
     <ul>
       <li>To create and secure your account, and verify it's really you.</li>
-      <li>To run the core features of the app: profiles, posts, follows, and showing you a timeline.</li>
+      <li>To run the core features of the app: profiles, following, blocking and muting, and (as they ship) posts and a timeline.</li>
       <li>To keep the service safe — detecting spam, abuse and rate-limit violations.</li>
       <li>To debug problems and keep the app reliable.</li>
       <li>To meet legal obligations, such as responding to valid legal requests.</li>
     </ul>
     <p>We do not sell your data, and we do not use it for third-party advertising.</p>
+
+    <h2>Following, blocking and muting</h2>
+    <ul>
+      <li>
+        <strong>Follows are public.</strong> Other users can see who you
+        follow and who follows you.
+      </li>
+      <li>
+        <strong>Blocking.</strong> If you block someone, they can no longer
+        view your profile or follow you, and any follow between the two of
+        you is removed in both directions.
+      </li>
+      <li>
+        <strong>Blocks and mutes are not disclosed.</strong> We don't tell
+        someone that you blocked or muted them, and the app doesn't show
+        anyone a list of who blocked them. Muting has no effect on the
+        other person; it only changes what you see.
+      </li>
+      <li>
+        <strong>Limits.</strong> We can't promise that a blocked person
+        can never work out they've been blocked (for example, by noticing
+        that your profile no longer loads for them).
+      </li>
+    </ul>
 
     <h2>Who we share it with</h2>
     <p>
@@ -166,6 +198,7 @@
     <h2>How long we keep it</h2>
     <ul>
       <li>Account and profile data: for as long as your account exists.</li>
+      <li>Follows, blocks and mutes: for as long as your account exists, or until you unfollow, unblock or unmute. They are deleted when your account is deleted (see below).</li>
       <li>Server logs: kept for about 30 days, then deleted.</li>
       <li>Database backups: kept for up to 14 days, then rotated out.</li>
     </ul>
@@ -176,7 +209,7 @@
       <li><strong>Access</strong> the personal data we hold about you.</li>
       <li><strong>Correct</strong> inaccurate data.</li>
       <li><strong>Delete</strong> your account and associated data.</li>
-      <li><strong>Export</strong> your data in a portable format.</li>
+      <li><strong>Export</strong> your data in a portable format. An export of your social graph lists the accounts you follow, your followers, the accounts you blocked and the accounts you muted. It never includes who has blocked you.</li>
       <li><strong>Withdraw consent</strong> where we rely on it, or raise a grievance about how we've handled your data.</li>
     </ul>
     <p>
@@ -184,6 +217,15 @@
       <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>. Until
       in-app deletion and export tools ship, we handle these requests
       manually and will get back to you within 30 days.
+    </p>
+    <p>
+      When your account is deleted, your follows and followers, and your
+      blocked and muted lists are deleted with it, and you are removed from
+      other people's follower, following and block lists. Deleted data can
+      remain in our database backups for up to 14 days, as described above.
+      An entry for your account ID in another user's muted list can take
+      longer to disappear, because we can only clean it up when that user's
+      list is next loaded.
     </p>
 
     <h2>Age requirement</h2>
@@ -207,7 +249,7 @@
     <h2>Changes to this policy</h2>
     <p>
       We may update this policy as dZeroth adds features (posts, media,
-      likes, follows and beyond). We'll update the "Last updated" date above
+      likes and beyond). We'll update the "Last updated" date above
       when we do. If a change is significant, we'll try to let you know
       in-app.
     </p>
