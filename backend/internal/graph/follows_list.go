@@ -7,6 +7,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -33,7 +34,7 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 		return Page{}, err
 	}
 	if targetUserIDIssue(targetUID) {
-		return Page{}, apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9_-] and not of the form __x__")
+		return Page{}, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	after, err := s.decodeEdgeCursor(callerUID, pageToken, targetUID, followers)
 	if err != nil {

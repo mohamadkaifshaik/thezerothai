@@ -160,7 +160,11 @@ func (r *FirestoreRepo) deleteEdges(ctx context.Context, uid string, edges []Edg
 	skipped := 0
 	for i, e := range edges {
 		other := others[i]
-		b.Delete(r.followRef(e.FollowerID, e.FolloweeID), firestore.Exists)
+		edgeRef, err := r.followRef(e.FollowerID, e.FolloweeID)
+		if err != nil {
+			return 0, err
+		}
+		b.Delete(edgeRef, firestore.Exists)
 		if checkCounterparts && !userOK[other] && (outgoing || !graphOK[other]) {
 			skipped++
 			slog.Warn("purge_missing_counterpart", "uid_hash", logger.HashUID(uid), "counterpart_hash", logger.HashUID(other))
