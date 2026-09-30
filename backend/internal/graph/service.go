@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -219,6 +221,13 @@ func contentionErr() error {
 func (s *service) internalErr(op string, err error, uids ...string) error {
 	if errors.Is(err, ErrContention) || isContention(err) {
 		return contentionErr()
+	}
+	// A client disconnect or deadline is not a server fault: no INTERNAL, no ERROR line (S4).
+	switch {
+	case errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled:
+		return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled")
+	case errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
+		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded")
 	}
 	return logger.RedactErr(fmt.Errorf("graph: %s: %w", op, err), uids...)
 }

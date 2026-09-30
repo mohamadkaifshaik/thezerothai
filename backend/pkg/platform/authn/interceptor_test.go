@@ -162,6 +162,31 @@ func TestIDTokenInterceptor_AllowsValidToken(t *testing.T) {
 	}
 }
 
+func TestIDTokenInterceptor_RejectsMalformedUID(t *testing.T) {
+	for _, uid := range []string{"x_y", "__x__", "", "a/b"} {
+		t.Run(uid, func(t *testing.T) {
+			reached := false
+			v := fakeIDTokenVerifier{tokens: map[string]authn.Claims{"good": {UID: uid}}}
+			srv := newServer(t, authn.IDTokenInterceptor(v), connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+				return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+					reached = true
+					return next(ctx, req)
+				}
+			}))
+			err := call(t, srv, map[string]string{"Authorization": "Bearer good"})
+			if err == nil {
+				t.Fatal("expected malformed uid to be rejected")
+			}
+			if got := codeOf(t, err); got != connect.CodeUnauthenticated {
+				t.Fatalf("Code() = %v, want Unauthenticated", got)
+			}
+			if reached {
+				t.Fatal("downstream handler ran for a rejected uid")
+			}
+		})
+	}
+}
+
 func TestIDTokenInterceptor_RecordsUIDOnRequestInfo(t *testing.T) {
 	var info *logger.RequestInfo
 	v := fakeIDTokenVerifier{tokens: map[string]authn.Claims{"good": {UID: "uid-42"}}}
