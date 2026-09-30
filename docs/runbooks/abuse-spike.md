@@ -52,6 +52,36 @@ The same pinned-traffic procedure, with `--update-env-vars` on any of:
 `backend/pkg/platform/config` (`RATE_LIMIT_*`). Known gap: IP limits can be dodged by requests relayed through
 Google-run fetchers (readiness report R-N2). Per-uid limits and email verification still apply.
 
+## 5a. Follow spam and list scraping (graph, ADR-0008)
+**Detect** (Logs Explorer, same base filter as section 1). The per-request `request` log line carries `rpc`, `code`,
+`uid_hash`, `fs_reads`, `fs_writes` and, when a limiter rejected the call, `limit_name`. The quota *name* (`follows`)
+is in the error metadata the client sees, not in the log line, so identify it by RPC plus code:
+- Follow spam hitting the per-user daily quota (`QUOTA_EXCEEDED`, `quota=follows`):
+  `jsonPayload.rpc:"GraphService/Follow" AND jsonPayload.code="resource_exhausted"`. A `uid_hash` that repeats is one
+  account. Many different hashes each spending a few follows is a sign-up farm (then section 2).
+- List scraping: `jsonPayload.limit_name="graph_list_daily"` (the per-uid daily cap on ListFollowers, ListFollowing,
+  ListBlockedUsers and ListMutedUsers). Sort by `uid_hash`.
+- Bulk mutation replays: `jsonPayload.limit_name="graph_mutation_daily"`.
+- Cost check: sum `jsonPayload.fs_reads` for the suspect `uid_hash` and compare with the daily 50k read quota.
+
+**Levers, lightest first:**
+1. **Lower the caps.** The env vars are `QUOTA_FOLLOWS_PER_DAY` (default 200; new accounts use
+   `QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY`, default 50) and `LIST_CALLS_PER_DAY` (default 100). Optionally
+   `RATE_LIMIT_GRAPH_FOLLOW_PER_MIN` (default 30) and `RATE_LIMIT_GRAPH_LIST_PER_MIN` (default 20). Use the
+   **pinned-traffic procedure** in `docs/runbooks/cost-spike.md` (a new revision gets 0% traffic in prod until you
+   shift it explicitly), with `--update-env-vars QUOTA_FOLLOWS_PER_DAY=50,LIST_CALLS_PER_DAY=20` instead of
+   `DEGRADED_MODE`. The daily list cap is in memory per instance, so it resets on scale-to-zero and is approximate
+   (worst case x3 with 3 instances). Per-user Firestore quotas are exact. Then reconcile Terraform so the next apply
+   doesn't undo it.
+2. **Kill switch.** `FEATURE_GRAPH=off` with the same pinned-traffic procedure. Every graph RPC then returns
+   FAILED_PRECONDITION `FEATURE_DISABLED` with 0 Firestore reads, and the app hides the graph UI. Also `allowlist`
+   (with `FEATURE_GRAPH_ALLOWLIST`) to keep only testers on. Existing follow data is untouched. Reverse it the same way.
+3. **Disable the account** (section 3). Leave its data in place for evidence; review it before any purge.
+4. Readonly mode (section 4) if writes are the problem across the board.
+
+**After:** a follow-farm account that is deleted needs the graph purge in `docs/runbooks/account-deletion.md`. Other
+graph failure modes are in `docs/runbooks/graph.md`.
+
 ## 6. Hard stop
 `max_instance_count = 3` caps compute no matter the volume. For a severe incident (data exposure, runaway cost),
 follow `docs/runbooks/rollback.md` / the readiness report §6: disable Hosting, then route API traffic away. Never
