@@ -22,7 +22,9 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_VALIDATION =
       ErrorReason._(1, _omitEnumNames ? '' : 'ERROR_REASON_VALIDATION');
 
-  /// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory).
+  /// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or an in-memory daily cap. Daily caps
+  /// set metadata["limit"] (e.g. "read_budget_daily": the per-uid daily Firestore read budget, ADR-0010 D5) and a
+  /// retry_after that runs to the next IST midnight.
   static const ErrorReason ERROR_REASON_RATE_LIMITED =
       ErrorReason._(2, _omitEnumNames ? '' : 'ERROR_REASON_RATE_LIMITED');
 
@@ -72,6 +74,8 @@ class ErrorReason extends $pb.ProtobufEnum {
 
   /// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
   /// follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+  /// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
+  /// (ADR-0010 D2). When absent, the whole feature behind the called service is off.
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
       ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
 
