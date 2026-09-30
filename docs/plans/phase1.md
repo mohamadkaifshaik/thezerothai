@@ -68,8 +68,9 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
 - **Dependencies.** None. It must be merged **and deployed to prod** before any public (non-allowlist) rollout of P1's
   read paths.
 - **Firestore budget.** 0 reads and 0 writes added (in memory).
-  - Worst case per abusive account per day after the fix: ≤ read budget × 3 instances. For example, 2,000 × 3 = 6k reads
-    (12% of free), against ~86k–259k today.
+  - Worst case per abusive account per day after the fix: ≤ (read budget − 1 + one call's worst case 269) × 3
+    instances = (2,000 − 1 + 269) × 3 = **6,804 reads** (13.6% of free), against ~86k–259k today (ADR-0010 D5).
+  - Profile-less callers: ≤ 1,503 reads per IP (IPv6: per /64), charged only on profile-exempt procedures.
 - **Cost line.** $0. It lowers the worst case and doesn't change the typical case.
 - **Done when.**
   - The budget interceptor is live in prod.
@@ -88,25 +89,34 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   - a `posts.Eraser` + exporter + `opsctl purge-posts|export-posts`, so the manual deletion runbook covers the new
     collection (CLAUDE.md rule 10);
   - Flutter: composer, `PostCard`, home timeline with drift cache/gap rows, profile Posts tab, delete, `/post/:id`.
-- **Dependencies.** P0 (for public rollout only; build in parallel). The graph module (done). The architect writes
-  ADR-0010 first; no new proto messages are needed, only comment updates.
-- **Firestore budget** (full table and derivation in `posts-and-timeline.md`):
+- **Dependencies.** P0 (for public rollout only; build in parallel). The graph module (done). ADR-0010
+  (`docs/adr/0010-posts-and-timelines-slice.md`) records the slice decisions. No new proto messages are needed, only
+  comment updates. `pkg/platform/cursor` gains two-bound window tokens and a TTL-aware decode (plan ticket T28).
+- **Firestore budget** (source: ADR-0010 "Cost impact"; full table and derivation in `posts-and-timeline.md`). Cold
+  ceilings include the `AccountStatusInterceptor` read. Planning values exclude it; it has its own line.
 
-| RPC | reads worst / typical | writes worst / typical | deletes | calls/DAU | reads/DAU | writes/DAU |
+| RPC | reads cold / warm / planning | writes | deletes | calls/DAU | reads/DAU | writes/DAU |
 |---|---|---|---|---|---|---|
-| CreatePost (root) | 14 / 2 | 4 / 4 | 1 (idempotency TTL) | 1.0 | 2.0 | 4.0 |
-| DeletePost | 1 / 1 | 1 / 1 | 1 | 0.05 | 0.05 | 0.05 |
-| GetPost | 3 / 0.5 | 0 | 0 | 1 | 0.5 | 0 |
-| GetUserTimeline | 53 / 11 | 0 | 0 | 2 | 22 | 0 |
-| GetHomeTimeline (refresh / older / cold) | 268 / 3 + new posts, 23, 23 | 0 | 0 | 8 / 1 / 0.1 | 109.3 | 0 |
-| **P1 total** | | | | **13.2 req** | **≈ 134** | **≈ 4.1** (deletes ≈ 1.05) |
+| CreatePost (root) | 14 / 2 / 2.5 | 4 | 1 (idempotency TTL) | 1.0 | 2.5 | 4.0 |
+| DeletePost | 2 / 0 / 1 (not-owned/unknown: success, 0 writes) | 1 (0 on no-op) | 1 (0 on no-op) | 0.05 | 0.05 | 0.05 |
+| GetPost | 4 (+1 overflow) / 0 / 1 | 0 | 0 | 1 | 1.0 | 0 |
+| GetUserTimeline | 3 + p = 53 / 0 / 11 | 0 | 0 | 2 | 22 | 0 |
+| GetHomeTimeline (refresh / settle re-reads / older / cold) | 2 + C + 2p = 269 / 0 to C / 4 + new posts, ≈ 0.1, 30, 30 | 0 | 0 | 8 / 8 / 1 / 0.1 | 126.0 | 0 |
+| `AccountStatusInterceptor` caller read | 1 / 0 / 1 per home refresh, 0.5 otherwise | 0 | 0 | 13.15 req | 10.6 | 0 |
+| **P1 total** | | | | **13.15 req** | **≈ 162.2** | **≈ 4.05** (deletes ≈ 1.05) |
 
 - **Cost line.**
-  - At 300 DAU, P1 + baseline = 154 reads/DAU → **46.3k reads/day, 93% of the free quota: $0**.
-  - That is **above the 80% line (40k) from ~260 DAU**, so the existing "Firestore reads > 40k/day" alert will fire near
-    300 DAU.
+  - Released scope after P1 (v0.2.0 baseline + P0/P1) = **≈ 182.6 reads, 7.15 writes, 1.15 deletes, 24.45 requests
+    per DAU**.
+  - At 300 DAU: **54.8k reads/day, 110% of the free quota**. The free line is crossed at **≈ 274 DAU**, and the 80% line
+    (40k) at **≈ 219 DAU**, so the existing "Firestore reads > 40k/day" alert will fire near 219 DAU. That is a planned
+    signal, not an incident.
+  - The overage is **≈ $0.09/month at 300 DAU** (≈ $9.9/month at 3k DAU), inside founder decision D1. D1 is re-decided at
+    P9 with real numbers.
+  - Change vs the earlier plan (134 → 162.2 reads/DAU): the interceptor read, a cold graph on 60 s-spaced refreshes,
+    ADR-0004's `k = 14` over-read on older/cold pages, settle re-reads, CreatePost/GetPost +0.5 each.
   - Writes: 2.1k/day (11%). Deletes: 0.35k/day (2%).
-  - Cloud Run: ≈ 118k requests/month added (6% of 2M).
+  - Cloud Run: 220k requests/month for the released scope (11% of 2M); vCPU 22k s/month (12%).
   - New GCP services: none.
 - **Done when.**
   - All P1 tickets meet their acceptance criteria.
@@ -141,8 +151,10 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
 - **Dependencies.** P1.
 - **Budget.** CreatePost (reply) 15/3 R, 5/5 W; GetThread 55/6 R (worst at page_size 50; the default first page is 10).
   At 2 threads + 0.3 replies per DAU: ≈ 12.9 reads, 1.5 writes, 0.3 deletes per DAU.
-- **Cost line.** +3.9k reads/day at 300 DAU. P1 + P3 + baseline ≈ 167 reads/DAU = 50.1k/day, **100% of the free quota
-  at 300 DAU**; the crossover is ~300 DAU. $0 up to ~300 DAU, then ≈ $0.02/month per extra 10k reads/day.
+- **Cost line.** +3.9k reads/day at 300 DAU. On the ADR-0010 base (182.6 reads/DAU after P1), P1 + P3 + baseline ≈
+  195.5 reads/DAU = 58.7k/day, **117% of the free quota at 300 DAU**; the crossover is ≈ 256 DAU. That is ≈ $0.16/month
+  over at 300 DAU (upper-bound price, `cost-model.md` §7), inside D1. The P3 ADR re-bases its own rows with the same
+  convention: cold ceilings include the interceptor read.
 - **Done when.** Thread order is chronological. Replies from blocked or muted authors are dropped. Budget assertions
   pass. A delete of the parent renders a tombstone.
 
@@ -218,10 +230,12 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   after P1; events are wired as each source lands.
 - **Budget.** ListNotifications 21/5 R (with `since`), 1/0.5 W; fan-out ~6.3 W and ~1.3 R (device tokens) per DAU; TTL
   deletes ~6 per DAU. ≈ 11.3 reads, 7.4 writes, 6 deletes per DAU.
-- **Cost line.** FCM costs $0. Pub/Sub is far below 10 GiB. Full Phase 1 with levers §6.1–§6.3 lands at **≈ 172–182
-  reads/DAU → 52–55k/day at 300 DAU (103–109% of free)**, ≤ $0.08/month over. Without the levers it is the
-  `cost-model.md` figure: 191 reads/DAU → 57.3k/day. Writes ≈ 33/DAU = 9.9k/day (50%).
-  Deletes ≈ 7.8/DAU (12%).
+- **Cost line.** FCM costs $0. Pub/Sub is far below 10 GiB.
+  - Reads: the `cost-model.md` figure was 191 reads/DAU (57.3k/day). ADR-0010's corrections raise the whole-product
+    model to **≈ 215 reads/DAU → ≈ 64.5k/day at 300 DAU (129% of free)**. That is ≈ $0.26/month over at the
+    upper-bound price, still inside D1.
+  - Levers §6.1–§6.3 lower this. T25 (posts-and-timeline) and P9 re-derive it from measured values.
+  - Writes ≈ 33/DAU = 9.9k/day (50%). Deletes ≈ 7.8/DAU (12%).
 - **Done when.**
   - Push arrives on a real Android and iOS device.
   - Tapping it deep-links to `/post/:id` or the profile.
@@ -238,6 +252,10 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
     the evidence (retention: founder decision D4).
   - Moderator actions via `opsctl`: `reports list|resolve`, `takedown-post`, `suspend-user` (suspension already exists
     as `AccountStatusSuspended`). **No admin console at Stage 0.**
+  - **Obligation from ADR-0010 D10:** `opsctl suspend-user` must also take down, or mark hidden, every post by the
+    suspended user, so suspended content leaves every feed within 60 s. In P1, Home does not filter suspended
+    authors (it would cost a `users` read per author per page); only GetPost and GetUserTimeline do. The P7 plan
+    prices this takedown as O(user's posts) writes, once per suspension, and makes it resumable like the posts purge.
   - Flutter: a "Report" and "Block @x" entry in the `PostCard` overflow and the profile menu. Reuse `RelationshipCubit`
     and `showBlockConfirmationDialog` from graph (`docs/ui-catalog.md:31,34`); no new block logic.
 - **Dependencies.** P1 (the post target). Account reports can ship first.
@@ -246,6 +264,7 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
 - **Done when.**
   - A report is visible to `opsctl reports list` within seconds.
   - A takedown hides the post from every read path within 60 s.
+  - A suspension removes all of the user's posts from every follower's Home within 60 s (ADR-0010 D10).
   - The runbook `docs/runbooks/moderation.md` states the response SLA (decision D4).
 
 ### P8 — Account deletion + export (store blocker, M5)  [size: M] [owners: architect (ADR: orchestration, export storage) → backend ‖ frontend → tester → security-auditor → deployer]
@@ -330,7 +349,7 @@ v0.4.0. v0.3.0 must still have **report + block** (P7), because any public UGC s
 ## 5. What would break the $0 rule (all pay-per-use; nothing here needs a fixed-fee ADR)
 | Item | When | Size at 300 DAU | Status |
 |---|---|---|---|
-| Firestore reads past 50k/day | full Phase 1 at ~260–300 DAU (P1 alone: > 80% line at ~260) | $0–$0.13/month | **Founder decision D1**; levers §6.1–§6.3 are built into P3/P6/P1 by default |
+| Firestore reads past 50k/day | released scope after P1 at ≈ 274 DAU (80% line at ≈ 219, ADR-0010); full Phase 1 (≈ 215 reads/DAU) at ≈ 233 DAU | ≈ $0.09/month (after P1) to ≈ $0.26/month (full Phase 1) | **Founder decision D1**; levers §6.1–§6.3 are built into P3/P6/P1 by default |
 | Cloud Vision past 1,000 units/month | ~160 DAU | ≈ $1.20/month (cap 10k ≈ $13.50) | Already approved (ADR-0005 amendment, 2026-09-27) |
 | GCS Class B past 50k/month | ~54 DAU | ≈ $0.09/month | Pay-per-use; keep thumbnails + client disk cache |
 | Cloud Run egress to India | day 1 (the 1 GiB free is North America only) | ≈ $0.24/month | Already in `cost-model.md:109` |
@@ -358,4 +377,6 @@ Link previews (which need an SSRF-safe fetcher) are Phase 2.
   engagement) get their own flags in their slices.
 - One shared `jobs` Pub/Sub topic with typed messages (default), or one topic per job.
 - Where each module's Eraser/exporter interface lives (default: `<module>/api.go`, same shape as `graph.Eraser`).
-- The read-budget numbers for P0 (defaults are in `posts-and-timeline.md` T3).
+- The read-budget numbers for P0 (defaults are in `posts-and-timeline.md` T3). **Resolved by ADR-0010 D5:** the
+  defaults were kept; the IP budget applies to profile-exempt procedures only, and IPv6 is keyed by /64.
+- One `FEATURE_POSTS` flag: **resolved by ADR-0010 D1** (accepted).
