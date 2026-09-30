@@ -904,10 +904,19 @@ func TestT16a_Race_ConcurrentDuplicateBlocksAndMutes(t *testing.T) {
 		_, err := w.graph.Mute(context.Background(), "uid-a", fmt.Sprintf("%016d", i), "uid-b")
 		return err
 	})
+	// 24 calls contend on the same two graph docs; under emulator lock timeouts a call can exhaust its
+	// retries and answer with the retryable UNAVAILABLE (ADR-0008 D1). That is a correct outcome; only
+	// state corruption or any other error fails the test.
 	for i, err := range errs {
-		if err != nil {
-			t.Errorf("goroutine %d: %v", i, err)
+		if err == nil {
+			continue
 		}
+		var ae *apierr.Error
+		if errors.As(err, &ae) && ae.Code == connect.CodeUnavailable {
+			t.Logf("goroutine %d: retryable UNAVAILABLE after exhausted retries: %v", i, err)
+			continue
+		}
+		t.Errorf("goroutine %d: %v", i, err)
 	}
 	a, b := graphArrays(t, w.client, "uid-a"), graphArrays(t, w.client, "uid-b")
 	if len(a["blocked"]) != 1 || len(a["muted"]) != 1 || len(b["blockedBy"]) != 1 {
