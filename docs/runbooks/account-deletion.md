@@ -76,14 +76,16 @@ errors", re-run the same command; it resumes from what is left.
 ```bash
 npx -y firebase-tools@15 firestore:delete "users/$UID_" --recursive --project $P --force   # profile + subcollections
 npx -y firebase-tools@15 firestore:delete "handles/<handleLower>" --project $P --force     # frees the handle
+npx -y firebase-tools@15 firestore:delete "quotas/$UID_" --recursive --project $P --force  # per-user daily quota counters (written by graph)
 curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:delete" \
   -d "{\"localId\":\"$UID_\"}"                                                               # Firebase Auth user
 ```
 (The old `firestore:delete graph/$UID_` step is gone: it left counters and the other side of every edge behind.)
 
 - **Other users' mute and block lists:** other users' `muted[]` / `blocked[]` entries that still name the deleted uid
-  are not found by the purge (Firestore arrays aren't indexed). They are cleaned lazily when those users next open
-  their muted or blocked list (ADR-0008 D10, T27). No action is needed.
+  are not found by the purge (Firestore arrays aren't indexed). The lazy clean-up on read (ADR-0008 D10, ticket T27)
+  is **not built yet**, so those entries persist until T27 ships (the read path only skips missing uids). This is a
+  tracked, accepted residual; do not hand-edit other users' documents.
 - **Media:** Phase 0 has no avatars or posts, so there's nothing to delete. When media ships, also delete
   `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
   Phase 1 module lands.
@@ -102,7 +104,7 @@ afterwards.
 | Environment | dev (`dzeroth-dev`) |
 | Duration | 3 min 47 s end to end (export, Step 0 including the 125 s wait, dry run, purge, Step 2). About 100 s of that was active work. Target < 10 min: met |
 | Purge output | dry run `outgoing_edges=1 incoming_edges=1 blocked=1 blocked_by=1`; real run `purged: reads=6 writes=5 deletes=3` |
-| Residue check | PASS. No `follows/*` doc involving C; A and B counters correct (A followers 1 to 0, B unchanged); C no longer in A/B `following`, `blocked` or `blockedBy`. Only `A.muted[]` still named C, the documented lazy residue |
+| Residue check | PASS. No `follows/*` doc involving C; A and B counters correct (A followers 1 to 0, B unchanged); C no longer in A/B `following`, `blocked` or `blockedBy`. Only `A.muted[]` still named C: T27's clean-up is not built, so this persists (accepted residual). The check did **not** look for `quotas/{uid}` (added to Step 2 after the T19 review); re-check it on the next drill |
 | Commands that failed as written | None |
 
 **Residue check.** `assertGraphInvariants` (T16a) is an integration-build-tag Go test helper that loads the whole
