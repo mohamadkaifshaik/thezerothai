@@ -62,6 +62,16 @@ is in the error metadata the client sees, not in the log line, so identify it by
 - List scraping: `jsonPayload.limit_name="graph_list_daily"` (the per-uid daily cap on ListFollowers, ListFollowing,
   ListBlockedUsers and ListMutedUsers). Sort by `uid_hash`.
 - Bulk mutation replays: `jsonPayload.limit_name="graph_mutation_daily"`.
+- Read scraping / read-budget exhaustion (ADR-0010 D5, T3): `jsonPayload.limit_name="read_budget_daily"`. It is the
+  per-uid daily Firestore read budget (`READ_BUDGET_PER_UID_PER_DAY`, default 2,000) and, on the profile-exempt
+  procedures (CreateProfile, CheckHandleAvailability), the per-IP budget (`READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY`,
+  default 500; IPv6 counts per /64). Count distinct accounts hitting it (Log Analytics):
+  `SELECT json_payload.uid_hash, COUNT(*) AS rejections FROM <log view> WHERE json_payload.limit_name = "read_budget_daily" AND timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY) GROUP BY 1 ORDER BY 2 DESC`.
+  Spend per account: max `jsonPayload.read_budget_spent` per `uid_hash` (present on every request the interceptor
+  saw). One `uid_hash` at the cap is a scraper or a heavy legit user (a follower count over ~1,000 can hit it on a heavy
+  day, ADR-0010 D5); many hashes each at the cap is a sign-up farm (section 2). `limit_name="check_handle_daily"` is the
+  100 calls/uid/day cap on CheckHandleAvailability. Lever: raise or lower the env var with the pinned-traffic procedure
+  below; the budget is per instance, so worst case is x3.
 - Cost check: sum `jsonPayload.fs_reads` for the suspect `uid_hash` and compare with the daily 50k read quota.
 
 **Levers, lightest first:**
