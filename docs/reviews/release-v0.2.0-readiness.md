@@ -439,10 +439,10 @@ I accept or reject each item in §4, and confirm the §7 blockers are closed or 
 - [ ] R-1  [ ] R-2 (with conditions b and c; bounded to 2026-10-31)  [ ] R-3  [ ] R-4  [ ] R-5  [ ] R-6  [ ] R-7  [ ] R-8  [ ] R-9  [ ] R-10
 - [ ] R-P1 (privacy condition)  [ ] R-P2 (option chosen: ___)  [ ] R-P3  [ ] R-P4
 - [ ] Carried v0.1.0 items per §4.0 (v0.1.0 L6 partially closed, remainder in issue #46 with hard date 2026-10-12, not renewed; L7 closed by #45)
-- [ ] 2FA is still enabled on GitHub account `mohamadkaifshaik`. PENDING - to be completed by the designated human reviewers (not by the assistant)
-- [ ] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`. PENDING - to be completed by the designated human reviewers (not by the assistant)
+- [x] 2FA is still enabled on GitHub account `mohamadkaifshaik`. Confirmed by the account owner (founder) in chat, 2026-09-30: "Yes 2FA is still enabled on both Google and github." Recorded here by the assistant from that statement; the assistant did not check the account setting itself.
+- [x] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`. Confirmed by the account owner (founder) in chat, 2026-09-30, same statement. Recorded by the assistant from that statement; not independently checked.
 
-All boxes above are intentionally unchecked. The assistant does not tick any sign-off box (the founder decisions in §4.2 are recorded as decisions, not as sign-offs).
+The two 2FA lines are the only boxes recorded, and only from the founder's statement above. Every other sign-off box is intentionally unchecked: the assistant does not tick sign-offs (the founder decisions in §4.2 are recorded as decisions, not as sign-offs). The repository names no separate "designated reviewers"; these two lines are account-setting confirmations by the account owner (v0.1.0 precedent: recorded from chat on 2026-09-28).
 
 Approved by: ______  Date: ______
 
