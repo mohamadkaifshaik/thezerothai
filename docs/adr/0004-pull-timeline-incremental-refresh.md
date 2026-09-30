@@ -79,3 +79,14 @@ Option A, precisely:
 - production-deployer: nothing new; indexes ship with `firestore.indexes.json`.
 - tester: emulator tests asserting read counts: refresh with 0 new posts == C reads (+0 when graph cached); page of 20
   with F = 60 ≤ C + 40; gap token never re-reads items older than the previous since.
+
+## Note 2026-09-30: see ADR-0010
+Cross-reference only; the decision above is unchanged. ADR-0010 (posts and timelines slice) refines it in these places:
+- **D13:** `since_token` is `max(old since, min(newest item returned, W))`, where W is the request start (or the
+  oldest author-recent entry used) minus a 15 s settle window. It no longer advances to the newest item. That rule
+  could skip a post committed late or hidden by another instance's cache. Clients dedupe by `post_id`.
+- **D14:** timeline tokens are caller- and kind-bound, carry an optional lower bound (the gap), and live 30 days.
+- **D15:** cache sizes are posts 20k and author-recent 1k. The profile-first-page cache is merged into author-recent.
+- **Cost impact:** the budget counts the `AccountStatusInterceptor` caller read (+1 cold), and the graph is expired on
+  most refreshes (spacing ≥ TTL). The worst case is `2 + C + 2·page` with 2 = interceptor + graph until `userLikes`
+  ships (then 3).
