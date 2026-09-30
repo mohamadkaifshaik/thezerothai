@@ -93,4 +93,7 @@ unchanged.
 ## 4. Lists show a deleted user, or a graph RPC says the feature is off
 - `FEATURE_DISABLED` (FAILED_PRECONDITION) on a graph RPC means `FEATURE_GRAPH` is off for that caller (mode `off`,
   `allowlist` without the uid, or outside the `percent` bucket). Check the env var on the serving revision.
-- Muted and blocked lists self-clean stale uids of deleted users when read (ADR-0008 D10, T27). No manual step.
+- `purge-graph` removes a deleted user from other users' `following`, `blocked` and `blockedBy` arrays (confirmed by
+  the 2026-09-30 dev drill). Other users' `muted[]` still name the deleted uid: the lazy clean-up on read (ADR-0008
+  D10, ticket T27) is **not built yet**, so those entries linger until T27 ships. There is no manual step; do not
+  hand-edit other users' documents.
