@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-09-30 -->
+<!-- Draft — last updated 2026-10-01 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -88,7 +88,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>dZeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 30 September 2026</p>
+    <p class="updated">Last updated: 1 October 2026</p>
 
     <p>
       dZeroth ("dZeroth", "we", "us") is a text-first social app at
@@ -111,34 +111,55 @@
       <li>
         <strong>Account data.</strong> When you sign up, Firebase
         Authentication (our identity provider) stores your email address and
-        which sign-in method you used. If you sign up with Google or Apple,
-        we receive your name and email address from them.
+        which sign-in method you used (email and password, Google or Apple),
+        plus when you created the account and last signed in. If you sign
+        in with Google or Apple, we receive your name and email address from
+        them. Email and password accounts must verify their email address
+        before creating a profile. We never see your password in readable
+        form.
       </li>
       <li>
-        <strong>Profile data.</strong> Your handle, display name, bio and
-        avatar image, once you create a profile.
+        <strong>Profile data.</strong> Your handle, display name and bio, once
+        you create a profile. Your profile is visible to other signed-in
+        users. Avatar images are planned but not available yet.
       </li>
       <li>
         <strong>Social graph.</strong> The accounts you follow and the
         accounts that follow you, the accounts you block, and the accounts
         you mute. For each follow we store when it happened. We also keep a
         follower count and a following count on each profile. Your
-        follower and following counts, and the lists of who follows whom,
-        are visible to other users. Your blocked and muted lists are not:
-        only you can see them.
+        follower and following counts, and your follower and following
+        lists, are visible to other signed-in users. Your blocked and muted
+        lists are not: only you can see them. Blocks and mutes are stored as
+        lists of account IDs without a separate time for each entry. When
+        you block someone, we also record on their side of the graph that
+        you blocked them, so the block can be enforced. That record is
+        never shown to them and never included in an export. We also keep
+        small per-day counters of how many follows, blocks and mutes you
+        made, to enforce daily limits that prevent abuse.
       </li>
       <li>
-        <strong>Posts and activity.</strong> As posting, media uploads and
-        likes ship, we'll store the posts you write, images you upload, and
-        what you like. Those parts are planned and don't exist yet.
+        <strong>Posts and activity.</strong> Posts, image uploads, likes and
+        notifications are planned and don't exist yet. When they ship,
+        we'll store what you write, upload and like, and update this policy
+        first.
+      </li>
+      <li>
+        <strong>On your device.</strong> Your browser or phone keeps your
+        sign-in session and a local cache of your profile and social graph,
+        so the app loads faster. We do not use advertising or analytics
+        cookies.
       </li>
       <li>
         <strong>Technical data.</strong> Our servers keep operational logs
-        that include a hashed version of your user ID (not your raw ID) for
-        debugging and abuse prevention. Our app does not log your raw IP
-        address. Google Cloud, which hosts our infrastructure, may process
-        your IP address as part of its own network security and anti-abuse
-        systems — we don't have access to raw IP logs ourselves.
+        with one line per request: which action was called, a shortened
+        one-way hash of your user ID (not the ID itself), timing, result and
+        database usage counts. Our own code does not write your IP address
+        to these logs. The hash is a pseudonym, not anonymous: anyone who
+        already knows your user ID could compute it. Google Cloud, which
+        hosts our infrastructure, also records standard request details
+        (which can include IP address and browser type) in its own platform
+        logs and network security systems.
       </li>
     </ul>
 
@@ -155,8 +176,8 @@
     <h2>Following, blocking and muting</h2>
     <ul>
       <li>
-        <strong>Follows are public.</strong> Other users can see who you
-        follow and who follows you.
+        <strong>Follows are public.</strong> Other signed-in users can see who
+        you follow and who follows you. People who aren't signed in can't.
       </li>
       <li>
         <strong>Blocking.</strong> If you block someone, they can no longer
@@ -171,36 +192,78 @@
       </li>
       <li>
         <strong>Limits.</strong> We can't promise that a blocked person
-        can never work out they've been blocked (for example, by noticing
-        that your profile no longer loads for them).
+        can never work out they've been blocked. For example, they will
+        notice that any follow between you disappeared, and that your
+        profile no longer loads for them.
       </li>
     </ul>
 
     <h2>Who we share it with</h2>
     <p>
-      We use Google Cloud and Firebase (Google LLC) to run dZeroth: hosting,
-      the database, authentication, media storage and image moderation. They
-      process data on our behalf as our infrastructure provider (a
-      "processor" in privacy terminology) and don't use it for their own
-      purposes. We don't share your data with any other company, and we don't
-      sell it to anyone.
+      We don't sell your data and we don't use it for advertising. We use
+      these service providers, who process data on our behalf (a
+      "processor" in privacy terminology):
+    </p>
+    <ul>
+      <li>
+        <strong>Google Cloud and Firebase (Google LLC).</strong> Firebase
+        Authentication (sign-in, including Google sign-in), Cloud Firestore
+        (our database), Cloud Run (our servers), Cloud Logging (server logs)
+        and Firebase Hosting (serves the website and passes app requests to
+        our servers). Google doesn't use this data for its own purposes
+        beyond running these services.
+      </li>
+      <li>
+        <strong>Google, when you load the web app.</strong> The web app may
+        load parts of its code and default fonts from Google's servers
+        (gstatic.com), and Google sign-in loads Google scripts and a Google
+        sign-in window, so Google can see your IP address and browser details
+        when that happens.
+      </li>
+      <li>
+        <strong>Apple.</strong> Only if you choose Sign in with Apple. Apple
+        handles that sign-in and passes us your name and email address (or an
+        Apple relay address if you chose to hide your email).
+      </li>
+      <li>
+        <strong>ImprovMX and Gmail (email).</strong> Mail sent to
+        privacy@dzeroth.com is forwarded by ImprovMX, an email forwarding
+        service, to the founder's Gmail inbox (Google). Anything you write in
+        a privacy request, including your email address and account details,
+        passes through those two services. Only email us what is needed for
+        the request.
+      </li>
+    </ul>
+    <p>
+      Not in use yet, and will be added here before they are: image
+      storage and automated image moderation with Google Cloud Vision
+      (uploaded images will be sent to Google to be checked), push
+      notifications, crash reporting and analytics. Today the app has no
+      analytics, no crash-reporting service, no push notifications and no
+      image uploads. Web sign-in bot protection (Firebase App Check with
+      reCAPTCHA) is also not switched on; if it is, this section will say
+      so.
     </p>
 
     <h2>Where your data is stored</h2>
     <p>
-      Your account and profile data is stored in Google Cloud's
-      <strong>Mumbai (asia-south1)</strong> region. Images you upload are
-      stored in the <strong>United States</strong>, because that's where
-      Google Cloud's free storage tier is available. Both are protected by
-      Google's standard encryption at rest.
+      Your profile and social graph are stored in Google Cloud's
+      <strong>Mumbai (asia-south1)</strong> region, and our servers run there
+      too. Sign-in records are held by Firebase Authentication, which does not
+      let us choose a region. Google may process them in other countries. When
+      image uploads ship, images will be stored in the
+      <strong>United States</strong>, because that's where Google Cloud's free
+      storage tier is available. All of it is protected by Google's standard
+      encryption at rest.
     </p>
 
     <h2>How long we keep it</h2>
     <ul>
       <li>Account and profile data: for as long as your account exists.</li>
       <li>Follows, blocks and mutes: for as long as your account exists, or until you unfollow, unblock or unmute. They are deleted when your account is deleted (see below).</li>
-      <li>Server logs: kept for about 30 days, then deleted.</li>
-      <li>Database backups: kept for up to 14 days, then rotated out.</li>
+      <li>Server logs: kept for about 30 days (Google Cloud Logging's default), then deleted.</li>
+      <li>Database backups: weekly, each kept for 14 days, then deleted.</li>
+      <li>Mail to privacy@dzeroth.com: kept in the founder's inbox for as long as needed to handle your request and any follow-up.</li>
     </ul>
 
     <h2>Your rights</h2>
@@ -209,23 +272,28 @@
       <li><strong>Access</strong> the personal data we hold about you.</li>
       <li><strong>Correct</strong> inaccurate data.</li>
       <li><strong>Delete</strong> your account and associated data.</li>
-      <li><strong>Export</strong> your data in a portable format. An export of your social graph lists the accounts you follow, your followers, the accounts you blocked and the accounts you muted. It never includes who has blocked you.</li>
+      <li><strong>Export</strong> your data in a portable format (JSON). Today an export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles). It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. We send it to the email address on the account.</li>
       <li><strong>Withdraw consent</strong> where we rely on it, or raise a grievance about how we've handled your data.</li>
     </ul>
     <p>
       To do any of these, email
-      <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>. Until
+      <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a> from the
+      email address on your account, so we can confirm it is you. Until
       in-app deletion and export tools ship, we handle these requests
       manually and will get back to you within 30 days.
     </p>
     <p>
-      When your account is deleted, your follows and followers, and your
-      blocked and muted lists are deleted with it, and you are removed from
-      other people's follower, following and block lists. Deleted data can
-      remain in our database backups for up to 14 days, as described above.
-      An entry for your account ID in another user's muted list can take
-      longer to disappear, because we can only clean it up when that user's
-      list is next loaded.
+      When your account is deleted, we delete your profile, your handle
+      (which frees it for others), your sign-in account, your follows and
+      followers, your blocked and muted lists and your daily limit counters.
+      You are also removed from other people's follower, following and block
+      lists, and their counts are corrected. Deleted data can remain in our
+      database backups for up to 14 days, as described above. Server logs
+      containing the hashed version of your user ID stay until they expire
+      (about 30 days). One thing can outlast that: if someone muted you, your
+      account ID (a random string, not your name or handle) can stay in their
+      muted list until we ship the clean-up that removes it. It is not
+      visible to anyone and no longer points to a profile.
     </p>
 
     <h2>Age requirement</h2>
@@ -233,7 +301,8 @@
       dZeroth is for users aged <strong>18 and over</strong>. We don't have a
       way to verify a parent or guardian's consent for younger users (as
       India's Digital Personal Data Protection Act requires for anyone under
-      18), so we don't knowingly allow accounts for people under 18. If you
+      18), so we don't knowingly allow accounts for people under 18. The app does not
+      yet check your age at sign-up. If you
       believe someone under 18 has created an account, email us and we'll
       remove it.
     </p>
@@ -241,7 +310,10 @@
     <h2>Security</h2>
     <p>
       We rely on Firebase Authentication for sign-in and Google Cloud's
-      infrastructure security, encryption at rest and access controls. No
+      infrastructure security, encryption at rest and access controls. Every
+      request to our servers needs a valid sign-in, and the database can't
+      be read directly from the app or browser. This means people who aren't
+      signed in can't see profiles or follower lists. No
       system is perfectly secure, but we keep access to production data
       restricted and monitor for unusual activity.
     </p>
@@ -249,7 +321,7 @@
     <h2>Changes to this policy</h2>
     <p>
       We may update this policy as dZeroth adds features (posts, media,
-      likes and beyond). We'll update the "Last updated" date above
+      likes, notifications and beyond). We'll update the "Last updated" date above
       when we do. If a change is significant, we'll try to let you know
       in-app.
     </p>
