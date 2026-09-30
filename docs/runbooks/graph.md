@@ -72,10 +72,14 @@ that the SDK does not retry, so `FirestoreRepo.Unfollow` retries it up to 6 atte
 raw contention error) to the `UNAVAILABLE` response above. A failed attempt writes nothing, so the read/write budget is
 unchanged.
 
-**Find it:** `jsonPayload.code="unavailable" AND jsonPayload.rpc:"GraphService/"`, grouped by `jsonPayload.rpc`.
-Note: there is no dedicated contention WARN log line or `txn_attempts` field in the code today (ADR-0008 D3 and the
-plan mention it as the measure for the sharded-counter revisit). Until it exists, the request-log `code="unavailable"`
-rate is the signal. Adding that log line is a backend follow-up.
+**Find it:**
+- Rejected calls: `jsonPayload.code="unavailable" AND jsonPayload.rpc:"GraphService/"`, grouped by `jsonPayload.rpc`
+  (the request line also carries `outcome="rejected:contention"`).
+- Contention that still succeeded: the WARN `graph_txn_contention` (message `jsonPayload.message`) with
+  `txn_attempts=N`, emitted when a transaction's callback ran more than 3 times. Every graph request line also
+  carries `txn_attempts` for Follow, Block, Unblock, Mute and Unmute (Unfollow reports its retry-loop attempts).
+- Per-operation view: `jsonPayload.graph_op!=""`, grouped by `graph_op` (sum `fs_reads`, or count of `txn_attempts>1`).
+  This is the measure ADR-0008 D3 names for the sharded-counter revisit. No uids are logged in these fields.
 
 **Do:**
 1. A few per day is normal: two people acting on the same account at the same instant. No action.
