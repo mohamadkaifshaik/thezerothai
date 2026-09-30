@@ -19,7 +19,7 @@ Closes the v0.1.0 risk acceptances L6 (Dependabot off) and L7 (Actions pinned by
    prod; a provider bump must produce **no unexpected diff**).
 3. Extra care for anything on the release path:
    - Actions used by `deploy-dev.yml`, `release-prod.yml`, `promote-prod.yml` (`google-github-actions/auth`,
-     `setup-gcloud`, `ko-build/setup-ko`, `setup-node`, `setup-go`, `flutter-action`, `upload-artifact`). CI on the PR
+     `setup-gcloud`, `ko-build/setup-ko`, `setup-node`, `setup-go`, `.github/actions/setup-flutter`, `upload-artifact`). CI on the PR
      does **not** run these workflows. Merge such PRs on a day you can watch the next `main` push (deploy-dev) and
      do not merge them between tagging a release and finishing promotion.
    - Terraform provider bumps: read the plan; never apply as part of the merge (apply stays a separate, approved step).
@@ -52,6 +52,7 @@ Run-time tools are pinned to exact versions so a compromised or breaking "latest
 | ko | `setup-ko` `version:` in `deploy-dev.yml`, `release-prod.yml` (tag with leading `v`) | v0.19.1 | `gh api repos/ko-build/ko/releases/latest --jq .tag_name` (repo is `ko-build/ko`, formerly `google/ko`) |
 | gcloud (Cloud SDK) | `setup-gcloud` `version:` in `deploy-dev.yml`, `release-prod.yml`, `promote-prod.yml` | 587.0.0 | `curl -s https://dl.google.com/dl/cloudsdk/channels/rapid/components-2.json` (first `"version"`), then `curl -sI https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-<v>-linux-x86_64.tar.gz` must be 200 |
 | osv-scanner | `ci.yml` env `OSV_SCANNER_VERSION` + `OSV_SCANNER_SHA256` | v2.6.0 | `gh release download <tag> -R google/osv-scanner -p osv-scanner_SHA256SUMS -O -` and copy the `osv-scanner_linux_amd64` hash |
+| Flutter SDK | local action `.github/actions/setup-flutter` (`version:` and `sha:` inputs) in `ci.yml` (env `FLUTTER_VERSION`), `deploy-dev.yml`, `release-prod.yml` (x2), `promote-prod.yml` | 3.47.5 / `6a19cca5…1da1` | `git ls-remote https://github.com/flutter/flutter.git refs/tags/<v>`; bump `version` and `sha` together in every call site (the action fails if the tag no longer resolves to `sha`). We do not use `subosito/flutter-action`: its nested `actions/cache@vN` is rejected by the repo's SHA-pinning setting. |
 
 Bump procedure: change every occurrence (grep the tool name in `.github/workflows`), run `actionlint`, open a PR. The PR's
 CI exercises govulncheck, firebase-tools (emulator job) and osv-scanner. It does **not** exercise the release path
