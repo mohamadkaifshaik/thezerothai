@@ -40,10 +40,11 @@ jobs:
           check-latest: true
           cache: false
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Setup Flutter
+        uses: ./.github/actions/setup-flutter
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
+          version: ${{ env.FLUTTER_VERSION }}
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:

@@ -206,11 +206,12 @@ jobs:
         run: |
           echo "::notice::10% of traffic is now on ${REVISION}. Watch 5xx ratio, p95 latency and Error Reporting for ~15 minutes, then re-run this workflow with stage=100."
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Setup Flutter
         if: steps.stage.outputs.stage == '100'
+        uses: ./.github/actions/setup-flutter
         with:
-          flutter-version: "3.47.5"
-          channel: stable
+          version: "3.47.5"
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
       - name: flutter build web (prod) — built fresh from this tag, before any traffic shift
         if: steps.stage.outputs.stage == '100'
