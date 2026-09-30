@@ -145,3 +145,10 @@ Cross-reference only; no decision above changes. ADR-0008 (social graph slice) a
 It defers private accounts, so `followRequests/*` and `graph.requested[]` get no writes until the `private-accounts`
 plan. It also fixes the graph counter invariants and the resumable graph purge (`graph.Eraser`) used by the
 `account-delete` job.
+
+## Amendment 2026-09-30: `quotas/{uid}` in the account-delete scope
+Scope clarification only; no decision above changes and the status stays Accepted. The `account-delete` job (and any
+manual right-to-delete run) must also delete `quotas/{uid}`, the per-user daily quota counters (`pkg/platform/quota`).
+The first writer is the graph module in v0.2.0 (follows, blocks/mutes counters; `backend/internal/graph/repo_firestore.go`),
+so the doc now exists for real users. Cost: 1 delete per account deletion. `docs/runbooks/account-deletion.md` Step 2
+already deletes it.

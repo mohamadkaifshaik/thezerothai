@@ -44,6 +44,14 @@ To use one, add `# cost-approved: ADR-NNNN` on the resource line and reference t
 
 ## Rules
 - Never `terraform destroy` or replace Firestore/buckets without explicit human confirmation.
+- **Prod applies use the real tfvars, never defaults.** Apply only from `infra/terraform/envs/prod` with the real,
+  gitignored `terraform.tfvars`. The defaults in `envs/prod/variables.tf` (`feature_graph = "off"`, empty allowlist,
+  percent 0) would switch the graph off in prod. CI's `plan (prod)` runs with those defaults, so it always shows
+  `FEATURE_GRAPH allowlist -> off` and the allowlist cleared: an expected artifact, never something to apply.
+  Checklist: (1) real tfvars in place; (2) `terraform plan -out=tfplan` and review it; (3) `FEATURE_GRAPH`,
+  `FEATURE_GRAPH_ALLOWLIST`, `FEATURE_GRAPH_PERCENT` show the intended values and the diff is only the intended change;
+  (4) show the plan to the founder and get their OK; (5) `terraform apply tfplan` (that saved plan only). Details:
+  `docs/runbooks/cloud-bootstrap.md` §3a. Never put allowlist uids or secrets in docs.
 - Firestore location is permanent — confirm `asia-south1` (or chosen region) with the human before first apply.
 - Firebase Auth providers: Email/Password, Google, Apple. Do **not** enable Phone.
 - Keep the Cloud Run service public (`allUsers` invoker) — authentication is Firebase ID tokens in the app; this avoids needing an LB/IAP.

@@ -44,6 +44,25 @@ terraform output                    # needed for step 6
 ```
 This first apply has to be local. The GitHub OIDC login (Workload Identity Federation) that CI uses does not exist until it runs.
 
+### 3a. WARNING: every prod apply uses the real tfvars
+Always apply prod from `infra/terraform/envs/prod` with the real, gitignored `terraform.tfvars` in that directory.
+Never apply with the variable defaults. The defaults in `envs/prod/variables.tf` are `feature_graph = "off"`, an empty
+`feature_graph_allowlist` and `feature_graph_percent = 0`, so an apply without the real tfvars **switches the graph off
+in prod**.
+
+CI's `plan (prod)` job has no tfvars, so it runs with those defaults. Its plan always shows `FEATURE_GRAPH`
+`allowlist -> off` and the allowlist cleared. That is expected and harmless in CI. Never apply it and never "fix" it.
+
+Pre-apply checklist (prod):
+1. Confirm you are in `infra/terraform/envs/prod` and that `terraform.tfvars` there is the real one (not missing, not a
+   copy of the defaults).
+2. Save the plan and review it: `terraform plan -out=tfplan`, then `terraform show tfplan`.
+3. Confirm that `FEATURE_GRAPH`, `FEATURE_GRAPH_ALLOWLIST` and `FEATURE_GRAPH_PERCENT` on the `api` service show the
+   intended values (no change unless the change is the point of this apply), and that the diff contains only the
+   intended change.
+4. Show the plan to the founder and get their OK.
+5. Apply only that reviewed, saved plan: `terraform apply tfplan`. Never run a bare `terraform apply`.
+
 ## 4. Firebase (console, per project)
 1. Add Firebase to the project if Terraform's `firebase` module did not already do it.
 2. Authentication → Sign-in method: enable **Email/Password**, **Google** and **Apple**. **Never enable Phone** (it is billed per SMS).
