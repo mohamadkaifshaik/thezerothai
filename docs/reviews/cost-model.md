@@ -161,7 +161,12 @@ must verify** and replace them, especially for `asia-south1`:
 ## 9. Dashboard notes (Logs Explorer; no new log-based metric, no new alert policy)
 - Graph reads by operation (T21): `jsonPayload.graph_op!="" | sum fs_reads by graph_op`
   (Log Analytics form: `SELECT JSON_VALUE(json_payload.graph_op) AS graph_op, SUM(CAST(JSON_VALUE(json_payload.fs_reads) AS INT64)) ... GROUP BY graph_op`).
-- **Caveat, checked 2026-09-30 on `docs/graph-t21`:** no backend code emits `graph_op` yet (only `limit_name`, and `rpc`
-  and `fs_reads` from the request logger). Until the graph log-field work lands, the query returns nothing. The working
-  equivalent today is the same query grouped by `rpc`: `jsonPayload.rpc:"GraphService" | sum fs_reads by rpc`.
+- **Works since PR #36** (updated 2026-09-30): every graph RPC's request line carries `graph_op`, `outcome`,
+  `txn_attempts`, `graph_cache_hit`, `edges_removed` (Block) and `feature_disabled` (flag rejections) next to `rpc`,
+  `fs_reads`/`fs_writes`/`fs_deletes` and `limit_name`; a WARN `graph_txn_contention` fires when `txn_attempts > 3`
+  (`backend/internal/graph/observe.go`; queries in `docs/runbooks/graph.md` §3). Fallback for log lines older than that
+  deploy: `jsonPayload.rpc:"GraphService" | sum fs_reads by rpc`.
+- Still **not** emitted: `rows_filtered` and `hydration_misses` (lists), and `lazy_removed` (until T27 ships). The purge
+  lines `graph_purge_batch` / `purge_missing_counterpart` exist but are written by `opsctl` on the operator's terminal,
+  not by the `api` service, so they are not in Cloud Logging.
 - Existing alerts (uptime, 5xx, Firestore reads > 40k/day) are unchanged; the graph adds no alert policy.

@@ -62,7 +62,8 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 
 ## Deletes & privacy
 - Deleting a post deletes its doc and its likes/reposts in a background Pub/Sub job; timeline caches invalidated; clients drop unknown IDs on refresh.
-- Account deletion: Pub/Sub job batches (≤ 500 ops per batch) over posts, follows, likes, notifications, media objects, graph doc, then the Firebase Auth user. Must be resumable.
+- Account deletion: Pub/Sub job batches (≤ 500 ops per batch) over posts, follows, likes, notifications, media objects, graph doc, `quotas/{uid}` (ADR-0003 amendment 2026-09-30;
+  `docs/runbooks/account-deletion.md` Step 2), then the Firebase Auth user. Must be resumable.
 - Export: same traversal written to a JSON file in a private GCS object with a 24 h signed URL.
 
 ## Migrations

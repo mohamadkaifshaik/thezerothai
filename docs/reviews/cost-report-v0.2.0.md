@@ -105,10 +105,14 @@ v0.2.0 gate**; the identity + graph criterion passes. It stays an open finding i
 ## Dashboard notes
 - Add to the dashboard notes / saved Logs Explorer queries: `jsonPayload.graph_op!="" | sum fs_reads by graph_op`
   (also in `cost-model.md` §9). **No new alert policy and no log-based metric** (observability skill).
-- **Finding:** as of this branch no backend code emits `graph_op`, `outcome` or `txn_attempts` (ADR-0008 "Required log
-  fields"); only `rpc`, `fs_reads`/`fs_writes`/`fs_deletes` and `limit_name` are emitted. The saved query returns nothing
-  until those fields land. Interim query: `jsonPayload.rpc:"GraphService" | sum fs_reads by rpc`. The backend owner
-  should confirm where the graph log fields are scheduled; T24 and the T25 `graph_cache_hit` revisit trigger depend on them.
+- **Update 2026-09-30 (resolves the earlier finding that these fields were missing):** PR #36 emits `graph_op`,
+  `outcome`, `txn_attempts`, `graph_cache_hit`, `edges_removed` and `feature_disabled` on the graph request line, plus a
+  WARN `graph_txn_contention` when `txn_attempts > 3` (`backend/internal/graph/observe.go`; queries in
+  `docs/runbooks/graph.md` §3). The saved query above works, so T24 and the T25 `graph_cache_hit` revisit trigger can use
+  it. Fallback for log lines older than that deploy: `jsonPayload.rpc:"GraphService" | sum fs_reads by rpc`.
+- Still **not** emitted from ADR-0008 "Required log fields": `rows_filtered` and `hydration_misses` (lists), and
+  `lazy_removed` (until T27 ships). The purge lines (`graph_purge_batch`, `purge_missing_counterpart`) come from `opsctl`
+  on the operator's terminal, not from the `api` service.
 
 ## Open items
 1. T17 `test-report-graph.md`: pending; add its numbers here if they differ from the T16 ceilings.
