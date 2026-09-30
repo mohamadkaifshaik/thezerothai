@@ -1568,9 +1568,14 @@ class IdentityServiceApi {
       _client.invoke<CreateProfileResponse>(ctx, 'IdentityService',
           'CreateProfile', request, CreateProfileResponse());
 
-  /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7).
+  /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7) and capped
+  /// at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
+  /// Profile-exempt, so its reads are charged to both the uid's daily Firestore read budget and the caller IP's
+  /// (IPv6: /64) profile-exempt budget of 500 reads/IST day per instance (ADR-0010 D5); over either =>
+  /// RATE_LIMITED, metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight.
   /// "Taken" is reported even when the handle's owner blocked the caller (accepted residual, ADR-0008 D9).
-  /// Firestore: reads 1/1, writes 0.
+  /// Free handles are negatively cached 10 s per instance (a just-freed handle may read "taken" for <= 60 s).
+  /// Firestore: reads 1/0-1, writes 0.
   $async.Future<CheckHandleAvailabilityResponse> checkHandleAvailability(
           $pb.ClientContext? ctx, CheckHandleAvailabilityRequest request) =>
       _client.invoke<CheckHandleAvailabilityResponse>(
@@ -1592,7 +1597,11 @@ class IdentityServiceApi {
   /// Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
   /// error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
   /// A caller who blocks the target still gets the profile (so they can unblock).
-  /// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s.
+  /// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
+  /// negatively cached 10 s (ADR-0010 D5).
+  /// Charged, like every RPC, to the per-uid daily Firestore read budget (2,000 reads/uid/IST day per instance,
+  /// ADR-0010 D5); over it => RATE_LIMITED, metadata["limit"] = "read_budget_daily", retry_after = time to IST
+  /// midnight, 0 reads.
   /// Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed, ADR-0008 D2), writes 0.
   $async.Future<GetProfileResponse> getProfile(
           $pb.ClientContext? ctx, GetProfileRequest request) =>

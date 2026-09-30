@@ -452,6 +452,7 @@ func (x *Post) GetCreatedAt() *timestamppb.Timestamp {
 }
 
 // A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s).
+// Until the engagement slice ships, both flags are always false and no userLikes read happens (ADR-0010 D3).
 type PostView struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Post             *Post                  `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`
