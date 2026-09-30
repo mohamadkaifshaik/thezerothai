@@ -1,0 +1,72 @@
+# Dependabot version updates (free). Closes the v0.1.0 risk acceptances L6/L7.
+# Weekly, grouped minor+patch, small open-PR cap so review load stays bounded.
+# Majors are never grouped: each one arrives as its own PR for deliberate review.
+# See docs/runbooks/dependency-updates.md for the review procedure.
+version: 2
+updates:
+  # Go module lives in backend/ (no go.work at the repo root).
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels: [dependencies, go]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+
+  # Flutter app: pubspec.yaml is at app/pubspec.yaml.
+  - package-ecosystem: pub
+    directory: /app
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels: [dependencies, flutter]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      pub-minor-patch:
+        update-types: [minor, patch]
+
+  # Keeps the SHA pins in .github/workflows current (the version comment is updated too).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels: [dependencies, github-actions]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+
+  # Terraform providers: both env roots plus every module (each has its own versions.tf).
+  - package-ecosystem: terraform
+    directories:
+      - /infra/terraform/envs/dev
+      - /infra/terraform/envs/prod
+      - /infra/terraform/modules/*
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels: [dependencies, terraform]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      terraform-minor-patch:
+        update-types: [minor, patch]

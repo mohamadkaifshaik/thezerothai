@@ -91,7 +91,7 @@ jobs:
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: refs/tags/${{ steps.tagname.outputs.tag }}
 
@@ -108,13 +108,13 @@ jobs:
           grep -qx "VERDICT: GO" "$f" || { echo "::error::$f has no line that is exactly 'VERDICT: GO'"; exit 1; }
 
       - name: Auth to GCP (WIF)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           workload_identity_provider: ${{ vars.PROD_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
           create_credentials_file: true
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
 
       - name: Resolve the rc revision and verify it matches this tag
         id: rc_rev
@@ -203,7 +203,7 @@ jobs:
         run: |
           echo "::notice::10% of traffic is now on ${REVISION}. Watch 5xx ratio, p95 latency and Error Reporting for ~15 minutes, then re-run this workflow with stage=100."
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         if: steps.stage.outputs.stage == '100'
         with:
           flutter-version: "3.47.5"
