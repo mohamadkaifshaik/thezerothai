@@ -80,11 +80,11 @@ type RateLimitConfig struct {
 	// GraphMutationsPerDay is the in-memory daily cap on ALL graph mutations (Follow, Unfollow, Block,
 	// Unblock, Mute, Unmute share one counter) per uid per instance, ratelimit.DailyCap, logged as
 	// limit_name "graph_mutation_daily" (security review M2). It bounds the read cost of replays and no-ops,
-	// which reserve no Firestore quota (ADR-0008 D7) but still read 1-3 docs each.
+	// which reserve no Firestore quota (ADR-0008 D7) but still read 1-4 docs each.
 	//
-	// Default 500. Worst case per account per day: 500 calls x 3 reads (Block replay is the most expensive
-	// mutation: caller graph + target graph + quotas) x 3 instances (the cap is per instance, max-instances 3)
-	// = 4,500 reads, versus 172.8k/day (Follow + Block replay loops at the per-minute buckets) before the cap,
+	// Default 500. Worst case per account per day: 500 calls x 4 reads (Follow replay is the most expensive
+	// mutation, 4 cold: caller + target profiles, caller graph, quotas; ADR-0008 A2) x 3 instances (the cap is per
+	// instance, max-instances 3) = 6,000 reads (500x4x3, ADR-0008 Amendment cost impact), versus 172.8k/day (Follow + Block replay loops at the per-minute buckets) before the cap,
 	// and ADR-0008's accepted 30.6k/day list-scraping bound. Legitimate use fits with room: 200 follows +
 	// 200 blocks/mutes (the Firestore quotas) plus their undos is under 500.
 	GraphMutationsPerDay int64

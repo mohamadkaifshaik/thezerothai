@@ -47,9 +47,16 @@ func TestListFollowers_TokenLeaksNoHiddenUID(t *testing.T) {
 	t.Fatal("list never ended")
 }
 
-// L3: a Firestore-reserved id (__x__) is INVALID_ARGUMENT/VALIDATION on every graph RPC, before any repo call.
+// L3 + ADR-0008 A3: a Firestore-reserved id (__x__) or any uid containing the `_` edge separator is
+// INVALID_ARGUMENT/VALIDATION on every graph RPC, before any repo call.
 func TestGraphRPCs_ReservedIDIsValidation(t *testing.T) {
-	const bad = "__x__"
+	for _, bad := range []string{"__x__", "a_b", "_ab", "ab_"} {
+		t.Run(bad, func(t *testing.T) { testGraphRPCsRejectID(t, bad) })
+	}
+}
+
+func testGraphRPCsRejectID(t *testing.T, bad string) {
+	t.Helper()
 	ctx := context.Background()
 	calls := map[string]func(*service) error{
 		"Follow":   func(s *service) error { _, err := s.Follow(ctx, "uid-1", validKey, bad); return err },

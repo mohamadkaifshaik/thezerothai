@@ -46,8 +46,8 @@ var (
 	budBlockReplay     = budgettest.Budget{Reads: 3, Writes: 0}
 	budUnblock         = budgettest.Budget{Reads: 1, Writes: 2}
 	budUnblockNoop     = budgettest.Budget{Reads: 1, Writes: 0}
-	budMute            = budgettest.Budget{Reads: 2, Writes: 2}
-	budMuteReplay      = budgettest.Budget{Reads: 2, Writes: 0}
+	budMute            = budgettest.Budget{Reads: 3, Writes: 2} // caller graph + target existence (A1) + quotas
+	budMuteReplay      = budgettest.Budget{Reads: 3, Writes: 0}
 	budUnmute          = budgettest.Budget{Reads: 1, Writes: 1}
 	budUnmuteNoop      = budgettest.Budget{Reads: 1, Writes: 0}
 	budRejectedNoIO    = budgettest.Budget{} // validation / flag / self rejections must touch Firestore 0 times
@@ -632,7 +632,7 @@ func TestT16a_Mute_ErrorReasonsAndSemantics(t *testing.T) {
 		if _, err := w.graph.Mute(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 2,000th mute must succeed: %v", err)
 		}
-		measured(t, "Mute (at cap)", budgettest.Budget{Reads: 2, Writes: 0}, func(ctx context.Context) {
+		measured(t, "Mute (at cap)", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
 			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "muted")
 		})
@@ -785,7 +785,7 @@ func TestT16a_Quota_BlocksAndMutesShareOneCounter(t *testing.T) {
 		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 200th block/mute of the day must succeed: %v", err)
 		}
-		measured(t, "Mute (quota exhausted)", budgettest.Budget{Reads: 2, Writes: 0}, func(ctx context.Context) {
+		measured(t, "Mute (quota exhausted)", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
 			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
 		})

@@ -129,12 +129,23 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 // L3: a Firestore-reserved id (__x__) is INVALID_ARGUMENT/VALIDATION on every graph RPC and GetProfile, with
 // 0 Firestore ops and 0 ERROR log lines (it used to reach Firestore and surface as INTERNAL).
 func TestSecurity_Integration_ReservedIDsAreValidation(t *testing.T) {
+	assertBadIDsAreValidation(t, "__x__", true)
+}
+
+// T28 / ADR-0008 A3: a uid containing the `_` edge separator is the same VALIDATION on every uid-taking RPC,
+// 0 Firestore ops, 0 ERROR lines, so the a_b -> c vs a -> b_c collision can never be constructed. (`a_b` is a
+// legal HANDLE, so the handle probe is skipped.)
+func TestT28_Integration_UnderscoreUIDIsValidation(t *testing.T) {
+	assertBadIDsAreValidation(t, "a_b", false)
+}
+
+func assertBadIDsAreValidation(t *testing.T, bad string, includeHandleProbe bool) {
+	t.Helper()
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-rsv", "rsvuser")
 	r := newRig(t, w, 0)
 	c := r.as("uid-rsv")
 	ctx := context.Background()
-	const bad = "__x__"
 
 	calls := map[string]func() error{
 		"Follow": func() error {
@@ -182,6 +193,9 @@ func TestSecurity_Integration_ReservedIDsAreValidation(t *testing.T) {
 			return err
 		},
 	}
+	if !includeHandleProbe {
+		delete(calls, "GetProfile(handle)")
+	}
 	for name, call := range calls {
 		info := decodeErr(t, call())
 		if info.Code != connect.CodeInvalidArgument || info.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
@@ -190,7 +204,7 @@ func TestSecurity_Integration_ReservedIDsAreValidation(t *testing.T) {
 		budgettest.Assert(t, name, r.lastOps(), budgettest.Budget{})
 	}
 	if lines := r.errorLines(); len(lines) != 0 {
-		t.Errorf("%d ERROR log lines for reserved ids, want 0: %v", len(lines), lines)
+		t.Errorf("%d ERROR log lines for %q, want 0: %v", len(lines), bad, lines)
 	}
 }
 

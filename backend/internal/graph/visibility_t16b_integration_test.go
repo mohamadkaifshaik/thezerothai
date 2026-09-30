@@ -328,19 +328,19 @@ func TestVisibilityMatrix_Integration_MutationCells(t *testing.T) {
 				return w.graph.Mute(ctx, uidA, t16bKey(1), uidB)
 			},
 			wantRel: graph.Relationship{UserID: uidB, FollowState: graph.FollowStateNone, Blocking: true, Muting: true},
-			wantW:   budgettest.Budget{Reads: 2, Writes: 2}},
+			wantW:   budgettest.Budget{Reads: 3, Writes: 2}},
 		{name: "Mute(B) when B blocked A: allowed, no leak", ops: blockedByB,
 			call: func(ctx context.Context, w wired) (graph.Relationship, error) {
 				return w.graph.Mute(ctx, uidA, t16bKey(1), uidB)
 			},
 			wantRel: graph.Relationship{UserID: uidB, FollowState: graph.FollowStateNone, Muting: true},
-			wantW:   budgettest.Budget{Reads: 2, Writes: 2}},
+			wantW:   budgettest.Budget{Reads: 3, Writes: 2}},
 		{name: "Mute(B) replay when A muted B: 0 writes", ops: []matrixOp{{"mute", uidA, uidB}},
 			call: func(ctx context.Context, w wired) (graph.Relationship, error) {
 				return w.graph.Mute(ctx, uidA, t16bKey(1), uidB)
 			},
 			wantRel: graph.Relationship{UserID: uidB, FollowState: graph.FollowStateNone, Muting: true},
-			wantW:   budgettest.Budget{Reads: 2}},
+			wantW:   budgettest.Budget{Reads: 3}},
 		{name: "Unmute(B) when A muted B and B blocked A: allowed", ops: []matrixOp{{"mute", uidA, uidB}, {"block", uidB, uidA}},
 			call: func(ctx context.Context, w wired) (graph.Relationship, error) {
 				return w.graph.Unmute(ctx, uidA, t16bKey(1), uidB)

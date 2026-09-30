@@ -6,8 +6,10 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -126,8 +128,23 @@ func (r *FirestoreRepo) graphRef(uid string) *firestore.DocumentRef {
 	return r.client.Collection(graphCollection).Doc(uid)
 }
 
-func (r *FirestoreRepo) followRef(followerUID, followeeUID string) *firestore.DocumentRef {
-	return r.client.Collection(followsCollection).Doc(followerUID + "_" + followeeUID)
+// edgeID is the ONLY place a follows doc id is built: `{followerId}_{followeeId}`. It refuses a uid containing
+// the `_` separator, which would make `a_b_c` ambiguous between a_b -> c and a -> b_c (ADR-0008 A3). Uid
+// validation (authn caller check, ids.ValidUID on targets) rejects `_` long before this, so an error here
+// means a validation bug and surfaces as INTERNAL.
+func edgeID(followerUID, followeeUID string) (string, error) {
+	if strings.Contains(followerUID, "_") || strings.Contains(followeeUID, "_") {
+		return "", errors.New("graph: uid contains reserved '_' (edge id would be ambiguous)")
+	}
+	return followerUID + "_" + followeeUID, nil
+}
+
+func (r *FirestoreRepo) followRef(followerUID, followeeUID string) (*firestore.DocumentRef, error) {
+	id, err := edgeID(followerUID, followeeUID)
+	if err != nil {
+		return nil, err
+	}
+	return r.client.Collection(followsCollection).Doc(id), nil
 }
 
 // InitGraph appends a Create() of an empty graph/{uid} doc to b. Idempotent: if the doc already exists, the
@@ -284,7 +301,11 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 		if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Follows, dailyLimit); err != nil {
 			return err
 		}
-		b.Create(r.followRef(callerUID, targetUID), followDoc{FollowerID: callerUID, FolloweeID: targetUID, CreatedAt: now})
+		edgeRef, err := r.followRef(callerUID, targetUID)
+		if err != nil {
+			return err
+		}
+		b.Create(edgeRef, followDoc{FollowerID: callerUID, FolloweeID: targetUID, CreatedAt: now})
 		b.Update(r.graphRef(callerUID), []firestore.Update{
 			{Path: "following", Value: firestore.ArrayUnion(targetUID)},
 			{Path: "updatedAt", Value: now},
@@ -314,6 +335,10 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 	// Follow/Block transaction on the same docs (Aborted). Retry a bounded number of times with a short
 	// backoff; the budget is unchanged (0R/3W/1D) because a failed attempt writes nothing and each attempt
 	// counts into its own scratch counter that is only folded into the request counter on success.
+	edgeRef, err := r.followRef(callerUID, targetUID)
+	if err != nil {
+		return false, err
+	}
 	var lastErr error
 	for attempt := 0; attempt < unfollowMaxAttempts; attempt++ {
 		if attempt > 0 {
@@ -324,7 +349,7 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 		}
 		var scratch budget.Counter
 		b := store.NewFirestoreBatch(r.client, &scratch)
-		b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
+		b.Delete(edgeRef, firestore.Exists)
 		b.Update(r.graphRef(callerUID), []firestore.Update{
 			{Path: "following", Value: firestore.ArrayRemove(targetUID)},
 			{Path: "updatedAt", Value: now},
@@ -494,10 +519,18 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 		b.Update(r.graphRef(targetUID), targetUpdates)
 
 		if callerWasFollowing {
-			b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
+			ref, err := r.followRef(callerUID, targetUID)
+			if err != nil {
+				return err
+			}
+			b.Delete(ref, firestore.Exists)
 		}
 		if targetWasFollowing {
-			b.Delete(r.followRef(targetUID, callerUID), firestore.Exists)
+			ref, err := r.followRef(targetUID, callerUID)
+			if err != nil {
+				return err
+			}
+			b.Delete(ref, firestore.Exists)
 		}
 
 		// Counter decrements, combined per doc (ADR-0008 D3): at most one Update() per user doc.
@@ -573,10 +606,12 @@ func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string
 	return rel, changed, nil
 }
 
-// Mute (ADR-0008 T8/D9): transaction reads caller graph + quotas; writes caller graph (muted +=) + quota
-// reservation. Cap 2,000 muted => LIMIT_REACHED. Replay (already muting) => 0 writes. Reads 2, writes 2 (0
-// on replay). Unlike Block, Mute never checks the target's existence (ADR-0008 D9: "Muting someone who
-// blocked you is allowed"; there is no NOT_FOUND case for Mute in the semantics table).
+// Mute (ADR-0008 T8/D9, A1): transaction reads caller graph, then target graph (existence only), then quotas;
+// writes caller graph (muted +=) + quota reservation. Same rule and order as Block: a target with no
+// graph/{target} doc => ErrNotFoundOrBlocked (NOT_FOUND) before the quota read, 0 writes. The target doc's
+// CONTENT is never inspected (in particular not blockedBy), so muting someone who blocked you is OK and
+// indistinguishable from muting a stranger (D9; no oracle, no timing difference). Cap 2,000 muted =>
+// LIMIT_REACHED. Replay (already muting) => 0 writes. Reads 3 (2 on NOT_FOUND), writes 2 (0 on replay).
 func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error) {
 	var rel Relationship
 	outcome := OutcomeCreated
@@ -585,6 +620,13 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 		callerDoc, createdAt, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {
 			return err
+		}
+		_, targetExists, err := r.getGraphTxExists(ctx, tx, targetUID)
+		if err != nil {
+			return err
+		}
+		if !targetExists {
+			return ErrNotFoundOrBlocked
 		}
 		rec, err := r.quota.Get(ctx, tx, callerUID)
 		if err != nil {
