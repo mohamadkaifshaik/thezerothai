@@ -28,17 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Auth to GCP (WIF)
         id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           workload_identity_provider: ${{ vars.DEV_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.DEV_CI_DEPLOY_SA_EMAIL }}
           create_credentials_file: true
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
 
       - name: Skip if backend not buildable yet
         id: gate
@@ -50,14 +50,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.gate.outputs.skip == 'false'
         with:
           # Latest 1.26 patch (stdlib security fixes); go.mod only states the minimum language version.
           go-version: "1.26.x"
           check-latest: true
 
-      - uses: ko-build/setup-ko@v0.9
+      - uses: ko-build/setup-ko@d006021bd0c28d1ce33a07e7943d48b079944c8d # v0.9
         if: steps.gate.outputs.skip == 'false'
 
       - name: Build + push image with ko
@@ -97,7 +97,7 @@ jobs:
           url=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
           curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
         with:
           flutter-version: "3.47.5"
