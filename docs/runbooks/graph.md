@@ -59,6 +59,17 @@ repairing data.
 5. A `follows` edge with no matching `graph.following` entry (or the reverse) is repaired by hand the same way, or,
    for an abusive or deleted account, by the graph purge in `account-deletion.md`.
 
+**Symptom: "a user can't unfollow an account that no longer exists."** Unfollow answers "not following" (NONE), but
+the account stays in the user's Following list and count. This is ADR-0009 state S2: `users/{b}` was deleted
+(account-deletion Step 2) before `purge-graph` finished for `b`, so the counter update in Unfollow's batch fails and
+the whole batch is a no-op. No API path produces it; only the deletion steps run out of order. Don't hand-edit the
+edge. Run the repair in `docs/runbooks/account-deletion.md` ("Repair: Step 2 ran before the purge finished"):
+`opsctl purge-graph --skip-start-gate` for the deleted uid, then the dry run must show 0/0 edges, then check the
+followers' counters with steps 1 to 3 above. If instead the edge doc is missing while the uid is still in the
+caller's `following` (state S1), the only producers are an account set back to ACTIVE after purge step 1 (forbidden:
+deletion is one-way, ADR-0009) or a hand edit. For the first, finish that account's deletion; for the second, repair
+by hand as in step 5 and record the cause.
+
 Do not build an automatic recount job at Stage 0 (ADR-0008 D3).
 
 ## 3. Transaction contention (UNAVAILABLE "temporarily busy")
@@ -94,6 +105,13 @@ unchanged.
 - `FEATURE_DISABLED` (FAILED_PRECONDITION) on a graph RPC means `FEATURE_GRAPH` is off for that caller (mode `off`,
   `allowlist` without the uid, or outside the `percent` bucket). Check the env var on the serving revision.
 - `purge-graph` removes a deleted user from other users' `following`, `blocked` and `blockedBy` arrays (confirmed by
-  the 2026-09-30 dev drill). Other users' `muted[]` still name the deleted uid: the lazy clean-up on read (ADR-0008
-  D10, ticket T27) is **not built yet**, so those entries linger until T27 ships. There is no manual step; do not
-  hand-edit other users' documents.
+  the 2026-09-30 dev drill). Other users' `muted[]` (and any dangling `blocked[]`) may still name the deleted uid.
+  Since T27 the lazy clean-up (ADR-0008 D10) removes such a uid from a user's **own** array the next time that
+  user opens ListMutedUsers / ListBlockedUsers: one `ArrayRemove` on their own `graph/{uid}` (at most one page,
+  50 ids, one write, 0 extra reads). Only uids with no `users/{uid}` doc are removed; SUSPENDED and DELETING
+  users stay. The request log line carries `confirmed_missing` (only uids whose users doc a fresh read confirmed
+  absent on that page; excludes SUSPENDED/DELETING and negatively-cached uids) and `lazy_removed` (counts; 0 when
+  nothing was written). Under `DEGRADED_MODE=readonly` the clean-up write is skipped (`lazy_removed=0`, DEBUG
+  `graph_lazy_cleanup_skipped_readonly`). A failed clean-up logs
+  WARN `graph_lazy_cleanup_failed` and the list still succeeds. Residue therefore lasts until the muter next
+  opens that list. There is no manual step; do not hand-edit other users' documents.

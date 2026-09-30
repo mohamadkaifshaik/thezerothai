@@ -46,8 +46,8 @@ var (
 	budBlockReplay     = budgettest.Budget{Reads: 3, Writes: 0}
 	budUnblock         = budgettest.Budget{Reads: 1, Writes: 2}
 	budUnblockNoop     = budgettest.Budget{Reads: 1, Writes: 0}
-	budMute            = budgettest.Budget{Reads: 2, Writes: 2}
-	budMuteReplay      = budgettest.Budget{Reads: 2, Writes: 0}
+	budMute            = budgettest.Budget{Reads: 3, Writes: 2} // caller graph + target existence (A1) + quotas
+	budMuteReplay      = budgettest.Budget{Reads: 3, Writes: 0}
 	budUnmute          = budgettest.Budget{Reads: 1, Writes: 1}
 	budUnmuteNoop      = budgettest.Budget{Reads: 1, Writes: 0}
 	budRejectedNoIO    = budgettest.Budget{} // validation / flag / self rejections must touch Firestore 0 times
@@ -632,7 +632,7 @@ func TestT16a_Mute_ErrorReasonsAndSemantics(t *testing.T) {
 		if _, err := w.graph.Mute(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 2,000th mute must succeed: %v", err)
 		}
-		measured(t, "Mute (at cap)", budgettest.Budget{Reads: 2, Writes: 0}, func(ctx context.Context) {
+		measured(t, "Mute (at cap)", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
 			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "muted")
 		})
@@ -785,7 +785,7 @@ func TestT16a_Quota_BlocksAndMutesShareOneCounter(t *testing.T) {
 		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 200th block/mute of the day must succeed: %v", err)
 		}
-		measured(t, "Mute (quota exhausted)", budgettest.Budget{Reads: 2, Writes: 0}, func(ctx context.Context) {
+		measured(t, "Mute (quota exhausted)", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
 			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
 		})
@@ -892,49 +892,77 @@ func TestT16a_Race_ConcurrentDuplicateFollows(t *testing.T) {
 
 func TestT16a_Race_ConcurrentDuplicateBlocksAndMutes(t *testing.T) {
 	w := newWired(t, withNewAccountWindow(1))
-	for _, u := range []string{"a", "b"} {
-		mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
-	}
 	// A double-click or client retry is 2-3 duplicates; 12 per kind piles more onto one pair of docs than
 	// the emulator's lock timeout tolerates (in CI nearly every call timed out).
 	const n = 3
-	errs := runConcurrently(2*n, func(i int) error {
-		if i%2 == 0 {
-			_, err := w.graph.Block(context.Background(), "uid-a", fmt.Sprintf("%016d", i), "uid-b")
+	// Racing on the emulator can legitimately make every call of one kind answer with the retryable
+	// UNAVAILABLE (ADR-0008 D1: exhausted retries). Such a phase proves nothing about concurrency, so it is
+	// retried ONCE on a fresh pair; a second all-UNAVAILABLE kind fails the test instead of being papered
+	// over by a sequential replay that would create the entry uncontended.
+	const maxPhases = 2
+	var a, b string
+	for phase := 0; phase < maxPhases; phase++ {
+		a, b = fmt.Sprintf("uid-a%d", phase), fmt.Sprintf("uid-b%d", phase)
+		mustCreateProfile(t, w.identity, a, fmt.Sprintf("usera%d", phase))
+		mustCreateProfile(t, w.identity, b, fmt.Sprintf("userb%d", phase))
+		errs := runConcurrently(2*n, func(i int) error {
+			if i%2 == 0 {
+				_, err := w.graph.Block(context.Background(), a, fmt.Sprintf("%016d", i), b)
+				return err
+			}
+			_, err := w.graph.Mute(context.Background(), a, fmt.Sprintf("%016d", i), b)
 			return err
+		})
+		// Calls contend on the same two graph docs; UNAVAILABLE is a correct outcome, any other error is not.
+		var blockOK, muteOK int
+		for i, err := range errs {
+			if err == nil {
+				if i%2 == 0 {
+					blockOK++
+				} else {
+					muteOK++
+				}
+				continue
+			}
+			var ae *apierr.Error
+			if errors.As(err, &ae) && ae.Code == connect.CodeUnavailable {
+				t.Logf("phase %d goroutine %d: retryable UNAVAILABLE after exhausted retries: %v", phase, i, err)
+				continue
+			}
+			t.Errorf("phase %d goroutine %d: %v", phase, i, err)
 		}
-		_, err := w.graph.Mute(context.Background(), "uid-a", fmt.Sprintf("%016d", i), "uid-b")
-		return err
-	})
-	// Calls contend on the same two graph docs; under emulator lock timeouts a call can exhaust its
-	// retries and answer with the retryable UNAVAILABLE (ADR-0008 D1). That is a correct outcome; only
-	// state corruption or any other error fails the test.
-	for i, err := range errs {
-		if err == nil {
-			continue
+		if blockOK > 0 && muteOK > 0 {
+			break
 		}
-		var ae *apierr.Error
-		if errors.As(err, &ae) && ae.Code == connect.CodeUnavailable {
-			t.Logf("goroutine %d: retryable UNAVAILABLE after exhausted retries: %v", i, err)
-			continue
+		if phase == maxPhases-1 {
+			t.Fatalf("concurrent phase never succeeded for every kind in %d attempts (last: Block %d/%d, Mute %d/%d ok); "+
+				"the test cannot prove duplicate handling under contention", maxPhases, blockOK, n, muteOK, n)
 		}
-		t.Errorf("goroutine %d: %v", i, err)
+		t.Logf("phase %d: Block %d/%d, Mute %d/%d succeeded; retrying once on a fresh pair", phase, blockOK, n, muteOK, n)
 	}
-	// Whatever subset of the concurrent calls got through, one uncontended replay of each op must settle on
-	// exactly one entry and must not reserve quota a second time (the duplicate-never-double-counts invariant).
-	if _, err := w.graph.Block(context.Background(), "uid-a", fmt.Sprintf("%016d", 100), "uid-b"); err != nil {
-		t.Errorf("sequential Block replay: %v", err)
+	// Assert on the concurrent phase alone, BEFORE any further call: Block and Mute share one counter, so the
+	// n duplicates of each kind must have reserved exactly two quota units (one Block, one Mute), never 2n.
+	if got := quotaUsed(t, w.client, a, istDay(0), "blocks"); got != 2 {
+		t.Errorf("after the concurrent phase quotas.blocks = %d, want exactly 2", got)
 	}
-	if _, err := w.graph.Mute(context.Background(), "uid-a", fmt.Sprintf("%016d", 101), "uid-b"); err != nil {
-		t.Errorf("sequential Mute replay: %v", err)
+	as, bs := graphArrays(t, w.client, a), graphArrays(t, w.client, b)
+	if len(as["blocked"]) != 1 || len(as["muted"]) != 1 || len(bs["blockedBy"]) != 1 {
+		t.Errorf("after the concurrent phase a = %v, b = %v; want exactly one blocked/muted/blockedBy entry", as, bs)
 	}
-	a, b := graphArrays(t, w.client, "uid-a"), graphArrays(t, w.client, "uid-b")
-	if len(a["blocked"]) != 1 || len(a["muted"]) != 1 || len(b["blockedBy"]) != 1 {
-		t.Errorf("a = %v, b = %v; want exactly one blocked/muted/blockedBy entry", a, b)
+	// Idempotency replay (not part of the race): repeating each op with fresh keys is a no-op that neither
+	// changes state nor reserves quota again.
+	if _, err := w.graph.Block(context.Background(), a, fmt.Sprintf("%016d", 100), b); err != nil {
+		t.Errorf("idempotency replay Block: %v", err)
 	}
-	// Block and Mute share one counter: exactly two reservations (one Block, one Mute), never 2n.
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "blocks"); got != 2 {
-		t.Errorf("quotas.blocks = %d, want exactly 2", got)
+	if _, err := w.graph.Mute(context.Background(), a, fmt.Sprintf("%016d", 101), b); err != nil {
+		t.Errorf("idempotency replay Mute: %v", err)
+	}
+	if got := quotaUsed(t, w.client, a, istDay(0), "blocks"); got != 2 {
+		t.Errorf("after the replay quotas.blocks = %d, want still 2", got)
+	}
+	as, bs = graphArrays(t, w.client, a), graphArrays(t, w.client, b)
+	if len(as["blocked"]) != 1 || len(as["muted"]) != 1 || len(bs["blockedBy"]) != 1 {
+		t.Errorf("after the replay a = %v, b = %v; want exactly one blocked/muted/blockedBy entry", as, bs)
 	}
 }
 

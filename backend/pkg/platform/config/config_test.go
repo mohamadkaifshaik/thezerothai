@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -277,6 +278,46 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 	if len(cfg.InternalOIDCAllowedEmails) != 2 {
 		t.Fatalf("InternalOIDCAllowedEmails = %v", cfg.InternalOIDCAllowedEmails)
+	}
+}
+
+// TestLoad_CacheTTLGuard (ADR-0009 T33): CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
+func TestLoad_CacheTTLGuard(t *testing.T) {
+	tests := []struct {
+		name    string
+		ttl     string // "" = unset (default)
+		wantErr bool
+	}{
+		{"default", "", false},
+		{"boundary 60s ok", "60s", false},
+		{"61s rejected", "61s", true},
+		{"120s rejected", "120s", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			if tc.ttl != "" {
+				t.Setenv("CACHE_TTL", tc.ttl)
+			}
+			cfg, err := Load()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				for _, want := range []string{"CACHE_TTL", "60s", "120s"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error %q does not mention %q", err, want)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.CacheTTL > MaxCacheTTL {
+				t.Errorf("CacheTTL = %v", cfg.CacheTTL)
+			}
+		})
 	}
 }
 

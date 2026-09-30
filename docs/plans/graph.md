@@ -389,6 +389,8 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - **Unfollow** is a blind batch:
     - `Delete(follows/{a}_{b}, Exists)`, `ArrayRemove` on the caller's following, and decrement both counters.
     - A `NotFound` on commit means not following: return NONE (idempotent, 0 writes).
+    - That answer is correct by the standing edge invariant of ADR-0009 (for an ACTIVE caller, the edge, the
+      `following` entry and both `users` docs exist together), so no extra read is added (review N4, closed).
   - Idempotency key: validate its format and don't store it. Natural keys make both RPCs replay-safe (ADR-0003).
 - **Acceptance criteria.**
   - Given A doesn't follow B, when A follows B, then `follows/A_B` exists, B ∈ `graph/A.following`,
@@ -465,7 +467,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - Given a tampered token, then `VALIDATION` is returned.
   - Given ListBlockedUsers, then reads ≤ 1 + page_size.
 - **Test notes.** Budget assertions; a cursor-tamper test; a "removed item between pages" test.
-- **Observability.** `graph_op`, `fs_reads`, `hydration_misses`.
+- **Observability.** `graph_op`, `fs_reads`, `confirmed_missing`.
 - **Budget.** GetRelationships 1/0.5; List{Blocked,Muted} 51/10.
 
 ### T10 — ListFollowers, ListFollowing  [owner: backend-developer] [size: M] [depends: T6, T9]
@@ -858,6 +860,10 @@ Deltas to existing tickets:
   +0.02 reads/DAU.
 
 ### T27 — Lazy clean-up of missing uids in own blocked/muted lists (ADR-0008 A1, D10 refinement)  [owner: backend-developer] [size: S] [depends: T9] [blocks: account-lifecycle plan; not v0.2.0, not T25]
+- **Status: built (PR feat/graph-t27-lazy-cleanup).** `identity.Directory.LookupProfiles` (found + confirmed-missing; a
+  negative-cache-only miss is not reported), `graph.Repo.RemoveOwnArrayEntries` (blind ArrayRemove + updatedAt on
+  the caller's own doc, NotFound = no-op), `lazyCleanup` in `lists.go`. Fields `confirmed_missing`, `lazy_removed`.
+  Emulator-measured: cleaning page = 4 R / 1 W (1 graph + 3 profile docs), repeat call = 4 R / 0 W.
 - **Description.**
   - Extend `identity.Directory` (reuse-first: a new method, no second cache). For example,
     `LookupProfiles(ctx, uids) (found map[string]Profile, missing []string, err)`, where `missing` means "no
@@ -869,7 +875,7 @@ Deltas to existing tickets:
     snapshot on this instance.
   - Best effort: on error, log WARN `graph_lazy_cleanup_failed`. The list RPC still succeeds. The page result is
     unchanged, because missing rows were already dropped.
-  - Log `hydration_misses` and `lazy_removed=<n>`, counts only. Never log uids.
+  - Log `confirmed_missing` and `lazy_removed=<n>`, counts only. Never log uids.
   - The page token computation must not shift because of the removal. Tokens resume by uid plus recorded position
     (ADR-0008 "ListBlockedUsers/ListMutedUsers paging"), which already tolerates removed entries.
 - **Acceptance criteria.**
@@ -936,6 +942,86 @@ Deltas to existing tickets:
   old "> 2.5 reads/call" trigger is replaced by the B2 reopen criteria (80%-line breach with `Forget`-attributable
   reads ≥ 5% of daily reads, or a ≥ 10% crossover shift). Do not schedule unless one of them is met.
 
+### T31 — Flutter: Mute NOT_FOUND and `_`-uid VALIDATION handled like Follow/Block (client side of T26/T28)  [owner: frontend-developer] [size: S] [depends: — (T26/T28 merged in PR #60; nothing blocking)] [blocks: nothing]
+Added by the planner, 2026-09-30.
+- **Context.**
+  - Since PR #60, Mute returns the same `notFoundErr()` as Block when `graph/{target}` doesn't exist (never existed or
+    purged). A target `user_id` outside `^[A-Za-z0-9-]{1,128}$` gets INVALID_ARGUMENT `VALIDATION`. A malformed
+    *caller* uid gets UNAUTHENTICATED.
+  - The client has **no Follow- or Block-specific NOT_FOUND branch**. All three share one generic path, and Mute already
+    uses it:
+    - `app/lib/features/graph/presentation/bloc/relationship_cubit.dart:103-129` (`_mutate`): optimistic emit, then on
+      any `AppException` it rolls back to `previous` with `isUpdating: false, error: e`. Follow is `:54-60`, Block is
+      `:71-79`, and Mute is `:89-94`, which goes through the same `_mutate`.
+    - `app/lib/features/graph/presentation/graph_error_messages.dart:20`:
+      `NotFoundException() => "This account doesn't exist anymore."`.
+    - The snackbar listeners are `app/lib/features/profile/presentation/widgets/profile_header.dart:57-67` (the
+      overflow-menu Mute at `:274-275`) and `app/lib/shared/widgets/follow_button.dart:28-36`.
+    - The Muted-accounts Undo (re-mute) is `app/lib/features/graph/presentation/managed_accounts_screen.dart:106-125`.
+      On any error it leaves the row out and shows `relationshipErrorMessage`, the same as the Block undo.
+  - So this ticket is **mostly verification and tests**, with one small gap fix. It adds no new pattern.
+- **Description.**
+  1. **Don't change the NOT_FOUND flow.** Mute NOT_FOUND must go through `_mutate`: `muting` rolls back to its previous
+     value (false), the snackbar says "This account doesn't exist anymore.", and the menu shows "Mute" again.
+     - **Cache rollback:** none needed. `GraphRepository.mute` (`app/lib/features/graph/data/graph_repository.dart:191-203`)
+       calls `_cache` only after a successful response, so the session relationship map is never written on error.
+     - Mute never touches the drift `cachedFollowingIds` table, so there is no disk state to roll back.
+     - The only optimistic state is the cubit's own, and `_mutate` already restores it.
+  2. **Gap fix: `ValidationException` shows raw server text.** `graph_error_messages.dart:21` (`_ => error.message`)
+     currently surfaces the server's `"1-128 characters of [A-Za-z0-9-]"` for every graph action. Add one arm to the
+     existing switch: `ValidationException() => "This account doesn't exist anymore."`. That's the same wording as
+     NOT_FOUND: for the user, an id the server can't accept is an account that isn't there. uids always come from
+     server responses, so this indicates a client or data bug. Record a Crashlytics non-fatal (the T12 rule for
+     unexpected `AppException`s) with the reason only, never the uid.
+  3. **VALIDATION is not retryable.**
+     - `RetryInterceptor` already skips Mute. It retries only `noSideEffects` specs (`app/lib/core/network/interceptors.dart:89-92`),
+       and INVALID_ARGUMENT isn't in `_retryableCodes` (`:79-83`). Don't change it.
+     - Don't add an auto-retry or a "Retry" snackbar action for `ValidationException` or `NotFoundException` on any
+       graph action. A manual re-tap still reuses `_muteKey` (`relationship_cubit.dart:89-91`), the same as Follow and
+       Block.
+     - UNAUTHENTICATED for a malformed caller uid goes to the existing `UnauthenticatedException` handling. That's out
+       of scope here.
+  4. **No BLoC state or event changes.** `RelationshipState` (`relationship_state.dart`) already carries
+     `relationship`, `isUpdating` and `error`. There are no new events, fields or freezed regeneration. If step 2 needs
+     the Crashlytics call, put it in `relationshipErrorMessage`'s caller listeners, not in the cubit.
+  5. There are no new screens, so no new-screen widget test is required. The tests below extend the existing files.
+- **Acceptance criteria.**
+  - Given the profile header of a target whose `graph` doc is gone, when the user taps overflow → Mute and the server
+    returns NOT_FOUND, then `muting` shows true optimistically, then rolls back to false, the snackbar reads "This
+    account doesn't exist anymore.", the menu item reads "Mute", and no retry request is sent (`verify(...).called(1)`).
+  - Given the same NOT_FOUND, then `GraphRepository.cached(userId)` is unchanged from before the tap.
+  - Given Mute returns `ValidationException` (a `_` uid), then the state rolls back the same way, the snackbar shows
+    the same wording and **never** the server message, and exactly 1 request is sent.
+  - Given the Muted-accounts screen, when Unmute succeeds and then Undo (re-mute) returns NOT_FOUND, then the row stays
+    removed and the snackbar shows the NOT_FOUND wording. This matches the Block undo.
+  - Given Follow and Block return `ValidationException`, then they show the same new wording. There's one mapping
+    arm, shared by all actions.
+  - Given `flutter analyze` and `flutter test`, then both are clean, with 0 new warnings.
+- **Test notes for tester.**
+  - **Bloc** (`app/test/features/graph/presentation/bloc/relationship_cubit_test.dart`): add a `group('mute')` with
+    `blocTest`s modelled on the existing follow rollback test (`:64-97`), covering NOT_FOUND → `[muting: true,
+    isUpdating: true]` then `[muting: false, isUpdating: false, error: isA<NotFoundException>()]`, and the same for
+    `ValidationException`. Add the missing Follow and Block NOT_FOUND rollback cases too, so all three are pinned
+    equally.
+  - **Widget** (`app/test/features/profile/presentation/profile_screen_test.dart`, next to "the overflow menu Mute calls
+    the API" at `:288-312`): Mute → NOT_FOUND shows the snackbar text and the menu reverts to "Mute". Mute →
+    VALIDATION doesn't show the raw server text (assert `find.textContaining('A-Za-z0-9')` finds nothing).
+  - **Widget** (`app/test/features/graph/presentation/managed_accounts_screen_test.dart`): the Undo → NOT_FOUND case
+    above.
+  - **Unit:** a `relationshipErrorMessage(ValidationException(...))` case, in a new
+    `app/test/features/graph/presentation/graph_error_messages_test.dart` if no test file for it exists.
+- **Observability.**
+  - Crashlytics non-fatal `graph_validation_rejected` (action name only, no uid) on `ValidationException` from a graph
+    mutation.
+  - No non-fatal for NOT_FOUND, because a purged or never-existing target is an expected outcome.
+  - There is no web error telemetry yet (R-N12).
+- **Budget.**
+  - Client-only change: **0 new RPCs, 0 new backend reads or writes**, and no retries added.
+  - For reference, the server cost per Mute call (T26) is **3 R / 2 W**; NOT_FOUND is **2 R / 0 W**, VALIDATION is
+    **0 R / 0 W**, and replay is 3 R / 0 W.
+  - At 0.02 Mute calls per DAU per day, that's ≈ 0.06 reads/DAU, already counted in T21.
+  - A manual re-tap after NOT_FOUND costs another 2 R, bounded by the Mute bucket (20/min) and the `blocks` quota.
+
 ---
 
 ## Rollout plan
@@ -974,6 +1060,7 @@ Deltas to existing tickets:
 | Deferring private accounts disappoints users, or `isPrivate=true` exists in prod | Medium / low | L9 closed (reject + prod count check in T23); `private-accounts` plan queued next to posts |
 | A list-scraping account burns most of the daily read quota | Low / cents | Daily list cap, buckets, logs query, `abuse-spike.md`; lever: page_size 20 for other users' lists |
 | Counter drift from a bug in non-transactional paths | Low / medium (visible counts) | All counter changes sit in the same batch or transaction as the edge change; invariant checker; runbook repair |
+| A user can't unfollow an account whose `users` doc was deleted before its purge finished (review N4, ADR-0009 S1/S2) | Very low (ops error only) / medium for that user | Standing edge invariant (ADR-0009) pinned by T32; `CACHE_TTL ≤ 60 s` startup check (T33); runbook Step 2 needs a 0/0-edge dry run, deletion is one-way, S2 repair via `purge-graph --skip-start-gate` (T34) |
 | Hot `users/{uid}` doc with > 1 follow/s (a viral account) causes contention | Very low at Stage 0 | Measured through `txn_attempts`; sharded counters need an ADR (free-tier-budget §6) |
 | The profile screen is owned by two plans (graph now, posts later) | Medium / low | This plan builds only the header; the posts plan extends the body; ui-catalog entry |
 | The manual deletion runbook becomes wrong once graph data exists | High if T22 is skipped | T22 is a hard dependency of T24 (readiness checks the runbook) |

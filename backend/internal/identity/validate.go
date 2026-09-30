@@ -8,15 +8,10 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 )
 
 var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,15}$`)
-
-// userIDRe is a conservative Firebase UID charset check: Firebase Auth itself only requires a non-empty
-// string of at most 128 characters, but every uid it actually issues (and every provider uid we accept)
-// is alphanumeric plus '_'/'-'. Rejecting anything else here is a validation-layer defense (GetProfile
-// accepts a caller-supplied user_id) that costs nothing and never rejects a real uid.
-var userIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // reservedHandles blocks a small, obvious set of confusable/system handles. Extend via config later if
 // abuse shows up (ADR-0006 abuse-spike runbook), not by redeploying this list under pressure.
@@ -53,23 +48,23 @@ func bioIssue(s string) bool {
 	return utf8.RuneCountInString(s) > 160
 }
 
-// userIDIssue reports whether id is not a plausible Firebase UID (length/charset; see userIDRe).
+// userIDIssue reports whether id is not an acceptable uid (see ids.ValidUID).
 func userIDIssue(id string) bool {
 	return !ValidUserID(id)
 }
 
-// ValidUserID reports whether id is a plausible Firebase UID (length/charset; see userIDRe). Exported so
+// ValidUserID reports whether id is an acceptable uid: it delegates to ids.ValidUID (`^[A-Za-z0-9-]{1,128}$`;
+// `_` is reserved as the composite-key separator, ADR-0008 A3), which authn also applies to the caller uid. Exported so
 // other modules that accept a caller-supplied user id in their own requests (e.g. graph's Follow/Block
 // target) can reuse this instead of duplicating the regex (reuse-first) — graph already depends on this
 // package for identity.Directory/Counters.
 func ValidUserID(id string) bool {
-	return userIDRe.MatchString(id) && !reservedDocID(id)
+	return ids.ValidUID(id)
 }
 
 // reservedDocID reports whether id has the form __x__, which Firestore rejects as a document id (security
-// review L3: such ids used to pass validation and surface as INTERNAL + an ERROR log line on demand). Both
-// uids (users/graph/follows docs) and handles (handles/{lower}) become document ids, so both validators
-// call this. Real Firebase uids and handles created through CreateProfile can never have this shape.
+// review L3). Handles (handles/{lower}) still need this check; for uids it is implied by ids.ValidUID
+// (no `_` at all, ADR-0008 A3).
 func reservedDocID(id string) bool {
 	return len(id) >= 4 && strings.HasPrefix(id, "__") && strings.HasSuffix(id, "__")
 }

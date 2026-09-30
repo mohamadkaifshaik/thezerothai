@@ -124,17 +124,18 @@ Repo variables come from `terraform output` in each env. Use `DEV_*` and `PROD_*
 | `*_ARTIFACT_REGISTRY_URL` | `artifact_registry_url` |
 | `*_DEPLOY_WORKLOAD_IDENTITY_PROVIDER` | `deploy_workload_identity_provider` |
 | `*_CI_DEPLOY_SA_EMAIL` | `ci_deploy_service_account_email` |
-| `*_PLAN_WORKLOAD_IDENTITY_PROVIDER` | `plan_workload_identity_provider` |
-| `*_PLAN_SA_EMAIL` | `tf_plan_service_account_email` |
+| `*_PLAN_WORKLOAD_IDENTITY_PROVIDER` (**secret**) | `plan_workload_identity_provider` |
+| `*_PLAN_SA_EMAIL` (**secret**) | `tf_plan_service_account_email` |
 | `*_HOSTING_SITE_ID` | `hosting_site_id` from tfvars |
-| `*_CORS_ORIGINS_JSON`, `*_FOUNDER_EMAILS_JSON` | the tfvars lists as JSON |
+| `*_CORS_ORIGINS_JSON` | the tfvars list as JSON |
+| `*_FOUNDER_EMAILS_JSON` (**secret**) | the tfvars list as JSON |
 | `*_API_BASE_URL` | `cloud_run_url` (the deterministic `https://api-<project_number>.<region>.run.app` URL) — used by Android/iOS builds, which call Cloud Run directly (no Hosting rewrite). Web builds hardcode `/api` instead. |
 | `*_RECAPTCHA_SITE_KEY` | leave **unset** at Stage 0 (web App Check deferred, ADR-0006 amendment). When revisited: the reCAPTCHA Enterprise (Fraud Defense) *site* key |
 | `*_GOOGLE_WEB_CLIENT_ID` | Web OAuth client ID from step 4.5 (Firebase Auth → Google provider) — used as `--dart-define=GOOGLE_WEB_CLIENT_ID=...` on every CI Flutter build |
 | `TF_STATE_BUCKET` | `dzeroth-tfstate` |
-| `BILLING_ACCOUNT` | the billing account ID |
+| `BILLING_ACCOUNT` (**secret**) | the billing account ID |
 
-Set each one with `gh variable set NAME --body "value"`.
+Set each with `gh variable set NAME --body "value"`; the ones marked **secret** with `gh secret set NAME` (the public repo's logs must never show them; `terraform.yml` reads them from secrets and masks them). Dependabot and fork PRs get no plan credentials.
 
 ### 6a. Free-plan trust model for prod releases (no branch protection, no tag ruleset, no required reviewers)
 

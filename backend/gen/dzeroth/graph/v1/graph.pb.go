@@ -225,9 +225,11 @@ func (x *UserListItem) GetRelationship() *Relationship {
 type FollowRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	UserId         string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// [A-Za-z0-9-]{1,128}. `_` is reserved (the follows doc-id separator, ADR-0008 A3); anything else => VALIDATION.
+	// The same charset applies to every user_id / user_ids field in this service.
+	UserId        string `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FollowRequest) Reset() {
