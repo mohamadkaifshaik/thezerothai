@@ -23,7 +23,12 @@ func (s *service) ListFollowing(ctx context.Context, callerUID, targetUID string
 	return s.listFollowEdges(ctx, callerUID, targetUID, pageSize, pageToken, false)
 }
 
-func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string, followers bool) (Page, error) {
+func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string, followers bool) (_ Page, err error) {
+	op := "list_following"
+	if followers {
+		op = "list_followers"
+	}
+	defer begin(ctx, op)(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Page{}, err
 	}

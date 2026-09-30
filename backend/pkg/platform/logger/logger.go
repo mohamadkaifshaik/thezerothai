@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 // TraceKey is the Cloud Logging structured-log field that correlates a log line with a Cloud Trace span.
@@ -114,6 +115,59 @@ type RequestInfo struct {
 	// or the rejection came from elsewhere (a Firestore quota). Observability skill / ADR-0008: every graph
 	// RPC logs limit_name so `abuse-spike.md` can query rejections by limiter.
 	LimitName string
+
+	// mu guards fields: handlers may fan out under errgroup, and Logging reads after next() returns.
+	mu     sync.Mutex
+	fields []slog.Attr
+}
+
+// Set records a module-specific field (e.g. graph_op, outcome, txn_attempts) for the request's single
+// log line. Setting the same key again replaces the earlier value. Values must never be PII.
+func (i *RequestInfo) Set(key string, value any) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for n := range i.fields {
+		if i.fields[n].Key == key {
+			i.fields[n].Value = slog.AnyValue(value)
+			return
+		}
+	}
+	i.fields = append(i.fields, slog.Any(key, value))
+}
+
+// Get returns the value recorded by Set for key.
+func (i *RequestInfo) Get(key string) (any, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for _, a := range i.fields {
+		if a.Key == key {
+			return a.Value.Any(), true
+		}
+	}
+	return nil, false
+}
+
+// Fields returns a copy of the recorded fields in insertion order, for the Logging interceptor.
+func (i *RequestInfo) Fields() []slog.Attr {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return append([]slog.Attr(nil), i.fields...)
+}
+
+// SetRequestField records key=value on the request's RequestInfo; a no-op when ctx carries none (unit
+// tests, background jobs), so callers never need a nil check.
+func SetRequestField(ctx context.Context, key string, value any) {
+	if info := RequestInfoFromContext(ctx); info != nil {
+		info.Set(key, value)
+	}
+}
+
+// RequestField reads a field recorded by SetRequestField.
+func RequestField(ctx context.Context, key string) (any, bool) {
+	if info := RequestInfoFromContext(ctx); info != nil {
+		return info.Get(key)
+	}
+	return nil, false
 }
 
 type requestInfoCtxKey struct{}

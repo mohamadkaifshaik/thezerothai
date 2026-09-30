@@ -15,7 +15,8 @@ import (
 // cached Snapshot only — never from the targets' graphs, so a user who blocked the caller looks exactly like
 // a stranger. Duplicates collapse (first occurrence wins) and request order is preserved.
 // Firestore: reads 1 (0 on a cache hit), writes 0.
-func (s *service) GetRelationships(ctx context.Context, callerUID string, targetUIDs []string) ([]Relationship, error) {
+func (s *service) GetRelationships(ctx context.Context, callerUID string, targetUIDs []string) (_ []Relationship, err error) {
+	defer begin(ctx, "get_relationships")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return nil, err
 	}
@@ -53,7 +54,8 @@ func (s *service) ListMutedUsers(ctx context.Context, callerUID string, pageSize
 	return s.listOwnArray(ctx, callerUID, "muted", pageSize, pageToken, func(l Lists) []string { return l.Muted })
 }
 
-func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, pageSize int32, pageToken string, pick func(Lists) []string) (Page, error) {
+func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, pageSize int32, pageToken string, pick func(Lists) []string) (_ Page, err error) {
+	defer begin(ctx, "list_"+kind)(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Page{}, err
 	}

@@ -20,7 +20,8 @@ func (s *service) checkFlag(callerUID string) error {
 // (via identity.Directory, cache-first) target missing/inactive -> repo transaction (blocked-by, blocks,
 // private, replay, cap, quota — see repo_firestore.go's Follow doc comment for that precedence).
 // Firestore: reads 4/2 (+1 on an overflowed caller), writes 5/5; replay reads 2/2, writes 0.
-func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
+func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
+	defer begin(ctx, "follow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
@@ -50,6 +51,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 	if err != nil {
 		return Relationship{}, s.mapFollowErr(callerUID, targetUID, err)
 	}
+	setOutcome(ctx, outcome)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
@@ -76,7 +78,8 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 
 // Unfollow (ADR-0008 T7): a blind batch, idempotent. Not following (or a replayed/racing Unfollow) is
 // NONE with 0 writes. Firestore: reads 0/0, writes 3/3 (0 on no-op), deletes 1/1.
-func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
+func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
+	defer begin(ctx, "unfollow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
@@ -94,6 +97,7 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 	if err != nil {
 		return Relationship{}, s.internalErr("unfollow", err, callerUID, targetUID)
 	}
+	setChanged(ctx, changed)
 	if changed {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
@@ -106,7 +110,8 @@ func (s *service) blockLimits() dailyLimits {
 }
 
 // Block (ADR-0008 T8). Firestore: reads 3/3, writes 5/3, deletes 2/0.
-func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
+func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
+	defer begin(ctx, "block")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
@@ -132,6 +137,8 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 		}
 		return Relationship{}, s.internalErr("block", err, callerUID, targetUID)
 	}
+	setOutcome(ctx, result.Outcome)
+	logger.SetRequestField(ctx, fieldEdgesGone, b2i(result.CallerWasFollowing)+b2i(result.TargetWasFollowing))
 	if result.Outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.cache.Invalidate(targetUID)
@@ -146,7 +153,8 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 }
 
 // Unblock (ADR-0008 T8). Firestore: reads 1/1, writes 2/2 (0 on no-op).
-func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
+func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
+	defer begin(ctx, "unblock")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
@@ -164,6 +172,7 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 	if err != nil {
 		return Relationship{}, s.internalErr("unblock", err, callerUID, targetUID)
 	}
+	setChanged(ctx, changed)
 	if changed {
 		s.cache.Invalidate(callerUID)
 		s.cache.Invalidate(targetUID)
@@ -173,7 +182,8 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 }
 
 // Mute (ADR-0008 T8). Firestore: reads 2/2, writes 2/2 (0 on replay).
-func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
+func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
+	defer begin(ctx, "mute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
@@ -195,6 +205,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 		}
 		return Relationship{}, s.internalErr("mute", err, callerUID, targetUID)
 	}
+	setOutcome(ctx, outcome)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 	}
@@ -202,7 +213,8 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 }
 
 // Unmute (ADR-0008 T8). Firestore: reads 1/1, writes 1/1 (0 on no-op).
-func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (Relationship, error) {
+func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
+	defer begin(ctx, "unmute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
 		return Relationship{}, err
 	}
@@ -220,6 +232,7 @@ func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetU
 	if err != nil {
 		return Relationship{}, s.internalErr("unmute", err, callerUID, targetUID)
 	}
+	setChanged(ctx, changed)
 	if changed {
 		s.cache.Invalidate(callerUID)
 	}
