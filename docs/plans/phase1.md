@@ -343,6 +343,8 @@ No Phase 1 slice needs Memorystore, Cloud SQL, a load balancer, a VPC connector 
 Link previews (which need an SSRF-safe fetcher) are Phase 2.
 
 ## 6. Founder decisions (only the real ones)
+
+**Decided 2026-09-30: the founder reviewed this plan and accepted the recommendation for all five decisions (D1–D5).**
 | # | Decision | Recommendation |
 |---|---|---|
 | D1 | At 300 DAU, full Phase 1 is modelled at 172–191 reads/DAU → 52–57k reads/day, just over the 50k free quota (≤ $0.13/month). Accept pay-per-use cents at Stage 0, or require product cuts to hold strict $0 (for example fewer auto-refreshes, or no profile-timeline prefetch)? | **Accept pay-per-use.** Build levers §6.1–§6.3 by default. Keep the 40k-reads alert. Re-decide at P9 with real numbers |
