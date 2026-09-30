@@ -22,6 +22,8 @@ const (
 	fieldCacheHit   = "graph_cache_hit"
 	fieldEdgesGone  = "edges_removed"
 	fieldFlagOff    = "feature_disabled"
+	fieldMisses     = "hydration_misses"
+	fieldLazyGone   = "lazy_removed"
 	fieldTxnAttempt = "txn_attempts"
 )
 

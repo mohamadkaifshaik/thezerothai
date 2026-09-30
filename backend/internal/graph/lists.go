@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -44,12 +45,14 @@ func (s *service) GetRelationships(ctx context.Context, callerUID string, target
 }
 
 // ListBlockedUsers (ADR-0008 T9): the caller's own blocked[] array, newest first, hydrated through
-// identity.Directory. Firestore: reads 1 + <= page_size (50 max) via one batched GetAll, writes 0.
+// identity.Directory. Firestore: reads 1 + <= page_size (50 max) via one batched GetAll (fewer when profiles are
+// cached); writes 0, or 1 when the page holds a uid whose profile no longer exists (T27 lazy clean-up: one
+// ArrayRemove on the caller's own graph doc, once per stale entry, ever).
 func (s *service) ListBlockedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listOwnArray(ctx, callerUID, "blocked", pageSize, pageToken, func(l Lists) []string { return l.Blocked })
 }
 
-// ListMutedUsers (ADR-0008 T9): as ListBlockedUsers, over muted[]. Reads 1 + <= page_size, writes 0.
+// ListMutedUsers (ADR-0008 T9): as ListBlockedUsers, over muted[]. Reads 1 + <= page_size, writes 0 (1 with T27).
 func (s *service) ListMutedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listOwnArray(ctx, callerUID, "muted", pageSize, pageToken, func(l Lists) []string { return l.Muted })
 }
@@ -90,23 +93,44 @@ func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, page
 		}
 		return page, nil
 	}
-	profiles, err := s.directory.GetProfiles(ctx, visible)
+	profiles, missing, err := s.directory.LookupProfiles(ctx, visible)
 	if err != nil {
 		return Page{}, logger.RedactErr(fmt.Errorf("graph: list own array: hydrate: %w", err), append([]string{callerUID}, visible...)...)
 	}
 	for _, uid := range visible {
 		p, ok := profiles[uid]
 		if !ok {
-			// Deleted or inactive: dropped from the page. Stale entries left behind (muted[] of a purged
-			// user) are harmless; see ADR-0008 D10 / T11 notes.
+			// Deleted, or SUSPENDED/DELETING: dropped from the page. Only the confirmed-missing ones are
+			// cleaned up below; a non-ACTIVE user's entry must stay.
 			continue
 		}
 		page.Items = append(page.Items, ListItem{User: p, Relationship: relationshipFor(lists.Snapshot, uid)})
 	}
+	s.lazyCleanup(ctx, callerUID, kind, missing)
 	if hasMore {
+		// arr and lastIdx are from before the clean-up. That is safe: removed entries all sit at or above
+		// lastIdx (they were on this page), so the resume position below lastIdx is unchanged.
 		page.NextPageToken = s.ownArrayToken(callerUID, kind, arr, lastIdx)
 	}
 	return page, nil
+}
+
+// lazyCleanup removes uids confirmed to have no users/{uid} doc from the caller's OWN array (ADR-0008 D10
+// refinement, T27). At most one page (<= 50 ids) and one write; 0 reads. Best effort: a failure is logged
+// as a WARN with a count only and never fails the list RPC. No raw uids are logged.
+func (s *service) lazyCleanup(ctx context.Context, callerUID, kind string, missing []string) {
+	logger.SetRequestField(ctx, fieldMisses, len(missing))
+	logger.SetRequestField(ctx, fieldLazyGone, 0)
+	if len(missing) == 0 {
+		return
+	}
+	if err := s.repo.RemoveOwnArrayEntries(ctx, callerUID, kind, missing, s.now()); err != nil {
+		slog.WarnContext(ctx, "graph_lazy_cleanup_failed", "kind", kind, "count", len(missing),
+			"uid_hash", logger.HashUID(callerUID), "err", logger.RedactErr(err, append([]string{callerUID}, missing...)...))
+		return
+	}
+	logger.SetRequestField(ctx, fieldLazyGone, len(missing))
+	s.cache.Invalidate(callerUID)
 }
 
 // ownArrayBinding ties an own-list page token to the caller and the list (T16b D-5, security review M1): a

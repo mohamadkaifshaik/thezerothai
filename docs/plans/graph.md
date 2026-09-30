@@ -858,6 +858,10 @@ Deltas to existing tickets:
   +0.02 reads/DAU.
 
 ### T27 — Lazy clean-up of missing uids in own blocked/muted lists (ADR-0008 A1, D10 refinement)  [owner: backend-developer] [size: S] [depends: T9] [blocks: account-lifecycle plan; not v0.2.0, not T25]
+- **Status: built (PR feat/graph-t27-lazy-cleanup).** `identity.Directory.LookupProfiles` (found + confirmed-missing; a
+  negative-cache-only miss is not reported), `graph.Repo.RemoveOwnArrayEntries` (blind ArrayRemove + updatedAt on
+  the caller's own doc, NotFound = no-op), `lazyCleanup` in `lists.go`. Fields `hydration_misses`, `lazy_removed`.
+  Emulator-measured: cleaning page = 4 R / 1 W (1 graph + 3 profile docs), repeat call = 4 R / 0 W.
 - **Description.**
   - Extend `identity.Directory` (reuse-first: a new method, no second cache). For example,
     `LookupProfiles(ctx, uids) (found map[string]Profile, missing []string, err)`, where `missing` means "no

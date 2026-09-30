@@ -60,6 +60,8 @@ type Repo interface {
 	// GetLists reads graph/{uid} once (1 read) and returns the ordered blocked/muted arrays (insertion order,
 	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
 	GetLists(ctx context.Context, uid string) (Lists, error)
+	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[] (T27). 1 write, 0 reads.
+	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
 
 	Eraser
 

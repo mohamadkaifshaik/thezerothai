@@ -94,6 +94,10 @@ unchanged.
 - `FEATURE_DISABLED` (FAILED_PRECONDITION) on a graph RPC means `FEATURE_GRAPH` is off for that caller (mode `off`,
   `allowlist` without the uid, or outside the `percent` bucket). Check the env var on the serving revision.
 - `purge-graph` removes a deleted user from other users' `following`, `blocked` and `blockedBy` arrays (confirmed by
-  the 2026-09-30 dev drill). Other users' `muted[]` still name the deleted uid: the lazy clean-up on read (ADR-0008
-  D10, ticket T27) is **not built yet**, so those entries linger until T27 ships. There is no manual step; do not
-  hand-edit other users' documents.
+  the 2026-09-30 dev drill). Other users' `muted[]` (and any dangling `blocked[]`) may still name the deleted uid.
+  Since T27 the lazy clean-up (ADR-0008 D10) removes such a uid from a user's **own** array the next time that
+  user opens ListMutedUsers / ListBlockedUsers: one `ArrayRemove` on their own `graph/{uid}` (at most one page,
+  50 ids, one write, 0 extra reads). Only uids with no `users/{uid}` doc are removed; SUSPENDED and DELETING
+  users stay. The request log line carries `hydration_misses` and `lazy_removed` (counts); a failed clean-up logs
+  WARN `graph_lazy_cleanup_failed` and the list still succeeds. Residue therefore lasts until the muter next
+  opens that list. There is no manual step; do not hand-edit other users' documents.

@@ -53,6 +53,9 @@ type fakeRepo struct {
 	lists     map[string]Lists
 	listCalls int
 
+	removeCalls []removeCall
+	removeErr   error
+
 	lastPurgeCP Checkpoint
 	purgeNext   Checkpoint
 	purgeDone   bool
@@ -123,6 +126,35 @@ func (f *fakeRepo) ListEdges(_ context.Context, q EdgeQuery) ([]Edge, error) {
 	return out, nil
 }
 
+// RemoveOwnArrayEntries records the call and applies it to f.lists like the real ArrayRemove.
+func (f *fakeRepo) RemoveOwnArrayEntries(_ context.Context, uid, kind string, uids []string, _ time.Time) error {
+	f.removeCalls = append(f.removeCalls, removeCall{uid: uid, kind: kind, uids: append([]string(nil), uids...)})
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	l := f.lists[uid]
+	drop := map[string]bool{}
+	for _, u := range uids {
+		drop[u] = true
+	}
+	keep := func(in []string) []string {
+		var out []string
+		for _, v := range in {
+			if !drop[v] {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+	if kind == "blocked" {
+		l.Blocked = keep(l.Blocked)
+	} else {
+		l.Muted = keep(l.Muted)
+	}
+	f.lists[uid] = l
+	return nil
+}
+
 func (f *fakeRepo) GetLists(_ context.Context, uid string) (Lists, error) {
 	f.listCalls++
 	if f.err != nil {
@@ -159,6 +191,11 @@ func (f *fakeRepo) Unfollow(_ context.Context, _, _ string, _ time.Time) (bool, 
 	return f.unfollowChanged, nil
 }
 
+type removeCall struct {
+	uid, kind string
+	uids      []string
+}
+
 // fakeDirectory is a minimal identity.Directory fake.
 type fakeDirectory struct {
 	profiles     map[string]identity.Profile
@@ -167,17 +204,28 @@ type fakeDirectory struct {
 	forgetCalled int
 }
 
-func (f *fakeDirectory) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
+func (f *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	out, _, err := f.LookupProfiles(ctx, uids)
+	return out, err
+}
+
+// LookupProfiles mirrors the real Directory: ACTIVE -> found, no doc -> missing, other statuses -> neither.
+func (f *fakeDirectory) LookupProfiles(_ context.Context, uids []string) (map[string]identity.Profile, []string, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, f.err
 	}
 	out := make(map[string]identity.Profile, len(uids))
+	var missing []string
 	for _, uid := range uids {
-		if p, ok := f.profiles[uid]; ok && p.Status == identity.AccountStatusActive { // mirrors the real Directory
+		p, ok := f.profiles[uid]
+		switch {
+		case !ok:
+			missing = append(missing, uid)
+		case p.Status == identity.AccountStatusActive:
 			out[uid] = p
 		}
 	}
-	return out, nil
+	return out, missing, nil
 }
 
 func (f *fakeDirectory) Forget(uids ...string) {

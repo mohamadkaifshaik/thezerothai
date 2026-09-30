@@ -169,6 +169,10 @@ type BlockChecker interface {
 // the instance cache from written data instead of re-reading").
 type Directory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
+	// LookupProfiles is GetProfiles that also reports, in missing, the uids whose users/{uid} doc was
+	// confirmed absent by a fresh read in this call (ADR-0008 T27). Non-ACTIVE users (SUSPENDED, DELETING)
+	// appear in neither found nor missing, so a caller can never mistake them for deleted. Same read cost.
+	LookupProfiles(ctx context.Context, uids []string) (found map[string]Profile, missing []string, err error)
 	Forget(uids ...string)
 }
 
