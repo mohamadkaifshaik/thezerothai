@@ -110,3 +110,22 @@ func TestCheckAndReserve_KindsAreIndependent(t *testing.T) {
 		t.Fatal("expected Posts to be at its limit")
 	}
 }
+
+func TestUntilNextDay(t *testing.T) {
+	ist := time.FixedZone("IST", 5*3600+30*60)
+	tests := []struct {
+		name string
+		at   time.Time
+		want time.Duration
+	}{
+		{"one minute before midnight", time.Date(2026, 1, 1, 23, 59, 0, 0, ist), time.Minute},
+		{"exactly midnight", time.Date(2026, 1, 2, 0, 0, 0, 0, ist), 24 * time.Hour},
+		{"noon", time.Date(2026, 1, 1, 12, 0, 0, 0, ist), 12 * time.Hour},
+		{"month end, given in UTC", time.Date(2026, 1, 31, 18, 29, 0, 0, time.UTC), time.Minute},
+	}
+	for _, tt := range tests {
+		if got := UntilNextDay(tt.at); got != tt.want {
+			t.Errorf("%s: UntilNextDay = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

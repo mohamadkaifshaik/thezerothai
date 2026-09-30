@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -11,7 +12,9 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // Config wires the interceptor: PerProcedure overrides the per-uid Default limiter for specific hot
@@ -35,6 +38,53 @@ type Config struct {
 	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
 	// per-request line can be queried by limiter (e.g. "graph_list_daily").
 	DailyCaps map[string]NamedDailyCap
+
+	// ReadBudget is the per-uid daily Firestore read budget (ADR-0010 D5, T3): the same DailyCap type as
+	// DailyCaps, counting reads instead of calls. It covers EVERY procedure (there is no per-procedure
+	// opt-in, so a future read RPC is covered automatically); ReadBudgetExempt is the only escape hatch and
+	// must stay empty unless a comment explains each entry. Before next the call is rejected when the uid's
+	// spent reads are >= the cap; after next (success or error) budget.FromContext(ctx).Reads() is charged.
+	ReadBudget *DailyCap
+	// ReadBudgetIP is the per-IP (IPv4 address or IPv6 /64) daily read budget. Refinement 1 of D5: it is
+	// enforced and charged only for procedures in ProfileExempt (callers there may have no profile), never
+	// for callers with a profile, who can share a carrier-grade-NAT address with thousands of others.
+	ReadBudgetIP *DailyCap
+	// ProfileExempt is the authn.ProfileExemptProcedures set; it scopes ReadBudgetIP.
+	ProfileExempt map[string]struct{}
+	// ReadBudgetExempt lists procedures the read budget does not cover. Must stay empty (guard test).
+	ReadBudgetExempt map[string]struct{}
+}
+
+// LimitReadBudgetDaily is the limit_name / metadata["limit"] of a read budget rejection.
+const LimitReadBudgetDaily = "read_budget_daily"
+
+// ReadBudgetCovers reports whether the read budget applies to procedure. The apiserver guard test asserts
+// it for every registered NO_SIDE_EFFECTS procedure.
+func (c Config) ReadBudgetCovers(procedure string) bool {
+	if c.ReadBudget == nil {
+		return false
+	}
+	_, exempt := c.ReadBudgetExempt[procedure]
+	return !exempt
+}
+
+// IPBudgetKey normalises a client IP into its read-budget key: an IPv4 address as is, an IPv6 address as
+// its /64 prefix (D5 refinement 2: a single host rotates freely inside its /64). Unparseable input is
+// returned unchanged.
+func IPBudgetKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap()
+	if addr.Is4() {
+		return addr.String()
+	}
+	p, err := addr.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // NamedDailyCap pairs a DailyCap with the name it reports in logs/metadata when it rejects a call.
@@ -83,20 +133,58 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 					return nil, rateLimited(wait)
 				}
 			}
+
+			// ADR-0010 D5 read budget: keys are the uid and, on profile-exempt procedures only, the client IP
+			// (/64 for IPv6). Rejected before any Firestore read (this runs before account status).
+			var budgetKeys []budgetKey
+			if cfg.ReadBudgetCovers(req.Spec().Procedure) {
+				if hasUID {
+					budgetKeys = append(budgetKeys, budgetKey{cfg.ReadBudget, uid})
+				}
+				if _, exempt := cfg.ProfileExempt[req.Spec().Procedure]; exempt && cfg.ReadBudgetIP != nil && result.IP != "" {
+					budgetKeys = append(budgetKeys, budgetKey{cfg.ReadBudgetIP, IPBudgetKey(result.IP)})
+				}
+			}
+			for _, k := range budgetKeys {
+				if !k.cap.Reserve(k.key) {
+					return nil, rejectDaily(ctx, LimitReadBudgetDaily, k.cap, k.cap.Spent(k.key))
+				}
+			}
+
 			if cfg.DailyCaps != nil && hasUID {
 				if named, ok := cfg.DailyCaps[req.Spec().Procedure]; ok && named.Cap != nil {
 					if !named.Cap.Allow(uid) {
-						if info := logger.RequestInfoFromContext(ctx); info != nil {
-							info.LimitName = named.Name
-						}
-						return nil, rateLimited(0)
+						return nil, rejectDaily(ctx, named.Name, named.Cap, -1)
 					}
 				}
 			}
-			return next(ctx, req)
+
+			resp, err := next(ctx, req)
+
+			// Charge the reads actually spent (interceptor reads included: mw.Logging is outermost), on
+			// success and error alike.
+			if len(budgetKeys) > 0 {
+				reads := budget.FromContext(ctx).Reads()
+				var spent int64
+				for i, k := range budgetKeys {
+					k.cap.Charge(k.key, reads)
+					if i == 0 {
+						spent = k.cap.Spent(k.key)
+					}
+				}
+				if info := logger.RequestInfoFromContext(ctx); info != nil {
+					info.Set("read_budget_spent", spent)
+				}
+			}
+			return resp, err
 		}
 	}
 	return connect.UnaryInterceptorFunc(interceptor)
+}
+
+type budgetKey struct {
+	cap *DailyCap
+	key string
 }
 
 func rateLimited(wait time.Duration) error {
@@ -105,6 +193,23 @@ func rateLimited(wait time.Duration) error {
 		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
 		"too many requests, please slow down",
 	).WithRetryAfter(wait))
+}
+
+// rejectDaily is the RATE_LIMITED rejection of a daily counter (ADR-0010 D5): retry_after is the time to
+// the next IST midnight, metadata["limit"] and the request log's limit_name carry name. spent >= 0 is also
+// logged as read_budget_spent.
+func rejectDaily(ctx context.Context, name string, c *DailyCap, spent int64) error {
+	if info := logger.RequestInfoFromContext(ctx); info != nil {
+		info.LimitName = name
+		if spent >= 0 {
+			info.Set("read_budget_spent", spent)
+		}
+	}
+	return apierr.ToConnect(apierr.New(
+		connect.CodeResourceExhausted,
+		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
+		"too many requests, please slow down",
+	).WithMeta("limit", name).WithRetryAfter(quota.UntilNextDay(c.now())))
 }
 
 // ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is

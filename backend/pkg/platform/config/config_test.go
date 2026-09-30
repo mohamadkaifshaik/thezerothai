@@ -23,6 +23,7 @@ func clearEnv(t *testing.T) {
 		"QUOTA_BLOCKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY",
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
 		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY",
+		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -407,6 +408,10 @@ func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
 	}
 	if cfg.RateLimit.GraphMutationsPerDay != 500 {
 		t.Errorf("RateLimit.GraphMutationsPerDay = %d, want 500", cfg.RateLimit.GraphMutationsPerDay)
+	}
+	if cfg.RateLimit.ReadBudgetPerUIDPerDay != 2000 || cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay != 500 || cfg.RateLimit.CheckHandleCallsPerDay != 100 {
+		t.Errorf("read budget defaults = %d/%d/%d, want 2000/500/100",
+			cfg.RateLimit.ReadBudgetPerUIDPerDay, cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay, cfg.RateLimit.CheckHandleCallsPerDay)
 	}
 	// R-N8: CheckHandleAvailability raised from 10 to 20/min.
 	if cfg.RateLimit.CheckHandlePerUserPerMinute != 20 {

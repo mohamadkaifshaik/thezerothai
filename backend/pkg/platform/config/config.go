@@ -92,6 +92,19 @@ type RateLimitConfig struct {
 	// and ADR-0008's accepted 30.6k/day list-scraping bound. Legitimate use fits with room: 200 follows +
 	// 200 blocks/mutes (the Firestore quotas) plus their undos is under 500.
 	GraphMutationsPerDay int64
+
+	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
+	// (ADR-0010 D5, ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
+	// typical day of ~183 reads). Per instance: worst case per account per IST day is 3 instances x
+	// (2,000 - 1 + 269) = 6,804 reads (13.6% of the free 50k/day) versus ~86k-259k before.
+	ReadBudgetPerUIDPerDay int64
+	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv6: /64) daily read budget enforced only on
+	// profile-exempt procedures (CreateProfile, CheckHandleAvailability), env
+	// READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Worst case ~1,503 reads/day per IP over 3 instances.
+	ReadBudgetPerIPNoProfilePerDay int64
+	// CheckHandleCallsPerDay is the per-uid daily call cap on CheckHandleAvailability (a ratelimit.DailyCap,
+	// limit_name "check_handle_daily"), env CHECK_HANDLE_CALLS_PER_DAY, default 100.
+	CheckHandleCallsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -283,6 +296,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.GraphMutationsPerDay = int64(graphMutationsPerDay)
+	readBudgetUID, err := getInt("READ_BUDGET_PER_UID_PER_DAY", 2000)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.ReadBudgetPerUIDPerDay = int64(readBudgetUID)
+	readBudgetIP, err := getInt("READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", 500)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.ReadBudgetPerIPNoProfilePerDay = int64(readBudgetIP)
+	checkHandleCalls, err := getInt("CHECK_HANDLE_CALLS_PER_DAY", 100)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.CheckHandleCallsPerDay = int64(checkHandleCalls)
 
 	trustedProxyHops, err := getInt("TRUSTED_PROXY_HOPS", 1)
 	if err != nil {

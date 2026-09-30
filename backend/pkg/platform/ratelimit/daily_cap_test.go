@@ -86,3 +86,45 @@ func TestDailyCap_OnlyISTMidnightResets(t *testing.T) {
 		t.Fatal("cap should reset at the next IST midnight")
 	}
 }
+
+// TestDailyCap_ReserveCharge covers the unit-budget mode (ADR-0010 D5): Reserve checks headroom without
+// spending, Charge spends n (overshoot allowed by one call), the IST rollover resets both.
+func TestDailyCap_ReserveCharge(t *testing.T) {
+	ist := time.FixedZone("IST", 5*3600+30*60)
+	now := time.Date(2026, 1, 1, 23, 59, 0, 0, ist)
+	d := NewDailyCap(2000).WithClock(func() time.Time { return now })
+
+	if !d.Reserve("u") || d.Spent("u") != 0 {
+		t.Fatal("fresh key must have headroom and spend nothing on Reserve")
+	}
+	d.Charge("u", 1999)
+	d.Charge("u", 0)  // no-op
+	d.Charge("u", -5) // no-op
+	if d.Spent("u") != 1999 || !d.Reserve("u") {
+		t.Fatalf("spent = %d, want 1999 with headroom", d.Spent("u"))
+	}
+	d.Charge("u", 268) // one call's worst case overshoots the cap
+	if d.Spent("u") != 2267 || d.Reserve("u") {
+		t.Fatalf("spent = %d, Reserve must now be false", d.Spent("u"))
+	}
+	if !d.Reserve("other") {
+		t.Fatal("keys are independent")
+	}
+
+	now = now.Add(2 * time.Minute) // IST midnight
+	if !d.Reserve("u") || d.Spent("u") != 0 {
+		t.Fatal("IST midnight must reset the budget")
+	}
+}
+
+// TestDailyCap_AllowSharesCounterWithCharge: Allow is Reserve+Charge(1), on the same counter.
+func TestDailyCap_AllowSharesCounterWithCharge(t *testing.T) {
+	d := NewDailyCap(3)
+	d.Charge("u", 2)
+	if !d.Allow("u") {
+		t.Fatal("third unit should be allowed")
+	}
+	if d.Allow("u") {
+		t.Fatal("fourth unit must be rejected")
+	}
+}
