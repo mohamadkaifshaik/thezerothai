@@ -56,7 +56,9 @@ func TestListBlockedUsers_Integration_PagesAndBudget(t *testing.T) {
 	for i := range blocked {
 		blocked[i] = fmt.Sprintf("uid-t%02d", i)
 	}
-	seedGraphArrays(t, w.client, "uid-a", map[string]interface{}{"blocked": blocked})
+	for _, b := range blocked {
+		seedBlock(t, w.client, "uid-a", b) // consistent blocked[]/blockedBy[] pair, so the invariant sweep holds
+	}
 
 	var seen []string
 	token := ""

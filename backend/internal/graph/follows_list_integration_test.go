@@ -16,17 +16,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-func seedEdge(t *testing.T, w wired, follower, followee string, at time.Time) {
-	t.Helper()
-	if _, err := w.client.Collection("follows").Doc(follower+"_"+followee).Set(context.Background(), map[string]interface{}{
-		"followerId": follower, "followeeId": followee, "createdAt": at,
-	}); err != nil {
-		t.Fatalf("seed edge: %v", err)
-	}
-}
-
 func TestListFollowers_Integration_PagesAndBudget(t *testing.T) {
 	w := newWired(t)
+	w.SkipInvariantSweep("edge-only seeding (seedEdge) for read-path paging")
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 	const n = 45
