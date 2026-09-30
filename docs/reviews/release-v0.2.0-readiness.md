@@ -414,9 +414,9 @@ Status as of 2026-09-30 after merging `origin/main` (`5df9305`).
 - **B1 — Candidate flag procedure (R-P2): RESOLVED (reported).** Option 1 done: prod Terraform has `FEATURE_GRAPH=allowlist` with only smoke-a and smoke-b (no founder personal account, no real user); revision `api-00005-9df` at 0% traffic, applied 2026-09-30; `api-00003-tiw` serves 100%. Evidence is the caller's report only: I made no cloud calls, and the tfvars are not in the repo. Verify at P2.2 and P2.7. The plan/apply run ID is still not recorded.
 - **B2 — Code review record: RESOLVED.** `docs/reviews/graph-code-review.md` (#44): APPROVE, 0 blockers, S1 and S2 fixed (#42, #41). S3 and S4 open, before `percent` only.
 - **B3 — Prod smoke accounts: partly resolved, unverified.** The allowlist names smoke-a and smoke-b (reported), so the accounts exist or their uids are known. Still to confirm at P2.5: verified emails and profiles, a non-allowlisted account C, and that neither uid contains `_` (R-3). Their uids may be recorded in this document.
-- **B4 — Privacy policy #37 (R-P1): OPEN.** #37 is still OPEN. Not a blocker for the smoke accounts only, and it must stay that way; it is a hard gate for any real user and `percent`. Founder answers Q1-Q7.
+- **B4 — Privacy policy #37 (R-P1): OPEN. Waiver REJECTED by the founder (chat, 2026-09-30).** #37 is still OPEN. The proposed waiver ("B4 is not a blocker for `allowlist` with only the two smoke accounts") was rejected. B4 stays a blocker for real-user allowlisting and `percent`. The two existing smoke accounts (smoke-a, smoke-b) may remain allowlisted for controlled testing; the founder said this must not be treated as a waiver of the privacy requirement. Founder answers Q1-Q7 and the legal items in #37 remain outstanding.
 - **B5 — Docs defect (R-2): RESOLVED.** #41 and #42 merged; `account-deletion.md` lines 85-88 now say the residue persists until T27.
-- **New — B6 — Founder sign-off and both 2FA confirmations (§9) are unchecked: OPEN.** PENDING - to be completed by the designated human reviewers (not by the assistant). Needed before the reviewer can write GO; tagging `v0.2.0` is BLOCKED on it (§4.2).
+- **New — B6 — Both 2FA confirmations (§9): OPEN.** The founder's §4 risk sign-off is recorded (§9, from the founder's quoted chat statement). The two 2FA confirmations are PENDING - to be performed and confirmed by the human reviewers themselves; the founder's chat statement does not substitute for their verification (founder decision, 2026-09-30). Needed before the reviewer can write GO; tagging `v0.2.0` is BLOCKED on it (§4.2).
 - **New — B7 — CI run on the tag commit** (`gh workflow run CI --ref main`) not yet run (§5 P0.4). GATED.
 - **Blocks T25 `percent` (not `allowlist` with trusted smoke accounts):** T26 (Mute existence), T27 (`muted[]` residue), T28 (`_` uid rule, plus the `auth:export` count), T29 (proto comments/skill, lands with T26), code-review S3 (race test) and S4 (retry jitter, cancel mapping), sec-L7 (page-size lever), sec-L9 decision, the L8 fields, opsctl hardening (R-4b), M6 App Check decision. T27 also blocks in-app account deletion. T30 is parked.
 - **Expiring, not renewable:** v0.1.0 L6 is **partially closed** (Dependabot done in #45; exact-version pins for govulncheck/firebase-tools/ko/gcloud, `osv-scanner` and the "require full-length SHA pinning" repo setting remain, issue #46). **HARD deadline 2026-10-12, not renewed.** L7 is **closed by #45**.
@@ -436,14 +436,16 @@ for two internal test accounts only. It turns on for everyone in later steps.
 
 ## 9. Sign-off (required)
 I accept or reject each item in §4, and confirm the §7 blockers are closed or explicitly waived.
-- [ ] R-1  [ ] R-2 (with conditions b and c; bounded to 2026-10-31)  [ ] R-3  [ ] R-4  [ ] R-5  [ ] R-6  [ ] R-7  [ ] R-8  [ ] R-9  [ ] R-10
-- [ ] R-P1 (privacy condition)  [ ] R-P2 (option chosen: ___)  [ ] R-P3  [ ] R-P4
-- [ ] Carried v0.1.0 items per §4.0 (v0.1.0 L6 partially closed, remainder in issue #46 with hard date 2026-10-12, not renewed; L7 closed by #45)
-- [ ] 2FA is still enabled on GitHub account `mohamadkaifshaik`. PENDING - to be completed by the designated human reviewers (not by the assistant)
-- [ ] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`. PENDING - to be completed by the designated human reviewers (not by the assistant)
+- [x] R-1  [x] R-2 (with conditions b and c; bounded to 2026-10-31)  [x] R-3  [x] R-4  [x] R-5  [x] R-6  [x] R-7  [x] R-8  [x] R-9  [x] R-10
+- [x] R-P1 (privacy condition)  [x] R-P2 (option chosen: Terraform apply first, option 1, as answered by the founder in chat)  [x] R-P3  [x] R-P4
+- [x] Carried v0.1.0 items per §4.0 (v0.1.0 L6 partially closed, remainder in issue #46 with hard date 2026-10-12, not renewed; L7 closed by #45)
 
-All boxes above are intentionally unchecked. The assistant does not tick any sign-off box (the founder decisions in §4.2 are recorded as decisions, not as sign-offs).
+**Founder sign-off of the §4 risk decisions (recorded by the assistant from chat, 2026-09-30):** "I accept the §4 risk decisions as recorded in readiness PR #43, including R-1 through R-10, R-P1 through R-P4, and the recorded carried-item decisions. Use this statement as my explicit sign-off for the §4 risk acceptance. Do not alter the risk decisions or their mitigations." The boxes above record exactly that statement. The decisions and mitigations in §4 are unchanged, including every DEFER and REJECT and the scoping of each ACCEPT to `allowlist` with only smoke-a and smoke-b. This statement does **not** address the §7 blockers (B1 to B4, B6, B7): those are not waived by it.
+- [ ] 2FA is still enabled on GitHub account `mohamadkaifshaik`. **PENDING** - to be performed and confirmed by the human reviewers themselves: open the account's security settings and verify that two-factor authentication is on. A chat statement, and anything recorded by the assistant, does not substitute for this check.
+- [ ] 2FA is still enabled on the Google account that is Owner of `dzeroth-prod`. **PENDING** - to be performed and confirmed by the human reviewers themselves: verify that 2-Step Verification is on for that Google account. A chat statement, and anything recorded by the assistant, does not substitute for this check.
 
-Approved by: ______  Date: ______
+Founder decision (chat, 2026-09-30): the two 2FA confirmation records above were set back to PENDING. The founder's earlier chat statement is not treated as the reviewers' actual confirmation; they must perform and confirm the verification themselves. The assistant does not tick these boxes. The repository does not identify who the reviewers are, and none is named here. The §4 risk sign-off recorded above is separate and stands as recorded from the founder's quoted statement. The §7 blockers are not covered by it and remain as listed in §7.
+
+Approved by: Kaif Mohamad Shaik (founder), in chat, for the §4 risk decisions only (§7 blockers not waived; 2FA confirmations pending)  Date: 2026-09-30
 
 VERDICT: PENDING
