@@ -1,14 +1,23 @@
 package apiserver
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
 // noSideEffectsProcedures lists every linked dzeroth Connect procedure whose proto method declares
@@ -37,6 +46,39 @@ func noSideEffectsProcedures(t *testing.T) []string {
 	return procs
 }
 
+// defaultRateLimitCfg is the config the guard inspects: the T3 defaults.
+func defaultRateLimitCfg() config.Config {
+	cfg := config.Config{}
+	cfg.RateLimit.ReadBudgetPerUIDPerDay = 2000
+	cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay = 500
+	cfg.RateLimit.CheckHandleCallsPerDay = 100
+	return cfg
+}
+
+// readBudgetGuardViolations is the guard's logic, split from the enumeration so a mutation test can feed it a
+// synthetic procedure list (a stand-in for a future NO_SIDE_EFFECTS RPC) and a deliberately broken config.
+// Each returned string names the offending procedure or the disabled budget.
+func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemptions map[string]string) []string {
+	var out []string
+	if rl.ReadBudget == nil {
+		out = append(out, "read budget is disabled in the rate-limit config Build wires (ADR-0010 D5)")
+	}
+	for p := range rl.ReadBudgetExempt {
+		if allowedExemptions[p] == "" {
+			out = append(out, "procedure "+p+" is on the read budget exemption list without an explanation")
+		}
+	}
+	if len(procs) == 0 {
+		out = append(out, "found no NO_SIDE_EFFECTS procedures: the enumeration is broken, so the guard would pass vacuously")
+	}
+	for _, p := range procs {
+		if !rl.ReadBudgetCovers(p) {
+			out = append(out, "read-only procedure "+p+" is not covered by the daily read budget (ADR-0010 D5)")
+		}
+	}
+	return out
+}
+
 // TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered is the ADR-0010 D5 / T3.5 CI guard: the daily
 // Firestore read budget must be enabled in the config Build wires, and every read-only (NO_SIDE_EFFECTS)
 // procedure must be covered by it. The exemption list is empty and must stay explained: adding an entry
@@ -45,28 +87,125 @@ func TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered(t *testing.T) {
 	// allowedReadBudgetExemptions: procedure -> why it may skip the read budget. Empty by ADR-0010 D5.
 	allowedReadBudgetExemptions := map[string]string{}
 
-	cfg := config.Config{}
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 2000
-	cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay = 500
-	cfg.RateLimit.CheckHandleCallsPerDay = 100
-	rl := rateLimitConfig(cfg, nil)
-
-	if rl.ReadBudget == nil {
-		t.Fatal("read budget is disabled in the rate-limit config Build wires (ADR-0010 D5)")
+	rl := rateLimitConfig(defaultRateLimitCfg(), nil)
+	for _, v := range readBudgetGuardViolations(rl, noSideEffectsProcedures(t), allowedReadBudgetExemptions) {
+		t.Error(v)
 	}
-	for p := range rl.ReadBudgetExempt {
-		if allowedReadBudgetExemptions[p] == "" {
-			t.Errorf("procedure %s is on the read budget exemption list without an explanation", p)
+}
+
+// TestReadBudgetGuard_MutationChecks proves the guard can fail (tester mutation check, T3 gap 1): each case
+// breaks the wiring the way a careless change would and asserts a violation naming the culprit is reported.
+func TestReadBudgetGuard_MutationChecks(t *testing.T) {
+	const newRPC = "/dzeroth.posts.v1.PostService/GetPost" // a future NO_SIDE_EFFECTS RPC, synthetic
+	real := noSideEffectsProcedures(t)
+	if len(real) == 0 {
+		t.Fatal("no real NO_SIDE_EFFECTS procedures found")
+	}
+	procs := append(append([]string{}, real...), newRPC)
+
+	tests := []struct {
+		name    string
+		mutate  func(*ratelimit.Config)
+		allowed map[string]string
+		want    []string // substrings that must appear in the violations
+	}{
+		{"unmutated config passes", func(*ratelimit.Config) {}, nil, nil},
+		{"read budget disabled", func(c *ratelimit.Config) { c.ReadBudget = nil }, nil,
+			[]string{"read budget is disabled", newRPC, real[0]}},
+		{"exemption without a reason", func(c *ratelimit.Config) {
+			c.ReadBudgetExempt = map[string]struct{}{newRPC: {}}
+		}, nil, []string{"procedure " + newRPC + " is on the read budget exemption list without an explanation"}},
+		{"explained exemption still leaves the procedure uncovered", func(c *ratelimit.Config) {
+			c.ReadBudgetExempt = map[string]struct{}{newRPC: {}}
+		}, map[string]string{newRPC: "because"}, []string{"read-only procedure " + newRPC + " is not covered"}},
+		{"real procedure exempted", func(c *ratelimit.Config) {
+			c.ReadBudgetExempt = map[string]struct{}{real[0]: {}}
+		}, nil, []string{real[0]}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rl := rateLimitConfig(defaultRateLimitCfg(), nil)
+			tt.mutate(&rl)
+			got := strings.Join(readBudgetGuardViolations(rl, procs, tt.allowed), "\n")
+			if tt.want == nil && got != "" {
+				t.Fatalf("unexpected violations:\n%s", got)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("violations do not mention %q:\n%s", w, got)
+				}
+			}
+		})
+	}
+	// An empty enumeration must fail rather than pass vacuously.
+	if v := readBudgetGuardViolations(rateLimitConfig(defaultRateLimitCfg(), nil), nil, nil); len(v) == 0 {
+		t.Error("empty procedure list must be a violation")
+	}
+}
+
+// TestCheckHandleAvailability_101stCallIsRateLimited (T3 acceptance): through the config Build actually
+// wires (rateLimitConfig), a profile-less uid's 101st CheckHandleAvailability call in one IST day is
+// RATE_LIMITED with limit_name check_handle_daily; the first 100 succeed; another uid is unaffected.
+func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
+	cfg := defaultRateLimitCfg()
+	cfg.RateLimit.PerUserPerMinute = 100000
+	cfg.RateLimit.CheckHandlePerUserPerMinute = 100000 // isolate the daily cap from the per-minute bucket
+	cfg.RateLimit.PerIPPerMinute = 100000
+	proc := identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
+	rl := rateLimitConfig(cfg, authn.ProfileExemptProcedures(proc))
+
+	const uidHeader = "X-Test-UID"
+	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(uidHeader)}), req)
+		}
+	})
+	handled := 0
+	h := connect.NewUnaryHandler(proc,
+		func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+			handled++
+			return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+		}, connect.WithInterceptors(setUID, ratelimit.Interceptor(rl)))
+	mux := http.NewServeMux()
+	mux.Handle(proc, h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	call := func(uid string) error {
+		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
+		req := connect.NewRequest(&commonv1.ErrorDetail{})
+		req.Header().Set(uidHeader, uid)
+		_, err := c.CallUnary(context.Background(), req)
+		return err
+	}
+	for i := 1; i <= 100; i++ {
+		if err := call("uid-noprofile"); err != nil {
+			t.Fatalf("call %d: %v", i, err)
 		}
 	}
-
-	procs := noSideEffectsProcedures(t)
-	if len(procs) == 0 {
-		t.Fatal("found no NO_SIDE_EFFECTS procedures: the enumeration is broken, so the guard would pass vacuously")
+	err := call("uid-noprofile")
+	var ce *connect.Error
+	if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
+		t.Fatalf("101st call: err = %v, want ResourceExhausted", err)
 	}
-	for _, p := range procs {
-		if !rl.ReadBudgetCovers(p) {
-			t.Errorf("read-only procedure %s is not covered by the daily read budget (ADR-0010 D5): remove it from ReadBudgetExempt or explain the exemption", p)
+	limit := ""
+	for _, d := range ce.Details() {
+		if v, verr := d.Value(); verr == nil {
+			if ed, ok := v.(*commonv1.ErrorDetail); ok {
+				limit = ed.GetMetadata()["limit"]
+				if ed.GetReason() != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
+					t.Errorf("reason = %v, want RATE_LIMITED", ed.GetReason())
+				}
+			}
 		}
+	}
+	if limit != "check_handle_daily" {
+		t.Errorf("limit = %q, want check_handle_daily", limit)
+	}
+	if handled != 100 {
+		t.Errorf("handler ran %d times, want 100 (the rejected call must not reach it)", handled)
+	}
+	if err := call("uid-other"); err != nil {
+		t.Errorf("another uid must be unaffected: %v", err)
 	}
 }
