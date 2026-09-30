@@ -1,0 +1,18 @@
+# osv-scanner config (used by the `osv-scanner` step in .github/workflows/ci.yml via --config).
+# Policy: CI fails on ANY finding not listed here (OSV often has no CVSS score for Go advisories, so a
+# "High/Critical only" gate would silently pass everything). Ignores must be narrow (one ID), carry a reason,
+# and expire (ignoreUntil) so they resurface. See docs/runbooks/dependency-updates.md.
+
+# golang.org/x/crypto 0.57.0: no fixed version published; `govulncheck ./...` (blocking in ci.yml) reports the
+# vulnerable symbol is not reachable from our call graph. Re-check when x/crypto ships a fix.
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "Unreachable: no call path from backend/ per govulncheck; no fixed x/crypto release yet. Tracked by issue #46."
+
+# google.golang.org/grpc 1.84.0: the fix exists only as a 1.85.0-dev pseudo-version; not reachable per govulncheck.
+# Take the fix when grpc 1.85.0 is released (Dependabot gomod PR).
+[[IgnoredVulns]]
+id = "GO-2026-6443"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "Unreachable: no call path from backend/ per govulncheck; fix only in a dev pseudo-version. Bump on grpc 1.85.0 GA. Tracked by issue #46."
