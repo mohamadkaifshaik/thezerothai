@@ -301,27 +301,49 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
 	// Ops are counted into a scratch counter and only folded into the request counter on a successful commit:
 	// a failed Exists precondition is a no-op that performs (and bills) no writes.
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
-	b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
-	b.Update(r.graphRef(callerUID), []firestore.Update{
-		{Path: "following", Value: firestore.ArrayRemove(targetUID)},
-		{Path: "updatedAt", Value: now},
-	})
-	r.counters.AddFollowingCount(b, callerUID, -1)
-	r.counters.AddFollowersCount(b, targetUID, -1)
+	//
+	// Racing Block/Follow on the same pair can make Firestore abort the commit on a lock timeout. The batch is
+	// idempotent (the Exists precondition turns a replay into a no-op), so retrying Aborted is safe; each
+	// attempt rebuilds the batch so the scratch counter never double-counts.
+	var err error
+	for attempt := 0; attempt < unfollowMaxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return false, fmt.Errorf("graph: unfollow %s -> %s: %w", callerUID, targetUID, ctx.Err())
+			case <-time.After(time.Duration(attempt) * unfollowRetryBackoff):
+			}
+		}
+		var scratch budget.Counter
+		b := store.NewFirestoreBatch(r.client, &scratch)
+		b.Delete(r.followRef(callerUID, targetUID), firestore.Exists)
+		b.Update(r.graphRef(callerUID), []firestore.Update{
+			{Path: "following", Value: firestore.ArrayRemove(targetUID)},
+			{Path: "updatedAt", Value: now},
+		})
+		r.counters.AddFollowingCount(b, callerUID, -1)
+		r.counters.AddFollowersCount(b, targetUID, -1)
 
-	if err := b.Commit(ctx); err != nil {
+		if err = b.Commit(ctx); err == nil {
+			counter := budget.FromContext(ctx)
+			counter.AddWrites(scratch.Writes())
+			counter.AddDeletes(scratch.Deletes())
+			return true, nil
+		}
 		if isPreconditionFailed(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("graph: unfollow %s -> %s: %w", callerUID, targetUID, err)
+		if status.Code(err) != codes.Aborted {
+			break
+		}
 	}
-	counter := budget.FromContext(ctx)
-	counter.AddWrites(scratch.Writes())
-	counter.AddDeletes(scratch.Deletes())
-	return true, nil
+	return false, fmt.Errorf("graph: unfollow %s -> %s: %w", callerUID, targetUID, err)
 }
+
+const (
+	unfollowMaxAttempts  = 3
+	unfollowRetryBackoff = 50 * time.Millisecond
+)
 
 // isPreconditionFailed reports whether err is the Firestore error for a failed batch precondition (e.g.
 // Exists on a doc that doesn't exist) — Firestore surfaces this as NotFound or FailedPrecondition depending
