@@ -811,6 +811,122 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
 - **Observability.** As T24.
 - **Budget.** Not applicable.
 
+### Follow-up tickets from ADR-0008 "Amendment 2026-09-30: M4 decisions" (A1–A3)
+Added by the architect, 2026-09-30. **None of them blocks v0.2.0** (prod at `off` → `allowlist`, where testers are
+trusted and Firebase uids can't reach the edge cases). **T26 and T28 block T25 step 2 (`percent`).** T27 blocks the
+account-lifecycle (in-app deletion) plan. T29 lands together with T26 and T28. T30 is optional backlog.
+These tickets don't touch any file that the in-flight fix work owns (cursor encryption, daily caps, reserved-id
+validation, GetProfile non-ACTIVE, Unfollow retry), except that T28 **rebases on the reserved-id change** (same
+validator).
+
+Deltas to existing tickets:
+- **T16a:** Follow replay asserts 4 R cold and 2 R warm (A2), not "2". Add the A1 Mute cases and the A3 `_` cases
+  below.
+- **T21:** graph reads/DAU = 12.3, using the ADR A2 table and planning values.
+- **T22:** `account-deletion.md` states that other users' `muted[]`/`blocked[]` entries for the deleted uid are cleaned
+  lazily (T27).
+
+### T26 — Mute: target existence check, same rule as Block (ADR-0008 A1)  [owner: backend-developer] [size: S] [depends: T8] [blocks: T25 `percent`]
+- **Description.**
+  - In `FirestoreRepo.Mute`, read the target graph with the existing `getGraphTxExists`, right after the caller graph
+    and **before** `quota.Get` (the same order as Block). If it's missing, return `ErrNotFoundOrBlocked`. The service
+    maps that to `notFoundErr()`.
+  - No `identity.Directory` call: the rule is "`graph/{target}` exists", not "target is ACTIVE" (ADR A1 option A′ is
+    rejected as a block oracle).
+  - Mute must not read or branch on `blockedBy`.
+  - Update the Go doc comments on the repo and service `Mute` (reads 3, NOT_FOUND 2, replay 3).
+- **Acceptance criteria.**
+  - Given a well-formed uid with no `graph` doc, when A mutes it, then NOT_FOUND byte-identical to Block's NOT_FOUND,
+    0 writes, `quotas/{A}` unchanged, and `fs_reads=2`.
+  - Given B blocks A, when A mutes B, then OK with `muting=true`. The response has no field that differs from muting
+    a stranger (serialized compare, with user id normalized). `fs_reads=3`, `fs_writes=2`.
+  - Given B is SUSPENDED or DELETING (graph doc present), when A mutes B, then OK.
+  - Given B was purged (`opsctl purge-graph`), when A mutes B, then NOT_FOUND.
+  - Given A already mutes B, when replayed, then OK with 0 writes and 3 reads.
+  - Given the `blocks` quota is exhausted, when A mutes an existing B, then `QUOTA_EXCEEDED` (unchanged). A
+    nonexistent target still gets NOT_FOUND and 0 writes.
+- **Test notes.** Emulator (T16a file). Add a unit test with a fake repo for the error mapping. Add the four A1 Mute
+  rows (blocker, SUSPENDED, DELETING, purged) to the T16b D9 matrix.
+- **Observability.** `outcome=rejected:not_found` once L8 lands. Until then the request line shows `code=not_found`
+  and `fs_reads=2`.
+- **Budget.** Mute 3 R / 2 W (+1 read vs today); NOT_FOUND 2 R / 0 W; replay 3 R / 0 W. At 0.02 calls/DAU that's
+  +0.02 reads/DAU.
+
+### T27 — Lazy clean-up of missing uids in own blocked/muted lists (ADR-0008 A1, D10 refinement)  [owner: backend-developer] [size: S] [depends: T9] [blocks: account-lifecycle plan; not v0.2.0, not T25]
+- **Description.**
+  - Extend `identity.Directory` (reuse-first: a new method, no second cache). For example,
+    `LookupProfiles(ctx, uids) (found map[string]Profile, missing []string, err)`, where `missing` means "no
+    `users/{uid}` doc". Implement `GetProfiles` on top of it so existing callers don't change.
+  - Missing results are never cached (as today).
+  - Non-ACTIVE users are neither `found` nor `missing` for this purpose. They must never be removed.
+  - In `listOwnArray`, when `missing` is non-empty, issue one `Update(graph/{caller})` with
+    `ArrayRemove(missing...)` on the listed array (`muted` or `blocked`) plus `updatedAt`. Then invalidate the caller
+    snapshot on this instance.
+  - Best effort: on error, log WARN `graph_lazy_cleanup_failed`. The list RPC still succeeds. The page result is
+    unchanged, because missing rows were already dropped.
+  - Log `hydration_misses` and `lazy_removed=<n>`, counts only. Never log uids.
+  - The page token computation must not shift because of the removal. Tokens resume by uid plus recorded position
+    (ADR-0008 "ListBlockedUsers/ListMutedUsers paging"), which already tolerates removed entries.
+- **Acceptance criteria.**
+  - Given A mutes B, and B is purged with `users/{B}` deleted, when A calls ListMutedUsers, then B isn't listed, B is
+    removed from `graph/{A}.muted`, and exactly 1 extra write happens. A second call makes 0 writes.
+  - Given B is SUSPENDED, when A lists, then B is hidden and **stays** in `muted[]` (0 writes).
+  - Given the same for `blocked[]`, when a dangling entry is left by a D2 overflow or an L5 purge race, then it's
+    removed on list view and the T16a invariant checker passes.
+  - Given the clean-up write fails (fault-injected fake), then the RPC returns the page and logs WARN.
+- **Test notes.** Emulator plus a unit test with a fake Directory. This covers security review L2 case T16b-6.
+- **Observability.** `lazy_removed` on the request log line (via `logger.RequestInfo`, the same pattern as L8).
+- **Budget.** 0 extra reads (hydration's `GetAll` already fetches the missing docs). +1 write only on a page that
+  contains a missing uid, once per stale entry, ever. That's ~0 per DAU.
+
+### T28 — Reserve `_` in uids: shared validator, caller uid, `edgeID` helper (ADR-0008 A3)  [owner: backend-developer] [size: S] [depends: the in-flight reserved-id validation change] [blocks: T25 `percent`]
+- **Description.**
+  - Change the shared uid validator (`identity.ValidUserID` / `userIDRe`, as modified by the in-flight reserved-id
+    work) to `^[A-Za-z0-9-]{1,128}$`. Keep ≤ 128 and keep `-`.
+  - Update the validation messages in `graph/rpcs.go` and `graph/validate.go` ("1-128 characters of [A-Za-z0-9-]").
+  - The reserved-id rule stays for handles. For uids it is now implied; keep its test.
+  - **Caller uid:** in `pkg/platform/authn`, after the ID token is verified, reject a uid that fails the same
+    predicate with UNAUTHENTICATED and log WARN `uid_format_rejected` with `uid_hash`. Do this before any Firestore
+    read.
+  - To avoid an import cycle (authn can't import identity), move the predicate to `pkg/platform` (for example
+    `pkg/platform/ids.ValidUID`), make `identity.ValidUserID` delegate to it, and record it in `docs/code-map.md`.
+  - **`edgeID(a, b string) (string, error)`** in `internal/graph` is the only place a `follows` doc id is built.
+    `followRef` and Block's edge deletes use it. It returns an error if either uid contains `_` (INTERNAL, which
+    means a bug, because validation should have caught it).
+  - One-off verification: run `firebase auth:export` on `dzeroth-dev` and `dzeroth-prod` (0 Firestore reads) and
+    count uids containing `_`, expecting 0. Record the result in the PR. If any are found, stop and escalate to the
+    architect.
+- **Acceptance criteria.**
+  - Given a target uid `a_b`, when Follow, Unfollow, Block, Unblock, Mute, Unmute, GetRelationships, ListFollowers,
+    GetProfile or `opsctl --uid` receives it, then INVALID_ARGUMENT `VALIDATION`, 0 reads, and 0 ERROR lines.
+  - Given an emulator custom token with uid `x_y`, when it calls any authenticated RPC, then UNAUTHENTICATED and
+    0 Firestore reads.
+  - Given `edgeID("a_b", "c")`, then an error (unit test).
+  - Given all existing fixtures (`uid-*`), then unchanged and passing.
+- **Test notes.** T16a cases for all three layers. Integration: a regression test showing that the A3 collision
+  (`a_b → c` then `a → b_c`) can no longer be constructed.
+- **Observability.** WARN `uid_format_rejected` (hashed uid).
+- **Budget.** 0 reads and 0 writes. Validation only.
+
+### T29 — Proto comments and data-model skill for A1–A3  [owner: architect] [size: S] [depends: T26, T28 (land in the same PR as T26 to avoid two regenerations)] [blocks: T25 `percent`]
+- **Description.**
+  - Comment-only `graph.proto` changes: Follow `reads 4 cold / 2 warm (+1 overflow), writes 5; replay 4 cold / 2 warm,
+    writes 0`; Mute `reads 3, writes 2 (0 on replay); target without an account => NOT_FOUND`; the `user_id` charset
+    `[A-Za-z0-9-]{1,128}`. Run `make proto`, and confirm `buf breaking` is clean.
+  - Update the `firestore-data-model` skill's operation cost rows (Follow cold/warm, Mute 3/2) and add the "no `_` in
+    uids" invariant under IDs.
+- **Acceptance criteria.** `buf lint` and `buf breaking` are clean. The generated code diff contains comments only.
+  The skill matches the ADR A2 table.
+- **Budget.** Not applicable.
+
+### T30 — (Optional) Update cached profiles in place after graph mutations instead of `Forget`  [owner: backend-developer] [size: S] [depends: T7] [blocks: nothing]
+- **Description.** After a committed Follow, Unfollow or Block, apply the counter deltas to this instance's cached
+  `users` entries instead of evicting them. This follows the CLAUDE.md read-your-writes rule: update the cache from
+  written data. That brings Follow's planning cost from 3 R back to 2 R, and makes an immediate replay warm.
+- **Acceptance criteria.** Given two consecutive Follows by A on one instance, then the second reads 2 (not 3).
+  Given GetProfile(A) right after, then the counts reflect the follow with 0 reads.
+- **Budget.** −0.5 reads/DAU. Do this only if T25 data shows Follow averaging > 2.5 reads/call.
+
 ---
 
 ## Rollout plan
