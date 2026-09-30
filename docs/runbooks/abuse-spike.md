@@ -63,9 +63,20 @@ is in the error metadata the client sees, not in the log line, so identify it by
   ListBlockedUsers and ListMutedUsers). Sort by `uid_hash`.
 - Bulk mutation replays: `jsonPayload.limit_name="graph_mutation_daily"`.
 - Read scraping / read-budget exhaustion (ADR-0010 D5, T3): `jsonPayload.limit_name="read_budget_daily"`. It is the
-  per-uid daily Firestore read budget (`READ_BUDGET_PER_UID_PER_DAY`, default 2,000) and, on the profile-exempt
-  procedures (CreateProfile, CheckHandleAvailability), the per-IP budget (`READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY`,
-  default 500; IPv6 counts per /64). Count distinct accounts hitting it (Log Analytics):
+  per-uid daily Firestore read budget (`READ_BUDGET_PER_UID_PER_DAY`, default 2,000) and the per-IP budget
+  (`READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY`, default 500; IPv6 counts per /64). The IP key is enforced on
+  CheckHandleAvailability and on the calls of a verified caller this instance has seen without a profile (A3, log
+  `profile_required=true`, retry 10 min), and only charged on CreateProfile (A4). `jsonPayload.read_budget_key` (`uid`
+  or `ip`) says which key tripped; `read_budget_spent` is always the uid's spend and `read_budget_ip_spent` the IP key's.
+  `limit_name="read_budget_inflight"` (with `read_budget_inflight`, the in-flight count) is only the A1 hold: one
+  call at a time near the cap, the client retries after 1 s; it is not an abuse signal by itself.
+  `limit_name="account_ops_daily"` is the 20 calls/uid/day cap on DeleteAccount, RequestAccountExport and
+  GetAccountExport (`ACCOUNT_OPS_CALLS_PER_DAY`; those calls are charge-only on the read budget, A6).
+  `jsonPayload.gate="email_unverified"` marks an unverified password account stopped by the A2 gate with 0 reads; a
+  spike of it with many `uid_hash` values is a sign-up farm that never verified (section 2) and costs nothing.
+  WARN `read_budget_over_max=true` means a call read more than its hold M (269 uid, 2 IP): raise
+  `config.ReadBudgetMaxCallReads` / `IPReadBudgetMaxCallReads` together with the RPC change (A1).
+  Count distinct accounts hitting the budget (Log Analytics):
   `SELECT json_payload.uid_hash, COUNT(*) AS rejections FROM <log view> WHERE json_payload.limit_name = "read_budget_daily" AND timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY) GROUP BY 1 ORDER BY 2 DESC`.
   Spend per account: max `jsonPayload.read_budget_spent` per `uid_hash` (present on every request the interceptor
   saw). One `uid_hash` at the cap is a scraper or a heavy legit user (a follower count over ~1,000 can hit it on a heavy
