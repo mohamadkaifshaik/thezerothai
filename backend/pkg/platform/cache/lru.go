@@ -45,6 +45,25 @@ func New[K comparable, V any](capacity int, ttl time.Duration) *LRU[K, V] {
 func (c *LRU[K, V]) Get(key K) (V, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.getLocked(key)
+}
+
+// GetOrSet returns the live value for key, or stores and returns mk() when absent or expired. The check and
+// the insert happen under one lock, so concurrent first accesses share one value (a Get-miss-then-Set pair
+// would let the second Set replace the first, losing anything already applied to it). mk runs under the
+// lock: keep it cheap and never call back into the cache.
+func (c *LRU[K, V]) GetOrSet(key K, mk func() V) V {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if v, ok := c.getLocked(key); ok {
+		return v
+	}
+	v := mk()
+	c.setLocked(key, v)
+	return v
+}
+
+func (c *LRU[K, V]) getLocked(key K) (V, bool) {
 
 	el, ok := c.items[key]
 	if !ok {
@@ -65,6 +84,10 @@ func (c *LRU[K, V]) Get(key K) (V, bool) {
 func (c *LRU[K, V]) Set(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.setLocked(key, value)
+}
+
+func (c *LRU[K, V]) setLocked(key K, value V) {
 
 	expiresAt := time.Time{}
 	if c.ttl > 0 {

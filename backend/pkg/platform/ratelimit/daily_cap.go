@@ -22,14 +22,18 @@ const maxTrackedDailyKeys = 100_000
 // Stage 0).
 type DailyCap struct {
 	limit int64
-	items *cache.LRU[string, *dailyCounter]
-	now   func() time.Time
+	// maxCallReads is one call's worst-case units (WithMaxCallReads); 0 disables the single-flight guard.
+	maxCallReads int64
+	items        *cache.LRU[string, *dailyCounter]
+	now          func() time.Time
 }
 
 type dailyCounter struct {
 	mu    sync.Mutex
 	day   string
 	count int64
+	// inflight counts calls admitted by Reserve and not yet Released.
+	inflight int
 }
 
 // NewDailyCap builds a DailyCap allowing limit units (calls, for Allow) per key per IST day. Memory is
@@ -48,6 +52,13 @@ func NewDailyCap(limit int64) *DailyCap {
 	}
 }
 
+// WithMaxCallReads sets one call's worst-case units so Reserve can keep a single call in flight near the
+// cap (ADR-0010 D5, M1) and returns d.
+func (d *DailyCap) WithMaxCallReads(n int64) *DailyCap {
+	d.maxCallReads = n
+	return d
+}
+
 // WithClock replaces the cap's clock (fake-clock tests in other packages) and returns d.
 func (d *DailyCap) WithClock(now func() time.Time) *DailyCap {
 	d.now = now
@@ -58,11 +69,9 @@ func (d *DailyCap) WithClock(now func() time.Time) *DailyCap {
 // caller must unlock it.
 func (d *DailyCap) lock(key string) *dailyCounter {
 	today := quota.TodayAt(d.now())
-	c, ok := d.items.Get(key)
-	if !ok {
-		c = &dailyCounter{day: today}
-		d.items.Set(key, c)
-	}
+	// GetOrSet (not Get-miss-then-Set): two concurrent first accesses must share one counter, or a Charge
+	// applied to the counter the second Set replaced would be lost.
+	c := d.items.GetOrSet(key, func() *dailyCounter { return &dailyCounter{day: today} })
 	c.mu.Lock()
 	if c.day != today {
 		c.day = today
@@ -73,8 +82,8 @@ func (d *DailyCap) lock(key string) *dailyCounter {
 
 // Allow reports whether one more call for key is permitted today (IST) and, if so, counts it. Once the
 // limit is reached for the day it stays rejected until the IST day rolls over, regardless of how long ago
-// the limit was hit (unlike Limiter, there is no partial refill). It is Reserve plus Charge(key, 1) done
-// atomically, so a cap that counts calls behaves exactly as before.
+// the limit was hit (unlike Limiter, there is no partial refill). It counts one unit atomically and never
+// uses the in-flight count, so a cap that counts calls behaves exactly as before.
 func (d *DailyCap) Allow(key string) bool {
 	c := d.lock(key)
 	defer c.mu.Unlock()
@@ -85,16 +94,30 @@ func (d *DailyCap) Allow(key string) bool {
 	return true
 }
 
-// Reserve reports whether key still has headroom today (units spent < limit) without spending anything.
-// Paired with Charge it turns the cap into a unit budget (ADR-0010 D5: Firestore reads): the check runs
-// before the call and the actual cost is charged after, so overshoot is bounded by one call's worst case.
-func (d *DailyCap) Reserve(key string) bool {
+// Reserve admits one call for key and reports the units spent today, for the ADR-0010 D5 unit budget
+// (Firestore reads): the check runs before the call and the actual cost is charged after by Release.
+//
+// It rejects (ok=false) when spent >= limit (the cap is reached: the caller retries at IST midnight) and,
+// once WithMaxCallReads is set, also when another call is already in flight and spent + maxCallReads >
+// limit (M1: near the cap only ONE call may be in flight, so concurrent callers cannot each pass the
+// check and all overshoot; the caller retries in about a second, see IsTransient). An admitted call must
+// be settled with exactly one Release.
+func (d *DailyCap) Reserve(key string) (ok bool, spent int64) {
 	c := d.lock(key)
 	defer c.mu.Unlock()
-	return c.count < d.limit
+	if c.count >= d.limit || (c.inflight > 0 && c.count+d.maxCallReads > d.limit) {
+		return false, c.count
+	}
+	c.inflight++
+	return true, c.count
 }
 
-// Charge adds n units to key's count for today (IST). n <= 0 is a no-op. It never rejects.
+// IsTransient reports whether a Reserve rejection that saw spent units is only the single-flight guard
+// (retry in about a second) rather than the exhausted cap (retry at IST midnight).
+func (d *DailyCap) IsTransient(spent int64) bool { return spent < d.limit }
+
+// Charge adds n units to key's count for today (IST) without touching the in-flight count. n <= 0 is a
+// no-op. It never rejects. Used directly by charge-only procedures (never reserved) and tests.
 func (d *DailyCap) Charge(key string, n int64) {
 	if n <= 0 {
 		return
@@ -102,6 +125,19 @@ func (d *DailyCap) Charge(key string, n int64) {
 	c := d.lock(key)
 	defer c.mu.Unlock()
 	c.count += n
+}
+
+// Release settles a call admitted by Reserve: it charges n units (n <= 0 charges nothing) and frees the
+// in-flight slot in one step. It must run on every exit path of the call, including a panic.
+func (d *DailyCap) Release(key string, n int64) {
+	c := d.lock(key)
+	defer c.mu.Unlock()
+	if n > 0 {
+		c.count += n
+	}
+	if c.inflight > 0 {
+		c.inflight--
+	}
 }
 
 // Spent returns the units key has spent today (IST).

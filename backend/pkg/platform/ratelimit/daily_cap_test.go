@@ -1,6 +1,9 @@
 package ratelimit
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -87,6 +90,15 @@ func TestDailyCap_OnlyISTMidnightResets(t *testing.T) {
 	}
 }
 
+// headroom reserves and immediately releases (0 units) to ask "would a call be admitted now?".
+func headroom(d *DailyCap, key string) bool {
+	ok, _ := d.Reserve(key)
+	if ok {
+		d.Release(key, 0)
+	}
+	return ok
+}
+
 // TestDailyCap_ReserveCharge covers the unit-budget mode (ADR-0010 D5): Reserve checks headroom without
 // spending, Charge spends n (overshoot allowed by one call), the IST rollover resets both.
 func TestDailyCap_ReserveCharge(t *testing.T) {
@@ -94,25 +106,25 @@ func TestDailyCap_ReserveCharge(t *testing.T) {
 	now := time.Date(2026, 1, 1, 23, 59, 0, 0, ist)
 	d := NewDailyCap(2000).WithClock(func() time.Time { return now })
 
-	if !d.Reserve("u") || d.Spent("u") != 0 {
+	if !headroom(d, "u") || d.Spent("u") != 0 {
 		t.Fatal("fresh key must have headroom and spend nothing on Reserve")
 	}
 	d.Charge("u", 1999)
 	d.Charge("u", 0)  // no-op
 	d.Charge("u", -5) // no-op
-	if d.Spent("u") != 1999 || !d.Reserve("u") {
+	if d.Spent("u") != 1999 || !headroom(d, "u") {
 		t.Fatalf("spent = %d, want 1999 with headroom", d.Spent("u"))
 	}
 	d.Charge("u", 268) // one call's worst case overshoots the cap
-	if d.Spent("u") != 2267 || d.Reserve("u") {
+	if d.Spent("u") != 2267 || headroom(d, "u") {
 		t.Fatalf("spent = %d, Reserve must now be false", d.Spent("u"))
 	}
-	if !d.Reserve("other") {
+	if !headroom(d, "other") {
 		t.Fatal("keys are independent")
 	}
 
 	now = now.Add(2 * time.Minute) // IST midnight
-	if !d.Reserve("u") || d.Spent("u") != 0 {
+	if !headroom(d, "u") || d.Spent("u") != 0 {
 		t.Fatal("IST midnight must reset the budget")
 	}
 }
@@ -126,5 +138,124 @@ func TestDailyCap_AllowSharesCounterWithCharge(t *testing.T) {
 	}
 	if d.Allow("u") {
 		t.Fatal("fourth unit must be rejected")
+	}
+}
+
+func TestDailyCap_ReserveReturnsSpentAndRelease(t *testing.T) {
+	d := NewDailyCap(100).WithMaxCallReads(10)
+	d.Charge("u", 42)
+	ok, spent := d.Reserve("u")
+	if !ok || spent != 42 {
+		t.Fatalf("Reserve = (%v, %d), want (true, 42)", ok, spent)
+	}
+	d.Release("u", 7)
+	if got := d.Spent("u"); got != 49 {
+		t.Fatalf("spent after Release(7) = %d, want 49", got)
+	}
+	d.Charge("u", 60) // now 109 >= 100
+	ok, spent = d.Reserve("u")
+	if ok || spent != 109 || d.IsTransient(spent) {
+		t.Fatalf("Reserve = (%v, %d, transient=%v), want (false, 109, false): budget exhausted", ok, spent, d.IsTransient(spent))
+	}
+}
+
+// TestDailyCap_SingleFlightNearCap (M1): inside the last maxCallReads only one call may be in flight; the
+// rejection is transient (retry in ~1 s); once the slot is released the next call is admitted, and away from
+// the cap concurrency is unrestricted.
+func TestDailyCap_SingleFlightNearCap(t *testing.T) {
+	d := NewDailyCap(2000).WithMaxCallReads(269)
+
+	d.Charge("far", 1000)
+	for i := 0; i < 5; i++ {
+		if ok, _ := d.Reserve("far"); !ok {
+			t.Fatalf("call %d far from the cap must be admitted concurrently", i)
+		}
+	}
+
+	d.Charge("near", 1999)
+	if ok, _ := d.Reserve("near"); !ok {
+		t.Fatal("first call near the cap must be admitted")
+	}
+	ok, spent := d.Reserve("near")
+	if ok || !d.IsTransient(spent) {
+		t.Fatalf("second concurrent call near the cap: ok=%v transient=%v, want rejected and transient", ok, d.IsTransient(spent))
+	}
+	d.Release("near", 1) // spent 2000 = cap, slot freed
+	ok, spent = d.Reserve("near")
+	if ok || d.IsTransient(spent) {
+		t.Fatalf("after reaching the cap: ok=%v transient=%v, want rejected and not transient", ok, d.IsTransient(spent))
+	}
+
+	d.Charge("edge", 2000-269) // spent + max == limit is not "over": both admitted
+	for i := 0; i < 2; i++ {
+		if ok, _ := d.Reserve("edge"); !ok {
+			t.Fatalf("call %d at spent+max == limit must be admitted", i)
+		}
+	}
+}
+
+// TestDailyCap_ConcurrentReserveAtLimitMinusOne (M1, ADR-0010 D5): N goroutines hit a key at limit-1 while
+// each admitted call holds its slot and then spends one full worst-case call. Total spend never exceeds
+// limit - 1 + one call's worst case, and no more than one call is ever admitted.
+func TestDailyCap_ConcurrentReserveAtLimitMinusOne(t *testing.T) {
+	const (
+		limit   = 2000
+		maxCall = 269
+		n       = 64
+	)
+	d := NewDailyCap(limit).WithMaxCallReads(maxCall)
+	d.Charge("u", limit-1)
+
+	var admitted, rejected atomic.Int64
+	start := make(chan struct{})
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ok, _ := d.Reserve("u")
+			if !ok {
+				rejected.Add(1)
+				return
+			}
+			admitted.Add(1)
+			<-release // hold the slot while the rest of the herd is rejected
+			d.Release("u", maxCall)
+		}()
+	}
+	close(start)
+	// Wait until every goroutine has either been rejected or is the one holder (no sleep-based sync).
+	deadline := time.Now().Add(5 * time.Second)
+	for admitted.Load()+rejected.Load() < n && time.Now().Before(deadline) {
+		runtime.Gosched()
+	}
+	close(release)
+	wg.Wait()
+
+	if got := admitted.Load(); got != 1 {
+		t.Fatalf("admitted = %d, want exactly 1 while one call is in flight near the cap", got)
+	}
+	if got, bound := d.Spent("u"), int64(limit-1+maxCall); got > bound {
+		t.Fatalf("spent = %d exceeds the D5 bound %d (limit - 1 + one call's worst case)", got, bound)
+	}
+}
+
+// TestDailyCap_FirstAccessRace (m2): concurrent first accesses share one counter, so no Charge is lost.
+func TestDailyCap_FirstAccessRace(t *testing.T) {
+	d := NewDailyCap(1_000_000)
+	var wg sync.WaitGroup
+	const n = 200
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.Charge("fresh", 1)
+		}()
+	}
+	wg.Wait()
+	if got := d.Spent("fresh"); got != n {
+		t.Fatalf("spent = %d, want %d: a Charge was applied to a replaced counter", got, n)
 	}
 }

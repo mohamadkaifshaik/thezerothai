@@ -429,3 +429,25 @@ func TestMustLoad_PanicsOnError(t *testing.T) {
 	}()
 	MustLoad()
 }
+
+// m3: a zero or negative read-budget / check-handle cap would lock every uid out after one call, so Load
+// rejects it instead of treating it as "disabled".
+func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
+	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY"} {
+		for _, val := range []string{"0", "-5"} {
+			t.Run(key+"="+val, func(t *testing.T) {
+				clearEnv(t)
+				t.Setenv(key, val)
+				_, err := Load()
+				if err == nil || !strings.Contains(err.Error(), key) {
+					t.Fatalf("Load() error = %v, want an error naming %s", err, key)
+				}
+			})
+		}
+	}
+	clearEnv(t)
+	t.Setenv("READ_BUDGET_PER_UID_PER_DAY", "1")
+	if _, err := Load(); err != nil {
+		t.Fatalf("a positive cap must load: %v", err)
+	}
+}

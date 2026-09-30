@@ -21,6 +21,12 @@ import (
 // instance caches must expire well inside it.
 const MaxCacheTTL = 60 * time.Second
 
+// ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call, the figure ADR-0010 D5's
+// cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
+// 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto). Keep it in sync with that RPC's
+// doc comment; tests use this constant, not a literal.
+const ReadBudgetMaxCallReads = 269
+
 // DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
 type DegradedMode string
 
@@ -96,7 +102,7 @@ type RateLimitConfig struct {
 	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
 	// (ADR-0010 D5, ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
 	// typical day of ~183 reads). Per instance: worst case per account per IST day is 3 instances x
-	// (2,000 - 1 + 269) = 6,804 reads (13.6% of the free 50k/day) versus ~86k-259k before.
+	// (2,000 - 1 + ReadBudgetMaxCallReads = 269) = 6,804 reads (13.6% of the free 50k/day) versus ~86k-259k before.
 	ReadBudgetPerUIDPerDay int64
 	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv6: /64) daily read budget enforced only on
 	// profile-exempt procedures (CreateProfile, CheckHandleAvailability), env
@@ -311,6 +317,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.CheckHandleCallsPerDay = int64(checkHandleCalls)
+	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
+	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
+	for name, v := range map[string]int{
+		"READ_BUDGET_PER_UID_PER_DAY":           readBudgetUID,
+		"READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY": readBudgetIP,
+		"CHECK_HANDLE_CALLS_PER_DAY":            checkHandleCalls,
+	} {
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
+		}
+	}
 
 	trustedProxyHops, err := getInt("TRUSTED_PROXY_HOPS", 1)
 	if err != nil {

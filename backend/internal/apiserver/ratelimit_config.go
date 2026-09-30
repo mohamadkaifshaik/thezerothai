@@ -64,9 +64,20 @@ func rateLimitConfig(cfg config.Config, profileExempt map[string]struct{}) ratel
 
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: checkHandleDailyCap},
 		},
-		// ADR-0010 D5: covers every procedure; ReadBudgetExempt stays empty (guard_test.go).
-		ReadBudget:       ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerUIDPerDay),
-		ReadBudgetIP:     ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay),
+		// ADR-0010 D5: covers every procedure; ReadBudgetExempt stays empty (guard_test.go). WithMaxCallReads
+		// arms the single-flight guard near the cap (review M1).
+		ReadBudget:   ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerUIDPerDay).WithMaxCallReads(config.ReadBudgetMaxCallReads),
+		ReadBudgetIP: ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay).WithMaxCallReads(config.ReadBudgetMaxCallReads),
+		// ADR-0010 D5 amendment (review M2, CLAUDE.md rule 10): charged, never rejected. Each entry needs a
+		// reason in guard_test.go allowedReadBudgetChargeOnly.
+		ReadBudgetChargeOnly: map[string]struct{}{
+			// Right to delete: must work for a user who has spent today's budget (App Store / Play / DPDP).
+			identityv1connect.IdentityServiceDeleteAccountProcedure: {},
+			// Right to export: same reason; a small read count, and the per-minute bucket still applies.
+			identityv1connect.IdentityServiceRequestAccountExportProcedure: {},
+			// Polls the export produced by RequestAccountExport; must not be blocked while that job is pending.
+			identityv1connect.IdentityServiceGetAccountExportProcedure: {},
+		},
 		ProfileExempt:    profileExempt,
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,

@@ -41,8 +41,9 @@ type Config struct {
 
 	// ReadBudget is the per-uid daily Firestore read budget (ADR-0010 D5, T3): the same DailyCap type as
 	// DailyCaps, counting reads instead of calls. It covers EVERY procedure (there is no per-procedure
-	// opt-in, so a future read RPC is covered automatically); ReadBudgetExempt is the only escape hatch and
-	// must stay empty unless a comment explains each entry. Before next the call is rejected when the uid's
+	// opt-in, so a future read RPC is covered automatically); ReadBudgetExempt (never charged) and
+	// ReadBudgetChargeOnly (charged, never rejected) are the only escape hatches and must stay empty unless
+	// a comment explains each entry. Before next the call is rejected when the uid's
 	// spent reads are >= the cap; after next (success or error) budget.FromContext(ctx).Reads() is charged.
 	ReadBudget *DailyCap
 	// ReadBudgetIP is the per-IP (IPv4 address or IPv6 /64) daily read budget. Refinement 1 of D5: it is
@@ -53,6 +54,11 @@ type Config struct {
 	ProfileExempt map[string]struct{}
 	// ReadBudgetExempt lists procedures the read budget does not cover. Must stay empty (guard test).
 	ReadBudgetExempt map[string]struct{}
+	// ReadBudgetChargeOnly lists procedures that are charged against the budget but never rejected by it
+	// (CLAUDE.md rule 10: the right-to-delete and export paths must work for a user who has spent the day's
+	// budget). Every entry needs a reason in the guard test's allowedReadBudgetChargeOnly. Their reads are
+	// small and still bounded by the per-minute bucket.
+	ReadBudgetChargeOnly map[string]struct{}
 }
 
 // LimitReadBudgetDaily is the limit_name / metadata["limit"] of a read budget rejection.
@@ -67,6 +73,17 @@ func (c Config) ReadBudgetCovers(procedure string) bool {
 	_, exempt := c.ReadBudgetExempt[procedure]
 	return !exempt
 }
+
+// ReadBudgetEnforces reports whether the read budget can REJECT procedure: it covers it and it is not
+// charge-only.
+func (c Config) ReadBudgetEnforces(procedure string) bool {
+	_, chargeOnly := c.ReadBudgetChargeOnly[procedure]
+	return c.ReadBudgetCovers(procedure) && !chargeOnly
+}
+
+// RetryAfterInFlight is the retry_after of a read budget rejection caused only by the single-flight guard
+// (another call is in flight near the cap), not by an exhausted budget.
+const RetryAfterInFlight = time.Second
 
 // IPBudgetKey normalises a client IP into its read-budget key: an IPv4 address as is, an IPv6 address as
 // its /64 prefix (D5 refinement 2: a single host rotates freely inside its /64). Unparseable input is
@@ -138,53 +155,78 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 			// (/64 for IPv6). Rejected before any Firestore read (this runs before account status).
 			var budgetKeys []budgetKey
 			if cfg.ReadBudgetCovers(req.Spec().Procedure) {
+				_, chargeOnly := cfg.ReadBudgetChargeOnly[req.Spec().Procedure]
 				if hasUID {
-					budgetKeys = append(budgetKeys, budgetKey{cfg.ReadBudget, uid})
+					budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudget, key: uid, kind: "uid", chargeOnly: chargeOnly})
 				}
 				if _, exempt := cfg.ProfileExempt[req.Spec().Procedure]; exempt && cfg.ReadBudgetIP != nil && result.IP != "" {
-					budgetKeys = append(budgetKeys, budgetKey{cfg.ReadBudgetIP, IPBudgetKey(result.IP)})
+					budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: IPBudgetKey(result.IP), kind: "ip", chargeOnly: chargeOnly})
 				}
 			}
-			for _, k := range budgetKeys {
-				if !k.cap.Reserve(k.key) {
-					return nil, rejectDaily(ctx, LimitReadBudgetDaily, k.cap, k.cap.Spent(k.key))
+			for i := range budgetKeys {
+				k := &budgetKeys[i]
+				if k.chargeOnly {
+					continue // charged after the call, never rejected (ReadBudgetChargeOnly)
 				}
+				ok, spent := k.cap.Reserve(k.key)
+				if !ok {
+					// Free the in-flight slots already taken by earlier keys of this call (0 units).
+					for _, taken := range budgetKeys[:i] {
+						if taken.reserved {
+							taken.cap.Release(taken.key, 0)
+						}
+					}
+					return nil, rejectReadBudget(ctx, k, spent)
+				}
+				k.reserved = true
+			}
+			// M1/m1: settle in a defer so the reads already spent are charged and the in-flight slot is freed
+			// on every exit, including a panic unwinding to mw.Recover (which sits outside this interceptor).
+			// It reads the counter at exit, so the account-status interceptor's reads are included
+			// (mw.Logging, which owns the counter, is outermost).
+			if len(budgetKeys) > 0 {
+				defer settleReadBudget(ctx, budgetKeys)
 			}
 
 			if cfg.DailyCaps != nil && hasUID {
 				if named, ok := cfg.DailyCaps[req.Spec().Procedure]; ok && named.Cap != nil {
 					if !named.Cap.Allow(uid) {
-						return nil, rejectDaily(ctx, named.Name, named.Cap, -1)
+						return nil, rejectDaily(ctx, named.Name, named.Cap)
 					}
 				}
 			}
 
-			resp, err := next(ctx, req)
-
-			// Charge the reads actually spent (interceptor reads included: mw.Logging is outermost), on
-			// success and error alike.
-			if len(budgetKeys) > 0 {
-				reads := budget.FromContext(ctx).Reads()
-				var spent int64
-				for i, k := range budgetKeys {
-					k.cap.Charge(k.key, reads)
-					if i == 0 {
-						spent = k.cap.Spent(k.key)
-					}
-				}
-				if info := logger.RequestInfoFromContext(ctx); info != nil {
-					info.Set("read_budget_spent", spent)
-				}
-			}
-			return resp, err
+			return next(ctx, req)
 		}
 	}
 	return connect.UnaryInterceptorFunc(interceptor)
 }
 
+// budgetKey is one read-budget counter a call is checked and charged against.
 type budgetKey struct {
-	cap *DailyCap
-	key string
+	cap        *DailyCap
+	key        string
+	kind       string // "uid" or "ip": log-only (m7), never sent to the client
+	chargeOnly bool
+	reserved   bool // Reserve admitted this call, so Release (not Charge) settles it
+}
+
+// settleReadBudget charges the reads the call actually spent to every key (releasing the in-flight slot of
+// the reserved ones) and logs the first key's spend as read_budget_spent, with read_budget_key naming
+// whose spend that is.
+func settleReadBudget(ctx context.Context, keys []budgetKey) {
+	reads := budget.FromContext(ctx).Reads()
+	for _, k := range keys {
+		if k.reserved {
+			k.cap.Release(k.key, reads)
+		} else {
+			k.cap.Charge(k.key, reads)
+		}
+	}
+	if info := logger.RequestInfoFromContext(ctx); info != nil {
+		info.Set("read_budget_spent", keys[0].cap.Spent(keys[0].key))
+		info.Set("read_budget_key", keys[0].kind)
+	}
 }
 
 func rateLimited(wait time.Duration) error {
@@ -195,21 +237,36 @@ func rateLimited(wait time.Duration) error {
 	).WithRetryAfter(wait))
 }
 
-// rejectDaily is the RATE_LIMITED rejection of a daily counter (ADR-0010 D5): retry_after is the time to
-// the next IST midnight, metadata["limit"] and the request log's limit_name carry name. spent >= 0 is also
-// logged as read_budget_spent.
-func rejectDaily(ctx context.Context, name string, c *DailyCap, spent int64) error {
+// rejectDaily is the RATE_LIMITED rejection of a daily call counter: retry_after is the time to the next
+// IST midnight, metadata["limit"] and the request log's limit_name carry name.
+func rejectDaily(ctx context.Context, name string, c *DailyCap) error {
+	return rejectWith(ctx, name, quota.UntilNextDay(c.now()))
+}
+
+// rejectReadBudget is the RATE_LIMITED rejection of the read budget (ADR-0010 D5). The client always sees
+// limit=read_budget_daily; the request log additionally gets read_budget_key (uid or ip, m7) and
+// read_budget_spent of the key that tripped. retry_after is the time to IST midnight, or
+// RetryAfterInFlight when only the single-flight guard rejected (the budget is not spent yet).
+func rejectReadBudget(ctx context.Context, k *budgetKey, spent int64) error {
+	if info := logger.RequestInfoFromContext(ctx); info != nil {
+		info.Set("read_budget_spent", spent)
+		info.Set("read_budget_key", k.kind)
+	}
+	if k.cap.IsTransient(spent) {
+		return rejectWith(ctx, LimitReadBudgetDaily, RetryAfterInFlight)
+	}
+	return rejectWith(ctx, LimitReadBudgetDaily, quota.UntilNextDay(k.cap.now()))
+}
+
+func rejectWith(ctx context.Context, name string, retryAfter time.Duration) error {
 	if info := logger.RequestInfoFromContext(ctx); info != nil {
 		info.LimitName = name
-		if spent >= 0 {
-			info.Set("read_budget_spent", spent)
-		}
 	}
 	return apierr.ToConnect(apierr.New(
 		connect.CodeResourceExhausted,
 		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
 		"too many requests, please slow down",
-	).WithMeta("limit", name).WithRetryAfter(quota.UntilNextDay(c.now())))
+	).WithMeta("limit", name).WithRetryAfter(retryAfter))
 }
 
 // ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is

@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -96,5 +97,38 @@ func TestLRU_UnboundedCapacity(t *testing.T) {
 	}
 	if c.Len() != 1000 {
 		t.Fatalf("Len() = %d, want 1000 (capacity <= 0 means unbounded)", c.Len())
+	}
+}
+
+func TestLRU_GetOrSet(t *testing.T) {
+	c := New[string, *int](10, 0)
+	made := 0
+	mk := func() *int { made++; v := made; return &v }
+	a := c.GetOrSet("k", mk)
+	b := c.GetOrSet("k", mk)
+	if a != b || made != 1 {
+		t.Fatalf("second GetOrSet must return the first value without calling mk (made=%d)", made)
+	}
+	if got, ok := c.Get("k"); !ok || got != a {
+		t.Fatal("GetOrSet value must be visible to Get")
+	}
+}
+
+func TestLRU_GetOrSet_ConcurrentFirstAccessSharesOneValue(t *testing.T) {
+	c := New[string, *int](10, 0)
+	var wg sync.WaitGroup
+	out := make([]*int, 64)
+	for i := range out {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out[i] = c.GetOrSet("k", func() *int { return new(int) })
+		}()
+	}
+	wg.Wait()
+	for i, v := range out {
+		if v != out[0] {
+			t.Fatalf("goroutine %d got a different value: first-access race", i)
+		}
 	}
 }

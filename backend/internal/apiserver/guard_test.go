@@ -20,10 +20,21 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
+// allowedReadBudgetChargeOnly: procedure -> why the read budget charges but never rejects it (ADR-0010 D5
+// amendment, CLAUDE.md rule 10). Adding an entry here requires a reason and review; the wired
+// ratelimit.Config.ReadBudgetChargeOnly must equal this set exactly.
+var allowedReadBudgetChargeOnly = map[string]string{
+	identityv1connect.IdentityServiceDeleteAccountProcedure:        "right to delete: must work for a user who spent the day's budget (App Store, Play, DPDP)",
+	identityv1connect.IdentityServiceRequestAccountExportProcedure: "right to export: same reason; small read count, per-minute bucket still applies",
+	identityv1connect.IdentityServiceGetAccountExportProcedure:     "polls the export RequestAccountExport started; must not be blocked while it is pending",
+}
+
 // noSideEffectsProcedures lists every linked dzeroth Connect procedure whose proto method declares
 // idempotency_level = NO_SIDE_EFFECTS: the same mechanical read-only signal degraded.Interceptor uses
 // (req.Spec().IdempotencyLevel). Any service apiserver.go imports for registration is linked into this test
-// binary, so a future read RPC shows up here without anyone editing this file.
+// binary, so a future read RPC shows up here without anyone editing this file. It enumerates those linked
+// descriptors rather than building the mux (equivalent in practice: apiserver.Build registers exactly the
+// linked services).
 func noSideEffectsProcedures(t *testing.T) []string {
 	t.Helper()
 	var procs []string
@@ -58,7 +69,7 @@ func defaultRateLimitCfg() config.Config {
 // readBudgetGuardViolations is the guard's logic, split from the enumeration so a mutation test can feed it a
 // synthetic procedure list (a stand-in for a future NO_SIDE_EFFECTS RPC) and a deliberately broken config.
 // Each returned string names the offending procedure or the disabled budget.
-func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemptions map[string]string) []string {
+func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemptions, allowedChargeOnly map[string]string) []string {
 	var out []string
 	if rl.ReadBudget == nil {
 		out = append(out, "read budget is disabled in the rate-limit config Build wires (ADR-0010 D5)")
@@ -66,6 +77,18 @@ func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemp
 	for p := range rl.ReadBudgetExempt {
 		if allowedExemptions[p] == "" {
 			out = append(out, "procedure "+p+" is on the read budget exemption list without an explanation")
+		}
+	}
+	// Charge-only procedures (right to delete / export, CLAUDE.md rule 10) are charged but never rejected: the
+	// wired set must equal the reviewed set, so neither a silent addition nor a silent removal passes.
+	for p := range rl.ReadBudgetChargeOnly {
+		if allowedChargeOnly[p] == "" {
+			out = append(out, "procedure "+p+" is charge-only (never rejected by the read budget) without an explanation")
+		}
+	}
+	for p := range allowedChargeOnly {
+		if _, ok := rl.ReadBudgetChargeOnly[p]; !ok {
+			out = append(out, "procedure "+p+" must be charge-only: the deletion/export path may never be blocked by the read budget")
 		}
 	}
 	if len(procs) == 0 {
@@ -88,7 +111,7 @@ func TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered(t *testing.T) {
 	allowedReadBudgetExemptions := map[string]string{}
 
 	rl := rateLimitConfig(defaultRateLimitCfg(), nil)
-	for _, v := range readBudgetGuardViolations(rl, noSideEffectsProcedures(t), allowedReadBudgetExemptions) {
+	for _, v := range readBudgetGuardViolations(rl, noSideEffectsProcedures(t), allowedReadBudgetExemptions, allowedReadBudgetChargeOnly) {
 		t.Error(v)
 	}
 }
@@ -104,29 +127,43 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 	procs := append(append([]string{}, real...), newRPC)
 
 	tests := []struct {
-		name    string
-		mutate  func(*ratelimit.Config)
-		allowed map[string]string
-		want    []string // substrings that must appear in the violations
+		name      string
+		mutate    func(*ratelimit.Config)
+		allowed   map[string]string
+		allowedCO map[string]string // nil = allowedReadBudgetChargeOnly
+		want      []string          // substrings that must appear in the violations
 	}{
-		{"unmutated config passes", func(*ratelimit.Config) {}, nil, nil},
+		{"unmutated config passes", func(*ratelimit.Config) {}, nil, nil, nil},
 		{"read budget disabled", func(c *ratelimit.Config) { c.ReadBudget = nil }, nil,
-			[]string{"read budget is disabled", newRPC, real[0]}},
+			nil, []string{"read budget is disabled", newRPC, real[0]}},
 		{"exemption without a reason", func(c *ratelimit.Config) {
 			c.ReadBudgetExempt = map[string]struct{}{newRPC: {}}
-		}, nil, []string{"procedure " + newRPC + " is on the read budget exemption list without an explanation"}},
+		}, nil, nil, []string{"procedure " + newRPC + " is on the read budget exemption list without an explanation"}},
 		{"explained exemption still leaves the procedure uncovered", func(c *ratelimit.Config) {
 			c.ReadBudgetExempt = map[string]struct{}{newRPC: {}}
-		}, map[string]string{newRPC: "because"}, []string{"read-only procedure " + newRPC + " is not covered"}},
+		}, map[string]string{newRPC: "because"}, nil, []string{"read-only procedure " + newRPC + " is not covered"}},
 		{"real procedure exempted", func(c *ratelimit.Config) {
 			c.ReadBudgetExempt = map[string]struct{}{real[0]: {}}
-		}, nil, []string{real[0]}},
+		}, nil, nil, []string{real[0]}},
+		{"deletion path loses its charge-only entry", func(c *ratelimit.Config) {
+			c.ReadBudgetChargeOnly = nil
+		}, nil, nil, []string{"procedure " + identityv1connect.IdentityServiceDeleteAccountProcedure + " must be charge-only"}},
+		{"export path loses its charge-only entry", func(c *ratelimit.Config) {
+			delete(c.ReadBudgetChargeOnly, identityv1connect.IdentityServiceRequestAccountExportProcedure)
+		}, nil, nil, []string{"procedure " + identityv1connect.IdentityServiceRequestAccountExportProcedure + " must be charge-only"}},
+		{"new charge-only entry without a reason", func(c *ratelimit.Config) {
+			c.ReadBudgetChargeOnly[newRPC] = struct{}{}
+		}, nil, nil, []string{"procedure " + newRPC + " is charge-only (never rejected by the read budget) without an explanation"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rl := rateLimitConfig(defaultRateLimitCfg(), nil)
 			tt.mutate(&rl)
-			got := strings.Join(readBudgetGuardViolations(rl, procs, tt.allowed), "\n")
+			allowedCO := tt.allowedCO
+			if allowedCO == nil {
+				allowedCO = allowedReadBudgetChargeOnly
+			}
+			got := strings.Join(readBudgetGuardViolations(rl, procs, tt.allowed, allowedCO), "\n")
 			if tt.want == nil && got != "" {
 				t.Fatalf("unexpected violations:\n%s", got)
 			}
@@ -138,7 +175,7 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 		})
 	}
 	// An empty enumeration must fail rather than pass vacuously.
-	if v := readBudgetGuardViolations(rateLimitConfig(defaultRateLimitCfg(), nil), nil, nil); len(v) == 0 {
+	if v := readBudgetGuardViolations(rateLimitConfig(defaultRateLimitCfg(), nil), nil, nil, allowedReadBudgetChargeOnly); len(v) == 0 {
 		t.Error("empty procedure list must be a violation")
 	}
 }
