@@ -167,6 +167,10 @@ void main() {
         'https://\u202eevil.com',
         'https://example.com/\u202etxt.exe',
         'https://[::1]/x',
+        // A bidi override BEFORE the link reorders how it is displayed.
+        '\u202ehttps://evil.com/?moc.elgoog//:sptth',
+        'look \u2067 https://evil.com/x',
+        'arabic mark \u061c https://evil.com/x',
       ]) {
         expect(_tappable(parsePostText(text, const [])), isEmpty, reason: text);
       }

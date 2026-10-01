@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/shared/widgets/app_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,9 +29,9 @@ void main() {
     );
     final images = tester
         .widgetList<CircleAvatar>(find.byType(CircleAvatar))
-        .map((a) => a.backgroundImage! as CachedNetworkImageProvider)
+        .map((a) => a.backgroundImage! as ResizeImage)
         .toList();
-    expect(images[0].maxWidth, 40); // radius 20 at 1x
-    expect(images[1].maxWidth, 400);
+    expect(images[0].width, 40); // radius 20 at 1x
+    expect(images[1].width, 400);
   });
 }

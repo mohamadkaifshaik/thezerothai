@@ -33,6 +33,34 @@ void main() {
   }
 
   blocTest<ProfileCubit, ProfileState>(
+    'a validation error for a malformed id or handle is shown as not found',
+    build: () {
+      when(() => identityRepository.getProfile(userId: 'bad'))
+          .thenThrow(const ValidationException('bad id', field: 'user_id'));
+      return ProfileCubit(
+        identityRepository: identityRepository,
+        graphRepository: graphRepository,
+        userId: 'bad',
+        graphEnabled: true,
+        ownUserId: 'viewer-uid',
+      );
+    },
+    act: (cubit) => cubit.load(),
+    expect: () => [
+      isA<ProfileState>().having(
+        (s) => s.status,
+        'status',
+        ProfileStatus.loading,
+      ),
+      isA<ProfileState>().having(
+        (s) => s.status,
+        'status',
+        ProfileStatus.notFound,
+      ),
+    ],
+  );
+
+  blocTest<ProfileCubit, ProfileState>(
     'opened by user id it loads GetProfile(user_id), not the handle',
     build: () {
       when(() => identityRepository.getProfile(userId: 'target-uid'))

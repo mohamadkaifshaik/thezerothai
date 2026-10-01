@@ -73,6 +73,9 @@ class ProfileCubit extends Cubit<ProfileState> {
       );
     } on NotFoundException {
       emit(const ProfileState(status: ProfileStatus.notFound));
+    } on ValidationException {
+      // A malformed id/handle in a typed or stale link: same as not found.
+      emit(const ProfileState(status: ProfileStatus.notFound));
     } on AppException catch (e) {
       emit(ProfileState(status: ProfileStatus.error, error: e));
     }

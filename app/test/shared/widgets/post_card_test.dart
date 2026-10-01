@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -694,6 +696,45 @@ void main() {
 
       expect(keys, hasLength(2));
       expect(keys[0], keys[1]);
+    });
+  });
+
+  group('disposal mid-request', () {
+    testWidgets('a Mute settling after the card is gone still reports', (
+      tester,
+    ) async {
+      final changed = <graph.Relationship>[];
+      final gate = Completer<graph.Relationship>();
+      when(
+        () => graphRepository.mute(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) => gate.future);
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(),
+            viewerUserId: 'me',
+            now: _now,
+            onRelationshipChanged: changed.add,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mute @alice'));
+      await tester.pump();
+
+      // The card scrolls away / is disposed while the request is in flight.
+      await tester.pumpWidget(const MaterialApp(home: Scaffold()));
+      gate.complete(graph.Relationship(userId: 'u-author', muting: true));
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(changed.single.muting, isTrue);
     });
   });
 }

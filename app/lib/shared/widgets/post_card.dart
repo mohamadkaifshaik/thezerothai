@@ -451,7 +451,18 @@ class _PostMenuState extends State<_PostMenu> {
 
   @override
   void dispose() {
-    _cubit?.close();
+    // A Block/Mute still in flight keeps its cubit until it settles, so
+    // `_run` can still report the result (the server applied it).
+    final cubit = _cubit;
+    if (cubit != null) {
+      if (cubit.state.isUpdating) {
+        cubit.stream
+            .firstWhere((s) => !s.isUpdating)
+            .then((_) => cubit.close(), onError: (_) => cubit.close());
+      } else {
+        cubit.close();
+      }
+    }
     super.dispose();
   }
 
@@ -530,22 +541,26 @@ class _PostMenuState extends State<_PostMenu> {
   ) async {
     final cubit = _cubit!;
     final messenger = ScaffoldMessenger.of(context);
+    // Captured now: the card may be disposed while the request is in flight.
+    final onChanged = widget.onRelationshipChanged;
+    final handle = widget.post.author.handle;
     await action();
     final error = cubit.state.error;
-    if (error != null) {
+    // The snackbar only makes sense while the card is still on screen; the
+    // callback fires either way because the server applied the change.
+    void say(String text) {
+      if (!mounted) return;
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(relationshipErrorMessage(error))),
-        );
+        ..showSnackBar(SnackBar(content: Text(text)));
+    }
+
+    if (error != null) {
+      say(relationshipErrorMessage(error));
       return;
     }
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text('$done @${widget.post.author.handle}.')),
-      );
-    widget.onRelationshipChanged?.call(cubit.state.relationship);
+    say('$done @$handle.');
+    onChanged?.call(cubit.state.relationship);
   }
 
   Future<void> _delete(BuildContext context) async {

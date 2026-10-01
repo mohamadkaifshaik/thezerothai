@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 ///
 /// The one avatar for post cards, list rows and profile headers (reuse-first:
 /// no per-feature copies). Images come through the `cached_network_image`
-/// disk cache and are decoded at display size (`radius * 2` device pixels,
-/// never more than [maxDecodePx]) instead of full size, which keeps long
+/// disk cache and are resized at decode time to display size (`radius * 2`
+/// device pixels, never more than [maxDecodePx]) instead of full size, which keeps long
 /// lists cheap on memory. Lists should pass the 96 px author-snapshot
 /// thumbnail; only the profile header has a larger source.
 class AppAvatar extends StatelessWidget {
@@ -33,10 +33,11 @@ class AppAvatar extends StatelessWidget {
       radius: radius,
       backgroundImage: url.isEmpty
           ? null
-          : CachedNetworkImageProvider(
-              url,
-              maxWidth: pixels,
-              maxHeight: pixels,
+          : ResizeImage(
+              CachedNetworkImageProvider(url),
+              width: pixels,
+              height: pixels,
+              policy: ResizeImagePolicy.fit,
             ),
       child: url.isEmpty ? Icon(Icons.person_outline, size: radius) : null,
     );

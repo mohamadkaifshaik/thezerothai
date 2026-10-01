@@ -54,7 +54,14 @@ const _urlClosers = {')': '(', ']': '[', '}': '{'};
 final _asciiHostRe = RegExp(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$');
 
 // Invisible/bidi controls that can disguise a link's real target.
-final _spoofingRe = RegExp('[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]');
+final _spoofingRe = RegExp(
+  '[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]',
+);
+
+// Bidi embedding/override/isolate controls anywhere in a post can reorder
+// the text around a link (`<RLO>https://evil.com/?moc.elgoog//:sptth` renders
+// as google.com). Such a post gets no tappable links at all.
+final _bidiControlRe = RegExp('[\u061C\u202A-\u202E\u2066-\u2069]');
 
 String _trimUrl(String text, int start, int end) {
   while (end > start + 1) {
@@ -132,7 +139,11 @@ List<PostSpan> parsePostText(String text, Iterable<pb.Mention> mentions) {
   final found = <(int, int, PostSpan)>[];
   final linkRanges = <(int, int)>[];
 
-  for (final match in _urlRe.allMatches(text)) {
+  final allowLinks = !_bidiControlRe.hasMatch(text);
+  final Iterable<RegExpMatch> urlMatches = allowLinks
+      ? _urlRe.allMatches(text)
+      : const <RegExpMatch>[];
+  for (final match in urlMatches) {
     if (_isBlockedBefore(text, match.start, '')) continue;
     final raw = _trimUrl(text, match.start, match.end);
     if (_spoofingRe.hasMatch(raw)) continue;

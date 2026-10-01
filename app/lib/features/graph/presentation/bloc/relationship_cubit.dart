@@ -119,11 +119,13 @@ class RelationshipCubit extends Cubit<RelationshipState> {
     try {
       final updated = await call(key);
       onSuccess();
+      if (isClosed) return;
       emit(RelationshipState(relationship: updated));
     } on AppException catch (e) {
       // Roll back to the pre-optimistic relationship. Never auto-retry
       // DegradedModeException (CLAUDE.md); the caller decides whether to
       // offer a manual retry, which reuses the same key via [keyOf].
+      if (isClosed) return;
       emit(state.copyWith(relationship: previous, isUpdating: false, error: e));
     }
   }
