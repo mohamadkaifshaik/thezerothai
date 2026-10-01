@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
@@ -123,7 +122,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
-	identityServer := identity.NewServer(identitySvc)
+	identityServer := identity.NewServer(identitySvc, identity.WithAllowAnonymous(cfg.AuthEmulator))
 	graphServer := graph.NewServer(graphSvc)
 
 	// posts, timeline, engagement, media, notifications, search, moderation, admin are not implemented in
@@ -131,29 +130,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
-	profileExempt := authn.ProfileExemptProcedures(
-		identityv1connect.IdentityServiceCreateProfileProcedure,
-		// CheckHandleAvailability is read-only and must work before a profile exists (sign-up form);
-		// see the ADR-0006 deviation note in pkg/platform/authn.ProfileExemptProcedures.
-		identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure,
-	)
-
-	idleBucketTTL := 10 * time.Minute
-	rlDefault := ratelimit.NewLimiter(cfg.RateLimit.PerUserPerMinute, idleBucketTTL)
-	rlCheckHandle := ratelimit.NewLimiter(cfg.RateLimit.CheckHandlePerUserPerMinute, idleBucketTTL)
-	rlIP := ratelimit.NewLimiter(cfg.RateLimit.PerIPPerMinute, idleBucketTTL)
-
-	// ADR-0008 D7: Follow/Unfollow 30/min, Block/Unblock/Mute/Unmute 20/min, lists 20/min; GetRelationships
-	// uses rlDefault (the 60/min default). A shared DailyCap (not a second limiter) backs the per-uid daily
-	// list cap (T4), logged as limit_name "graph_list_daily".
-	rlGraphFollow := ratelimit.NewLimiter(cfg.RateLimit.GraphFollowPerMinute, idleBucketTTL)
-	rlGraphBlock := ratelimit.NewLimiter(cfg.RateLimit.GraphBlockPerMinute, idleBucketTTL)
-	rlGraphList := ratelimit.NewLimiter(cfg.RateLimit.GraphListPerMinute, idleBucketTTL)
-	graphListDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphListCallsPerDay)
-	// M2: ONE shared cap across every graph mutation (same DailyCap type, one counter per uid): replays and
-	// no-ops reserve no Firestore quota but still read 1-3 docs. See config.RateLimitConfig.GraphMutationsPerDay
-	// for the default's math. Logged as limit_name "graph_mutation_daily".
-	graphMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphMutationsPerDay)
+	profileExempt := profileExemptProcedures()
 
 	// M1: rate limit (and degraded mode, also a free in-memory check) now run *before* account status.
 	// Previously account status ran first, so a caller who never completes sign-up (no users/{uid}) could
@@ -171,37 +148,11 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		mw.Recover(log),
 		authn.AppCheckInterceptor(appCheckVerifier, authn.Mode(cfg.AppCheck)),
 		authn.IDTokenInterceptor(idVerifier),
-		ratelimit.Interceptor(ratelimit.Config{
-			Default: rlDefault,
-			PerProcedure: map[string]*ratelimit.Limiter{
-				identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
-				graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
-				graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,
-				graphv1connect.GraphServiceBlockProcedure:                         rlGraphBlock,
-				graphv1connect.GraphServiceUnblockProcedure:                       rlGraphBlock,
-				graphv1connect.GraphServiceMuteProcedure:                          rlGraphBlock,
-				graphv1connect.GraphServiceUnmuteProcedure:                        rlGraphBlock,
-				graphv1connect.GraphServiceListFollowersProcedure:                 rlGraphList,
-				graphv1connect.GraphServiceListFollowingProcedure:                 rlGraphList,
-				graphv1connect.GraphServiceListBlockedUsersProcedure:              rlGraphList,
-				graphv1connect.GraphServiceListMutedUsersProcedure:                rlGraphList,
-			},
-			DailyCaps: map[string]ratelimit.NamedDailyCap{
-				graphv1connect.GraphServiceListFollowersProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
-				graphv1connect.GraphServiceListFollowingProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
-				graphv1connect.GraphServiceListBlockedUsersProcedure: {Name: "graph_list_daily", Cap: graphListDailyCap},
-				graphv1connect.GraphServiceListMutedUsersProcedure:   {Name: "graph_list_daily", Cap: graphListDailyCap},
-
-				graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
-				graphv1connect.GraphServiceUnfollowProcedure: {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
-				graphv1connect.GraphServiceBlockProcedure:    {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
-				graphv1connect.GraphServiceUnblockProcedure:  {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
-				graphv1connect.GraphServiceMuteProcedure:     {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
-				graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
-			},
-			IP:               rlIP,
-			TrustedProxyHops: cfg.TrustedProxyHops,
-		}),
+		// ADR-0010 D5 A2/A10: 0-read verified-identity gate (sign-in provider allowlist). Callers outside it never
+		// reach the rate limiter, so a minted uid creates no limiter key and no Firestore read. Anonymous passes
+		// only against the Auth emulator.
+		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
+		ratelimit.Interceptor(RateLimitConfig(cfg)),
 		degraded.Interceptor(cfg.Degraded, degraded.ProcedureSet{} /* no media procedures registered yet */),
 		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt),
 		mw.ErrorMapping(log),

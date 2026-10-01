@@ -3,6 +3,11 @@ syntax = "proto3";
 // Identity: profiles, handles, account lifecycle. Owner module: backend/internal/identity.
 // Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}. See ADR-0003 and ADR-0006.
 // Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
+// Only Google, Apple and verified-email password sign-ins are accepted (ADR-0010 D5 A10; anonymous only against the
+// Auth emulator). Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
+// + PROFILE_REQUIRED at 0 Firestore reads on every RPC except CheckHandleAvailability and CreateProfile, which
+// answer EMAIL_NOT_VERIFIED. A profile-less verified caller on any other RPC gets PROFILE_REQUIRED after at most
+// 1 read, and is never answered RATE_LIMITED because of its IP address (ADR-0010 D5 A8).
 package dzeroth.identity.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -13,13 +18,20 @@ service IdentityService {
   // Creates the caller's profile after Firebase sign-up. Idempotent by uid: a replay returns the existing profile.
   // Transaction: read users/{uid} + handles/{h}; create users, handles, graph.
   // Firestore: reads 2/2, writes 3/3.
+  // Needs a verified identity (Google, Apple or a password account with a verified email; ADR-0010 D5 A2, A10),
+  // else FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads. Its reads are charged to the caller IP's key but never
+  // rejected by it (charge-only, ADR-0010 D5 A8).
   rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse);
 
   // Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7) and capped
   // at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
-  // Profile-exempt, so its reads are charged to both the uid's daily Firestore read budget and the caller IP's
-  // (IPv6: /64) profile-exempt budget of 500 reads/IST day per instance (ADR-0010 D5); over either =>
-  // RATE_LIMITED, metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight.
+  // Profile-exempt, so its reads are charged to the uid's daily Firestore read budget (over it => RATE_LIMITED,
+  // metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight) and metered on the caller IP's
+  // (IPv6: /64) key, which is NEVER a reason to reject (ADR-0010 D5 A8): one address behind a carrier-grade NAT
+  // cannot block sign-ups for others. Only the per-minute bucket and check_handle_daily can still reject.
+  // Needs a verified identity: a password account whose email is unverified, and any sign-in other than Google,
+  // Apple or verified password (ADR-0010 D5 A10), gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads
+  // (before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
   // "Taken" is reported even when the handle's owner blocked the caller (accepted residual, ADR-0008 D9).
   // Free handles are negatively cached 10 s per instance (a just-freed handle may read "taken" for <= 60 s).
   // Firestore: reads 1/0-1, writes 0.
@@ -66,14 +78,19 @@ service IdentityService {
   // Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
   // document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
   // Firestore (sync part): reads 1/1, writes 1/1.
+  // Never rejected by the read budget (charge-only, CLAUDE.md rule 10); bounded instead by account_ops_daily:
+  // 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
+  // metadata["limit"] = "account_ops_daily"; ADR-0010 D5 A6).
   rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
 
   // Starts a data export (1/day/user). Doc id = hash(uid, idempotency_key) so a replay returns the same export.
   // Firestore: reads 1/1 (quotas), writes 2/2 (exports doc + quotas).
+  // Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
   rpc RequestAccountExport(RequestAccountExportRequest) returns (RequestAccountExportResponse);
 
   // Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored).
   // Firestore: reads 1/1, writes 0.
+  // Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
   rpc GetAccountExport(GetAccountExportRequest) returns (GetAccountExportResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }

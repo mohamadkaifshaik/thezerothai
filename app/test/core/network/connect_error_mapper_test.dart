@@ -69,6 +69,54 @@ void main() {
       expect(quota.retryAfter, const Duration(hours: 1));
     });
 
+    test('maps RATE_LIMITED carrying limit and retryAfter', () {
+      final error = _withDetail(
+        connect.Code.resourceExhausted,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+          metadata: {'limit': 'read_budget_inflight'}.entries,
+          retryAfter: pb_duration.Duration(seconds: Int64(1)),
+        ),
+      );
+
+      final result = mapConnectError(error) as RateLimitedException;
+
+      expect(result.limitName, 'read_budget_inflight');
+      expect(result.isInflightHold, isTrue);
+      expect(result.isDaily, isFalse);
+      expect(result.retryAfter, const Duration(seconds: 1));
+    });
+
+    test('maps RATE_LIMITED limit_name and treats *_daily as daily', () {
+      final error = _withDetail(
+        connect.Code.resourceExhausted,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+          metadata: {'limit_name': 'check_handle_daily'}.entries,
+        ),
+      );
+
+      final result = mapConnectError(error) as RateLimitedException;
+
+      expect(result.isDaily, isTrue);
+      expect(result.isInflightHold, isFalse);
+    });
+
+    test('maps ERROR_REASON_EMAIL_NOT_VERIFIED', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_EMAIL_NOT_VERIFIED,
+          message: 'Verify your email',
+        ),
+      );
+
+      expect(mapConnectError(error), isA<EmailNotVerifiedException>());
+    });
+
     test('maps ERROR_REASON_PROFILE_REQUIRED', () {
       final error = _withDetail(
         connect.Code.failedPrecondition,

@@ -127,6 +127,9 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                             Icons.error,
                             color: Colors.red,
                           ),
+                          HandleCheckStatus.unknown => const Icon(
+                            Icons.help_outline,
+                          ),
                           HandleCheckStatus.idle => null,
                         },
                       ),

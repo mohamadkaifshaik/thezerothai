@@ -14,10 +14,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -142,6 +145,13 @@ func newTestServer(t *testing.T, degradedMode config.DegradedMode) (client ident
 // same way a Terraform/env-var change would.
 func newTestServerCfg(t *testing.T, mutate func(*config.Config)) (client identityv1connect.IdentityServiceClient, baseURL string) {
 	t.Helper()
+	return newTestServerCfgLog(t, mutate, nil)
+}
+
+// newTestServerCfgLog is newTestServerCfg with an explicit logger (nil = the production JSON logger on stdout),
+// so a test can read the one request line mw.Logging writes (fs_reads, gate, code, ...).
+func newTestServerCfgLog(t *testing.T, mutate func(*config.Config), log *slog.Logger) (client identityv1connect.IdentityServiceClient, baseURL string) {
+	t.Helper()
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -150,7 +160,9 @@ func newTestServerCfg(t *testing.T, mutate func(*config.Config)) (client identit
 		mutate(&cfg)
 	}
 
-	log := logger.New(cfg.ProjectID)
+	if log == nil {
+		log = logger.New(cfg.ProjectID)
+	}
 	handler, fsClient, err := apiserver.Build(context.Background(), cfg, log)
 	if err != nil {
 		t.Fatalf("apiserver.Build: %v", err)
@@ -456,4 +468,142 @@ func TestE2E_MaxRequestBodyRejected(t *testing.T) {
 	if resp.StatusCode < 400 {
 		t.Fatalf("oversized body status = %d, want a 4xx/5xx rejection", resp.StatusCode)
 	}
+}
+
+// syncBuffer is a goroutine-safe bytes.Buffer for capturing the API's JSON request log lines.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// requestLines returns the decoded "request" log lines (mw.Logging's one line per request) for rpc, in order.
+func (b *syncBuffer) requestLines(t *testing.T, rpc string) []map[string]any {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []map[string]any
+	for _, line := range strings.Split(b.buf.String(), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue // not a JSON log line
+		}
+		if rec["msg"] == "request" && rec["rpc"] == rpc {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+func captureLogger() (*slog.Logger, *syncBuffer) {
+	buf := &syncBuffer{}
+	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo})), buf
+}
+
+// TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus (code review 2 MJ2, ADR-0010 D5 A2): over
+// the real Build chain and a real emulator-minted unverified password token,
+//   - CheckHandleAvailability answers FAILED_PRECONDITION + EMAIL_NOT_VERIFIED. Only the gate produces that on
+//     this RPC (identity's defence in depth sits on CreateProfile), so it proves the gate is wired;
+//   - with PerUserPerMinute = 1, repeated GetMe always answers PROFILE_REQUIRED and never RESOURCE_EXHAUSTED, so
+//     the gate runs BEFORE the rate limiter (no limiter key is created);
+//   - every GetMe line logs fs_reads = 0 and gate=email_unverified, so the gate also runs before account status
+//     (the account-status lookup would be 1 cold read).
+func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *testing.T) {
+	skipIfNoEmulators(t)
+	log, logs := captureLogger()
+	client, _ := newTestServerCfgLog(t, func(cfg *config.Config) {
+		cfg.RateLimit.PerUserPerMinute = 1
+		cfg.RateLimit.PerIPPerMinute = 1000 // keep the shared-IP bucket out of the per-uid assertion
+	}, log)
+	email := fmt.Sprintf("mj2-unverified-%d@example.com", rand.Int63())
+	idToken, _ := newPasswordIDToken(t, email, "correct horse battery staple")
+
+	_, err := client.CheckHandleAvailability(context.Background(), authedRequest(idToken, &identityv1.CheckHandleAvailabilityRequest{
+		Handle: uniqueHandle("mj2"),
+	}))
+	assertErrorReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED)
+
+	const calls = 4
+	for i := 0; i < calls; i++ {
+		_, err := client.GetMe(context.Background(), authedRequest(idToken, &identityv1.GetMeRequest{}))
+		assertErrorReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
+	}
+
+	lines := logs.requestLines(t, identityv1connect.IdentityServiceGetMeProcedure)
+	if len(lines) != calls {
+		t.Fatalf("got %d GetMe request log lines, want %d", len(lines), calls)
+	}
+	for i, rec := range lines {
+		if reads, _ := rec["fs_reads"].(float64); reads != 0 {
+			t.Errorf("GetMe call %d: fs_reads = %v, want 0 (the gate must run before account status)", i, rec["fs_reads"])
+		}
+		if rec["gate"] != "email_unverified" {
+			t.Errorf("GetMe call %d: gate = %v, want email_unverified", i, rec["gate"])
+		}
+		if rec["limit_name"] != nil {
+			t.Errorf("GetMe call %d: limit_name = %v, want none (the gate must run before the limiter)", i, rec["limit_name"])
+		}
+	}
+}
+
+// TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator (ADR-0010 D5 A10): with config.AuthEmulator off
+// (what a deployed environment has), an anonymous-provider token is outside the allowlist and gets the A2
+// answers at 0 reads, logging gate=provider_not_allowed and gate_provider=anonymous; with it on (this test
+// environment) the same token passes the gate.
+func TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator(t *testing.T) {
+	skipIfNoEmulators(t)
+	idToken, _ := newAnonymousIDToken(t)
+
+	t.Run("emulator flag off: rejected", func(t *testing.T) {
+		log, logs := captureLogger()
+		client, _ := newTestServerCfgLog(t, func(cfg *config.Config) { cfg.AuthEmulator = false }, log)
+
+		_, err := client.CheckHandleAvailability(context.Background(), authedRequest(idToken, &identityv1.CheckHandleAvailabilityRequest{
+			Handle: uniqueHandle("a10"),
+		}))
+		assertErrorReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED)
+		_, err = client.GetMe(context.Background(), authedRequest(idToken, &identityv1.GetMeRequest{}))
+		assertErrorReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
+		_, err = client.CreateProfile(context.Background(), authedRequest(idToken, &identityv1.CreateProfileRequest{
+			IdempotencyKey: "e2e-a10-anonymous-idempotency-key",
+			Handle:         uniqueHandle("a10"),
+			DisplayName:    "Should Not Be Created",
+		}))
+		assertErrorReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED)
+
+		for _, rpc := range []string{
+			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure,
+			identityv1connect.IdentityServiceGetMeProcedure,
+			identityv1connect.IdentityServiceCreateProfileProcedure,
+		} {
+			lines := logs.requestLines(t, rpc)
+			if len(lines) != 1 {
+				t.Fatalf("%s: got %d request lines, want 1", rpc, len(lines))
+			}
+			rec := lines[0]
+			if reads, _ := rec["fs_reads"].(float64); reads != 0 {
+				t.Errorf("%s: fs_reads = %v, want 0", rpc, rec["fs_reads"])
+			}
+			if rec["gate"] != "provider_not_allowed" || rec["gate_provider"] != "anonymous" {
+				t.Errorf("%s: gate=%v gate_provider=%v, want provider_not_allowed/anonymous", rpc, rec["gate"], rec["gate_provider"])
+			}
+		}
+	})
+
+	t.Run("emulator flag on: passes the gate", func(t *testing.T) {
+		client, _ := newTestServerCfgLog(t, func(cfg *config.Config) { cfg.AuthEmulator = true }, nil)
+		if _, err := client.CheckHandleAvailability(context.Background(), authedRequest(idToken, &identityv1.CheckHandleAvailabilityRequest{
+			Handle: uniqueHandle("a10"),
+		})); err != nil {
+			t.Fatalf("anonymous token must pass the gate when config.AuthEmulator is on: %v", err)
+		}
+	})
 }

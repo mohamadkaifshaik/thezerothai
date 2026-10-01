@@ -27,15 +27,20 @@ type Cache struct {
 	handles  *cache.LRU[string, string] // handleLower -> uid
 	unread   *cache.LRU[string, int64]
 	notFound *cache.LRU[string, struct{}] // uid -> "no profile yet" (M1 negative cache)
+	// handleFree is the ADR-0010 D5 negative handle cache: handleLower -> "ResolveHandle said NotFound" for
+	// notFoundTTL. Only a hint: CreateProfile/ChangeHandle stay transactional (handles Create), so a stale
+	// "free" answer can never produce a duplicate handle.
+	handleFree *cache.LRU[string, struct{}]
 }
 
 // NewCache builds the cache. ttl is the profile/handle TTL (config.CacheTTL, default 60s).
 func NewCache(ttl time.Duration) *Cache {
 	return &Cache{
-		profiles: cache.New[string, Profile](cacheCapacity, ttl),
-		handles:  cache.New[string, string](cacheCapacity, ttl),
-		unread:   cache.New[string, int64](cacheCapacity, unreadTTL),
-		notFound: cache.New[string, struct{}](cacheCapacity, notFoundTTL),
+		profiles:   cache.New[string, Profile](cacheCapacity, ttl),
+		handles:    cache.New[string, string](cacheCapacity, ttl),
+		unread:     cache.New[string, int64](cacheCapacity, unreadTTL),
+		notFound:   cache.New[string, struct{}](cacheCapacity, notFoundTTL),
+		handleFree: cache.New[string, struct{}](cacheCapacity, notFoundTTL),
 	}
 }
 
@@ -51,6 +56,7 @@ func (c *Cache) SetProfile(p Profile) {
 	c.profiles.Set(p.UserID, p)
 	if p.HandleLower != "" {
 		c.handles.Set(p.HandleLower, p.UserID)
+		c.handleFree.Delete(p.HandleLower)
 	}
 	c.notFound.Delete(p.UserID)
 }
@@ -89,4 +95,20 @@ func (c *Cache) SetUnreadCount(uid string, n int64) {
 
 func (c *Cache) InvalidateUnreadCount(uid string) {
 	c.unread.Delete(uid)
+}
+
+// GetHandleFree reports whether handleLower was confirmed unclaimed within the last notFoundTTL.
+func (c *Cache) GetHandleFree(handleLower string) bool {
+	_, ok := c.handleFree.Get(handleLower)
+	return ok
+}
+
+// SetHandleFree records that handleLower resolved to NotFound, for notFoundTTL.
+func (c *Cache) SetHandleFree(handleLower string) {
+	c.handleFree.Set(handleLower, struct{}{})
+}
+
+// InvalidateHandleFree drops a negative handle entry (the handle was just claimed).
+func (c *Cache) InvalidateHandleFree(handleLower string) {
+	c.handleFree.Delete(handleLower)
 }

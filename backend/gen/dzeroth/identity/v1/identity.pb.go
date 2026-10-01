@@ -7,6 +7,11 @@
 // Identity: profiles, handles, account lifecycle. Owner module: backend/internal/identity.
 // Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}. See ADR-0003 and ADR-0006.
 // Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
+// Only Google, Apple and verified-email password sign-ins are accepted (ADR-0010 D5 A10; anonymous only against the
+// Auth emulator). Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
+// + PROFILE_REQUIRED at 0 Firestore reads on every RPC except CheckHandleAvailability and CreateProfile, which
+// answer EMAIL_NOT_VERIFIED. A profile-less verified caller on any other RPC gets PROFILE_REQUIRED after at most
+// 1 read, and is never answered RATE_LIMITED because of its IP address (ADR-0010 D5 A8).
 
 package identityv1
 

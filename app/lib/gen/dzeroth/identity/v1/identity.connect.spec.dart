@@ -13,6 +13,9 @@ abstract final class IdentityService {
   /// Creates the caller's profile after Firebase sign-up. Idempotent by uid: a replay returns the existing profile.
   /// Transaction: read users/{uid} + handles/{h}; create users, handles, graph.
   /// Firestore: reads 2/2, writes 3/3.
+  /// Needs a verified identity (Google, Apple or a password account with a verified email; ADR-0010 D5 A2, A10),
+  /// else FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads. Its reads are charged to the caller IP's key but never
+  /// rejected by it (charge-only, ADR-0010 D5 A8).
   static const createProfile = connect.Spec(
     '/$name/CreateProfile',
     connect.StreamType.unary,
@@ -22,9 +25,13 @@ abstract final class IdentityService {
 
   /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid, ADR-0008 D7) and capped
   /// at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
-  /// Profile-exempt, so its reads are charged to both the uid's daily Firestore read budget and the caller IP's
-  /// (IPv6: /64) profile-exempt budget of 500 reads/IST day per instance (ADR-0010 D5); over either =>
-  /// RATE_LIMITED, metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight.
+  /// Profile-exempt, so its reads are charged to the uid's daily Firestore read budget (over it => RATE_LIMITED,
+  /// metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight) and metered on the caller IP's
+  /// (IPv6: /64) key, which is NEVER a reason to reject (ADR-0010 D5 A8): one address behind a carrier-grade NAT
+  /// cannot block sign-ups for others. Only the per-minute bucket and check_handle_daily can still reject.
+  /// Needs a verified identity: a password account whose email is unverified, and any sign-in other than Google,
+  /// Apple or verified password (ADR-0010 D5 A10), gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads
+  /// (before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
   /// "Taken" is reported even when the handle's owner blocked the caller (accepted residual, ADR-0008 D9).
   /// Free handles are negatively cached 10 s per instance (a just-freed handle may read "taken" for <= 60 s).
   /// Firestore: reads 1/0-1, writes 0.
@@ -93,6 +100,9 @@ abstract final class IdentityService {
   /// Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
   /// document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
   /// Firestore (sync part): reads 1/1, writes 1/1.
+  /// Never rejected by the read budget (charge-only, CLAUDE.md rule 10); bounded instead by account_ops_daily:
+  /// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
+  /// metadata["limit"] = "account_ops_daily"; ADR-0010 D5 A6).
   static const deleteAccount = connect.Spec(
     '/$name/DeleteAccount',
     connect.StreamType.unary,
@@ -102,6 +112,7 @@ abstract final class IdentityService {
 
   /// Starts a data export (1/day/user). Doc id = hash(uid, idempotency_key) so a replay returns the same export.
   /// Firestore: reads 1/1 (quotas), writes 2/2 (exports doc + quotas).
+  /// Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
   static const requestAccountExport = connect.Spec(
     '/$name/RequestAccountExport',
     connect.StreamType.unary,
@@ -111,6 +122,7 @@ abstract final class IdentityService {
 
   /// Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored).
   /// Firestore: reads 1/1, writes 0.
+  /// Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
   static const getAccountExport = connect.Spec(
     '/$name/GetAccountExport',
     connect.StreamType.unary,

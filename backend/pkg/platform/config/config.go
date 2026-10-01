@@ -21,6 +21,19 @@ import (
 // instance caches must expire well inside it.
 const MaxCacheTTL = 60 * time.Second
 
+// ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call, the figure ADR-0010 D5's
+// cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
+// 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto). Keep it in sync with that RPC's
+// doc comment; tests use this constant, not a literal.
+const ReadBudgetMaxCallReads = 269
+
+// IPReadBudgetMaxCallReads is the per-call hold M of the IP read budget (ADR-0010 D5 A1). Since A8 nothing
+// reserves the IP key (it is charge-only everywhere), so this hold has no admission role; it is the constant any
+// future enforced IP procedure must respect. It is true because a profile-less call charged to the IP key stops
+// at account status after at most 1 read, and a call that finds a profile is charged 0 there (A9). CreateProfile
+// reads several docs but is charge-only, never held.
+const IPReadBudgetMaxCallReads = 2
+
 // DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
 type DegradedMode string
 
@@ -92,6 +105,27 @@ type RateLimitConfig struct {
 	// and ADR-0008's accepted 30.6k/day list-scraping bound. Legitimate use fits with room: 200 follows +
 	// 200 blocks/mutes (the Firestore quotas) plus their undos is under 500.
 	GraphMutationsPerDay int64
+
+	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
+	// (ADR-0010 D5, ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
+	// typical day of ~183 reads). The counter is per instance LIFETIME (in memory, reset only at the IST day
+	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,268 reads
+	// on the budget plus 40 on account_ops_daily = 2,308 per instance lifetime (ADR-0010 D5 A1, A6). The daily
+	// total is that times the lifetimes the uid touches: 3 on a steady day, up to 6 on a rollout day, and up to
+	// ~270 when an attacker idle-cycles instances (residual R2, accepted; abuse-spike.md has the churn check).
+	ReadBudgetPerUIDPerDay int64
+	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv4 or IPv6 /64) daily read METER (ADR-0010 D5 A3, A8, A9),
+	// env READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Since A8 it never rejects: it is charged on
+	// CheckHandleAvailability, CreateProfile and the calls of a verified caller without a profile. The cap is the
+	// level at which a farm behind one address shows up (alert: jsonPayload.read_budget_ip_spent >= 500).
+	ReadBudgetPerIPNoProfilePerDay int64
+	// CheckHandleCallsPerDay is the per-uid daily call cap on CheckHandleAvailability (a ratelimit.DailyCap,
+	// limit_name "check_handle_daily"), env CHECK_HANDLE_CALLS_PER_DAY, default 100.
+	CheckHandleCallsPerDay int64
+	// AccountOpsCallsPerDay is the per-uid daily call cap shared by DeleteAccount, RequestAccountExport and
+	// GetAccountExport (ADR-0010 D5 A6; a ratelimit.DailyCap, limit_name "account_ops_daily"), env
+	// ACCOUNT_OPS_CALLS_PER_DAY, default 20. Those calls are charge-only on the read budget, so this is their bound.
+	AccountOpsCallsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -170,6 +204,11 @@ type Config struct {
 	// FeatureGraph is the ADR-0008 D6 server feature flag gating every GraphService RPC. Loaded from
 	// FEATURE_GRAPH / FEATURE_GRAPH_ALLOWLIST / FEATURE_GRAPH_PERCENT (pkg/platform/flags).
 	FeatureGraph flags.Spec
+
+	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
+	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
+	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
+	AuthEmulator bool
 }
 
 // Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
@@ -283,6 +322,38 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.GraphMutationsPerDay = int64(graphMutationsPerDay)
+	readBudgetUID, err := getInt("READ_BUDGET_PER_UID_PER_DAY", 2000)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.ReadBudgetPerUIDPerDay = int64(readBudgetUID)
+	readBudgetIP, err := getInt("READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", 500)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.ReadBudgetPerIPNoProfilePerDay = int64(readBudgetIP)
+	checkHandleCalls, err := getInt("CHECK_HANDLE_CALLS_PER_DAY", 100)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.CheckHandleCallsPerDay = int64(checkHandleCalls)
+	accountOpsCalls, err := getInt("ACCOUNT_OPS_CALLS_PER_DAY", 20)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.AccountOpsCallsPerDay = int64(accountOpsCalls)
+	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
+	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
+	for name, v := range map[string]int{
+		"READ_BUDGET_PER_UID_PER_DAY":           readBudgetUID,
+		"READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY": readBudgetIP,
+		"CHECK_HANDLE_CALLS_PER_DAY":            checkHandleCalls,
+		"ACCOUNT_OPS_CALLS_PER_DAY":             accountOpsCalls,
+	} {
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
+		}
+	}
 
 	trustedProxyHops, err := getInt("TRUSTED_PROXY_HOPS", 1)
 	if err != nil {
@@ -317,6 +388,13 @@ func Load() (Config, error) {
 	}
 	if q.NewAccountBlocksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", 50); err != nil {
 		return Config{}, err
+	}
+
+	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
+	// never be true in a deployed environment, so refuse to start.
+	authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST") != ""
+	if authEmulator && (env == "dev" || env == "prod") {
+		return Config{}, fmt.Errorf("config: FIREBASE_AUTH_EMULATOR_HOST must not be set in env %q (the Admin SDK would accept unsigned tokens)", env)
 	}
 
 	allowedEmails := splitCSV(os.Getenv("INTERNAL_OIDC_ALLOWED_EMAILS"))
@@ -382,6 +460,7 @@ func Load() (Config, error) {
 		CORSAllowedOrigins:        corsOrigins,
 		TrustedProxyHops:          trustedProxyHops,
 		FeatureGraph:              featureGraph,
+		AuthEmulator:              authEmulator,
 	}, nil
 }
 

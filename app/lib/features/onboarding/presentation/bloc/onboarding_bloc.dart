@@ -128,6 +128,15 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
     } on ProfileRequiredException {
       emit(state.copyWith(status: OnboardingStatus.profileRequired));
+    } on EmailNotVerifiedException catch (e) {
+      // Provider/verification gate (ADR-0010 D5 A2/A10) answered on an exempt
+      // RPC: same verify-your-email state as CreateProfile.
+      emit(
+        state.copyWith(
+          status: OnboardingStatus.emailVerificationRequired,
+          error: e,
+        ),
+      );
     } on AppException catch (e) {
       // A cached profile is still good enough to use; only surface the
       // error (and block on it) when we had nothing to show.
@@ -192,6 +201,30 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           handleCheckMessage: response.available
               ? ''
               : _handleUnavailableMessage(response.reason),
+        ),
+      );
+    } on EmailNotVerifiedException catch (e) {
+      // Not "handle unavailable": the account itself must verify first
+      // (A2/A10 gate). CreateProfileScreen renders VerifyEmailView.
+      if (state.handle != handle) return;
+      emit(
+        state.copyWith(
+          handleCheckStatus: HandleCheckStatus.idle,
+          handleCheckMessage: '',
+          status: OnboardingStatus.emailVerificationRequired,
+          error: e,
+        ),
+      );
+    } on RateLimitedException {
+      // N1: a rate-limited probe says nothing about the handle. Treat it as
+      // unknown and let the user submit; CreateProfile validates again.
+      if (state.handle != handle) return;
+      emit(
+        state.copyWith(
+          handleCheckStatus: HandleCheckStatus.unknown,
+          handleCheckMessage:
+              "Couldn't check this handle right now. We'll confirm it when "
+              'you continue.',
         ),
       );
     } on AppException catch (e) {

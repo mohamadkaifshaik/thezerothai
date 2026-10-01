@@ -62,6 +62,49 @@ is in the error metadata the client sees, not in the log line, so identify it by
 - List scraping: `jsonPayload.limit_name="graph_list_daily"` (the per-uid daily cap on ListFollowers, ListFollowing,
   ListBlockedUsers and ListMutedUsers). Sort by `uid_hash`.
 - Bulk mutation replays: `jsonPayload.limit_name="graph_mutation_daily"`.
+- Read scraping / read-budget exhaustion (ADR-0010 D5, T3). **Logs Explorer filters only: Log Analytics is not
+  enabled (no SQL, no `<log view>`).** Base filter as in section 1. Narrow with one of:
+  - `jsonPayload.limit_name="read_budget_daily"`: the per-uid daily Firestore read budget is spent
+    (`READ_BUDGET_PER_UID_PER_DAY`, default 2,000). Split by `jsonPayload.read_budget_key`: `uid` is a heavy account or
+    sybils (the only value in production since A8; `ip` rejections no longer occur, the IP key never rejects).
+  - `jsonPayload.limit_name="read_budget_inflight"`: only the A1 hold (one call at a time near the cap, the client
+    retries after 1 s). Not an abuse signal by itself.
+  - `jsonPayload.limit_name="check_handle_daily"`: the 100 calls/uid/day cap on CheckHandleAvailability.
+  - `jsonPayload.limit_name="account_ops_daily"`: the 20 calls/uid/day cap on DeleteAccount, RequestAccountExport and
+    GetAccountExport (`ACCOUNT_OPS_CALLS_PER_DAY`; those calls are charge-only on the read budget, A6).
+  - `jsonPayload.gate="email_unverified"`: an unverified password account stopped by the A2 gate at 0 reads. A spike
+    with many `uid_hash` values is a minted-account flood that never verified (section 2). It costs nothing.
+  - `jsonPayload.gate="provider_not_allowed"` (A10): a caller whose sign-in provider is not Google, Apple or verified
+    password, also stopped at 0 reads. `jsonPayload.gate_provider` says which (cut to 32 bytes). Any hit outside a
+    test means a provider was enabled in the Firebase console without an ADR amendment (provider drift): disable it.
+  - `jsonPayload.profile_required=true`: a verified caller without a profile (normal during sign-up).
+  - `jsonPayload.read_budget_ip_spent >= 500` (A8): a profile-less farm behind one address. It is a meter now: the
+    calls are no longer rejected, so this filter is the only signal. A single `uid_hash` is a heavy user; many hashes
+    behind one address is a farm (section 2, then disable the accounts).
+  - WARN `jsonPayload.read_budget_over_max=true`: a call read more than its hold M (269 uid, 2 IP). Raise
+    `config.ReadBudgetMaxCallReads` / `IPReadBudgetMaxCallReads` together with the RPC change (A1).
+  Spend per account: max `jsonPayload.read_budget_spent` per `uid_hash` (present on every request the interceptor saw).
+  Read it with the bound in mind: **the counters are per instance lifetime, not per day.** One verified account can
+  spend at most 2,000 - 1 + 269 + 40 = **2,308 reads per instance lifetime** (A1, A6). The daily figure is that times
+  the lifetimes it touches: at most 3 instances on a steady day (about 6.9k reads, 13.8% of the free 50k), up to 6 on a
+  rollout day (candidate revision beside the serving one, about 13.8k), and many more if the account idle-cycles
+  instances (below).
+- **R2 churn check (instance cycling, ADR-0010 D5 residual R2).** An account that spends, waits for its instance to
+  scale to zero, and repeats resets its counter each time (about 208k reads/day at ~90 cycles, about 623k/day at the
+  270-lifetime ceiling). The same `uid_hash` rejected with `read_budget_daily` on **3 or more distinct
+  `labels.instanceId` in one IST day** is the tell. In Logs Explorer, filter `jsonPayload.limit_name="read_budget_daily"`
+  plus the `uid_hash` under suspicion, then group or expand by the log entry's `labels.instanceId` (the Cloud Run
+  instance id lives on the entry label, not in `jsonPayload`). A budget alert driven by Firestore reads counts as a hit
+  too. Response: disable the account (lever 3 below). If it matches on 2 days in any 7, or one budget alert is
+  attributable to reads, the persisted-counter fix (ADR-0010 Option 2c-B) is triggered: raise it with the architect.
+- `DEGRADED_MODE=readonly` (section 4) **does not reduce reads.** It rejects mutating RPCs, and read-only RPCs
+  (the ones the read budget meters, including GetHomeTimeline, GetProfile, CheckHandleAvailability) keep working at
+  full cost. For a read flood use the levers below (disable the account, lower `READ_BUDGET_PER_UID_PER_DAY`,
+  `FEATURE_POSTS=off`), not readonly mode.
+- Lever order for a read-budget incident: (1) disable the account (section 3); (2) the sign-up kill switch
+  (section 2) if it is a farm; (3) lower `READ_BUDGET_PER_UID_PER_DAY` with the pinned-traffic procedure below;
+  (4) `FEATURE_POSTS=off`. Lowering the env var applies per instance lifetime, so it takes full effect only as old
+  instances die.
 - Cost check: sum `jsonPayload.fs_reads` for the suspect `uid_hash` and compare with the daily 50k read quota.
 
 **Levers, lightest first:**
@@ -71,7 +114,8 @@ is in the error metadata the client sees, not in the log line, so identify it by
    **pinned-traffic procedure** in `docs/runbooks/cost-spike.md` (a new revision gets 0% traffic in prod until you
    shift it explicitly), with `--update-env-vars QUOTA_FOLLOWS_PER_DAY=50,LIST_CALLS_PER_DAY=20` instead of
    `DEGRADED_MODE`. The daily list cap is in memory per instance, so it resets on scale-to-zero and is approximate
-   (worst case x3 with 3 instances). Per-user Firestore quotas are exact. Then reconcile Terraform so the next apply
+   (per instance lifetime: the cap restarts with every new instance, see the R2 churn check above). Per-user
+   Firestore quotas are exact. Then reconcile Terraform so the next apply
    doesn't undo it.
 2. **Kill switch.** `FEATURE_GRAPH=off` with the same pinned-traffic procedure. Every graph RPC then returns
    FAILED_PRECONDITION `FEATURE_DISABLED` with 0 Firestore reads, and the app hides the graph UI. Also `allowlist`

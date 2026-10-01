@@ -34,9 +34,10 @@ func PreAuthIPMiddleware(limiter *Limiter, trustedProxyHops int, exemptPaths map
 				next.ServeHTTP(w, r)
 				return
 			}
-			ip := ResolveClientIP(r.Header, trustedProxyHops).IP
-			if ip != "" {
-				if ok, wait := limiter.Allow(ip); !ok {
+			// D5 A5: the canonical key (IPv4, or IPv6 /64), so rotating addresses inside a /64 shares one bucket
+			// and a garbage X-Forwarded-For entry never becomes a key.
+			if ip, ok := IPBudgetKey(ResolveClientIP(r.Header, trustedProxyHops).IP); ok {
+				if allowed, wait := limiter.Allow(ip); !allowed {
 					w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 					http.Error(w, "too many requests, please slow down", http.StatusTooManyRequests)
 					return

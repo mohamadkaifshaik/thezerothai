@@ -65,6 +65,66 @@ void main() {
     expect(find.text('Retry'), findsNothing);
   });
 
+  testWidgets('a transient RATE_LIMITED says to wait a moment', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        const RateLimitedException(
+          'raw',
+          limitName: 'read_budget_inflight',
+          retryAfter: Duration(seconds: 1),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Give it a moment'), findsOneWidget);
+  });
+
+  testWidgets('a daily RATE_LIMITED says it resets later, not "a moment"', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        const RateLimitedException(
+          'raw',
+          limitName: 'read_budget_daily',
+          retryAfter: Duration(hours: 5, minutes: 10),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('resets in about 5 hours'), findsOneWidget);
+    expect(find.textContaining('moment'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+  });
+
+  test('rateLimitedMessage handles missing retryAfter and minutes', () {
+    expect(
+      rateLimitedMessage(
+        const RateLimitedException('x', limitName: 'check_handle_daily'),
+      ),
+      contains('resets later today'),
+    );
+    expect(
+      rateLimitedMessage(
+        const RateLimitedException(
+          'x',
+          limitName: 'account_ops_daily',
+          retryAfter: Duration(minutes: 1),
+        ),
+      ),
+      contains('in about 1 minute.'),
+    );
+  });
+
+  testWidgets('EmailNotVerifiedException shows a verify-your-email message', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(const EmailNotVerifiedException('raw')));
+
+    expect(find.textContaining('verify your email'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+  });
+
   testWidgets('FeatureDisabledException shows a friendly message, no retry', (
     tester,
   ) async {

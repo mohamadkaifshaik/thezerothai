@@ -24,7 +24,7 @@ func authInject(uid string) connect.UnaryInterceptorFunc {
 	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			if uid != "" {
-				ctx = authn.WithClaims(ctx, authn.Claims{UID: uid})
+				ctx = authn.WithClaims(ctx, authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 			}
 			return next(ctx, req)
 		}

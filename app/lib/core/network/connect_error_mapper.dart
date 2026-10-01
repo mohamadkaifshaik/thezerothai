@@ -26,7 +26,11 @@ AppException mapConnectError(Object error) {
       case common.ErrorReason.ERROR_REASON_VALIDATION:
         return ValidationException(message, field: detail.metadata['field']);
       case common.ErrorReason.ERROR_REASON_RATE_LIMITED:
-        return RateLimitedException(message, retryAfter: retryAfter);
+        return RateLimitedException(
+          message,
+          retryAfter: retryAfter,
+          limitName: detail.metadata['limit'] ?? detail.metadata['limit_name'],
+        );
       case common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED:
         return QuotaExceededException(
           message,
@@ -69,7 +73,10 @@ AppException mapConnectError(Object error) {
 }
 
 /// Finds and decodes the `dzeroth.common.v1.ErrorDetail` attached to a
-/// Connect error, if any.
+/// Connect error, if any. Also used by the transport retry interceptor.
+common.ErrorDetail? findErrorDetail(connect.ConnectException error) =>
+    _findErrorDetail(error);
+
 common.ErrorDetail? _findErrorDetail(connect.ConnectException error) {
   for (final raw in error.details) {
     if (!raw.type.endsWith('ErrorDetail')) continue;

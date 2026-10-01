@@ -23,6 +23,8 @@ func clearEnv(t *testing.T) {
 		"QUOTA_BLOCKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY",
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
 		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY",
+		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
+		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -408,6 +410,13 @@ func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
 	if cfg.RateLimit.GraphMutationsPerDay != 500 {
 		t.Errorf("RateLimit.GraphMutationsPerDay = %d, want 500", cfg.RateLimit.GraphMutationsPerDay)
 	}
+	if cfg.RateLimit.ReadBudgetPerUIDPerDay != 2000 || cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay != 500 || cfg.RateLimit.CheckHandleCallsPerDay != 100 {
+		t.Errorf("read budget defaults = %d/%d/%d, want 2000/500/100",
+			cfg.RateLimit.ReadBudgetPerUIDPerDay, cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay, cfg.RateLimit.CheckHandleCallsPerDay)
+	}
+	if cfg.RateLimit.AccountOpsCallsPerDay != 20 {
+		t.Errorf("RateLimit.AccountOpsCallsPerDay = %d, want 20 (ADR-0010 D5 A6)", cfg.RateLimit.AccountOpsCallsPerDay)
+	}
 	// R-N8: CheckHandleAvailability raised from 10 to 20/min.
 	if cfg.RateLimit.CheckHandlePerUserPerMinute != 20 {
 		t.Errorf("RateLimit.CheckHandlePerUserPerMinute = %d, want 20", cfg.RateLimit.CheckHandlePerUserPerMinute)
@@ -423,4 +432,68 @@ func TestMustLoad_PanicsOnError(t *testing.T) {
 		}
 	}()
 	MustLoad()
+}
+
+// m3: a zero or negative read-budget / check-handle cap would lock every uid out after one call, so Load
+// rejects it instead of treating it as "disabled".
+func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
+	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
+		"ACCOUNT_OPS_CALLS_PER_DAY"} {
+		for _, val := range []string{"0", "-5"} {
+			t.Run(key+"="+val, func(t *testing.T) {
+				clearEnv(t)
+				t.Setenv(key, val)
+				_, err := Load()
+				if err == nil || !strings.Contains(err.Error(), key) {
+					t.Fatalf("Load() error = %v, want an error naming %s", err, key)
+				}
+			})
+		}
+	}
+	clearEnv(t)
+	t.Setenv("READ_BUDGET_PER_UID_PER_DAY", "1")
+	if _, err := Load(); err != nil {
+		t.Fatalf("a positive cap must load: %v", err)
+	}
+}
+
+// TestLoad_AuthEmulator (ADR-0010 D5 A10): AuthEmulator mirrors FIREBASE_AUTH_EMULATOR_HOST, and Load refuses the
+// variable in dev and prod, where the Admin SDK would accept unsigned emulator tokens.
+func TestLoad_AuthEmulator(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         string
+		host        string
+		wantErr     bool
+		wantEmulate bool
+	}{
+		{"local, unset", "local", "", false, false},
+		{"local, set", "local", "127.0.0.1:9099", false, true},
+		{"dev, unset", "dev", "", false, false},
+		{"dev, set", "dev", "127.0.0.1:9099", true, false},
+		{"prod, unset", "prod", "", false, false},
+		{"prod, set", "prod", "127.0.0.1:9099", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("ENV", tt.env)
+			if tt.env != "local" {
+				t.Setenv("FIREBASE_PROJECT_ID", "dzeroth-"+tt.env)
+				t.Setenv("CURSOR_HMAC_KEY", "secret")
+				t.Setenv("INTERNAL_OIDC_AUDIENCE", "https://api-xyz.a.run.app")
+				t.Setenv("INTERNAL_OIDC_ALLOWED_EMAILS", "sa@x.iam.gserviceaccount.com")
+			}
+			if tt.host != "" {
+				t.Setenv("FIREBASE_AUTH_EMULATOR_HOST", tt.host)
+			}
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.AuthEmulator != tt.wantEmulate {
+				t.Errorf("AuthEmulator = %v, want %v", cfg.AuthEmulator, tt.wantEmulate)
+			}
+		})
+	}
 }

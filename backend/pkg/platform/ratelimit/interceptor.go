@@ -2,7 +2,9 @@ package ratelimit
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -11,7 +13,10 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // Config wires the interceptor: PerProcedure overrides the per-uid Default limiter for specific hot
@@ -35,6 +40,85 @@ type Config struct {
 	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
 	// per-request line can be queried by limiter (e.g. "graph_list_daily").
 	DailyCaps map[string]NamedDailyCap
+
+	// ReadBudget is the per-uid daily Firestore read budget (ADR-0010 D5, T3): the same DailyCap type as
+	// DailyCaps, counting reads instead of calls. It covers EVERY procedure (there is no per-procedure
+	// opt-in, so a future read RPC is covered automatically); ReadBudgetExempt (never charged) and
+	// ReadBudgetChargeOnly (charged, never rejected) are the only escape hatches and must stay empty unless
+	// a comment explains each entry. Before next the call is rejected when the uid's
+	// spent reads are >= the cap; after next (success or error) budget.FromContext(ctx).Reads() is charged.
+	ReadBudget *DailyCap
+	// ReadBudgetIP is the per-IP (IPv4 address or IPv6 /64, IPBudgetKey) daily read meter (D5 A3, A8, A9). In
+	// production it never rejects (A8): it is charged for ReadBudgetIPChargeOnly procedures, for the non-exempt
+	// calls of a uid this instance has seen without a profile (A3, charged 0 when the call finds a profile, A9)
+	// and for a verified profile-less caller's call. It never applies to callers with a profile, who can share a
+	// carrier-grade-NAT address with thousands of others. A procedure in ReadBudgetIPEnforce would be reserved
+	// and rejected with the hold WithMaxCallReads(IPBudgetMaxCallReads); that set is empty and the guard test
+	// keeps it so.
+	ReadBudgetIP *DailyCap
+	// ReadBudgetIPEnforce (empty since A8) and ReadBudgetIPChargeOnly (CheckHandleAvailability, CreateProfile)
+	// are the A4/A8 sets. Their union must equal the authn profile-exempt set (guard test, security L6).
+	ReadBudgetIPEnforce    map[string]struct{}
+	ReadBudgetIPChargeOnly map[string]struct{}
+	// ReadBudgetExempt lists procedures the read budget does not cover. Must stay empty (guard test).
+	ReadBudgetExempt map[string]struct{}
+	// ReadBudgetChargeOnly lists procedures that are charged against the budget but never rejected by it
+	// (CLAUDE.md rule 10: the right-to-delete and export paths must work for a user who has spent the day's
+	// budget). Every entry needs a reason in the guard test's allowedReadBudgetChargeOnly. Their reads are
+	// small and still bounded by the per-minute bucket.
+	ReadBudgetChargeOnly map[string]struct{}
+}
+
+// LimitReadBudgetDaily is the limit_name / metadata["limit"] of a read budget rejection.
+const LimitReadBudgetDaily = "read_budget_daily"
+
+// LimitReadBudgetInflight is the limit_name / metadata["limit"] of a rejection by the in-flight hold alone
+// (ADR-0010 D5 A1/A7): the budget is not spent, the client retries in RetryAfterInFlight.
+const LimitReadBudgetInflight = "read_budget_inflight"
+
+// ReadBudgetCovers reports whether the read budget applies to procedure. The apiserver guard test asserts
+// it for every registered NO_SIDE_EFFECTS procedure.
+func (c Config) ReadBudgetCovers(procedure string) bool {
+	if c.ReadBudget == nil {
+		return false
+	}
+	_, exempt := c.ReadBudgetExempt[procedure]
+	return !exempt
+}
+
+// ReadBudgetEnforces reports whether the read budget can REJECT procedure: it covers it and it is not
+// charge-only.
+func (c Config) ReadBudgetEnforces(procedure string) bool {
+	_, chargeOnly := c.ReadBudgetChargeOnly[procedure]
+	return c.ReadBudgetCovers(procedure) && !chargeOnly
+}
+
+// RetryAfterInFlight is the retry_after of a read budget rejection caused only by the single-flight guard
+// (another call is in flight near the cap), not by an exhausted budget.
+const RetryAfterInFlight = time.Second
+
+// ProfileLessMarkTTL is how long a uid seen without a profile stays marked (D5 A3). The mark may be stale
+// (the profile can be created on another instance); any call that finds a profile clears it (A9).
+const ProfileLessMarkTTL = 10 * time.Minute
+
+// IPBudgetKey normalises a client IP into the key of every IP-keyed limiter (D5 A5): the canonical netip
+// string of an IPv4 address, or of the /64 prefix of an IPv6 address (a single host rotates freely inside
+// its /64; zones are dropped, IPv4-mapped addresses are unmapped). It never returns raw input: ok is false
+// when ip does not parse, and the key is at most 43 bytes.
+func IPBudgetKey(ip string) (key string, ok bool) {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return "", false
+	}
+	addr = addr.WithZone("").Unmap()
+	if addr.Is4() {
+		return addr.String(), true
+	}
+	p, err := addr.Prefix(64)
+	if err != nil {
+		return "", false
+	}
+	return p.String(), true
 }
 
 // NamedDailyCap pairs a DailyCap with the name it reports in logs/metadata when it rejects a call.
@@ -53,8 +137,12 @@ type NamedDailyCap struct {
 // — the two are independent Limiter instances (see apiserver.Build) so a request is never double-charged
 // against the same bucket.
 func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
+	// A3: uids this instance has seen without a profile (per-instance, TTL ProfileLessMarkTTL, LRU-bounded;
+	// reuses cache.LRU, no new limiter type).
+	profileLess := cache.New[string, struct{}](maxTrackedDailyKeys, ProfileLessMarkTTL)
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		return func(ctx context.Context, req connect.AnyRequest) (resp connect.AnyResponse, err error) {
+			procedure := req.Spec().Procedure
 			result := ResolveClientIP(req.Header(), cfg.TrustedProxyHops)
 			// M2: xff_hops/via_hosting ride the request's existing logger.RequestInfo pointer so mw.Logging's
 			// one INFO-level line per request carries them — the previous approach (a separate DebugContext
@@ -64,16 +152,18 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 				info.XFFHops = result.Hops
 				info.ViaHosting = result.ViaHosting
 			}
+			// A5: every IP-keyed structure uses the canonical key (IPv4, or IPv6 /64); no key without one.
+			ipKey, hasIP := IPBudgetKey(result.IP)
 
-			if cfg.IP != nil && result.IP != "" {
-				if ok, wait := cfg.IP.Allow(result.IP); !ok {
+			if cfg.IP != nil && hasIP {
+				if ok, wait := cfg.IP.Allow(ipKey); !ok {
 					return nil, rateLimited(wait)
 				}
 			}
 
 			limiter := cfg.Default
 			if cfg.PerProcedure != nil {
-				if l, ok := cfg.PerProcedure[req.Spec().Procedure]; ok {
+				if l, ok := cfg.PerProcedure[procedure]; ok {
 					limiter = l
 				}
 			}
@@ -83,20 +173,165 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 					return nil, rateLimited(wait)
 				}
 			}
-			if cfg.DailyCaps != nil && hasUID {
-				if named, ok := cfg.DailyCaps[req.Spec().Procedure]; ok && named.Cap != nil {
-					if !named.Cap.Allow(uid) {
-						if info := logger.RequestInfoFromContext(ctx); info != nil {
-							info.LimitName = named.Name
-						}
-						return nil, rateLimited(0)
+
+			// ADR-0010 D5 read budget. Keys: the uid (A6: charge-only for account operations) and the IP key
+			// (A3, A8): charge-only everywhere (CheckHandleAvailability, CreateProfile and the non-exempt calls of
+			// a marked uid), so the IP key never rejects. A uid rejection happens before any Firestore read (this
+			// runs before account status).
+			var budgetKeys []budgetKey
+			if cfg.ReadBudgetCovers(procedure) {
+				_, chargeOnly := cfg.ReadBudgetChargeOnly[procedure]
+				if hasUID {
+					budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudget, key: uid, kind: "uid", chargeOnly: chargeOnly})
+				}
+				if cfg.ReadBudgetIP != nil && hasIP {
+					_, enforce := cfg.ReadBudgetIPEnforce[procedure]
+					_, ipChargeOnly := cfg.ReadBudgetIPChargeOnly[procedure]
+					marked := false
+					if hasUID && !enforce && !ipChargeOnly {
+						_, marked = profileLess.Get(uid)
+					}
+					switch {
+					case enforce:
+						budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: ipKey, kind: "ip", chargeOnly: chargeOnly})
+					case ipChargeOnly:
+						budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: ipKey, kind: "ip", chargeOnly: true})
+					case marked:
+						// A8: a marked uid's non-exempt call is only metered on the IP key, never held or rejected.
+						// A9: viaMark lets settleReadBudget skip the charge when the call finds a profile.
+						budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: ipKey, kind: "ip", chargeOnly: true, viaMark: true})
 					}
 				}
 			}
-			return next(ctx, req)
+			for i := range budgetKeys {
+				k := &budgetKeys[i]
+				if k.chargeOnly {
+					continue // charged after the call, never rejected
+				}
+				ok, spent := k.cap.Reserve(k.key)
+				if !ok {
+					// Free the in-flight slots already taken by earlier keys of this call (0 units).
+					for _, taken := range budgetKeys[:i] {
+						if taken.reserved {
+							taken.cap.Release(taken.key, 0)
+						}
+					}
+					return nil, rejectReadBudget(ctx, budgetKeys, i, spent)
+				}
+				k.reserved = true
+			}
+			// M1/m1: settle in a defer so the reads already spent are charged and the in-flight slot is freed
+			// on every exit, including a panic unwinding to mw.Recover (which sits outside this interceptor).
+			// It reads the counter at exit, so the account-status interceptor's reads are included
+			// (mw.Logging, which owns the counter, is outermost).
+			completed := false
+			defer func() {
+				s := settlement{keys: budgetKeys, procedure: procedure, uid: uid, ipKey: ipKey, hasUID: hasUID, hasIP: hasIP}
+				settleReadBudget(ctx, cfg, profileLess, s, completed && err == nil)
+			}()
+
+			if cfg.DailyCaps != nil && hasUID {
+				if named, ok := cfg.DailyCaps[procedure]; ok && named.Cap != nil {
+					if !named.Cap.Allow(uid) {
+						return nil, rejectDaily(ctx, named.Name, named.Cap)
+					}
+				}
+			}
+
+			resp, err = next(ctx, req)
+			completed = true
+			return resp, err
 		}
 	}
 	return connect.UnaryInterceptorFunc(interceptor)
+}
+
+// budgetKey is one read-budget counter a call is checked and charged against.
+type budgetKey struct {
+	cap        *DailyCap
+	key        string
+	kind       string // "uid" or "ip": log-only (A7), never sent to the client
+	chargeOnly bool
+	reserved   bool // Reserve admitted this call, so Release (not Charge) settles it
+	viaMark    bool // the IP key is here only because the uid carries an A3 profile-less mark (A8/A9)
+}
+
+// settlement is what settleReadBudget needs about the finished call.
+type settlement struct {
+	keys      []budgetKey
+	procedure string
+	uid       string
+	ipKey     string
+	hasUID    bool
+	hasIP     bool
+}
+
+// settleReadBudget runs after the call on every exit path. It charges the reads the call actually spent to
+// every key (releasing the in-flight slot of the reserved ones), applies A3 (a verified caller without a
+// profile is charged to its IP key unless that key was already in play, and its uid is marked) and clears the
+// mark after a successful CreateProfile (a charge-only IP procedure). It logs the A7 fields, and WARNs when a
+// held call read more than its M, because the A1 bound assumes that never happens.
+func settleReadBudget(ctx context.Context, cfg Config, profileLess *cache.LRU[string, struct{}], s settlement, succeeded bool) {
+	reads := budget.FromContext(ctx).Reads()
+	info := logger.RequestInfoFromContext(ctx)
+	// A9: the uid was marked profile-less when the call began, but this call found a profile (the mark was stale,
+	// e.g. the profile was created on another instance). Charge the IP key 0, drop it from the spend log, unmark.
+	foundProfile := info != nil && info.ProfileFound
+	keys := make([]budgetKey, 0, len(s.keys)+1)
+	for _, k := range s.keys {
+		if k.viaMark && foundProfile {
+			if s.hasUID {
+				profileLess.Delete(s.uid)
+			}
+			continue
+		}
+		keys = append(keys, k)
+	}
+	for _, k := range keys {
+		if !k.reserved {
+			k.cap.Charge(k.key, reads)
+			continue
+		}
+		k.cap.Release(k.key, reads)
+		if m := k.cap.MaxCallReads(); m > 0 && reads > m {
+			slog.Default().WarnContext(ctx, "read_budget_over_max", "read_budget_over_max", true,
+				"key", k.kind, "reads", reads, "max_call_reads", m, "rpc", s.procedure, "uid_hash", logger.HashUID(s.uid))
+		}
+	}
+	if info != nil && info.ProfileRequired && s.hasIP && cfg.ReadBudgetIP != nil && cfg.ReadBudgetCovers(s.procedure) {
+		hasIPKey := false
+		for _, k := range keys {
+			hasIPKey = hasIPKey || k.kind == "ip"
+		}
+		if !hasIPKey {
+			cfg.ReadBudgetIP.Charge(s.ipKey, reads)
+			keys = append(keys, budgetKey{cap: cfg.ReadBudgetIP, key: s.ipKey, kind: "ip", chargeOnly: true})
+		}
+		if s.hasUID {
+			profileLess.Set(s.uid, struct{}{})
+		}
+		info.Set("profile_required", true)
+	}
+	if _, createsProfile := cfg.ReadBudgetIPChargeOnly[s.procedure]; createsProfile && succeeded && s.hasUID {
+		profileLess.Delete(s.uid)
+	}
+	logBudgetSpends(ctx, keys)
+}
+
+// logBudgetSpends sets read_budget_spent (always the uid's spend) and read_budget_ip_spent (the IP key's, when
+// that key was reserved, charged or rejected) on the request's log line. The IP address itself is never logged.
+func logBudgetSpends(ctx context.Context, keys []budgetKey) {
+	info := logger.RequestInfoFromContext(ctx)
+	if info == nil {
+		return
+	}
+	for _, k := range keys {
+		if k.kind == "uid" {
+			info.Set("read_budget_spent", k.cap.Spent(k.key))
+		} else {
+			info.Set("read_budget_ip_spent", k.cap.Spent(k.key))
+		}
+	}
 }
 
 func rateLimited(wait time.Duration) error {
@@ -105,6 +340,42 @@ func rateLimited(wait time.Duration) error {
 		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
 		"too many requests, please slow down",
 	).WithRetryAfter(wait))
+}
+
+// rejectDaily is the RATE_LIMITED rejection of a daily call counter: retry_after is the time to the next
+// IST midnight, metadata["limit"] and the request log's limit_name carry name.
+func rejectDaily(ctx context.Context, name string, c *DailyCap) error {
+	return rejectWith(ctx, name, quota.UntilNextDay(c.now()))
+}
+
+// rejectReadBudget is the RATE_LIMITED rejection of the read budget (ADR-0010 D5). The client always sees
+// limit=read_budget_daily, or read_budget_inflight when only the in-flight hold (A1) rejected; the request log
+// additionally gets read_budget_key (uid or ip, A7), the spends (logBudgetSpends) and, for the hold,
+// read_budget_inflight. retry_after is 1 s for the hold, else the time to IST midnight. keys[:tripped+1] are
+// the keys Reserve looked at. Since A8 only the uid key is ever reserved in production (ReadBudgetIPEnforce is
+// empty), but the IP branch stays correct for a Config that enforces one.
+func rejectReadBudget(ctx context.Context, keys []budgetKey, tripped int, spent int64) error {
+	k := &keys[tripped]
+	if info := logger.RequestInfoFromContext(ctx); info != nil {
+		info.Set("read_budget_key", k.kind)
+	}
+	logBudgetSpends(ctx, keys[:tripped+1])
+	if k.cap.IsTransient(spent) {
+		logger.SetRequestField(ctx, "read_budget_inflight", k.cap.Inflight(k.key))
+		return rejectWith(ctx, LimitReadBudgetInflight, RetryAfterInFlight)
+	}
+	return rejectWith(ctx, LimitReadBudgetDaily, quota.UntilNextDay(k.cap.now()))
+}
+
+func rejectWith(ctx context.Context, name string, retryAfter time.Duration) error {
+	if info := logger.RequestInfoFromContext(ctx); info != nil {
+		info.LimitName = name
+	}
+	return apierr.ToConnect(apierr.New(
+		connect.CodeResourceExhausted,
+		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
+		"too many requests, please slow down",
+	).WithMeta("limit", name).WithRetryAfter(retryAfter))
 }
 
 // ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is
@@ -167,6 +438,16 @@ func ResolveClientIP(h http.Header, trustedProxyHops int) ClientIPResult {
 	case isGoogleEgressIP(parts[idx]) && idx > 0:
 		viaHosting = true
 		idx--
+	}
+	// A5: the chosen entry may be garbage (a caller-supplied left entry, or an operator override that lands
+	// on one). Fall back to the rightmost entry, which the Google front end appended; if that does not parse
+	// either there is no IP (as without X-Forwarded-For, which happens only locally).
+	if _, err := netip.ParseAddr(parts[idx]); err != nil {
+		idx = hops - 1
+		viaHosting = false
+		if _, err := netip.ParseAddr(parts[idx]); err != nil {
+			return ClientIPResult{Hops: hops}
+		}
 	}
 	return ClientIPResult{IP: parts[idx], Hops: hops, ViaHosting: viaHosting}
 }

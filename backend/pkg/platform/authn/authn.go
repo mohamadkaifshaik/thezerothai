@@ -18,6 +18,45 @@ type Claims struct {
 	AuthTime       time.Time
 }
 
+// Firebase `firebase.sign_in_provider` claim values the verified-identity gate knows (ADR-0010 D5 A10).
+const (
+	// SignInProviderPassword is email/password, the only allowed provider whose email Firebase does not itself
+	// guarantee verified (Google and Apple verify it upstream), so it also needs email_verified.
+	SignInProviderPassword  = "password"
+	SignInProviderGoogle    = "google.com"
+	SignInProviderApple     = "apple.com"
+	SignInProviderAnonymous = "anonymous"
+)
+
+// Gate results of Claims.IdentityGate; they are also the `gate` log field values.
+const (
+	GatePass             = ""
+	GateEmailUnverified  = "email_unverified"
+	GateProviderNotAllow = "provider_not_allowed"
+)
+
+// IdentityGate is the ADR-0010 D5 A10 allowlist predicate, the one definition shared by
+// VerifiedIdentityInterceptor and identity's CreateProfile. It fails closed: only google.com, apple.com and
+// password with email_verified pass, plus anonymous when allowAnonymous (Auth emulator only). It returns
+// GatePass, GateEmailUnverified (an unverified password account) or GateProviderNotAllow (everything else,
+// including an empty provider). An account that fails it can never own a profile.
+func (c Claims) IdentityGate(allowAnonymous bool) string {
+	switch c.SignInProvider {
+	case SignInProviderGoogle, SignInProviderApple:
+		return GatePass
+	case SignInProviderPassword:
+		if c.EmailVerified {
+			return GatePass
+		}
+		return GateEmailUnverified
+	case SignInProviderAnonymous:
+		if allowAnonymous {
+			return GatePass
+		}
+	}
+	return GateProviderNotAllow
+}
+
 // IDTokenVerifier verifies a Firebase Auth ID token from the `Authorization: Bearer` header.
 type IDTokenVerifier interface {
 	VerifyIDToken(ctx context.Context, idToken string) (Claims, error)

@@ -25,7 +25,9 @@ enum OnboardingStatus {
   error,
 }
 
-enum HandleCheckStatus { idle, checking, available, unavailable }
+/// [unknown]: the availability check was rate limited (ADR-0010 D5 A8 / N1).
+/// Submit stays enabled; `CreateProfile` validates the handle again.
+enum HandleCheckStatus { idle, checking, available, unavailable, unknown }
 
 @freezed
 abstract class OnboardingState with _$OnboardingState {
@@ -50,6 +52,7 @@ abstract class OnboardingState with _$OnboardingState {
 
   bool get canSubmit =>
       !isSubmitting &&
-      handleCheckStatus == HandleCheckStatus.available &&
+      (handleCheckStatus == HandleCheckStatus.available ||
+          handleCheckStatus == HandleCheckStatus.unknown) &&
       displayName.trim().isNotEmpty;
 }

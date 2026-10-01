@@ -46,13 +46,11 @@ func NewLimiter(ratePerMinute int, idleTTL time.Duration) *Limiter {
 // Allow reports whether a request for key is permitted right now, and if not, how long the caller
 // should wait before retrying (RESOURCE_EXHAUSTED + retry_after, ADR-0006 §3).
 func (l *Limiter) Allow(key string) (bool, time.Duration) {
-	b, ok := l.buckets.Get(key)
 	now := l.now()
-	if !ok {
-		b = &bucket{tokens: l.burst - 1, last: now}
-		l.buckets.Set(key, b)
-		return true, 0
-	}
+	// GetOrSet: two concurrent first requests for a key must share one bucket (a Get-miss-then-Set pair let
+	// the second Set replace the first, refunding a token). A new bucket starts full; the refill code below
+	// then takes the first token, so the result is burst-1 exactly as before.
+	b := l.buckets.GetOrSet(key, func() *bucket { return &bucket{tokens: l.burst, last: now} })
 
 	b.mu.Lock()
 	defer b.mu.Unlock()

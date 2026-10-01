@@ -83,6 +83,32 @@ void main() {
     expect(continueButton.onPressed, isNotNull);
   });
 
+  testWidgets(
+    'enables Continue and shows a neutral message when the handle check was '
+    'rate limited (unknown)',
+    (tester) async {
+      whenListen(
+        onboardingBloc,
+        Stream<OnboardingState>.empty(),
+        initialState: const OnboardingState(
+          handle: 'kaif',
+          displayName: 'Kaif',
+          handleCheckStatus: HandleCheckStatus.unknown,
+          handleCheckMessage: "Couldn't check this handle right now.",
+        ),
+      );
+
+      await tester.pumpWidget(wrap());
+
+      final continueButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Continue'),
+      );
+      expect(continueButton.onPressed, isNotNull);
+      expect(find.textContaining("Couldn't check this handle"), findsOneWidget);
+      expect(find.text('That handle is taken.'), findsNothing);
+    },
+  );
+
   testWidgets('typing a handle dispatches OnboardingHandleChanged', (
     tester,
   ) async {

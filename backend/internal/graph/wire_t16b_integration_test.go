@@ -130,13 +130,14 @@ func newRig(t *testing.T, w wired, listDailyCap int64) *rig {
 
 // newRigWithMutationCap is newRig plus the shared graph_mutation_daily cap over the six graph mutations,
 // wired exactly like apiserver.Build does. mutationDailyCap <= 0 disables it.
-func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap int64) *rig {
+// mods adjust the ratelimit.Config last (e.g. to enable the ADR-0010 read budget).
+func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap int64, mods ...func(*ratelimit.Config)) *rig {
 	t.Helper()
 	r := &rig{w: w, errLog: &syncBuffer{}}
 
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			ctx = authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(testUIDHeader)})
+			ctx = authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(testUIDHeader), SignInProvider: authn.SignInProviderGoogle})
 			return next(ctx, req)
 		}
 	})
@@ -177,6 +178,9 @@ func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap
 		} {
 			rl.DailyCaps[p] = ratelimit.NamedDailyCap{Name: "graph_mutation_daily", Cap: mc}
 		}
+	}
+	for _, mod := range mods {
+		mod(&rl)
 	}
 	opts := connect.WithInterceptors(setUID, count, ratelimit.Interceptor(rl), mw.ErrorMapping(slog.New(slog.NewJSONHandler(r.errLog, nil))))
 

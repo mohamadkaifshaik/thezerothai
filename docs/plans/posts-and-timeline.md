@@ -38,7 +38,8 @@ It also makes the product worth opening, which the graph slice alone does not.
 
 ## Scope
 - **P0 (gating hardening), T3.** A per-uid daily read budget covering every RPC.
-  - A per-IP budget for callers without a profile (enforced on CheckHandleAvailability, charge-only on CreateProfile).
+  - A per-IP read meter for callers without a profile. Since ADR-0010 D5 A8 it is charged but never rejects
+    (CheckHandleAvailability, CreateProfile, marked uids).
   - A 0-read verified-identity gate for unverified password accounts, and an in-flight hold near the cap.
   - Account deletion and export are never blocked by the read budget.
   - A negative handle cache.
@@ -212,7 +213,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 |---|---|---|
 | Minted, unverified password accounts on any RPC (security H1) | 0-read verified-identity gate (D5 A2): `PROFILE_REQUIRED` / `EMAIL_NOT_VERIFIED` from token claims | **0 reads**, for any number of accounts and IPs (was ≈ 518k/day per IPv4, ≈ 14.4M per IPv6 /64) |
 | Handle/profile/post/timeline read scraping by one verified account (**the public-repo finding**) | uid budget 2,000 with the in-flight hold (M = 269) + per-procedure buckets; account operations charge-only under `account_ops_daily` (20) | **2,308 per instance lifetime**: ≤ 6,924/day steady (13.8% of free, ≈ $0.004/day); ≤ 13,848 on a rollout day; ≈ 208k/day idle cycling (≈ $0.12/day); ceiling ≈ 623k/day (≈ $0.37/day). Before P0: ~86k–259k/day |
-| Verified accounts without a profile, per IPv4 address or IPv6 /64 | IP budget 500 (hold M = 2), enforced on CheckHandleAvailability and on marked uids, charge-only on CreateProfile; both per-minute IP limiters keyed by /64 | IP key ≤ 501 per lifetime (≤ 1,503/day steady), plus ≤ 432 unmarked first calls a day per uid; each uid is also held to its own 2,308 per lifetime |
+| Verified accounts without a profile, per IPv4 address or IPv6 /64 | ADR-0010 D5 A8: the IP key is a charge-only meter (never rejects; runbook threshold `read_budget_ip_spent >= 500`); each non-exempt call stops at account status (≤ 1 read per uid per 10 s); both per-minute IP limiters keyed by /64 | Each uid ≤ 2,308 per lifetime, so V uids ≤ 6,924 · V/day steady: the same as R1. Calls are capped by the per-minute IP limiter (≤ 518k/day). Was IP key ≤ 501 per lifetime before A8 |
 | CheckHandleAvailability loops | 100 calls/uid/day/instance + both budgets | ≤ 100 reads per uid per lifetime |
 | Verified sybils, with or without profiles (**residual R1: founder acceptance required**) | Per-account bound × accounts; `read_budget_key=uid` in logs; `abuse-spike.md` | ≈ 8 accounts exhaust a day's free reads in steady state (≈ $0.004/day each) |
 | Instance churn (**residual R2: founder acceptance required**) | Detection: one `uid_hash` rejected on ≥ 3 instances in a day; the pre-designed persisted counter behind its trigger | ≤ ≈ 623k reads/day from one actor (≈ $0.37/day) |
@@ -338,24 +339,26 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
        (item 7);
      - after `next`, charge `budget.FromContext(ctx).Reads()` on success **and** on error (the counter is attached by
        `mw.Logging`, `mw.go:115`, which is outermost, so the charge includes the `AccountStatusInterceptor` read).
-  4. **Verified-identity gate (A2).** A new `authn` interceptor right after `IDTokenInterceptor`, before the rate
-     limiter, uses the T7 predicate (`password` provider and `email_verified == false`):
+  4. **Verified-identity gate (A2, allowlist per A10).** A new `authn` interceptor right after `IDTokenInterceptor`,
+     before the rate limiter, passes only `google.com`, `apple.com` and `password` with `email_verified` (plus
+     `anonymous` on the Auth emulator only). It answers every other caller as follows:
      - CheckHandleAvailability and CreateProfile → FAILED_PRECONDITION + `EMAIL_NOT_VERIFIED`;
      - every other procedure → FAILED_PRECONDITION + `PROFILE_REQUIRED`;
      - 0 Firestore reads, and no limiter key is created.
   5. **IP key (A3–A5).** `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY` (default 500), keyed by `IPBudgetKey`: the IPv4
      address or the IPv6 /64, canonical strings only.
-     - Enforced on CheckHandleAvailability, and on the non-exempt calls of a uid marked as profile-less on this
-       instance. Charge-only on CreateProfile.
+     - **Charge-only everywhere, never rejects (A8):** CheckHandleAvailability, CreateProfile, and the non-exempt
+       calls of a uid marked as profile-less on this instance. `ReadBudgetIPEnforce` stays empty.
      - After `next`, when `AccountStatusInterceptor` set `RequestInfo.ProfileRequired`, charge the reads to the IP key
-       and mark the uid (10 min LRU). A successful CreateProfile removes the mark.
+       and mark the uid (10 min LRU). A successful CreateProfile removes the mark, and so does any call that finds a
+       profile (`RequestInfo.ProfileFound`, A9); that call charges 0 to the IP key.
      - Callers with a profile are never IP-limited (carrier-grade NAT).
      - `ResolveClientIP` falls back to the rightmost X-Forwarded-For entry when the chosen one does not parse.
      - Both per-minute IP limiters (pre-auth and in-chain) key by `IPBudgetKey`. `http.Server.MaxHeaderBytes = 64 KiB`.
   6. **Rejections (A7).** RESOURCE_EXHAUSTED + `RATE_LIMITED`, 0 Firestore reads (this interceptor runs before
      account status):
-     - daily: `metadata["limit"]` = `read_budget_daily`, `retry_after` = time until IST midnight (10 min for a marked
-       uid's IP rejection on a non-exempt RPC);
+     - daily: `metadata["limit"]` = `read_budget_daily`, `retry_after` = time until IST midnight (uid key only; the
+       IP key no longer rejects, A8);
      - transient: `read_budget_inflight`, `retry_after` = 1 s;
      - the log line carries `limit_name` with the same value, and `read_budget_key` = `uid` or `ip`.
   7. **Charge-only account operations (A6).** DeleteAccount, RequestAccountExport and GetAccountExport are charged to
@@ -389,10 +392,15 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     `fs_reads = 0` and no limiter key is created. A Google or Apple uid is unaffected.
   - Given a caller with a verified email and no profile, when it makes 101 CheckHandleAvailability calls in one IST
     day, then the 101st gets `RATE_LIMITED` (`check_handle_daily`).
-  - Given verified uids without profiles from one IP spending 500 reads in total (on CheckHandleAvailability, or on
-    non-exempt RPCs such as GetMe), then further CheckHandleAvailability calls, and non-exempt calls of marked uids,
-    from that IP are rejected with `read_budget_key=ip`. CreateProfile from that IP still succeeds. A caller **with** a
-    profile on the same IP is unaffected on every procedure.
+  - Given verified uids without profiles from one IP that have spent ≥ 500 reads on the IP key (A8), when a new
+    verified uid on that IP calls CheckHandleAvailability and then CreateProfile, both succeed. A profile-less uid's
+    GetMe returns `PROFILE_REQUIRED` (not `RATE_LIMITED`), and `read_budget_ip_spent` keeps growing. A caller **with**
+    a profile on the same IP is unaffected on every procedure.
+  - Given a uid marked on this instance, when its next non-exempt call finds a profile, then the mark is removed and
+    that call charges 0 to the IP key (A9).
+  - Given an ID token whose `sign_in_provider` is not `google.com`, `apple.com` or verified `password` (for example
+    `anonymous` outside the emulator, `phone`, `custom`, or empty), then it gets the A2 answers with `fs_reads = 0`
+    and `gate=provider_not_allowed` (A10).
   - Given two IPv6 addresses in the same /64, then they share one IP budget **and** one per-minute IP bucket (pre-auth
     and in-chain). Addresses in different /64s don't.
   - Given an X-Forwarded-For whose chosen entry is not an IP, then the rightmost entry is used, and no limiter stores
@@ -1033,8 +1041,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     paths;
   - existence leaks: GetPost/GetUserTimeline byte-identical NOT_FOUNDs (D6), and DeletePost's no-oracle success for
     not-owned/unknown/deleted ids (D4);
-  - D5 as amended (A1–A7): the verified-identity gate, the in-flight hold invariant, the IP scopes (enforced on
-    CheckHandleAvailability and on marked uids without a profile, charge-only on CreateProfile), the /64 keys, the
+  - D5 as amended (A1–A10): the verified-identity gate (provider allowlist, A10), the in-flight hold invariant, the
+    IP key as a charge-only meter (A8) with the A9 unmark, the /64 keys, the
     X-Forwarded-For fallback, and residuals R1 (verified sybils) and R2 (instance churn);
   - block bypass: stale caches, the author-recent cache;
   - mention abuse;
@@ -1180,6 +1188,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   refinements: the IP budget applies to profile-exempt procedures only, and IPv6 is keyed by /64 (D5). Amended after
   the P0 reviews (D5 A1–A7): verified-identity gate, in-flight hold, IP charge for verified callers without a profile,
   CreateProfile charge-only on the IP key, charge-only account operations, per-instance-lifetime bounds (R1/R2).
+  Re-review amendment (D5 A8–A10): the IP key never rejects, a stale mark is cleared by any call that finds a
+  profile, and the gate is a provider allowlist. R1/R2 accepted by the founder on 2026-10-01.
 - **Q6** Timeline visibility: **muted authors hidden in Home only; a caller who blocks the author still gets the
   author's posts on GetUserTimeline/GetPost (the client shows a banner); author blocked caller ⇒ NOT_FOUND
   everywhere**. → Accepted and made exhaustive in the D6 matrix.

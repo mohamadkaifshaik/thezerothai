@@ -49,6 +49,12 @@ func TodayAt(t time.Time) string {
 	return t.In(ist).Format("2006-01-02")
 }
 
+// UntilNextDay is the time from t until the next IST midnight, i.e. when a per-IST-day counter resets.
+func UntilNextDay(t time.Time) time.Duration {
+	y, m, d := t.In(ist).Date()
+	return time.Date(y, m, d+1, 0, 0, 0, 0, ist).Sub(t)
+}
+
 // Record is the quotas/{uid} document shape.
 type Record struct {
 	Day     string `firestore:"day"`

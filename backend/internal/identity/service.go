@@ -95,6 +95,7 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 	profile, _, err := s.repo.CreateProfile(ctx, uid, handle, handleLower, normalizeDisplayName(displayName), s.now().UTC())
 	if err != nil {
 		if errors.Is(err, ErrHandleTaken) {
+			s.cache.InvalidateHandleFree(handleLower)
 			return Profile{}, apierr.New(connect.CodeAlreadyExists, commonv1.ErrorReason_ERROR_REASON_HANDLE_TAKEN, "handle is taken")
 		}
 		return Profile{}, logger.RedactErr(fmt.Errorf("identity: create profile: %w", err), uid)
@@ -103,7 +104,8 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 	return profile, nil
 }
 
-// CheckHandleAvailability: 1 read, 0 writes (cache hit on the handle map: 0 reads).
+// CheckHandleAvailability: 1 read, 0 writes (cache hit on the handle map or the 10 s negative handle cache
+// (ADR-0010 D5): 0 reads). A stale "available" is only a hint; CreateProfile/ChangeHandle stay transactional.
 func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (bool, string, error) {
 	if reason := handleFormatIssue(handle); reason != "" {
 		return false, reason, nil
@@ -112,11 +114,15 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 	if _, ok := s.cache.GetHandleUID(lower); ok {
 		return false, "", nil
 	}
+	if s.cache.GetHandleFree(lower) {
+		return true, "", nil
+	}
 	_, err := s.repo.ResolveHandle(ctx, lower)
 	switch {
 	case err == nil:
 		return false, "", nil
 	case errors.Is(err, ErrNotFound):
+		s.cache.SetHandleFree(lower)
 		return true, "", nil
 	default:
 		return false, "", fmt.Errorf("identity: check handle availability %q: %w", handle, err)
@@ -167,10 +173,13 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		lower := strings.ToLower(target.Handle)
 		if cached, ok := s.cache.GetHandleUID(lower); ok {
 			uid = cached
+		} else if s.cache.GetHandleFree(lower) {
+			return Profile{}, notFoundErr() // negative handle cache (ADR-0010 D5): 0 reads
 		} else {
 			resolved, err := s.repo.ResolveHandle(ctx, lower)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
+					s.cache.SetHandleFree(lower)
 					return Profile{}, notFoundErr()
 				}
 				return Profile{}, fmt.Errorf("identity: resolve handle %q: %w", target.Handle, err)
@@ -277,6 +286,7 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 				"you can only change your handle once every 7 days",
 			).WithMeta("quota", "handle_change").WithRetryAfter(cooldown.RetryAfter)
 		case errors.Is(err, ErrHandleTaken):
+			s.cache.InvalidateHandleFree(newLower)
 			return Profile{}, apierr.New(connect.CodeAlreadyExists, commonv1.ErrorReason_ERROR_REASON_HANDLE_TAKEN, "handle is taken")
 		case errors.Is(err, ErrNotFound):
 			return Profile{}, notFoundErr()
