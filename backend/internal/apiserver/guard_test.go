@@ -64,6 +64,11 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay = 500
 	cfg.RateLimit.CheckHandleCallsPerDay = 100
 	cfg.RateLimit.AccountOpsCallsPerDay = 20
+	// ADR-0010 T4 per-minute buckets (the config.Load defaults).
+	cfg.RateLimit.TimelinePerUserPerMinute = 6
+	cfg.RateLimit.UserTimelinePerMinute = 30
+	cfg.RateLimit.PostCreatePerMinute = 10
+	cfg.RateLimit.PostDeletePerMinute = 20
 	return cfg
 }
 

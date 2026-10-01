@@ -81,7 +81,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---

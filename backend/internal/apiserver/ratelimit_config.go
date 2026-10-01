@@ -5,6 +5,8 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
+	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -37,9 +39,21 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// ADR-0010 D5 A6: limit_name "account_ops_daily", shared by DeleteAccount, RequestAccountExport, GetAccountExport.
 	accountOpsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.AccountOpsCallsPerDay)
 
+	// ADR-0010 T4: home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
+	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts are bounded per day by quota.Posts (100, 20 for
+	// new accounts) and every read by the ADR-0010 D5 read budget, so there is no extra daily call cap.
+	rlHomeTimeline := ratelimit.NewLimiter(cfg.RateLimit.TimelinePerUserPerMinute, idleBucketTTL)
+	rlUserTimeline := ratelimit.NewLimiter(cfg.RateLimit.UserTimelinePerMinute, idleBucketTTL)
+	rlPostCreate := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
+	rlPostDelete := ratelimit.NewLimiter(cfg.RateLimit.PostDeletePerMinute, idleBucketTTL)
+
 	return ratelimit.Config{
 		Default: rlDefault,
 		PerProcedure: map[string]*ratelimit.Limiter{
+			timelinev1connect.TimelineServiceGetHomeTimelineProcedure:         rlHomeTimeline,
+			timelinev1connect.TimelineServiceGetUserTimelineProcedure:         rlUserTimeline,
+			postsv1connect.PostServiceCreatePostProcedure:                     rlPostCreate,
+			postsv1connect.PostServiceDeletePostProcedure:                     rlPostDelete,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
 			graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,
