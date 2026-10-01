@@ -18,25 +18,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// requireVerifiedIdentity enforces H1 (2026-09-27 security audit) and ADR-0010 D5 A10: only an account that
-// passes the sign-in provider allowlist (google.com, apple.com, password with a verified email, and anonymous
-// only against the Auth emulator) may create a profile. Unscripted signups otherwise let an attacker mint
-// Firebase accounts by the thousand per hour per IP and squat handles / burn the Firestore write quota
-// (docs/reviews/security-audit-v0.1.0.md). The predicate is authn.Claims.IdentityGate, the same one
-// authn.VerifiedIdentityInterceptor applies earlier at 0 reads; this check stays as defence in depth for a chain
-// without the gate, so an account outside the allowlist can never own a profile.
-func requireVerifiedIdentity(ctx context.Context, allowAnonymous bool) error {
-	claims, _ := authn.ClaimsFromContext(ctx)
-	if claims.IdentityGate(allowAnonymous) == authn.GatePass {
-		return nil
-	}
-	return apierr.New(
-		connect.CodeFailedPrecondition,
-		commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED,
-		"please verify your email before creating a profile",
-	)
-}
-
 // Server adapts Service to identityv1connect.IdentityServiceHandler.
 type Server struct {
 	svc            Service
@@ -77,7 +58,7 @@ func (s *Server) CreateProfile(ctx context.Context, req *connect.Request[identit
 	if err != nil {
 		return nil, err
 	}
-	if err := requireVerifiedIdentity(ctx, s.allowAnonymous); err != nil {
+	if err := authn.RequireVerifiedEmail(ctx, s.allowAnonymous, "creating a profile"); err != nil {
 		return nil, err
 	}
 	profile, err := s.svc.CreateProfile(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetHandle(), req.Msg.GetDisplayName())

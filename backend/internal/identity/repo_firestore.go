@@ -188,6 +188,36 @@ func (r *FirestoreRepo) ResolveHandle(ctx context.Context, handleLower string) (
 	return d.UID, nil
 }
 
+// ResolveHandles: one GetAll on handles/{lower} for every id in handleLowers (the service caps it at
+// MaxResolveHandles); reads = len(handleLowers), a missing handle is billed as one read too. Handles with no
+// document are absent from the result (not an error).
+func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error) {
+	out := make(map[string]string, len(handleLowers))
+	if len(handleLowers) == 0 {
+		return out, nil
+	}
+	refs := make([]*firestore.DocumentRef, len(handleLowers))
+	for i, h := range handleLowers {
+		refs[i] = r.handleRef(h)
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	budget.FromContext(ctx).AddReads(int64(len(handleLowers)))
+	if err != nil {
+		return nil, fmt.Errorf("identity: resolve %d handles: %w", len(handleLowers), err)
+	}
+	for i, snap := range snaps {
+		if !snap.Exists() {
+			continue
+		}
+		var d handleDoc
+		if err := snap.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("identity: decode handle %s: %w", handleLowers[i], err)
+		}
+		out[handleLowers[i]] = d.UID
+	}
+	return out, nil
+}
+
 // CreateProfile: worst case reads 2 (users, handles), writes 3 (users, handles, graph); a replay
 // (users/{uid} already exists) is reads 1, writes 0 (ADR-0003, proto comment).
 func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time) (Profile, bool, error) {
