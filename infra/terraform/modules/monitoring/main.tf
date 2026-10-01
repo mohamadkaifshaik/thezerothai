@@ -43,12 +43,12 @@ locals {
     },
   ]
 
+  # The Monitoring API drops position fields equal to 0 and adds targetAxis = "Y1" on read-back. Mirror that
+  # normalized form here (omit zero xPos/yPos, set targetAxis) so provider upgrades do not leave a perpetual plan diff.
   chart_tiles = [
-    for i, c in local.charts : {
+    for i, c in local.charts : merge({
       width  = 6
       height = 4
-      xPos   = (i % 2) * 6
-      yPos   = floor(i / 2) * 4
       widget = {
         title = c.title
         xyChart = {
@@ -62,17 +62,20 @@ locals {
                 }
               }
             }
-            plotType = "LINE"
+            plotType   = "LINE"
+            targetAxis = "Y1"
           }]
         }
       }
-    }
+      },
+      (i % 2) * 6 == 0 ? {} : { xPos = (i % 2) * 6 },
+      floor(i / 2) * 4 == 0 ? {} : { yPos = floor(i / 2) * 4 },
+    )
   ]
 
   egress_tile = {
     width  = 12
     height = 4
-    xPos   = 0
     yPos   = 8
     widget = {
       title = "GCS egress (network sent bytes, media bucket)"
@@ -87,7 +90,8 @@ locals {
               }
             }
           }
-          plotType = "LINE"
+          plotType   = "LINE"
+          targetAxis = "Y1"
         }]
       }
     }

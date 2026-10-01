@@ -296,7 +296,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Observability.** The ADR lists the required log fields (T5, T8, T13).
 - **Budget.** Doc only. The ADR's "Cost impact" table supersedes this plan's earlier table, and this plan now carries
   it (162.2 reads/DAU).
-- **Status.** Written: `docs/adr/0010-posts-and-timelines-slice.md` (PR #69, Proposed until the founder merges it).
+- **Status.** Written: `docs/adr/0010-posts-and-timelines-slice.md` (PR #69, Accepted on merge).
 
 ### T2 — Proto comments, index check, regenerate  [owner: architect] [size: S] [depends: T1]
 - **Description.** Apply "Proto and schema changes" exactly. Run `make proto` and commit the generated Go

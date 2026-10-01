@@ -1,5 +1,5 @@
 # 0010. Posts and timelines slice (Phase 1 P0 + P1): slice decisions, visibility, read budget
-Status: Proposed (architect, 2026-09-30). Becomes Accepted when the founder merges it. No fixed cost is added and no
+Status: Accepted (architect, 2026-09-30; founder merged it in PR #69). No fixed cost is added and no
 non-negotiable rule bends. The items that change the plan's defaults or earlier numbers are listed for the founder
 under "Founder attention" at the end. **The two residual risks (D5 "Residual risk", R1 and R2) were accepted by the
 founder on 2026-10-01** (relayed; see D5 "Founder acceptance").
