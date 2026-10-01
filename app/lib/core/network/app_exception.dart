@@ -118,8 +118,13 @@ final class TargetBlockedException extends AppException {
 /// The feature is not enabled for this caller (server feature flag, or not
 /// built yet, e.g. follow requests). Hide the feature and refresh
 /// `GetMe.enabled_features`; never retry (ADR-0008 D6).
+///
+/// [feature] is the server's `metadata["feature"]` (ADR-0010 D2): when set it
+/// names the sub-feature (`replies`, `quotes`, `media`) and the client hides
+/// only that; when null the whole service is off.
 final class FeatureDisabledException extends AppException {
-  const FeatureDisabledException(super.message);
+  const FeatureDisabledException(super.message, {this.feature});
+  final String? feature;
 }
 
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
