@@ -35,6 +35,27 @@ void main() {
 
   group('OnboardingBloc sign-out races', () {
     blocTest<OnboardingBloc, OnboardingState>(
+      'a refresh requested after sign-out sends no GetMe and emits nothing',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingRefreshRequested());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      },
+      verify: (bloc) {
+        expect(bloc.state, const OnboardingState());
+        verify(() => identityRepository.getMe()).called(1);
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
       'a CreateProfile completing after sign-out never emits the old profile',
       setUp: () {
         when(() => identityRepository.getMe())
@@ -71,7 +92,10 @@ void main() {
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
-      'a handle check completing after sign-out emits nothing',
+      // Regression guard: the state reset by sign-out already differs from
+      // the pending check's handle, so this does not isolate the uid check.
+      'a handle check completing after sign-out leaves the signed-out state '
+      'untouched',
       setUp: () {
         when(() => identityRepository.getMe())
             .thenThrow(const ProfileRequiredException('create a profile'));
@@ -458,13 +482,14 @@ void main() {
     blocTest<OnboardingBloc, OnboardingState>(
       'handle check RATE_LIMITED is "unknown" and still allows Submit (N1)',
       setUp: () {
-        when(() => identityRepository.checkHandleAvailability('kaif')).thenThrow(
-          const RateLimitedException(
-            'slow',
-            limitName: 'check_handle_daily',
-            retryAfter: Duration(hours: 5),
-          ),
-        );
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenThrow(
+              const RateLimitedException(
+                'slow',
+                limitName: 'check_handle_daily',
+                retryAfter: Duration(hours: 5),
+              ),
+            );
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       seed: () => const OnboardingState(displayName: 'Kaif'),

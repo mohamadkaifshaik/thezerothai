@@ -99,6 +99,9 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     OnboardingRefreshRequested event,
     Emitter<OnboardingState> emit,
   ) async {
+    // Signed out (e.g. a FEATURE_DISABLED answer arriving after sign-out): no
+    // session-less GetMe and nothing emitted into the signed-out state.
+    if (_uid == null) return;
     await _loadMe(emit);
   }
 
