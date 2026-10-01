@@ -838,6 +838,11 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   current schema version.
 - **Observability.** Crashlytics non-fatal on unexpected `AppException`.
 - **Budget.** The client never refetches items it has. Each refresh sends `since_token`.
+- **Follow-ups from the PR #75 review (not in T14, track here).**
+  - M3: `refresh` decodes the whole feed twice (`read` before and after). Add `TimelineStore.state()` and `gapRow()`
+    for the pre-fetch lookups, and use `selectOnly` in `_postIds`.
+  - M4: wire `PostsFeatureGate.onUnexpectedError` to error reporting (Crashlytics) in `bootstrap.dart`.
+  - L1, L4 and the remaining L6 test gaps from the review: pick them up with T17's repository use.
 
 ### T15 — Flutter: shared `PostCard` with rich text  [owner: frontend-developer] [size: M] [depends: T14]
 - **Description.** `app/lib/shared/widgets/post_card.dart`:
@@ -909,6 +914,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests with a fake clock and repository: refresh throttle, gap, pagination, empty, error.
 - **Observability.** —
 - **Budget.** ≤ 8 refreshes + ≤ 1 older page per DAU/day on the model's usage (the client enforces the throttle).
+- **Follow-up (PR #75 review, M3/M4/L1/L4/L6):** see the T14 follow-up list; T17 should call `TimelineRepository.cached` once per screen open and avoid a second full-feed decode per refresh.
 
 ### T18 — Flutter: profile Posts tab, post detail, delete  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**

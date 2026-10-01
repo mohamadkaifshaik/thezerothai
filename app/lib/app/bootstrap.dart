@@ -19,13 +19,13 @@ import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
 import '../features/posts/data/posts_repository.dart';
-import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/timeline/data/timeline_repository.dart';
 import '../features/timeline/data/timeline_store.dart';
 import '../firebase_options.dart' as dev_firebase;
 import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
 import 'app_widget.dart';
+import 'session_wiring.dart';
 
 /// Entry point for every flavor/target. Initializes Firebase + App Check,
 /// wires the API client and repositories, bridges `AuthBloc` state into
@@ -93,14 +93,7 @@ Future<void> bootstrap() async {
   // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via
   // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers
   // until the next GetMe changes the flag set.
-  final postsGate = PostsFeatureGate(
-    isPostsEnabled: () =>
-        onboardingBloc.state.enabledFeatures.contains(kFeaturePosts),
-  );
-  onboardingBloc.stream
-      .map((state) => state.enabledFeatures)
-      .distinct(setEquals)
-      .listen((_) => postsGate.reset());
+  final postsGate = buildPostsGate(onboardingBloc);
   final timelineStore = TimelineStore(database);
   final postsRepository = PostsRepository(
     apiClient: apiClient,
@@ -123,7 +116,12 @@ Future<void> bootstrap() async {
       onboardingBloc.add(const OnboardingUserSignedOut());
       // Wipe the local cache so the next user on a shared device never sees
       // a stale profile or relationship (privacy: CLAUDE.md rule 10).
-      unawaited(database.clearAll());
+      unawaited(
+        wipeSessionData(
+          database: database,
+          timelineRepository: timelineRepository,
+        ),
+      );
       graphRepository.clearCache();
     } else if (user != null &&
         state.status == AuthStatus.authenticated &&

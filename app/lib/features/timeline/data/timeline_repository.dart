@@ -41,14 +41,24 @@ class TimelineRepository {
   final Map<String, Future<void>> _lockTails = {};
   final Map<String, Future<TimelineSnapshot>> _inflight = {};
 
+  /// Sign-out: forget in-flight and queued work and invalidate every write
+  /// it would still make, so nothing of the signed-out user lands in the
+  /// database after it is wiped. Call before wiping the database.
+  void clearSession() {
+    _store.endSession();
+    _inflight.clear();
+    _lockTails.clear();
+  }
+
   /// What is on disk for [feed]. Never touches the network.
   Future<TimelineSnapshot> cached(FeedKey feed) => _store.read(feed);
 
   /// Pull-to-refresh / app resume / first open. Returns the merged feed.
   Future<TimelineSnapshot> refresh(FeedKey feed) {
+    final session = _store.session;
     return _single(feed, 'refresh', () async {
       final state = await _store.read(feed);
-      if (state.sinceToken.isEmpty) return _coldOpen(feed);
+      if (state.sinceToken.isEmpty) return _coldOpen(feed, session);
       final page = await _fetchUnlessRejected(
         feed,
         'since_token',
@@ -56,13 +66,14 @@ class TimelineRepository {
       );
       if (page == null) {
         await _store.clearSince(feed);
-        return _coldOpen(feed);
+        return _coldOpen(feed, session);
       }
       await _store.applyRefresh(
         feed,
         posts: page.posts,
         sinceToken: page.sinceToken,
         gapPageToken: page.gapPageToken,
+        session: session,
       );
       return _store.read(feed);
     });
@@ -71,6 +82,7 @@ class TimelineRepository {
   /// Infinite scroll: the page below the oldest cached item. No call when
   /// there is nothing older.
   Future<TimelineSnapshot> loadOlder(FeedKey feed) {
+    final session = _store.session;
     return _single(feed, 'older', () async {
       final state = await _store.read(feed);
       if (state.olderPageToken.isEmpty) return state;
@@ -79,11 +91,12 @@ class TimelineRepository {
         'page_token',
         pageToken: state.olderPageToken,
       );
-      if (page == null) return _coldOpen(feed, replace: true);
+      if (page == null) return _coldOpen(feed, session, replace: true);
       await _store.applyOlderPage(
         feed,
         posts: page.posts,
         nextPageToken: page.nextPageToken,
+        session: session,
       );
       return _store.read(feed);
     });
@@ -91,6 +104,7 @@ class TimelineRepository {
 
   /// Fills the gap marker row [gapItemKey] (`TimelineEntry.itemKey`).
   Future<TimelineSnapshot> fillGap(FeedKey feed, String gapItemKey) {
+    final session = _store.session;
     return _single(feed, 'gap:$gapItemKey', () async {
       final state = await _store.read(feed);
       final gap = state.entries
@@ -102,18 +116,23 @@ class TimelineRepository {
         'page_token',
         pageToken: gap.gapToken!,
       );
-      if (page == null) return _coldOpen(feed, replace: true);
+      if (page == null) return _coldOpen(feed, session, replace: true);
       await _store.applyGapPage(
         feed,
         gapItemKey,
         posts: page.posts,
         nextPageToken: page.nextPageToken,
+        session: session,
       );
       return _store.read(feed);
     });
   }
 
-  Future<TimelineSnapshot> _coldOpen(FeedKey feed, {bool replace = false}) async {
+  Future<TimelineSnapshot> _coldOpen(
+    FeedKey feed,
+    int session, {
+    bool replace = false,
+  }) async {
     final page = await _fetch(feed);
     await _store.applyColdOpen(
       feed,
@@ -121,6 +140,7 @@ class TimelineRepository {
       sinceToken: page.sinceToken,
       nextPageToken: page.nextPageToken,
       replace: replace,
+      session: session,
     );
     return _store.read(feed);
   }

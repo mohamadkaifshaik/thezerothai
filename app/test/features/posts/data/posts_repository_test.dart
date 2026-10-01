@@ -81,6 +81,27 @@ void main() {
     expect((await store.read(FeedKey.user('me'))).entries, isEmpty);
   });
 
+  test('a created reply is not inserted into Home or Posts feeds', () async {
+    await seed(const FeedKey.home(), [5]);
+    answer = (_) => pb.CreatePostResponse(
+      post: pb.PostView(
+        post: pb.Post(
+          postId: postId(9),
+          replyToPostId: postId(5),
+          author: common.AuthorSnapshot(userId: 'me'),
+        ),
+      ),
+    );
+
+    await repo.createPost(
+      idempotencyKey: 'k',
+      text: 'r',
+      replyToPostId: postId(5),
+    );
+
+    expect(cachedIds(await store.read(const FeedKey.home())), [postId(5)]);
+  });
+
   test('deletePost removes the post from every cached feed', () async {
     await seed(const FeedKey.home(), [5, 4]);
     await seed(FeedKey.user('u1'), [5, 3]);

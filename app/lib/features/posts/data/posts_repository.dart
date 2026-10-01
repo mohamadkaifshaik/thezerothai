@@ -38,6 +38,7 @@ class PostsRepository {
     List<String> mediaIds = const [],
     List<String> mediaAltTexts = const [],
   }) async {
+    final session = _store.session;
     final response = await _gate.run(
       () => _apiClient.posts.createPost(
         pb.CreatePostRequest(
@@ -57,8 +58,12 @@ class PostsRepository {
     );
     final view = response.post;
     final authorId = view.post.author.userId;
+    // Replies never appear in Home or the Posts tab; skip until a replies
+    // slice decides how to show them.
+    if (view.post.replyToPostId.isNotEmpty) return view;
     await _store.insertOwnPost(
       view,
+      session: session,
       feeds: [
         const FeedKey.home(),
         if (authorId.isNotEmpty) ...[

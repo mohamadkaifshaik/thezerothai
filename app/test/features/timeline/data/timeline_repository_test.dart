@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
@@ -222,6 +224,18 @@ void main() {
       expect(snap.entries.firstWhere((e) => e.isGap).gapToken, 'fillgap');
     });
 
+    test('cold open stops at the first cached post and merges only the new '
+        'items before it', () async {
+      script[_home]!.add(rejectedToken('since_token'));
+      // 5 is cached; 2 is NOT cached but sits below the overlap: ignored.
+      giveHome([7, 6, 5, 2], next: 'tok', since: 's9');
+
+      final snap = await repo.refresh(home);
+
+      expect(ids(snap), idsOf([7, 6, 5, 4, 3]));
+      expect(snap.entries.any((e) => e.isGap), isFalse);
+    });
+
     test('cold open that already reaches a cached post adds no gap', () async {
       script[_home]!.add(rejectedToken('since_token'));
       giveHome([6, 5], next: 'whatever', since: 's9');
@@ -318,19 +332,87 @@ void main() {
   });
 
   group('retention', () {
-    test('keeps the newest 500 posts and clears the scroll token', () async {
+    test('trims at a page boundary and scrolling continues past the cut',
+        () async {
+      // Three pages of 400: 2000-1601, 1600-1201, 1200-801.
       giveHome(
-        [for (var i = 600; i > 90; i--) i], // 510 posts
-        next: 'older1',
+        [for (var i = 2000; i > 1600; i--) i],
+        next: 't1',
         since: 's1',
       );
+      await repo.refresh(home);
+      giveHome([for (var i = 1600; i > 1200; i--) i], next: 't2');
+      var snap = await repo.loadOlder(home);
+      expect(
+        snap.posts,
+        hasLength(800),
+        reason: 'cut is after the 500th row, at the next page end',
+      );
+      expect(snap.olderPageToken, 't2');
 
+      giveHome([for (var i = 1200; i > 800; i--) i], next: 't3');
+      snap = await repo.loadOlder(home);
+      expect(snap.posts, hasLength(800), reason: 'page 3 trimmed away');
+      expect(snap.entries.last.postView!.post.postId, postId(1201));
+      expect(snap.olderPageToken, 't2', reason: 'resume from the cut');
+
+      // Scrolling again re-fetches from the cut: no dead end, no hole.
+      requests.clear();
+      giveHome([for (var i = 1200; i > 800; i--) i], next: 't3');
+      snap = await repo.loadOlder(home);
+      expect((requests.single as tl.GetHomeTimelineRequest).pageToken, 't2');
+      expect(snap.hasMore, isTrue);
+    });
+
+    test('nothing is trimmed when no page boundary exists below the limit',
+        () async {
+      giveHome([for (var i = 600; i > 90; i--) i], next: 'older1', since: 's1');
       final snap = await repo.refresh(home);
+      expect(snap.posts, hasLength(510));
+      expect(snap.olderPageToken, 'older1');
+    });
+  });
 
-      expect(snap.posts, hasLength(kTimelineRetention));
-      expect(snap.entries.first.postView!.post.postId, postId(600));
-      expect(snap.entries.last.postView!.post.postId, postId(101));
+  group('sign-out race (privacy)', () {
+    test('an in-flight refresh that completes after sign-out writes nothing',
+        () async {
+      final gateOpen = Completer<void>();
+      final slowTransport = FakeTransport((procedure, input) async {
+        await gateOpen.future;
+        return tl.GetHomeTimelineResponse(
+          posts: [postView(5, authorId: 'userA')],
+          sinceToken: 'sA',
+          nextPageToken: 'oA',
+        );
+      });
+      final slowRepo = TimelineRepository(
+        apiClient: ApiClient.withTransport(slowTransport),
+        store: store,
+        gate: gate,
+      );
+
+      final pending = slowRepo.refresh(home);
+      await Future<void>.delayed(Duration.zero);
+      slowRepo.clearSession();
+      await db.clearAll();
+      gateOpen.complete();
+      await pending;
+
+      final snap = await store.read(home);
+      expect(snap.entries, isEmpty);
+      expect(snap.sinceToken, isEmpty);
       expect(snap.olderPageToken, isEmpty);
+    });
+
+    test('the next user can load normally after sign-out', () async {
+      giveHome([5], since: 's1');
+      await repo.refresh(home);
+      repo.clearSession();
+      await db.clearAll();
+
+      giveHome([9], since: 'sB');
+      final snap = await repo.refresh(home);
+      expect(ids(snap), idsOf([9]));
     });
   });
 

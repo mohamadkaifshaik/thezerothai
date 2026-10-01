@@ -28,11 +28,18 @@ class PostsFeatureGate extends ChangeNotifier {
   PostsFeatureGate({
     required bool Function() isPostsEnabled,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
+    void Function()? onWholeServiceDisabled,
   }) : _isPostsEnabled = isPostsEnabled,
-       _onUnexpectedError = onUnexpectedError;
+       _onUnexpectedError = onUnexpectedError,
+       _onWholeServiceDisabled = onWholeServiceDisabled;
 
   final bool Function() _isPostsEnabled;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// Called when the server turns all of posts off for this caller
+  /// (FEATURE_DISABLED with no `feature`): refresh `GetMe.enabled_features`
+  /// (ADR-0008 D6) so the flag set, not a sticky local override, decides.
+  final void Function()? _onWholeServiceDisabled;
 
   bool _wholeServiceDisabled = false;
   final Set<String> _disabledSubFeatures = {};
@@ -52,6 +59,7 @@ class PostsFeatureGate extends ChangeNotifier {
     if (feature == null || feature.isEmpty) {
       changed = !_wholeServiceDisabled;
       _wholeServiceDisabled = true;
+      _onWholeServiceDisabled?.call();
     } else {
       changed = _disabledSubFeatures.add(feature);
     }

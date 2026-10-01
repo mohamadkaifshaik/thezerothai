@@ -74,6 +74,11 @@ class TimelineItemEntries extends Table {
   /// `gap_page_token`; null for a post row.
   TextColumn get gapToken => text().nullable()();
 
+  /// For a post row that ended a fetched page: that page's
+  /// `next_page_token`. Lets retention trim at a page boundary and resume
+  /// scrolling from the cut.
+  TextColumn get pageToken => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {feedKey, itemKey};
 }
@@ -174,10 +179,12 @@ class AppDatabase extends _$AppDatabase {
   /// device never sees a stale profile or follow list (privacy: CLAUDE.md
   /// rule 10).
   Future<void> clearAll() async {
-    await delete(profileCacheEntries).go();
-    await delete(followingCacheEntries).go();
-    await delete(timelineItemEntries).go();
-    await delete(timelineStateEntries).go();
+    await transaction(() async {
+      await delete(profileCacheEntries).go();
+      await delete(followingCacheEntries).go();
+      await delete(timelineItemEntries).go();
+      await delete(timelineStateEntries).go();
+    });
   }
 
   static QueryExecutor _openConnection() {

@@ -67,6 +67,25 @@ class TimelineStore {
 
   final AppDatabase _db;
 
+  int _session = 0;
+
+  /// Generation of the signed-in session. Every write takes the generation
+  /// its caller started under and is dropped when [endSession] ran since, so
+  /// an in-flight request of a signed-out user can never write back after
+  /// the cache was wiped (privacy, CLAUDE.md rule 10).
+  int get session => _session;
+
+  /// Invalidates every write started under an earlier [session]. Call on
+  /// sign-out, before wiping the database.
+  void endSession() => _session++;
+
+  Future<void> _tx(int? session, Future<void> Function() body) {
+    return _db.transaction(() async {
+      if (session != null && session != _session) return;
+      await body();
+    });
+  }
+
   Future<TimelineSnapshot> read(FeedKey feed) async {
     final rows =
         await (_db.select(_db.timelineItemEntries)
@@ -74,6 +93,7 @@ class TimelineStore {
               ..orderBy([(t) => OrderingTerm.desc(t.sortKey)]))
             .get();
     final entries = <TimelineEntry>[];
+    final undecodable = <String>[];
     for (final row in rows) {
       final payload = row.payload;
       if (payload != null) {
@@ -86,12 +106,20 @@ class TimelineStore {
             ),
           );
         } catch (_) {
-          // Undecodable row (schema drift): skip it, the next refresh
-          // re-fetches it.
+          // Undecodable row (schema drift): skip it and delete it below,
+          // the next refresh re-fetches it.
+          undecodable.add(row.itemKey);
         }
       } else if (row.gapToken != null) {
         entries.add(TimelineEntry.gap(row.itemKey, row.sortKey, row.gapToken!));
       }
+    }
+    if (undecodable.isNotEmpty) {
+      await (_db.delete(_db.timelineItemEntries)..where(
+            (t) =>
+                t.feedKey.equals(feed.value) & t.itemKey.isIn(undecodable),
+          ))
+          .go();
     }
     final state = await _state(feed);
     return TimelineSnapshot(
@@ -108,8 +136,9 @@ class TimelineStore {
     required List<pb.PostView> posts,
     required String sinceToken,
     required String gapPageToken,
+    int? session,
   }) {
-    return _db.transaction(() async {
+    return _tx(session, () async {
       final valid = _valid(posts);
       await _upsertPosts(feed, valid);
       if (gapPageToken.isNotEmpty && valid.isNotEmpty) {
@@ -139,25 +168,38 @@ class TimelineStore {
     required String sinceToken,
     required String nextPageToken,
     bool replace = false,
+    int? session,
   }) {
-    return _db.transaction(() async {
+    return _tx(session, () async {
       if (replace) await _deleteFeedRows(feed);
       final existing = await _postIds(feed);
-      final valid = _valid(posts);
-      await _upsertPosts(feed, valid);
+      // Stop at the first post already cached: the page is contiguous with
+      // the cache from there down, so nothing below it is merged and no gap
+      // is needed.
+      final fresh = <pb.PostView>[];
+      var reachedCached = false;
+      for (final view in _valid(posts)) {
+        if (existing.contains(view.post.postId)) {
+          reachedCached = true;
+          break;
+        }
+        fresh.add(view);
+      }
+      await _upsertPosts(feed, fresh);
       if (existing.isEmpty) {
+        if (fresh.isNotEmpty && nextPageToken.isNotEmpty) {
+          await _setPageToken(feed, fresh.last.post.postId, nextPageToken);
+        }
         await _saveState(
           feed,
           sinceToken: sinceToken,
           olderPageToken: nextPageToken,
         );
       } else {
-        if (nextPageToken.isNotEmpty &&
-            valid.isNotEmpty &&
-            !existing.contains(valid.last.post.postId)) {
+        if (!reachedCached && nextPageToken.isNotEmpty && fresh.isNotEmpty) {
           await _putGap(
             feed,
-            sortKeyBelow(valid.last.post.postId),
+            sortKeyBelow(fresh.last.post.postId),
             nextPageToken,
           );
         }
@@ -172,9 +214,14 @@ class TimelineStore {
     FeedKey feed, {
     required List<pb.PostView> posts,
     required String nextPageToken,
+    int? session,
   }) {
-    return _db.transaction(() async {
-      await _upsertPosts(feed, _valid(posts));
+    return _tx(session, () async {
+      final valid = _valid(posts);
+      await _upsertPosts(feed, valid);
+      if (valid.isNotEmpty && nextPageToken.isNotEmpty) {
+        await _setPageToken(feed, valid.last.post.postId, nextPageToken);
+      }
       await _saveState(feed, olderPageToken: nextPageToken);
       await _prune(feed);
     });
@@ -189,8 +236,9 @@ class TimelineStore {
     String gapItemKey, {
     required List<pb.PostView> posts,
     required String nextPageToken,
+    int? session,
   }) {
-    return _db.transaction(() async {
+    return _tx(session, () async {
       final gap =
           await (_db.select(_db.timelineItemEntries)..where(
                 (t) =>
@@ -248,8 +296,9 @@ class TimelineStore {
   Future<void> insertOwnPost(
     pb.PostView view, {
     required Iterable<FeedKey> feeds,
+    int? session,
   }) {
-    return _db.transaction(() async {
+    return _tx(session, () async {
       if (view.post.postId.isEmpty) return;
       for (final feed in feeds) {
         final state = await _state(feed);
@@ -350,27 +399,42 @@ class TimelineStore {
     )..where((t) => t.feedKey.equals(feed.value))).go();
   }
 
-  /// Keeps the newest [kTimelineRetention] posts. When anything is dropped
-  /// the scroll token is cleared: it pointed below the oldest *fetched*
-  /// post, so keeping it would leave a hole between the trimmed tail and
-  /// the next page.
+  /// Stores [token] on post row [postId]: the `next_page_token` of the page
+  /// that row ended, so a trim can cut right after it and scrolling resumes
+  /// from there.
+  Future<void> _setPageToken(FeedKey feed, String postId, String token) {
+    return (_db.update(_db.timelineItemEntries)..where(
+          (t) => t.feedKey.equals(feed.value) & t.itemKey.equals(postId),
+        ))
+        .write(TimelineItemEntriesCompanion(pageToken: Value(token)));
+  }
+
+  /// Keeps at least the newest [kTimelineRetention] posts, trimming only at
+  /// a page boundary: the cut is the first row at or after the limit that
+  /// carries a page token. The scroll token becomes that row's token, so
+  /// infinite scroll continues past the trim with no hole. With no such row
+  /// nothing is trimmed.
   Future<void> _prune(FeedKey feed) async {
-    final boundary =
+    final rows =
         await (_db.select(_db.timelineItemEntries)
               ..where(
                 (t) => t.feedKey.equals(feed.value) & t.payload.isNotNull(),
               )
-              ..orderBy([(t) => OrderingTerm.desc(t.sortKey)])
-              ..limit(1, offset: kTimelineRetention - 1))
-            .getSingleOrNull();
-    if (boundary == null) return;
-    final removed =
-        await (_db.delete(_db.timelineItemEntries)..where(
-              (t) =>
-                  t.feedKey.equals(feed.value) &
-                  t.sortKey.isSmallerThanValue(boundary.sortKey),
-            ))
-            .go();
-    if (removed > 0) await _saveState(feed, olderPageToken: '');
+              ..orderBy([(t) => OrderingTerm.desc(t.sortKey)]))
+            .get();
+    if (rows.length <= kTimelineRetention) return;
+    for (var i = kTimelineRetention - 1; i < rows.length; i++) {
+      final token = rows[i].pageToken;
+      if (token == null || token.isEmpty) continue;
+      if (i == rows.length - 1) return; // nothing below the cut
+      await (_db.delete(_db.timelineItemEntries)..where(
+            (t) =>
+                t.feedKey.equals(feed.value) &
+                t.sortKey.isSmallerThanValue(rows[i].sortKey),
+          ))
+          .go();
+      await _saveState(feed, olderPageToken: token);
+      return;
+    }
   }
 }

@@ -1002,6 +1002,17 @@ class $TimelineItemEntriesTable extends TimelineItemEntries
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _pageTokenMeta = const VerificationMeta(
+    'pageToken',
+  );
+  @override
+  late final GeneratedColumn<String> pageToken = GeneratedColumn<String>(
+    'page_token',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     feedKey,
@@ -1009,6 +1020,7 @@ class $TimelineItemEntriesTable extends TimelineItemEntries
     sortKey,
     payload,
     gapToken,
+    pageToken,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1058,6 +1070,12 @@ class $TimelineItemEntriesTable extends TimelineItemEntries
         gapToken.isAcceptableOrUnknown(data['gap_token']!, _gapTokenMeta),
       );
     }
+    if (data.containsKey('page_token')) {
+      context.handle(
+        _pageTokenMeta,
+        pageToken.isAcceptableOrUnknown(data['page_token']!, _pageTokenMeta),
+      );
+    }
     return context;
   }
 
@@ -1087,6 +1105,10 @@ class $TimelineItemEntriesTable extends TimelineItemEntries
         DriftSqlType.string,
         data['${effectivePrefix}gap_token'],
       ),
+      pageToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_token'],
+      ),
     );
   }
 
@@ -1111,12 +1133,18 @@ class CachedTimelineItem extends DataClass
 
   /// `gap_page_token`; null for a post row.
   final String? gapToken;
+
+  /// For a post row that ended a fetched page: that page's
+  /// `next_page_token`. Lets retention trim at a page boundary and resume
+  /// scrolling from the cut.
+  final String? pageToken;
   const CachedTimelineItem({
     required this.feedKey,
     required this.itemKey,
     required this.sortKey,
     this.payload,
     this.gapToken,
+    this.pageToken,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1129,6 +1157,9 @@ class CachedTimelineItem extends DataClass
     }
     if (!nullToAbsent || gapToken != null) {
       map['gap_token'] = Variable<String>(gapToken);
+    }
+    if (!nullToAbsent || pageToken != null) {
+      map['page_token'] = Variable<String>(pageToken);
     }
     return map;
   }
@@ -1144,6 +1175,9 @@ class CachedTimelineItem extends DataClass
       gapToken: gapToken == null && nullToAbsent
           ? const Value.absent()
           : Value(gapToken),
+      pageToken: pageToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pageToken),
     );
   }
 
@@ -1158,6 +1192,7 @@ class CachedTimelineItem extends DataClass
       sortKey: serializer.fromJson<String>(json['sortKey']),
       payload: serializer.fromJson<Uint8List?>(json['payload']),
       gapToken: serializer.fromJson<String?>(json['gapToken']),
+      pageToken: serializer.fromJson<String?>(json['pageToken']),
     );
   }
   @override
@@ -1169,6 +1204,7 @@ class CachedTimelineItem extends DataClass
       'sortKey': serializer.toJson<String>(sortKey),
       'payload': serializer.toJson<Uint8List?>(payload),
       'gapToken': serializer.toJson<String?>(gapToken),
+      'pageToken': serializer.toJson<String?>(pageToken),
     };
   }
 
@@ -1178,12 +1214,14 @@ class CachedTimelineItem extends DataClass
     String? sortKey,
     Value<Uint8List?> payload = const Value.absent(),
     Value<String?> gapToken = const Value.absent(),
+    Value<String?> pageToken = const Value.absent(),
   }) => CachedTimelineItem(
     feedKey: feedKey ?? this.feedKey,
     itemKey: itemKey ?? this.itemKey,
     sortKey: sortKey ?? this.sortKey,
     payload: payload.present ? payload.value : this.payload,
     gapToken: gapToken.present ? gapToken.value : this.gapToken,
+    pageToken: pageToken.present ? pageToken.value : this.pageToken,
   );
   CachedTimelineItem copyWithCompanion(TimelineItemEntriesCompanion data) {
     return CachedTimelineItem(
@@ -1192,6 +1230,7 @@ class CachedTimelineItem extends DataClass
       sortKey: data.sortKey.present ? data.sortKey.value : this.sortKey,
       payload: data.payload.present ? data.payload.value : this.payload,
       gapToken: data.gapToken.present ? data.gapToken.value : this.gapToken,
+      pageToken: data.pageToken.present ? data.pageToken.value : this.pageToken,
     );
   }
 
@@ -1202,7 +1241,8 @@ class CachedTimelineItem extends DataClass
           ..write('itemKey: $itemKey, ')
           ..write('sortKey: $sortKey, ')
           ..write('payload: $payload, ')
-          ..write('gapToken: $gapToken')
+          ..write('gapToken: $gapToken, ')
+          ..write('pageToken: $pageToken')
           ..write(')'))
         .toString();
   }
@@ -1214,6 +1254,7 @@ class CachedTimelineItem extends DataClass
     sortKey,
     $driftBlobEquality.hash(payload),
     gapToken,
+    pageToken,
   );
   @override
   bool operator ==(Object other) =>
@@ -1223,7 +1264,8 @@ class CachedTimelineItem extends DataClass
           other.itemKey == this.itemKey &&
           other.sortKey == this.sortKey &&
           $driftBlobEquality.equals(other.payload, this.payload) &&
-          other.gapToken == this.gapToken);
+          other.gapToken == this.gapToken &&
+          other.pageToken == this.pageToken);
 }
 
 class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
@@ -1232,6 +1274,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
   final Value<String> sortKey;
   final Value<Uint8List?> payload;
   final Value<String?> gapToken;
+  final Value<String?> pageToken;
   final Value<int> rowid;
   const TimelineItemEntriesCompanion({
     this.feedKey = const Value.absent(),
@@ -1239,6 +1282,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
     this.sortKey = const Value.absent(),
     this.payload = const Value.absent(),
     this.gapToken = const Value.absent(),
+    this.pageToken = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TimelineItemEntriesCompanion.insert({
@@ -1247,6 +1291,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
     required String sortKey,
     this.payload = const Value.absent(),
     this.gapToken = const Value.absent(),
+    this.pageToken = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : feedKey = Value(feedKey),
        itemKey = Value(itemKey),
@@ -1257,6 +1302,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
     Expression<String>? sortKey,
     Expression<Uint8List>? payload,
     Expression<String>? gapToken,
+    Expression<String>? pageToken,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1265,6 +1311,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
       if (sortKey != null) 'sort_key': sortKey,
       if (payload != null) 'payload': payload,
       if (gapToken != null) 'gap_token': gapToken,
+      if (pageToken != null) 'page_token': pageToken,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1275,6 +1322,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
     Value<String>? sortKey,
     Value<Uint8List?>? payload,
     Value<String?>? gapToken,
+    Value<String?>? pageToken,
     Value<int>? rowid,
   }) {
     return TimelineItemEntriesCompanion(
@@ -1283,6 +1331,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
       sortKey: sortKey ?? this.sortKey,
       payload: payload ?? this.payload,
       gapToken: gapToken ?? this.gapToken,
+      pageToken: pageToken ?? this.pageToken,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1305,6 +1354,9 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
     if (gapToken.present) {
       map['gap_token'] = Variable<String>(gapToken.value);
     }
+    if (pageToken.present) {
+      map['page_token'] = Variable<String>(pageToken.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1319,6 +1371,7 @@ class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
           ..write('sortKey: $sortKey, ')
           ..write('payload: $payload, ')
           ..write('gapToken: $gapToken, ')
+          ..write('pageToken: $pageToken, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2220,6 +2273,7 @@ typedef $$TimelineItemEntriesTableCreateCompanionBuilder =
       required String sortKey,
       Value<Uint8List?> payload,
       Value<String?> gapToken,
+      Value<String?> pageToken,
       Value<int> rowid,
     });
 typedef $$TimelineItemEntriesTableUpdateCompanionBuilder =
@@ -2229,6 +2283,7 @@ typedef $$TimelineItemEntriesTableUpdateCompanionBuilder =
       Value<String> sortKey,
       Value<Uint8List?> payload,
       Value<String?> gapToken,
+      Value<String?> pageToken,
       Value<int> rowid,
     });
 
@@ -2263,6 +2318,11 @@ class $$TimelineItemEntriesTableFilterComposer
 
   ColumnFilters<String> get gapToken => $composableBuilder(
     column: $table.gapToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageToken => $composableBuilder(
+    column: $table.pageToken,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2300,6 +2360,11 @@ class $$TimelineItemEntriesTableOrderingComposer
     column: $table.gapToken,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get pageToken => $composableBuilder(
+    column: $table.pageToken,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TimelineItemEntriesTableAnnotationComposer
@@ -2325,6 +2390,9 @@ class $$TimelineItemEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get gapToken =>
       $composableBuilder(column: $table.gapToken, builder: (column) => column);
+
+  GeneratedColumn<String> get pageToken =>
+      $composableBuilder(column: $table.pageToken, builder: (column) => column);
 }
 
 class $$TimelineItemEntriesTableTableManager
@@ -2375,6 +2443,7 @@ class $$TimelineItemEntriesTableTableManager
                 Value<String> sortKey = const Value.absent(),
                 Value<Uint8List?> payload = const Value.absent(),
                 Value<String?> gapToken = const Value.absent(),
+                Value<String?> pageToken = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TimelineItemEntriesCompanion(
                 feedKey: feedKey,
@@ -2382,6 +2451,7 @@ class $$TimelineItemEntriesTableTableManager
                 sortKey: sortKey,
                 payload: payload,
                 gapToken: gapToken,
+                pageToken: pageToken,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2391,6 +2461,7 @@ class $$TimelineItemEntriesTableTableManager
                 required String sortKey,
                 Value<Uint8List?> payload = const Value.absent(),
                 Value<String?> gapToken = const Value.absent(),
+                Value<String?> pageToken = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TimelineItemEntriesCompanion.insert(
                 feedKey: feedKey,
@@ -2398,6 +2469,7 @@ class $$TimelineItemEntriesTableTableManager
                 sortKey: sortKey,
                 payload: payload,
                 gapToken: gapToken,
+                pageToken: pageToken,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
