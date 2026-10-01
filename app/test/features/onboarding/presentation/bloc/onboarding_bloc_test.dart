@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -14,6 +16,9 @@ class MockIdentityRepository extends Mock implements IdentityRepository {}
 
 void main() {
   late MockIdentityRepository identityRepository;
+  late Completer<identity.GetMeResponse> getMeGate;
+  late Completer<identity.Profile> submitGate;
+  late Completer<identity.CheckHandleAvailabilityResponse> handleGate;
 
   const user = AppUser(
     uid: 'uid-1',
@@ -28,7 +33,98 @@ void main() {
         .thenAnswer((_) async => null);
   });
 
+  group('OnboardingBloc sign-out races', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a CreateProfile completing after sign-out never emits the old profile',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
+        submitGate = Completer<identity.Profile>();
+        when(
+          () => identityRepository.createProfile(
+            handle: any(named: 'handle'),
+            displayName: any(named: 'displayName'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer((_) => submitGate.future);
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(
+        handle: 'kaif',
+        displayName: 'Kaif',
+        handleCheckStatus: HandleCheckStatus.available,
+      ),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingProfileSubmitted());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        submitGate.complete(identity.Profile(userId: 'uid-1', handle: 'old'));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      },
+      verify: (bloc) {
+        expect(bloc.state, const OnboardingState());
+        expect(bloc.state.profile, isNull);
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a handle check completing after sign-out emits nothing',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
+        handleGate = Completer<identity.CheckHandleAvailabilityResponse>();
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenAnswer((_) => handleGate.future);
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingHandleChanged('kaif'));
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        handleGate.complete(
+          identity.CheckHandleAvailabilityResponse(available: true),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      },
+      verify: (bloc) => expect(bloc.state, const OnboardingState()),
+    );
+  });
+
   group('OnboardingBloc', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a GetMe completing after sign-out never emits the old profile',
+      setUp: () {
+        final gate = Completer<identity.GetMeResponse>();
+        getMeGate = gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) => gate.future);
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(Duration.zero);
+        getMeGate.complete(
+          identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'old'),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        const OnboardingState(),
+      ],
+    );
+
     blocTest<OnboardingBloc, OnboardingState>(
       'goes to profileRequired when GetMe throws ProfileRequiredException',
       setUp: () {

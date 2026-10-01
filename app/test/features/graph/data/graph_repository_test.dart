@@ -2,6 +2,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/core/storage/session_epoch.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -17,9 +18,12 @@ void main() {
 
   setUp(() {
     database = MockAppDatabase();
+    when(() => database.sessionEpoch).thenReturn(SessionEpoch());
     when(() => database.cachedFollowingIds()).thenAnswer((_) async => []);
-    when(() => database.upsertFollowing(any())).thenAnswer((_) async {});
-    when(() => database.removeFollowing(any())).thenAnswer((_) async {});
+    when(() => database.upsertFollowing(any(), epoch: any(named: 'epoch')))
+        .thenAnswer((_) async {});
+    when(() => database.removeFollowing(any(), epoch: any(named: 'epoch')))
+        .thenAnswer((_) async {});
   });
 
   GraphRepository buildRepository(
@@ -74,6 +78,7 @@ void main() {
             followState: graph.FollowState.FOLLOW_STATE_NONE,
           ),
         ),
+        database.sessionEpoch.value,
       );
 
       final result = await repository.relationshipsFor(['u1']);
@@ -124,7 +129,9 @@ void main() {
           repository.cached('target')?.followState,
           graph.FollowState.FOLLOW_STATE_FOLLOWING,
         );
-        verify(() => database.upsertFollowing('target')).called(1);
+        verify(
+          () => database.upsertFollowing('target', epoch: 0),
+        ).called(1);
       },
     );
 
@@ -140,7 +147,9 @@ void main() {
 
       await repository.unfollow(userId: 'target', idempotencyKey: 'key-2');
 
-      verify(() => database.removeFollowing('target')).called(1);
+      verify(
+        () => database.removeFollowing('target', epoch: 0),
+      ).called(1);
     });
 
     test('a server error is surfaced as the mapped AppException', () async {
@@ -170,7 +179,9 @@ void main() {
       );
 
       expect(relationship.blocking, isTrue);
-      verify(() => database.removeFollowing('target')).called(1);
+      verify(
+        () => database.removeFollowing('target', epoch: 0),
+      ).called(1);
     });
   });
 

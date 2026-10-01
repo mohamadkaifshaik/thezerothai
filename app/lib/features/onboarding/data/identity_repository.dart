@@ -28,8 +28,9 @@ class IdentityRepository {
   /// a Firebase account but hasn't called [createProfile] yet.
   Future<identity.GetMeResponse> getMe() {
     return guardApiCall(() async {
+      final epoch = _database.sessionEpoch.value;
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
-      await _cacheProfile(response.profile);
+      await _cacheProfile(response.profile, epoch);
       return response;
     });
   }
@@ -44,11 +45,12 @@ class IdentityRepository {
       'getProfile takes exactly one of userId or handle',
     );
     return guardApiCall(() async {
+      final epoch = _database.sessionEpoch.value;
       final request = userId != null
           ? identity.GetProfileRequest(userId: userId)
           : identity.GetProfileRequest(handle: handle);
       final response = await _apiClient.identity.getProfile(request);
-      await _cacheProfile(response.profile);
+      await _cacheProfile(response.profile, epoch);
       return response.profile;
     });
   }
@@ -69,6 +71,7 @@ class IdentityRepository {
     required String idempotencyKey,
   }) {
     return guardApiCall(() async {
+      final epoch = _database.sessionEpoch.value;
       final response = await _apiClient.identity.createProfile(
         identity.CreateProfileRequest(
           idempotencyKey: idempotencyKey,
@@ -76,7 +79,7 @@ class IdentityRepository {
           displayName: displayName,
         ),
       );
-      await _cacheProfile(response.profile);
+      await _cacheProfile(response.profile, epoch);
       return response.profile;
     });
   }
@@ -99,7 +102,7 @@ class IdentityRepository {
     );
   }
 
-  Future<void> _cacheProfile(identity.Profile profile) {
+  Future<void> _cacheProfile(identity.Profile profile, int epoch) {
     return _database.upsertProfile(
       ProfileCacheEntriesCompanion.insert(
         userId: profile.userId,
@@ -115,6 +118,7 @@ class IdentityRepository {
         postsCount: Value(profile.postsCount.toInt()),
         cachedAt: DateTime.now(),
       ),
+      epoch: epoch,
     );
   }
 }

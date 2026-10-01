@@ -57,6 +57,7 @@ void main() {
       posts: [for (final i in ids) postView(i)],
       sinceToken: 's',
       nextPageToken: '',
+      session: store.session,
     );
   }
 
@@ -64,24 +65,27 @@ void main() {
     for (final p in s.posts) p.post.postId,
   ];
 
-  test('createPost sends the request and prepends to loaded feeds only',
-      () async {
-    await seed(const FeedKey.home(), [5, 4]);
-    // The author's Posts tab was never opened: it must stay empty.
-    answer = (_) => pb.CreatePostResponse(post: postView(9, authorId: 'me'));
+  test(
+    'createPost sends the request and prepends to loaded feeds only',
+    () async {
+      await seed(const FeedKey.home(), [5, 4]);
+      // The author's Posts tab was never opened: it must stay empty.
+      answer = (_) => pb.CreatePostResponse(post: postView(9, authorId: 'me'));
 
-    final view = await repo.createPost(idempotencyKey: 'k1', text: 'hello');
+      final view = await repo.createPost(idempotencyKey: 'k1', text: 'hello');
 
-    expect(view.post.postId, postId(9));
-    final sent = requests.single as pb.CreatePostRequest;
-    expect(sent.idempotencyKey, 'k1');
-    expect(sent.text, 'hello');
-    expect(
-      cachedIds(await store.read(const FeedKey.home())),
-      [postId(9), postId(5), postId(4)],
-    );
-    expect((await store.read(FeedKey.user('me'))).entries, isEmpty);
-  });
+      expect(view.post.postId, postId(9));
+      final sent = requests.single as pb.CreatePostRequest;
+      expect(sent.idempotencyKey, 'k1');
+      expect(sent.text, 'hello');
+      expect(cachedIds(await store.read(const FeedKey.home())), [
+        postId(9),
+        postId(5),
+        postId(4),
+      ]);
+      expect((await store.read(FeedKey.user('me'))).entries, isEmpty);
+    },
+  );
 
   test('a post created while the session ends is not written back', () async {
     await seed(const FeedKey.home(), [5]);
@@ -243,21 +247,23 @@ void main() {
       expect(gate.postsEnabled, isTrue);
     });
 
-    test('FEATURE_DISABLED without feature hides all of posts until reset',
-        () async {
-      answer = (_) => serverError(
-        connect.Code.failedPrecondition,
-        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
-      );
-      await expectLater(
-        repo.createPost(idempotencyKey: 'k', text: 't'),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      expect(gate.postsEnabled, isFalse);
+    test(
+      'FEATURE_DISABLED without feature hides all of posts until reset',
+      () async {
+        answer = (_) => serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        );
+        await expectLater(
+          repo.createPost(idempotencyKey: 'k', text: 't'),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(gate.postsEnabled, isFalse);
 
-      gate.reset();
-      expect(gate.postsEnabled, isTrue);
-    });
+        gate.reset();
+        expect(gate.postsEnabled, isTrue);
+      },
+    );
 
     test('an unexpected error is reported once (Crashlytics hook)', () async {
       final reported = <Object>[];
