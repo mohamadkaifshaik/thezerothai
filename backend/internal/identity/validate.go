@@ -13,6 +13,13 @@ import (
 
 var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,15}$`)
 
+// ValidHandleRun reports whether s has the handle grammar `[A-Za-z0-9_]{3,15}` (handleRe), without the reserved
+// list or the Firestore doc-id check. Exported so posts/text can recognise an @mention candidate with the one
+// handle grammar instead of redefining it (ADR-0010 D7: "identity's handleRe, reused, not redefined").
+func ValidHandleRun(s string) bool {
+	return handleRe.MatchString(s)
+}
+
 // reservedHandles blocks a small, obvious set of confusable/system handles. Extend via config later if
 // abuse shows up (ADR-0006 abuse-spike runbook), not by redeploying this list under pressure.
 var reservedHandles = map[string]struct{}{
