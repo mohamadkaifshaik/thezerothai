@@ -182,6 +182,13 @@ type Config struct {
 	// CacheTTL is the default instance-cache TTL for hot documents (e.g. users/{uid}).
 	CacheTTL time.Duration
 
+	// CachePostsEntries and CacheAuthorRecentEntries size the posts module's two instance caches (ADR-0010 D15):
+	// post docs by id (CACHE_POSTS_ENTRIES, default 20,000) and per-author newest root posts
+	// (CACHE_AUTHOR_RECENT_ENTRIES, default 1,000). Both must be > 0: the worst-case memory is
+	// entries x ~2.5 KiB (posts) and entries x 20 shared pointers, bounded within the ~150 MiB cache budget.
+	CachePostsEntries        int
+	CacheAuthorRecentEntries int
+
 	// TimelineTokenTTL is how long timeline since/page/gap tokens stay valid (ADR-0010 D14), env
 	// TIMELINE_TOKEN_TTL, default 720h (30 days). The client persists since and gap tokens across days. It must
 	// be at least 24h (the graph-token TTL); a shorter value would turn every morning refresh into a cold open.
@@ -294,6 +301,22 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf(
 			"config: CACHE_TTL %v exceeds the maximum of %.0fs: the account-deletion start gate is 120s and the instance cache TTL must stay below it so PurgeUser cannot race stale caches (ADR-0009)",
 			cacheTTL, MaxCacheTTL.Seconds())
+	}
+	cachePostsEntries, err := getInt("CACHE_POSTS_ENTRIES", 20_000)
+	if err != nil {
+		return Config{}, err
+	}
+	cacheAuthorRecentEntries, err := getInt("CACHE_AUTHOR_RECENT_ENTRIES", 1_000)
+	if err != nil {
+		return Config{}, err
+	}
+	for name, v := range map[string]int{
+		"CACHE_POSTS_ENTRIES":         cachePostsEntries,
+		"CACHE_AUTHOR_RECENT_ENTRIES": cacheAuthorRecentEntries,
+	} {
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
+		}
 	}
 	handleCooldown, err := getDuration("HANDLE_CHANGE_COOLDOWN", 7*24*time.Hour)
 	if err != nil {
@@ -505,6 +528,8 @@ func Load() (Config, error) {
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
+		CachePostsEntries:         cachePostsEntries,
+		CacheAuthorRecentEntries:  cacheAuthorRecentEntries,
 		TimelineTokenTTL:          timelineTokenTTL,
 		InternalOIDCAudience:      internalOIDCAudience,
 		InternalOIDCAllowedEmails: allowedEmails,

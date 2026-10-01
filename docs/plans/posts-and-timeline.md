@@ -574,6 +574,22 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
      - `Directory.Forget(author)` (or update it in place, as in graph T30);
      - `PostEvents.Created` (a no-op).
   5. Return `PostView` (viewer flags false).
+  6. **Carry-overs from the T7 review (record the decisions in the T8 PR):**
+     - **Stale positive handle cache.** `ResolveHandles` caches handle to uid for `CACHE_TTL` (60 s), so a handle
+       that was freed and reclaimed by another user can be saved in `mentions[]` under the wrong user. T8 must
+       either verify the resolved uid's `HandleLower` against the profile it loads for that uid (via
+       `identity.Directory.GetProfiles`, cache-first) or shorten the positive handle TTL to 10 s. Test the freed and
+       reclaimed case.
+     - **More than 10 handles.** `ResolveHandles` returns an untyped error above `identity.MaxResolveHandles`
+       distinct handles. T8 must truncate to 10 after dedupe (the parser already caps at `text.MaxMentions`) and
+       test 11 mentions.
+     - **Lower-casing order.** `ResolveHandles` lower-cases before `handleFormatIssue`, the reverse of the other
+       identity paths (validate the raw input first). T8 passes parser output, which is already lower-case and
+       valid, so it is unaffected; do not copy the order elsewhere, and prefer validating raw input first if
+       `ResolveHandles` is touched.
+     - **`allowAnonymous`.** T8 must receive it only through an option wired from `cfg.AuthEmulator` (as
+       `identity.WithAllowAnonymous` does), never from a request or a global, and needs a guard test that
+       `apiserver.Build` wires it from `cfg.AuthEmulator` and that the default is false.
 - **Acceptance criteria.**
   - Given valid text, then `posts/{id}` has the ADR-0003 shape, `users.postsCount` +1, `quotas.posts` +1, and exactly
     one `idempotency` doc with `expireAt` 24 h out.
@@ -676,6 +692,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `Encode`/`Decode` and their 24 h default stay **byte-for-byte compatible**, so graph list tokens already issued
     keep decoding.
   - Add the config key `TIMELINE_TOKEN_TTL` (default `720h`) to `config.Config` (rule 11). T11 consumes it.
+    **Follow-up (T4/T28 notes):** `config.Load` rejects values below 24h but has no upper bound; add one (for
+    example <= 2160h = 90 days) so a typo cannot make timeline tokens effectively immortal.
   - Update `docs/code-map.md`.
 - **Acceptance criteria.**
   - Given a Window with and without a Lower bound, when encoded and decoded with the same binding, then it round-trips
@@ -759,6 +777,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `since_token` uses the T11 settle watermark (D13). Tokens use the T11 bindings.
   - Muted authors are shown and blocked-by-caller authors are returned (D6); the client shows a banner.
 - **Acceptance criteria.**
+  - Given since, page or gap tokens, then they are decoded with `cfg.TimelineTokenTTL` via `cursor.DecodeTTL` /
+    `cursor.DecodeWindow`, never `cursor.Decode` / `cursor.DecodeAt` (their 24 h TTL would turn every morning
+    refresh into a cold open). Test with a token older than 24 h (accepted) and one older than the TTL (rejected).
   - Given 45 posts, then pages of 20 cover all 45 exactly once, stable under concurrent new posts.
   - Given exactly 40 posts and pages of 20, then page 2 returns a `next_page_token`, and page 3 returns 0 items,
     `next_page_token = ""`, and costs 1 query read.
@@ -790,6 +811,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 
   The per-RPC deadline is 10 s. The following cap of 5,000 already exists (graph).
 - **Acceptance criteria.** From the ADR-0004 tester handoff, with the ADR-0010 D17 convention:
+  - Given since, page or gap tokens, then they are decoded with `cfg.TimelineTokenTTL` via `cursor.DecodeTTL` /
+    `cursor.DecodeWindow`, never `cursor.Decode` / `cursor.DecodeAt` (24 h would turn every morning refresh into a
+    cold open). Test with a token older than 24 h (accepted) and one older than the TTL (rejected).
   - Given a refresh with 0 new posts, author-recent empty (or disabled) and the graph warm, then reads == C (+1 if
     the interceptor is cold).
   - Given F = 60, page 20, then cold reads ≤ 2 + 3·14 = 44.
