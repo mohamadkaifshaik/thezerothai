@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -178,6 +179,83 @@ func TestDecodeTTL_CursorWithLongerLifetime(t *testing.T) {
 	win := EncodeWindowAt(key, b, Window{Upper: Cursor{CreatedAt: now, DocID: "1"}}, now)
 	if _, err := DecodeAtTTL(key, b, win, now, ttl30d); err != ErrInvalid {
 		t.Fatalf("window token opened as a cursor: err = %v", err)
+	}
+}
+
+// TestWindow_RoundTripProperty: random (createdAt, docId) pairs, with and without a lower bound, including
+// zero, negative (pre-1970) and far-future times, survive EncodeWindow/DecodeWindow exactly (microseconds).
+func TestWindow_RoundTripProperty(t *testing.T) {
+	rng := rand.New(rand.NewSource(28))
+	key := []byte("prop-key")
+	now := time.Unix(1_700_000_000, 0)
+	randTime := func() time.Time {
+		switch rng.Intn(6) {
+		case 0:
+			return time.UnixMicro(0)
+		case 1:
+			return time.UnixMicro(-rng.Int63n(1 << 50)) // before 1970
+		case 2:
+			return time.UnixMicro(rng.Int63n(1 << 55)) // far future
+		default:
+			return time.UnixMicro(rng.Int63n(2_000_000_000_000_000))
+		}
+	}
+	randID := func() string {
+		const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_:."
+		b := make([]byte, 1+rng.Intn(40))
+		for i := range b {
+			b[i] = alphabet[rng.Intn(len(alphabet))]
+		}
+		return string(b)
+	}
+	for i := 0; i < 500; i++ {
+		w := Window{Upper: Cursor{CreatedAt: randTime(), DocID: randID()}}
+		if rng.Intn(2) == 0 {
+			w.Lower = &Cursor{CreatedAt: randTime(), DocID: randID()}
+		}
+		tok := EncodeWindowAt(key, homePageBind, w, now)
+		if tok == "" {
+			t.Fatalf("case %d: %+v not encodable", i, w)
+		}
+		got, err := DecodeWindowAt(key, homePageBind, tok, now, ttl30d)
+		if err != nil {
+			t.Fatalf("case %d: %v", i, err)
+		}
+		if !got.Upper.CreatedAt.Equal(w.Upper.CreatedAt) || got.Upper.DocID != w.Upper.DocID || (got.Lower == nil) != (w.Lower == nil) {
+			t.Fatalf("case %d: got %+v want %+v", i, got, w)
+		}
+		if w.Lower != nil && (!got.Lower.CreatedAt.Equal(w.Lower.CreatedAt) || got.Lower.DocID != w.Lower.DocID) {
+			t.Fatalf("case %d: lower got %+v want %+v", i, *got.Lower, *w.Lower)
+		}
+	}
+}
+
+// TestDecode_ExactBoundaries pins the TTL and clock-skew edges for both codecs: age == ttl is accepted and
+// ttl+1ns is rejected; an issue time exactly one minute in the future is accepted and +1ns is rejected.
+func TestDecode_ExactBoundaries(t *testing.T) {
+	issue := time.UnixMicro(1_700_000_000_000_000)
+	key := []byte("k")
+	curTok := EncodeAt(key, homePageBind, Cursor{CreatedAt: issue, DocID: "1"}, issue)
+	winTok := EncodeWindowAt(key, homePageBind, Window{Upper: Cursor{CreatedAt: issue, DocID: "1"}}, issue)
+
+	tests := []struct {
+		name string
+		now  time.Time
+		ok   bool
+	}{
+		{"age == ttl", issue.Add(ttl30d), true},
+		{"age == ttl + 1ns", issue.Add(ttl30d + time.Nanosecond), false},
+		{"issued exactly skew in the future", issue.Add(-clockSkew), true},
+		{"issued skew + 1ns in the future", issue.Add(-clockSkew - time.Nanosecond), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cerr := DecodeAtTTL(key, homePageBind, curTok, tc.now, ttl30d)
+			_, werr := DecodeWindowAt(key, homePageBind, winTok, tc.now, ttl30d)
+			if (cerr == nil) != tc.ok || (werr == nil) != tc.ok {
+				t.Fatalf("cursor err=%v window err=%v, want ok=%v", cerr, werr, tc.ok)
+			}
+		})
 	}
 }
 

@@ -700,6 +700,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     counts as "filled" (ADR-0010 D15);
   - the `gap_page_token` when any chunk filled `k` on a refresh.
 
+  **T28 carry-over:** the cursor codec does not order the two bounds of a `cursor.Window`. T11 must treat a Lower
+  bound that is `>=` Upper (by `(createdAt, postId)`) as "lower bound reached" (no next page), never as an error.
+  `TIMELINE_TOKEN_TTL` is `config.Config.TimelineTokenTTL` (T28 adds it; default 720h, must be >= 24h).
+
   **Tokens (ADR-0010 D14)** use the T28 cursor extension, sealed with the existing cursor key and with a TTL of
   `TIMELINE_TOKEN_TTL` (default **720 h = 30 days**). Bindings (AEAD additional data):
 
