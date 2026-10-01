@@ -14,7 +14,7 @@ cleared by any call that finds a profile) and A10 (the verified-identity gate be
 A3, A4, A7, Refinement 1, the abuse table, D15 (the negative handle cache is its own LRU), Consequences, Handoff and
 Founder attention follow them, and the founder's acceptance of R1 and R2 is recorded. No per-DAU number changes; only
 the per-IP abuse rows do.
-**Amended 2026-10-01 (text grammar; Proposed, NOT yet accepted)** after the reviews of the server parser (PR #77,
+**Amended 2026-10-01 (text grammar; Accepted by the founder 2026-10-01, G1–G5 as recommended)** after the reviews of the server parser (PR #77,
 `backend/internal/posts/text/text.go`) and the client parser (PR #80,
 `app/lib/features/posts/domain/post_text_parser.dart`): new section D21 (G1–G5) proposes a URL-span exclusion
 shared by both parsers (G1), U+2028/U+2029 folded into `\n` (G2), the handle grammar moved to a dependency-free
@@ -601,7 +601,7 @@ Rules behind the table:
 - **Examples:** `@Alice @alice` → [alice] · `email@example.com` → none · `(@bob)` → bob · `@bob's` → bob ·
   `@@bob` → none · `@bob@host` → none · `https://x.y/@bob` → none · `@ab` → none (too short) ·
   `@abcdefghijklmnop` (16) → none · `@al-ice` → `al` is too short, so none · `hi @carol_` → `carol_`.
-- **URL spans (proposed 2026-10-01, D21 G1; binding once D21 is accepted).** A mention candidate (from its `@` to
+- **URL spans (accepted 2026-10-01, D21 G1; binding).** A mention candidate (from its `@` to
   the end of its run) that overlaps a **URL span** is not a mention. The exclusion runs before lower-casing, dedupe
   and the cap of 10, so an excluded candidate never takes a slot and never costs a `handles/*` or `graph` read. A
   URL span is defined syntactically, and both parsers use exactly this rule:
@@ -639,7 +639,7 @@ Rules behind the table:
 - **Examples:** `#Go #go #GO` → [go] · `#123` → none (**pinned**: no letter) · `#१२३` → none · `#भारत` → [भारत] ·
   `#café` → [café] · `#go_lang` → [go_lang] · `a#b` → none · `https://x.y/p#frag` → none · `#` → none ·
   11 tags → first 10 stored, text unchanged.
-- **URL spans (proposed 2026-10-01, D21 G1; binding once D21 is accepted).** A hashtag candidate (from its `#` to the
+- **URL spans (accepted 2026-10-01, D21 G1; binding).** A hashtag candidate (from its `#` to the
   end of its body) that overlaps a URL span, as defined in D7, is not a hashtag. The exclusion runs before
   lower-casing, dedupe and the cap of 10. Examples: `https://ex.com/?a=1&b=#go #rust` → [rust] ·
   `#https://ex.com` → none · `https://ex.com/a.#go` → none (`#` sits inside the span; only the end is trimmed).
@@ -852,14 +852,14 @@ strings, mention lists, tokens, and graph arrays.
   - `page_size`.
 - **Purge (T10):** `posts_purge_batch` with counts.
 
-### D21. Text-grammar amendment (2026-10-01). **Proposed: founder decision needed before T8 stores a post**
+### D21. Text-grammar amendment (2026-10-01). **Accepted by the founder 2026-10-01 (G1–G5 as recommended)**
 **Context.** The server parser (PR #77) and the client parser (PR #80) are merged, but nothing is stored yet, because
 T8 (CreatePost) is not merged. Once T8 writes posts, `mentions[]` and `hashtags[]` are permanent: a mention costs a
 `handles/*` read now, and in P6 it becomes a notification. A grammar fix after T8 would need a backfill over
 `posts/*` that rewrites `mentions[]` and `hashtags[]`, which spends the 20k writes/day quota. Fixing it before T8
 costs nothing. The reviews found three defects (G1–G3) and two smaller gaps (G4, G5). Each item gives the problem,
-the options, a **recommendation** and the rationale. The founder may accept, change or reject each one
-independently. Until then D7–D9 stand as written, and their dated "proposed" bullets are not yet binding.
+the options, a **recommendation** and the rationale. The founder could accept, change or reject each one
+independently. **The founder accepted all five (G1–G5) as recommended on 2026-10-01** (answered in the shipping session); D7–D9 now include their dated bullets as binding.
 
 **G1. `@` and `#` inside explicit `http(s)://` URLs: the server and the client disagree.**
 - **Problem.**
