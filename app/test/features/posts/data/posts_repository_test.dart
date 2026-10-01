@@ -56,8 +56,7 @@ void main() {
       feed,
       posts: [for (final i in ids) postView(i)],
       sinceToken: 's',
-      nextPageToken: '',
-    );
+      nextPageToken: '', session: store.session);
   }
 
   List<String> cachedIds(TimelineSnapshot s) => [

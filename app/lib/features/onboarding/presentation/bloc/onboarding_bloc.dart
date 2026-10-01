@@ -60,7 +60,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       _uuid = uuid ?? const Uuid(),
       super(const OnboardingState()) {
     on<OnboardingUserAuthenticated>(_onUserAuthenticated);
-    on<OnboardingUserSignedOut>((event, emit) => emit(const OnboardingState()));
+    on<OnboardingUserSignedOut>((event, emit) {
+      // Ends the in-flight GetMe of the signed-out user (see _loadMe).
+      _uid = null;
+      emit(const OnboardingState());
+    });
     on<OnboardingRefreshRequested>(_onUserRefreshRequested);
     on<OnboardingHandleChanged>(
       _onHandleChanged,
@@ -106,6 +110,10 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     final cached = uid == null
         ? null
         : await _identityRepository.cachedOwnProfile(uid);
+    // Handlers run concurrently: a sign-out (or another user's sign-in) while
+    // an await below was pending must not be overwritten by this user's data.
+    bool stale() => emit.isDone || _uid != uid;
+    if (stale()) return;
     if (cached != null) {
       emit(
         state.copyWith(
@@ -119,6 +127,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
 
     try {
       final response = await _identityRepository.getMe();
+      if (stale()) return;
       emit(
         state.copyWith(
           status: OnboardingStatus.ready,
@@ -127,8 +136,10 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     } on ProfileRequiredException {
+      if (stale()) return;
       emit(state.copyWith(status: OnboardingStatus.profileRequired));
     } on EmailNotVerifiedException catch (e) {
+      if (stale()) return;
       // Provider/verification gate (ADR-0010 D5 A2/A10) answered on an exempt
       // RPC: same verify-your-email state as CreateProfile.
       emit(
@@ -138,6 +149,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     } on AppException catch (e) {
+      if (stale()) return;
       // A cached profile is still good enough to use; only surface the
       // error (and block on it) when we had nothing to show.
       if (cached == null) {

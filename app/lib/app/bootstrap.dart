@@ -116,7 +116,12 @@ Future<void> bootstrap() async {
       onboardingBloc.add(const OnboardingUserSignedOut());
       // Wipe the local cache so the next user on a shared device never sees
       // a stale profile or relationship (privacy: CLAUDE.md rule 10).
-      unawaited(wipeSessionData(database: database));
+      unawaited(
+        wipeSessionData(
+          database: database,
+          timelineRepository: timelineRepository,
+        ),
+      );
       graphRepository.clearCache();
     } else if (user != null &&
         state.status == AuthStatus.authenticated &&

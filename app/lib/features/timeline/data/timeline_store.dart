@@ -71,18 +71,19 @@ class TimelineStore {
 
   final AppDatabase _db;
 
-  /// Generation of the signed-in session. Every write takes the generation
-  /// its caller started under (the shared `AppDatabase.sessionEpoch`, also
-  /// checked by the graph and identity caches) and is dropped when [endSession] ran since, so
-  /// an in-flight request of a signed-out user can never write back after
-  /// the cache was wiped (privacy, CLAUDE.md rule 10).
+  /// Generation of the signed-in session (the shared
+  /// `AppDatabase.sessionEpoch`, also checked by the graph and identity
+  /// caches). Every write takes the generation its caller started under and
+  /// is dropped when the epoch ended since, so an in-flight request of a
+  /// signed-out user can never write back after the cache was wiped
+  /// (privacy, CLAUDE.md rule 10).
   int get session => _db.sessionEpoch.value;
 
-  /// Invalidates every write started under an earlier [session]. Call on
-  /// sign-out, before wiping the database.
+  /// Ends the shared epoch; the one entry point is
+  /// `TimelineRepository.clearSession`, called by `wipeSessionData`.
   void endSession() => _db.sessionEpoch.end();
 
-  Future<void> _tx(int? session, Future<void> Function() body) {
+  Future<void> _tx(int session, Future<void> Function() body) {
     return _db.transaction(() async {
       if (!_db.sessionEpoch.allows(session)) return;
       await body();
@@ -138,7 +139,7 @@ class TimelineStore {
     required List<pb.PostView> posts,
     required String sinceToken,
     required String gapPageToken,
-    int? session,
+    required int session,
   }) {
     return _tx(session, () async {
       final valid = _valid(posts);
@@ -166,7 +167,7 @@ class TimelineStore {
     required String sinceToken,
     required String nextPageToken,
     bool replace = false,
-    int? session,
+    required int session,
   }) {
     return _tx(session, () async {
       if (replace) await _deleteFeedRows(feed);
@@ -212,7 +213,7 @@ class TimelineStore {
     FeedKey feed, {
     required List<pb.PostView> posts,
     required String nextPageToken,
-    int? session,
+    required int session,
   }) {
     return _tx(session, () async {
       final valid = _valid(posts);
@@ -233,7 +234,7 @@ class TimelineStore {
     String gapItemKey, {
     required List<pb.PostView> posts,
     required String nextPageToken,
-    int? session,
+    required int session,
   }) {
     return _tx(session, () async {
       final gap =
@@ -264,9 +265,12 @@ class TimelineStore {
   }
 
   /// Drops the stored `since_token` (it was rejected, D14).
-  Future<void> clearSince(FeedKey feed, {int? session}) =>
+  Future<void> clearSince(FeedKey feed, {required int session}) =>
       _tx(session, () => _saveState(feed, sinceToken: '', replaceSince: true));
 
+  /// removePost / removeFeed are intentionally unguarded: deletes can never
+  /// leak one user's data into another's cache.
+  ///
   /// Removes [postId] from every cached feed (post NOT_FOUND on open, or
   /// the caller deleted it).
   Future<void> removePost(String postId) {
@@ -292,7 +296,7 @@ class TimelineStore {
   Future<void> insertOwnPost(
     pb.PostView view, {
     required Iterable<FeedKey> feeds,
-    int? session,
+    required int session,
   }) {
     return _tx(session, () async {
       if (view.post.postId.isEmpty) return;

@@ -78,6 +78,7 @@ void main() {
             followState: graph.FollowState.FOLLOW_STATE_NONE,
           ),
         ),
+        database.sessionEpoch.value,
       );
 
       final result = await repository.relationshipsFor(['u1']);
@@ -129,7 +130,7 @@ void main() {
           graph.FollowState.FOLLOW_STATE_FOLLOWING,
         );
         verify(
-          () => database.upsertFollowing('target', epoch: any(named: 'epoch')),
+          () => database.upsertFollowing('target', epoch: 0),
         ).called(1);
       },
     );
@@ -147,7 +148,7 @@ void main() {
       await repository.unfollow(userId: 'target', idempotencyKey: 'key-2');
 
       verify(
-        () => database.removeFollowing('target', epoch: any(named: 'epoch')),
+        () => database.removeFollowing('target', epoch: 0),
       ).called(1);
     });
 
@@ -179,7 +180,7 @@ void main() {
 
       expect(relationship.blocking, isTrue);
       verify(
-        () => database.removeFollowing('target', epoch: any(named: 'epoch')),
+        () => database.removeFollowing('target', epoch: 0),
       ).called(1);
     });
   });

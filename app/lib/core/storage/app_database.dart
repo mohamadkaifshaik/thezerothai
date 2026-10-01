@@ -150,15 +150,21 @@ class AppDatabase extends _$AppDatabase {
     )..where((t) => t.handle.equals(handle))).getSingleOrNull();
   }
 
-  /// Guarded writes: when [epoch] is given and the session ended since,
-  /// the write is dropped (see [SessionEpoch]).
-  Future<void> upsertProfile(ProfileCacheEntriesCompanion entry, {int? epoch}) {
+  /// Guarded writes: the write is dropped when the session ended since
+  /// [epoch] was read (see [SessionEpoch]); pass [SessionEpoch.unguarded] to
+  /// bypass on purpose.
+  Future<void> upsertProfile(
+    ProfileCacheEntriesCompanion entry, {
+    required int epoch,
+  }) {
     return transaction(() async {
       if (!sessionEpoch.allows(epoch)) return;
       await into(profileCacheEntries).insertOnConflictUpdate(entry);
     });
   }
 
+  /// Deletes are intentionally unguarded: removing a row can never leak one
+  /// user's data into another's cache.
   Future<void> deleteProfile(String userId) {
     return (delete(
       profileCacheEntries,
@@ -171,7 +177,7 @@ class AppDatabase extends _$AppDatabase {
     return [for (final row in rows) row.userId];
   }
 
-  Future<void> upsertFollowing(String userId, {int? epoch}) {
+  Future<void> upsertFollowing(String userId, {required int epoch}) {
     return transaction(() async {
       if (!sessionEpoch.allows(epoch)) return;
       await into(followingCacheEntries).insertOnConflictUpdate(
@@ -183,7 +189,7 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  Future<void> removeFollowing(String userId, {int? epoch}) {
+  Future<void> removeFollowing(String userId, {required int epoch}) {
     return transaction(() async {
       if (!sessionEpoch.allows(epoch)) return;
       await (delete(

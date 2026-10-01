@@ -49,8 +49,7 @@ void main() {
       home,
       posts: const [],
       sinceToken: 's',
-      gapPageToken: '',
-    );
+      gapPageToken: '', session: store.session);
     return store.read(home);
   }
 

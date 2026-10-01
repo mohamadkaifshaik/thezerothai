@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -14,6 +16,7 @@ class MockIdentityRepository extends Mock implements IdentityRepository {}
 
 void main() {
   late MockIdentityRepository identityRepository;
+  late Completer<identity.GetMeResponse> getMeGate;
 
   const user = AppUser(
     uid: 'uid-1',
@@ -29,6 +32,34 @@ void main() {
   });
 
   group('OnboardingBloc', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a GetMe completing after sign-out never emits the old profile',
+      setUp: () {
+        final gate = Completer<identity.GetMeResponse>();
+        getMeGate = gate;
+        when(() => identityRepository.getMe()).thenAnswer((_) => gate.future);
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(Duration.zero);
+        getMeGate.complete(
+          identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'old'),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        const OnboardingState(),
+      ],
+    );
+
     blocTest<OnboardingBloc, OnboardingState>(
       'goes to profileRequired when GetMe throws ProfileRequiredException',
       setUp: () {

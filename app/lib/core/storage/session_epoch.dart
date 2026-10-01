@@ -14,7 +14,10 @@ class SessionEpoch {
   /// sign-out, before wiping the database.
   void end() => _value++;
 
-  /// Whether a write that started under [epoch] is still allowed. A null
-  /// [epoch] is an unguarded write.
-  bool allows(int? epoch) => epoch == null || epoch == _value;
+  /// Passed by a write that intentionally bypasses the guard. Every guarded
+  /// write takes a required epoch, so skipping the check is always explicit.
+  static const int unguarded = -1;
+
+  /// Whether a write that started under [epoch] is still allowed.
+  bool allows(int epoch) => epoch == unguarded || epoch == _value;
 }
