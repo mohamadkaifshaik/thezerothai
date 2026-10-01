@@ -1,14 +1,20 @@
 # 0010. Posts and timelines slice (Phase 1 P0 + P1): slice decisions, visibility, read budget
 Status: Proposed (architect, 2026-09-30). Becomes Accepted when the founder merges it. No fixed cost is added and no
 non-negotiable rule bends. The items that change the plan's defaults or earlier numbers are listed for the founder
-under "Founder attention" at the end. **Two residual risks need the founder's explicit acceptance** (D5 "Residual
-risk", R1 and R2).
+under "Founder attention" at the end. **The two residual risks (D5 "Residual risk", R1 and R2) were accepted by the
+founder on 2026-10-01** (relayed; see D5 "Founder acceptance").
 Date: 2026-09-30. **Amended 2026-09-30** after the P0 reviews (`p0-read-budget-security-review.md` H1, M1–M4, L1;
 `p0-read-budget-code-review.md` M1, M2): D5 is rewritten (A1–A7), and Options 2b/2c, Cost impact, D15, D20,
 Consequences, Handoff and Founder attention follow it. The earlier D5 statements "overshoot is bounded by one call"
 and "profile-less ≈ 1,503 reads/day per IP" were wrong (concurrency, instance churn and non-exempt RPCs). The numbers
 below replace them.
-Deciders: architect, founder (on merge)
+**Amended 2026-10-01** after the P0 re-reviews (`p0-read-budget-security-review-2.md` N1, N2, N3;
+`p0-read-budget-code-review-2.md` m2): D5 gains A8 (the IP key never rejects), A9 (a stale profile-less mark is
+cleared by any call that finds a profile) and A10 (the verified-identity gate becomes a sign-in-provider allowlist).
+A3, A4, A7, Refinement 1, the abuse table, D15 (the negative handle cache is its own LRU), Consequences, Handoff and
+Founder attention follow them, and the founder's acceptance of R1 and R2 is recorded. No per-DAU number changes; only
+the per-IP abuse rows do.
+Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01)
 
 Inputs: `docs/plans/posts-and-timeline.md` (Q1–Q12, T1–T27), `docs/plans/phase1.md` (P0, P1, D1–D5),
 ADR-0003 (data model, ids, idempotency), ADR-0004 (pull timeline), ADR-0008 (graph, D2 overflow, D6 flags, D9 block
@@ -108,6 +114,27 @@ overage (upper bound).
   ≤ ≈ $0.12/day per actor in the realistic case, and detection exists.
 - **C. A shared counter in Memorystore.** ≈ $35/month fixed. Rejected (Stage 2 ADR).
 
+### 2d. The IP key after the gate (P0 re-review N1, N2, code re-review m2)
+- **A. The IP key never rejects: it is charged and logged, not enforced (chosen, D5 A8 + A9).** Every caller that
+  reaches it is verified (A2/A10) and already held to its uid budget. A truly profile-less caller's non-exempt call
+  stops at `AccountStatusInterceptor` after ≤ 1 read (0 within 10 s, identity's `notFound` cache), so an IP
+  rejection could save at most 1 read per uid per 10 s per instance, while each one either blocks strangers behind a
+  carrier-grade NAT (N1) or, with a stale mark, a real profile owner (N2). $0, 0 Firestore ops.
+- **B. Client-only fix** (treat `RATE_LIMITED` on CheckHandleAvailability as "unknown", allow Submit). $0. The server
+  would still reject GetMe of profile-less users behind a spent address with `RATE_LIMITED` (10 min), and a stale mark
+  would still misroute heavy calls. Kept only as defence in depth (Handoff, frontend).
+- **C. Keep enforcement for marked uids, but answer `PROFILE_REQUIRED` instead of `RATE_LIMITED`** when the IP key is
+  spent. 0 reads, but it trusts a mark that can be stale: a user who created the profile on another instance in the
+  last 10 min is sent back to the create-profile screen. Rejected: it lies to exactly the users A9 is about.
+
+### 2e. Shape of the verified-identity gate (P0 re-review N3)
+- **A. Allowlist of sign-in providers, fail closed (chosen, D5 A10).** `google.com`, `apple.com`, `password` with a
+  verified email; `anonymous` only against the Auth emulator. Enabling a new provider in the console cannot reopen
+  H1; it needs a code change and this ADR amended. $0, 0 reads.
+- **B. Keep the denylist and manage the Auth provider config in Terraform** so drift shows in `plan`. $0, but it only
+  detects drift at the next plan, and the Identity Platform config resource is a bigger change than this slice.
+  Deferred as an optional hardening, not a substitute.
+
 ### 3. DeletePost on a post the caller doesn't own (Q4)
 - **A. NOT_FOUND for another user's post, success for unknown ids (plan default).** This is an **oracle**. "Delete
   says NOT_FOUND" means the id exists, and a GetPost NOT_FOUND for the same id then means the author blocked the
@@ -135,6 +162,10 @@ overage (upper bound).
 - **The D5 amendment adds no Firestore operation.** The verified-identity gate, the in-flight hold and the IP charge
   are in memory. The gate removes ≈ 1 read per call made by minted, unverified accounts. The instance-churn fix is
   pre-designed but not built (Option 2c).
+- **A8–A10 (2026-10-01) add no Firestore operation, service or env var either.** A8 turns the IP key into a meter
+  (0 reads; it stops rejecting sign-ups behind shared addresses). A9 moves charges, it adds none. A10 answers more
+  identity classes with 0 reads. The per-RPC table and the daily totals below are unchanged; only the per-IP rows of
+  the D5 abuse table change.
 
 ### Per-RPC budget (supersedes the plan's table; the proto comments carry these numbers)
 The ADR-0008 A2 convention applies:
@@ -197,7 +228,7 @@ Released scope after P1 = v0.2.0 (20.4 R, 3.1 W, 0.1 D, ≈ 11.3 requests per DA
 - **Trigger** (free-tier-budget §6): none fires. Firestore > 1.5M reads/day is ≈ 8.2k DAU on this model.
 
 ## Decision
-Adopt option 1B, 2A (with 2b-A and 2c-A from the P0-review amendment), 3C and 4A, with D1–D20 below. Q1–Q12 are the plan's questions. **"Changed vs plan"** marks every
+Adopt option 1B, 2A (with 2b-A and 2c-A from the P0-review amendment, and 2d-A and 2e-A from the 2026-10-01 re-review amendment), 3C and 4A, with D1–D20 below. Q1–Q12 are the plan's questions. **"Changed vs plan"** marks every
 override, with the reason.
 
 ### D1. Flag (Q1): one `FEATURE_POSTS`. Accepted (plan default)
@@ -242,7 +273,7 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
 - No async job in P1: a root post has no dependants until P3/P4/P5. The P4 `post-delete` job is added with the
   first dependant.
 
-### D5. P0 read budget (Q5). Accepted numbers, **with refinements; amended after the P0 reviews (A1–A7)**
+### D5. P0 read budget (Q5). Accepted numbers, **with refinements; amended after the P0 reviews (A1–A7) and re-reviews (A8–A10)**
 - **Mechanism.** Generalise `ratelimit.DailyCap` (T3) so one counter type counts either calls or units, with the same
   IST-day reset, LRU of 100k keys and no idle TTL (security L1).
   - Inside `ratelimit.Interceptor`, before `next`: `Reserve` each budget key of the call (A1 decides admission).
@@ -258,18 +289,21 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
     `ipBudgetMaxCallReads = 2`, `profileLessMarkTTL = 10 min`.
   - `config.Load` rejects any of the env values `<= 0` (code review m3).
   - negative handle cache 10 s: reuse identity's `notFoundTTL`, applied to `ResolveHandle` NotFound, used by
-    CheckHandleAvailability, GetProfile-by-handle and `ResolveHandles`.
+    CheckHandleAvailability, GetProfile-by-handle and `ResolveHandles` (its own `handleFree` LRU, D15).
 - **A1. In-flight hold: the overshoot is one call per key per instance lifetime, at any concurrency** (security M1,
   code M1).
   - Each unit budget has a per-call hold M: **269** for the uid key (the largest cold ceiling in this ADR,
-    GetHomeTimeline `2 + C + 2p`) and **2** for the IP key (every IP-keyed call reads at most 1 doc).
+    GetHomeTimeline `2 + C + 2p`) and **2** for the IP key. Since A8 nothing reserves the IP key, so its M has no
+    admission role; it stays as the constant any future enforced IP procedure must respect (A9 explains why it is
+    true again).
   - `Reserve(key)`:
     - rejects as **daily** when `count ≥ cap`;
     - rejects as **transient** when `inflight > 0` and `count + (inflight + 1) · M > cap`;
     - otherwise admits the call and increments `inflight`.
   - `Release(key, n)` adds the actual reads `n` and decrements `inflight`.
   - Invariant: `count + inflight · M ≤ cap − 1 + M`, as long as no call reads more than M. So the counter never passes
-    `cap − 1 + M` in one instance lifetime (2,268 for a uid, 501 for an IP), however many calls run in parallel.
+    `cap − 1 + M` in one instance lifetime (2,268 for a uid), however many calls run in parallel. (The IP figure of
+    501 applied only while the IP key was enforced; see A8.)
   - **Not enough:** the code review's `inflight > 0 && count + M > cap`. Calls admitted in parallel below `cap − M`
     still land later: six home refreshes admitted at 1,000 end at ≈ 2,614.
   - Legitimate parallelism: `max(1, floor((cap − spent) / M))` calls may be in flight. That is 7 on a fresh day, and 1
@@ -279,7 +313,8 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
 - **A2. Verified-identity gate: unverified password accounts cost 0 reads** (security H1, the primary fix).
   - A new `authn` interceptor runs right after `IDTokenInterceptor` and before the rate limiter. It uses the T7
     predicate: `sign_in_provider == "password" && !email_verified`, the check `identity.requireVerifiedEmailForPassword`
-    makes today, moved to `pkg/platform/authn`.
+    makes today, moved to `pkg/platform/authn`. **A10 replaces this denylist predicate with an allowlist**; the
+    responses below are unchanged.
   - For such a caller:
     - CheckHandleAvailability and CreateProfile return FAILED_PRECONDITION + `EMAIL_NOT_VERIFIED`;
     - every other procedure returns FAILED_PRECONDITION + `PROFILE_REQUIRED`, with the account-status interceptor's
@@ -298,13 +333,15 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
   - After `next`, when that flag is set, the rate limiter charges the call's reads to the caller's IP key (unless the
     call already reserved it) and marks the uid in a per-instance `profileLess` LRU (100k entries, TTL 10 min; reuse
     `cache.LRU`, no new limiter type).
-  - Before `next`, a marked uid calling a non-exempt procedure also reserves the IP key. If the IP budget is spent,
-    the call is rejected with `retry_after` = 10 min, because the mark may be stale (a user who just created a profile
-    on another instance).
-  - A successful CreateProfile on this instance removes the mark.
+  - ~~Before `next`, a marked uid calling a non-exempt procedure also reserves the IP key; if the IP budget is spent,
+    the call is rejected with `retry_after` = 10 min.~~ **Superseded by A8:** a marked uid's non-exempt calls are
+    charged to the IP key, never rejected by it.
+  - A successful CreateProfile on this instance removes the mark, and so does any call that finds a profile (A9).
   - A caller whose profile this instance has seen is never marked, so real users behind carrier-grade NAT keep
     Refinement 1's protection.
 - **A4. IP key scopes** (security M3).
+  - **Superseded by A8:** the enforced set is now empty; CheckHandleAvailability and the non-exempt calls of a marked
+    uid moved to charge-only. The original text follows.
   - **Enforced** (reserve and charge): CheckHandleAvailability, and the non-exempt calls of a marked uid (A3).
   - **Charge-only:** CreateProfile. The IP key never rejects it; it is already bounded by the verified email, the
     per-uid budget and the `handles` transaction. One abuser behind a shared IPv4 address can no longer block sign-ups
@@ -335,25 +372,93 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
 | Cause | Client error | `metadata["limit"]` | `retry_after` | log `limit_name` | log `read_budget_key` | Reads |
 |---|---|---|---|---|---|---|
 | uid budget spent | RESOURCE_EXHAUSTED + `RATE_LIMITED` | `read_budget_daily` | to IST midnight | `read_budget_daily` | `uid` | 0 |
-| IP budget spent, CheckHandleAvailability | same | `read_budget_daily` | to IST midnight | `read_budget_daily` | `ip` | 0 |
-| IP budget spent, marked uid on a non-exempt RPC (A3) | same | `read_budget_daily` | 10 min | `read_budget_daily` | `ip` | 0 |
-| in-flight hold (A1) | same | `read_budget_inflight` | 1 s | `read_budget_inflight` | `uid` or `ip` | 0 |
+| ~~IP budget spent, CheckHandleAvailability~~ (removed by A8: never rejected) | — | — | — | — | — | — |
+| ~~IP budget spent, marked uid on a non-exempt RPC (A3)~~ (removed by A8: never rejected) | — | — | — | — | — | — |
+| in-flight hold (A1) | same | `read_budget_inflight` | 1 s | `read_budget_inflight` | `uid` (`ip` only if an IP procedure is ever enforced again) | 0 |
 | CheckHandleAvailability calls | same | `check_handle_daily` | to IST midnight | `check_handle_daily` | — | 0 |
 | account operations (A6) | same | `account_ops_daily` | to IST midnight | `account_ops_daily` | — | 0 |
 | unverified password account (A2) | FAILED_PRECONDITION + `EMAIL_NOT_VERIFIED` (exempt RPCs) or `PROFILE_REQUIRED` (all others) | — | — | — (`gate=email_unverified`) | — | 0 |
+| sign-in provider not on the A10 allowlist | same as the row above | — | — | — (`gate=provider_not_allowed`) | — | 0 |
 
   - `read_budget_spent` is always the uid's spend. `read_budget_ip_spent` is the IP key's spend whenever that key was
     reserved, charged or rejected. The IP address itself is never logged.
   - `profile_required=true` when A3 marks a uid.
   - The daily rejections run before account status, so they cost 0 reads (unchanged).
-- **Refinement 1 (IP key scope)** is replaced by A3–A4. Callers with a profile are still never IP-limited. The IP key
-  applies to CheckHandleAvailability (enforced), CreateProfile (charge-only) and marked uids without a profile
-  (enforced). That matters in India, where carrier-grade NAT puts thousands of real users behind one IP.
+- **A8. The IP key is charge-only everywhere; it never rejects a call** (security re-review N1, Option 2d-A).
+  - `ReadBudgetIPEnforce` = {} (empty). `ReadBudgetIPChargeOnly` = {CheckHandleAvailability, CreateProfile}. The
+    guard test keeps `Enforce ∪ ChargeOnly == ProfileExempt` with no overlap, and also asserts that `Enforce` is
+    empty: adding a procedure to it needs an amendment to this ADR.
+  - A marked uid (A3) calling a non-exempt procedure gets an IP key with `chargeOnly = true`: no `Reserve`, no hold,
+    no rejection. The 10-min `dailyRetry` path is removed.
+  - The IP key is still charged after `next` (CheckHandleAvailability, CreateProfile, and calls that set
+    `ProfileRequired`), `read_budget_ip_spent` is still logged, and `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY` (500) stays
+    as the counter's cap and the runbook's alert threshold (`jsonPayload.read_budget_ip_spent >= 500`). No env var or
+    Terraform change.
+  - **Why this is safe now:** with A2 and A10, only verified identities reach the limiter, and each is held to its uid
+    budget, `check_handle_daily` (100) and the per-minute buckets. The negative handle cache makes repeat probes of
+    one handle 0 reads. The IP key existed to bound unverified sybils, and they now cost 0 reads. **A8 depends on
+    A10:** with the old denylist, enabling anonymous sign-in would bring back an unbounded uid source with no IP bound.
+  - **GetMe of a profile-less caller when the IP key is spent returns `PROFILE_REQUIRED`, not `RATE_LIMITED`.** That
+    follows from the rule above: the IP key cannot reject, so the call reaches `AccountStatusInterceptor`, which
+    answers FAILED_PRECONDITION + `PROFILE_REQUIRED` after ≤ 1 read (0 if identity's `notFound` cache saw this uid in
+    the last 10 s). The read is charged to the uid key and the IP key. Two limits can still return `RATE_LIMITED`, and
+    both are the caller's own or short: the uid key (only after ≈ 2,000 uncached calls by that one uid), and the
+    unchanged per-minute buckets (seconds-scale `retry_after`).
+  - Effect on N1: one account behind a carrier-grade NAT can no longer block sign-ups for everyone behind it, and a
+    busy campus can no longer do so by accident.
+- **A9. A stale profile-less mark is cleared by any call that finds a profile** (security re-review N2, code
+  re-review m2; this confirms the one-line change m2 asked for).
+  - `AccountStatusInterceptor` sets a new `RequestInfo.ProfileFound = true` when the status lookup returns
+    `exists == true`, whatever the status (a SUSPENDED or DELETING user also has a profile). It is set before the
+    status switch and never on a lookup error.
+  - In `settleReadBudget`: if the uid was marked when the call began (the IP key was added because of the mark) and
+    `ProfileFound` is true, then (1) do **not** charge that IP key for this call (0 units), (2)
+    `profileLess.Delete(uid)`, and (3) do not log `read_budget_ip_spent` for it. The uid key is charged as usual.
+  - A successful CreateProfile still clears the mark (A3). Exempt procedures never run account status, so they never
+    clear it, which is harmless because they are charge-only on the IP key anyway.
+  - **Why the A1 IP-key bound still holds.** The A1 invariant (`count + inflight · M ≤ cap − 1 + M`) covers reserved
+    keys only. After A8 nothing reserves the IP key, so no admission depends on it and it has nothing to overshoot;
+    `read_budget_over_max` cannot fire on it. A9 is what makes the IP constant M = 2 true again, in case an IP
+    procedure is ever enforced: a non-exempt call charged to the IP key either stops at account status (≤ 1 read,
+    the caller has no profile) or found a profile and is charged 0 (A9). Heavy calls (GetHomeTimeline, up to 269)
+    therefore never land on an IP key. The exempt calls on it read ≤ 1 (CheckHandleAvailability) or are charge-only
+    (CreateProfile). The IP meter then counts only profile-less traffic, so `read_budget_ip_spent` is a clean signal.
+  - The window for a stale mark shrinks from 10 min to "until the next non-exempt call on that instance", which is
+    usually the next request.
+- **A10. The verified-identity gate is an allowlist of sign-in providers and fails closed** (security re-review N3,
+  Option 2e-A).
+  - A caller passes only if its signature-verified ID token has `firebase.sign_in_provider` equal to one of:
+    - `google.com`;
+    - `apple.com`;
+    - `password`, **and** `email_verified == true`;
+    - `anonymous`, **only** when the API runs against the Auth emulator (`config.AuthEmulator`, true iff
+      `FIREBASE_AUTH_EMULATOR_HOST` is non-empty). This keeps the e2e helpers that mint anonymous users working.
+  - Everything else is rejected with 0 Firestore reads and no limiter key: an empty or missing provider, a missing
+    `firebase` claim, `anonymous` outside the emulator, `phone`, `custom`, `github.com`, `facebook.com`,
+    `twitter.com`, `microsoft.com`, `yahoo.com`, `playgames.google.com`, `gc.apple.com`, `saml.*` and `oidc.*`.
+    - The responses are the A2 ones: FAILED_PRECONDITION + `EMAIL_NOT_VERIFIED` on CheckHandleAvailability and
+      CreateProfile, and `PROFILE_REQUIRED` on every other procedure. No new error reason; no proto change.
+    - Log `gate=email_unverified` for an unverified `password` caller, and `gate=provider_not_allowed` for the rest.
+      The latter also logs `gate_provider` (the claim value cut to 32 bytes; it is Firebase-issued, not user text).
+  - `config.Load` fails at startup when `ENV` is `dev` or `prod` and `FIREBASE_AUTH_EMULATOR_HOST` is set. (In that
+    state the Admin SDK would accept unsigned emulator tokens, a far worse hole than the gate.)
+  - The same predicate replaces `identity.requireVerifiedEmailForPassword` in CreateProfile (defence in depth), so an
+    account outside the allowlist can never own a profile even if the gate is unwired. One function, in
+    `pkg/platform/authn`; no copy.
+  - **Precondition (T26, alongside the A2 one):** before the gate reaches prod, count Auth users whose provider list
+    has none of `google.com`, `apple.com` or `password` with a verified email, and confirm none owns a `users` doc.
+    Record the count, never the uids. Expected 0, since only those three providers have ever been enabled.
+  - Enabling another provider (for example phone, or a SAML IdP) needs an amendment to this ADR and a code change.
+    Until then, its users get `PROFILE_REQUIRED`, which is safe.
+- **Refinement 1 (IP key scope)** is replaced by A3–A4 and A8. Callers with a profile are never IP-limited, and since A8
+  nobody is: the IP key is charged on CheckHandleAvailability, CreateProfile and marked uids without a profile, and
+  it rejects nothing. That matters in India, where carrier-grade NAT puts thousands of real users behind one IP.
 - **Refinement 2 (IPv6)** is kept: the IP key is the full IPv4 address, or the **/64 prefix** of an IPv6 address. A5
   extends it to both per-minute IP limiters.
 - **Guard test (T3.5):** every registered procedure with `IdempotencyLevel == NoSideEffects` must be covered (all are,
   because the budget applies to every procedure). `ReadBudgetExempt` is empty and must stay explained. The test also
   asserts the A4 and A6 sets and that `ReadBudgetIP` is wired, using the same exported helper `Build` uses (L6).
+  After A8 it also asserts that `ReadBudgetIPEnforce` is empty.
 - **Math: typical use against the cap.**
   - Released scope after P1: ≈ 183 reads/DAU/day. Whole Phase 1 model: 191 (cost-model §2), ≈ 215 after T25.
   - The cap is **≈ 9–11× a typical day**.
@@ -383,15 +488,20 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
 |---|---|---|---|---|---|
 | Unverified password accounts (any number, any IP) | 0 | 0 | 0 | 0 | 0 |
 | One verified account, with or without a profile | 2,000 − 1 + 269 + 20 × 2 = **2,308** | ≤ 6,924 (13.8% of free, ≈ $0.004) | ≤ 13,848 | ≈ 208k (4.2× free, ≈ $0.12) | ≈ 623k (12.5× free, ≈ $0.37; ≈ $11/month if repeated daily) |
-| One IPv4 address or IPv6 /64, IP key (CheckHandleAvailability + marked uids) | 500 − 1 + 2 = **501** | ≤ 1,503 | ≤ 3,006 | ≈ 45k | ≈ 135k |
-| Same IP: first calls of V verified, unmarked uids without a profile | ≤ V per 10 min | ≤ 432 · V (V = 5: 2,160) | ≤ 864 · V | — | ≤ 518k (the per-minute IP limiter: 120/min per instance, now per /64) |
+| One IPv4 address or IPv6 /64, IP key (A8: a meter, no admission bound) | — | — | — | — | — |
+| Same IP: V verified uids without a profile (A8) | each uid: ≤ 1 read per 10 s on non-exempt calls (identity `notFound` cache), ≤ 100 CheckHandleAvailability reads, and ≤ 2,308 in total | ≤ 6,924 · V (V = 5: 34.6k) = R1 | ≤ 13,848 · V | — | calls capped by the per-minute IP limiter (120/min per instance per /64): ≤ 518k/day |
 
   - For comparison: before P0 one account could spend ≈ 86k–259k/day. Before this amendment, minted unverified uids
     gave ≈ 518k/day per IPv4 address and ≈ 14.4M/day per IPv6 /64 (security H1). Those rows are now 0.
-  - Every non-zero row needs a verified identity: a verified mailbox (password), or a Google or Apple account. The
-    uids in the last row are each also held to their own 2,308 per lifetime.
-- **Residual risk: needs FOUNDER acceptance, recorded in the release readiness report before the T27 `percent`
-  step.**
+  - Every non-zero row needs a verified identity: a verified mailbox (password), or a Google or Apple account (A10
+    makes this an allowlist). The uids in the last row are each also held to their own 2,308 per lifetime.
+  - **What A8 gave up, honestly:** before A8, profile-less verified uids behind one address were held to ≈ 1,503 +
+    432 · V reads/day by the IP key. Now they get the same per-account bound as uids with a profile, which is R1. The
+    old bound never held against a determined attacker anyway: one CreateProfile per uid (a free handle, 3 writes)
+    took that uid off the IP key for good. So R1's numbers and wording are unchanged, and the founder's acceptance
+    covers this row.
+- **Residual risk: accepted by the founder on 2026-10-01** (see "Founder acceptance" below; the dated wording still
+  goes into the release readiness report before the T27 `percent` step).
   - **R1. Verified sybils.** Each verified account adds up to its own bound: ≤ 6,924 reads/day in steady state. About
     8 such accounts exhaust a day's 50k free reads (≈ $0.03/day of overage for all 8). A catch-all mail domain makes
     verified password accounts cheap to mint. The levers are the Firebase sign-up throttle, the sign-up kill switch,
@@ -413,6 +523,12 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
     state, and up to about 623k a day (about $0.37) in the worst case if it deliberately cycles Cloud Run instances.
     Verified sybil accounts multiply this. The controls are the budget alerts, the abuse-spike runbook, and the
     pre-designed persisted counter behind its trigger."*
+  - **Founder acceptance (recorded 2026-10-01):** *"I accept R1 and R2"*. The founder said this in chat on
+    2026-10-01, and the orchestrating session relayed it to the architect; the architect did not see it first-hand.
+    The founder's merge of this ADR confirms it. Security re-review condition 2 still applies: the founder copies the
+    wording above, dated, into the v0.3.0 readiness report before the T27 `percent` step. The acceptance came before
+    A8–A10. Those amendments leave the R1 and R2 numbers unchanged (the A8 note above the residuals), so the
+    acceptance stands.
 
 ### D6. Visibility (Q6). Accepted (plan default), made exhaustive
 A = caller, B = author. NOT_FOUND strings are **byte-identical within each RPC**:
@@ -591,8 +707,13 @@ Applied in this order in `internal/posts/text` (pure):
     for the exact-prefix bound B.
   - Covered authors are removed **before** chunking, so the reads drop to `ceil(uncovered/30)` queries. Every entry
     used lowers W (D13).
-- **Unchanged:** graph (5k), identity profiles, handles and negative caches (20k each), and the new negative handle
-  entries share identity's `notFound` LRU. `userLikes` (5k) arrives with P5.
+- **Unchanged:** graph (5k), identity profiles, handles and negative caches (20k each). `userLikes` (5k) arrives with
+  P5.
+- **Corrected 2026-10-01 (security re-review L5):** the D5 negative handle entries do **not** share identity's
+  `notFound` LRU (uid → "no profile"). They have their own LRU, `identity.Cache.handleFree` (handleLower → "free"):
+  `cacheCapacity` = 20k entries, TTL `notFoundTTL` = 10 s. `SetProfile` and the `HANDLE_TAKEN` paths of CreateProfile
+  and ChangeHandle invalidate it. Short keys at ≈ 200 B/entry give ≤ ≈ 4 MiB worst, so the new-cache total below
+  becomes ≤ 117 MiB worst.
 - **In-memory limiters:** an entry is ≈ 200–250 B (key, counter, list element, map; security L5), not 64 B, so a
   full 100k-key LRU is ≈ 20–25 MiB. There are six `DailyCap`s (uid and IP read budgets, `check_handle_daily`,
   `graph_list_daily`, `graph_mutation_daily`, `account_ops_daily`), the per-minute limiters and the D5 A3
@@ -600,7 +721,7 @@ Applied in this order in `internal/posts/text` (pure):
   instance in one IST day, and would not fit in 512 MiB. At Stage 0 each holds hundreds of keys (< 5 MiB in total).
   The A2 gate keeps unverified uids out of every limiter, and A5 keeps IP keys canonical and short. If instance
   memory passes 70%, lower the LRU key limits (`maxTrackedKeys`, `maxTrackedDailyKeys`) before the cache sizes.
-- **Total:** new caches ≤ 113 MiB worst, ≈ 40 MiB typical. With existing caches (≈ 35 MiB typical) that stays inside
+- **Total:** new caches ≤ 117 MiB worst (113 + `handleFree`), ≈ 40 MiB typical. With existing caches (≈ 35 MiB typical) that stays inside
   the ~150 MiB budget of the 512 MiB instance. sre-performance watches instance memory, and above 70% the sizes
   shrink via env.
 
@@ -698,8 +819,11 @@ strings, mention lists, tokens, and graph arrays.
   - Suspended authors stay in followers' Home until P7.
   - DeletePost returns success for posts the caller doesn't own. That is correct, but it surprises API readers.
   - The read bounds are per instance lifetime, not per day. Deliberate instance cycling and verified sybils are
-    residuals the founder must accept (D5 R1, R2).
+    residuals, which the founder accepted on 2026-10-01 (D5 R1, R2).
   - Password sign-ups must verify their email before the handle check works (D5 A2).
+  - No per-IP bound remains (D5 A8). Profile-less verified sybils fall under R1 like any verified account.
+  - Only Google, Apple and verified-password sign-ins reach the API (D5 A10). Enabling any other provider needs this
+    ADR amended and a code change.
   - Near the cap an account runs one call at a time; extra parallel calls get a 1 s retry (D5 A1).
 - **Follow-up:**
   - T2 applies the proto comments.
@@ -717,7 +841,9 @@ strings, mention lists, tokens, and graph arrays.
   - legitimate `read_budget_inflight` retries show up in logs (switch the hold from one global M to per-procedure
     ceilings);
   - older-page reads exceed 1.4 × page size (lever: the `k` factor);
-  - Firestore exceeds 1.5M reads/day (Stage 2 ADR, `timeline` skill).
+  - Firestore exceeds 1.5M reads/day (Stage 2 ADR, `timeline` skill);
+  - `read_budget_ip_spent` ≥ 500 shows up for one address on 2 days in any 7 with matching read spikes (consider
+    putting IP enforcement back for marked uids only, under A9's M = 2 argument; amendment needed).
 
 ## Handoff
 - **backend-developer:**
@@ -735,6 +861,24 @@ strings, mention lists, tokens, and graph arrays.
     7. A7 log fields. `config.Load` rejects values ≤ 0. Fix the `config.go`, `daily_cap.go` and `interceptor.go`
        comments that still say "overshoot is one call" or "≈ 1,503 reads/IP".
     8. The guard test also covers the A4 and A6 sets and the `ReadBudgetIP` wiring.
+  - **T3 follow-up (A8–A10, 2026-10-01), same PR:**
+    9. A8: `ReadBudgetIPEnforce` = {}, `ReadBudgetIPChargeOnly` = {CheckHandleAvailability, CreateProfile}. A marked
+       uid's IP key is `chargeOnly: true` (drop `dailyRetry` and the 10-min rejection branch in `rejectReadBudget`).
+       The guard test asserts `Enforce` is empty.
+    10. A9: `logger.RequestInfo.ProfileFound`, set by `AccountStatusInterceptor` when `exists`. Give `budgetKey` a
+        `viaMark bool`. In `settleReadBudget`, when `viaMark && info.ProfileFound`, skip that key's charge and its
+        spend log, and call `profileLess.Delete(uid)`.
+    11. A10: replace `Claims.UnverifiedPassword()` with one predicate, e.g.
+        `func (c Claims) IdentityGate(allowAnonymous bool) (gate string)`, returning `""` (pass), `"email_unverified"`
+        or `"provider_not_allowed"`. `VerifiedIdentityInterceptor(emailGated, allowAnonymous)`; `config.AuthEmulator`;
+        `config.Load` refuses `FIREBASE_AUTH_EMULATOR_HOST` when `ENV` is `dev` or `prod`; identity's CreateProfile
+        check uses the same predicate. Unit-test fakes that build `authn.Claims{UID: …}` with no provider (≈ 19
+        sites) must set `SignInProvider` (for example `"google.com"`), otherwise the gate rejects them.
+    12. Comments (security M2 condition 2, code m4): `config.go:106-114` and `daily_cap.go:19-22` state the
+        per-instance-lifetime bounds (2,308 per uid); `config.go:31-33` says the IP hold has no admission role (A8).
+    13. Tests: a `Build`-level test that the gate runs before the rate limiter and account status (security N4, code
+        MJ2). Keep the release-earlier-keys loop and its MJ1 test, built with a test-only `Config` that enforces one IP
+        procedure: production can no longer reach that path, but the seam must stay correct.
   - **T4:** D1; the buckets as in the plan (home 6/min, user 30/min, create 10/min, delete 20/min, GetPost 60/min).
   - **T5:** D15 (caches, config keys), D18, D19 query shapes with explicit `__name__ DESC`, `Reader.ByAuthors`
     taking only uncovered authors.
@@ -757,7 +901,8 @@ strings, mention lists, tokens, and graph arrays.
 - **architect (follow-up; comment-only proto, rides with the T3 PR, `buf breaking` clean):**
   - `common.proto` RATE_LIMITED lists `read_budget_inflight` (1 s `retry_after`, retry once) and `account_ops_daily`.
   - `identity.proto`: CheckHandleAvailability needs a verified email for password accounts (`EMAIL_NOT_VERIFIED`, 0
-    reads) and its IP budget is enforced; CreateProfile is charge-only on the IP key; DeleteAccount,
+    reads) and is never rejected by an IP budget (A8); sign-ins other than Google, Apple and verified password get the
+    same answers (A10); CreateProfile is charge-only on the IP key; DeleteAccount,
     RequestAccountExport and GetAccountExport are never rejected by the read budget (`account_ops_daily` instead);
     the file header says unverified password callers get `PROFILE_REQUIRED` at 0 reads.
 - **frontend-developer:**
@@ -776,8 +921,10 @@ strings, mention lists, tokens, and graph arrays.
   - CheckHandleAvailability returning `EMAIL_NOT_VERIFIED` shows the existing "verify your email" banner on the
     create-profile screen instead of availability. After the user verifies, refresh the ID token
     (`getIdToken(true)`) before calling again.
-  - CheckHandleAvailability returning `RATE_LIMITED` (any limit): stop live checks and let CreateProfile's
-    `HANDLE_TAKEN` decide.
+  - CheckHandleAvailability returning `RATE_LIMITED` (any limit): stop live checks, show the handle as "unknown" (not
+    "unavailable"), **keep Submit enabled**, and let CreateProfile's `HANDLE_TAKEN` decide. Today
+    `OnboardingState.canSubmit` blocks this (security re-review N1); it is a release gate even after A8, because the
+    per-minute and `check_handle_daily` limits can still fire.
   - DeletePost success always removes the item locally.
 - **production-deployer (T26):**
   - Add the new env vars to `cloud-run-api` for dev and prod: `FEATURE_POSTS` dev `on`, prod `off`, plus the keys
@@ -785,7 +932,9 @@ strings, mention lists, tokens, and graph arrays.
   - Plan-then-OK before apply.
   - Verify that the three posts indexes are READY (D19) in dev and prod before any traffic.
   - Before the D5 A2 gate reaches prod: list password accounts with `emailVerified=false` (Admin SDK
-    `accounts:batchGet`, free) and confirm none owns a `users` doc. Record the count, never the uids.
+    `accounts:batchGet`, free) and confirm none owns a `users` doc. Record the count, never the uids. Do the same for
+    accounts with no `google.com`, `apple.com` or verified `password` provider (D5 A10). Check that
+    `FIREBASE_AUTH_EMULATOR_HOST` is absent from the dev and prod `cloud-run-api` env.
   - No new resources, and nothing for `cost-guard` to flag.
   - Runbooks:
     - `posts.md`: index missing ⇒ FAILED_PRECONDITION; read-budget rejections ⇒ raise via env; the settle window;
@@ -793,7 +942,9 @@ strings, mention lists, tokens, and graph arrays.
       security L2), on `jsonPayload.limit_name` = `read_budget_daily`, `read_budget_inflight`, `check_handle_daily`
       or `account_ops_daily`, split by `jsonPayload.read_budget_key` (`uid`: a heavy account or sybils; `ip`: a farm
       behind one address); counts of `jsonPayload.gate="email_unverified"` (minted-account floods, now 0 reads) and
-      `jsonPayload.profile_required=true`; the R2 churn check (one `uid_hash` rejected on ≥ 3 distinct
+      `jsonPayload.profile_required=true`; `jsonPayload.gate="provider_not_allowed"` (A10: provider drift in the
+      console); `jsonPayload.read_budget_ip_spent >= 500` (A8: a profile-less farm behind one address, no longer
+      rejected; `read_budget_key=ip` rejections no longer occur); the R2 churn check (one `uid_hash` rejected on ≥ 3 distinct
       `labels.instanceId` in an IST day); the levers in order: disable the account, the sign-up kill switch, lower
       `READ_BUDGET_PER_UID_PER_DAY`, `FEATURE_POSTS=off`. It must say that `DEGRADED_MODE=readonly` does not reduce
       reads;
@@ -814,8 +965,16 @@ strings, mention lists, tokens, and graph arrays.
       `read_budget_inflight` with a 1 s `retry_after`;
     - an unverified password uid gets `PROFILE_REQUIRED` on GetMe and `EMAIL_NOT_VERIFIED` on CheckHandleAvailability,
       with 0 reads;
-    - a verified uid without a profile rotating on GetMe is charged to its /64, then rejected with
-      `read_budget_key=ip`; CreateProfile still succeeds from that IP;
+    - ~~a verified uid without a profile rotating on GetMe is rejected with `read_budget_key=ip`~~ (A8). Instead:
+      with the IP key spent by another uid, a new verified uid on that IP completes CheckHandleAvailability →
+      CreateProfile, and a profile-less uid's GetMe returns `PROFILE_REQUIRED` (not `RATE_LIMITED`); its reads are
+      still charged to the IP key (`read_budget_ip_spent` grows);
+    - A9: a uid marked on this instance whose next non-exempt call finds a profile is unmarked, its IP key is charged
+      0 for that call, and a following GetHomeTimeline adds nothing to `read_budget_ip_spent`;
+    - A10 table: `google.com`, `apple.com` and verified `password` pass; unverified `password`, `anonymous` (emulator
+      flag off), `phone`, `custom`, `github.com`, `saml.x`, `oidc.x`, and an empty provider each get the A2 answers with
+      0 reads, no limiter key, and the right `gate` value; `anonymous` passes only with the emulator flag on;
+      `config.Load` fails for `ENV=prod` with `FIREBASE_AUTH_EMULATOR_HOST` set;
     - DeleteAccount, RequestAccountExport and GetAccountExport succeed for a uid at the cap;
     - a malformed X-Forwarded-For entry falls back to the rightmost entry; two addresses in one /64 share the
       per-minute IP buckets.
@@ -830,6 +989,8 @@ strings, mention lists, tokens, and graph arrays.
   - Confirm D4 (no oracle) and the D6 byte-identity.
   - Re-review the P0 closure against D5 A1–A7 (H1, M1, M3, M4, L1, L6) and confirm that residuals R1 and R2 match
     the code.
+  - Confirm A8–A10 close N1, N2 and N3, and agree with Option 2d-A (no IP enforcement left, including for marked
+    uids; the reviewer's N1 fix had kept it for them).
   - Review the D14 30-day TTL.
   - Confirm the D9 bidi control rejection and that no text is logged (D20).
 - **planner (plan deltas):**
@@ -842,7 +1003,7 @@ strings, mention lists, tokens, and graph arrays.
   - T8 gets the transaction deadline and the per-attempt Snowflake.
   - The P7 plan gets the suspended-content takedown (D10).
 
-## Founder attention (items 1–6 need no approval unless you disagree; item 7 needs your explicit acceptance; nothing here adds a fixed cost)
+## Founder attention (items 1–6, 8 and 9 need no approval unless you disagree; item 7 is accepted, one copy step left; nothing here adds a fixed cost)
 1. **Reads at 300 DAU: 110% of free, up from the plan's 93%.** That is ≈ $0.09/month, inside D1 ("accept pay-per-use").
    The 40k/day alert will fire near 219 DAU. It is a planned signal, not an incident.
 2. **DeletePost on someone else's post returns success (0 writes)** instead of NOT_FOUND. This avoids a
@@ -856,8 +1017,15 @@ strings, mention lists, tokens, and graph arrays.
    CheckHandleAvailability run before verification.
 6. **Account deletion and export are never blocked by the read budget** (D5 A6). They have their own cap of 20 calls
    a day per instance, far above the ≤ 5 a real user needs.
-7. **Your acceptance is needed for residual risks R1 and R2** (D5 "Residual risk"). Verified sybil accounts multiply
-   the per-account bound (about 8 exhaust the free reads for a day). One account that deliberately cycles instances
-   can reach ≈ 623k reads (≈ $0.37) a day in the worst case. Copy the acceptance wording from D5, dated, into the
-   release readiness report. It is a condition for the T27 `percent` step. Without it P0 stays open and the rollout
-   stops at `allowlist`.
+7. **Residual risks R1 and R2: accepted 2026-10-01** ("I accept R1 and R2", relayed from your chat message; your
+   merge of this ADR confirms it). Verified sybil accounts multiply the per-account bound (about 8 exhaust the free
+   reads for a day). One account that deliberately cycles instances can reach ≈ 623k reads (≈ $0.37) a day in the
+   worst case. **Still to do:** copy the D5 wording, dated, into the v0.3.0 readiness report before the T27
+   `percent` step.
+8. **No per-IP block remains** (D5 A8, no approval needed unless you disagree). Before, one account behind a shared
+   mobile-carrier or campus address could stop everyone else behind it from signing up for the rest of the day. Now
+   nobody is blocked by address. Profile-less verified accounts are bounded per account, like every other account
+   (R1; same numbers you accepted).
+9. **Only Google, Apple and verified-email sign-ins can use the API** (D5 A10). If phone, anonymous or any other
+   sign-in method is ever switched on in the Firebase console by mistake, those users get "create a profile first"
+   and cost 0 reads. Adding a sign-in method becomes a deliberate code change.
