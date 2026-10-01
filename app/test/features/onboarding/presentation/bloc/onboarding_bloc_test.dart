@@ -17,6 +17,8 @@ class MockIdentityRepository extends Mock implements IdentityRepository {}
 void main() {
   late MockIdentityRepository identityRepository;
   late Completer<identity.GetMeResponse> getMeGate;
+  late Completer<identity.Profile> submitGate;
+  late Completer<identity.CheckHandleAvailabilityResponse> handleGate;
 
   const user = AppUser(
     uid: 'uid-1',
@@ -29,6 +31,69 @@ void main() {
     identityRepository = MockIdentityRepository();
     when(() => identityRepository.cachedOwnProfile(any()))
         .thenAnswer((_) async => null);
+  });
+
+  group('OnboardingBloc sign-out races', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a CreateProfile completing after sign-out never emits the old profile',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
+        submitGate = Completer<identity.Profile>();
+        when(
+          () => identityRepository.createProfile(
+            handle: any(named: 'handle'),
+            displayName: any(named: 'displayName'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer((_) => submitGate.future);
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(
+        handle: 'kaif',
+        displayName: 'Kaif',
+        handleCheckStatus: HandleCheckStatus.available,
+      ),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingProfileSubmitted());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        submitGate.complete(identity.Profile(userId: 'uid-1', handle: 'old'));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      },
+      verify: (bloc) {
+        expect(bloc.state, const OnboardingState());
+        expect(bloc.state.profile, isNull);
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a handle check completing after sign-out emits nothing',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
+        handleGate = Completer<identity.CheckHandleAvailabilityResponse>();
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenAnswer((_) => handleGate.future);
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const OnboardingHandleChanged('kaif'));
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        handleGate.complete(
+          identity.CheckHandleAvailabilityResponse(available: true),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      },
+      verify: (bloc) => expect(bloc.state, const OnboardingState()),
+    );
   });
 
   group('OnboardingBloc', () {

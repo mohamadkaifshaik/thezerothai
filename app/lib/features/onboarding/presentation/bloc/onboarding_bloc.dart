@@ -63,6 +63,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     on<OnboardingUserSignedOut>((event, emit) {
       // Ends the in-flight GetMe of the signed-out user (see _loadMe).
       _uid = null;
+      _idempotencyKey = null;
       emit(const OnboardingState());
     });
     on<OnboardingRefreshRequested>(_onUserRefreshRequested);
@@ -193,6 +194,8 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
       return;
     }
+    final uid = _uid;
+    bool stale() => emit.isDone || _uid != uid;
     emit(
       state.copyWith(
         handle: handle,
@@ -204,7 +207,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       final response = await _identityRepository.checkHandleAvailability(
         handle,
       );
-      if (state.handle != handle) return; // superseded by a newer keystroke
+      if (stale() || state.handle != handle) return; // or a newer keystroke
       emit(
         state.copyWith(
           handleCheckStatus: response.available
@@ -218,7 +221,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     } on EmailNotVerifiedException catch (e) {
       // Not "handle unavailable": the account itself must verify first
       // (A2/A10 gate). CreateProfileScreen renders VerifyEmailView.
-      if (state.handle != handle) return;
+      if (stale() || state.handle != handle) return;
       emit(
         state.copyWith(
           handleCheckStatus: HandleCheckStatus.idle,
@@ -230,7 +233,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     } on RateLimitedException {
       // N1: a rate-limited probe says nothing about the handle. Treat it as
       // unknown and let the user submit; CreateProfile validates again.
-      if (state.handle != handle) return;
+      if (stale() || state.handle != handle) return;
       emit(
         state.copyWith(
           handleCheckStatus: HandleCheckStatus.unknown,
@@ -240,7 +243,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     } on AppException catch (e) {
-      if (state.handle != handle) return;
+      if (stale() || state.handle != handle) return;
       emit(
         state.copyWith(
           handleCheckStatus: HandleCheckStatus.unavailable,
@@ -259,6 +262,8 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     // deduplicated server-side instead of creating a second profile
     // (CLAUDE.md rule 4).
     _idempotencyKey ??= _uuid.v4();
+    final uid = _uid;
+    bool stale() => emit.isDone || _uid != uid;
     emit(state.copyWith(isSubmitting: true, error: null));
     try {
       final profile = await _identityRepository.createProfile(
@@ -266,6 +271,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         displayName: state.displayName.trim(),
         idempotencyKey: _idempotencyKey!,
       );
+      if (stale()) return;
       _idempotencyKey = null;
       emit(
         state.copyWith(
@@ -275,6 +281,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     } on HandleTakenException catch (e) {
+      if (stale()) return;
       emit(
         state.copyWith(
           isSubmitting: false,
@@ -283,6 +290,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     } on EmailNotVerifiedException catch (e) {
+      if (stale()) return;
       // The client gated the form on AuthBloc's cached Firebase user, but the
       // ID token the server checked was stale (e.g. the force-refresh after
       // "I've verified" failed — see AuthBloc._onVerificationCheckRequested).
@@ -297,6 +305,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         ),
       );
     } on AppException catch (e) {
+      if (stale()) return;
       emit(state.copyWith(isSubmitting: false, error: e));
     }
   }

@@ -163,8 +163,12 @@ void main() {
         final repo = graphWith((_, _) async => throw StateError('unused'));
 
         final pending = repo.primeFromDatabase();
-        await signOut(repo);
+        // Production order: the in-memory cache is cleared synchronously and
+        // the wipe is not awaited, so the pending prime must not repopulate.
+        repo.clearCache();
+        db.sessionEpoch.end();
         await pending;
+        await signOut(repo);
 
         expect(repo.cached('old'), isNull);
       },

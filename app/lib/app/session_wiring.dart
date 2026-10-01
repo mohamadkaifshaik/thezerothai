@@ -40,6 +40,10 @@ Future<void> wipeSessionData({
 }) async {
   // Ends the shared SessionEpoch and forgets in-flight and queued timeline
   // work (a new user must never be handed the old user's future).
+  // End the epoch here directly, so a wipe path can never leave graph and
+  // identity writes unguarded; clearSession then drops the timeline's
+  // in-flight maps (it ends the epoch again, which is harmless).
+  database.sessionEpoch.end();
   timelineRepository.clearSession();
   await database.clearAll();
 }
