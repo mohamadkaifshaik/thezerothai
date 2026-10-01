@@ -112,6 +112,9 @@ type Repo interface {
 	GetProfile(ctx context.Context, uid string) (Profile, error)
 	// ResolveHandle reads handles/{handleLower} and returns the owning uid. Returns ErrNotFound if free.
 	ResolveHandle(ctx context.Context, handleLower string) (string, error)
+	// ResolveHandles batch-reads handles/{h} for every handle in handleLowers via one GetAll (<=
+	// MaxResolveHandles). Reads: len(handleLowers). Handles with no document are absent from the result.
+	ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error)
 	// CreateProfile runs the signup transaction (ADR-0003): read users/{uid}+handles/{h}; on first call,
 	// create users, handles, and (via graphInit) graph. A replay (users/{uid} already exists) returns the
 	// existing profile and performs no writes.
@@ -173,8 +176,18 @@ type Directory interface {
 	// confirmed absent by a fresh read in this call (ADR-0008 T27). Non-ACTIVE users (SUSPENDED, DELETING)
 	// appear in neither found nor missing, so a caller can never mistake them for deleted. Same read cost.
 	LookupProfiles(ctx context.Context, uids []string) (found map[string]Profile, missing []string, err error)
+	// ResolveHandles maps lower-case handles to their owning uids for @mention resolution (ADR-0010 D7): at
+	// most MaxResolveHandles distinct handles, cache-first (the handle->uid cache, then the 10 s negative
+	// handle cache), then one GetAll on handles/* for the rest, so reads = the number of uncached handles
+	// (<= 10, typically 0-4). Handles that are unknown, reserved or malformed are absent from the map and cost
+	// nothing; the caller leaves them as plain text. It does not check account status.
+	ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error)
 	Forget(uids ...string)
 }
+
+// MaxResolveHandles is the most distinct handles one ResolveHandles call takes (one post carries at most 10
+// mentions, ADR-0010 D7).
+const MaxResolveHandles = 10
 
 // GraphInitializer is the minimal seam identity depends on to create the caller's empty social-graph
 // doc inside the same CreateProfile transaction (ADR-0003: "create users, handles, graph"). The full

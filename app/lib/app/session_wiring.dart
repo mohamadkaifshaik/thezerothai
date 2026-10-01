@@ -29,13 +29,21 @@ PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
   return gate;
 }
 
-/// Sign-out: invalidate in-flight timeline work first, then wipe the local
-/// cache in one transaction, so nothing of the previous user survives or is
-/// written back (privacy: CLAUDE.md rule 10).
+/// Sign-out: end the shared session epoch first (timeline, graph and
+/// identity writes of in-flight requests are then dropped) and clear the
+/// timeline's in-flight work, then wipe the
+/// local cache in one transaction, so nothing of the previous user survives
+/// or is written back (privacy: CLAUDE.md rule 10).
 Future<void> wipeSessionData({
   required AppDatabase database,
   required TimelineRepository timelineRepository,
 }) async {
+  // Ends the shared SessionEpoch and forgets in-flight and queued timeline
+  // work (a new user must never be handed the old user's future).
+  // End the epoch here directly, so a wipe path can never leave graph and
+  // identity writes unguarded; clearSession then drops the timeline's
+  // in-flight maps (it ends the epoch again, which is harmless).
+  database.sessionEpoch.end();
   timelineRepository.clearSession();
   await database.clearAll();
 }

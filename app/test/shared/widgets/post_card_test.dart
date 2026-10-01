@@ -737,4 +737,50 @@ void main() {
       expect(changed.single.muting, isTrue);
     });
   });
+
+  group('reused card state', () {
+    testWidgets('a different author does not inherit the previous in-flight '
+        'result', (tester) async {
+      final changed = <graph.Relationship>[];
+      final gate = Completer<graph.Relationship>();
+      when(
+        () => graphRepository.mute(
+          userId: 'u-author',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) => gate.future);
+      when(() => graphRepository.cached(any())).thenReturn(null);
+
+      Widget card(pb.PostView view) => wrap(
+        PostCard(
+          key: const ValueKey('same-slot'),
+          view: view,
+          viewerUserId: 'me',
+          now: _now,
+          onRelationshipChanged: changed.add,
+        ),
+      );
+
+      await tester.pumpWidget(card(_view()));
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mute @alice'));
+      await tester.pump();
+
+      // The same State is reused for another author (list recycling).
+      await tester.pumpWidget(card(_view(authorId: 'u-other')));
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(1, 1)); // dismiss the menu
+      await tester.pumpAndSettle();
+
+      // The first request fails: no false "Muted" report may appear.
+      gate.completeError(const NetworkException('offline'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(changed, isEmpty);
+      expect(find.textContaining('Muted'), findsNothing);
+    });
+  });
 }

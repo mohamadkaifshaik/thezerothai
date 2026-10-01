@@ -352,6 +352,53 @@ func (s *service) LookupProfiles(ctx context.Context, uids []string) (map[string
 	return out, missing, nil
 }
 
+// ResolveHandles implements Directory (ADR-0010 D7, T7): cache-first (handle->uid hits, then the negative handle
+// cache), then one GetAll for the remaining handles. Malformed and reserved handles are skipped without a read
+// (they can never own a handle doc); more than MaxResolveHandles distinct candidates is a caller bug.
+// Firestore: reads = uncached handles <= 10, writes 0.
+func (s *service) ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error) {
+	out := make(map[string]string, len(lowers))
+	var misses []string
+	seen := make(map[string]struct{}, len(lowers))
+	for _, h := range lowers {
+		h = strings.ToLower(h)
+		if _, dup := seen[h]; dup {
+			continue
+		}
+		seen[h] = struct{}{}
+		if handleFormatIssue(h) != "" {
+			continue
+		}
+		if uid, ok := s.cache.GetHandleUID(h); ok {
+			out[h] = uid
+			continue
+		}
+		if s.cache.GetHandleFree(h) {
+			continue
+		}
+		misses = append(misses, h)
+	}
+	if len(seen) > MaxResolveHandles {
+		return nil, fmt.Errorf("identity: ResolveHandles of %d handles exceeds the limit of %d", len(seen), MaxResolveHandles)
+	}
+	if len(misses) == 0 {
+		return out, nil
+	}
+	found, err := s.repo.ResolveHandles(ctx, misses)
+	if err != nil {
+		return nil, fmt.Errorf("identity: resolve handles: %w", err)
+	}
+	for _, h := range misses {
+		if uid, ok := found[h]; ok {
+			s.cache.SetHandleUID(h, uid)
+			out[h] = uid
+			continue
+		}
+		s.cache.SetHandleFree(h)
+	}
+	return out, nil
+}
+
 // Forget implements Directory: evicts uid's cached profile and unread count on this instance (CLAUDE.md:
 // "update the instance cache from written data instead of re-reading" — this is the eviction half, called
 // by another module right after its own commit changed users/{uid} through Counters).

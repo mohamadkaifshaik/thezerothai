@@ -53,7 +53,9 @@ class GraphRepository {
   /// profile/list screen renders, so warm starts show "Following" without
   /// waiting on the network.
   Future<void> primeFromDatabase() async {
+    final epoch = _database.sessionEpoch.value;
     final ids = await _database.cachedFollowingIds();
+    if (!_database.sessionEpoch.allows(epoch)) return;
     for (final id in ids) {
       _relationships.putIfAbsent(
         id,
@@ -68,8 +70,9 @@ class GraphRepository {
   /// The cached relationship to [userId] this session, if any is known yet.
   graph.Relationship? cached(String userId) => _relationships[userId];
 
-  void _cache(graph.Relationship relationship) {
+  void _cache(graph.Relationship relationship, int epoch) {
     if (relationship.userId.isEmpty) return;
+    if (!_database.sessionEpoch.allows(epoch)) return;
     _relationships[relationship.userId] = relationship;
   }
 
@@ -77,7 +80,10 @@ class GraphRepository {
   /// the server fills it from the caller's own graph at 0 extra reads, so
   /// followers/following/blocked/muted list rows never need a separate
   /// `GetRelationships` call.
-  void primeFromListItem(graph.UserListItem item) {
+  ///
+  /// [epoch] is `sessionEpoch.value` read before the request started; a
+  /// response landing after sign-out is dropped.
+  void primeFromListItem(graph.UserListItem item, int epoch) {
     _cache(
       graph.Relationship(
         userId: item.user.userId,
@@ -85,6 +91,7 @@ class GraphRepository {
         blocking: item.relationship.blocking,
         muting: item.relationship.muting,
       ),
+      epoch,
     );
   }
 
@@ -94,6 +101,7 @@ class GraphRepository {
   Future<Map<String, graph.Relationship>> relationshipsFor(
     List<String> userIds,
   ) async {
+    final epoch = _database.sessionEpoch.value;
     final ids = userIds.toSet().toList();
     final misses = ids.where((id) => !_relationships.containsKey(id)).toList();
     for (var i = 0; i < misses.length; i += _maxRelationshipsPerCall) {
@@ -106,7 +114,7 @@ class GraphRepository {
         ),
       );
       for (final relationship in response.relationships) {
-        _cache(relationship);
+        _cache(relationship, epoch);
       }
     }
     return {
@@ -130,14 +138,15 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.follow(
         graph.FollowRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
-    await _database.upsertFollowing(userId);
+    _cache(relationship, epoch);
+    await _database.upsertFollowing(userId, epoch: epoch);
     return relationship;
   }
 
@@ -145,14 +154,15 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.unfollow(
         graph.UnfollowRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
-    await _database.removeFollowing(userId);
+    _cache(relationship, epoch);
+    await _database.removeFollowing(userId, epoch: epoch);
     return relationship;
   }
 
@@ -160,17 +170,18 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.block(
         graph.BlockRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     // Block always cuts both follow directions (ADR-0008 D9): drop it from
     // the local following cache too so a warm start never shows "Following"
     // for someone the caller just blocked.
-    await _database.removeFollowing(userId);
+    await _database.removeFollowing(userId, epoch: epoch);
     return relationship;
   }
 
@@ -178,13 +189,14 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.unblock(
         graph.UnblockRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     return relationship;
   }
 
@@ -192,13 +204,14 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.mute(
         graph.MuteRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     return relationship;
   }
 
@@ -206,13 +219,14 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.unmute(
         graph.UnmuteRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     return relationship;
   }
 
@@ -287,11 +301,12 @@ class GraphRepository {
     Future<T> Function() call,
     (Iterable<graph.UserListItem>, String) Function(T) unwrap,
   ) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(call);
     final (users, nextPageToken) = unwrap(response);
     final items = users.toList(growable: false);
     for (final item in items) {
-      primeFromListItem(item);
+      primeFromListItem(item, epoch);
     }
     return GraphPage(items: items, nextPageToken: nextPageToken);
   }

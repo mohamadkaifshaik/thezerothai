@@ -409,6 +409,19 @@ class _PostRichTextState extends State<PostRichText> {
 
 enum _MenuAction { delete, block, mute }
 
+/// Closes [cubit] now, or once its in-flight Block/Mute settles, so the
+/// awaiting `_run` still sees the real outcome (never an optimistic state).
+void _closeWhenSettled(RelationshipCubit cubit) {
+  if (cubit.isClosed) return;
+  if (cubit.state.isUpdating) {
+    cubit.stream
+        .firstWhere((s) => !s.isUpdating)
+        .then((_) => cubit.close(), onError: (_) => cubit.close());
+  } else {
+    cubit.close();
+  }
+}
+
 /// The overflow menu. For another author it holds ONE [RelationshipCubit]
 /// for the card's lifetime (created on first open), so a retry after a
 /// failed Block/Mute reuses the same idempotency key (CLAUDE.md rule 4).
@@ -439,7 +452,7 @@ class _PostMenuState extends State<_PostMenu> {
     if (existing != null && existing.userId == widget.post.author.userId) {
       return existing;
     }
-    existing?.close();
+    if (existing != null) _closeWhenSettled(existing);
     final repository = context.read<GraphRepository>();
     final userId = widget.post.author.userId;
     return _cubit = RelationshipCubit(
@@ -454,15 +467,7 @@ class _PostMenuState extends State<_PostMenu> {
     // A Block/Mute still in flight keeps its cubit until it settles, so
     // `_run` can still report the result (the server applied it).
     final cubit = _cubit;
-    if (cubit != null) {
-      if (cubit.state.isUpdating) {
-        cubit.stream
-            .firstWhere((s) => !s.isUpdating)
-            .then((_) => cubit.close(), onError: (_) => cubit.close());
-      } else {
-        cubit.close();
-      }
-    }
+    if (cubit != null) _closeWhenSettled(cubit);
     super.dispose();
   }
 

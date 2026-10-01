@@ -422,7 +422,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Budget.** 0 Firestore reads/writes (in memory). The gate turns ≈ 1 read per minted-uid call into 0. Memory:
   ≈ 200–250 B per key, ≈ 20–25 MiB per full 100k-key counter (ADR-0010 D15); < 5 MiB at Stage 0.
 
-### T4 — Posts/timeline flag, rate limits, daily call caps  [owner: backend-developer] [size: S] [depends: T2]
+### T4 — Posts/timeline flag, rate limits  [owner: backend-developer] [size: S] [depends: T2]
 - **Description.**
   - Add `FEATURE_POSTS` (`off|allowlist|percent|on`, default `off`) via `flags.LoadSpec`, following the `FeatureGraph`
     pattern (`config.go:166-168`, `apiserver.go:85`). `GetMe.enabled_features` returns `"posts"` (0 reads).
@@ -700,6 +700,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     counts as "filled" (ADR-0010 D15);
   - the `gap_page_token` when any chunk filled `k` on a refresh.
 
+  **T28 carry-over:** the cursor codec does not order the two bounds of a `cursor.Window`. T11 must treat a Lower
+  bound that is `>=` Upper (by `(createdAt, postId)`) as "lower bound reached" (no next page), never as an error.
+  `TIMELINE_TOKEN_TTL` is `config.Config.TimelineTokenTTL` (T28 adds it; default 720h, must be >= 24h).
+
   **Tokens (ADR-0010 D14)** use the T28 cursor extension, sealed with the existing cursor key and with a TTL of
   `TIMELINE_TOKEN_TTL` (default **720 h = 30 days**). Bindings (AEAD additional data):
 
@@ -928,7 +932,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `PostCard` does not tick: relative times (`5m`) go stale while a list stays open. T17 should rebuild the visible
     cards on a minute timer (foreground only, no RPC) or pass a fresh `now` after each refresh.
   - `PostCard.onRelationshipChanged` reports Block/Mute/Unblock/Unmute results; T17 uses it to hide or restore the
-    author's posts locally (D6) without a refetch.
+    author's posts locally (D6) without a refetch. It can fire after the card is unmounted (the request outlives a
+    scrolled-away card), so Home's handler must be safe then: act on the feed/store, never on the card's `BuildContext`.
 
 ### T18 — Flutter: profile Posts tab, post detail, delete  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**
@@ -1107,14 +1112,17 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Description.**
   - Add env vars to Terraform `cloud-run-api` for dev/prod (ADR-0010 Handoff). Plan-then-OK before apply (founder
     preference).
-    - `FEATURE_POSTS` (dev `on`, prod `off`) and its allowlist;
+    - `FEATURE_POSTS` (dev `on`, prod `off`) and its allowlist. **Set `FEATURE_POSTS=off` explicitly in prod
+      Terraform**: the code default is `on` in dev and local and `off` in prod, and an explicit value keeps the
+      environment from depending on that default;
     - `READ_BUDGET_PER_UID_PER_DAY=2000`, `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY=500`,
       `CHECK_HANDLE_CALLS_PER_DAY=100`, `ACCOUNT_OPS_CALLS_PER_DAY=20`;
     - `TIMELINE_SETTLE_WINDOW=15s` (validated ≥ 15 s), `TIMELINE_TOKEN_TTL=720h`;
     - `CACHE_POSTS_ENTRIES=20000`, `CACHE_AUTHOR_RECENT_ENTRIES=1000`;
     - the T4 rate-limit keys.
   - Deploy `firestore.indexes.json` (unchanged, D19) and confirm the three posts indexes are **READY** in dev and prod
-    before any traffic (L5 fix order).
+    before any traffic (L5 fix order). Gate line: **every posts index READY in dev** (the emulator does not enforce
+    indexes, so no automated test proves this).
   - Before the ADR-0010 D5 A2 gate reaches prod: list password accounts with `emailVerified=false` (Admin SDK
     `accounts:batchGet`, free) and confirm none owns a `users` doc. Record the count, never the uids.
   - Runbooks:
