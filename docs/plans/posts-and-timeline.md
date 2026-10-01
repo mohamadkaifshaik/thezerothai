@@ -24,6 +24,11 @@ Inputs: CLAUDE.md, ADR-0002/0003/0004/0006/0008/0009, `proto/dzeroth/{posts,time
 >   - GetUserTimeline pages with `Limit(page_size)` (D16).
 >   - The purge query is descending (D19 Q-E).
 >   - The cold budget ceilings include the `AccountStatusInterceptor` read (D17).
+> - **Proposed 2026-10-01, pending the founder (ADR-0010 D21, G1–G5):** a URL-span exclusion for mentions and hashtags,
+>   shared by server and client through one fixture file; U+2028/U+2029 → `\n`; the handle grammar moves to
+>   `pkg/platform/handle` (new ticket **T6b**); invisible-only posts are empty; positive handle hits for mentions are
+>   at most 10 s old. The deltas are marked "D21 delta" in T6, T6b, T8, T15, T16 and T19, and **T8 must not merge
+>   before the founder decides on D21** and the accepted deltas land.
 
 ---
 
@@ -254,12 +259,14 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 | # | Milestone | Tickets | Exit |
 |---|---|---|---|
 | M1 | Contract and gating hardening | T1, T2, T3, T4 | ADR-0010 Accepted; `make proto` green; read budget merged with the guard test in CI |
-| M2 | Posts backend ‖ Flutter foundations | T5–T10 ‖ T14, T15 | CreatePost/DeletePost/GetPost behind the flag; PostCard + repositories against fakes |
+| M2 | Posts backend ‖ Flutter foundations | T5–T10 (incl. T6b and the D21 deltas once accepted) ‖ T14, T15 | CreatePost/DeletePost/GetPost behind the flag; PostCard + repositories against fakes |
 | M3 | Timelines backend ‖ Flutter screens | T28, T11–T13 ‖ T16–T18 | Both timelines implemented; composer, home and profile tabs built |
 | M4 | Verification | T19–T25 | Test report PASS with budget assertions; code review APPROVE; security 0 Critical/High; cost report holds |
 | M5 | Ops and staged rollout | T26, T27 | Dev deployed flag-on; prod `candidate` GO; prod `allowlist`. The public % rollout goes with v0.3.0 |
 
 **Order:** T1 → T2 → (T3 ‖ T4 ‖ T6 ‖ T7 ‖ T28) → T5 → (T8, T9, T10) → T11 → (T12, T13).
+- **D21 (pending the founder):** founder decision → (T6b ‖ T6 D21 delta ‖ T15 D21 delta) → T8. T16 takes its D21
+  delta whenever it lands. T6b and the T6 delta touch the same file (`posts/text/text.go`), so merge T6b first.
 - T28 (the cursor extension) depends only on T1 and must merge before T11.
 - Frontend T14 starts right after T2. T15 → T16 → T17/T18 run in parallel with all backend work, against fakes.
 - T19 follows T8–T10, T20 follows T12–T13, and T21–T25 follow M3. T26 and T27 come last.
@@ -531,6 +538,53 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Table tests plus fuzz tests (`go test -fuzz`) for panics on arbitrary UTF-8.
 - **Observability.** —
 - **Budget.** 0.
+- **D21 delta (proposed 2026-10-01; only once the founder accepts G1/G2/G4; merge before T8).** Merged as PR #77;
+  this is a follow-up PR on `backend/internal/posts/text/{text.go,text_test.go}` after T6b.
+  - **G1:** compute URL spans exactly per ADR-0010 D7 "URL spans": case-insensitive `http(s)://`, the explicit
+    terminator list (not `unicode.IsSpace`), a non-overlapping scan that resumes after rejected candidates, the
+    `\p{L}\p{M}\p{N}` start rule, and the trailing-punctuation and unbalanced-bracket trim. Drop mention and hashtag
+    candidates that overlap a span **before** lower-casing, dedupe and the cap of 10.
+  - **G2:** step 2 maps U+2028 and U+2029 to `\n`.
+  - **G4:** step 4 also trims U+00AD, U+180E, U+200B, U+2060–U+2064, U+FEFF. Step 5 is "empty" when no rune lies
+    outside `unicode.IsSpace` ∪ `\p{Cf}` ∪ U+FE00–U+FE0F ∪ U+E0100–U+E01EF.
+  - Create `testdata/post_text_grammar.json` (repo root) from the ADR-0010 D21 G1 seed table plus every D7/D8
+    example. Its `grammar` and `normalise` arrays are described in D21. The architect reviews the file.
+  - **Acceptance criteria.**
+    - Every `grammar` row passes: `Normalize(text) == text`, and `Mentions`/`Hashtags` equal the row. Every
+      `normalise` row passes. The test asserts that the number of rows run equals the number in the file.
+    - `https://ex.com/?ref=@bob` → no mentions; `see https://ex.com/?ref=@bob and @carol` → [carol];
+      `https://ex.com/?a=1&b=#go #rust` → [rust]; `xhttps://ex.com/?r=@bob` → [bob]; `https://ex.com/?r=@bob` +
+      U+FEFF + `@carol` → [carol].
+    - 10 lines joined by U+2028 plus one more U+2029 line → VALIDATION (11 lines). 10 lines joined by U+2028 → stored
+      with `\n`.
+    - `"​⁠﻿"`, `"‎"`, `"‍"` and `"️"` → VALIDATION (empty). `"hi​"` → `"hi"`. A
+      post ending in the England flag (U+1F3F4 + tags + U+E007F) keeps its tag characters. U+202E at either end →
+      VALIDATION (still rejected, not trimmed).
+    - The fuzz target also checks that no stored mention or hashtag overlaps a URL span.
+  - **Budget.** 0 (parser). It lowers CreatePost reads when the only candidates sit in URLs.
+
+### T6b — Shared handle grammar: `pkg/platform/handle` (ADR-0010 D21 G3)  [owner: backend-developer] [size: S] [depends: founder accepts D21 G3; merges before the T6 D21 delta and T8]
+- **Description.** A refactor with no behaviour change. Reuse-first "generalise and move": one handle grammar, used by
+  identity and `posts/text`, with no `internal/` import from the parser.
+  1. New `backend/pkg/platform/handle` (stdlib only), modelled on `pkg/platform/ids`:
+     - `const MinLen = 3`, `const MaxLen = 15`;
+     - `func IsRune(r rune) bool` (`[A-Za-z0-9_]`);
+     - `func ValidRun(s string) bool` (`^[A-Za-z0-9_]{3,15}$`).
+  2. `backend/internal/identity/validate.go` and `service.go`: delete `handleRe` and `ValidHandleRun`; call
+     `handle.ValidRun`. The reserved-shape check (`reservedDocID`), lower-casing and the messages stay in identity.
+  3. `backend/internal/posts/text/text.go`: import `pkg/platform/handle`; delete `isHandleRune` and
+     `maxMentionRun` in favour of `handle.IsRune` and `handle.MaxLen`; remove the `internal/identity` import.
+  4. `docs/code-map.md`: one line for `handle.ValidRun` / `handle.IsRune` / `MinLen` / `MaxLen`.
+- **Acceptance criteria.**
+  - `grep -rn "handleRe\|ValidHandleRun" backend/` finds nothing.
+  - An import-guard test in `backend/internal/posts/text` (parse the package's non-test files with `go/parser`)
+    fails if any import path contains `/internal/`.
+  - `handle_test.go` covers lengths 2, 3, 15 and 16, `_`, a non-ASCII letter, `-`, and the empty string, and checks
+    that `IsRune` agrees with `ValidRun` on single-rune classes.
+  - The existing identity and `posts/text` suites pass unchanged (no behaviour change); `make ci` is green.
+- **Test notes.** Unit tests only.
+- **Observability.** —
+- **Budget.** 0.
 
 ### T7 — Identity: `Directory.ResolveHandles`; shared verified-email check  [owner: backend-developer] [size: S] [depends: T3 (negative cache)]
 - **Description.**
@@ -548,7 +602,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Observability.** —
 - **Budget.** ResolveHandles ≤ 10 / ~0–4.
 
-### T8 — CreatePost (root posts)  [owner: backend-developer] [size: M] [depends: T5, T6, T7]
+### T8 — CreatePost (root posts)  [owner: backend-developer] [size: M] [depends: T5, T6, T7; the founder's D21 decision, then T6b and the T6 D21 delta if accepted]
 - **Description.**
   1. Validate:
      - reply/quote/media non-empty → FAILED_PRECONDITION + `FEATURE_DISABLED` with `metadata["feature"]` =
@@ -579,7 +633,14 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
        that was freed and reclaimed by another user can be saved in `mentions[]` under the wrong user. T8 must
        either verify the resolved uid's `HandleLower` against the profile it loads for that uid (via
        `identity.Directory.GetProfiles`, cache-first) or shorten the positive handle TTL to 10 s. Test the freed and
-       reclaimed case.
+       reclaimed case. **Superseded, if the founder accepts it, by ADR-0010 D21 G5 (proposed 2026-10-01):** do
+       both, with the 10 s bound as the guarantee. A profile cached before the rename confirms the stale mapping, so
+       the profile check alone is unsound, and loading mentioned profiles would add up to 10 reads.
+       1. In `ResolveHandles`, a cached positive entry is a hit only if it is ≤ 10 s old (reuse `notFoundTTL`; the
+          handle cache stores `{uid, at}`). Older entries are misses in the same single `GetAll`. GetProfile by
+          handle keeps 60 s.
+       2. If the uid's profile is already in the instance profile cache (a peek, 0 reads) and its `HandleLower`
+          differs from the candidate, treat the candidate as a miss.
      - **More than 10 handles.** `ResolveHandles` returns an untyped error above `identity.MaxResolveHandles`
        distinct handles. T8 must truncate to 10 after dedupe (the parser already caps at `text.MaxMentions`) and
        test 11 mentions.
@@ -601,6 +662,14 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - Given "@ghost" (no such handle), then the post is created and `mentions` is empty. Given "@bob" where bob blocked
     the author, then `mentions` excludes bob. Given the author's `blockedByOverflow` = true, then `mentions` is empty.
   - Given text with no `@` candidate, then the author graph is not read.
+  - **D21 delta (if G1/G5 are accepted):**
+    - Given `https://ex.com/?ref=@bob` (bob exists), then `mentions` is empty, and 0 `handles/*` and 0 `graph`
+      reads happen.
+    - Given bob renames to bob2 and carol claims `bob`, with instance B holding `bob → bob2's uid` in its cache: a
+      CreatePost "@bob" on B after 11 s (fake clock) stores carol's uid. At 9 s with B's profile cache showing
+      `HandleLower=bob2`, it also stores carol's uid, at 1 extra handle read. At 9 s with no cached profile, the
+      stale mapping is the accepted residual: assert it and name it in the test.
+    - Log `mentions_in_url` (a count) next to `mentions_dropped`.
   - Given `media_ids`, `reply_to_post_id` or `quote_of_post_id` set, then `FEATURE_DISABLED` with
     `metadata["feature"]` = `media`, `replies` or `quotes` respectively, even if the text is invalid, with 0 reads.
     Given both reply and media, then `feature=replies`.
@@ -898,6 +967,21 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests for each state; a golden test is optional.
 - **Observability.** —
 - **Budget.** 0 RPCs (display only).
+- **D21 delta (proposed 2026-10-01; only once the founder accepts G1; merge before T8).** The parser was merged as
+  PR #80; this is a follow-up PR on `app/lib/features/posts/domain/post_text_parser.dart` and its test.
+  - Exclusion runs over **every syntactic URL span** (ADR-0010 D7 "URL spans"), not only over links that pass
+    `_isSafeLink`, the spoofing check or the whole-post bidi check. An unsafe span renders as plain text, with no
+    mention or hashtag inside it. Span detection runs even when the post has bidi controls (`allowLinks == false`).
+  - The terminator set stays ECMAScript `\s` plus `<>"`, which `[^\s<>"]` already is. Add a comment naming D7 so
+    nobody "simplifies" it.
+  - The test loads `../testdata/post_text_grammar.json` and runs every `grammar` row: mention spans (fed back as
+    resolved `pb.Mention`s), hashtag spans and `tappable_links`. It asserts the row count. Grammar rows that are
+    duplicated inline in the test move to the fixture.
+  - **Acceptance criteria.**
+    - `https://ex.café/?r=@bob` with `mentions=[bob]` → one plain span, nothing tappable.
+    - `https://google.com@evil.com/x @bob` → only `@bob` is tappable.
+    - `؜ https://ex.com/?r=@bob` with `mentions=[bob]` → nothing tappable.
+    - Every fixture row passes.
 
 ### T16 — Flutter: composer  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**
@@ -919,6 +1003,12 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - Given 281 code points, then Post is disabled and the counter shows −1.
   - Given decomposed input (`e` + U+0301) × 280, then the counter shows 0 remaining, not −280 (it counts after NFC).
   - Given 11 lines, then Post is disabled.
+  - **D21 delta (if G2/G4 are accepted):** the composer's D9 mirror maps U+2028 and U+2029 to `\n` (step 2), trims
+    the D21 G4 invisible list (step 4) and uses the G4 empty predicate. Its tests run the fixture's `normalise` rows
+    (`error` ⇒ Post disabled).
+    - Given 10 lines joined by U+2028 plus one U+2029 line, then Post is disabled.
+    - Given only U+200B/U+2060/U+FEFF (or only LRM, ZWJ or VS16), then Post is disabled.
+    - Given a post ending in the England flag emoji, then the counter counts every code point and Post is enabled.
 - **Test notes.** Bloc tests (optimistic path, rollback, key reuse); widget tests.
 - **Observability.** —
 - **Budget.** 1 CreatePost per intent.
@@ -992,6 +1082,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - DeletePost on another user's post, on an unknown id and on an already-deleted id: byte-identical success, 0 writes,
     0 deletes.
   - The D7/D8 mention and hashtag example tables end to end (stored `mentions`/`hashtags`).
+  - **D21 delta (if accepted):** `https://ex.com/?ref=@bob` stores no mention, with 0 `handles/*` and 0 `graph`
+    reads (G1); text with U+2028 line breaks is stored with `\n` (G2); an invisible-only post is VALIDATION (G4); a
+    handle freed and reclaimed is resolved to the new owner after 11 s (G5).
   - Purge crash-resume (descending query, T10).
   - Degraded readonly.
 - **Acceptance criteria.**
