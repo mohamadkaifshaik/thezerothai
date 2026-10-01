@@ -438,7 +438,7 @@ void main() {
       await repo.refresh(home);
       final session = store.session;
 
-      await wipeSessionData(database: db, timelineRepository: repo);
+      await wipeSessionData(database: db);
 
       expect(store.session, isNot(session));
       expect((await store.read(home)).entries, isEmpty);

@@ -2,7 +2,6 @@ import '../core/storage/app_database.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
-import '../features/timeline/data/timeline_repository.dart';
 
 /// Builds the posts flag gate wired to [onboardingBloc] (ADR-0010 D1/D2):
 ///
@@ -29,13 +28,11 @@ PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
   return gate;
 }
 
-/// Sign-out: invalidate in-flight timeline work first, then wipe the local
-/// cache in one transaction, so nothing of the previous user survives or is
-/// written back (privacy: CLAUDE.md rule 10).
-Future<void> wipeSessionData({
-  required AppDatabase database,
-  required TimelineRepository timelineRepository,
-}) async {
-  timelineRepository.clearSession();
+/// Sign-out: end the shared session epoch first (timeline, graph and
+/// identity writes of in-flight requests are then dropped), then wipe the
+/// local cache in one transaction, so nothing of the previous user survives
+/// or is written back (privacy: CLAUDE.md rule 10).
+Future<void> wipeSessionData({required AppDatabase database}) async {
+  database.sessionEpoch.end();
   await database.clearAll();
 }

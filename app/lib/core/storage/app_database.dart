@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import 'session_epoch.dart';
+
 part 'app_database.g.dart';
 
 /// Local cache of profiles (own profile + anyone looked up), so the client
@@ -113,6 +115,10 @@ class AppDatabase extends _$AppDatabase {
   /// Test-only in-memory database.
   AppDatabase.forTesting(super.executor);
 
+  /// The one session epoch every cache writer checks inside its write
+  /// transaction; ended on sign-out before [clearAll].
+  final SessionEpoch sessionEpoch = SessionEpoch();
+
   @override
   int get schemaVersion => 3;
 
@@ -144,8 +150,13 @@ class AppDatabase extends _$AppDatabase {
     )..where((t) => t.handle.equals(handle))).getSingleOrNull();
   }
 
-  Future<void> upsertProfile(ProfileCacheEntriesCompanion entry) {
-    return into(profileCacheEntries).insertOnConflictUpdate(entry);
+  /// Guarded writes: when [epoch] is given and the session ended since,
+  /// the write is dropped (see [SessionEpoch]).
+  Future<void> upsertProfile(ProfileCacheEntriesCompanion entry, {int? epoch}) {
+    return transaction(() async {
+      if (!sessionEpoch.allows(epoch)) return;
+      await into(profileCacheEntries).insertOnConflictUpdate(entry);
+    });
   }
 
   Future<void> deleteProfile(String userId) {
@@ -160,19 +171,25 @@ class AppDatabase extends _$AppDatabase {
     return [for (final row in rows) row.userId];
   }
 
-  Future<void> upsertFollowing(String userId) {
-    return into(followingCacheEntries).insertOnConflictUpdate(
-      FollowingCacheEntriesCompanion.insert(
-        userId: userId,
-        cachedAt: DateTime.now(),
-      ),
-    );
+  Future<void> upsertFollowing(String userId, {int? epoch}) {
+    return transaction(() async {
+      if (!sessionEpoch.allows(epoch)) return;
+      await into(followingCacheEntries).insertOnConflictUpdate(
+        FollowingCacheEntriesCompanion.insert(
+          userId: userId,
+          cachedAt: DateTime.now(),
+        ),
+      );
+    });
   }
 
-  Future<void> removeFollowing(String userId) {
-    return (delete(
-      followingCacheEntries,
-    )..where((t) => t.userId.equals(userId))).go();
+  Future<void> removeFollowing(String userId, {int? epoch}) {
+    return transaction(() async {
+      if (!sessionEpoch.allows(epoch)) return;
+      await (delete(
+        followingCacheEntries,
+      )..where((t) => t.userId.equals(userId))).go();
+    });
   }
 
   /// Wipes all cached data. Called on sign-out so the next user on a shared

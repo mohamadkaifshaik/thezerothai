@@ -68,8 +68,9 @@ class GraphRepository {
   /// The cached relationship to [userId] this session, if any is known yet.
   graph.Relationship? cached(String userId) => _relationships[userId];
 
-  void _cache(graph.Relationship relationship) {
+  void _cache(graph.Relationship relationship, [int? epoch]) {
     if (relationship.userId.isEmpty) return;
+    if (!_database.sessionEpoch.allows(epoch)) return;
     _relationships[relationship.userId] = relationship;
   }
 
@@ -130,14 +131,15 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.follow(
         graph.FollowRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
-    await _database.upsertFollowing(userId);
+    _cache(relationship, epoch);
+    await _database.upsertFollowing(userId, epoch: epoch);
     return relationship;
   }
 
@@ -145,14 +147,15 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.unfollow(
         graph.UnfollowRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
-    await _database.removeFollowing(userId);
+    _cache(relationship, epoch);
+    await _database.removeFollowing(userId, epoch: epoch);
     return relationship;
   }
 
@@ -160,17 +163,18 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.block(
         graph.BlockRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     // Block always cuts both follow directions (ADR-0008 D9): drop it from
     // the local following cache too so a warm start never shows "Following"
     // for someone the caller just blocked.
-    await _database.removeFollowing(userId);
+    await _database.removeFollowing(userId, epoch: epoch);
     return relationship;
   }
 
@@ -178,13 +182,14 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.unblock(
         graph.UnblockRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     return relationship;
   }
 
@@ -192,13 +197,14 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.mute(
         graph.MuteRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     return relationship;
   }
 
@@ -206,13 +212,14 @@ class GraphRepository {
     required String userId,
     required String idempotencyKey,
   }) async {
+    final epoch = _database.sessionEpoch.value;
     final response = await guardApiCall(
       () => _apiClient.graph.unmute(
         graph.UnmuteRequest(userId: userId, idempotencyKey: idempotencyKey),
       ),
     );
     final relationship = _withUserId(response.relationship, userId);
-    _cache(relationship);
+    _cache(relationship, epoch);
     return relationship;
   }
 

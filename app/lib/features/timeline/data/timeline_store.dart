@@ -71,21 +71,20 @@ class TimelineStore {
 
   final AppDatabase _db;
 
-  int _session = 0;
-
   /// Generation of the signed-in session. Every write takes the generation
-  /// its caller started under and is dropped when [endSession] ran since, so
+  /// its caller started under (the shared `AppDatabase.sessionEpoch`, also
+  /// checked by the graph and identity caches) and is dropped when [endSession] ran since, so
   /// an in-flight request of a signed-out user can never write back after
   /// the cache was wiped (privacy, CLAUDE.md rule 10).
-  int get session => _session;
+  int get session => _db.sessionEpoch.value;
 
   /// Invalidates every write started under an earlier [session]. Call on
   /// sign-out, before wiping the database.
-  void endSession() => _session++;
+  void endSession() => _db.sessionEpoch.end();
 
   Future<void> _tx(int? session, Future<void> Function() body) {
     return _db.transaction(() async {
-      if (session != null && session != _session) return;
+      if (!_db.sessionEpoch.allows(session)) return;
       await body();
     });
   }
@@ -120,8 +119,7 @@ class TimelineStore {
     }
     if (undecodable.isNotEmpty) {
       await (_db.delete(_db.timelineItemEntries)..where(
-            (t) =>
-                t.feedKey.equals(feed.value) & t.itemKey.isIn(undecodable),
+            (t) => t.feedKey.equals(feed.value) & t.itemKey.isIn(undecodable),
           ))
           .go();
     }
@@ -146,11 +144,7 @@ class TimelineStore {
       final valid = _valid(posts);
       await _upsertPosts(feed, valid);
       if (gapPageToken.isNotEmpty && valid.isNotEmpty) {
-        await _putGap(
-          feed,
-          sortKeyBelow(valid.last.post.postId),
-          gapPageToken,
-        );
+        await _putGap(feed, sortKeyBelow(valid.last.post.postId), gapPageToken);
       }
       await _saveState(feed, sinceToken: sinceToken);
       await _prune(feed);
@@ -270,10 +264,8 @@ class TimelineStore {
   }
 
   /// Drops the stored `since_token` (it was rejected, D14).
-  Future<void> clearSince(FeedKey feed, {int? session}) => _tx(
-    session,
-    () => _saveState(feed, sinceToken: '', replaceSince: true),
-  );
+  Future<void> clearSince(FeedKey feed, {int? session}) =>
+      _tx(session, () => _saveState(feed, sinceToken: '', replaceSince: true));
 
   /// Removes [postId] from every cached feed (post NOT_FOUND on open, or
   /// the caller deleted it).
