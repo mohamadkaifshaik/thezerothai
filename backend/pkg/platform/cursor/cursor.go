@@ -12,6 +12,10 @@
 // The AES key is derived with HKDF-SHA256 from the existing CURSOR_HMAC_KEY secret and a fixed label, so no
 // new secret is needed. Tokens from the previous (v1, HMAC-signed, plaintext) format simply fail to open and
 // come back as ErrInvalid, which callers map to INVALID_ARGUMENT/VALIDATION; clients restart the list.
+//
+// Timelines (ADR-0010 D14) add two things without changing the graph tokens above: Window tokens carrying an
+// upper and an optional lower position (window.go), and a caller-chosen TTL on decode (DecodeTTL, DecodeAtTTL,
+// DecodeWindow) so persisted `since` and gap tokens can live 30 days while Decode keeps the 24 h default.
 package cursor
 
 import (
@@ -56,19 +60,8 @@ func Encode(key []byte, binding string, c Cursor) string {
 
 // EncodeAt is Encode with an explicit issue time (tests, fake clocks).
 func EncodeAt(key []byte, binding string, c Cursor, now time.Time) string {
-	aead, err := newAEAD(key)
-	if err != nil {
-		// Unreachable: the derived key is always 32 bytes. Returning "" makes the list look like it has no
-		// next page rather than panicking on a request path.
-		return ""
-	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return ""
-	}
 	plain := strconv.FormatInt(now.UnixMicro(), 10) + "|" + strconv.FormatInt(c.CreatedAt.UnixMicro(), 10) + "|" + c.DocID
-	sealed := aead.Seal(nonce, nonce, []byte(plain), []byte(aadLabel+binding))
-	return base64.RawURLEncoding.EncodeToString(sealed)
+	return seal(key, aadLabel+binding, plain)
 }
 
 // Decode opens a page token produced by Encode for the same binding. An empty token is a valid "first page"
@@ -79,39 +72,84 @@ func Decode(key []byte, binding, token string) (Cursor, error) {
 
 // DecodeAt is Decode with an explicit current time (tests, fake clocks).
 func DecodeAt(key []byte, binding, token string, now time.Time) (Cursor, error) {
+	return DecodeAtTTL(key, binding, token, now, TTL)
+}
+
+// DecodeTTL is Decode with a caller-chosen token lifetime instead of the 24 h TTL. Timelines persist their
+// `since` tokens on the client across days, so they decode with TIMELINE_TOKEN_TTL (30 days, ADR-0010 D14).
+// The encoder side is unchanged: the TTL is enforced only here, against the sealed issue time.
+func DecodeTTL(key []byte, binding, token string, ttl time.Duration) (Cursor, error) {
+	return DecodeAtTTL(key, binding, token, time.Now(), ttl)
+}
+
+// DecodeAtTTL is DecodeTTL with an explicit current time (tests, fake clocks). A ttl <= 0 rejects every
+// non-empty token.
+func DecodeAtTTL(key []byte, binding, token string, now time.Time, ttl time.Duration) (Cursor, error) {
 	if token == "" {
 		return Cursor{}, nil
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(token)
+	plain, err := open(key, aadLabel+binding, token)
 	if err != nil {
-		return Cursor{}, ErrInvalid
+		return Cursor{}, err
 	}
-	aead, err := newAEAD(key)
-	if err != nil || len(raw) < aead.NonceSize()+aead.Overhead() {
-		return Cursor{}, ErrInvalid
-	}
-	nonce, ct := raw[:aead.NonceSize()], raw[aead.NonceSize():]
-	plain, err := aead.Open(nil, nonce, ct, []byte(aadLabel+binding))
-	if err != nil {
-		return Cursor{}, ErrInvalid
-	}
-	parts := strings.SplitN(string(plain), "|", 3)
+	parts := strings.SplitN(plain, "|", 3)
 	if len(parts) != 3 || parts[2] == "" {
 		return Cursor{}, ErrInvalid
 	}
-	issued, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return Cursor{}, ErrInvalid
-	}
-	issuedAt := time.UnixMicro(issued)
-	if now.Sub(issuedAt) > TTL || issuedAt.Sub(now) > clockSkew {
-		return Cursor{}, ErrInvalid
+	if err := checkIssued(parts[0], now, ttl); err != nil {
+		return Cursor{}, err
 	}
 	micros, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
 		return Cursor{}, ErrInvalid
 	}
 	return Cursor{CreatedAt: time.UnixMicro(micros).UTC(), DocID: parts[2]}, nil
+}
+
+// open base64-decodes and AES-GCM-opens a token with the given additional data.
+func open(key []byte, aad, token string) (string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return "", ErrInvalid
+	}
+	aead, err := newAEAD(key)
+	if err != nil || len(raw) < aead.NonceSize()+aead.Overhead() {
+		return "", ErrInvalid
+	}
+	nonce, ct := raw[:aead.NonceSize()], raw[aead.NonceSize():]
+	plain, err := aead.Open(nil, nonce, ct, []byte(aad))
+	if err != nil {
+		return "", ErrInvalid
+	}
+	return string(plain), nil
+}
+
+// seal encrypts plain with the given additional data. It returns "" if the AEAD or the nonce is unavailable.
+func seal(key []byte, aad, plain string) string {
+	aead, err := newAEAD(key)
+	if err != nil {
+		// Unreachable: the derived key is always 32 bytes. Returning "" makes the list look like it has no
+		// next page rather than panicking on a request path.
+		return ""
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte(plain), []byte(aad)))
+}
+
+// checkIssued rejects an issue time older than ttl or more than clockSkew in the future.
+func checkIssued(field string, now time.Time, ttl time.Duration) error {
+	issued, err := strconv.ParseInt(field, 10, 64)
+	if err != nil {
+		return ErrInvalid
+	}
+	issuedAt := time.UnixMicro(issued)
+	if ttl <= 0 || now.Sub(issuedAt) > ttl || issuedAt.Sub(now) > clockSkew {
+		return ErrInvalid
+	}
+	return nil
 }
 
 // IsFirstPage reports whether a decoded (zero-value, no error) Cursor represents "start from the top".
