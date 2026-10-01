@@ -38,7 +38,10 @@ func TestListFollowers_TokenLeaksNoHiddenUID(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, hay := range []string{page.NextPageToken, string(raw)} {
-			if strings.Contains(hay, "f03") || strings.Contains(hay, "uid-t") {
+			// The needle is the hidden row's full edge doc id (what the cursor carries), not the bare uid: a
+			// 3-character needle such as "f03" appears by chance in about one random base64 token in a few
+			// thousand, which made this test flaky under -shuffle.
+			if strings.Contains(hay, "f03_uid-t") {
 				t.Fatalf("token %q leaks a uid", page.NextPageToken)
 			}
 		}
