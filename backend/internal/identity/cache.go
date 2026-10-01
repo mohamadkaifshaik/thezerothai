@@ -80,6 +80,13 @@ func (c *Cache) GetHandleUID(handleLower string) (string, bool) {
 	return c.handles.Get(handleLower)
 }
 
+// SetHandleUID records that handleLower is owned by uid, from a fresh handles/* read (ResolveHandles). It never
+// touches the profile cache.
+func (c *Cache) SetHandleUID(handleLower, uid string) {
+	c.handles.Set(handleLower, uid)
+	c.handleFree.Delete(handleLower)
+}
+
 // InvalidateHandle drops a stale handle->uid mapping (e.g. after ChangeHandle frees the old handle).
 func (c *Cache) InvalidateHandle(handleLower string) {
 	c.handles.Delete(handleLower)
