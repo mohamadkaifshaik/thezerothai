@@ -14,7 +14,15 @@ cleared by any call that finds a profile) and A10 (the verified-identity gate be
 A3, A4, A7, Refinement 1, the abuse table, D15 (the negative handle cache is its own LRU), Consequences, Handoff and
 Founder attention follow them, and the founder's acceptance of R1 and R2 is recorded. No per-DAU number changes; only
 the per-IP abuse rows do.
-Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01)
+**Amended 2026-10-01 (text grammar; Accepted by the founder 2026-10-01, G1–G5 as recommended)** after the reviews of the server parser (PR #77,
+`backend/internal/posts/text/text.go`) and the client parser (PR #80,
+`app/lib/features/posts/domain/post_text_parser.dart`): new section D21 (G1–G5) proposes a URL-span exclusion
+shared by both parsers (G1), U+2028/U+2029 folded into `\n` (G2), the handle grammar moved to a dependency-free
+package (G3), invisible-only posts treated as empty (G4) and a 10 s bound on positive handle-cache staleness for
+mentions (G5). D7, D8 and D9 carry dated pointers to it; Handoff and Founder attention item 10 follow. **D21 must be
+accepted, or changed, by the founder before T8 (CreatePost) stores any post**, because `mentions[]` and `hashtags[]`
+are permanent once written. Cost impact: none (no fixed cost; no per-DAU read or write number changes).
+Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01; D21 pending)
 
 Inputs: `docs/plans/posts-and-timeline.md` (Q1–Q12, T1–T27), `docs/plans/phase1.md` (P0, P1, D1–D5),
 ADR-0003 (data model, ids, idempotency), ADR-0004 (pull timeline), ADR-0008 (graph, D2 overflow, D6 flags, D9 block
@@ -593,6 +601,28 @@ Rules behind the table:
 - **Examples:** `@Alice @alice` → [alice] · `email@example.com` → none · `(@bob)` → bob · `@bob's` → bob ·
   `@@bob` → none · `@bob@host` → none · `https://x.y/@bob` → none · `@ab` → none (too short) ·
   `@abcdefghijklmnop` (16) → none · `@al-ice` → `al` is too short, so none · `hi @carol_` → `carol_`.
+- **URL spans (accepted 2026-10-01, D21 G1; binding).** A mention candidate (from its `@` to
+  the end of its run) that overlaps a **URL span** is not a mention. The exclusion runs before lower-casing, dedupe
+  and the cap of 10, so an excluded candidate never takes a slot and never costs a `handles/*` or `graph` read. A
+  URL span is defined syntactically, and both parsers use exactly this rule:
+  1. **Candidate:** `http://` or `https://` (scheme case-insensitive) followed by one or more runes, none of which
+     is a terminator. Terminators are `<`, `>`, `"` and the whitespace set U+0009–U+000D, U+0020, U+00A0, U+1680,
+     U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF. That set is ECMAScript `\s`, so Dart's `\s`
+     already matches it. Go must spell it out: `unicode.IsSpace` adds U+0085 and lacks U+FEFF.
+  2. **Scan:** left to right, each candidate as long as possible, with no overlaps. After any candidate, accepted or
+     rejected, scanning resumes at its end.
+  3. **Start rule:** a candidate whose preceding rune is `\p{L}\p{M}\p{N}` is rejected (`xhttps://…` is no span).
+     Nothing else rejects a candidate.
+  4. **Trim:** while the span is longer than one rune, repeat: if its last rune is one of `. , ; : ! ? ' "`, drop
+     it; else if the last rune is `)`, `]` or `}` and the span contains more of it than of its opener (`(`, `[`,
+     `{`), drop it; else stop. So `(see https://x.y/a)` → `https://x.y/a` and `…/Foo_(bar)` keeps its `)`.
+  5. **Syntactic, not "safe":** a span counts whether or not the client renders it tappable. Host, userinfo,
+     percent-escape, spoofing and bidi checks are client render policy (T15) and never change which candidates are
+     excluded. A span the client refuses to linkify renders as plain text, including any `@`/`#` inside it.
+  - **More examples (shared fixture, D21 G1):** `https://ex.com/?ref=@bob` → none · `see https://ex.com/?ref=@bob
+    and @carol` → [carol] · `https://ex.com/?q=@bob.` → none (the span ends before `.`) · `xhttps://ex.com/?r=@bob`
+    → [bob] · `ftp://ex.com/?r=@bob` → [bob] · `@https://ex.com` → none · `https://ex.café/?r=@bob` → none (a
+    span, though the client shows plain text) · `https://ex.com/?r=@bob` + U+00A0 + `@carol` → [carol].
 
 ### D8. Hashtags (Q8). **Changed vs plan:** the grammar admits combining marks and ZWJ/ZWNJ
 - **Why:** the default `#[\p{L}\p{N}_]{1,50}` cuts Indic words at their first vowel sign. Devanagari matras are
@@ -609,6 +639,10 @@ Rules behind the table:
 - **Examples:** `#Go #go #GO` → [go] · `#123` → none (**pinned**: no letter) · `#१२३` → none · `#भारत` → [भारत] ·
   `#café` → [café] · `#go_lang` → [go_lang] · `a#b` → none · `https://x.y/p#frag` → none · `#` → none ·
   11 tags → first 10 stored, text unchanged.
+- **URL spans (accepted 2026-10-01, D21 G1; binding).** A hashtag candidate (from its `#` to the
+  end of its body) that overlaps a URL span, as defined in D7, is not a hashtag. The exclusion runs before
+  lower-casing, dedupe and the cap of 10. Examples: `https://ex.com/?a=1&b=#go #rust` → [rust] ·
+  `#https://ex.com` → none · `https://ex.com/a.#go` → none (`#` sits inside the span; only the end is trimmed).
 
 ### D9. Text normalisation (Q9). Accepted, **specified exactly**
 Applied in this order in `internal/posts/text` (pure):
@@ -626,6 +660,14 @@ Applied in this order in `internal/posts/text` (pure):
 - Links are left as typed and count toward the length. The server doesn't rewrite, shorten or preview them. Clients
   linkify only explicit `http://` and `https://` URLs.
 - The stored `text` is the normalised string. Mentions and hashtags are extracted from it.
+- **Proposed 2026-10-01 (D21 G2 and G4; binding once D21 is accepted).** The step order is unchanged; three steps gain
+  a clause:
+  - Step 2 also maps U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR to `\n` (G2), so step 8 counts them.
+  - Step 4 trims, at both ends, `unicode.IsSpace` runes **and** the invisible set U+00AD, U+180E, U+200B,
+    U+2060–U+2064, U+FEFF (G4).
+  - Step 5 treats the text as empty when it has no rune outside `unicode.IsSpace`, `\p{Cf}` and the variation
+    selectors U+FE00–U+FE0F and U+E0100–U+E01EF (G4). Only the empty check uses this wider set; nothing else is
+    stripped from the interior.
 
 ### D10. Suspended and deleting authors in Home (Q10). Accepted (plan default)
 - They are not filtered at Stage 0: checking would cost a `users` read per distinct author per page.
@@ -810,6 +852,211 @@ strings, mention lists, tokens, and graph arrays.
   - `page_size`.
 - **Purge (T10):** `posts_purge_batch` with counts.
 
+### D21. Text-grammar amendment (2026-10-01). **Accepted by the founder 2026-10-01 (G1–G5 as recommended)**
+**Context.** The server parser (PR #77) and the client parser (PR #80) are merged, but nothing is stored yet, because
+T8 (CreatePost) is not merged. Once T8 writes posts, `mentions[]` and `hashtags[]` are permanent: a mention costs a
+`handles/*` read now, and in P6 it becomes a notification. A grammar fix after T8 would need a backfill over
+`posts/*` that rewrites `mentions[]` and `hashtags[]`, which spends the 20k writes/day quota. Fixing it before T8
+costs nothing. The reviews found three defects (G1–G3) and two smaller gaps (G4, G5). Each item gives the problem,
+the options, a **recommendation** and the rationale. The founder could accept, change or reject each one
+independently. **The founder accepted all five (G1–G5) as recommended on 2026-10-01** (answered in the shipping session); D7–D9 now include their dated bullets as binding.
+
+**G1. `@` and `#` inside explicit `http(s)://` URLs: the server and the client disagree.**
+- **Problem.**
+  - The client excludes every mention and hashtag inside a linkified `http(s)` span.
+  - The server (`text.go`) does not. `https://ex.com/?ref=@bob` passes D7's start rule because `=` is not in the
+    excluded set. So the server stores `mentions=[bob]`, spends a handle read and (in P6) notifies bob, while the
+    card shows a plain link. `https://ex.com/?a=1&b=#go` likewise stores hashtag `go`, which will list the post on
+    the Phase 2 hashtag page with no visible `#go` on the card.
+  - D7's example `https://x.y/@bob` → none works only because `/` precedes the `@`. Query strings (`=`, `?`, `,`,
+    `;`, `!`, `~`) are not covered.
+- **Options.**
+  - **A. The server excludes candidates inside URL spans**, using the client's rule written down exactly.
+  - **B. The client stops excluding them** and renders a mention inside a link. Two tap targets overlap, the link is
+    cut in pieces, and the server still notifies people for text inside URLs.
+  - **C. Status quo.** Stored data and rendering disagree forever, plus phantom notifications and hashtag hits.
+- **Recommendation: A.** The server is authoritative, and URL query strings are not addressed to people. The rule
+  is D7's "URL spans" bullet, with the client's trailing-punctuation and unbalanced-bracket trim. D8 reuses it.
+  Two choices go beyond what the client does today:
+  - **The span is syntactic** (D7 step 5). The client today excludes candidates only inside links it judges *safe*
+    (ASCII host, no userinfo, no percent-escape, no spoofing characters, no bidi controls in the post). The server
+    must not copy that render policy: the policy may tighten without a server release, and stored data must not
+    depend on it. So the client changes too: it excludes candidates inside **every** syntactic span, and renders an
+    unsafe span as plain text. Example: `https://ex.café/?r=@bob` → no mention on either side, shown as plain text.
+  - **The whitespace terminators are an explicit list** (D7 step 1), equal to ECMAScript `\s`. Go's
+    `unicode.IsSpace` differs (it includes U+0085 and lacks U+FEFF), so Go must use the list. A fixture row pins
+    U+FEFF and U+00A0.
+- **Shared example table (required).** One fixture file, `testdata/post_text_grammar.json` at the repo root, is the
+  single source of rows:
+  - The architect owns it, and changes to it are reviewed like proto changes. CI checks out the whole repo, so both
+    test suites can read it.
+  - `backend/internal/posts/text/text_test.go` and `app/test/features/posts/domain/post_text_parser_test.dart` both
+    load it and run **every** row. Neither keeps a private copy of a grammar row. Each test also asserts that it
+    ran as many rows as the file holds.
+  - Each `grammar` row has:
+    - `text`: already normalised (the Go test asserts `Normalize(text) == text`);
+    - `mentions`: the server's candidates, lower-case, in order;
+    - `hashtags`: the server's hashtags;
+    - `url_spans`: the syntactic spans, as substrings in order;
+    - `tappable_links`: the client's tappable links, a subset of `url_spans`.
+  - The Dart test feeds `mentions` back as resolved `pb.Mention`s (fake uids). It asserts that the mention spans,
+    lower-cased without `@`, equal `mentions`, that the hashtag spans, lower-cased without `#`, equal `hashtags`, and
+    that the link spans equal `tappable_links`.
+  - A second array, `normalise` (`raw` → `stored` or `error`), holds the G2/G4 rows. Go's `Normalize` and the T16
+    composer helper both run it. The composer helper does no NFC check and treats `error` as "Post disabled".
+  - Seed rows: every D7 and D8 example (as amended) plus these.
+
+  | `text` | mentions | hashtags | url_spans | tappable_links |
+  |---|---|---|---|---|
+  | `https://ex.com/?ref=@bob` | — | — | whole text | whole text |
+  | `see https://ex.com/?ref=@bob and @carol` | carol | — | `https://ex.com/?ref=@bob` | same |
+  | `https://ex.com/?a=1&b=#go #rust` | — | rust | `https://ex.com/?a=1&b=#go` | same |
+  | `(https://ex.com/a) @bob` | bob | — | `https://ex.com/a` | same |
+  | `https://en.wikipedia.org/wiki/Foo_(bar) #go` | — | go | `https://en.wikipedia.org/wiki/Foo_(bar)` | same |
+  | `https://ex.com/?q=@bob.` | — | — | `https://ex.com/?q=@bob` | same |
+  | `https://ex.com/,@bob` | — | — | whole text | same |
+  | `https://ex.com/a.#go` | — | — | whole text | same |
+  | `"https://ex.com/?r=@bob"` | — | — | `https://ex.com/?r=@bob` | same |
+  | `xhttps://ex.com/?r=@bob` | bob | — | — | — |
+  | `HTTPS://EX.COM/?r=@bob` | — | — | whole text | same |
+  | `ftp://ex.com/?r=@bob` | bob | — | — | — |
+  | `www.ex.com/?r=@bob` | bob | — | — | — |
+  | `https:// @bob` | bob | — | — | — |
+  | `@https://ex.com` | — | — | `https://ex.com` | same |
+  | `#https://ex.com` | — | — | `https://ex.com` | same |
+  | `https://ex.café/?r=@bob` | — | — | whole text | — |
+  | `https://google.com@evil.com/x @bob` | bob | — | `https://google.com@evil.com/x` | — |
+  | `https://ex.com/?r=@bob` U+00A0 `@carol` | carol | — | `https://ex.com/?r=@bob` | same |
+  | `https://ex.com/?r=@bob` U+FEFF `@carol` | carol | — | `https://ex.com/?r=@bob` | same |
+  | `https://ex.com/?r=@bob` `\n` `#go` | — | go | `https://ex.com/?r=@bob` | same |
+- **Not changed:** the mention and hashtag grammars themselves, the 10-item caps and the stored shapes.
+
+**G2. U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR.**
+- **Problem.**
+  - Both are `Zl`/`Zp`, not `Cc`, so D9 step 6 allows them, and step 8 counts only `\n`.
+  - Flutter (and browsers, for the web build) render them as line breaks, so a post can show far more than 10 lines.
+    Some sources insert them on paste: iOS Notes and Pages, word processors, and PDF and web copy.
+  - Step 4 already trims them at the ends, because `unicode.IsSpace` includes them.
+- **Options.**
+  - **A. Map both to `\n` in step 2**, next to `\r\n`/`\r`.
+  - **B. Reject them** in step 6 with VALIDATION.
+  - **C. Count them as lines in step 8**, but store them as typed.
+- **Recommendation: A.**
+  - It keeps what the user meant (a line break) instead of failing on a character they cannot see. A rejection
+    (B) would need a composer error naming an invisible character.
+  - The stored text then has exactly one line-break character, so every renderer agrees. That includes push
+    previews, the web build and later exports. C keeps two kinds of break in storage forever, and every future
+    consumer would have to know about U+2028.
+  - The order is safe. NFC (step 3) never produces, decomposes or reorders U+2028/U+2029 (they have no
+    decomposition and ccc 0), so mapping in step 2 equals mapping after NFC. Step 2 is already where line endings
+    are folded, and the T16 composer already mirrors step 2, so each side changes in one place.
+  - After step 2, step 4 trims them as `\n`, step 8 counts them, and D7's URL-span terminator set still lists them,
+    which is harmless (stored text no longer contains them).
+  - U+0085 (NEL), U+000B and U+000C stay rejected as `Cc` in step 6. That is unchanged.
+- **Client composer (T16):** the same mapping in its D9 step-2 mirror, before counting lines and code points. So
+  281 code points or 11 rendered lines can never pass on the client and then fail on the server.
+
+**G3. `posts/text` imports all of `internal/identity` for one regexp.**
+- **Problem.**
+  - `text.go` imports `internal/identity` only for `identity.ValidHandleRun`. That pulls the Firestore client,
+    Firebase Auth and identity's whole dependency graph into a package that D9 calls pure. Fuzz builds get slower.
+  - It also ties the parser to a domain module: `internal/posts/text` → `internal/identity`. The day identity needs
+    the text grammar (for example, mentions in bios), that is an import cycle.
+  - `text.go` also restates the handle character class (`isHandleRune`) and the maximum length (`maxMentionRun =
+    15`) next to the regexp. That is two definitions of one grammar.
+- **Options.**
+  - **A. A dependency-free shared package**, `backend/pkg/platform/handle`. The precedent is `pkg/platform/ids`
+    (`ids.ValidUID`, the one uid grammar).
+  - **B. Copy the regexp into `posts/text`.** That makes two grammars, which the reuse-first rules forbid.
+  - **C. Keep the import.**
+- **Recommendation: A, as ticket T6b, merged before T8.** The package holds only the grammar:
+  - `MinLen = 3` and `MaxLen = 15`;
+  - `IsRune(r rune) bool`, the class `[A-Za-z0-9_]`;
+  - `ValidRun(s string) bool`, meaning `^[A-Za-z0-9_]{3,15}$`.
+
+  Identity keeps everything that is policy: reserved shapes (`reservedDocID`), lower-casing, the error messages.
+  Identity's `handleRe` and `ValidHandleRun` are deleted; its callers (`validate.go`, `service.go`) use
+  `handle.ValidRun`. `posts/text` uses `handle.IsRune`, `handle.MaxLen` and `handle.ValidRun`, and imports nothing
+  under `internal/`. A guard test pins that. Behaviour is unchanged, which the existing identity and text suites
+  prove. The Dart side restates `{3,15}` in two places (onboarding `_handlePattern`, the parser's `_mentionRe`). The
+  G1 fixture rows `@ab` and `@abcdefghijklmnop` pin the parser. A shared Dart constant is optional and not part of
+  this amendment.
+
+**G4. Invisible-only posts (review note).**
+- **Problem.** Step 4 trims only `unicode.IsSpace`. So a post made of U+200B (ZERO WIDTH SPACE), U+2060 (WORD
+  JOINER) or U+FEFF (BOM) passes the empty check and is stored as a blank card. That is a cheap spam and harassment
+  vector (blank replies once P3 ships), and a blank card is confusing.
+- **Options.**
+  - **A (the review's suggestion).** Treat every `Cf` except LRM, RLM, ZWJ and ZWNJ as whitespace, for both the trim
+    and the empty check.
+  - **B. Two sets (recommended).**
+    - Trim an **explicit** invisible list at both ends: U+00AD, U+180E, U+200B, U+2060–U+2064, U+FEFF.
+    - Call the text empty when no rune is outside `unicode.IsSpace` ∪ `\p{Cf}` ∪ the variation selectors
+      (U+FE00–U+FE0F, U+E0100–U+E01EF).
+- **Recommendation: B.** Option A's trim would damage valid text, for three reasons:
+  - Tag characters U+E0020–U+E007F are `Cf`, and they end subdivision-flag emoji (England, Scotland, Wales). Trimming
+    trailing `Cf` corrupts a post that ends in a flag.
+  - The bidi controls U+202A–U+202E and U+2066–U+2069 are `Cf`. Trimming them would silently accept a post that step
+    6 must reject (the T6 test "U+202E anywhere ⇒ VALIDATION" would break at the ends).
+  - Prepended concatenation marks U+0600–U+0605 and U+110BD are `Cf` that change the digits after them.
+
+  An explicit list is also stable across Go's and Dart's Unicode versions. The empty check can safely use the whole
+  `Cf` category plus the variation selectors, because it only asks "is there anything visible?". A version skew
+  there only affects newly assigned `Cf` code points, and the server decides. Under B, a post of only LRM, ZWJ or
+  VS16 is empty, too (A would let those through). A post made of only U+202E now fails as "empty" instead of
+  "control character". Both are VALIDATION `field=text`, so only the message differs.
+- **Residual (accepted at Stage 0):** visible-width blanks that are letters, such as the Hangul fillers U+3164,
+  U+115F, U+1160 and U+FFA0 (`Lo`), still pass. Reports and moderation handle them; a list would only grow.
+- **Client composer (T16):** the same trim list and the same empty predicate disable Post.
+
+**G5. Positive handle-cache staleness vs permanent `mentions[]` (review note; replaces T8's either/or carry-over).**
+- **Problem.**
+  - `ResolveHandles` caches handle → uid for `CACHE_TTL` (60 s). Suppose bob renames to bob2 and carol claims
+    `bob` within that window. A CreatePost on another instance (up to 3) then stores `{userId: <bob2's uid>,
+    handle: "bob"}` permanently. The card links "@bob" to bob2's profile, and in P6 bob2 gets carol's
+    notifications.
+  - T8 offered two fixes: "verify the resolved uid's `HandleLower` against the profile", or "a positive TTL of
+    10 s". The first, alone, is unsound. CreatePost does not load mentioned users' profiles, and a profile cached
+    before the rename shows the old handle and so confirms the stale mapping. It catches only the case where the
+    profile is fresher than the handle entry.
+- **Recommendation: both, with the 10 s bound as the guarantee.**
+  1. In `ResolveHandles`, a cached positive entry counts as a hit only if it is **≤ 10 s old**. Reuse identity's
+     `notFoundTTL` constant, so the positive and negative bounds stay equal. Older entries are misses and join the
+     same single `GetAll`, so no extra round trip is added. To know the age, the handle cache stores `{uid, at}`.
+     Other identity paths (GetProfile by handle) keep the 60 s TTL.
+  2. If the resolved uid's profile is **already in the instance profile cache** (a peek, never a read) and its
+     `HandleLower` ≠ the candidate, the candidate is a miss too: evict it and include it in the `GetAll`. This costs 0
+     reads when it confirms, 0 extra reads when the profile is not cached, and catches a rename seen through a
+     fresher profile.
+  3. Test: freed and reclaimed handle across two caches (fake clock), at 9 s and at 11 s.
+- **Residual:** a rename plus a reclaim within 10 s, observed on another instance. That needs two coordinated
+  accounts and a 10 s window, and its effect is one wrong link (one wrong notification once P6 ships). Accepted at
+  Stage 0. A cooldown on reclaiming a freed handle would close it; that belongs to a later identity ADR if renames
+  become common.
+
+**Cost impact (D21 as a whole): none.**
+- Fixed monthly cost: $0. No new service, index or collection, and no proto field (only a comment changes).
+- Reads:
+  - G1 lowers them: a candidate inside a URL no longer costs a `handles/*` read, nor the author `graph` read when it
+    was the post's only candidate.
+  - G5 turns positive hits older than 10 s into misses. The cold ceiling is unchanged (CreatePost 14 already counts
+    10 handle reads). The planning value of 2.5 is unchanged at Stage 0, because a handle is rarely resolved twice
+    within 60 s at ≤ 300 DAU.
+  - G2–G4 cost 0.
+- Writes: 0 change. Quotas: none touched. No D5 abuse row changes.
+
+**Tickets and files that change (only after the founder accepts D21; docs-only until then):**
+
+| Ticket | Owner | Items | Files |
+|---|---|---|---|
+| **T6b (new)**, before T8 | backend-developer | G3 | new `backend/pkg/platform/handle/{handle.go,handle_test.go}`; `backend/internal/identity/{validate.go,service.go}` (drop `handleRe`/`ValidHandleRun`); `backend/internal/posts/text/text.go` (import `pkg/platform/handle`; drop `isHandleRune`/`maxMentionRun`); new import-guard test in `backend/internal/posts/text/`; `docs/code-map.md` (one line) |
+| **T6 delta**, before T8 | backend-developer | G1, G2, G4 | `backend/internal/posts/text/{text.go,text_test.go}` (URL spans, U+2028/9, trim and empty sets, fixture loader); new `testdata/post_text_grammar.json` (rows from this section, architect reviews) |
+| **T8 delta** | backend-developer | G5; depends on T6b and the T6 delta | `backend/internal/identity/{cache.go,…ResolveHandles implementation}` (age-checked positive hits, profile peek); the CreatePost service; its tests |
+| **T15 delta** | frontend-developer | G1 | `app/lib/features/posts/domain/post_text_parser.dart` (exclusion over every syntactic span, the explicit whitespace terminators); `app/test/features/posts/domain/post_text_parser_test.dart` (fixture loader) |
+| **T16 delta** | frontend-developer | G2, G4 | the composer's D9 helper (U+2028/9 → `\n`, the trim list, the empty predicate) and its tests, which run the fixture's `normalise` rows |
+| **T19 delta** | tester | G1, G5 | emulator rows: `https://ex.com/?ref=@bob` ⇒ `mentions` empty and 0 `graph` reads; a reclaimed handle after 11 s resolves to the new owner |
+| **T2 follow-up** | architect | G1, G2, G4 | `proto/dzeroth/posts/v1/posts.proto` CreatePost comment (URL-span exclusion, U+2028/9, invisible-only = empty); comment only, `buf breaking` clean |
+
 ## Consequences
 - **Positive:**
   - Every P1 RPC has a cold ceiling that includes the reads the request actually spends, so the P0 budget, the tests
@@ -908,6 +1155,12 @@ strings, mention lists, tokens, and graph arrays.
     `CACHE_AUTHOR_RECENT_ENTRIES=1000`, plus the T4 rate-limit keys. The A1 holds and the A3 mark TTL are code
     constants, not env.
   - Log fields per D20.
+  - **D21 (only once the founder accepts it; all before T8 merges):** T6b (G3: `pkg/platform/handle`, identity and
+    `posts/text` switched to it, an import guard); the T6 delta (G1 URL spans with the explicit terminator list, G2
+    U+2028/9 → `\n` in step 2, G4 trim list and empty predicate, both test suites driven by
+    `testdata/post_text_grammar.json`); the T8 delta (G5: positive handle hits only if ≤ 10 s old or confirmed by a
+    cached profile, the profile peek, and the 9 s/11 s reclaim test). Log `mentions_in_url` (a count) next to
+    `mentions_dropped`; never log the text.
 - **architect (follow-up; comment-only proto, rides with the T3 PR, `buf breaking` clean):**
   - `common.proto` RATE_LIMITED lists `read_budget_inflight` (1 s `retry_after`, retry once) and `account_ops_daily`.
   - `identity.proto`: CheckHandleAvailability needs a verified email for password accounts (`EMAIL_NOT_VERIFIED`, 0
@@ -922,6 +1175,9 @@ strings, mention lists, tokens, and graph arrays.
   - The composer counts code points of the NFC string after the D9 steps 2 and 4. Use an NFC package (for example
     `unorm_dart`) and `runes.length`; the server stays authoritative. Allow ≤ 10 lines.
   - Linkify only `http(s)://`.
+  - **D21 (only once accepted):** the T15 delta (G1: exclude `@`/`#` candidates inside every *syntactic* URL span,
+    safe or not; an unsafe span renders as plain text; the tests run the shared fixture) and the T16 delta (G2, G4
+    in the composer's D9 mirror).
   - Mention spans match `mentions[].handle` case-insensitively, and taps navigate by `user_id`.
   - Blocked-author banners come from local relationship data (D6).
   - `RATE_LIMITED` with `metadata.limit=read_budget_daily` shows a "daily limit reached" banner over the cache, with
@@ -1013,7 +1269,7 @@ strings, mention lists, tokens, and graph arrays.
   - T8 gets the transaction deadline and the per-attempt Snowflake.
   - The P7 plan gets the suspended-content takedown (D10).
 
-## Founder attention (items 1–6, 8 and 9 need no approval unless you disagree; item 7 is accepted, one copy step left; nothing here adds a fixed cost)
+## Founder attention (items 1–6, 8 and 9 need no approval unless you disagree; item 7 is accepted, one copy step left; item 10 needs your decision before T8; nothing here adds a fixed cost)
 1. **Reads at 300 DAU: 110% of free, up from the plan's 93%.** That is ≈ $0.09/month, inside D1 ("accept pay-per-use").
    The 40k/day alert will fire near 219 DAU. It is a planned signal, not an incident.
 2. **DeletePost on someone else's post returns success (0 writes)** instead of NOT_FOUND. This avoids a
@@ -1039,3 +1295,14 @@ strings, mention lists, tokens, and graph arrays.
 9. **Only Google, Apple and verified-email sign-ins can use the API** (D5 A10). If phone, anonymous or any other
    sign-in method is ever switched on in the Firebase console by mistake, those users get "create a profile first"
    and cost 0 reads. Adding a sign-in method becomes a deliberate code change.
+10. **Post-text grammar fixes (D21, 2026-10-01): your decision is needed before CreatePost (T8) ships**, because
+    mentions and hashtags are stored permanently. Nothing here costs money. Recommendations:
+    - **G1:** the server ignores `@name` and `#tag` inside a web link (`https://…?ref=@bob`), matching what the app
+      already shows, so nobody is "mentioned" by a URL. Both apps test against one shared example file.
+    - **G2:** the invisible "line separator" characters that some apps paste become ordinary line breaks, so the
+      10-line limit can't be bypassed.
+    - **G3:** a code tidy-up (the handle rule moves to one small shared package); no behaviour change.
+    - **G4:** posts made only of invisible characters are rejected as empty.
+    - **G5:** a handle someone just gave up can't be mis-linked to its old owner for more than about 10 seconds.
+
+    Reply per item (accept / change / reject). Until you do, T8 waits and D7–D9 stay as originally written.
