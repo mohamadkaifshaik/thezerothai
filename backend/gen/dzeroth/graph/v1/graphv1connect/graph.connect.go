@@ -96,7 +96,9 @@ type GraphServiceClient interface {
 	// the norm; ADR-0008 A2, planning value 4). user_id: [A-Za-z0-9-]{1,128}.
 	Follow(context.Context, *connect.Request[v1.FollowRequest]) (*connect.Response[v1.FollowResponse], error)
 	// Unfollow. Blind batch: delete follows doc (Exists precondition) + caller graph following -= + 2 users counters.
-	// Not following => NONE with 0 writes (the precondition fails the whole batch).
+	// Not following => NONE with 0 writes (the precondition fails the whole batch). Any failed precondition is
+	// answered NONE, never a distinct code: by the ADR-0009 invariant an ACTIVE caller's edge, following entry and
+	// both users docs exist together, so a failed batch means "not following".
 	// Firestore: the batch reads 0, writes 3 (0 on no-op), deletes 1; the request logs 1 read (the caller's profile
 	// read by the account-status check, cold after a preceding Follow; ADR-0008 Amendment 2026-09-30 (2)).
 	// user_id: [A-Za-z0-9-]{1,128}.
@@ -354,7 +356,9 @@ type GraphServiceHandler interface {
 	// the norm; ADR-0008 A2, planning value 4). user_id: [A-Za-z0-9-]{1,128}.
 	Follow(context.Context, *connect.Request[v1.FollowRequest]) (*connect.Response[v1.FollowResponse], error)
 	// Unfollow. Blind batch: delete follows doc (Exists precondition) + caller graph following -= + 2 users counters.
-	// Not following => NONE with 0 writes (the precondition fails the whole batch).
+	// Not following => NONE with 0 writes (the precondition fails the whole batch). Any failed precondition is
+	// answered NONE, never a distinct code: by the ADR-0009 invariant an ACTIVE caller's edge, following entry and
+	// both users docs exist together, so a failed batch means "not following".
 	// Firestore: the batch reads 0, writes 3 (0 on no-op), deletes 1; the request logs 1 read (the caller's profile
 	// read by the account-status check, cold after a preceding Follow; ADR-0008 Amendment 2026-09-30 (2)).
 	// user_id: [A-Za-z0-9-]{1,128}.

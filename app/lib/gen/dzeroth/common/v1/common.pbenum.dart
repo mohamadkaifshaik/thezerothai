@@ -23,8 +23,12 @@ class ErrorReason extends $pb.ProtobufEnum {
       ErrorReason._(1, _omitEnumNames ? '' : 'ERROR_REASON_VALIDATION');
 
   /// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or an in-memory daily cap. Daily caps
-  /// set metadata["limit"] (e.g. "read_budget_daily": the per-uid daily Firestore read budget, ADR-0010 D5) and a
-  /// retry_after that runs to the next IST midnight.
+  /// set metadata["limit"] (e.g. "read_budget_daily": the per-uid daily Firestore read budget, ADR-0010 D5;
+  /// "check_handle_daily"; "account_ops_daily": the 20 calls/day shared by DeleteAccount, RequestAccountExport and
+  /// GetAccountExport) and a retry_after that runs to the next IST midnight.
+  /// metadata["limit"] = "read_budget_inflight" is TRANSIENT (ADR-0010 D5 A1): the budget is not spent, another call
+  /// of the same user is in flight near the cap. retry_after is 1 s; retry ONCE, silently, and show an error only
+  /// if the retry also fails.
   static const ErrorReason ERROR_REASON_RATE_LIMITED =
       ErrorReason._(2, _omitEnumNames ? '' : 'ERROR_REASON_RATE_LIMITED');
 
