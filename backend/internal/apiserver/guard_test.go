@@ -67,13 +67,17 @@ func defaultRateLimitCfg() config.Config {
 	return cfg
 }
 
-// ipSetViolations asserts the ADR-0010 D5 A4 sets (security L6): the IP key is wired, and the enforced and
+// ipSetViolations asserts the ADR-0010 D5 A4/A8 sets (security L6): the IP key is wired, ReadBudgetIPEnforce is
+// EMPTY (A8: the IP key never rejects; adding a procedure needs an ADR amendment), and the enforced and
 // charge-only IP sets partition the profile-exempt procedures exactly, with no procedure in both. exempt is the
 // set Build uses (profileExemptProcedures).
 func ipSetViolations(rl ratelimit.Config, exempt map[string]struct{}) []string {
 	var out []string
 	if rl.ReadBudgetIP == nil {
 		out = append(out, "ReadBudgetIP is not wired (ADR-0010 D5 A3-A4)")
+	}
+	if len(rl.ReadBudgetIPEnforce) != 0 {
+		out = append(out, "ReadBudgetIPEnforce must be empty (ADR-0010 D5 A8: the IP key never rejects); adding a procedure needs an ADR amendment")
 	}
 	for p := range rl.ReadBudgetIPEnforce {
 		if _, dup := rl.ReadBudgetIPChargeOnly[p]; dup {
@@ -184,6 +188,11 @@ func TestIPSetsAndAccountOpsGuard_MutationChecks(t *testing.T) {
 		{"unmutated IP sets", func(*ratelimit.Config) {}, exempt, "", ipSetViolations},
 		{"new exempt procedure is unclassified", func(*ratelimit.Config) {}, withNew, "profile-exempt procedure " + newExempt, ipSetViolations},
 		{"IP budget unwired", func(c *ratelimit.Config) { c.ReadBudgetIP = nil }, exempt, "ReadBudgetIP is not wired", ipSetViolations},
+		{"a procedure is moved to IP-enforced (A8 forbids)", func(c *ratelimit.Config) {
+			p := identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
+			delete(c.ReadBudgetIPChargeOnly, p)
+			c.ReadBudgetIPEnforce[p] = struct{}{}
+		}, exempt, "ReadBudgetIPEnforce must be empty", ipSetViolations},
 		{"CreateProfile becomes enforced too", func(c *ratelimit.Config) {
 			c.ReadBudgetIPEnforce[identityv1connect.IdentityServiceCreateProfileProcedure] = struct{}{}
 		}, exempt, "both IP-enforced and IP-charge-only", ipSetViolations},

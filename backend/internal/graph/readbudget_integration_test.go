@@ -21,8 +21,10 @@ func TestReadBudget_Integration_ChargesRealCounterReads(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, uidV, "budgetv")
 	mustCreateProfile(t, w.identity, uidH, "budgeth")
-	uidCap := ratelimit.NewDailyCap(2000)
-	r := newRigWithMutationCap(t, w, 0, 0, func(c *ratelimit.Config) { c.ReadBudget = uidCap })
+	// m7: the shipped config (A1 hold armed), not a hand-built cap.
+	shipped := shippedRateLimitConfig(t)
+	uidCap := shipped.ReadBudget
+	r := newRigWithMutationCap(t, w, 0, 0, func(c *ratelimit.Config) { *c = shipped })
 	v := r.as(uidV)
 	ctx := context.Background()
 

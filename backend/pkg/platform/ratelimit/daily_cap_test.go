@@ -101,7 +101,8 @@ func headroom(d *DailyCap, key string) bool {
 }
 
 // TestDailyCap_ReserveCharge covers the unit-budget mode (ADR-0010 D5): Reserve checks headroom without
-// spending, Charge spends n (overshoot allowed by one call), the IST rollover resets both.
+// spending, Charge spends n (the counter may pass the limit by the reads of the calls already admitted; with
+// the A1 hold armed that is at most M - 1 above the limit per instance lifetime), the IST rollover resets both.
 func TestDailyCap_ReserveCharge(t *testing.T) {
 	ist := time.FixedZone("IST", 5*3600+30*60)
 	now := time.Date(2026, 1, 1, 23, 59, 0, 0, ist)
@@ -298,19 +299,27 @@ func TestDailyCap_ConcurrentReserveAtLimitMinusOne(t *testing.T) {
 }
 
 // TestDailyCap_FirstAccessRace (m2): concurrent first accesses share one counter, so no Charge is lost.
+// A start barrier releases all goroutines at once so they really collide on the first access, over several
+// fresh keys.
 func TestDailyCap_FirstAccessRace(t *testing.T) {
 	d := NewDailyCap(1_000_000)
-	var wg sync.WaitGroup
 	const n = 200
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			d.Charge("fresh", 1)
-		}()
-	}
-	wg.Wait()
-	if got := d.Spent("fresh"); got != n {
-		t.Fatalf("spent = %d, want %d: a Charge was applied to a replaced counter", got, n)
+	for round := 0; round < 20; round++ {
+		key := fmt.Sprintf("fresh-%d", round)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				d.Charge(key, 1)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		if got := d.Spent(key); got != n {
+			t.Fatalf("round %d: spent = %d, want %d: a Charge was applied to a replaced counter", round, got, n)
+		}
 	}
 }

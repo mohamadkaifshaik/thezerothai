@@ -24,6 +24,7 @@ func clearEnv(t *testing.T) {
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
 		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY",
 		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
+		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -436,7 +437,8 @@ func TestMustLoad_PanicsOnError(t *testing.T) {
 // m3: a zero or negative read-budget / check-handle cap would lock every uid out after one call, so Load
 // rejects it instead of treating it as "disabled".
 func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
-	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY", "ACCOUNT_OPS_CALLS_PER_DAY"} {
+	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
+		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST", "ACCOUNT_OPS_CALLS_PER_DAY"} {
 		for _, val := range []string{"0", "-5"} {
 			t.Run(key+"="+val, func(t *testing.T) {
 				clearEnv(t)
@@ -452,5 +454,46 @@ func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
 	t.Setenv("READ_BUDGET_PER_UID_PER_DAY", "1")
 	if _, err := Load(); err != nil {
 		t.Fatalf("a positive cap must load: %v", err)
+	}
+}
+
+// TestLoad_AuthEmulator (ADR-0010 D5 A10): AuthEmulator mirrors FIREBASE_AUTH_EMULATOR_HOST, and Load refuses the
+// variable in dev and prod, where the Admin SDK would accept unsigned emulator tokens.
+func TestLoad_AuthEmulator(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         string
+		host        string
+		wantErr     bool
+		wantEmulate bool
+	}{
+		{"local, unset", "local", "", false, false},
+		{"local, set", "local", "127.0.0.1:9099", false, true},
+		{"dev, unset", "dev", "", false, false},
+		{"dev, set", "dev", "127.0.0.1:9099", true, false},
+		{"prod, unset", "prod", "", false, false},
+		{"prod, set", "prod", "127.0.0.1:9099", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("ENV", tt.env)
+			if tt.env != "local" {
+				t.Setenv("FIREBASE_PROJECT_ID", "dzeroth-"+tt.env)
+				t.Setenv("CURSOR_HMAC_KEY", "secret")
+				t.Setenv("INTERNAL_OIDC_AUDIENCE", "https://api-xyz.a.run.app")
+				t.Setenv("INTERNAL_OIDC_ALLOWED_EMAILS", "sa@x.iam.gserviceaccount.com")
+			}
+			if tt.host != "" {
+				t.Setenv("FIREBASE_AUTH_EMULATOR_HOST", tt.host)
+			}
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.AuthEmulator != tt.wantEmulate {
+				t.Errorf("AuthEmulator = %v, want %v", cfg.AuthEmulator, tt.wantEmulate)
+			}
+		})
 	}
 }

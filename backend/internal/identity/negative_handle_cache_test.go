@@ -56,8 +56,56 @@ func TestNegativeHandleCache(t *testing.T) {
 		if _, err := svc.CreateProfile(ctx, "uid-1", validKey, "claimme", "Claim Me"); err != nil {
 			t.Fatalf("CreateProfile: %v", err)
 		}
+		// m3: assert the negative entry itself is gone. The positive handles map answers first in
+		// CheckHandleAvailability, so the check above alone cannot tell whether SetProfile cleared handleFree.
+		if svc.cache.GetHandleFree("claimme") {
+			t.Fatal("SetProfile (via CreateProfile) must delete the handleFree entry")
+		}
 		if ok, _, _ := svc.CheckHandleAvailability(ctx, "claimme"); ok {
 			t.Fatal("a just-claimed handle must not be reported available from the negative cache")
+		}
+	})
+
+	t.Run("ChangeHandle claiming the new handle clears its negative entry", func(t *testing.T) {
+		repo := newFakeRepo()
+		svc := newTestService(repo)
+		if _, err := svc.CreateProfile(ctx, "uid-1", validKey, "oldname", "Old Name"); err != nil {
+			t.Fatalf("CreateProfile: %v", err)
+		}
+		if ok, _, _ := svc.CheckHandleAvailability(ctx, "newname"); !ok {
+			t.Fatal("expected available")
+		}
+		if !svc.cache.GetHandleFree("newname") {
+			t.Fatal("setup: CheckHandleAvailability must record the negative entry")
+		}
+		if _, err := svc.ChangeHandle(ctx, "uid-1", validKey, "newname"); err != nil {
+			t.Fatalf("ChangeHandle: %v", err)
+		}
+		if svc.cache.GetHandleFree("newname") {
+			t.Fatal("ChangeHandle (SetProfile) must delete the handleFree entry of the new handle")
+		}
+		if ok, _, _ := svc.CheckHandleAvailability(ctx, "newname"); ok {
+			t.Fatal("a just-claimed new handle must not be reported available")
+		}
+	})
+
+	t.Run("ChangeHandle HANDLE_TAKEN clears the stale negative entry", func(t *testing.T) {
+		repo := newFakeRepo()
+		svc := newTestService(repo)
+		if _, err := svc.CreateProfile(ctx, "uid-1", validKey, "oldname", "Old Name"); err != nil {
+			t.Fatalf("CreateProfile: %v", err)
+		}
+		if ok, _, _ := svc.CheckHandleAvailability(ctx, "grabbed"); !ok {
+			t.Fatal("expected available")
+		}
+		repo.handles["grabbed"] = "other-uid" // claimed on another instance
+		_, err := svc.ChangeHandle(ctx, "uid-1", validKey, "grabbed")
+		var ae *apierr.Error
+		if !errors.As(err, &ae) || ae.Code != connect.CodeAlreadyExists {
+			t.Fatalf("err = %v, want AlreadyExists", err)
+		}
+		if svc.cache.GetHandleFree("grabbed") {
+			t.Fatal("HANDLE_TAKEN on ChangeHandle must clear the stale negative entry")
 		}
 	})
 

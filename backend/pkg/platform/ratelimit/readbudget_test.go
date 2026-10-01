@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -160,6 +161,12 @@ func TestReadBudget_InFlightGuardRejectsWithShortRetryAndReleases(t *testing.T) 
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
+	// m1: if the hold regresses, the second call is admitted and t.Fatal fires while the first handler is still
+	// blocked on release; httptest.Server.Close would then wait on it until the package timeout. closeRelease is
+	// registered with t.Cleanup AFTER the server's cleanup below, so (LIFO) it runs first and a regression fails
+	// with the real assertion instead of hanging.
+	var releaseOnce sync.Once
+	closeRelease := func() { releaseOnce.Do(func() { close(release) }) }
 	var handled atomic.Int64
 	h := connect.NewUnaryHandler(procedure,
 		func(ctx context.Context, _ *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
@@ -181,6 +188,7 @@ func TestReadBudget_InFlightGuardRejectsWithShortRetryAndReleases(t *testing.T) 
 	mux.Handle(procedure, h)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
+	t.Cleanup(closeRelease) // runs before srv.Close
 
 	first := make(chan error, 1)
 	go func() { first <- call(t, srv, "") }()
@@ -197,7 +205,7 @@ func TestReadBudget_InFlightGuardRejectsWithShortRetryAndReleases(t *testing.T) 
 		t.Fatalf("handler ran %d times; the rejected call must not reach it", handled.Load())
 	}
 
-	close(release)
+	closeRelease()
 	if err := <-first; err != nil {
 		t.Fatalf("first call: %v", err)
 	}

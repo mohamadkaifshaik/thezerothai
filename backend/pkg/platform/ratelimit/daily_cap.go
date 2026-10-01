@@ -16,10 +16,12 @@ const maxTrackedDailyKeys = 100_000
 // extension of the existing limiter... don't write a second limiter" — this reuses the same cache.LRU
 // building block Limiter itself is built on, just with day-boundary semantics a token bucket cannot
 // express). It counts calls (Allow) or arbitrary units such as Firestore reads (Reserve + Charge, the
-// ADR-0010 D5 read budget) against the same per-key counter. Approximate by design: it resets whenever a
-// Cloud Run instance scales to zero and a new one starts, and the effective ceiling is roughly
-// limit x max-instances — the same accepted trade-off as every other in-memory limiter here (no Redis at
-// Stage 0).
+// ADR-0010 D5 read budget) against the same per-key counter. Approximate by design: the bound is per instance
+// LIFETIME, not per day. The counter lives in memory, so it resets whenever a Cloud Run instance scales to zero
+// and a new one starts, and a key can touch several lifetimes in one IST day (3 on a steady day, up to 6 on a
+// rollout day, many more if an attacker idle-cycles instances; ADR-0010 D5 "Residual risk" R1/R2). In one
+// lifetime a unit budget never passes limit - 1 + M (A1), e.g. 2,268 for the uid read budget of 2,000. The
+// same accepted trade-off as every other in-memory limiter here (no Redis at Stage 0).
 type DailyCap struct {
 	limit int64
 	// maxCallReads is one call's worst-case units (WithMaxCallReads); 0 disables the single-flight guard.

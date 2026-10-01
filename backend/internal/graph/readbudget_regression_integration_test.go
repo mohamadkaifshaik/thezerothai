@@ -10,30 +10,26 @@ import (
 
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/apiserver"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
 // TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults (T3 acceptance "no legitimate call is
 // rejected" + "every graph and identity RPC still passes its existing budget assertions"): every identity and
 // graph RPC's happy path runs over HTTP through ratelimit.Interceptor with the ADR-0010 D5 read budget ENABLED at
-// the shipped defaults (2,000 reads/uid/day, 500/IP/day on profile-exempt procedures, 100 CheckHandle
+// the shipped defaults (2,000 reads/uid/day with the A1 hold armed, the IP meter on profile-exempt procedures, 100 CheckHandle
 // calls/day). No call may be rejected, each call's Firestore ops must stay within the documented budget, and the
 // per-uid budget charged must equal the sum of the reads the counter recorded.
 func TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults(t *testing.T) {
 	w := newWired(t)
-	uidCap := ratelimit.NewDailyCap(2000)
-	ipCap := ratelimit.NewDailyCap(500)
-	r := newRigWithMutationCap(t, w, 0, 0, func(c *ratelimit.Config) {
-		c.ReadBudget = uidCap
-		c.ReadBudgetIP = ipCap
-		c.ReadBudgetIPEnforce = map[string]struct{}{identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {}}
-		c.ReadBudgetIPChargeOnly = map[string]struct{}{identityv1connect.IdentityServiceCreateProfileProcedure: {}}
-		c.DailyCaps = map[string]ratelimit.NamedDailyCap{
-			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: ratelimit.NewDailyCap(100)},
-		}
-	})
+	// m7: the config Build ACTUALLY wires (apiserver.RateLimitConfig on config.Load defaults): the A1 hold
+	// (M = 269), the IP key sets, the account-ops caps and the per-minute buckets are all on, so a hold that
+	// rejects a legitimate call fails here.
+	shipped := shippedRateLimitConfig(t)
+	uidCap := shipped.ReadBudget
+	r := newRigWithMutationCap(t, w, 0, 0, func(c *ratelimit.Config) { *c = shipped })
 	const a, b = "uid-rbA", "uid-rbB"
 	ctx := context.Background()
 	ca, cb := r.as(a), r.as(b)
@@ -141,4 +137,16 @@ func TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults(t *testing.
 	if spent := uidCap.Spent(a); spent >= 2000 {
 		t.Errorf("uid A spent %d of 2000 reads on one happy-path pass: defaults would reject typical use", spent)
 	}
+}
+
+// shippedRateLimitConfig is the ratelimit.Config apiserver.Build wires for the shipped defaults (config.Load with
+// no overrides), via the same exported helper Build uses (ADR-0010 L6), so these tests run the production
+// limits rather than a hand-built look-alike.
+func shippedRateLimitConfig(t *testing.T) ratelimit.Config {
+	t.Helper()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	return apiserver.RateLimitConfig(cfg)
 }
