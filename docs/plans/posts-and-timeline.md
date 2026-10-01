@@ -422,7 +422,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Budget.** 0 Firestore reads/writes (in memory). The gate turns ≈ 1 read per minted-uid call into 0. Memory:
   ≈ 200–250 B per key, ≈ 20–25 MiB per full 100k-key counter (ADR-0010 D15); < 5 MiB at Stage 0.
 
-### T4 — Posts/timeline flag, rate limits, daily call caps  [owner: backend-developer] [size: S] [depends: T2]
+### T4 — Posts/timeline flag, rate limits  [owner: backend-developer] [size: S] [depends: T2]
 - **Description.**
   - Add `FEATURE_POSTS` (`off|allowlist|percent|on`, default `off`) via `flags.LoadSpec`, following the `FeatureGraph`
     pattern (`config.go:166-168`, `apiserver.go:85`). `GetMe.enabled_features` returns `"posts"` (0 reads).
@@ -838,6 +838,15 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   current schema version.
 - **Observability.** Crashlytics non-fatal on unexpected `AppException`.
 - **Budget.** The client never refetches items it has. Each refresh sends `since_token`.
+- **Follow-ups from the PR #75 review (not in T14, track here).**
+  - M3: `refresh` decodes the whole feed twice (`read` before and after). Add `TimelineStore.state()` and `gapRow()`
+    for the pre-fetch lookups, and use `selectOnly` in `_postIds`.
+  - M4: wire `PostsFeatureGate.onUnexpectedError` to error reporting (Crashlytics) in `bootstrap.dart`.
+  - Privacy ticket (separate small PR after #75 merges, CLAUDE.md rule 10): `graph_repository.dart` `upsertFollowing`
+    (after an in-flight Follow) and `identity_repository.dart` `upsertProfile` (after an in-flight GetMe) have no session
+    guard, so a stale write can land in the next user's cache. Move the session counter onto `AppDatabase` (or a shared
+    `SessionEpoch`) and check it inside write transactions for `TimelineStore`, `GraphRepository` and `IdentityRepository`.
+  - L1, L4 and the remaining L6 test gaps from the review: pick them up with T17's repository use.
 
 ### T15 — Flutter: shared `PostCard` with rich text  [owner: frontend-developer] [size: M] [depends: T14]
 - **Description.** `app/lib/shared/widgets/post_card.dart`:
@@ -909,6 +918,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests with a fake clock and repository: refresh throttle, gap, pagination, empty, error.
 - **Observability.** —
 - **Budget.** ≤ 8 refreshes + ≤ 1 older page per DAU/day on the model's usage (the client enforces the throttle).
+- **Follow-up (PR #75 review, M3/M4/L1/L4/L6):** see the T14 follow-up list; T17 should call `TimelineRepository.cached` once per screen open and avoid a second full-feed decode per refresh.
 
 ### T18 — Flutter: profile Posts tab, post detail, delete  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**
@@ -1087,14 +1097,17 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Description.**
   - Add env vars to Terraform `cloud-run-api` for dev/prod (ADR-0010 Handoff). Plan-then-OK before apply (founder
     preference).
-    - `FEATURE_POSTS` (dev `on`, prod `off`) and its allowlist;
+    - `FEATURE_POSTS` (dev `on`, prod `off`) and its allowlist. **Set `FEATURE_POSTS=off` explicitly in prod
+      Terraform**: the code default is `on` in dev and local and `off` in prod, and an explicit value keeps the
+      environment from depending on that default;
     - `READ_BUDGET_PER_UID_PER_DAY=2000`, `READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY=500`,
       `CHECK_HANDLE_CALLS_PER_DAY=100`, `ACCOUNT_OPS_CALLS_PER_DAY=20`;
     - `TIMELINE_SETTLE_WINDOW=15s` (validated ≥ 15 s), `TIMELINE_TOKEN_TTL=720h`;
     - `CACHE_POSTS_ENTRIES=20000`, `CACHE_AUTHOR_RECENT_ENTRIES=1000`;
     - the T4 rate-limit keys.
   - Deploy `firestore.indexes.json` (unchanged, D19) and confirm the three posts indexes are **READY** in dev and prod
-    before any traffic (L5 fix order).
+    before any traffic (L5 fix order). Gate line: **every posts index READY in dev** (the emulator does not enforce
+    indexes, so no automated test proves this).
   - Before the ADR-0010 D5 A2 gate reaches prod: list password accounts with `emailVerified=false` (Admin SDK
     `accounts:batchGet`, free) and confirm none owns a `users` doc. Record the count, never the uids.
   - Runbooks:

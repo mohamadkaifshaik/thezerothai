@@ -7,6 +7,11 @@ package authn
 import (
 	"context"
 	"time"
+
+	"connectrpc.com/connect"
+
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // Claims is the subset of Firebase ID token claims the platform cares about. UID is the only trusted
@@ -55,6 +60,26 @@ func (c Claims) IdentityGate(allowAnonymous bool) string {
 		}
 	}
 	return GateProviderNotAllow
+}
+
+// RequireVerifiedEmail is the shared "verified email before you may <action>" check (CLAUDE.md, ADR-0006:
+// "email verification or Google/Apple sign-in required before posting"). It applies Claims.IdentityGate to the
+// caller in ctx and returns FAILED_PRECONDITION + EMAIL_NOT_VERIFIED, "please verify your email before
+// <action>", for anyone outside the allowlist. 0 Firestore reads. action completes the sentence, for example
+// "creating a profile" or "posting". allowAnonymous must be config.AuthEmulator only (ADR-0010 D5 A10).
+//
+// authn.VerifiedIdentityInterceptor already stops these callers earlier, from the same claims; modules call
+// this as defence in depth so a chain without the gate (a unit test, a future service) still refuses them.
+func RequireVerifiedEmail(ctx context.Context, allowAnonymous bool, action string) error {
+	claims, _ := ClaimsFromContext(ctx)
+	if claims.IdentityGate(allowAnonymous) == GatePass {
+		return nil
+	}
+	return apierr.New(
+		connect.CodeFailedPrecondition,
+		commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED,
+		"please verify your email before "+action,
+	)
 }
 
 // IDTokenVerifier verifies a Firebase Auth ID token from the `Authorization: Bearer` header.

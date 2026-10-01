@@ -197,7 +197,23 @@ void main() {
         ),
       );
 
-      expect(mapConnectError(error), isA<FeatureDisabledException>());
+      final mapped = mapConnectError(error) as FeatureDisabledException;
+      expect(mapped.feature, isNull);
+    });
+
+    test('FEATURE_DISABLED carries metadata["feature"] (ADR-0010 D2)', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          message: 'Media is not enabled',
+          metadata: {'feature': 'media'}.entries,
+        ),
+      );
+
+      final mapped = mapConnectError(error) as FeatureDisabledException;
+      expect(mapped.feature, 'media');
     });
   });
 }
