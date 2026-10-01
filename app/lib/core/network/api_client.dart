@@ -30,6 +30,7 @@ class ApiClient {
            const RequestMetadataInterceptor().call,
            AuthHeadersInterceptor(authTokens, appCheckTokens).call,
            const RetryInterceptor().call,
+           const InflightRetryInterceptor().call,
          ],
        );
 

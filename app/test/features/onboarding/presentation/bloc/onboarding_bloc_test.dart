@@ -329,6 +329,118 @@ void main() {
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
+      'handle check EmailNotVerified shows the verify-email state, not '
+      '"handle unavailable" (ADR-0010 D5 A2/A10)',
+      setUp: () {
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenThrow(const EmailNotVerifiedException('verify your email'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingHandleChanged('kaif')),
+      wait: const Duration(milliseconds: 350),
+      expect: () => [
+        const OnboardingState(
+          handle: 'kaif',
+          handleCheckStatus: HandleCheckStatus.checking,
+        ),
+        isA<OnboardingState>()
+            .having(
+              (s) => s.status,
+              'status',
+              OnboardingStatus.emailVerificationRequired,
+            )
+            .having(
+              (s) => s.handleCheckStatus,
+              'handleCheckStatus',
+              HandleCheckStatus.idle,
+            )
+            .having((s) => s.handleCheckMessage, 'message', isEmpty)
+            .having((s) => s.error, 'error', isA<EmailNotVerifiedException>()),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'handle check RATE_LIMITED is "unknown" and still allows Submit (N1)',
+      setUp: () {
+        when(() => identityRepository.checkHandleAvailability('kaif')).thenThrow(
+          const RateLimitedException(
+            'slow',
+            limitName: 'check_handle_daily',
+            retryAfter: Duration(hours: 5),
+          ),
+        );
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(displayName: 'Kaif'),
+      act: (bloc) => bloc.add(const OnboardingHandleChanged('kaif')),
+      wait: const Duration(milliseconds: 350),
+      expect: () => [
+        isA<OnboardingState>().having(
+          (s) => s.handleCheckStatus,
+          'status',
+          HandleCheckStatus.checking,
+        ),
+        isA<OnboardingState>()
+            .having(
+              (s) => s.handleCheckStatus,
+              'status',
+              HandleCheckStatus.unknown,
+            )
+            .having((s) => s.canSubmit, 'canSubmit', isTrue)
+            .having((s) => s.status, 'status', OnboardingStatus.unknown),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'CreateProfile after an unknown handle check still surfaces '
+      'HandleTaken from the server',
+      setUp: () {
+        when(
+          () => identityRepository.createProfile(
+            handle: 'kaif',
+            displayName: 'Kaif',
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenThrow(const HandleTakenException('That handle is taken.'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(
+        handle: 'kaif',
+        displayName: 'Kaif',
+        handleCheckStatus: HandleCheckStatus.unknown,
+      ),
+      act: (bloc) => bloc.add(const OnboardingProfileSubmitted()),
+      expect: () => [
+        isA<OnboardingState>().having((s) => s.isSubmitting, 'sub', isTrue),
+        isA<OnboardingState>()
+            .having(
+              (s) => s.handleCheckStatus,
+              'status',
+              HandleCheckStatus.unavailable,
+            )
+            .having((s) => s.canSubmit, 'canSubmit', isFalse),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'GetMe EmailNotVerified goes to emailVerificationRequired',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const EmailNotVerifiedException('verify'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        isA<OnboardingState>().having(
+          (s) => s.status,
+          'status',
+          OnboardingStatus.emailVerificationRequired,
+        ),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
       'OnboardingEmailVerificationDismissed returns to the create-profile '
       'form, keeping the typed handle/name',
       build: () => OnboardingBloc(identityRepository: identityRepository),

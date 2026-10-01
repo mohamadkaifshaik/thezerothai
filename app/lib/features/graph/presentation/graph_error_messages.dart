@@ -1,4 +1,5 @@
 import '../../../core/network/app_exception.dart';
+import '../../../core/widgets/app_error_view.dart';
 
 /// Friendly, typed messages for graph actions (Follow/Unfollow/Block/
 /// Unblock/Mute/Unmute) shown in a snackbar — never the raw server message
@@ -10,8 +11,9 @@ String relationshipErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",
     LimitReachedException() => "You've reached the limit for this action.",
-    RateLimitedException() =>
-      "You're doing that a bit too fast. Try again in a moment.",
+    final RateLimitedException e => rateLimitedMessage(e),
+    EmailNotVerifiedException() =>
+      'Please verify your email address to continue.',
     TargetBlockedException() => 'Unblock this account first.',
     FeatureDisabledException() => "This feature isn't available yet.",
     DegradedModeException() =>

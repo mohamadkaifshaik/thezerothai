@@ -3,6 +3,23 @@ import 'package:flutter/material.dart';
 import '../network/app_exception.dart';
 import '../theme/app_theme.dart';
 
+/// User-facing text for a [RateLimitedException]. A daily limit says it resets
+/// later (never "try again in a moment"); a transient one says to wait briefly.
+String rateLimitedMessage(RateLimitedException error) {
+  if (error.isDaily) {
+    final wait = error.retryAfter;
+    if (wait == null || wait.inMinutes < 1) {
+      return "You've reached today's limit for this. It resets later today.";
+    }
+    final text = wait.inHours >= 1
+        ? 'in about ${wait.inHours} ${wait.inHours == 1 ? 'hour' : 'hours'}'
+        : 'in about ${wait.inMinutes} '
+              '${wait.inMinutes == 1 ? 'minute' : 'minutes'}';
+    return "You've reached today's limit for this. It resets $text.";
+  }
+  return "You're doing that a bit too fast. Give it a moment and try again.";
+}
+
 /// Friendly, typed rendering of an [AppException] (CLAUDE.md: "Handle
 /// RESOURCE_EXHAUSTED and degraded mode with clear, friendly UI").
 ///
@@ -28,9 +45,16 @@ class AppErrorView extends StatelessWidget {
         "You've hit today's limit for this action. It resets tomorrow.",
         false,
       ),
-      RateLimitedException() => (
-        Icons.speed_outlined,
-        "You're doing that a bit too fast. Give it a moment and try again.",
+      final RateLimitedException e => (
+        e.isDaily ? Icons.hourglass_bottom_outlined : Icons.speed_outlined,
+        rateLimitedMessage(e),
+        false,
+      ),
+      // Provider-not-allowed / unverified-password gates reuse these codes
+      // (ADR-0010 D5 A10): EMAIL_NOT_VERIFIED on exempt RPCs.
+      EmailNotVerifiedException() => (
+        Icons.mark_email_unread_outlined,
+        'Please verify your email address to continue.',
         false,
       ),
       NetworkException() => (

@@ -25,9 +25,33 @@ final class ValidationException extends AppException {
 
 /// Short-window token bucket exceeded (ADR-0006 §3). Do not auto-retry before
 /// [retryAfter] elapses.
+///
+/// [limitName] is the server's `metadata["limit"]` / `["limit_name"]`
+/// (ADR-0010 D5 A7), e.g. `read_budget_inflight` (transient, ~1 s),
+/// `read_budget_daily`, `check_handle_daily`, `account_ops_daily`.
 final class RateLimitedException extends AppException {
-  const RateLimitedException(super.message, {this.retryAfter});
+  const RateLimitedException(
+    super.message, {
+    this.retryAfter,
+    this.limitName,
+  });
   final Duration? retryAfter;
+  final String? limitName;
+
+  /// The per-uid in-flight read hold (ADR-0010 D5 A1): a concurrent call of the
+  /// same account was still being charged. Rejected before the handler ran
+  /// (0 reads), so retrying after [retryAfter] is always safe.
+  bool get isInflightHold => limitName == inflightLimitName;
+
+  /// A daily limit (resets at IST midnight): either named `*_daily` or with a
+  /// long [retryAfter]. Never "try again in a moment".
+  bool get isDaily =>
+      (limitName?.endsWith('_daily') ?? false) ||
+      (!isInflightHold &&
+          retryAfter != null &&
+          retryAfter! > const Duration(minutes: 5));
+
+  static const inflightLimitName = 'read_budget_inflight';
 }
 
 /// A per-user daily quota (posts, follows, uploads, exports...) was reached.
