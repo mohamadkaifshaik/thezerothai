@@ -27,8 +27,7 @@ Inputs: CLAUDE.md, ADR-0002/0003/0004/0006/0008/0009, `proto/dzeroth/{posts,time
 > - **Accepted by the founder 2026-10-01 (ADR-0010 D21, G1–G5):** a URL-span exclusion for mentions and hashtags,
 >   shared by server and client through one fixture file; U+2028/U+2029 → `\n`; the handle grammar moves to
 >   `pkg/platform/handle` (new ticket **T6b**); invisible-only posts are empty; positive handle hits for mentions are
->   at most 10 s old. The deltas are marked "D21 delta" in T6, T6b, T8, T15, T16 and T19, and **T8 may start once T6b and the T6 follow-up merge
->   before the founder decides on D21** and the accepted deltas land.
+>   at most 10 s old. The deltas are marked "D21 delta" in T6, T6b, T8, T15, T16 and T19, and **T8 may start once T6b and the T6 follow-up have merged**.
 
 ---
 
