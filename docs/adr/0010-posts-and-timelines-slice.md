@@ -529,6 +529,16 @@ When P5 ships, every timeline and post read gains +1 cold / 0 warm (`userLikes`)
     wording above, dated, into the v0.3.0 readiness report before the T27 `percent` step. The acceptance came before
     A8–A10. Those amendments leave the R1 and R2 numbers unchanged (the A8 note above the residuals), so the
     acceptance stands.
+  - **Founder acceptance, dated first-hand record (2026-10-01):** after reading the proposed wording above and the
+    merged ADR (#71), the founder told the orchestrating session in chat on 2026-10-01 to "update R1, R2 with dated
+    acceptance before T27". This entry therefore adopts the proposed wording above, with its numbers, as the founder's
+    acceptance of R1 and R2, effective 2026-10-01. It is the dated record that security re-review condition 2 asks for;
+    copy it into the v0.3.0 readiness report when that report is written. It must be re-confirmed if the cap numbers,
+    Cloud Run `max-instances` or the sign-in provider allowlist change.
+  - **T26 precondition result (2026-10-01):** the founder ran `opsctl check-t26` on `dzeroth-dev` and `dzeroth-prod` and
+    reported 0 Firestore reads on both. The command reads one `users/{uid}` doc per not-allowed Auth user, so 0 reads
+    means no Auth user outside the A10 allowlist exists in either project, and none owns a `users` doc. Only the reads
+    figure was reported; the other counts were not recorded. The A2 and A10 precondition is met for both environments.
 
 ### D6. Visibility (Q6). Accepted (plan default), made exhaustive
 A = caller, B = author. NOT_FOUND strings are **byte-identical within each RPC**:
