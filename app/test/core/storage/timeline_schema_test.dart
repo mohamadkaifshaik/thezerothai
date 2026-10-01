@@ -52,6 +52,11 @@ void main() {
     expect(snap.posts, hasLength(2));
     expect(snap.sinceToken, 's');
     expect(snap.olderPageToken, 'n');
+
+    final cols = await db
+        .customSelect('PRAGMA table_info(timeline_item_entries)')
+        .get();
+    expect(cols.map((r) => r.read<String>('name')), contains('page_token'));
   });
 
   test('clearAll wipes timeline feeds on sign-out', () async {

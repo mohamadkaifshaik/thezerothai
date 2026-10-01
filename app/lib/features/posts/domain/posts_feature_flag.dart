@@ -9,6 +9,9 @@ import '../../../core/network/app_exception.dart';
 /// `'posts'` anywhere else.
 const kFeaturePosts = 'posts';
 
+/// Minimum spacing between GetMe refreshes asked for by the gate.
+const kGateRefreshInterval = Duration(seconds: 60);
+
 /// Sub-feature names the server puts in `metadata["feature"]` of a
 /// FEATURE_DISABLED CreatePost (ADR-0010 D2), checked in this order.
 const kPostsSubFeatureReplies = 'replies';
@@ -29,9 +32,11 @@ class PostsFeatureGate extends ChangeNotifier {
     required bool Function() isPostsEnabled,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     void Function()? onWholeServiceDisabled,
+    DateTime Function() now = DateTime.now,
   }) : _isPostsEnabled = isPostsEnabled,
        _onUnexpectedError = onUnexpectedError,
-       _onWholeServiceDisabled = onWholeServiceDisabled;
+       _onWholeServiceDisabled = onWholeServiceDisabled,
+       _now = now;
 
   final bool Function() _isPostsEnabled;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
@@ -39,7 +44,14 @@ class PostsFeatureGate extends ChangeNotifier {
   /// Called when the server turns all of posts off for this caller
   /// (FEATURE_DISABLED with no `feature`): refresh `GetMe.enabled_features`
   /// (ADR-0008 D6) so the flag set, not a sticky local override, decides.
+  ///
+  /// Fires only when the disabled state actually changed, and at most once
+  /// per [kGateRefreshInterval]. Fail-closed: if that GetMe fails, the gate
+  /// stays disabled for the session (until a later successful GetMe calls
+  /// [reset]).
   final void Function()? _onWholeServiceDisabled;
+  final DateTime Function() _now;
+  DateTime? _lastRefreshRequest;
 
   bool _wholeServiceDisabled = false;
   final Set<String> _disabledSubFeatures = {};
@@ -59,11 +71,21 @@ class PostsFeatureGate extends ChangeNotifier {
     if (feature == null || feature.isEmpty) {
       changed = !_wholeServiceDisabled;
       _wholeServiceDisabled = true;
-      _onWholeServiceDisabled?.call();
+      if (changed) _requestRefresh();
     } else {
       changed = _disabledSubFeatures.add(feature);
     }
     if (changed) notifyListeners();
+  }
+
+  void _requestRefresh() {
+    final callback = _onWholeServiceDisabled;
+    if (callback == null) return;
+    final now = _now();
+    final last = _lastRefreshRequest;
+    if (last != null && now.difference(last) < kGateRefreshInterval) return;
+    _lastRefreshRequest = now;
+    callback();
   }
 
   /// Forgets what FEATURE_DISABLED answers taught us (after a fresh GetMe).

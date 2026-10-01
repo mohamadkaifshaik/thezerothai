@@ -65,7 +65,7 @@ class TimelineRepository {
         sinceToken: state.sinceToken,
       );
       if (page == null) {
-        await _store.clearSince(feed);
+        await _store.clearSince(feed, session: session);
         return _coldOpen(feed, session);
       }
       await _store.applyRefresh(
@@ -226,7 +226,7 @@ class TimelineRepository {
     _lockTails[feed.value] = tail;
     future
         .whenComplete(() {
-          _inflight.remove(key);
+          if (identical(_inflight[key], future)) _inflight.remove(key);
           if (identical(_lockTails[feed.value], tail)) {
             _lockTails.remove(feed.value);
           }

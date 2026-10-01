@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
@@ -79,6 +81,29 @@ void main() {
       [postId(9), postId(5), postId(4)],
     );
     expect((await store.read(FeedKey.user('me'))).entries, isEmpty);
+  });
+
+  test('a post created while the session ends is not written back', () async {
+    await seed(const FeedKey.home(), [5]);
+    final release = Completer<void>();
+    final slow = PostsRepository(
+      apiClient: ApiClient.withTransport(
+        FakeTransport((_, _) async {
+          await release.future;
+          return pb.CreatePostResponse(post: postView(9, authorId: 'me'));
+        }),
+      ),
+      store: store,
+      gate: gate,
+    );
+
+    final pending = slow.createPost(idempotencyKey: 'k', text: 't');
+    await Future<void>.delayed(Duration.zero);
+    store.endSession();
+    release.complete();
+    await pending;
+
+    expect(cachedIds(await store.read(const FeedKey.home())), [postId(5)]);
   });
 
   test('a created reply is not inserted into Home or Posts feeds', () async {

@@ -7,6 +7,10 @@ import '../domain/feed_key.dart';
 /// Newest posts kept per feed (posts-and-timeline plan T14).
 const kTimelineRetention = 500;
 
+/// Past this many cached posts a feed is cut back to [kTimelineRetention]
+/// even without a page boundary.
+const kTimelineHardCap = 2 * kTimelineRetention;
+
 /// One row of a cached feed: a post, or a gap marker between two runs of
 /// posts (the "show more" row of ADR-0004 / ADR-0010 D14).
 class TimelineEntry {
@@ -223,7 +227,6 @@ class TimelineStore {
         await _setPageToken(feed, valid.last.post.postId, nextPageToken);
       }
       await _saveState(feed, olderPageToken: nextPageToken);
-      await _prune(feed);
     });
   }
 
@@ -263,13 +266,14 @@ class TimelineStore {
             : gap?.sortKey;
         if (key != null) await _putGap(feed, key, nextPageToken);
       }
-      await _prune(feed);
     });
   }
 
   /// Drops the stored `since_token` (it was rejected, D14).
-  Future<void> clearSince(FeedKey feed) =>
-      _saveState(feed, sinceToken: '', replaceSince: true);
+  Future<void> clearSince(FeedKey feed, {int? session}) => _tx(
+    session,
+    () => _saveState(feed, sinceToken: '', replaceSince: true),
+  );
 
   /// Removes [postId] from every cached feed (post NOT_FOUND on open, or
   /// the caller deleted it).
@@ -409,11 +413,16 @@ class TimelineStore {
         .write(TimelineItemEntriesCompanion(pageToken: Value(token)));
   }
 
-  /// Keeps at least the newest [kTimelineRetention] posts, trimming only at
-  /// a page boundary: the cut is the first row at or after the limit that
-  /// carries a page token. The scroll token becomes that row's token, so
-  /// infinite scroll continues past the trim with no hole. With no such row
-  /// nothing is trimmed.
+  /// Retention, run only on refresh, cold open and own-post insert (never
+  /// while the user scrolls, or the page just fetched would be cut away).
+  ///
+  /// Keeps at least the newest [kTimelineRetention] posts and trims at a
+  /// page boundary: the cut is the first row at or after the limit that
+  /// carries a page token, and the scroll token becomes that row's token, so
+  /// scrolling continues with no hole. When there is no such row below the
+  /// hard cap ([kTimelineHardCap]) and the feed is past it, the cut is made
+  /// at the limit anyway and the scroll token is cleared (a dead end, only in
+  /// this rare case; gap tokens are never reused as page tokens).
   Future<void> _prune(FeedKey feed) async {
     final rows =
         await (_db.select(_db.timelineItemEntries)
@@ -424,17 +433,27 @@ class TimelineStore {
             .get();
     if (rows.length <= kTimelineRetention) return;
     for (var i = kTimelineRetention - 1; i < rows.length; i++) {
+      if (i >= kTimelineHardCap) break;
       final token = rows[i].pageToken;
       if (token == null || token.isEmpty) continue;
       if (i == rows.length - 1) return; // nothing below the cut
-      await (_db.delete(_db.timelineItemEntries)..where(
-            (t) =>
-                t.feedKey.equals(feed.value) &
-                t.sortKey.isSmallerThanValue(rows[i].sortKey),
-          ))
-          .go();
+      await _cutBelow(feed, rows[i].sortKey);
       await _saveState(feed, olderPageToken: token);
       return;
     }
+    if (rows.length > kTimelineHardCap) {
+      await _cutBelow(feed, rows[kTimelineRetention - 1].sortKey);
+      await _saveState(feed, olderPageToken: '');
+    }
+  }
+
+  /// Deletes every row (posts and gap markers) sorted below [sortKey].
+  Future<void> _cutBelow(FeedKey feed, String sortKey) {
+    return (_db.delete(_db.timelineItemEntries)..where(
+          (t) =>
+              t.feedKey.equals(feed.value) &
+              t.sortKey.isSmallerThanValue(sortKey),
+        ))
+        .go();
   }
 }

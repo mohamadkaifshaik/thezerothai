@@ -842,6 +842,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - M3: `refresh` decodes the whole feed twice (`read` before and after). Add `TimelineStore.state()` and `gapRow()`
     for the pre-fetch lookups, and use `selectOnly` in `_postIds`.
   - M4: wire `PostsFeatureGate.onUnexpectedError` to error reporting (Crashlytics) in `bootstrap.dart`.
+  - Privacy ticket (separate small PR after #75 merges, CLAUDE.md rule 10): `graph_repository.dart` `upsertFollowing`
+    (after an in-flight Follow) and `identity_repository.dart` `upsertProfile` (after an in-flight GetMe) have no session
+    guard, so a stale write can land in the next user's cache. Move the session counter onto `AppDatabase` (or a shared
+    `SessionEpoch`) and check it inside write transactions for `TimelineStore`, `GraphRepository` and `IdentityRepository`.
   - L1, L4 and the remaining L6 test gaps from the review: pick them up with T17's repository use.
 
 ### T15 — Flutter: shared `PostCard` with rich text  [owner: frontend-developer] [size: M] [depends: T14]

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
+import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -332,41 +333,69 @@ void main() {
   });
 
   group('retention', () {
-    test('trims at a page boundary and scrolling continues past the cut',
-        () async {
-      // Three pages of 400: 2000-1601, 1600-1201, 1200-801.
-      giveHome(
-        [for (var i = 2000; i > 1600; i--) i],
-        next: 't1',
-        since: 's1',
-      );
+    List<int> range(int from, int to) => [for (var i = from; i > to; i--) i];
+
+    test('scrolling never prunes: the page just fetched survives and the '
+        'next loadOlder asks for its token', () async {
+      giveHome(range(2000, 1600), next: 't1', since: 's1');
       await repo.refresh(home);
-      giveHome([for (var i = 1600; i > 1200; i--) i], next: 't2');
+      giveHome(range(1600, 1200), next: 't2');
+      await repo.loadOlder(home);
+      giveHome(range(1200, 800), next: 't3');
       var snap = await repo.loadOlder(home);
-      expect(
-        snap.posts,
-        hasLength(800),
-        reason: 'cut is after the 500th row, at the next page end',
-      );
-      expect(snap.olderPageToken, 't2');
 
-      giveHome([for (var i = 1200; i > 800; i--) i], next: 't3');
-      snap = await repo.loadOlder(home);
-      expect(snap.posts, hasLength(800), reason: 'page 3 trimmed away');
-      expect(snap.entries.last.postView!.post.postId, postId(1201));
-      expect(snap.olderPageToken, 't2', reason: 'resume from the cut');
+      expect(snap.posts, hasLength(1200));
+      expect(snap.olderPageToken, 't3');
 
-      // Scrolling again re-fetches from the cut: no dead end, no hole.
       requests.clear();
-      giveHome([for (var i = 1200; i > 800; i--) i], next: 't3');
+      giveHome(range(800, 400), next: 't4');
       snap = await repo.loadOlder(home);
-      expect((requests.single as tl.GetHomeTimelineRequest).pageToken, 't2');
-      expect(snap.hasMore, isTrue);
+      expect((requests.single as tl.GetHomeTimelineRequest).pageToken, 't3');
+      expect(snap.posts, hasLength(1600));
+      expect(snap.olderPageToken, 't4');
     });
 
-    test('nothing is trimmed when no page boundary exists below the limit',
+    test('a refresh trims at a page boundary and scrolling resumes from the '
+        'cut', () async {
+      giveHome(range(2000, 1600), next: 't1', since: 's1');
+      await repo.refresh(home);
+      giveHome(range(1600, 1200), next: 't2');
+      await repo.loadOlder(home);
+      giveHome(range(1200, 800), next: 't3');
+      await repo.loadOlder(home); // 1200 posts, past the 1000 hard cap
+
+      giveHome([2001], since: 's2');
+      final snap = await repo.refresh(home);
+
+      // Cut at the first token row >= 500th that is under the cap: the end
+      // of page 2 (row 800 of 1201).
+      expect(snap.posts, hasLength(801));
+      expect(snap.olderPageToken, 't2');
+      requests.clear();
+      giveHome(range(1200, 800), next: 't3');
+      await repo.loadOlder(home);
+      expect((requests.single as tl.GetHomeTimelineRequest).pageToken, 't2');
+    });
+
+    test('exactly 500 posts are all kept with their scroll token', () async {
+      giveHome(range(500, 0), next: 'older1', since: 's1');
+      final snap = await repo.refresh(home);
+      expect(snap.posts, hasLength(500));
+      expect(snap.olderPageToken, 'older1');
+    });
+
+    test('a feed past the hard cap with no boundary is cut to 500 and the '
+        'scroll token cleared', () async {
+      giveHome(range(1100, 0), next: 'older1', since: 's1');
+      final snap = await repo.refresh(home);
+      expect(snap.posts, hasLength(kTimelineRetention));
+      expect(snap.entries.last.postView!.post.postId, postId(601));
+      expect(snap.olderPageToken, isEmpty);
+    });
+
+    test('between 500 and the hard cap with no boundary nothing is trimmed',
         () async {
-      giveHome([for (var i = 600; i > 90; i--) i], next: 'older1', since: 's1');
+      giveHome(range(600, 90), next: 'older1', since: 's1');
       final snap = await repo.refresh(home);
       expect(snap.posts, hasLength(510));
       expect(snap.olderPageToken, 'older1');
@@ -402,6 +431,17 @@ void main() {
       expect(snap.entries, isEmpty);
       expect(snap.sinceToken, isEmpty);
       expect(snap.olderPageToken, isEmpty);
+    });
+
+    test('wipeSessionData ends the session and wipes the cache', () async {
+      giveHome([5], since: 's1');
+      await repo.refresh(home);
+      final session = store.session;
+
+      await wipeSessionData(database: db, timelineRepository: repo);
+
+      expect(store.session, isNot(session));
+      expect((await store.read(home)).entries, isEmpty);
     });
 
     test('the next user can load normally after sign-out', () async {
