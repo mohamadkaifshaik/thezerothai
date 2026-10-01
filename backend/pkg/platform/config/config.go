@@ -78,6 +78,12 @@ type RateLimitConfig struct {
 	LikesPerUserPerMinute       int
 	PerIPPerMinute              int
 
+	// Posts/timeline per-procedure buckets (ADR-0010 T4). GetHomeTimeline uses TimelinePerUserPerMinute (6) and
+	// GetPost uses PerUserPerMinute (the 60/min default).
+	UserTimelinePerMinute int // GetUserTimeline, env RATE_LIMIT_USER_TIMELINE_PER_MIN, default 30
+	PostCreatePerMinute   int // CreatePost, env RATE_LIMIT_POST_CREATE_PER_MIN, default 10
+	PostDeletePerMinute   int // DeletePost, env RATE_LIMIT_POST_DELETE_PER_MIN, default 20
+
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
 	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is
@@ -205,6 +211,11 @@ type Config struct {
 	// FEATURE_GRAPH / FEATURE_GRAPH_ALLOWLIST / FEATURE_GRAPH_PERCENT (pkg/platform/flags).
 	FeatureGraph flags.Spec
 
+	// FeaturePosts is the ADR-0010 D1 server feature flag gating PostService and TimelineService. Loaded from
+	// FEATURE_POSTS / FEATURE_POSTS_ALLOWLIST / FEATURE_POSTS_PERCENT (pkg/platform/flags), default off in prod
+	// and on in dev and local, like FeatureGraph.
+	FeaturePosts flags.Spec
+
 	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
 	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
 	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
@@ -297,6 +308,28 @@ func Load() (Config, error) {
 	}
 	if rl.PerIPPerMinute, err = getInt("RATE_LIMIT_PER_IP_PER_MIN", 120); err != nil {
 		return Config{}, err
+	}
+	if rl.TimelinePerUserPerMinute <= 0 {
+		return Config{}, fmt.Errorf("config: RATE_LIMIT_TIMELINE_PER_MIN must be > 0 (got %d)", rl.TimelinePerUserPerMinute)
+	}
+	// ADR-0010 T4 / Handoff: GetUserTimeline 30/min, CreatePost 10/min, DeletePost 20/min.
+	for _, b := range []struct {
+		key string
+		def int
+		dst *int
+	}{
+		{"RATE_LIMIT_USER_TIMELINE_PER_MIN", 30, &rl.UserTimelinePerMinute},
+		{"RATE_LIMIT_POST_CREATE_PER_MIN", 10, &rl.PostCreatePerMinute},
+		{"RATE_LIMIT_POST_DELETE_PER_MIN", 20, &rl.PostDeletePerMinute},
+	} {
+		v, err := getInt(b.key, b.def)
+		if err != nil {
+			return Config{}, err
+		}
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", b.key, v)
+		}
+		*b.dst = v
 	}
 	if rl.PreAuthIPPerMinute, err = getInt("RATE_LIMIT_PRE_AUTH_IP_PER_MIN", 120); err != nil {
 		return Config{}, err
@@ -424,6 +457,11 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// ADR-0010 D1: same rollout shape as graph (dev on, prod off; Terraform sets it explicitly in T26).
+	featurePosts, err := flags.LoadSpec("POSTS", "posts", graphDefaultMode)
+	if err != nil {
+		return Config{}, err
+	}
 
 	// M10: PORT defaults to 8081 in local dev so `go run ./cmd/api` never collides with the Firestore
 	// emulator's fixed port 8080 (firebase.json); Cloud Run always sets PORT explicitly in dev/prod, so
@@ -460,6 +498,7 @@ func Load() (Config, error) {
 		CORSAllowedOrigins:        corsOrigins,
 		TrustedProxyHops:          trustedProxyHops,
 		FeatureGraph:              featureGraph,
+		FeaturePosts:              featurePosts,
 		AuthEmulator:              authEmulator,
 	}, nil
 }
