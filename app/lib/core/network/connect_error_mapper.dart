@@ -63,7 +63,11 @@ AppException mapConnectError(Object error) {
       // RPC isn't built yet, e.g. follow requests). Clients hide the feature
       // and refresh GetMe.enabled_features; never retry.
       case common.ErrorReason.ERROR_REASON_FEATURE_DISABLED:
-        return FeatureDisabledException(message);
+        final feature = detail.metadata['feature'];
+        return FeatureDisabledException(
+          message,
+          feature: (feature == null || feature.isEmpty) ? null : feature,
+        );
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

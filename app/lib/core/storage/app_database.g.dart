@@ -941,6 +941,718 @@ class FollowingCacheEntriesCompanion extends UpdateCompanion<CachedFollowing> {
   }
 }
 
+class $TimelineItemEntriesTable extends TimelineItemEntries
+    with TableInfo<$TimelineItemEntriesTable, CachedTimelineItem> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TimelineItemEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _feedKeyMeta = const VerificationMeta(
+    'feedKey',
+  );
+  @override
+  late final GeneratedColumn<String> feedKey = GeneratedColumn<String>(
+    'feed_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _itemKeyMeta = const VerificationMeta(
+    'itemKey',
+  );
+  @override
+  late final GeneratedColumn<String> itemKey = GeneratedColumn<String>(
+    'item_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortKeyMeta = const VerificationMeta(
+    'sortKey',
+  );
+  @override
+  late final GeneratedColumn<String> sortKey = GeneratedColumn<String>(
+    'sort_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> payload = GeneratedColumn<Uint8List>(
+    'payload',
+    aliasedName,
+    true,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _gapTokenMeta = const VerificationMeta(
+    'gapToken',
+  );
+  @override
+  late final GeneratedColumn<String> gapToken = GeneratedColumn<String>(
+    'gap_token',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    feedKey,
+    itemKey,
+    sortKey,
+    payload,
+    gapToken,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'timeline_item_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedTimelineItem> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('feed_key')) {
+      context.handle(
+        _feedKeyMeta,
+        feedKey.isAcceptableOrUnknown(data['feed_key']!, _feedKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_feedKeyMeta);
+    }
+    if (data.containsKey('item_key')) {
+      context.handle(
+        _itemKeyMeta,
+        itemKey.isAcceptableOrUnknown(data['item_key']!, _itemKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemKeyMeta);
+    }
+    if (data.containsKey('sort_key')) {
+      context.handle(
+        _sortKeyMeta,
+        sortKey.isAcceptableOrUnknown(data['sort_key']!, _sortKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortKeyMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    }
+    if (data.containsKey('gap_token')) {
+      context.handle(
+        _gapTokenMeta,
+        gapToken.isAcceptableOrUnknown(data['gap_token']!, _gapTokenMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {feedKey, itemKey};
+  @override
+  CachedTimelineItem map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedTimelineItem(
+      feedKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feed_key'],
+      )!,
+      itemKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}item_key'],
+      )!,
+      sortKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sort_key'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}payload'],
+      ),
+      gapToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}gap_token'],
+      ),
+    );
+  }
+
+  @override
+  $TimelineItemEntriesTable createAlias(String alias) {
+    return $TimelineItemEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedTimelineItem extends DataClass
+    implements Insertable<CachedTimelineItem> {
+  /// `home` or `user:{userId}:{posts|replies}` (see `FeedKey`).
+  final String feedKey;
+
+  /// The `post_id` for a post row, `gap:{sortKey}` for a gap row. Together
+  /// with [feedKey] this makes `post_id` unique per feed (dedupe on merge).
+  final String itemKey;
+  final String sortKey;
+
+  /// Serialized `PostView`; null for a gap row.
+  final Uint8List? payload;
+
+  /// `gap_page_token`; null for a post row.
+  final String? gapToken;
+  const CachedTimelineItem({
+    required this.feedKey,
+    required this.itemKey,
+    required this.sortKey,
+    this.payload,
+    this.gapToken,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['feed_key'] = Variable<String>(feedKey);
+    map['item_key'] = Variable<String>(itemKey);
+    map['sort_key'] = Variable<String>(sortKey);
+    if (!nullToAbsent || payload != null) {
+      map['payload'] = Variable<Uint8List>(payload);
+    }
+    if (!nullToAbsent || gapToken != null) {
+      map['gap_token'] = Variable<String>(gapToken);
+    }
+    return map;
+  }
+
+  TimelineItemEntriesCompanion toCompanion(bool nullToAbsent) {
+    return TimelineItemEntriesCompanion(
+      feedKey: Value(feedKey),
+      itemKey: Value(itemKey),
+      sortKey: Value(sortKey),
+      payload: payload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(payload),
+      gapToken: gapToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(gapToken),
+    );
+  }
+
+  factory CachedTimelineItem.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedTimelineItem(
+      feedKey: serializer.fromJson<String>(json['feedKey']),
+      itemKey: serializer.fromJson<String>(json['itemKey']),
+      sortKey: serializer.fromJson<String>(json['sortKey']),
+      payload: serializer.fromJson<Uint8List?>(json['payload']),
+      gapToken: serializer.fromJson<String?>(json['gapToken']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'feedKey': serializer.toJson<String>(feedKey),
+      'itemKey': serializer.toJson<String>(itemKey),
+      'sortKey': serializer.toJson<String>(sortKey),
+      'payload': serializer.toJson<Uint8List?>(payload),
+      'gapToken': serializer.toJson<String?>(gapToken),
+    };
+  }
+
+  CachedTimelineItem copyWith({
+    String? feedKey,
+    String? itemKey,
+    String? sortKey,
+    Value<Uint8List?> payload = const Value.absent(),
+    Value<String?> gapToken = const Value.absent(),
+  }) => CachedTimelineItem(
+    feedKey: feedKey ?? this.feedKey,
+    itemKey: itemKey ?? this.itemKey,
+    sortKey: sortKey ?? this.sortKey,
+    payload: payload.present ? payload.value : this.payload,
+    gapToken: gapToken.present ? gapToken.value : this.gapToken,
+  );
+  CachedTimelineItem copyWithCompanion(TimelineItemEntriesCompanion data) {
+    return CachedTimelineItem(
+      feedKey: data.feedKey.present ? data.feedKey.value : this.feedKey,
+      itemKey: data.itemKey.present ? data.itemKey.value : this.itemKey,
+      sortKey: data.sortKey.present ? data.sortKey.value : this.sortKey,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      gapToken: data.gapToken.present ? data.gapToken.value : this.gapToken,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedTimelineItem(')
+          ..write('feedKey: $feedKey, ')
+          ..write('itemKey: $itemKey, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('gapToken: $gapToken')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    feedKey,
+    itemKey,
+    sortKey,
+    $driftBlobEquality.hash(payload),
+    gapToken,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedTimelineItem &&
+          other.feedKey == this.feedKey &&
+          other.itemKey == this.itemKey &&
+          other.sortKey == this.sortKey &&
+          $driftBlobEquality.equals(other.payload, this.payload) &&
+          other.gapToken == this.gapToken);
+}
+
+class TimelineItemEntriesCompanion extends UpdateCompanion<CachedTimelineItem> {
+  final Value<String> feedKey;
+  final Value<String> itemKey;
+  final Value<String> sortKey;
+  final Value<Uint8List?> payload;
+  final Value<String?> gapToken;
+  final Value<int> rowid;
+  const TimelineItemEntriesCompanion({
+    this.feedKey = const Value.absent(),
+    this.itemKey = const Value.absent(),
+    this.sortKey = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.gapToken = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TimelineItemEntriesCompanion.insert({
+    required String feedKey,
+    required String itemKey,
+    required String sortKey,
+    this.payload = const Value.absent(),
+    this.gapToken = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : feedKey = Value(feedKey),
+       itemKey = Value(itemKey),
+       sortKey = Value(sortKey);
+  static Insertable<CachedTimelineItem> custom({
+    Expression<String>? feedKey,
+    Expression<String>? itemKey,
+    Expression<String>? sortKey,
+    Expression<Uint8List>? payload,
+    Expression<String>? gapToken,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (feedKey != null) 'feed_key': feedKey,
+      if (itemKey != null) 'item_key': itemKey,
+      if (sortKey != null) 'sort_key': sortKey,
+      if (payload != null) 'payload': payload,
+      if (gapToken != null) 'gap_token': gapToken,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TimelineItemEntriesCompanion copyWith({
+    Value<String>? feedKey,
+    Value<String>? itemKey,
+    Value<String>? sortKey,
+    Value<Uint8List?>? payload,
+    Value<String?>? gapToken,
+    Value<int>? rowid,
+  }) {
+    return TimelineItemEntriesCompanion(
+      feedKey: feedKey ?? this.feedKey,
+      itemKey: itemKey ?? this.itemKey,
+      sortKey: sortKey ?? this.sortKey,
+      payload: payload ?? this.payload,
+      gapToken: gapToken ?? this.gapToken,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (feedKey.present) {
+      map['feed_key'] = Variable<String>(feedKey.value);
+    }
+    if (itemKey.present) {
+      map['item_key'] = Variable<String>(itemKey.value);
+    }
+    if (sortKey.present) {
+      map['sort_key'] = Variable<String>(sortKey.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<Uint8List>(payload.value);
+    }
+    if (gapToken.present) {
+      map['gap_token'] = Variable<String>(gapToken.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimelineItemEntriesCompanion(')
+          ..write('feedKey: $feedKey, ')
+          ..write('itemKey: $itemKey, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('gapToken: $gapToken, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TimelineStateEntriesTable extends TimelineStateEntries
+    with TableInfo<$TimelineStateEntriesTable, CachedTimelineState> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TimelineStateEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _feedKeyMeta = const VerificationMeta(
+    'feedKey',
+  );
+  @override
+  late final GeneratedColumn<String> feedKey = GeneratedColumn<String>(
+    'feed_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sinceTokenMeta = const VerificationMeta(
+    'sinceToken',
+  );
+  @override
+  late final GeneratedColumn<String> sinceToken = GeneratedColumn<String>(
+    'since_token',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _olderPageTokenMeta = const VerificationMeta(
+    'olderPageToken',
+  );
+  @override
+  late final GeneratedColumn<String> olderPageToken = GeneratedColumn<String>(
+    'older_page_token',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    feedKey,
+    sinceToken,
+    olderPageToken,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'timeline_state_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedTimelineState> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('feed_key')) {
+      context.handle(
+        _feedKeyMeta,
+        feedKey.isAcceptableOrUnknown(data['feed_key']!, _feedKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_feedKeyMeta);
+    }
+    if (data.containsKey('since_token')) {
+      context.handle(
+        _sinceTokenMeta,
+        sinceToken.isAcceptableOrUnknown(data['since_token']!, _sinceTokenMeta),
+      );
+    }
+    if (data.containsKey('older_page_token')) {
+      context.handle(
+        _olderPageTokenMeta,
+        olderPageToken.isAcceptableOrUnknown(
+          data['older_page_token']!,
+          _olderPageTokenMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {feedKey};
+  @override
+  CachedTimelineState map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedTimelineState(
+      feedKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feed_key'],
+      )!,
+      sinceToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}since_token'],
+      )!,
+      olderPageToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}older_page_token'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $TimelineStateEntriesTable createAlias(String alias) {
+    return $TimelineStateEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedTimelineState extends DataClass
+    implements Insertable<CachedTimelineState> {
+  final String feedKey;
+  final String sinceToken;
+
+  /// Token for scrolling older than the oldest cached item; '' = none/end.
+  final String olderPageToken;
+  final DateTime updatedAt;
+  const CachedTimelineState({
+    required this.feedKey,
+    required this.sinceToken,
+    required this.olderPageToken,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['feed_key'] = Variable<String>(feedKey);
+    map['since_token'] = Variable<String>(sinceToken);
+    map['older_page_token'] = Variable<String>(olderPageToken);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  TimelineStateEntriesCompanion toCompanion(bool nullToAbsent) {
+    return TimelineStateEntriesCompanion(
+      feedKey: Value(feedKey),
+      sinceToken: Value(sinceToken),
+      olderPageToken: Value(olderPageToken),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CachedTimelineState.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedTimelineState(
+      feedKey: serializer.fromJson<String>(json['feedKey']),
+      sinceToken: serializer.fromJson<String>(json['sinceToken']),
+      olderPageToken: serializer.fromJson<String>(json['olderPageToken']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'feedKey': serializer.toJson<String>(feedKey),
+      'sinceToken': serializer.toJson<String>(sinceToken),
+      'olderPageToken': serializer.toJson<String>(olderPageToken),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  CachedTimelineState copyWith({
+    String? feedKey,
+    String? sinceToken,
+    String? olderPageToken,
+    DateTime? updatedAt,
+  }) => CachedTimelineState(
+    feedKey: feedKey ?? this.feedKey,
+    sinceToken: sinceToken ?? this.sinceToken,
+    olderPageToken: olderPageToken ?? this.olderPageToken,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CachedTimelineState copyWithCompanion(TimelineStateEntriesCompanion data) {
+    return CachedTimelineState(
+      feedKey: data.feedKey.present ? data.feedKey.value : this.feedKey,
+      sinceToken: data.sinceToken.present
+          ? data.sinceToken.value
+          : this.sinceToken,
+      olderPageToken: data.olderPageToken.present
+          ? data.olderPageToken.value
+          : this.olderPageToken,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedTimelineState(')
+          ..write('feedKey: $feedKey, ')
+          ..write('sinceToken: $sinceToken, ')
+          ..write('olderPageToken: $olderPageToken, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(feedKey, sinceToken, olderPageToken, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedTimelineState &&
+          other.feedKey == this.feedKey &&
+          other.sinceToken == this.sinceToken &&
+          other.olderPageToken == this.olderPageToken &&
+          other.updatedAt == this.updatedAt);
+}
+
+class TimelineStateEntriesCompanion
+    extends UpdateCompanion<CachedTimelineState> {
+  final Value<String> feedKey;
+  final Value<String> sinceToken;
+  final Value<String> olderPageToken;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const TimelineStateEntriesCompanion({
+    this.feedKey = const Value.absent(),
+    this.sinceToken = const Value.absent(),
+    this.olderPageToken = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TimelineStateEntriesCompanion.insert({
+    required String feedKey,
+    this.sinceToken = const Value.absent(),
+    this.olderPageToken = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : feedKey = Value(feedKey),
+       updatedAt = Value(updatedAt);
+  static Insertable<CachedTimelineState> custom({
+    Expression<String>? feedKey,
+    Expression<String>? sinceToken,
+    Expression<String>? olderPageToken,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (feedKey != null) 'feed_key': feedKey,
+      if (sinceToken != null) 'since_token': sinceToken,
+      if (olderPageToken != null) 'older_page_token': olderPageToken,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TimelineStateEntriesCompanion copyWith({
+    Value<String>? feedKey,
+    Value<String>? sinceToken,
+    Value<String>? olderPageToken,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return TimelineStateEntriesCompanion(
+      feedKey: feedKey ?? this.feedKey,
+      sinceToken: sinceToken ?? this.sinceToken,
+      olderPageToken: olderPageToken ?? this.olderPageToken,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (feedKey.present) {
+      map['feed_key'] = Variable<String>(feedKey.value);
+    }
+    if (sinceToken.present) {
+      map['since_token'] = Variable<String>(sinceToken.value);
+    }
+    if (olderPageToken.present) {
+      map['older_page_token'] = Variable<String>(olderPageToken.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimelineStateEntriesCompanion(')
+          ..write('feedKey: $feedKey, ')
+          ..write('sinceToken: $sinceToken, ')
+          ..write('olderPageToken: $olderPageToken, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -948,6 +1660,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $ProfileCacheEntriesTable(this);
   late final $FollowingCacheEntriesTable followingCacheEntries =
       $FollowingCacheEntriesTable(this);
+  late final $TimelineItemEntriesTable timelineItemEntries =
+      $TimelineItemEntriesTable(this);
+  late final $TimelineStateEntriesTable timelineStateEntries =
+      $TimelineStateEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -955,6 +1671,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     profileCacheEntries,
     followingCacheEntries,
+    timelineItemEntries,
+    timelineStateEntries,
   ];
 }
 
@@ -1495,6 +2213,445 @@ typedef $$FollowingCacheEntriesTableProcessedTableManager =
       CachedFollowing,
       PrefetchHooks Function()
     >;
+typedef $$TimelineItemEntriesTableCreateCompanionBuilder =
+    TimelineItemEntriesCompanion Function({
+      required String feedKey,
+      required String itemKey,
+      required String sortKey,
+      Value<Uint8List?> payload,
+      Value<String?> gapToken,
+      Value<int> rowid,
+    });
+typedef $$TimelineItemEntriesTableUpdateCompanionBuilder =
+    TimelineItemEntriesCompanion Function({
+      Value<String> feedKey,
+      Value<String> itemKey,
+      Value<String> sortKey,
+      Value<Uint8List?> payload,
+      Value<String?> gapToken,
+      Value<int> rowid,
+    });
+
+class $$TimelineItemEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $TimelineItemEntriesTable> {
+  $$TimelineItemEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get feedKey => $composableBuilder(
+    column: $table.feedKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get itemKey => $composableBuilder(
+    column: $table.itemKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get gapToken => $composableBuilder(
+    column: $table.gapToken,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TimelineItemEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $TimelineItemEntriesTable> {
+  $$TimelineItemEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get feedKey => $composableBuilder(
+    column: $table.feedKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get itemKey => $composableBuilder(
+    column: $table.itemKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get gapToken => $composableBuilder(
+    column: $table.gapToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TimelineItemEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TimelineItemEntriesTable> {
+  $$TimelineItemEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get feedKey =>
+      $composableBuilder(column: $table.feedKey, builder: (column) => column);
+
+  GeneratedColumn<String> get itemKey =>
+      $composableBuilder(column: $table.itemKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sortKey =>
+      $composableBuilder(column: $table.sortKey, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get gapToken =>
+      $composableBuilder(column: $table.gapToken, builder: (column) => column);
+}
+
+class $$TimelineItemEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TimelineItemEntriesTable,
+          CachedTimelineItem,
+          $$TimelineItemEntriesTableFilterComposer,
+          $$TimelineItemEntriesTableOrderingComposer,
+          $$TimelineItemEntriesTableAnnotationComposer,
+          $$TimelineItemEntriesTableCreateCompanionBuilder,
+          $$TimelineItemEntriesTableUpdateCompanionBuilder,
+          (
+            CachedTimelineItem,
+            BaseReferences<
+              _$AppDatabase,
+              $TimelineItemEntriesTable,
+              CachedTimelineItem
+            >,
+          ),
+          CachedTimelineItem,
+          PrefetchHooks Function()
+        > {
+  $$TimelineItemEntriesTableTableManager(
+    _$AppDatabase db,
+    $TimelineItemEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TimelineItemEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TimelineItemEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TimelineItemEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> feedKey = const Value.absent(),
+                Value<String> itemKey = const Value.absent(),
+                Value<String> sortKey = const Value.absent(),
+                Value<Uint8List?> payload = const Value.absent(),
+                Value<String?> gapToken = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TimelineItemEntriesCompanion(
+                feedKey: feedKey,
+                itemKey: itemKey,
+                sortKey: sortKey,
+                payload: payload,
+                gapToken: gapToken,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String feedKey,
+                required String itemKey,
+                required String sortKey,
+                Value<Uint8List?> payload = const Value.absent(),
+                Value<String?> gapToken = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TimelineItemEntriesCompanion.insert(
+                feedKey: feedKey,
+                itemKey: itemKey,
+                sortKey: sortKey,
+                payload: payload,
+                gapToken: gapToken,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$TimelineItemEntriesTable, CachedTimelineItem>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $TimelineItemEntriesTable,
+                    CachedTimelineItem
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TimelineItemEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TimelineItemEntriesTable,
+      CachedTimelineItem,
+      $$TimelineItemEntriesTableFilterComposer,
+      $$TimelineItemEntriesTableOrderingComposer,
+      $$TimelineItemEntriesTableAnnotationComposer,
+      $$TimelineItemEntriesTableCreateCompanionBuilder,
+      $$TimelineItemEntriesTableUpdateCompanionBuilder,
+      (
+        CachedTimelineItem,
+        BaseReferences<
+          _$AppDatabase,
+          $TimelineItemEntriesTable,
+          CachedTimelineItem
+        >,
+      ),
+      CachedTimelineItem,
+      PrefetchHooks Function()
+    >;
+typedef $$TimelineStateEntriesTableCreateCompanionBuilder =
+    TimelineStateEntriesCompanion Function({
+      required String feedKey,
+      Value<String> sinceToken,
+      Value<String> olderPageToken,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$TimelineStateEntriesTableUpdateCompanionBuilder =
+    TimelineStateEntriesCompanion Function({
+      Value<String> feedKey,
+      Value<String> sinceToken,
+      Value<String> olderPageToken,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$TimelineStateEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $TimelineStateEntriesTable> {
+  $$TimelineStateEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get feedKey => $composableBuilder(
+    column: $table.feedKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TimelineStateEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $TimelineStateEntriesTable> {
+  $$TimelineStateEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get feedKey => $composableBuilder(
+    column: $table.feedKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TimelineStateEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TimelineStateEntriesTable> {
+  $$TimelineStateEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get feedKey =>
+      $composableBuilder(column: $table.feedKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$TimelineStateEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TimelineStateEntriesTable,
+          CachedTimelineState,
+          $$TimelineStateEntriesTableFilterComposer,
+          $$TimelineStateEntriesTableOrderingComposer,
+          $$TimelineStateEntriesTableAnnotationComposer,
+          $$TimelineStateEntriesTableCreateCompanionBuilder,
+          $$TimelineStateEntriesTableUpdateCompanionBuilder,
+          (
+            CachedTimelineState,
+            BaseReferences<
+              _$AppDatabase,
+              $TimelineStateEntriesTable,
+              CachedTimelineState
+            >,
+          ),
+          CachedTimelineState,
+          PrefetchHooks Function()
+        > {
+  $$TimelineStateEntriesTableTableManager(
+    _$AppDatabase db,
+    $TimelineStateEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TimelineStateEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TimelineStateEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TimelineStateEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> feedKey = const Value.absent(),
+                Value<String> sinceToken = const Value.absent(),
+                Value<String> olderPageToken = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TimelineStateEntriesCompanion(
+                feedKey: feedKey,
+                sinceToken: sinceToken,
+                olderPageToken: olderPageToken,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String feedKey,
+                Value<String> sinceToken = const Value.absent(),
+                Value<String> olderPageToken = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => TimelineStateEntriesCompanion.insert(
+                feedKey: feedKey,
+                sinceToken: sinceToken,
+                olderPageToken: olderPageToken,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$TimelineStateEntriesTable, CachedTimelineState>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $TimelineStateEntriesTable,
+                    CachedTimelineState
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TimelineStateEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TimelineStateEntriesTable,
+      CachedTimelineState,
+      $$TimelineStateEntriesTableFilterComposer,
+      $$TimelineStateEntriesTableOrderingComposer,
+      $$TimelineStateEntriesTableAnnotationComposer,
+      $$TimelineStateEntriesTableCreateCompanionBuilder,
+      $$TimelineStateEntriesTableUpdateCompanionBuilder,
+      (
+        CachedTimelineState,
+        BaseReferences<
+          _$AppDatabase,
+          $TimelineStateEntriesTable,
+          CachedTimelineState
+        >,
+      ),
+      CachedTimelineState,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1503,4 +2660,8 @@ class $AppDatabaseManager {
       $$ProfileCacheEntriesTableTableManager(_db, _db.profileCacheEntries);
   $$FollowingCacheEntriesTableTableManager get followingCacheEntries =>
       $$FollowingCacheEntriesTableTableManager(_db, _db.followingCacheEntries);
+  $$TimelineItemEntriesTableTableManager get timelineItemEntries =>
+      $$TimelineItemEntriesTableTableManager(_db, _db.timelineItemEntries);
+  $$TimelineStateEntriesTableTableManager get timelineStateEntries =>
+      $$TimelineStateEntriesTableTableManager(_db, _db.timelineStateEntries);
 }

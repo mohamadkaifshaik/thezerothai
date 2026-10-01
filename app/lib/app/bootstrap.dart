@@ -18,6 +18,10 @@ import '../features/graph/data/graph_repository.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
+import '../features/posts/data/posts_repository.dart';
+import '../features/posts/domain/posts_feature_flag.dart';
+import '../features/timeline/data/timeline_repository.dart';
+import '../features/timeline/data/timeline_store.dart';
 import '../firebase_options.dart' as dev_firebase;
 import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
@@ -86,6 +90,29 @@ Future<void> bootstrap() async {
   )..add(const AuthSubscriptionRequested());
   final onboardingBloc = OnboardingBloc(identityRepository: identityRepository);
 
+  // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via
+  // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers
+  // until the next GetMe changes the flag set.
+  final postsGate = PostsFeatureGate(
+    isPostsEnabled: () =>
+        onboardingBloc.state.enabledFeatures.contains(kFeaturePosts),
+  );
+  onboardingBloc.stream
+      .map((state) => state.enabledFeatures)
+      .distinct(setEquals)
+      .listen((_) => postsGate.reset());
+  final timelineStore = TimelineStore(database);
+  final postsRepository = PostsRepository(
+    apiClient: apiClient,
+    store: timelineStore,
+    gate: postsGate,
+  );
+  final timelineRepository = TimelineRepository(
+    apiClient: apiClient,
+    store: timelineStore,
+    gate: postsGate,
+  );
+
   // Bridge: OnboardingBloc reacts to sign-in/sign-out, but never talks to
   // AuthBloc directly (keeps the two features decoupled — see the
   // `flutter-feature` skill).
@@ -115,6 +142,9 @@ Future<void> bootstrap() async {
       onboardingBloc: onboardingBloc,
       identityRepository: identityRepository,
       graphRepository: graphRepository,
+      postsRepository: postsRepository,
+      timelineRepository: timelineRepository,
+      postsGate: postsGate,
     ),
   );
 }

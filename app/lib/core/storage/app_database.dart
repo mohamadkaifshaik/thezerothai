@@ -48,7 +48,60 @@ class FollowingCacheEntries extends Table {
   Set<Column> get primaryKey => {userId};
 }
 
-@DriftDatabase(tables: [ProfileCacheEntries, FollowingCacheEntries])
+/// One row of a cached timeline feed (posts-and-timeline plan T14): either a
+/// post (serialized `PostView`) or a "gap" marker row that holds the
+/// `gap_page_token` needed to fill the hole between newer and older cached
+/// posts (ADR-0004 / ADR-0010 D13-D14).
+///
+/// Rows sort by [sortKey] descending (newest first). For a post it is the
+/// zero-padded 19-digit Snowflake `post_id` (text, never `int`: a 19-digit id
+/// does not survive Dart-on-web numbers); for a gap it is the id just below
+/// the oldest item above it, so the marker lands in the right position.
+/// Wiped on sign-out with the rest of the cache ([AppDatabase.clearAll]).
+@DataClassName('CachedTimelineItem')
+class TimelineItemEntries extends Table {
+  /// `home` or `user:{userId}:{posts|replies}` (see `FeedKey`).
+  TextColumn get feedKey => text()();
+
+  /// The `post_id` for a post row, `gap:{sortKey}` for a gap row. Together
+  /// with [feedKey] this makes `post_id` unique per feed (dedupe on merge).
+  TextColumn get itemKey => text()();
+  TextColumn get sortKey => text()();
+
+  /// Serialized `PostView`; null for a gap row.
+  BlobColumn get payload => blob().nullable()();
+
+  /// `gap_page_token`; null for a post row.
+  TextColumn get gapToken => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {feedKey, itemKey};
+}
+
+/// Per-feed refresh state: the `since_token` of the last response and the
+/// `next_page_token` below the oldest cached item. Tokens live 30 days
+/// server-side (ADR-0010 D14), so they persist across days.
+@DataClassName('CachedTimelineState')
+class TimelineStateEntries extends Table {
+  TextColumn get feedKey => text()();
+  TextColumn get sinceToken => text().withDefault(const Constant(''))();
+
+  /// Token for scrolling older than the oldest cached item; '' = none/end.
+  TextColumn get olderPageToken => text().withDefault(const Constant(''))();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {feedKey};
+}
+
+@DriftDatabase(
+  tables: [
+    ProfileCacheEntries,
+    FollowingCacheEntries,
+    TimelineItemEntries,
+    TimelineStateEntries,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
@@ -56,7 +109,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -65,6 +118,11 @@ class AppDatabase extends _$AppDatabase {
       // v1 -> v2 (graph plan T12): additive table, no data migration needed.
       if (from < 2) {
         await m.createTable(followingCacheEntries);
+      }
+      // v2 -> v3 (posts plan T14): additive timeline tables.
+      if (from < 3) {
+        await m.createTable(timelineItemEntries);
+        await m.createTable(timelineStateEntries);
       }
     },
   );
@@ -118,6 +176,8 @@ class AppDatabase extends _$AppDatabase {
   Future<void> clearAll() async {
     await delete(profileCacheEntries).go();
     await delete(followingCacheEntries).go();
+    await delete(timelineItemEntries).go();
+    await delete(timelineStateEntries).go();
   }
 
   static QueryExecutor _openConnection() {
