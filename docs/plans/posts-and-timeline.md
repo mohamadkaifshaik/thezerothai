@@ -925,6 +925,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     the user's place. Either skip the resume refresh in that state, or compact only at app start or when the feed is opened.
   - The gate refresh throttle uses wall-clock time (`DateTime.now()`), so a clock change can suppress or double a
     refresh. Follow-up: use a monotonic clock (`Stopwatch`) or a trailing refresh instead.
+  - `PostCard` does not tick: relative times (`5m`) go stale while a list stays open. T17 should rebuild the visible
+    cards on a minute timer (foreground only, no RPC) or pass a fresh `now` after each refresh.
+  - `PostCard.onRelationshipChanged` reports Block/Mute/Unblock/Unmute results; T17 uses it to hide or restore the
+    author's posts locally (D6) without a refetch.
 
 ### T18 — Flutter: profile Posts tab, post detail, delete  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**

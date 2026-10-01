@@ -44,8 +44,48 @@ class PostSpan {
 // `data:`, `ftp://`, bare `www.` are plain text.
 final _urlRe = RegExp(r'https?://[^\s<>"]+', caseSensitive: false);
 
-// A trailing run of sentence punctuation is not part of the link.
-const _urlTrailing = '.,;:!?\'")]}';
+// Sentence punctuation after a link is not part of it; a closing bracket is
+// only stripped when unbalanced (so `.../Foo_(bar)` keeps its `)`).
+const _urlTrailing = '.,;:!?\'"';
+const _urlClosers = {')': '(', ']': '[', '}': '{'};
+
+// Only a plain ASCII hostname is linkified: no userinfo, percent-escapes,
+// IDN/homograph (non-ASCII) hosts or IP-literal brackets.
+final _asciiHostRe = RegExp(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$');
+
+// Invisible/bidi controls that can disguise a link's real target.
+final _spoofingRe = RegExp('[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]');
+
+String _trimUrl(String text, int start, int end) {
+  while (end > start + 1) {
+    final c = text[end - 1];
+    if (_urlTrailing.contains(c)) {
+      end--;
+      continue;
+    }
+    final opener = _urlClosers[c];
+    if (opener != null) {
+      final body = text.substring(start, end);
+      if (c.allMatches(body).length > opener.allMatches(body).length) {
+        end--;
+        continue;
+      }
+    }
+    break;
+  }
+  return text.substring(start, end);
+}
+
+bool _isSafeLink(Uri uri, String raw) {
+  if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+  if (uri.userInfo.isNotEmpty || !_asciiHostRe.hasMatch(uri.host)) {
+    return false;
+  }
+  // `Uri.host` decodes percent-escapes; judge the authority as typed.
+  final afterScheme = raw.substring(raw.indexOf('://') + 3);
+  final authority = afterScheme.split(RegExp(r'[/?#]')).first;
+  return !authority.contains('%') && !authority.contains('@');
+}
 
 // Mention candidate: `@` + 3-15 handle characters (identity's handleRe).
 final _mentionRe = RegExp(r'@([A-Za-z0-9_]{3,15})(?![A-Za-z0-9_@])');
@@ -88,27 +128,23 @@ List<PostSpan> parsePostText(String text, Iterable<pb.Mention> mentions) {
     byHandle.putIfAbsent(m.handle.toLowerCase(), () => m);
   }
 
-  // (start, end, span) candidates, links first because they win overlaps.
+  // (start, end, span) candidates; links are found first and win overlaps.
   final found = <(int, int, PostSpan)>[];
+  final linkRanges = <(int, int)>[];
 
   for (final match in _urlRe.allMatches(text)) {
     if (_isBlockedBefore(text, match.start, '')) continue;
-    var end = match.end;
-    while (end > match.start + 1 && _urlTrailing.contains(text[end - 1])) {
-      end--;
-    }
-    final raw = text.substring(match.start, end);
+    final raw = _trimUrl(text, match.start, match.end);
+    if (_spoofingRe.hasMatch(raw)) continue;
     final uri = Uri.tryParse(raw);
-    if (uri == null ||
-        (uri.scheme != 'http' && uri.scheme != 'https') ||
-        uri.host.isEmpty) {
-      continue;
-    }
+    if (uri == null || !_isSafeLink(uri, raw)) continue;
+    final end = match.start + raw.length;
+    linkRanges.add((match.start, end));
     found.add((match.start, end, PostSpan(PostSpanKind.link, raw, url: uri)));
   }
 
   bool overlapsLink(int start, int end) =>
-      found.any((f) => start < f.$2 && end > f.$1);
+      linkRanges.any((r) => start < r.$2 && end > r.$1);
 
   if (byHandle.isNotEmpty) {
     for (final match in _mentionRe.allMatches(text)) {
@@ -135,9 +171,16 @@ List<PostSpan> parsePostText(String text, Iterable<pb.Mention> mentions) {
     final body = match.group(1)!;
     if (!_letter.hasMatch(body)) continue;
     // A run longer than 50 is not a hashtag (never truncated).
-    if (match.end < text.length &&
-        _hashtagBodyRune.hasMatch(text.substring(match.end, match.end + 1))) {
-      continue;
+    if (match.end < text.length) {
+      // Read the whole next rune (an astral letter is two code units).
+      final unit = text.codeUnitAt(match.end);
+      final isHigh = unit >= 0xD800 && unit <= 0xDBFF;
+      final nextEnd = isHigh && match.end + 2 <= text.length
+          ? match.end + 2
+          : match.end + 1;
+      if (_hashtagBodyRune.hasMatch(text.substring(match.end, nextEnd))) {
+        continue;
+      }
     }
     found.add((
       match.start,

@@ -1,3 +1,5 @@
+import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -9,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 import 'package:url_launcher_platform_interface/link.dart';
@@ -20,6 +23,7 @@ class MockGraphRepository extends Mock implements GraphRepository {}
 
 class _FakeUrlLauncherPlatform extends UrlLauncherPlatform {
   final List<(String, LaunchOptions)> launched = [];
+  bool result = true;
 
   @override
   LinkDelegate? get linkDelegate => null;
@@ -30,7 +34,7 @@ class _FakeUrlLauncherPlatform extends UrlLauncherPlatform {
   @override
   Future<bool> launchUrl(String url, LaunchOptions options) async {
     launched.add((url, options));
-    return true;
+    return result;
   }
 }
 
@@ -127,7 +131,7 @@ void main() {
 
   testWidgets('"hi @bob see https://x.y #go" has exactly 3 tappable spans and '
       'the link opens externally', (tester) async {
-    final opened = <(String, String)>[];
+    final opened = <String>[];
     var hashtagTaps = 0;
     await tester.pumpWidget(
       wrap(
@@ -137,7 +141,7 @@ void main() {
             mentions: [pb.Mention(handle: 'bob', userId: 'u-bob')],
           ),
           now: _now,
-          onOpenProfile: (id, handle) => opened.add((id, handle)),
+          onOpenProfile: opened.add,
           onHashtagTap: () => hashtagTaps++,
         ),
       ),
@@ -155,7 +159,7 @@ void main() {
     );
 
     await tester.tapOnText(find.textRange.ofSubstring('@bob'));
-    expect(opened, [('u-bob', 'bob')]);
+    expect(opened, ['u-bob']);
 
     await tester.tapOnText(find.textRange.ofSubstring('#go'));
     expect(hashtagTaps, 1);
@@ -163,7 +167,7 @@ void main() {
 
   testWidgets('"@Bob" is tappable by user_id; "@carol" without an entry is '
       'plain', (tester) async {
-    final opened = <(String, String)>[];
+    final opened = <String>[];
     await tester.pumpWidget(
       wrap(
         PostCard(
@@ -172,14 +176,14 @@ void main() {
             mentions: [pb.Mention(handle: 'bob', userId: 'u-bob')],
           ),
           now: _now,
-          onOpenProfile: (id, handle) => opened.add((id, handle)),
+          onOpenProfile: opened.add,
         ),
       ),
     );
 
     expect(_tappableSpans(tester, '@Bob'), 1);
     await tester.tapOnText(find.textRange.ofSubstring('@Bob'));
-    expect(opened, [('u-bob', 'bob')]);
+    expect(opened, ['u-bob']);
   });
 
   testWidgets('javascript: text is plain, never a link', (tester) async {
@@ -212,20 +216,14 @@ void main() {
   testWidgets('tapping the author opens the profile by user_id', (
     tester,
   ) async {
-    final opened = <(String, String)>[];
+    final opened = <String>[];
     await tester.pumpWidget(
-      wrap(
-        PostCard(
-          view: _view(),
-          now: _now,
-          onOpenProfile: (id, handle) => opened.add((id, handle)),
-        ),
-      ),
+      wrap(PostCard(view: _view(), now: _now, onOpenProfile: opened.add)),
     );
 
     await tester.tap(find.text('Alice A'));
     await tester.tap(find.byType(CircleAvatar));
-    expect(opened, [('u-author', 'alice'), ('u-author', 'alice')]);
+    expect(opened, ['u-author', 'u-author']);
   });
 
   group('overflow menu', () {
@@ -477,6 +475,225 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Alice A'), findsOneWidget);
+    });
+  });
+
+  group('default navigation (real GoRouter)', () {
+    Widget routed(Widget card) {
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => Scaffold(body: card),
+          ),
+          GoRoute(
+            path: '/u/:userId',
+            builder: (context, state) => Scaffold(
+              body: Text('profile-by-id ${state.pathParameters['userId']}'),
+            ),
+          ),
+          GoRoute(
+            path: '/profile/:handle',
+            builder: (context, state) => Scaffold(
+              body: Text('profile-by-handle ${state.pathParameters['handle']}'),
+            ),
+          ),
+        ],
+      );
+      return RepositoryProvider<GraphRepository>.value(
+        value: graphRepository,
+        child: MaterialApp.router(routerConfig: router),
+      );
+    }
+
+    test('the by-id path is /u/<userId>', () {
+      expect(AppRouter.profileByIdPath('u1'), '/u/u1');
+    });
+
+    testWidgets('tapping the author opens /u/<user_id>, never the handle', (
+      tester,
+    ) async {
+      await tester.pumpWidget(routed(PostCard(view: _view(), now: _now)));
+
+      await tester.tap(find.text('Alice A'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('profile-by-id u-author'), findsOneWidget);
+      expect(find.textContaining('profile-by-handle'), findsNothing);
+    });
+
+    testWidgets('tapping a mention opens /u/<mentions[].user_id>', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        routed(
+          PostCard(
+            view: _view(
+              text: 'hi @Bob',
+              mentions: [pb.Mention(handle: 'bob', userId: 'u-bob')],
+            ),
+            now: _now,
+          ),
+        ),
+      );
+
+      await tester.tapOnText(find.textRange.ofSubstring('@Bob'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('profile-by-id u-bob'), findsOneWidget);
+    });
+  });
+
+  group('links and errors', () {
+    testWidgets('a link that cannot be opened shows a snackbar', (
+      tester,
+    ) async {
+      launcher.result = false;
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(text: 'see https://x.y'),
+            now: _now,
+          ),
+        ),
+      );
+
+      await tester.tapOnText(find.textRange.ofSubstring('https://x.y'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text("Couldn't open link."), findsOneWidget);
+    });
+
+    testWidgets('a failing delete shows a snackbar', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(authorId: 'me'),
+            viewerUserId: 'me',
+            now: _now,
+            onDelete: (_) async => throw const NetworkException('offline'),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("Couldn't delete"), findsOneWidget);
+    });
+  });
+
+  group('relationship menu', () {
+    testWidgets('an already blocked and muted author offers Unblock and '
+        'Unmute', (tester) async {
+      when(() => graphRepository.cached('u-author')).thenReturn(
+        graph.Relationship(userId: 'u-author', blocking: true, muting: true),
+      );
+      await tester.pumpWidget(
+        wrap(PostCard(view: _view(), viewerUserId: 'me', now: _now)),
+      );
+
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unblock @alice'), findsOneWidget);
+      expect(find.text('Unmute @alice'), findsOneWidget);
+      expect(find.text('Block @alice'), findsNothing);
+    });
+
+    testWidgets('Unmute calls the repository with no confirmation', (
+      tester,
+    ) async {
+      when(() => graphRepository.cached('u-author'))
+          .thenReturn(graph.Relationship(userId: 'u-author', muting: true));
+      when(
+        () => graphRepository.unmute(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) async => graph.Relationship(userId: 'u-author'));
+      await tester.pumpWidget(
+        wrap(PostCard(view: _view(), viewerUserId: 'me', now: _now)),
+      );
+
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unmute @alice'));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => graphRepository.unmute(
+          userId: 'u-author',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).called(1);
+      expect(find.text('Unmuted @alice.'), findsOneWidget);
+    });
+
+    testWidgets('success reports the new relationship and confirms in a '
+        'snackbar', (tester) async {
+      final changed = <graph.Relationship>[];
+      when(
+        () => graphRepository.mute(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer(
+        (_) async => graph.Relationship(userId: 'u-author', muting: true),
+      );
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(),
+            viewerUserId: 'me',
+            now: _now,
+            onRelationshipChanged: changed.add,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mute @alice'));
+      await tester.pumpAndSettle();
+
+      expect(changed.single.muting, isTrue);
+      expect(find.text('Muted @alice.'), findsOneWidget);
+    });
+
+    testWidgets('a retry after a failed Mute reuses the idempotency key', (
+      tester,
+    ) async {
+      final keys = <String>[];
+      var calls = 0;
+      when(
+        () => graphRepository.mute(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((invocation) async {
+        keys.add(invocation.namedArguments[#idempotencyKey] as String);
+        if (++calls == 1) throw const NetworkException('offline');
+        return graph.Relationship(userId: 'u-author', muting: true);
+      });
+      await tester.pumpWidget(
+        wrap(PostCard(view: _view(), viewerUserId: 'me', now: _now)),
+      );
+
+      for (var i = 0; i < 2; i++) {
+        await tester.tap(find.byTooltip('More options'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Mute @alice'));
+        await tester.pumpAndSettle();
+      }
+
+      expect(keys, hasLength(2));
+      expect(keys[0], keys[1]);
     });
   });
 }

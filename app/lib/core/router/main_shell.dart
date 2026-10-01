@@ -33,7 +33,7 @@ class MainShell extends StatelessWidget {
   ];
 
   int get _selectedIndex {
-    if (location.startsWith('/profile')) return 1;
+    if (location.startsWith('/profile') || location.startsWith('/u/')) return 1;
     if (location.startsWith('/settings')) return 2;
     return 0;
   }

@@ -1,11 +1,9 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/network/app_exception.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/graph/data/graph_repository.dart';
@@ -16,15 +14,21 @@ import '../../features/profile/presentation/widgets/block_confirmation_dialog.da
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../format/relative_time.dart';
+import 'app_avatar.dart';
 
 /// Opens [uri] in the external browser (a new tab on web). Only ever called
-/// with an `http(s)` URL produced by [parsePostText].
-Future<void> launchPostLink(Uri uri) async {
-  await launchUrl(
-    uri,
-    mode: LaunchMode.externalApplication,
-    webOnlyWindowName: '_blank',
-  );
+/// with an `http(s)` URL produced by [parsePostText]. Returns false when the
+/// platform could not open it (never throws).
+Future<bool> launchPostLink(Uri uri) async {
+  try {
+    return await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+      webOnlyWindowName: '_blank',
+    );
+  } catch (_) {
+    return false;
+  }
 }
 
 /// One post in any list (Home, profile tabs, detail): author row, relative
@@ -32,16 +36,18 @@ Future<void> launchPostLink(Uri uri) async {
 ///
 /// - Text is rendered as spans only; HTML is never interpreted. Links are
 ///   `http(s)` only and open externally. Mention spans match
-///   `mentions[].handle` case-insensitively and open the profile by
-///   `mentions[].user_id`. Hashtags are tappable placeholders until Phase 2.
+///   `mentions[].handle` case-insensitively and open the profile **by
+///   user_id** (`/u/:userId`), never by handle: handles can be changed and
+///   re-claimed, and `mentions[].handle` is frozen at write time.
+///   Hashtags are tappable placeholders until Phase 2.
 /// - The overflow menu shows Delete on the viewer's own posts (after a
-///   confirmation, via [onDelete]) and Block/Mute on others' (reusing
-///   [RelationshipCubit] and [showBlockConfirmationDialog]); it is absent
-///   when nothing applies.
+///   confirmation, via [onDelete]) and Block/Mute (or Unblock/Unmute, from
+///   the relationship cache) on others' (reusing [RelationshipCubit] and
+///   [showBlockConfirmationDialog]); it is absent when nothing applies.
 /// - The counts row stays hidden until engagement ships (P5).
 ///
-/// Display only: 0 RPCs. Navigation and side effects are injectable so the
-/// card is testable without a router or platform channels.
+/// Display only: 0 RPCs of its own. Navigation and side effects are
+/// injectable so the card is testable without a router or platform channels.
 class PostCard extends StatelessWidget {
   const PostCard({
     super.key,
@@ -53,6 +59,7 @@ class PostCard extends StatelessWidget {
     this.onOpenProfile,
     this.onOpenLink,
     this.onHashtagTap,
+    this.onRelationshipChanged,
   });
 
   final pb.PostView view;
@@ -61,25 +68,30 @@ class PostCard extends StatelessWidget {
   final String? viewerUserId;
 
   /// Reference time for the relative timestamp; defaults to `DateTime.now()`
-  /// at build time. Tests pass a fixed value.
+  /// at build time. Tests pass a fixed value. The card does not tick: a
+  /// screen that wants live "5m" labels rebuilds its list periodically.
   final DateTime? now;
 
   /// Whether the `graph` flag is on, i.e. Block/Mute may be offered.
   final bool graphActionsEnabled;
 
-  /// Deletes a post after the user confirmed. Null hides Delete.
+  /// Deletes a post after the user confirmed. Null hides Delete. A thrown
+  /// error is reported with a snackbar.
   final Future<void> Function(String postId)? onDelete;
 
-  /// Opens a profile. Receives the user_id (authoritative) and the handle
-  /// (the route key today). Defaults to pushing `/profile/<handle>` with the
-  /// user_id as `extra`.
-  final void Function(String userId, String handle)? onOpenProfile;
+  /// Opens a profile by user_id. Defaults to pushing `/u/<userId>`.
+  final void Function(String userId)? onOpenProfile;
 
-  /// Opens an `http(s)` link. Defaults to [launchPostLink].
+  /// Opens an `http(s)` link. Defaults to [launchPostLink] plus a
+  /// "Couldn't open link" snackbar on failure.
   final void Function(Uri uri)? onOpenLink;
 
   /// Called when a hashtag is tapped. Defaults to a "coming soon" snackbar.
   final VoidCallback? onHashtagTap;
+
+  /// Called with the author's new relationship after Block/Unblock/Mute/
+  /// Unmute succeeded (the timeline hides blocked/muted authors, D6).
+  final ValueChanged<graph.Relationship>? onRelationshipChanged;
 
   pb.Post get _post => view.post;
 
@@ -88,14 +100,28 @@ class PostCard extends StatelessWidget {
       viewerUserId!.isNotEmpty &&
       _post.author.userId == viewerUserId;
 
-  void _openProfile(BuildContext context, String userId, String handle) {
+  void _openProfile(BuildContext context, String userId) {
+    if (userId.isEmpty) return;
     final handler = onOpenProfile;
     if (handler != null) {
-      handler(userId, handle);
+      handler(userId);
       return;
     }
-    if (handle.isEmpty) return;
-    context.push(AppRouter.profilePath(handle), extra: userId);
+    context.push(AppRouter.profileByIdPath(userId));
+  }
+
+  Future<void> _openLink(BuildContext context, Uri uri) async {
+    final handler = onOpenLink;
+    if (handler != null) {
+      handler(uri);
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await launchPostLink(uri)) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text("Couldn't open link.")));
+    }
   }
 
   @override
@@ -134,12 +160,12 @@ class PostCard extends StatelessWidget {
             label: 'Open profile of @${author.handle}',
             excludeSemantics: true,
             child: InkResponse(
-              onTap: () => _openProfile(context, author.userId, author.handle),
+              onTap: () => _openProfile(context, author.userId),
               radius: AppSpacing.minTapTarget / 2,
               child: SizedBox(
                 width: AppSpacing.minTapTarget,
                 height: AppSpacing.minTapTarget,
-                child: Center(child: _Avatar(url: author.avatarUrl)),
+                child: Center(child: AppAvatar(url: author.avatarUrl)),
               ),
             ),
           ),
@@ -156,11 +182,7 @@ class PostCard extends StatelessWidget {
                         label: authorLabel,
                         excludeSemantics: true,
                         child: InkWell(
-                          onTap: () => _openProfile(
-                            context,
-                            author.userId,
-                            author.handle,
-                          ),
+                          onTap: () => _openProfile(context, author.userId),
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(
                               minHeight: AppSpacing.minTapTarget,
@@ -178,11 +200,12 @@ class PostCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    _OverflowMenu(
+                    _PostMenu(
                       post: _post,
                       isOwn: _isOwn,
                       graphActionsEnabled: graphActionsEnabled,
                       onDelete: onDelete,
+                      onRelationshipChanged: onRelationshipChanged,
                     ),
                   ],
                 ),
@@ -190,11 +213,12 @@ class PostCard extends StatelessWidget {
                   text: _post.text,
                   mentions: _post.mentions,
                   style: theme.textTheme.bodyLarge,
-                  onOpenLink: onOpenLink ?? launchPostLink,
+                  onOpenLink: (uri) => _openLink(context, uri),
                   onOpenMention: (userId, handle) =>
-                      _openProfile(context, userId, handle),
+                      _openProfile(context, userId),
                   onHashtagTap:
-                      onHashtagTap ?? () => _comingSoon(context, 'Hashtags'),
+                      onHashtagTap ??
+                      () => _showMessage(context, 'Hashtags are coming soon.'),
                 ),
                 const SizedBox(height: AppSpacing.xs),
               ],
@@ -206,28 +230,10 @@ class PostCard extends StatelessWidget {
   }
 }
 
-void _comingSoon(BuildContext context, String what) {
+void _showMessage(BuildContext context, String message) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text('$what are coming soon.')));
-}
-
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.url});
-
-  /// The 96 px thumbnail from the author snapshot (never the full image).
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    return CircleAvatar(
-      radius: 20,
-      backgroundImage: url.isEmpty
-          ? null
-          : CachedNetworkImageProvider(url, maxWidth: 96, maxHeight: 96),
-      child: url.isEmpty ? const Icon(Icons.person_outline) : null,
-    );
-  }
+    ..showSnackBar(SnackBar(content: Text(message)));
 }
 
 class _AuthorLine extends StatelessWidget {
@@ -403,25 +409,60 @@ class _PostRichTextState extends State<PostRichText> {
 
 enum _MenuAction { delete, block, mute }
 
-class _OverflowMenu extends StatelessWidget {
-  const _OverflowMenu({
+/// The overflow menu. For another author it holds ONE [RelationshipCubit]
+/// for the card's lifetime (created on first open), so a retry after a
+/// failed Block/Mute reuses the same idempotency key (CLAUDE.md rule 4).
+class _PostMenu extends StatefulWidget {
+  const _PostMenu({
     required this.post,
     required this.isOwn,
     required this.graphActionsEnabled,
     required this.onDelete,
+    required this.onRelationshipChanged,
   });
 
   final pb.Post post;
   final bool isOwn;
   final bool graphActionsEnabled;
   final Future<void> Function(String postId)? onDelete;
+  final ValueChanged<graph.Relationship>? onRelationshipChanged;
+
+  @override
+  State<_PostMenu> createState() => _PostMenuState();
+}
+
+class _PostMenuState extends State<_PostMenu> {
+  RelationshipCubit? _cubit;
+
+  RelationshipCubit _cubitFor(BuildContext context) {
+    final existing = _cubit;
+    if (existing != null && existing.userId == widget.post.author.userId) {
+      return existing;
+    }
+    existing?.close();
+    final repository = context.read<GraphRepository>();
+    final userId = widget.post.author.userId;
+    return _cubit = RelationshipCubit(
+      graphRepository: repository,
+      userId: userId,
+      initial: repository.cached(userId) ?? graph.Relationship(userId: userId),
+    );
+  }
+
+  @override
+  void dispose() {
+    _cubit?.close();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final handle = post.author.handle;
-    final canDelete = isOwn && onDelete != null;
+    final handle = widget.post.author.handle;
+    final canDelete = widget.isOwn && widget.onDelete != null;
     final canGraph =
-        !isOwn && graphActionsEnabled && post.author.userId.isNotEmpty;
+        !widget.isOwn &&
+        widget.graphActionsEnabled &&
+        widget.post.author.userId.isNotEmpty;
     if (!canDelete && !canGraph) return const SizedBox.shrink();
 
     return PopupMenuButton<_MenuAction>(
@@ -429,64 +470,86 @@ class _OverflowMenu extends StatelessWidget {
       icon: const Icon(Icons.more_horiz),
       padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
       onSelected: (action) => _onSelected(context, action),
-      itemBuilder: (context) => [
-        if (canDelete)
-          const PopupMenuItem(value: _MenuAction.delete, child: Text('Delete')),
-        if (canGraph) ...[
-          PopupMenuItem(
-            value: _MenuAction.block,
-            child: Text('Block @$handle'),
-          ),
-          PopupMenuItem(value: _MenuAction.mute, child: Text('Mute @$handle')),
-        ],
-      ],
+      itemBuilder: (context) {
+        final relationship = canGraph
+            ? _cubitFor(context).state.relationship
+            : null;
+        return [
+          if (canDelete)
+            const PopupMenuItem(
+              value: _MenuAction.delete,
+              child: Text('Delete'),
+            ),
+          if (relationship != null) ...[
+            PopupMenuItem(
+              value: _MenuAction.block,
+              child: Text(
+                relationship.blocking ? 'Unblock @$handle' : 'Block @$handle',
+              ),
+            ),
+            PopupMenuItem(
+              value: _MenuAction.mute,
+              child: Text(
+                relationship.muting ? 'Unmute @$handle' : 'Mute @$handle',
+              ),
+            ),
+          ],
+        ];
+      },
     );
   }
 
   Future<void> _onSelected(BuildContext context, _MenuAction action) async {
     switch (action) {
       case _MenuAction.delete:
-        final confirmed = await _confirmDelete(context);
-        if (confirmed) await onDelete!(post.postId);
+        await _delete(context);
       case _MenuAction.block:
-        final confirmed = await showBlockConfirmationDialog(context);
-        if (confirmed && context.mounted) {
-          await _runGraphAction(context, (cubit) => cubit.block());
+        final cubit = _cubitFor(context);
+        if (cubit.state.relationship.blocking) {
+          await _run(context, cubit.unblock, 'Unblocked');
+        } else {
+          final confirmed = await showBlockConfirmationDialog(context);
+          if (confirmed && context.mounted) {
+            await _run(context, cubit.block, 'Blocked');
+          }
         }
       case _MenuAction.mute:
-        await _runGraphAction(context, (cubit) => cubit.mute());
+        final cubit = _cubitFor(context);
+        if (cubit.state.relationship.muting) {
+          await _run(context, cubit.unmute, 'Unmuted');
+        } else {
+          await _run(context, cubit.mute, 'Muted');
+        }
     }
   }
 
-  Future<void> _runGraphAction(
+  Future<void> _run(
     BuildContext context,
-    Future<void> Function(RelationshipCubit cubit) action,
+    Future<void> Function() action,
+    String done,
   ) async {
-    final repository = context.read<GraphRepository>();
+    final cubit = _cubit!;
     final messenger = ScaffoldMessenger.of(context);
-    final cubit = RelationshipCubit(
-      graphRepository: repository,
-      userId: post.author.userId,
-      initial:
-          repository.cached(post.author.userId) ??
-          graph.Relationship(userId: post.author.userId),
-    );
-    try {
-      await action(cubit);
-      final AppException? error = cubit.state.error;
-      if (error != null) {
-        messenger
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(content: Text(relationshipErrorMessage(error))),
-          );
-      }
-    } finally {
-      await cubit.close();
+    await action();
+    final error = cubit.state.error;
+    if (error != null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(relationshipErrorMessage(error))),
+        );
+      return;
     }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('$done @${widget.post.author.handle}.')),
+      );
+    widget.onRelationshipChanged?.call(cubit.state.relationship);
   }
 
-  Future<bool> _confirmDelete(BuildContext context) async {
+  Future<void> _delete(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -504,6 +567,17 @@ class _OverflowMenu extends StatelessWidget {
         ],
       ),
     );
-    return confirmed ?? false;
+    if (confirmed != true) return;
+    try {
+      await widget.onDelete!(widget.post.postId);
+    } catch (_) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't delete the post. Please try again."),
+          ),
+        );
+    }
   }
 }

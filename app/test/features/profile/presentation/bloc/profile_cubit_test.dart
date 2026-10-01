@@ -33,6 +33,45 @@ void main() {
   }
 
   blocTest<ProfileCubit, ProfileState>(
+    'opened by user id it loads GetProfile(user_id), not the handle',
+    build: () {
+      when(() => identityRepository.getProfile(userId: 'target-uid'))
+          .thenAnswer(
+            (_) async =>
+                identity.Profile(userId: 'target-uid', handle: 'renamed'),
+          );
+      when(() => graphRepository.cached('target-uid')).thenReturn(null);
+      when(() => graphRepository.relationshipFor('target-uid'))
+          .thenAnswer((_) async => graph.Relationship(userId: 'target-uid'));
+      return ProfileCubit(
+        identityRepository: identityRepository,
+        graphRepository: graphRepository,
+        userId: 'target-uid',
+        graphEnabled: true,
+        ownUserId: 'viewer-uid',
+      );
+    },
+    act: (cubit) => cubit.load(),
+    verify: (_) {
+      verify(() => identityRepository.getProfile(userId: 'target-uid'))
+          .called(1);
+      verifyNever(
+        () => identityRepository.getProfile(handle: any(named: 'handle')),
+      );
+    },
+    expect: () => [
+      isA<ProfileState>().having(
+        (s) => s.status,
+        'status',
+        ProfileStatus.loading,
+      ),
+      isA<ProfileState>()
+          .having((s) => s.status, 'status', ProfileStatus.ready)
+          .having((s) => s.profile?.handle, 'handle', 'renamed'),
+    ],
+  );
+
+  blocTest<ProfileCubit, ProfileState>(
     'loads the profile and the relationship when the flag is on and it is '
     "not the viewer's own profile",
     build: () {

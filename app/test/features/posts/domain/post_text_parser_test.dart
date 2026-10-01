@@ -115,4 +115,83 @@ void main() {
   test('empty text yields no spans', () {
     expect(parsePostText('', const []), isEmpty);
   });
+
+  group('D7/D8 edge cases', () {
+    test('mention grammar rejects look-alikes', () {
+      final m = [_m('bob'), _m('al'), _m('alice')];
+      for (final text in ['@@bob', '@bob@host', '@al-ice', 'x@bob', '_@bob']) {
+        expect(_tappable(parsePostText(text, m)), isEmpty, reason: text);
+      }
+      expect(_tappable(parsePostText('(@bob)', m)), hasLength(1));
+      expect(_tappable(parsePostText('@alice-x', m)), hasLength(1));
+    });
+
+    test('an HTML entity is not a hashtag', () {
+      expect(_tappable(parsePostText('it&#39;s', const [])), isEmpty);
+    });
+
+    test('51-rune hashtag is rejected, 50 is accepted', () {
+      expect(_tappable(parsePostText('#${'a' * 50}', const [])), hasLength(1));
+      expect(_tappable(parsePostText('#${'a' * 51}', const [])), isEmpty);
+    });
+
+    test('an astral-letter run past 50 runes is rejected whole', () {
+      // U+1D400 MATHEMATICAL BOLD CAPITAL A is a letter outside the BMP.
+      final astral = String.fromCharCode(0x1D400);
+      expect(
+        _tappable(parsePostText('#${astral * 50}', const [])),
+        hasLength(1),
+      );
+      expect(_tappable(parsePostText('#${astral * 51}', const [])), isEmpty);
+    });
+
+    test('Devanagari digits alone are not a hashtag, a Devanagari word is', () {
+      expect(
+        _tappable(parsePostText('#\u0967\u0968\u0969', const [])),
+        isEmpty,
+      );
+      expect(
+        _tappable(parsePostText('#\u092d\u093e\u0930\u0924', const [])),
+        hasLength(1),
+      );
+    });
+  });
+
+  group('deceptive links are plain text', () {
+    test('userinfo, IDN/homograph hosts and bidi controls', () {
+      for (final text in [
+        'https://google.com@evil.com/x',
+        'https://user:pw@example.com',
+        'https://\u0430pple.com/login', // Cyrillic a
+        'https://exa%6Dple.com',
+        'https://\u202eevil.com',
+        'https://example.com/\u202etxt.exe',
+        'https://[::1]/x',
+      ]) {
+        expect(_tappable(parsePostText(text, const [])), isEmpty, reason: text);
+      }
+    });
+
+    test('ordinary links with ports, paths and unicode paths still work', () {
+      for (final text in [
+        'https://example.com:8080/a?b=c#d',
+        'http://sub.example.co.uk/path/\u00fc',
+        'https://1.2.3.4/x',
+      ]) {
+        final spans = parsePostText(text, const []);
+        expect(spans.single.kind, PostSpanKind.link, reason: text);
+      }
+    });
+
+    test('a balanced closing bracket stays, an unbalanced one is trimmed', () {
+      final wiki = parsePostText(
+        'https://en.wikipedia.org/wiki/Foo_(bar)',
+        const [],
+      );
+      expect(wiki.single.text, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+      final paren = parsePostText('(see https://x.y/a)', const []);
+      expect(paren[1].text, 'https://x.y/a');
+      expect(paren.last.text, ')');
+    });
+  });
 }
