@@ -20,8 +20,12 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
+	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
@@ -125,8 +129,17 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	identityServer := identity.NewServer(identitySvc, identity.WithAllowAnonymous(cfg.AuthEmulator))
 	graphServer := graph.NewServer(graphSvc)
 
-	// posts, timeline, engagement, media, notifications, search, moderation, admin are not implemented in
-	// this bootstrap; their Connect servers are not registered.
+	// posts and timeline (ADR-0010, T5): both services are registered behind FEATURE_POSTS. Their RPC bodies land
+	// in T8/T9/T12/T13; until then every RPC is Unimplemented once the flag is on. timeline gets only the
+	// posts.Reader and graph.Reader seams (ADR-0004 handoff: it never queries `posts` or `graph` itself).
+	postsRepo := posts.NewFirestoreRepo(fsClient)
+	postsCache := posts.NewCache(cfg.CacheTTL, cfg.CachePostsEntries, cfg.CacheAuthorRecentEntries)
+	postsSvc := posts.New(posts.Deps{Repo: postsRepo, Cache: postsCache, Events: posts.NopEvents{}})
+	postsServer := posts.NewServer(postsSvc, featureFlags)
+	timelineServer := timeline.NewServer(timeline.Deps{Flags: featureFlags, Posts: postsSvc, Graph: graphSvc})
+
+	// engagement, media, notifications, search, moderation, admin are not implemented in this bootstrap; their
+	// Connect servers are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -172,6 +185,12 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 
 	graphPath, graphHandler := graphv1connect.NewGraphServiceHandler(graphServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(graphPath, graphHandler)
+
+	postsPath, postsHandler := postsv1connect.NewPostServiceHandler(postsServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(postsPath, postsHandler)
+
+	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(timelinePath, timelineHandler)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
