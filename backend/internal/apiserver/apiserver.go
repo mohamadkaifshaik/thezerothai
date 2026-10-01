@@ -122,7 +122,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
-	identityServer := identity.NewServer(identitySvc)
+	identityServer := identity.NewServer(identitySvc, identity.WithAllowAnonymous(cfg.AuthEmulator))
 	graphServer := graph.NewServer(graphSvc)
 
 	// posts, timeline, engagement, media, notifications, search, moderation, admin are not implemented in
@@ -148,10 +148,11 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		mw.Recover(log),
 		authn.AppCheckInterceptor(appCheckVerifier, authn.Mode(cfg.AppCheck)),
 		authn.IDTokenInterceptor(idVerifier),
-		// ADR-0010 D5 A2: 0-read verified-identity gate. Unverified password accounts never reach the rate
-		// limiter, so a minted uid creates no limiter key and no Firestore read.
-		authn.VerifiedIdentityInterceptor(profileExempt),
-		ratelimit.Interceptor(rateLimitConfig(cfg)),
+		// ADR-0010 D5 A2/A10: 0-read verified-identity gate (sign-in provider allowlist). Callers outside it never
+		// reach the rate limiter, so a minted uid creates no limiter key and no Firestore read. Anonymous passes
+		// only against the Auth emulator.
+		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
+		ratelimit.Interceptor(RateLimitConfig(cfg)),
 		degraded.Interceptor(cfg.Degraded, degraded.ProcedureSet{} /* no media procedures registered yet */),
 		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt),
 		mw.ErrorMapping(log),

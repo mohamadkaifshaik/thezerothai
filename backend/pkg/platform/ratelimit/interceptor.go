@@ -48,15 +48,16 @@ type Config struct {
 	// a comment explains each entry. Before next the call is rejected when the uid's
 	// spent reads are >= the cap; after next (success or error) budget.FromContext(ctx).Reads() is charged.
 	ReadBudget *DailyCap
-	// ReadBudgetIP is the per-IP (IPv4 address or IPv6 /64, IPBudgetKey) daily read budget (D5 A3-A4). It
-	// applies to ReadBudgetIPEnforce procedures (reserved and charged), ReadBudgetIPChargeOnly procedures
-	// (charged, never rejected) and to a uid this instance has seen without a profile (A3: its non-exempt
-	// calls reserve the IP key and a verified caller's profile-less call is charged to it). It never applies to
-	// callers with a profile, who can share a carrier-grade-NAT address with thousands of others. Its hold per
-	// call should be WithMaxCallReads(IPBudgetMaxCallReads) (every IP-keyed call reads at most 1 doc).
+	// ReadBudgetIP is the per-IP (IPv4 address or IPv6 /64, IPBudgetKey) daily read meter (D5 A3, A8, A9). In
+	// production it never rejects (A8): it is charged for ReadBudgetIPChargeOnly procedures, for the non-exempt
+	// calls of a uid this instance has seen without a profile (A3, charged 0 when the call finds a profile, A9)
+	// and for a verified profile-less caller's call. It never applies to callers with a profile, who can share a
+	// carrier-grade-NAT address with thousands of others. A procedure in ReadBudgetIPEnforce would be reserved
+	// and rejected with the hold WithMaxCallReads(IPBudgetMaxCallReads); that set is empty and the guard test
+	// keeps it so.
 	ReadBudgetIP *DailyCap
-	// ReadBudgetIPEnforce and ReadBudgetIPChargeOnly are the A4 sets (CheckHandleAvailability; CreateProfile).
-	// Their union must equal the authn profile-exempt set (guard test, security L6).
+	// ReadBudgetIPEnforce (empty since A8) and ReadBudgetIPChargeOnly (CheckHandleAvailability, CreateProfile)
+	// are the A4/A8 sets. Their union must equal the authn profile-exempt set (guard test, security L6).
 	ReadBudgetIPEnforce    map[string]struct{}
 	ReadBudgetIPChargeOnly map[string]struct{}
 	// ReadBudgetExempt lists procedures the read budget does not cover. Must stay empty (guard test).
@@ -96,8 +97,8 @@ func (c Config) ReadBudgetEnforces(procedure string) bool {
 // (another call is in flight near the cap), not by an exhausted budget.
 const RetryAfterInFlight = time.Second
 
-// ProfileLessMarkTTL is how long a uid seen without a profile stays marked (D5 A3); it is also the
-// retry_after of an IP-budget rejection of a marked uid, because the mark may be stale.
+// ProfileLessMarkTTL is how long a uid seen without a profile stays marked (D5 A3). The mark may be stale
+// (the profile can be created on another instance); any call that finds a profile clears it (A9).
 const ProfileLessMarkTTL = 10 * time.Minute
 
 // IPBudgetKey normalises a client IP into the key of every IP-keyed limiter (D5 A5): the canonical netip
@@ -174,8 +175,9 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 			}
 
 			// ADR-0010 D5 read budget. Keys: the uid (A6: charge-only for account operations) and the IP key
-			// (A3-A4): enforced on CheckHandleAvailability and on the non-exempt calls of a marked uid,
-			// charge-only on CreateProfile. Rejected before any Firestore read (this runs before account status).
+			// (A3, A8): charge-only everywhere (CheckHandleAvailability, CreateProfile and the non-exempt calls of
+			// a marked uid), so the IP key never rejects. A uid rejection happens before any Firestore read (this
+			// runs before account status).
 			var budgetKeys []budgetKey
 			if cfg.ReadBudgetCovers(procedure) {
 				_, chargeOnly := cfg.ReadBudgetChargeOnly[procedure]
@@ -195,7 +197,9 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 					case ipChargeOnly:
 						budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: ipKey, kind: "ip", chargeOnly: true})
 					case marked:
-						budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: ipKey, kind: "ip", chargeOnly: chargeOnly, dailyRetry: ProfileLessMarkTTL})
+						// A8: a marked uid's non-exempt call is only metered on the IP key, never held or rejected.
+						// A9: viaMark lets settleReadBudget skip the charge when the call finds a profile.
+						budgetKeys = append(budgetKeys, budgetKey{cap: cfg.ReadBudgetIP, key: ipKey, kind: "ip", chargeOnly: true, viaMark: true})
 					}
 				}
 			}
@@ -248,8 +252,8 @@ type budgetKey struct {
 	key        string
 	kind       string // "uid" or "ip": log-only (A7), never sent to the client
 	chargeOnly bool
-	reserved   bool          // Reserve admitted this call, so Release (not Charge) settles it
-	dailyRetry time.Duration // retry_after of a daily rejection when not the time to IST midnight (A3)
+	reserved   bool // Reserve admitted this call, so Release (not Charge) settles it
+	viaMark    bool // the IP key is here only because the uid carries an A3 profile-less mark (A8/A9)
 }
 
 // settlement is what settleReadBudget needs about the finished call.
@@ -269,7 +273,20 @@ type settlement struct {
 // held call read more than its M, because the A1 bound assumes that never happens.
 func settleReadBudget(ctx context.Context, cfg Config, profileLess *cache.LRU[string, struct{}], s settlement, succeeded bool) {
 	reads := budget.FromContext(ctx).Reads()
-	keys := s.keys
+	info := logger.RequestInfoFromContext(ctx)
+	// A9: the uid was marked profile-less when the call began, but this call found a profile (the mark was stale,
+	// e.g. the profile was created on another instance). Charge the IP key 0, drop it from the spend log, unmark.
+	foundProfile := info != nil && info.ProfileFound
+	keys := make([]budgetKey, 0, len(s.keys)+1)
+	for _, k := range s.keys {
+		if k.viaMark && foundProfile {
+			if s.hasUID {
+				profileLess.Delete(s.uid)
+			}
+			continue
+		}
+		keys = append(keys, k)
+	}
 	for _, k := range keys {
 		if !k.reserved {
 			k.cap.Charge(k.key, reads)
@@ -281,14 +298,14 @@ func settleReadBudget(ctx context.Context, cfg Config, profileLess *cache.LRU[st
 				"key", k.kind, "reads", reads, "max_call_reads", m, "rpc", s.procedure, "uid_hash", logger.HashUID(s.uid))
 		}
 	}
-	if info := logger.RequestInfoFromContext(ctx); info != nil && info.ProfileRequired && s.hasIP && cfg.ReadBudgetIP != nil && cfg.ReadBudgetCovers(s.procedure) {
+	if info != nil && info.ProfileRequired && s.hasIP && cfg.ReadBudgetIP != nil && cfg.ReadBudgetCovers(s.procedure) {
 		hasIPKey := false
 		for _, k := range keys {
 			hasIPKey = hasIPKey || k.kind == "ip"
 		}
 		if !hasIPKey {
 			cfg.ReadBudgetIP.Charge(s.ipKey, reads)
-			keys = append(keys[:len(keys):len(keys)], budgetKey{cap: cfg.ReadBudgetIP, key: s.ipKey, kind: "ip", chargeOnly: true})
+			keys = append(keys, budgetKey{cap: cfg.ReadBudgetIP, key: s.ipKey, kind: "ip", chargeOnly: true})
 		}
 		if s.hasUID {
 			profileLess.Set(s.uid, struct{}{})
@@ -334,8 +351,9 @@ func rejectDaily(ctx context.Context, name string, c *DailyCap) error {
 // rejectReadBudget is the RATE_LIMITED rejection of the read budget (ADR-0010 D5). The client always sees
 // limit=read_budget_daily, or read_budget_inflight when only the in-flight hold (A1) rejected; the request log
 // additionally gets read_budget_key (uid or ip, A7), the spends (logBudgetSpends) and, for the hold,
-// read_budget_inflight. retry_after is 1 s for the hold, else k.dailyRetry when set (a marked uid's IP budget,
-// A3) or the time to IST midnight. keys[:tripped+1] are the keys Reserve looked at.
+// read_budget_inflight. retry_after is 1 s for the hold, else the time to IST midnight. keys[:tripped+1] are
+// the keys Reserve looked at. Since A8 only the uid key is ever reserved in production (ReadBudgetIPEnforce is
+// empty), but the IP branch stays correct for a Config that enforces one.
 func rejectReadBudget(ctx context.Context, keys []budgetKey, tripped int, spent int64) error {
 	k := &keys[tripped]
 	if info := logger.RequestInfoFromContext(ctx); info != nil {
@@ -345,10 +363,6 @@ func rejectReadBudget(ctx context.Context, keys []budgetKey, tripped int, spent 
 	if k.cap.IsTransient(spent) {
 		logger.SetRequestField(ctx, "read_budget_inflight", k.cap.Inflight(k.key))
 		return rejectWith(ctx, LimitReadBudgetInflight, RetryAfterInFlight)
-	}
-	if k.dailyRetry > 0 {
-		logger.SetRequestField(ctx, "profile_required", true)
-		return rejectWith(ctx, LimitReadBudgetDaily, k.dailyRetry)
 	}
 	return rejectWith(ctx, LimitReadBudgetDaily, quota.UntilNextDay(k.cap.now()))
 }

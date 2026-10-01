@@ -18,15 +18,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// requireVerifiedEmailForPassword enforces H1 (2026-09-27 security audit): a password-provider account
-// must have a verified email before creating a profile (ADR-0006 §1). Unscripted signups otherwise let an
-// attacker mint Firebase email/password accounts by the thousand per hour per IP and squat handles / burn
-// the Firestore write quota (docs/reviews/security-audit-v0.1.0.md). Google/Apple sign-in are never blocked
-// here. The predicate is authn.Claims.UnverifiedPassword, which authn.VerifiedIdentityInterceptor (ADR-0010
-// D5 A2) applies earlier at 0 reads; this check stays as defence in depth for a chain without the gate.
-func requireVerifiedEmailForPassword(ctx context.Context) error {
+// requireVerifiedIdentity enforces H1 (2026-09-27 security audit) and ADR-0010 D5 A10: only an account that
+// passes the sign-in provider allowlist (google.com, apple.com, password with a verified email, and anonymous
+// only against the Auth emulator) may create a profile. Unscripted signups otherwise let an attacker mint
+// Firebase accounts by the thousand per hour per IP and squat handles / burn the Firestore write quota
+// (docs/reviews/security-audit-v0.1.0.md). The predicate is authn.Claims.IdentityGate, the same one
+// authn.VerifiedIdentityInterceptor applies earlier at 0 reads; this check stays as defence in depth for a chain
+// without the gate, so an account outside the allowlist can never own a profile.
+func requireVerifiedIdentity(ctx context.Context, allowAnonymous bool) error {
 	claims, _ := authn.ClaimsFromContext(ctx)
-	if !claims.UnverifiedPassword() {
+	if claims.IdentityGate(allowAnonymous) == authn.GatePass {
 		return nil
 	}
 	return apierr.New(
@@ -38,12 +39,26 @@ func requireVerifiedEmailForPassword(ctx context.Context) error {
 
 // Server adapts Service to identityv1connect.IdentityServiceHandler.
 type Server struct {
-	svc Service
+	svc            Service
+	allowAnonymous bool
+}
+
+// ServerOption configures NewServer.
+type ServerOption func(*Server)
+
+// WithAllowAnonymous lets anonymous sign-ins create a profile. Wire it from config.AuthEmulator only (ADR-0010
+// D5 A10): the e2e helpers mint anonymous users against the Auth emulator.
+func WithAllowAnonymous(allow bool) ServerOption {
+	return func(s *Server) { s.allowAnonymous = allow }
 }
 
 // NewServer builds the Connect handler. Use with identityv1connect.NewIdentityServiceHandler.
-func NewServer(svc Service) *Server {
-	return &Server{svc: svc}
+func NewServer(svc Service, opts ...ServerOption) *Server {
+	s := &Server{svc: svc}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 var _ identityv1connect.IdentityServiceHandler = (*Server)(nil)
@@ -62,7 +77,7 @@ func (s *Server) CreateProfile(ctx context.Context, req *connect.Request[identit
 	if err != nil {
 		return nil, err
 	}
-	if err := requireVerifiedEmailForPassword(ctx); err != nil {
+	if err := requireVerifiedIdentity(ctx, s.allowAnonymous); err != nil {
 		return nil, err
 	}
 	profile, err := s.svc.CreateProfile(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetHandle(), req.Msg.GetDisplayName())

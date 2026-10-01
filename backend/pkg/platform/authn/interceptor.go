@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 
@@ -101,20 +102,28 @@ func IDTokenInterceptor(verifier IDTokenVerifier) connect.UnaryInterceptorFunc {
 	return connect.UnaryInterceptorFunc(interceptor)
 }
 
-// VerifiedIdentityInterceptor is the ADR-0010 D5 A2 gate: it rejects an unverified password account
-// (Claims.UnverifiedPassword) from the ID-token claims alone, with 0 Firestore reads and before the rate
-// limiter, so a minted uid never creates a limiter key or a read. emailGated lists the profile-exempt
-// procedures (CheckHandleAvailability, CreateProfile) that answer FAILED_PRECONDITION + EMAIL_NOT_VERIFIED;
-// every other procedure answers PROFILE_REQUIRED, which is truthful because such an account has no profile.
-// Must run after IDTokenInterceptor.
-func VerifiedIdentityInterceptor(emailGated map[string]struct{}) connect.UnaryInterceptorFunc {
+// VerifiedIdentityInterceptor is the ADR-0010 D5 A2/A10 gate: it rejects every caller outside the sign-in
+// provider allowlist (Claims.IdentityGate) from the ID-token claims alone, with 0 Firestore reads and before
+// the rate limiter, so a minted uid never creates a limiter key or a read. allowAnonymous is true only against
+// the Auth emulator. emailGated lists the profile-exempt procedures (CheckHandleAvailability, CreateProfile)
+// that answer FAILED_PRECONDITION + EMAIL_NOT_VERIFIED; every other procedure answers PROFILE_REQUIRED, which
+// is truthful because such an account has no profile. It logs gate=email_unverified or
+// gate=provider_not_allowed (+ gate_provider, cut to 32 bytes). Must run after IDTokenInterceptor.
+func VerifiedIdentityInterceptor(emailGated map[string]struct{}, allowAnonymous bool) connect.UnaryInterceptorFunc {
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			claims, ok := ClaimsFromContext(ctx)
-			if !ok || !claims.UnverifiedPassword() {
+			if !ok {
 				return next(ctx, req)
 			}
-			logger.SetRequestField(ctx, "gate", "email_unverified")
+			gate := claims.IdentityGate(allowAnonymous)
+			if gate == GatePass {
+				return next(ctx, req)
+			}
+			logger.SetRequestField(ctx, "gate", gate)
+			if gate == GateProviderNotAllow {
+				logger.SetRequestField(ctx, "gate_provider", truncateBytes(claims.SignInProvider, 32))
+			}
 			if _, gated := emailGated[req.Spec().Procedure]; gated {
 				return nil, apierr.ToConnect(apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, "please verify your email before creating a profile"))
 			}
@@ -122,6 +131,18 @@ func VerifiedIdentityInterceptor(emailGated map[string]struct{}) connect.UnaryIn
 		}
 	}
 	return connect.UnaryInterceptorFunc(interceptor)
+}
+
+// truncateBytes cuts s to at most n bytes without splitting a UTF-8 sequence.
+func truncateBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	s = s[:n]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // AccountStatus mirrors identityv1.AccountStatus without importing the identity module (platform code
@@ -177,6 +198,13 @@ func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]
 				// Internal ones with their cause (see mw.Logging's doc comment); the client still only ever
 				// sees the generic "internal error" message either way.
 				return nil, apierr.New(connect.CodeInternal, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "internal error").WithCause(err)
+			}
+			if exists {
+				// ADR-0010 D5 A9: whatever the status (a SUSPENDED or DELETING user has a profile too), a
+				// found profile lets the rate limiter clear a stale profile-less mark. Never set on error.
+				if info := logger.RequestInfoFromContext(ctx); info != nil {
+					info.ProfileFound = true
+				}
 			}
 			if !exists {
 				// ADR-0010 D5 A3: tell the rate limiter (which wraps this interceptor) that a verified

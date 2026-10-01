@@ -13,10 +13,10 @@ import (
 // idleBucketTTL is how long an idle per-key token bucket is kept before eviction.
 const idleBucketTTL = 10 * time.Minute
 
-// rateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
+// RateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
 // call caps and the ADR-0010 D5 read budget (uid, plus IP on profileExempt procedures). It is a function of
 // cfg alone so the guard test (guard_test.go) can inspect exactly what Build wires.
-func rateLimitConfig(cfg config.Config) ratelimit.Config {
+func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlDefault := ratelimit.NewLimiter(cfg.RateLimit.PerUserPerMinute, idleBucketTTL)
 	rlCheckHandle := ratelimit.NewLimiter(cfg.RateLimit.CheckHandlePerUserPerMinute, idleBucketTTL)
 	rlIP := ratelimit.NewLimiter(cfg.RateLimit.PerIPPerMinute, idleBucketTTL)
@@ -76,14 +76,14 @@ func rateLimitConfig(cfg config.Config) ratelimit.Config {
 		// arms the single-flight guard near the cap (review M1).
 		ReadBudget:   ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerUIDPerDay).WithMaxCallReads(config.ReadBudgetMaxCallReads),
 		ReadBudgetIP: ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay).WithMaxCallReads(config.IPReadBudgetMaxCallReads),
-		// ADR-0010 D5 A4: CheckHandleAvailability is enforced on the IP key; CreateProfile is charge-only, so one
-		// abuser behind a shared IPv4 address cannot block sign-ups for everyone behind it. Together they must
-		// equal profileExemptProcedures (guard test, security L6).
-		ReadBudgetIPEnforce: map[string]struct{}{
-			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {},
-		},
+		// ADR-0010 D5 A8: the IP key never rejects. ReadBudgetIPEnforce is empty (the guard test keeps it so; a
+		// procedure added needs an ADR amendment); both exempt procedures are charge-only, so one account behind a
+		// shared IPv4 address cannot block sign-ups for everyone behind it. Together they must equal
+		// profileExemptProcedures (guard test, security L6).
+		ReadBudgetIPEnforce: map[string]struct{}{},
 		ReadBudgetIPChargeOnly: map[string]struct{}{
-			identityv1connect.IdentityServiceCreateProfileProcedure: {},
+			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {},
+			identityv1connect.IdentityServiceCreateProfileProcedure:           {},
 		},
 		// ADR-0010 D5 A6 (review M2, CLAUDE.md rule 10): charged, never rejected. Each entry needs a reason in
 		// guard_test.go allowedReadBudgetChargeOnly and a DailyCaps entry below (account_ops_daily).

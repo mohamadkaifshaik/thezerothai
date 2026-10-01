@@ -24,8 +24,8 @@ import (
 
 const (
 	procOther  = "/t.Service/Other"         // a non-exempt procedure (needs a profile)
-	procCreate = "/t.Service/CreateProfile" // IP charge-only (A4)
-	procCheck  = "/t.Service/CheckHandle"   // IP enforced (A4)
+	procCreate = "/t.Service/CreateProfile" // IP charge-only (A4, A8)
+	procCheck  = "/t.Service/CheckHandle"   // IP charge-only since A8; enforced only by enforceCheckConfig
 	testIP     = "203.0.113.9"
 )
 
@@ -37,9 +37,19 @@ type multiRig struct {
 	mu   sync.Mutex
 }
 
-// handler lets a test decide per call how many reads to spend and whether the account-status interceptor
-// would have flagged the caller as profile-less.
-type handler func(ctx context.Context) (reads int64, profileRequired bool, err error)
+// pflag is what the account-status interceptor would have recorded on the RequestInfo: nothing (it never ran, or
+// the call was exempt), ProfileRequired (no profile) or ProfileFound (a profile exists, A9).
+type pflag int
+
+const (
+	pNone pflag = iota
+	pRequired
+	pFound
+)
+
+// handler lets a test decide per call how many reads to spend and what the account-status interceptor would
+// have flagged.
+type handler func(ctx context.Context) (reads int64, flag pflag, err error)
 
 func newMultiRig(t *testing.T, uid string, cfg ratelimit.Config, handlers map[string]handler) *multiRig {
 	t.Helper()
@@ -61,10 +71,13 @@ func newMultiRig(t *testing.T, uid string, cfg ratelimit.Config, handlers map[st
 		})
 		mux.Handle(proc, connect.NewUnaryHandler(proc,
 			func(ctx context.Context, _ *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
-				reads, profileRequired, err := h(ctx)
+				reads, flag, err := h(ctx)
 				budget.FromContext(ctx).AddReads(reads)
-				if profileRequired {
+				switch flag { // what authn.AccountStatusInterceptor would have recorded
+				case pRequired:
 					logger.RequestInfoFromContext(ctx).ProfileRequired = true
+				case pFound:
+					logger.RequestInfoFromContext(ctx).ProfileFound = true
 				}
 				if err != nil {
 					return nil, err
@@ -96,26 +109,37 @@ func (r *multiRig) lastInfo(proc string) *logger.RequestInfo {
 	return r.info[proc]
 }
 
-func fixed(reads int64, profileRequired bool) handler {
-	return func(context.Context) (int64, bool, error) { return reads, profileRequired, nil }
+func fixed(reads int64, flag pflag) handler {
+	return func(context.Context) (int64, pflag, error) { return reads, flag, nil }
 }
 
+// a3Config mirrors production since A8: nothing is enforced on the IP key; both exempt procedures are charge-only.
 func a3Config() ratelimit.Config {
 	return ratelimit.Config{
 		ReadBudget:             ratelimit.NewDailyCap(2000).WithMaxCallReads(config.ReadBudgetMaxCallReads),
 		ReadBudgetIP:           ratelimit.NewDailyCap(500).WithMaxCallReads(config.IPReadBudgetMaxCallReads),
-		ReadBudgetIPEnforce:    map[string]struct{}{procCheck: {}},
-		ReadBudgetIPChargeOnly: map[string]struct{}{procCreate: {}},
+		ReadBudgetIPEnforce:    map[string]struct{}{},
+		ReadBudgetIPChargeOnly: map[string]struct{}{procCheck: {}, procCreate: {}},
 	}
 }
 
+// enforceCheckConfig is a TEST-ONLY config that enforces one IP procedure (procCheck). Production can no longer
+// reach that path (A8: ReadBudgetIPEnforce is empty), but the seam, including releasing the uid key's in-flight
+// slot when the IP key rejects, must stay correct (ADR-0010 Handoff 13).
+func enforceCheckConfig() ratelimit.Config {
+	cfg := a3Config()
+	cfg.ReadBudgetIPEnforce = map[string]struct{}{procCheck: {}}
+	cfg.ReadBudgetIPChargeOnly = map[string]struct{}{procCreate: {}}
+	return cfg
+}
+
 // TestA3_VerifiedCallerWithoutProfileIsChargedToIPAndMarked: a call the account-status interceptor rejects as
-// PROFILE_REQUIRED is charged to the IP key, the uid is marked, and from then on the uid's non-exempt calls
-// reserve the IP key and are rejected (retry 10 min, log key=ip, profile_required) once that budget is spent.
-// A caller with a profile behind the same IP is never limited.
+// PROFILE_REQUIRED is charged to the IP key and the uid is marked; from then on the uid's non-exempt calls are
+// charged to the IP key too (A8: never rejected, even when that budget is spent). A caller with a profile
+// behind the same IP is never charged.
 func TestA3_VerifiedCallerWithoutProfileIsChargedToIPAndMarked(t *testing.T) {
 	cfg := a3Config()
-	rig := newMultiRig(t, "uid-noprofile", cfg, map[string]handler{procOther: fixed(1, true)})
+	rig := newMultiRig(t, "uid-noprofile", cfg, map[string]handler{procOther: fixed(1, pRequired)})
 
 	if err := rig.call(t, procOther, testIP); err != nil {
 		t.Fatalf("first call: %v", err) // the handler stands in for the PROFILE_REQUIRED rejection; it is not a limiter rejection
@@ -130,29 +154,32 @@ func TestA3_VerifiedCallerWithoutProfileIsChargedToIPAndMarked(t *testing.T) {
 		t.Errorf("read_budget_ip_spent = %v, want 1", v)
 	}
 
-	// The mark makes the next call reserve the IP key too: spend it, then the uid is rejected with a 10 min retry.
+	// A8: with the IP budget spent, the marked uid's next non-exempt call still reaches the handler (it is
+	// charged, not rejected) and is answered PROFILE_REQUIRED by account status, not RATE_LIMITED.
 	cfg.ReadBudgetIP.Charge(ipKey(testIP), 500)
-	d := rateLimitDetail(t, rig.call(t, procOther, testIP))
-	if d.GetMetadata()["limit"] != "read_budget_daily" {
-		t.Errorf("limit = %q, want read_budget_daily", d.GetMetadata()["limit"])
+	if err := rig.call(t, procOther, testIP); err != nil {
+		t.Fatalf("a spent IP key must not reject a marked uid (A8): %v", err)
 	}
-	if got := d.GetRetryAfter().AsDuration(); got != ratelimit.ProfileLessMarkTTL {
-		t.Errorf("retry_after = %v, want 10m (the mark may be stale)", got)
+	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 502 {
+		t.Errorf("ip spent = %d, want 502 (still charged after the budget is spent)", got)
 	}
-	if v, _ := rig.lastInfo(procOther).Get("read_budget_key"); v != "ip" {
-		t.Errorf("read_budget_key = %v, want ip", v)
+	if got := cfg.ReadBudgetIP.Inflight(ipKey(testIP)); got != 0 {
+		t.Errorf("ip inflight = %d, want 0 (the IP key is never held)", got)
 	}
 	if v, _ := rig.lastInfo(procOther).Get("profile_required"); v != true {
-		t.Errorf("profile_required = %v, want true on the rejection too", v)
+		t.Errorf("profile_required = %v, want true", v)
+	}
+	if v, _ := rig.lastInfo(procOther).Get("read_budget_ip_spent"); v != int64(502) {
+		t.Errorf("read_budget_ip_spent = %v, want 502", v)
 	}
 
-	// A caller WITH a profile (handler never sets ProfileRequired) behind the same IP is never IP-limited.
-	other := newMultiRig(t, "uid-withprofile", cfg, map[string]handler{procOther: fixed(3, false)})
+	// A caller WITH a profile (the handler records ProfileFound) behind the same IP is never charged.
+	other := newMultiRig(t, "uid-withprofile", cfg, map[string]handler{procOther: fixed(3, pFound)})
 	if err := other.call(t, procOther, testIP); err != nil {
 		t.Fatalf("a caller with a profile must not be IP-limited: %v", err)
 	}
-	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 501 {
-		t.Errorf("ip spent = %d, want 501 (callers with a profile are not charged)", got)
+	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 502 {
+		t.Errorf("ip spent = %d, want 502 (callers with a profile are not charged)", got)
 	}
 }
 
@@ -160,7 +187,7 @@ func TestA3_VerifiedCallerWithoutProfileIsChargedToIPAndMarked(t *testing.T) {
 // calls never touch the IP key (carrier-grade NAT protection).
 func TestA3_NoMarkWithoutProfileRequired(t *testing.T) {
 	cfg := a3Config()
-	rig := newMultiRig(t, "uid-a", cfg, map[string]handler{procOther: fixed(2, false)})
+	rig := newMultiRig(t, "uid-a", cfg, map[string]handler{procOther: fixed(2, pFound)})
 	cfg.ReadBudgetIP.Charge(ipKey(testIP), 10_000)
 	for i := 0; i < 3; i++ {
 		if err := rig.call(t, procOther, testIP); err != nil {
@@ -173,7 +200,8 @@ func TestA3_NoMarkWithoutProfileRequired(t *testing.T) {
 }
 
 // TestA3_SuccessfulCreateProfileClearsTheMark: after CreateProfile succeeds on this instance the uid is no
-// longer marked, so its next non-exempt call does not reserve the (spent) IP key.
+// longer marked, so its next non-exempt call (no flags: only the mark decides) is not charged to the IP key;
+// after a failed CreateProfile the mark stays and the call is charged.
 func TestA3_SuccessfulCreateProfileClearsTheMark(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -187,41 +215,186 @@ func TestA3_SuccessfulCreateProfileClearsTheMark(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := a3Config()
 			createErr := tt.createErr
+			var otherCalls atomic.Int64
 			rig := newMultiRig(t, "uid-x", cfg, map[string]handler{
-				procOther:  fixed(1, true),
-				procCreate: func(context.Context) (int64, bool, error) { return 2, false, createErr },
+				procOther: func(context.Context) (int64, pflag, error) {
+					if otherCalls.Add(1) == 1 {
+						return 1, pRequired, nil // first call: no profile, marks the uid
+					}
+					return 7, pNone, nil
+				},
+				procCreate: func(context.Context) (int64, pflag, error) { return 2, pNone, createErr },
 			})
 			if err := rig.call(t, procOther, testIP); err != nil {
 				t.Fatal(err)
 			}
 			_ = rig.call(t, procCreate, testIP)
-			cfg.ReadBudgetIP.Charge(ipKey(testIP), 500) // spend the IP budget
-			err := rig.call(t, procOther, testIP)
-			if tt.wantMarked {
-				assertResourceExhausted(t, err)
-			} else if err != nil {
-				t.Fatalf("mark must be cleared after a successful CreateProfile: %v", err)
+			before := cfg.ReadBudgetIP.Spent(ipKey(testIP)) // 1 + 2
+			if err := rig.call(t, procOther, testIP); err != nil {
+				t.Fatalf("A8: the IP key never rejects: %v", err)
+			}
+			got := cfg.ReadBudgetIP.Spent(ipKey(testIP)) - before
+			if tt.wantMarked && got != 7 {
+				t.Errorf("marked uid's call charged the IP key %d, want 7", got)
+			}
+			if !tt.wantMarked && got != 0 {
+				t.Errorf("mark must be cleared after a successful CreateProfile; IP charged %d, want 0", got)
 			}
 		})
 	}
 }
 
-// TestA4_CreateProfileIsChargeOnlyOnIP: CreateProfile is charged to the IP key and never rejected by it, so one
-// abuser behind a shared IPv4 cannot block sign-ups; CheckHandleAvailability stays enforced.
-func TestA4_CreateProfileIsChargeOnlyOnIP(t *testing.T) {
+// TestA9_StaleMarkIsClearedByACallThatFindsAProfile: a uid marked on this instance whose next non-exempt call
+// finds a profile (it was created on another instance) is charged 0 on the IP key for that call, its mark is
+// deleted, the uid key is charged as usual, the IP spend is not logged for it, and a following heavy call adds
+// nothing to the IP meter.
+func TestA9_StaleMarkIsClearedByACallThatFindsAProfile(t *testing.T) {
 	cfg := a3Config()
-	rig := newMultiRig(t, "uid-new", cfg, map[string]handler{procCreate: fixed(2, false), procCheck: fixed(1, false)})
+	var calls atomic.Int64
+	rig := newMultiRig(t, "uid-stale", cfg, map[string]handler{
+		procOther: func(context.Context) (int64, pflag, error) {
+			switch calls.Add(1) {
+			case 1:
+				return 1, pRequired, nil // marks the uid
+			case 2:
+				return 3, pFound, nil // the profile now exists
+			default:
+				return 269, pFound, nil // a heavy call, e.g. GetHomeTimeline
+			}
+		},
+	})
+	if err := rig.call(t, procOther, testIP); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 1 {
+		t.Fatalf("ip spent after the marking call = %d, want 1", got)
+	}
+
+	if err := rig.call(t, procOther, testIP); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 1 {
+		t.Errorf("ip spent = %d, want 1 (the call that found a profile is charged 0 on the IP key)", got)
+	}
+	if got := cfg.ReadBudget.Spent("uid-stale"); got != 4 {
+		t.Errorf("uid spent = %d, want 4 (the uid key is charged as usual: 1 + 3)", got)
+	}
+	info := rig.lastInfo(procOther)
+	if _, ok := info.Get("read_budget_ip_spent"); ok {
+		t.Error("read_budget_ip_spent must not be logged for a call whose IP charge was skipped")
+	}
+	if v, _ := info.Get("read_budget_spent"); v != int64(4) {
+		t.Errorf("read_budget_spent = %v, want 4", v)
+	}
+
+	if err := rig.call(t, procOther, testIP); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 1 {
+		t.Errorf("ip spent = %d, want 1 (the mark is gone: a heavy call adds nothing to the IP meter)", got)
+	}
+	if got := cfg.ReadBudget.Spent("uid-stale"); got != 4+269 {
+		t.Errorf("uid spent = %d, want %d", got, 4+269)
+	}
+}
+
+// TestA9_MarkedCallThatStaysProfileLessKeepsTheMark: without ProfileFound the mark survives and every call is
+// charged (found == false is the only thing that keeps A3 working).
+func TestA9_MarkedCallThatStaysProfileLessKeepsTheMark(t *testing.T) {
+	cfg := a3Config()
+	rig := newMultiRig(t, "uid-still", cfg, map[string]handler{procOther: fixed(1, pRequired)})
+	for i := 1; i <= 3; i++ {
+		if err := rig.call(t, procOther, testIP); err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != int64(i) {
+			t.Fatalf("after call %d ip spent = %d, want %d", i, got, i)
+		}
+	}
+}
+
+// TestA8_ExemptProceduresAreChargeOnlyOnTheIPKey: with the IP budget already spent by someone else, both exempt
+// procedures are admitted and still charged; nothing is reserved on the IP key.
+func TestA8_ExemptProceduresAreChargeOnlyOnTheIPKey(t *testing.T) {
+	cfg := a3Config()
+	rig := newMultiRig(t, "uid-new", cfg, map[string]handler{procCreate: fixed(2, pNone), procCheck: fixed(1, pNone)})
 	cfg.ReadBudgetIP.Charge(ipKey(testIP), 500) // IP budget already spent by someone else
 
-	if err := rig.call(t, procCreate, testIP); err != nil {
-		t.Fatalf("CreateProfile must never be rejected by the IP key: %v", err)
+	for i, proc := range []string{procCreate, procCheck, procCheck} {
+		if err := rig.call(t, proc, testIP); err != nil {
+			t.Fatalf("call %d (%s) must never be rejected by the IP key: %v", i, proc, err)
+		}
 	}
-	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 502 {
-		t.Errorf("ip spent = %d, want 502 (still charged)", got)
+	if got := cfg.ReadBudgetIP.Spent(ipKey(testIP)); got != 504 {
+		t.Errorf("ip spent = %d, want 504 (2 + 1 + 1, still charged)", got)
+	}
+	if got := cfg.ReadBudgetIP.Inflight(ipKey(testIP)); got != 0 {
+		t.Errorf("ip inflight = %d, want 0", got)
+	}
+}
+
+// TestMJ1_IPKeyRejectionReleasesTheUIDInFlightSlot (code review 2 MJ1): when a later (IP) key rejects the call,
+// the in-flight slot already taken on the uid key must be freed, or the uid is locked out for the rest of the
+// instance lifetime (inflight is never reset). Uses the test-only enforcing config; both the daily and the
+// transient IP rejection are covered.
+func TestMJ1_IPKeyRejectionReleasesTheUIDInFlightSlot(t *testing.T) {
+	tests := []struct {
+		name      string
+		prepIP    func(t *testing.T, c *ratelimit.DailyCap)
+		wantLimit string
+	}{
+		{"daily IP rejection", func(_ *testing.T, c *ratelimit.DailyCap) { c.Charge(ipKey(testIP), 500) }, "read_budget_daily"},
+		{"transient IP rejection", func(t *testing.T, c *ratelimit.DailyCap) {
+			c.Charge(ipKey(testIP), 499)
+			if ok, _ := c.Reserve(ipKey(testIP)); !ok { // another call is already in flight near the cap
+				t.Fatal("setup: reserve on the IP key")
+			}
+		}, "read_budget_inflight"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := enforceCheckConfig()
+			cfg.ReadBudget.Charge("uid-a", 1999) // a leaked slot would now reject every call of this uid
+			tt.prepIP(t, cfg.ReadBudgetIP)
+			rig := newMultiRig(t, "uid-a", cfg, map[string]handler{procCheck: fixed(1, pNone), procOther: fixed(1, pFound)})
+
+			for i := 0; i < 3; i++ {
+				d := rateLimitDetail(t, rig.call(t, procCheck, testIP))
+				if d.GetMetadata()["limit"] != tt.wantLimit {
+					t.Fatalf("call %d limit = %q, want %q", i, d.GetMetadata()["limit"], tt.wantLimit)
+				}
+				if v, _ := rig.lastInfo(procCheck).Get("read_budget_key"); v != "ip" {
+					t.Fatalf("read_budget_key = %v, want ip (the IP key must be the one that rejected)", v)
+				}
+				if got := cfg.ReadBudget.Inflight("uid-a"); got != 0 {
+					t.Fatalf("after rejected call %d uid inflight = %d, want 0 (slot leaked)", i, got)
+				}
+			}
+			if got := cfg.ReadBudget.Spent("uid-a"); got != 1999 {
+				t.Errorf("uid spent = %d, want 1999 (a rejected call costs 0 units)", got)
+			}
+			// The next call by the same uid is admitted: at spent = 1,999 a leaked slot would reject it as in-flight.
+			if err := rig.call(t, procOther, ""); err != nil {
+				t.Fatalf("next non-exempt call after the IP rejections must be admitted: %v", err)
+			}
+		})
+	}
+}
+
+// TestA4_EnforcedIPProcedureStillRejectsWithMidnightRetry keeps the test-only enforcing seam honest: a
+// procedure in ReadBudgetIPEnforce is rejected once the IP budget is spent, with retry_after to IST midnight,
+// while a charge-only one is not. (Production enforces nothing since A8; the guard test asserts that.)
+func TestA4_EnforcedIPProcedureStillRejectsWithMidnightRetry(t *testing.T) {
+	cfg := enforceCheckConfig()
+	rig := newMultiRig(t, "uid-new", cfg, map[string]handler{procCreate: fixed(2, pNone), procCheck: fixed(1, pNone)})
+	cfg.ReadBudgetIP.Charge(ipKey(testIP), 500)
+
+	if err := rig.call(t, procCreate, testIP); err != nil {
+		t.Fatalf("a charge-only procedure must never be rejected by the IP key: %v", err)
 	}
 	d := rateLimitDetail(t, rig.call(t, procCheck, testIP))
 	if d.GetMetadata()["limit"] != "read_budget_daily" {
-		t.Errorf("CheckHandleAvailability limit = %q, want read_budget_daily", d.GetMetadata()["limit"])
+		t.Errorf("limit = %q, want read_budget_daily", d.GetMetadata()["limit"])
 	}
 	if got := d.GetRetryAfter().AsDuration(); got <= 0 || got > 24*time.Hour {
 		t.Errorf("retry_after = %v, want the time to IST midnight", got)
@@ -255,10 +428,10 @@ func TestA1_InterceptorConcurrencyBound(t *testing.T) {
 			const n = 40
 			var admitted, rejected atomic.Int64
 			release := make(chan struct{})
-			rig := newMultiRig(t, "uid-a", cfg, map[string]handler{tt.proc: func(context.Context) (int64, bool, error) {
+			rig := newMultiRig(t, "uid-a", cfg, map[string]handler{tt.proc: func(context.Context) (int64, pflag, error) {
 				admitted.Add(1)
 				<-release
-				return tt.m, false, nil
+				return tt.m, pNone, nil
 			}})
 			var wg sync.WaitGroup
 			for i := 0; i < n; i++ {
@@ -364,7 +537,7 @@ func TestA7_InFlightRejectionFields(t *testing.T) {
 	if ok, _ := uidCap.Reserve("uid-a"); !ok { // a call already in flight
 		t.Fatal("reserve")
 	}
-	rig := newMultiRig(t, "uid-a", ratelimit.Config{ReadBudget: uidCap}, map[string]handler{procOther: fixed(1, false)})
+	rig := newMultiRig(t, "uid-a", ratelimit.Config{ReadBudget: uidCap}, map[string]handler{procOther: fixed(1, pNone)})
 	d := rateLimitDetail(t, rig.call(t, procOther, ""))
 	if d.GetMetadata()["limit"] != "read_budget_inflight" {
 		t.Errorf("limit = %q, want read_budget_inflight", d.GetMetadata()["limit"])
@@ -395,8 +568,10 @@ func TestA7_SpendFieldsAndOverMaxWarning(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(old) })
 
-	cfg := a3Config()
-	rig := newMultiRig(t, "uid-a", cfg, map[string]handler{procCheck: fixed(5, false)}) // 5 > the IP hold of 2
+	// The hold (and so the warning) only exists on a RESERVED key: since A8 that is only possible on the test-only
+	// enforcing config (production reserves the uid key only, whose hold is 269).
+	cfg := enforceCheckConfig()
+	rig := newMultiRig(t, "uid-a", cfg, map[string]handler{procCheck: fixed(5, pNone)}) // 5 > the IP hold of 2
 	if err := rig.call(t, procCheck, testIP); err != nil {
 		t.Fatal(err)
 	}

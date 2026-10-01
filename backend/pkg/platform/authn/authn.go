@@ -18,15 +18,43 @@ type Claims struct {
 	AuthTime       time.Time
 }
 
-// SignInProviderPassword is the Firebase `firebase.sign_in_provider` claim value for email/password
-// accounts, the only provider Firebase does not itself guarantee a verified email for (Google and Apple
-// verify it upstream; anonymous/phone sign-in are disabled at Stage 0, ADR-0006 §1).
-const SignInProviderPassword = "password"
+// Firebase `firebase.sign_in_provider` claim values the verified-identity gate knows (ADR-0010 D5 A10).
+const (
+	// SignInProviderPassword is email/password, the only allowed provider whose email Firebase does not itself
+	// guarantee verified (Google and Apple verify it upstream), so it also needs email_verified.
+	SignInProviderPassword  = "password"
+	SignInProviderGoogle    = "google.com"
+	SignInProviderApple     = "apple.com"
+	SignInProviderAnonymous = "anonymous"
+)
 
-// UnverifiedPassword is the ADR-0010 D5 A2 / T7 predicate: a password-provider account whose email is not
-// verified. Such an account cannot own a profile (CreateProfile refuses it, audit H1 2026-09-27).
-func (c Claims) UnverifiedPassword() bool {
-	return c.SignInProvider == SignInProviderPassword && !c.EmailVerified
+// Gate results of Claims.IdentityGate; they are also the `gate` log field values.
+const (
+	GatePass             = ""
+	GateEmailUnverified  = "email_unverified"
+	GateProviderNotAllow = "provider_not_allowed"
+)
+
+// IdentityGate is the ADR-0010 D5 A10 allowlist predicate, the one definition shared by
+// VerifiedIdentityInterceptor and identity's CreateProfile. It fails closed: only google.com, apple.com and
+// password with email_verified pass, plus anonymous when allowAnonymous (Auth emulator only). It returns
+// GatePass, GateEmailUnverified (an unverified password account) or GateProviderNotAllow (everything else,
+// including an empty provider). An account that fails it can never own a profile.
+func (c Claims) IdentityGate(allowAnonymous bool) string {
+	switch c.SignInProvider {
+	case SignInProviderGoogle, SignInProviderApple:
+		return GatePass
+	case SignInProviderPassword:
+		if c.EmailVerified {
+			return GatePass
+		}
+		return GateEmailUnverified
+	case SignInProviderAnonymous:
+		if allowAnonymous {
+			return GatePass
+		}
+	}
+	return GateProviderNotAllow
 }
 
 // IDTokenVerifier verifies a Firebase Auth ID token from the `Authorization: Bearer` header.

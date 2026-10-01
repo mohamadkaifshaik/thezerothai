@@ -154,7 +154,7 @@ func TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered(t *testing.T) {
 	// allowedReadBudgetExemptions: procedure -> why it may skip the read budget. Empty by ADR-0010 D5.
 	allowedReadBudgetExemptions := map[string]string{}
 
-	rl := rateLimitConfig(defaultRateLimitCfg())
+	rl := RateLimitConfig(defaultRateLimitCfg())
 	for _, v := range readBudgetGuardViolations(rl, noSideEffectsProcedures(t), allowedReadBudgetExemptions, allowedReadBudgetChargeOnly) {
 		t.Error(v)
 	}
@@ -197,7 +197,7 @@ func TestIPSetsAndAccountOpsGuard_MutationChecks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rl := rateLimitConfig(defaultRateLimitCfg())
+			rl := RateLimitConfig(defaultRateLimitCfg())
 			tt.mutate(&rl)
 			got := strings.Join(tt.fn(rl, tt.exempt), "\n")
 			if tt.want == "" && got != "" {
@@ -217,7 +217,7 @@ func TestAccountOps_21stCallIsRateLimitedEvenOverTheReadBudget(t *testing.T) {
 	cfg := defaultRateLimitCfg()
 	cfg.RateLimit.PerUserPerMinute = 100000
 	cfg.RateLimit.PerIPPerMinute = 100000
-	rl := rateLimitConfig(cfg)
+	rl := RateLimitConfig(cfg)
 	rl.ReadBudget.Charge("uid-ops", 5000) // far over the read budget
 	procs := []string{
 		identityv1connect.IdentityServiceDeleteAccountProcedure,
@@ -297,7 +297,7 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rl := rateLimitConfig(defaultRateLimitCfg())
+			rl := RateLimitConfig(defaultRateLimitCfg())
 			tt.mutate(&rl)
 			allowedCO := tt.allowedCO
 			if allowedCO == nil {
@@ -315,13 +315,13 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 		})
 	}
 	// An empty enumeration must fail rather than pass vacuously.
-	if v := readBudgetGuardViolations(rateLimitConfig(defaultRateLimitCfg()), nil, nil, allowedReadBudgetChargeOnly); len(v) == 0 {
+	if v := readBudgetGuardViolations(RateLimitConfig(defaultRateLimitCfg()), nil, nil, allowedReadBudgetChargeOnly); len(v) == 0 {
 		t.Error("empty procedure list must be a violation")
 	}
 }
 
 // TestCheckHandleAvailability_101stCallIsRateLimited (T3 acceptance): through the config Build actually
-// wires (rateLimitConfig), a profile-less uid's 101st CheckHandleAvailability call in one IST day is
+// wires (RateLimitConfig), a profile-less uid's 101st CheckHandleAvailability call in one IST day is
 // RATE_LIMITED with limit_name check_handle_daily; the first 100 succeed; another uid is unaffected.
 func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
 	cfg := defaultRateLimitCfg()
@@ -329,7 +329,7 @@ func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
 	cfg.RateLimit.CheckHandlePerUserPerMinute = 100000 // isolate the daily cap from the per-minute bucket
 	cfg.RateLimit.PerIPPerMinute = 100000
 	proc := identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
-	rl := rateLimitConfig(cfg)
+	rl := RateLimitConfig(cfg)
 
 	const uidHeader = "X-Test-UID"
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {

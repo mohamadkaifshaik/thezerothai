@@ -59,7 +59,7 @@ func (f *fakeService) AccountStatus(context.Context, string) (bool, AccountStatu
 
 // authInjectClaims stands in for authn.IDTokenInterceptor for server.go tests, giving full control over
 // every claim a handler might read (uid, email_verified, sign-in provider — the last needed by H1's
-// requireVerifiedEmailForPassword).
+// requireVerifiedIdentity).
 func authInjectClaims(claims authn.Claims) connect.UnaryInterceptorFunc {
 	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
@@ -70,7 +70,7 @@ func authInjectClaims(claims authn.Claims) connect.UnaryInterceptorFunc {
 
 func newTestServerHTTP(t *testing.T, svc Service, uid string) (identityv1connect.IdentityServiceClient, func()) {
 	t.Helper()
-	return newTestServerHTTPWithClaims(t, svc, authn.Claims{UID: uid, EmailVerified: true})
+	return newTestServerHTTPWithClaims(t, svc, authn.Claims{UID: uid, EmailVerified: true, SignInProvider: "google.com"})
 }
 
 // discardLogger is a no-op *slog.Logger for tests that need mw.ErrorMapping wired but don't assert on
@@ -84,7 +84,7 @@ func newTestServerHTTPWithClaims(t *testing.T, svc Service, claims authn.Claims)
 	mux := http.NewServeMux()
 	// mw.ErrorMapping is wired here to match the real chain (apiserver.Build, innermost before the
 	// handler): a handler is free to return a raw *apierr.Error (CLAUDE.md: "handlers just return the
-	// service error as-is"; see server.go's requireVerifiedEmailForPassword) and rely on ErrorMapping to
+	// service error as-is"; see server.go's requireVerifiedIdentity) and rely on ErrorMapping to
 	// shape it into a proper *connect.Error — without it here, connect-go has no idea how to encode an
 	// unrecognized error type and falls back to CodeUnknown, which every real deployment never sees.
 	path, handler := identityv1connect.NewIdentityServiceHandler(NewServer(svc), connect.WithInterceptors(authInjectClaims(claims), mw.ErrorMapping(discardLogger())))

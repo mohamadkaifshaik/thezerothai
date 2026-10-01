@@ -27,8 +27,11 @@ const MaxCacheTTL = 60 * time.Second
 // doc comment; tests use this constant, not a literal.
 const ReadBudgetMaxCallReads = 269
 
-// IPReadBudgetMaxCallReads is the per-call hold of the IP read budget (ADR-0010 D5 A1): every IP-keyed call
-// (CheckHandleAvailability, CreateProfile, the profile-less calls of a marked uid) reads at most 1 doc.
+// IPReadBudgetMaxCallReads is the per-call hold M of the IP read budget (ADR-0010 D5 A1). Since A8 nothing
+// reserves the IP key (it is charge-only everywhere), so this hold has no admission role; it is the constant any
+// future enforced IP procedure must respect. It is true because a profile-less call charged to the IP key stops
+// at account status after at most 1 read, and a call that finds a profile is charged 0 there (A9). CreateProfile
+// reads several docs but is charge-only, never held.
 const IPReadBudgetMaxCallReads = 2
 
 // DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
@@ -105,13 +108,16 @@ type RateLimitConfig struct {
 
 	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
 	// (ADR-0010 D5, ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
-	// typical day of ~183 reads). Per instance: worst case per account per IST day is 3 instances x
-	// (2,000 - 1 + ReadBudgetMaxCallReads = 269) = 6,804 reads (13.6% of the free 50k/day) versus ~86k-259k before.
+	// typical day of ~183 reads). The counter is per instance LIFETIME (in memory, reset only at the IST day
+	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,268 reads
+	// on the budget plus 40 on account_ops_daily = 2,308 per instance lifetime (ADR-0010 D5 A1, A6). The daily
+	// total is that times the lifetimes the uid touches: 3 on a steady day, up to 6 on a rollout day, and up to
+	// ~270 when an attacker idle-cycles instances (residual R2, accepted; abuse-spike.md has the churn check).
 	ReadBudgetPerUIDPerDay int64
-	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv6: /64) daily read budget (ADR-0010 D5 A3-A4): enforced
-	// on CheckHandleAvailability and on the calls of a verified caller seen without a profile, charge-only on
-	// CreateProfile; env READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Worst case per IP and instance
-	// lifetime is 500 - 1 + IPReadBudgetMaxCallReads = 501 reads, ~1,503 over 3 instances.
+	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv4 or IPv6 /64) daily read METER (ADR-0010 D5 A3, A8, A9),
+	// env READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Since A8 it never rejects: it is charged on
+	// CheckHandleAvailability, CreateProfile and the calls of a verified caller without a profile. The cap is the
+	// level at which a farm behind one address shows up (alert: jsonPayload.read_budget_ip_spent >= 500).
 	ReadBudgetPerIPNoProfilePerDay int64
 	// CheckHandleCallsPerDay is the per-uid daily call cap on CheckHandleAvailability (a ratelimit.DailyCap,
 	// limit_name "check_handle_daily"), env CHECK_HANDLE_CALLS_PER_DAY, default 100.
@@ -198,6 +204,11 @@ type Config struct {
 	// FeatureGraph is the ADR-0008 D6 server feature flag gating every GraphService RPC. Loaded from
 	// FEATURE_GRAPH / FEATURE_GRAPH_ALLOWLIST / FEATURE_GRAPH_PERCENT (pkg/platform/flags).
 	FeatureGraph flags.Spec
+
+	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
+	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
+	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
+	AuthEmulator bool
 }
 
 // Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
@@ -379,6 +390,13 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
+	// never be true in a deployed environment, so refuse to start.
+	authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST") != ""
+	if authEmulator && (env == "dev" || env == "prod") {
+		return Config{}, fmt.Errorf("config: FIREBASE_AUTH_EMULATOR_HOST must not be set in env %q (the Admin SDK would accept unsigned tokens)", env)
+	}
+
 	allowedEmails := splitCSV(os.Getenv("INTERNAL_OIDC_ALLOWED_EMAILS"))
 	internalOIDCAudience := os.Getenv("INTERNAL_OIDC_AUDIENCE")
 
@@ -442,6 +460,7 @@ func Load() (Config, error) {
 		CORSAllowedOrigins:        corsOrigins,
 		TrustedProxyHops:          trustedProxyHops,
 		FeatureGraph:              featureGraph,
+		AuthEmulator:              authEmulator,
 	}, nil
 }
 
