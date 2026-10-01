@@ -438,7 +438,7 @@ func TestMustLoad_PanicsOnError(t *testing.T) {
 // rejects it instead of treating it as "disabled".
 func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
 	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
-		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST", "ACCOUNT_OPS_CALLS_PER_DAY"} {
+		"ACCOUNT_OPS_CALLS_PER_DAY"} {
 		for _, val := range []string{"0", "-5"} {
 			t.Run(key+"="+val, func(t *testing.T) {
 				clearEnv(t)
