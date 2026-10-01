@@ -692,6 +692,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `Encode`/`Decode` and their 24 h default stay **byte-for-byte compatible**, so graph list tokens already issued
     keep decoding.
   - Add the config key `TIMELINE_TOKEN_TTL` (default `720h`) to `config.Config` (rule 11). T11 consumes it.
+    **Follow-up (T4/T28 notes):** `config.Load` rejects values below 24h but has no upper bound; add one (for
+    example <= 2160h = 90 days) so a typo cannot make timeline tokens effectively immortal.
   - Update `docs/code-map.md`.
 - **Acceptance criteria.**
   - Given a Window with and without a Lower bound, when encoded and decoded with the same binding, then it round-trips
@@ -715,6 +717,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - the exact-prefix cut at `B`, where an author covered by author-recent is a pseudo-chunk and a truncated entry
     counts as "filled" (ADR-0010 D15);
   - the `gap_page_token` when any chunk filled `k` on a refresh.
+
+  **T28 carry-over:** the cursor codec does not order the two bounds of a `cursor.Window`. T11 must treat a Lower
+  bound that is `>=` Upper (by `(createdAt, postId)`) as "lower bound reached" (no next page), never as an error.
+  `TIMELINE_TOKEN_TTL` is `config.Config.TimelineTokenTTL` (T28 adds it; default 720h, must be >= 24h).
 
   **Tokens (ADR-0010 D14)** use the T28 cursor extension, sealed with the existing cursor key and with a TTL of
   `TIMELINE_TOKEN_TTL` (default **720 h = 30 days**). Bindings (AEAD additional data):
@@ -771,6 +777,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `since_token` uses the T11 settle watermark (D13). Tokens use the T11 bindings.
   - Muted authors are shown and blocked-by-caller authors are returned (D6); the client shows a banner.
 - **Acceptance criteria.**
+  - Given since, page or gap tokens, then they are decoded with `cfg.TimelineTokenTTL` via `cursor.DecodeTTL` /
+    `cursor.DecodeWindow`, never `cursor.Decode` / `cursor.DecodeAt` (their 24 h TTL would turn every morning
+    refresh into a cold open). Test with a token older than 24 h (accepted) and one older than the TTL (rejected).
   - Given 45 posts, then pages of 20 cover all 45 exactly once, stable under concurrent new posts.
   - Given exactly 40 posts and pages of 20, then page 2 returns a `next_page_token`, and page 3 returns 0 items,
     `next_page_token = ""`, and costs 1 query read.
@@ -802,6 +811,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 
   The per-RPC deadline is 10 s. The following cap of 5,000 already exists (graph).
 - **Acceptance criteria.** From the ADR-0004 tester handoff, with the ADR-0010 D17 convention:
+  - Given since, page or gap tokens, then they are decoded with `cfg.TimelineTokenTTL` via `cursor.DecodeTTL` /
+    `cursor.DecodeWindow`, never `cursor.Decode` / `cursor.DecodeAt` (24 h would turn every morning refresh into a
+    cold open). Test with a token older than 24 h (accepted) and one older than the TTL (rejected).
   - Given a refresh with 0 new posts, author-recent empty (or disabled) and the graph warm, then reads == C (+1 if
     the interceptor is cold).
   - Given F = 60, page 20, then cold reads ≤ 2 + 3·14 = 44.

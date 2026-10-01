@@ -47,6 +47,7 @@ void main() {
       posts: [postView(2), postView(1)],
       sinceToken: 's',
       nextPageToken: 'n',
+      session: store.session,
     );
     final snap = await store.read(const FeedKey.home());
     expect(snap.posts, hasLength(2));
@@ -68,6 +69,7 @@ void main() {
       posts: [postView(2)],
       sinceToken: 's',
       nextPageToken: '',
+      session: store.session,
     );
 
     await db.clearAll();

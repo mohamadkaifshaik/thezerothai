@@ -50,6 +50,7 @@ void main() {
       posts: const [],
       sinceToken: 's',
       gapPageToken: '',
+      session: store.session,
     );
     return store.read(home);
   }

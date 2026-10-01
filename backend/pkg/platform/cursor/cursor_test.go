@@ -75,6 +75,26 @@ func TestDecode_Rejects(t *testing.T) {
 	}
 }
 
+// TestDecode_GoldenGraphToken is the T28 compatibility guard: this token was minted by the PRE-T28 Encode
+// (origin/main's cursor.go: EncodeAt with key "golden-key", binding "uid-a|followers|uid-b", issue time
+// 1_700_000_000 s, createdAt 1_699_999_000_123_456 us, doc id "uid-c_uid-b") and must keep decoding through
+// DecodeAt, so graph tokens in clients' hands survive this change.
+func TestDecode_GoldenGraphToken(t *testing.T) {
+	const golden = "lqqbb8soedExB3QThIrJQ1MaNZverT_bWOeSlwSVbqMOn4LzXEr4StQuHMP58bdNsmv2zuHfI0S68gbeTKtGOjbzH1gNB9oWDQ"
+	issue := time.Unix(1_700_000_000, 0)
+	got, err := DecodeAt([]byte("golden-key"), "uid-a|followers|uid-b", golden, issue.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("DecodeAt(golden) error = %v", err)
+	}
+	if want := time.UnixMicro(1_699_999_000_123_456).UTC(); !got.CreatedAt.Equal(want) || got.DocID != "uid-c_uid-b" {
+		t.Fatalf("DecodeAt(golden) = %+v, want createdAt %v doc uid-c_uid-b", got, want)
+	}
+	// And it still expires on the 24 h graph TTL.
+	if _, err := DecodeAt([]byte("golden-key"), "uid-a|followers|uid-b", golden, issue.Add(TTL+time.Second)); err != ErrInvalid {
+		t.Fatalf("golden token past 24 h: err = %v, want ErrInvalid", err)
+	}
+}
+
 func TestDecode_ValidUntilTTL(t *testing.T) {
 	now := time.Now()
 	tok := EncodeAt([]byte("k"), bind, Cursor{CreatedAt: now, DocID: "1"}, now)

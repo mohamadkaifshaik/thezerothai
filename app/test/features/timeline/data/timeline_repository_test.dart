@@ -267,7 +267,7 @@ void main() {
       await repo.refresh(home);
       requests.clear();
       // Make the stored token empty again, then refresh.
-      await store.clearSince(home);
+      await store.clearSince(home, session: store.session);
       giveHome([7, 6], since: 's10');
       await repo.refresh(home);
       expect(requests, hasLength(1));

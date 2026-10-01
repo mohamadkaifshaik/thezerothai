@@ -189,6 +189,11 @@ type Config struct {
 	CachePostsEntries        int
 	CacheAuthorRecentEntries int
 
+	// TimelineTokenTTL is how long timeline since/page/gap tokens stay valid (ADR-0010 D14), env
+	// TIMELINE_TOKEN_TTL, default 720h (30 days). The client persists since and gap tokens across days. It must
+	// be at least 24h (the graph-token TTL); a shorter value would turn every morning refresh into a cold open.
+	TimelineTokenTTL time.Duration
+
 	// InternalOIDCAudience/InternalOIDCAllowedEmails configure /internal/* OIDC verification (ADR-0006
 	// §5). Empty only in local dev (no real Pub/Sub push subscriptions exist yet); Load fails closed (M8)
 	// if either is unset outside ENV=local, since an unauthenticated /internal/* in dev/prod would accept
@@ -278,6 +283,13 @@ func Load() (Config, error) {
 	shutdownTimeout, err := getDuration("SHUTDOWN_TIMEOUT", 8*time.Second)
 	if err != nil {
 		return Config{}, err
+	}
+	timelineTokenTTL, err := getDuration("TIMELINE_TOKEN_TTL", 720*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if timelineTokenTTL < 24*time.Hour {
+		return Config{}, fmt.Errorf("config: TIMELINE_TOKEN_TTL %v must be at least 24h (default 720h)", timelineTokenTTL)
 	}
 	cacheTTL, err := getDuration("CACHE_TTL", 60*time.Second)
 	if err != nil {
@@ -518,6 +530,7 @@ func Load() (Config, error) {
 		CacheTTL:                  cacheTTL,
 		CachePostsEntries:         cachePostsEntries,
 		CacheAuthorRecentEntries:  cacheAuthorRecentEntries,
+		TimelineTokenTTL:          timelineTokenTTL,
 		InternalOIDCAudience:      internalOIDCAudience,
 		InternalOIDCAllowedEmails: allowedEmails,
 		CORSAllowedOrigins:        corsOrigins,
