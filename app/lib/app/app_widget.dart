@@ -7,6 +7,9 @@ import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../features/posts/data/posts_repository.dart';
+import '../features/posts/domain/posts_feature_flag.dart';
+import '../features/timeline/data/timeline_repository.dart';
 
 /// Root widget: theme + `go_router`. All dependency wiring happens in
 /// `bootstrap.dart`; this widget only assembles what it's given.
@@ -17,12 +20,18 @@ class AppWidget extends StatefulWidget {
     required this.onboardingBloc,
     required this.identityRepository,
     required this.graphRepository,
+    required this.postsRepository,
+    required this.timelineRepository,
+    required this.postsGate,
   });
 
   final AuthBloc authBloc;
   final OnboardingBloc onboardingBloc;
   final IdentityRepository identityRepository;
   final GraphRepository graphRepository;
+  final PostsRepository postsRepository;
+  final TimelineRepository timelineRepository;
+  final PostsFeatureGate postsGate;
 
   @override
   State<AppWidget> createState() => _AppWidgetState();
@@ -40,6 +49,9 @@ class _AppWidgetState extends State<AppWidget> {
       providers: [
         RepositoryProvider.value(value: widget.identityRepository),
         RepositoryProvider.value(value: widget.graphRepository),
+        RepositoryProvider.value(value: widget.postsRepository),
+        RepositoryProvider.value(value: widget.timelineRepository),
+        RepositoryProvider.value(value: widget.postsGate),
       ],
       child: MultiBlocProvider(
         providers: [
