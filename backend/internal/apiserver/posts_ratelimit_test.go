@@ -72,6 +72,23 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 			if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
 				t.Fatalf("call %d: err = %v, want ResourceExhausted", tt.n+1, err)
 			}
+			var detail *commonv1.ErrorDetail
+			for _, d := range ce.Details() {
+				if v, verr := d.Value(); verr == nil {
+					if ed, ok := v.(*commonv1.ErrorDetail); ok {
+						detail = ed
+					}
+				}
+			}
+			if detail == nil {
+				t.Fatal("rejection carries no ErrorDetail")
+			}
+			if detail.GetReason() != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
+				t.Errorf("reason = %v, want RATE_LIMITED", detail.GetReason())
+			}
+			if detail.GetRetryAfter() == nil || detail.GetRetryAfter().AsDuration() <= 0 {
+				t.Errorf("retry_after = %v, want a positive duration", detail.GetRetryAfter())
+			}
 		})
 	}
 }

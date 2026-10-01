@@ -228,6 +228,11 @@ func (f *fakeDirectory) LookupProfiles(_ context.Context, uids []string) (map[st
 	return out, missing, nil
 }
 
+// ResolveHandles is unused by graph; the fake only has to satisfy identity.Directory.
+func (f *fakeDirectory) ResolveHandles(context.Context, []string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
 func (f *fakeDirectory) Forget(uids ...string) {
 	f.forgetCalled++
 	f.forgotten = append(f.forgotten, uids...)

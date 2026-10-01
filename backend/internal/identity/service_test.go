@@ -10,6 +10,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // fakeRepo is an in-memory Repo for service-layer unit tests (testing-strategy skill: "table-driven,
@@ -27,6 +28,10 @@ type fakeRepo struct {
 	getProfileCalls  int
 	getProfilesCalls int
 	resolveCalls     int
+
+	resolveManyCalls int
+	resolveManyArgs  [][]string
+	resolveManyErr   error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -53,6 +58,23 @@ func (f *fakeRepo) ResolveHandle(_ context.Context, handleLower string) (string,
 		return "", ErrNotFound
 	}
 	return uid, nil
+}
+
+// ResolveHandles mirrors FirestoreRepo: one call (one GetAll), reads = len(handleLowers), misses absent.
+func (f *fakeRepo) ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error) {
+	f.resolveManyCalls++
+	f.resolveManyArgs = append(f.resolveManyArgs, append([]string(nil), handleLowers...))
+	budget.FromContext(ctx).AddReads(int64(len(handleLowers)))
+	if f.resolveManyErr != nil {
+		return nil, f.resolveManyErr
+	}
+	out := map[string]string{}
+	for _, h := range handleLowers {
+		if uid, ok := f.handles[h]; ok {
+			out[h] = uid
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeRepo) CreateProfile(_ context.Context, uid, handle, handleLower, displayName string, now time.Time) (Profile, bool, error) {
