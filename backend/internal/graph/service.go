@@ -198,10 +198,6 @@ func (s *service) followsLimit(newAccount bool) int64 {
 	return s.followsPerDay
 }
 
-func featureDisabledErr() error {
-	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "this feature is not available yet")
-}
-
 func notFoundErr() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "user not found")
 }

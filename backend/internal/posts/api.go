@@ -99,6 +99,10 @@ type Window struct {
 // budget.Counter (an empty query costs 1 read).
 //
 // Posts returned are shared and immutable.
+//
+// A Reader applies NO visibility or relationship filtering: it returns every matching post, including those by
+// blocked, muting, suspended or deleting authors. Callers must filter per ADR-0010 D6 (block, mute and author
+// status via graph.Reader and identity.Directory) before returning anything to a client.
 type Reader interface {
 	// Get returns one post, or ErrNotFound. Cache hit: 0 reads; miss: 1 read.
 	Get(ctx context.Context, id string) (*Post, error)
@@ -153,6 +157,10 @@ const (
 // ErrNotFound is returned by Reader.Get for a missing or deleted post. Callers map it at their own boundary;
 // GetPost uses one message for every not-found cause (ADR-0010 D6).
 var ErrNotFound = errors.New("posts: post not found")
+
+// ErrInvalidID is returned by Get and GetMany for an empty id or one containing "/": never a post id, and
+// refused before any cache lookup or read. RPC handlers validate ids (^[0-9]{19}$) first; this is the backstop.
+var ErrInvalidID = errors.New("posts: invalid post id")
 
 // PostEvents is a post-commit hook, a no-op until notifications (P6, ADR-0010): "CreatePost calls
 // PostEvents.Created after a commit; replays don't". Never called inside the transaction or its budget.

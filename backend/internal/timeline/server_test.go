@@ -3,10 +3,12 @@ package timeline
 import (
 	"context"
 	"errors"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,6 +63,15 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	}
 }
 
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // TestImports_OnlyPostsAndGraphAmongInternalModules is the ADR-0004 handoff import lint: timeline reads posts
 // through posts.Reader and the social context through graph.Reader, never another module's package (and so
 // never a repo or a collection). Test files are included so a test cannot smuggle in a repo either.
@@ -72,25 +83,62 @@ func TestImports_OnlyPostsAndGraphAmongInternalModules(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("glob: %v (%d files)", err, len(files))
 	}
+	// The only identifiers timeline may use from those packages: the read seams and their value types, never a
+	// repo, a cache constructor or a Firestore-backed type (L1: importing the package alone is not enough).
+	allowedSel := map[string]map[string]bool{
+		"posts": {
+			"Reader": true, "Window": true, "Position": true, "Post": true, "Recent": true, "Mention": true,
+			"AuthorSnapshot": true, "Kind": true, "Visibility": true, "ErrNotFound": true, "ErrInvalidID": true,
+			"FlagChecker": true, "GuardFeature": true, "FlagName": true,
+			"MaxGetMany": true, "MaxByAuthors": true, "MaxLimit": true, "MaxRecent": true,
+			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
+			"VisibilityPublic": true, "VisibilityFollowers": true,
+		},
+		"graph": {"Reader": true, "Snapshot": true},
+	}
 	sawAny := false
 	for _, f := range files {
 		src, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		af, err := parser.ParseFile(token.NewFileSet(), f, src, parser.ImportsOnly)
+		af, err := parser.ParseFile(token.NewFileSet(), f, src, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", f, err)
 		}
+		local := map[string]string{} // local import name -> module package
 		for _, imp := range af.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
-			if rest, ok := strings.CutPrefix(path, internalPrefix); ok {
-				sawAny = true
-				if !allowed[strings.SplitN(rest, "/", 2)[0]] || strings.Contains(rest, "/") {
-					t.Errorf("%s imports %s: timeline may import only the posts and graph packages", f, path)
-				}
+			rest, ok := strings.CutPrefix(path, internalPrefix)
+			if !ok {
+				continue
 			}
+			sawAny = true
+			pkg := strings.SplitN(rest, "/", 2)[0]
+			if !allowed[pkg] || strings.Contains(rest, "/") {
+				t.Errorf("%s imports %s: timeline may import only the posts and graph packages", f, path)
+				continue
+			}
+			name := pkg
+			if imp.Name != nil {
+				name = imp.Name.Name
+			}
+			local[name] = pkg
 		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if pkg, ok := local[id.Name]; ok && !allowedSel[pkg][sel.Sel.Name] {
+				t.Errorf("%s uses %s.%s: timeline may use only %v from %s", f, id.Name, sel.Sel.Name, keys(allowedSel[pkg]), pkg)
+			}
+			return true
+		})
 	}
 	if !sawAny {
 		t.Fatal("timeline imports neither posts nor graph; the import lint is not testing anything")

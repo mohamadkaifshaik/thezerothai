@@ -24,6 +24,7 @@ type fakeRepo struct {
 	lastReplies   bool
 	lastWindow    Window
 	lastLimit     int
+	beforeReturn  func()
 	queryResult   []*Post
 	queryErr      error
 	getAllErr     error
@@ -61,6 +62,9 @@ func (r *fakeRepo) query(ctx context.Context, w Window, limit int) ([]*Post, err
 		n = 1
 	}
 	budget.FromContext(ctx).AddReads(n)
+	if r.beforeReturn != nil {
+		r.beforeReturn() // models a write landing while the query is in flight
+	}
 	return r.queryResult, r.queryErr
 }
 

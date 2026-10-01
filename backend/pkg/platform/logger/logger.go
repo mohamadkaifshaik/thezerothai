@@ -142,6 +142,25 @@ func (i *RequestInfo) Set(key string, value any) {
 	i.fields = append(i.fields, slog.Any(key, value))
 }
 
+// AddCount adds n to the int64 counter recorded under key (creating it at n), for per-request totals such as
+// cache hits that several calls within one request each contribute to. A key previously recorded by Set with a
+// non-int64 value is replaced by the counter.
+func (i *RequestInfo) AddCount(key string, n int64) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for idx := range i.fields {
+		if i.fields[idx].Key == key {
+			cur := int64(0)
+			if i.fields[idx].Value.Kind() == slog.KindInt64 {
+				cur = i.fields[idx].Value.Int64()
+			}
+			i.fields[idx].Value = slog.Int64Value(cur + n)
+			return
+		}
+	}
+	i.fields = append(i.fields, slog.Int64(key, n))
+}
+
 // Get returns the value recorded by Set for key.
 func (i *RequestInfo) Get(key string) (any, bool) {
 	i.mu.Lock()
@@ -166,6 +185,14 @@ func (i *RequestInfo) Fields() []slog.Attr {
 func SetRequestField(ctx context.Context, key string, value any) {
 	if info := RequestInfoFromContext(ctx); info != nil {
 		info.Set(key, value)
+	}
+}
+
+// AddRequestCount adds n to a per-request counter field (see RequestInfo.AddCount); a no-op when ctx carries no
+// RequestInfo. Use it, not SetRequestField, for totals that several calls in one request add to.
+func AddRequestCount(ctx context.Context, key string, n int64) {
+	if info := RequestInfoFromContext(ctx); info != nil {
+		info.AddCount(key, n)
 	}
 }
 

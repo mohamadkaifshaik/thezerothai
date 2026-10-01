@@ -3,6 +3,7 @@ package posts
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
@@ -82,17 +83,24 @@ func (s *service) GetMany(ctx context.Context, ids []string) (map[string]*Post, 
 		if _, dup := seen[id]; dup {
 			continue
 		}
+		// An empty id or one with a path separator is never a post id (Firestore would treat it as another
+		// path or reject it); refuse before any cache or read.
+		if id == "" || strings.Contains(id, "/") {
+			return nil, ErrInvalidID
+		}
 		seen[id] = struct{}{}
+		if len(seen) > MaxGetMany {
+			return nil, fmt.Errorf("posts: GetMany of more than %d ids", MaxGetMany)
+		}
 		if p, ok := s.cache.GetPost(id); ok {
 			out[id] = p
 			continue
 		}
 		missing = append(missing, id)
 	}
-	if len(seen) > MaxGetMany {
-		return nil, fmt.Errorf("posts: GetMany of %d ids exceeds the limit of %d", len(seen), MaxGetMany)
-	}
-	logger.SetRequestField(ctx, fieldCacheHit, len(missing) == 0)
+	readAt := s.now()
+	// A per-request count (ADR-0010 D20): a request that calls several Reader methods sums its hits.
+	logger.AddRequestCount(ctx, fieldCacheHit, int64(len(out)))
 	if len(missing) == 0 {
 		return out, nil
 	}
@@ -101,7 +109,7 @@ func (s *service) GetMany(ctx context.Context, ids []string) (map[string]*Post, 
 		return nil, err
 	}
 	for id, p := range found {
-		s.cache.SetPost(p)
+		s.cache.SetPostRead(p, readAt)
 		out[id] = p
 	}
 	return out, nil
@@ -118,11 +126,12 @@ func (s *service) ByAuthors(ctx context.Context, authorIDs []string, w Window, l
 	if err := w.validate(); err != nil {
 		return nil, err
 	}
+	readAt := s.now()
 	out, err := s.repo.ByAuthors(ctx, authorIDs, w, clampLimit(limit))
 	if err != nil {
 		return nil, err
 	}
-	s.fill(out)
+	s.fill(out, readAt)
 	return out, nil
 }
 
@@ -134,18 +143,20 @@ func (s *service) ByAuthor(ctx context.Context, authorID string, includeReplies 
 	if err := w.validate(); err != nil {
 		return nil, err
 	}
+	readAt := s.now()
 	out, err := s.repo.ByAuthor(ctx, authorID, includeReplies, w, clampLimit(limit))
 	if err != nil {
 		return nil, err
 	}
-	s.fill(out)
+	s.fill(out, readAt)
 	return out, nil
 }
 
-// fill puts query results in the posts cache (every read path fills it, ADR-0010 D15).
-func (s *service) fill(ps []*Post) {
+// fill puts results of a read that started at readAt in the posts cache (every read path fills it, ADR-0010
+// D15), skipping posts this instance deleted since the read began.
+func (s *service) fill(ps []*Post, readAt time.Time) {
 	for _, p := range ps {
-		s.cache.SetPost(p)
+		s.cache.SetPostRead(p, readAt)
 	}
 }
 
@@ -167,5 +178,5 @@ func (s *service) AuthorRecent(authorID string) (Recent, bool) {
 // StoreAuthorRecent implements Reader.
 func (s *service) StoreAuthorRecent(authorID string, newest []*Post, truncated bool, loadedAt time.Time) {
 	s.cache.StoreAuthorRecent(authorID, newest, truncated, loadedAt)
-	s.fill(newest)
+	s.fill(newest, loadedAt)
 }

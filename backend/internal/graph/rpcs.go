@@ -6,13 +6,14 @@ import (
 	"log/slog"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 func (s *service) checkFlag(callerUID string) error {
 	if !s.flags.Enabled(callerUID, graphFlagName) {
-		return featureDisabledErr()
+		return flags.DisabledError()
 	}
 	return nil
 }
@@ -69,7 +70,7 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 	case errors.Is(err, ErrCallerBlocksTarget):
 		return targetBlockedErr()
 	case errors.Is(err, ErrTargetPrivate):
-		return featureDisabledErr()
+		return flags.DisabledError()
 	}
 	var lim *LimitReachedError
 	if errors.As(err, &lim) {

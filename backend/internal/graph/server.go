@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // Server adapts Service to graphv1connect.GraphServiceHandler.
@@ -229,12 +230,12 @@ func (s *Server) ListFollowRequests(ctx context.Context, _ *connect.Request[grap
 	if _, err := callerUID(ctx); err != nil {
 		return nil, err
 	}
-	return nil, apierr.ToConnect(featureDisabledErr())
+	return nil, apierr.ToConnect(flags.DisabledError())
 }
 
 func (s *Server) RespondToFollowRequest(ctx context.Context, _ *connect.Request[graphv1.RespondToFollowRequestRequest]) (*connect.Response[graphv1.RespondToFollowRequestResponse], error) {
 	if _, err := callerUID(ctx); err != nil {
 		return nil, err
 	}
-	return nil, apierr.ToConnect(featureDisabledErr())
+	return nil, apierr.ToConnect(flags.DisabledError())
 }

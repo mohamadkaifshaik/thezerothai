@@ -16,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -29,23 +30,17 @@ type FlagChecker interface {
 // Firestore access and returns FAILED_PRECONDITION + FEATURE_DISABLED (0 reads from this code) when the posts
 // flag is off for the caller. A rejected call logs feature_disabled=true and outcome=rejected:feature_disabled.
 // A missing caller identity is UNAUTHENTICATED (unreachable: authn.IDTokenInterceptor runs first).
-func GuardFeature(ctx context.Context, flags FlagChecker) error {
+func GuardFeature(ctx context.Context, fc FlagChecker) error {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
 		return apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "unauthenticated")
 	}
-	if flags == nil || !flags.Enabled(uid, FlagName) {
+	if fc == nil || !fc.Enabled(uid, FlagName) {
 		logger.SetRequestField(ctx, "feature_disabled", true)
 		logger.SetRequestField(ctx, "outcome", "rejected:feature_disabled")
-		return FeatureDisabledErr()
+		return flags.DisabledError()
 	}
 	return nil
-}
-
-// FeatureDisabledErr is FEATURE_DISABLED for the whole posts service (no metadata["feature"]: an absent name
-// means the whole service, ADR-0010 D2).
-func FeatureDisabledErr() error {
-	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "this feature is not available yet")
 }
 
 // Server adapts Service to postsv1connect.PostServiceHandler.
@@ -56,8 +51,8 @@ type Server struct {
 }
 
 // NewServer builds the Connect handler. Use with postsv1connect.NewPostServiceHandler.
-func NewServer(svc Service, flags FlagChecker) *Server {
-	return &Server{svc: svc, flags: flags}
+func NewServer(svc Service, fc FlagChecker) *Server {
+	return &Server{svc: svc, flags: fc}
 }
 
 var _ postsv1connect.PostServiceHandler = (*Server)(nil)

@@ -574,6 +574,22 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
      - `Directory.Forget(author)` (or update it in place, as in graph T30);
      - `PostEvents.Created` (a no-op).
   5. Return `PostView` (viewer flags false).
+  6. **Carry-overs from the T7 review (record the decisions in the T8 PR):**
+     - **Stale positive handle cache.** `ResolveHandles` caches handle to uid for `CACHE_TTL` (60 s), so a handle
+       that was freed and reclaimed by another user can be saved in `mentions[]` under the wrong user. T8 must
+       either verify the resolved uid's `HandleLower` against the profile it loads for that uid (via
+       `identity.Directory.GetProfiles`, cache-first) or shorten the positive handle TTL to 10 s. Test the freed and
+       reclaimed case.
+     - **More than 10 handles.** `ResolveHandles` returns an untyped error above `identity.MaxResolveHandles`
+       distinct handles. T8 must truncate to 10 after dedupe (the parser already caps at `text.MaxMentions`) and
+       test 11 mentions.
+     - **Lower-casing order.** `ResolveHandles` lower-cases before `handleFormatIssue`, the reverse of the other
+       identity paths (validate the raw input first). T8 passes parser output, which is already lower-case and
+       valid, so it is unaffected; do not copy the order elsewhere, and prefer validating raw input first if
+       `ResolveHandles` is touched.
+     - **`allowAnonymous`.** T8 must receive it only through an option wired from `cfg.AuthEmulator` (as
+       `identity.WithAllowAnonymous` does), never from a request or a global, and needs a guard test that
+       `apiserver.Build` wires it from `cfg.AuthEmulator` and that the default is false.
 - **Acceptance criteria.**
   - Given valid text, then `posts/{id}` has the ADR-0003 shape, `users.postsCount` +1, `quotas.posts` +1, and exactly
     one `idempotency` doc with `expireAt` 24 h out.
