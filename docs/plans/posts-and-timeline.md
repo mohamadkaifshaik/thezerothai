@@ -923,6 +923,17 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Observability.** —
 - **Budget.** ≤ 8 refreshes + ≤ 1 older page per DAU/day on the model's usage (the client enforces the throttle).
 - **Follow-up (PR #75 review, M3/M4/L1/L4/L6):** see the T14 follow-up list; T17 should call `TimelineRepository.cached` once per screen open and avoid a second full-feed decode per refresh.
+- **Reviewer contract (PR #75 review, T14 -> T17).**
+  - `refresh` and `insertOwnPost` trim the cached feed to about 500 rows (`kTimelineRetention`). The Home screen must
+    therefore not auto-refresh on app resume while the user is scrolled past about 500 rows, or the list jumps and loses
+    the user's place. Either skip the resume refresh in that state, or compact only at app start or when the feed is opened.
+  - The gate refresh throttle uses wall-clock time (`DateTime.now()`), so a clock change can suppress or double a
+    refresh. Follow-up: use a monotonic clock (`Stopwatch`) or a trailing refresh instead.
+  - `PostCard` does not tick: relative times (`5m`) go stale while a list stays open. T17 should rebuild the visible
+    cards on a minute timer (foreground only, no RPC) or pass a fresh `now` after each refresh.
+  - `PostCard.onRelationshipChanged` reports Block/Mute/Unblock/Unmute results; T17 uses it to hide or restore the
+    author's posts locally (D6) without a refetch. It can fire after the card is unmounted (the request outlives a
+    scrolled-away card), so Home's handler must be safe then: act on the feed/store, never on the card's `BuildContext`.
 
 ### T18 — Flutter: profile Posts tab, post detail, delete  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**

@@ -43,6 +43,10 @@ class AppRouter {
   static const blockedAccountsPath = '/settings/blocked';
   static const mutedAccountsPath = '/settings/muted';
   static String profilePath(String handle) => '/profile/$handle';
+
+  /// Profile by user id: what post cards and mentions use, since handles can
+  /// be changed and re-claimed (ADR-0010 D7).
+  static String profileByIdPath(String userId) => '/u/$userId';
   static String followersPath(String handle) => '/profile/$handle/followers';
   static String followingPath(String handle) => '/profile/$handle/following';
 
@@ -75,6 +79,12 @@ class AppRouter {
           GoRoute(
             path: homePath,
             builder: (context, state) => const AuthGate(child: HomeScreen()),
+          ),
+          GoRoute(
+            path: '/u/:userId',
+            builder: (context, state) => AuthGate(
+              child: ProfileScreen(userId: state.pathParameters['userId']!),
+            ),
           ),
           GoRoute(
             path: '/profile/:handle',

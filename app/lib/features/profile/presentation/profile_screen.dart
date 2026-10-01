@@ -12,39 +12,57 @@ import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
 import 'widgets/profile_header.dart';
 
-/// `GetProfile(handle)` + (when the graph flag is on) the viewer's
+/// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader]. Posts are still a placeholder
 /// (ADR-0008 D13: the posts/profile-timeline plan adds the tabs and body).
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key, required this.handle});
+  const ProfileScreen({super.key, this.handle, this.userId})
+    : assert(
+        (handle == null) != (userId == null),
+        'ProfileScreen takes exactly one of handle or userId',
+      );
 
-  final String handle;
+  /// Opens the profile by `@handle` (typed links, own profile tab).
+  final String? handle;
+
+  /// Opens the profile by id (post cards, mentions): immune to handle
+  /// changes, since ChangeHandle frees old handles for others to claim.
+  final String? userId;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<ProfileCubit>(
-      key: ValueKey('profile-cubit-$handle'),
+      key: ValueKey('profile-cubit-${userId ?? handle}'),
       create: (context) => ProfileCubit(
         identityRepository: context.read<IdentityRepository>(),
         graphRepository: context.read<GraphRepository>(),
         handle: handle,
+        userId: userId,
         graphEnabled: graphEnabledSnapshot(context),
         ownUserId: context.read<OnboardingBloc>().state.profile?.userId,
       )..load(),
-      child: _ProfileView(handle: handle),
+      child: const _ProfileView(),
     );
   }
 }
 
 class _ProfileView extends StatelessWidget {
-  const _ProfileView({required this.handle});
-
-  final String handle;
+  const _ProfileView();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('@$handle')),
+      appBar: AppBar(
+        title: BlocBuilder<ProfileCubit, ProfileState>(
+          buildWhen: (a, b) => a.profile?.handle != b.profile?.handle,
+          builder: (context, state) {
+            final handle =
+                state.profile?.handle ??
+                context.read<ProfileCubit>().requestedHandle;
+            return Text(handle == null || handle.isEmpty ? '' : '@$handle');
+          },
+        ),
+      ),
       body: SafeArea(
         child: BlocBuilder<ProfileCubit, ProfileState>(
           builder: (context, state) {

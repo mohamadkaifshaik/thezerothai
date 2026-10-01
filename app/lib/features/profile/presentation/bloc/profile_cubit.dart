@@ -14,26 +14,39 @@ class ProfileCubit extends Cubit<ProfileState> {
   ProfileCubit({
     required IdentityRepository identityRepository,
     required GraphRepository graphRepository,
-    required String handle,
+    String? handle,
+    String? userId,
     required bool graphEnabled,
     required String? ownUserId,
   }) : _identityRepository = identityRepository,
        _graphRepository = graphRepository,
        _handle = handle,
+       _userId = userId,
        _graphEnabled = graphEnabled,
        _ownUserId = ownUserId,
+       assert(
+         (handle == null) != (userId == null),
+         'ProfileCubit takes exactly one of handle or userId',
+       ),
        super(const ProfileState());
 
   final IdentityRepository _identityRepository;
   final GraphRepository _graphRepository;
-  final String _handle;
+  final String? _handle;
+  final String? _userId;
+
+  /// The handle this cubit was opened with (null when opened by id), for
+  /// the app bar title until the profile loads.
+  String? get requestedHandle => _handle;
   final bool _graphEnabled;
   final String? _ownUserId;
 
   Future<void> load() async {
     emit(state.copyWith(status: ProfileStatus.loading, error: null));
     try {
-      final profile = await _identityRepository.getProfile(handle: _handle);
+      final profile = _userId != null
+          ? await _identityRepository.getProfile(userId: _userId)
+          : await _identityRepository.getProfile(handle: _handle);
       final isOwnProfile = profile.userId == _ownUserId;
 
       var relationship = _graphRepository.cached(profile.userId);
@@ -59,6 +72,9 @@ class ProfileCubit extends Cubit<ProfileState> {
         ),
       );
     } on NotFoundException {
+      emit(const ProfileState(status: ProfileStatus.notFound));
+    } on ValidationException {
+      // A malformed id/handle in a typed or stale link: same as not found.
       emit(const ProfileState(status: ProfileStatus.notFound));
     } on AppException catch (e) {
       emit(ProfileState(status: ProfileStatus.error, error: e));

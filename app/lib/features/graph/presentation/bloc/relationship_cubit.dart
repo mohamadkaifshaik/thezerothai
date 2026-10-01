@@ -119,12 +119,26 @@ class RelationshipCubit extends Cubit<RelationshipState> {
     try {
       final updated = await call(key);
       onSuccess();
+      if (isClosed) return;
       emit(RelationshipState(relationship: updated));
     } on AppException catch (e) {
       // Roll back to the pre-optimistic relationship. Never auto-retry
       // DegradedModeException (CLAUDE.md); the caller decides whether to
       // offer a manual retry, which reuses the same key via [keyOf].
+      if (isClosed) return;
       emit(state.copyWith(relationship: previous, isUpdating: false, error: e));
+    } catch (_) {
+      // Not an AppException (e.g. the local drift write failed). Still roll
+      // back and clear isUpdating, or the cubit would stay "updating" forever
+      // (blocking retries and keeping anything waiting on it alive).
+      if (isClosed) return;
+      emit(
+        state.copyWith(
+          relationship: previous,
+          isUpdating: false,
+          error: const UnknownApiException('Something went wrong.'),
+        ),
+      );
     }
   }
 }

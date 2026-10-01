@@ -1,9 +1,9 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/follow_button.dart';
 import '../../data/graph_repository.dart';
 import '../bloc/relationship_cubit.dart';
@@ -28,12 +28,7 @@ class UserListRow extends StatelessWidget {
     final user = item.user;
     return ListTile(
       minVerticalPadding: AppSpacing.sm,
-      leading: CircleAvatar(
-        backgroundImage: user.avatarUrl.isEmpty
-            ? null
-            : CachedNetworkImageProvider(user.avatarUrl),
-        child: user.avatarUrl.isEmpty ? const Icon(Icons.person_outline) : null,
-      ),
+      leading: AppAvatar(url: user.avatarUrl),
       title: Text(
         user.displayName.isEmpty ? '@${user.handle}' : user.displayName,
         maxLines: 1,

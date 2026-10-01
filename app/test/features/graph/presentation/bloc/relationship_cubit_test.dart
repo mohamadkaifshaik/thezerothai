@@ -205,6 +205,32 @@ void main() {
   });
 
   blocTest<RelationshipCubit, RelationshipState>(
+    'a non-AppException failure rolls back and clears isUpdating',
+    build: () {
+      when(
+        () => graphRepository.follow(
+          userId: userId,
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(StateError('drift write failed'));
+      return RelationshipCubit(
+        graphRepository: graphRepository,
+        userId: userId,
+        initial: initialNone,
+      );
+    },
+    act: (cubit) => cubit.follow(),
+    verify: (cubit) {
+      expect(cubit.state.isUpdating, isFalse);
+      expect(cubit.state.error, isA<UnknownApiException>());
+      expect(
+        cubit.state.relationship.followState,
+        graph.FollowState.FOLLOW_STATE_NONE,
+      );
+    },
+  );
+
+  blocTest<RelationshipCubit, RelationshipState>(
     'a second tap while updating is ignored',
     build: () {
       when(

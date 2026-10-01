@@ -6,6 +6,7 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/follow_button.dart';
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
@@ -92,15 +93,7 @@ class _ProfileHeaderBody extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundImage: profile.avatarUrl.isEmpty
-                    ? null
-                    : NetworkImage(profile.avatarUrl),
-                child: profile.avatarUrl.isEmpty
-                    ? const Icon(Icons.person_outline, size: 32)
-                    : null,
-              ),
+              AppAvatar(url: profile.avatarUrl, radius: 32),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
