@@ -168,3 +168,23 @@ doc, `graph/{C}` or `users/{C}` remained.
 ## 4. Confirm and record
 Reply to the user that the deletion or export is done (mention the 14-day backup expiry for deletions). Record the
 date, request type and a **hashed** uid in the founder's private tracker, not in this repo.
+
+## 5. Pre-gate check: no disallowed Auth account owns a profile (ADR-0010 D5 A10, T26)
+Run once against dev, then prod, before the verified-identity gate reaches prod (and again after any change to the
+enabled sign-in providers). It lists Firebase Auth users in memory, classifies each as allowed (a `google.com` or
+`apple.com` provider, or `password` with a verified email) or not, and batch-reads `users/{uid}` for the not-allowed
+ones only. It is read-only, writes no file, and prints aggregate counts only (never a uid, email or provider list).
+
+```bash
+cd backend
+GOWORK=off go run ./cmd/opsctl check-t26 --project dzeroth-dev
+GOWORK=off go run ./cmd/opsctl check-t26 --project dzeroth-prod   # asks you to type the project id
+# total=.. allowed=.. not_allowed=.. not_allowed_with_users_doc=.. firestore_reads=..
+# last line: T26: PASS (exit 0) or T26: FAIL (exit 1)
+```
+
+- Cost: Firestore reads = `not_allowed` (printed as `firestore_reads`); Auth listing has no Firestore cost. Expected
+  `not_allowed=0`, so 0 reads.
+- Record only the date, project and the five counts (for example in the release readiness doc). Never paste uids.
+- On `T26: FAIL`, do not enable the gate. Find the offending accounts by hand in the Firebase console (they are not
+  printed on purpose), then handle each as an account deletion (sections 3b and 4) or amend ADR-0010 before retrying.

@@ -44,7 +44,10 @@ type backends struct {
 		ExportUser(ctx context.Context, uid string) (graph.Export, error)
 	}
 	profile func(ctx context.Context, uid string) (identity.Profile, error)
-	close   func()
+	// listAuthUsers and usersExist serve check-t26 (read-only).
+	listAuthUsers authLister
+	usersExist    usersExistFn
+	close         func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -62,18 +65,26 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
+	lister, err := newAuthLister(ctx, project)
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
 	return &backends{
-		eraser:   graphRepo,
-		planner:  graphRepo,
-		exporter: graphRepo,
-		profile:  identityRepo.GetProfile,
-		close:    func() { _ = client.Close() },
+		eraser:        graphRepo,
+		planner:       graphRepo,
+		exporter:      graphRepo,
+		profile:       identityRepo.GetProfile,
+		listAuthUsers: lister,
+		usersExist:    newUsersExist(client),
+		close:         func() { _ = client.Close() },
 	}, nil
 }
 
 const usage = `usage:
   opsctl purge-graph  --project P --uid U [--dry-run] [--skip-start-gate]
   opsctl export-graph --project P --uid U [--out FILE]
+  opsctl check-t26    --project P   (read-only; prints aggregate counts only)
 `
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
@@ -92,7 +103,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	outFile := fs.String("out", "", "export-graph: write JSON to this file instead of stdout")
 
 	switch cmd {
-	case "purge-graph", "export-graph":
+	case "purge-graph", "export-graph", "check-t26":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -104,11 +115,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintf(errOut, "--project is required (there is no default project)\n%s", usage)
 		return 2
 	}
-	if *uid == "" {
+	needUID := cmd != "check-t26" // check-t26 scans every Auth user and prints counts only
+	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
 	}
-	if !identity.ValidUserID(*uid) {
+	if needUID && !identity.ValidUserID(*uid) {
 		fmt.Fprintln(errOut, "--uid is not a valid user id")
 		return 2
 	}
@@ -125,6 +137,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	defer b.close()
 
 	switch cmd {
+	case "check-t26":
+		err = checkT26(ctx, b, out)
 	case "purge-graph":
 		err = purge(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	default:
