@@ -235,7 +235,7 @@ func TestAccountOps_21stCallIsRateLimitedEvenOverTheReadBudget(t *testing.T) {
 	}
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-ops"}), req)
+			return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-ops", SignInProvider: authn.SignInProviderGoogle}), req)
 		}
 	})
 	opts := connect.WithInterceptors(setUID, ratelimit.Interceptor(rl))
@@ -343,7 +343,7 @@ func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
 	const uidHeader = "X-Test-UID"
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(uidHeader)}), req)
+			return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(uidHeader), SignInProvider: authn.SignInProviderGoogle}), req)
 		}
 	})
 	handled := 0

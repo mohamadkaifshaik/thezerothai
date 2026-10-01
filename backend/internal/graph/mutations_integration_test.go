@@ -1151,7 +1151,7 @@ func TestT16a_DegradedReadonly_RejectsEveryMutation(t *testing.T) {
 	newClient := func(mode config.DegradedMode) graphv1connect.GraphServiceClient {
 		injectUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 			return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-				return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get("X-Test-Uid")}), req)
+				return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get("X-Test-Uid"), SignInProvider: authn.SignInProviderGoogle}), req)
 			}
 		})
 		path, handler := graphv1connect.NewGraphServiceHandler(graph.NewServer(w.graph.Service),

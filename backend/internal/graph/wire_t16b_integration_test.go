@@ -137,7 +137,7 @@ func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap
 
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			ctx = authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(testUIDHeader)})
+			ctx = authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(testUIDHeader), SignInProvider: authn.SignInProviderGoogle})
 			return next(ctx, req)
 		}
 	})
