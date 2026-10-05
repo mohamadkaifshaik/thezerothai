@@ -561,6 +561,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
       VALIDATION (still rejected, not trimmed).
     - The fuzz target also checks that no stored mention or hashtag overlaps a URL span.
   - **Budget.** 0 (parser). It lowers CreatePost reads when the only candidates sit in URLs.
+  - **Status: built (branch claude/gracious-babbage-2barib).** G1/G2/G4 in `posts/text`; `testdata/post_text_grammar.json`
+    (41 grammar + 22 normalise rows, architect to review); Go loads every row and asserts the row count. `Parsed.MentionsInURL`
+    feeds the T8 `mentions_in_url` log field. The Dart side (T15 delta) must load the same file.
 
 ### T6b — Shared handle grammar: `pkg/platform/handle` (ADR-0010 D21 G3)  [owner: backend-developer] [size: S] [depends: founder accepts D21 G3; merges before the T6 D21 delta and T8]
 - **Description.** A refactor with no behaviour change. Reuse-first "generalise and move": one handle grammar, used by
@@ -584,6 +587,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Unit tests only.
 - **Observability.** —
 - **Budget.** 0.
+- **Status: built (branch claude/gracious-babbage-2barib).** `pkg/platform/handle`, identity and `posts/text` use it;
+  the import-guard test is `posts/text/imports_test.go`; `docs/code-map.md` updated.
 
 ### T7 — Identity: `Directory.ResolveHandles`; shared verified-email check  [owner: backend-developer] [size: S] [depends: T3 (negative cache)]
 - **Description.**
@@ -681,6 +686,22 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `mentions_dropped`, `hashtags_count`, `text_len`, `txn_attempts` (WARN if > 3), `feature` on a sub-feature rejection.
   Never log text, handles, hashtags or mention lists (D20).
 - **Budget.** 14 cold / 2 warm / 2.5 planning R, 4 W, +1 eventual TTL delete.
+- **Status: built (branch claude/gracious-babbage-2barib).** Decisions recorded for the PR:
+  - **Stale handle cache (G5):** both halves are in `identity.ResolveHandles` (10 s positive bound via `handleEntry{uid, at}`,
+    plus a 0-read profile-cache peek). The residual (rename + reclaim within 10 s on another instance) is asserted and named in
+    `resolve_handles_g5_test.go`.
+  - **More than 10 handles:** the parser caps at 10 and `resolveMentions` truncates again as a backstop (unit test with 11).
+  - **Lower-casing order:** untouched; CreatePost passes parser output.
+  - **`allowAnonymous`:** `posts.WithAllowAnonymous` option, wired only as `posts.WithAllowAnonymous(cfg.AuthEmulator)` in
+    `apiserver.Build`; default false (unit test) and a source guard `apiserver/posts_anonymous_test.go`.
+  - **Settle window:** `TIMELINE_SETTLE_WINDOW` (default and floor 15 s) added to `config.Load`, with tests. T11 reads
+    `cfg.TimelineSettleWindow`.
+  - **Author profile eviction:** after a commit `Directory.Forget(author)` (as in graph), so the next request on that instance
+    pays the interceptor's profile read (cold). The warm figures above assume the profile is cached.
+  - Measured on the emulator (`create_integration_test.go`, no interceptor read in the harness): warm 2 R / 4 W; replay warm 1 R /
+    0 W; reused key 1 R / 0 W; 3 mention candidates 6 R; cold ceiling with 10 uncached handles 14 R (author profile 1 + graph 1 +
+    handles 10 + idempotency 1 + quotas 1) / 4 W, i.e. 15 with a real interceptor read only when every cache is cold; the
+    documented 14 counts the interceptor read as the profile read.
 
 ### T9 — DeletePost + GetPost  [owner: backend-developer] [size: S] [depends: T5]
 - **Description.**
