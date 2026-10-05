@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dzeroth/features/posts/domain/post_text_parser.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:flutter_test/flutter_test.dart';
@@ -47,16 +50,6 @@ void main() {
       expect(parsePostText('@bob', const []).single.kind, PostSpanKind.plain);
     });
 
-    test('an email address is not a mention', () {
-      final spans = parsePostText('mail a@bob.com', [_m('bob')]);
-      expect(_tappable(spans), isEmpty);
-    });
-
-    test('a handle longer than 15 is not a mention', () {
-      final spans = parsePostText('@abcdefghijklmnop', [_m('abcdefghijklmno')]);
-      expect(_tappable(spans), isEmpty);
-    });
-
     test('a mention may follow punctuation and end the text', () {
       final spans = parsePostText('(@bob), @bob.', [_m('bob')]);
       expect(_tappable(spans), hasLength(2));
@@ -102,13 +95,8 @@ void main() {
   });
 
   group('hashtags', () {
-    test('basic, unicode and invalid forms', () {
+    test('a plain hashtag is tappable', () {
       expect(parsePostText('#go', const []).single.kind, PostSpanKind.hashtag);
-      expect(parsePostText('#भारत', const []).single.text, '#भारत');
-      expect(_tappable(parsePostText('#123', const [])), isEmpty);
-      expect(_tappable(parsePostText('a#b', const [])), isEmpty);
-      expect(_tappable(parsePostText('#', const [])), isEmpty);
-      expect(_tappable(parsePostText('#${'a' * 51}', const [])), isEmpty);
     });
   });
 
@@ -124,10 +112,6 @@ void main() {
       }
       expect(_tappable(parsePostText('(@bob)', m)), hasLength(1));
       expect(_tappable(parsePostText('@alice-x', m)), hasLength(1));
-    });
-
-    test('an HTML entity is not a hashtag', () {
-      expect(_tappable(parsePostText('it&#39;s', const [])), isEmpty);
     });
 
     test('51-rune hashtag is rejected, 50 is accepted', () {
@@ -196,6 +180,91 @@ void main() {
       final paren = parsePostText('(see https://x.y/a)', const []);
       expect(paren[1].text, 'https://x.y/a');
       expect(paren.last.text, ')');
+    });
+  });
+
+  group('D21 G1: exclusion runs over every syntactic URL span', () {
+    test('an unsafe span is plain text with nothing tappable inside', () {
+      final spans = parsePostText('https://ex.café/?r=@bob', [_m('bob')]);
+      expect(spans, hasLength(1));
+      expect(spans.single.kind, PostSpanKind.plain);
+    });
+
+    test('userinfo span is plain, only the later mention is tappable', () {
+      final spans = parsePostText('https://google.com@evil.com/x @bob', [
+        _m('bob'),
+      ]);
+      expect(_tappable(spans).map((s) => s.text), ['@bob']);
+    });
+
+    test('a bidi control keeps span detection but drops every link', () {
+      final spans = parsePostText(
+        '؜ https://ex.com/?r=@bob',
+        [_m('bob')],
+      );
+      expect(_tappable(spans), isEmpty);
+    });
+  });
+
+  group('shared fixture testdata/post_text_grammar.json', () {
+    // The repo-root fixture is the single source of grammar rows (ADR-0010
+    // D21 G1); tests run from app/.
+    final file = File('../testdata/post_text_grammar.json');
+    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    final rows = (json['grammar'] as List).cast<Map<String, dynamic>>();
+
+    List<String> strings(Object? v) => (v as List).cast<String>();
+
+    test('runs every grammar row', () {
+      var ran = 0;
+      for (final row in rows) {
+        final text = row['text'] as String;
+        final wantMentions = strings(row['mentions']);
+        final wantHashtags = strings(row['hashtags']);
+        final wantLinks = strings(row['tappable_links']);
+
+        // Feed the server's mentions back as resolved mentions.
+        final mentions = [
+          for (final h in wantMentions) _m(h, 'uid-$h'),
+        ];
+        final spans = parsePostText(text, mentions);
+        final reason = 'row: ${jsonEncode(text)}';
+
+        expect(spans.map((s) => s.text).join(), text, reason: reason);
+
+        // The server dedupes and caps at 10; the client shows every span.
+        List<String> stored(Iterable<String> all) =>
+            all.toSet().take(10).toList();
+        expect(
+          stored(
+            spans
+                .where((s) => s.kind == PostSpanKind.mention)
+                .map((s) => s.text.substring(1).toLowerCase()),
+          ),
+          wantMentions,
+          reason: reason,
+        );
+        expect(
+          stored(
+            spans
+                .where((s) => s.kind == PostSpanKind.hashtag)
+                .map((s) => s.text.substring(1).toLowerCase()),
+          ),
+          wantHashtags,
+          reason: reason,
+        );
+        expect(
+          spans
+              .where((s) => s.kind == PostSpanKind.link)
+              .map((s) => s.text)
+              .toList(),
+          wantLinks,
+          reason: reason,
+        );
+        ran++;
+      }
+      expect(ran, rows.length);
+      expect(ran, greaterThan(0));
     });
   });
 }

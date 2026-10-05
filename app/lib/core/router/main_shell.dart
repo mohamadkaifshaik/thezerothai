@@ -3,6 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
+import '../feature_flags/feature_flags.dart';
+import 'app_router.dart';
 import '../widgets/responsive_scaffold.dart';
 
 /// The bottom-nav/rail chrome around the three authenticated top-level
@@ -44,8 +47,21 @@ class MainShell extends StatelessWidget {
       (OnboardingBloc bloc) => bloc.state.profile?.handle,
     );
 
+    // Compose is offered only with the posts flag on (ADR-0010 D1), and not
+    // on Settings.
+    final canCompose =
+        isFeatureEnabled(context, kFeaturePosts) &&
+        !location.startsWith('/settings');
+
     return ResponsiveScaffold(
       selectedIndex: _selectedIndex,
+      floatingActionButton: canCompose
+          ? FloatingActionButton(
+              tooltip: 'New post',
+              onPressed: () => context.push(AppRouter.composePath),
+              child: const Icon(Icons.edit_outlined),
+            )
+          : null,
       destinations: _destinations,
       onDestinationSelected: (index) {
         switch (index) {

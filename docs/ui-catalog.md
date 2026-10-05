@@ -52,3 +52,10 @@
 | UserListRow | app/lib/features/graph/presentation/widgets/user_list_row.dart | one row (avatar, name, handle, trailing) in any graph user list; defaults to a `FollowButton` seeded from `UserListItem.relationship` |
 | BlockedAccountsScreen / MutedAccountsScreen | app/lib/features/graph/presentation/managed_accounts_screen.dart | Settings → Blocked/Muted accounts, optimistic unblock/unmute + undo |
 | GraphListScreen | app/lib/features/graph/presentation/graph_list_screen.dart | `/profile/:handle/followers` and `/profile/:handle/following`, tabbed, paged; lazy per-tab `UserListCubit`, flag-off redirects to the profile |
+| analyzePostDraft / PostDraft / PostDraftProblem / kMaxPostCodePoints / kMaxPostLines | app/lib/features/posts/domain/post_text_rules.dart | client mirror of ADR-0010 D9 (+D21 G2/G4): normalise, NFC, trim, count code points/lines, why Post is disabled; the server stays authoritative |
+| ComposerScreen / CharacterCounter | app/lib/features/posts/presentation/composer_screen.dart | `/compose`: 280 code-point composer with counter, EMAIL_NOT_VERIFIED -> `VerifyEmailView` |
+| ComposerCubit / ComposerState | app/lib/features/posts/presentation/bloc/composer_cubit.dart | create-post intent: one idempotency key per intent (reused on retry), optimistic pending post, rollback on error |
+| PendingPostsCubit / PendingPost | app/lib/features/posts/presentation/bloc/pending_posts_cubit.dart | app-wide, session-only list of optimistic posts; provided by `AppWidget`, cleared on sign-out |
+| PendingPostsSection | app/lib/shared/widgets/pending_posts_section.dart | optimistic posts above a feed (Home, own profile via `authorId`); T17/T18 mount it |
+| createPostErrorMessage | app/lib/features/posts/presentation/post_error_messages.dart | friendly snackbar text for CreatePost `AppException`s (quota, rate limit, degraded, flag off, network) |
+| AppRouter.composePath | app/lib/core/router/app_router.dart | the `/compose` route (outside the shell) |

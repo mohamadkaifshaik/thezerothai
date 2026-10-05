@@ -13,6 +13,7 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
+import '../../features/posts/presentation/composer_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/splash_screen.dart';
@@ -37,6 +38,7 @@ class AppRouter {
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
   static const homePath = '/home';
+  static const composePath = '/compose';
   static const settingsPath = '/settings';
   // The Settings routes land with T15; the constants live here so
   // ProfileHeader and SettingsScreen share one source of truth.
@@ -71,6 +73,11 @@ class AppRouter {
         path: onboardingPath,
         builder: (context, state) =>
             const AuthGate(child: CreateProfileScreen()),
+      ),
+      // Full-screen, outside the shell: no nav chrome while writing.
+      GoRoute(
+        path: composePath,
+        builder: (context, state) => const AuthGate(child: ComposerScreen()),
       ),
       ShellRoute(
         builder: (context, state, child) =>

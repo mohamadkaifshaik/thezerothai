@@ -1008,6 +1008,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     - `https://google.com@evil.com/x @bob` → only `@bob` is tappable.
     - `؜ https://ex.com/?r=@bob` with `mentions=[bob]` → nothing tappable.
     - Every fixture row passes.
+  - **Status: built (branch feat/app-t16-composer; not yet run, no Flutter SDK in the sandbox).** The parser excludes
+    `@`/`#` candidates inside every syntactic URL span (unsafe spans render as plain text; detection runs even with bidi
+    controls). `post_text_parser_test.dart` runs every `grammar` row of `testdata/post_text_grammar.json` and asserts
+    the row count; the grammar rows that were duplicated inline were removed.
 
 ### T16 — Flutter: composer  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**
@@ -1038,6 +1042,14 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Bloc tests (optimistic path, rollback, key reuse); widget tests.
 - **Observability.** —
 - **Budget.** 1 CreatePost per intent.
+- **Status: built (branch feat/app-t16-composer; not yet run, no Flutter SDK in the sandbox).**
+  - `/compose` route plus a "New post" button in `MainShell` (posts flag on, not on Settings).
+  - D9 mirror `analyzePostDraft` with the D21 G2/G4 rules, run against the fixture's `normalise` rows. NFC uses
+    `unorm_dart` (added to `pubspec.yaml`; `pubspec.lock` still needs `flutter pub get`).
+  - `ComposerCubit` (one key per intent, reused on retry, dropped when the text changes) and `PendingPostsCubit`
+    (optimistic items, rolled back on error).
+  - **Carry-over to T17/T18:** Home and the profile Posts tab are still placeholders or not built. They must mount
+    `PendingPostsSection` above their feed (`authorId:` on the own profile), so the optimistic post shows there.
 
 ### T17 — Flutter: Home timeline screen  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.** Replace the `HomeScreen` placeholder (`home_screen.dart:5-37`) with the ADR-0004 §7 behaviour:
