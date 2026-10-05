@@ -303,6 +303,8 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 
 // checkVisible answers NOT_FOUND, byte-identical to GetProfile's missing-user error, for a missing,
 // non-ACTIVE or caller-blocking target (D6). A caller who blocks or mutes the target still sees the posts.
+// TODO(private accounts, ADR-0008 D1): neither timeline filters Post.Visibility != PUBLIC today (P1 writes only PUBLIC);
+// add that filter, and a follower check here, when private accounts arrive.
 func (s *Server) checkVisible(ctx context.Context, caller, target string) error {
 	profs, err := s.deps.Directory.GetProfiles(ctx, []string{target})
 	if err != nil {

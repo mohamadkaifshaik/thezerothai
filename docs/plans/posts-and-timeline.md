@@ -706,8 +706,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     pays the interceptor's profile read (cold). The warm figures above assume the profile is cached.
   - Measured on the emulator (`create_integration_test.go`, no interceptor read in the harness): warm 2 R / 4 W; replay warm 1 R /
     0 W; reused key 1 R / 0 W; 3 mention candidates 6 R; cold ceiling with 10 uncached handles 14 R (author profile 1 + graph 1 +
-    handles 10 + idempotency 1 + quotas 1) / 4 W, i.e. 15 with a real interceptor read only when every cache is cold; the
-    documented 14 counts the interceptor read as the profile read.
+    handles 10 + idempotency 1 + quotas 1) / 4 W. The real interceptor read of the caller's `users` doc is the same
+    document as the author profile that `Create` reads through the profile cache (the interceptor has just warmed it),
+    so the real cold ceiling is still 14, not 15: the documented 14 counts that one read once.
 
 ### T9 — DeletePost + GetPost  [owner: backend-developer] [size: S] [depends: T5]
 - **Description.**
@@ -816,8 +817,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `Encode`/`Decode` and their 24 h default stay **byte-for-byte compatible**, so graph list tokens already issued
     keep decoding.
   - Add the config key `TIMELINE_TOKEN_TTL` (default `720h`) to `config.Config` (rule 11). T11 consumes it.
-    **Follow-up (T4/T28 notes):** `config.Load` rejects values below 24h but has no upper bound; add one (for
-    example <= 2160h = 90 days) so a typo cannot make timeline tokens effectively immortal.
+    **Follow-up (T4/T28 notes), done:** `config.Load` also rejects values above `MaxTimelineTokenTTL` (2160h = 90
+    days) so a typo cannot make timeline tokens effectively immortal.
   - Update `docs/code-map.md`.
 - **Acceptance criteria.**
   - Given a Window with and without a Lower bound, when encoded and decoded with the same binding, then it round-trips
