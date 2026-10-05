@@ -71,7 +71,9 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	}
 	// Defence in depth: authors were removed before querying, but a stale cached entry or a replayed own write
 	// must never surface a blocked or muted author's post. The caller's own posts are always kept.
-	keep := func(p *posts.Post) bool { return p.AuthorID == uid || allowedAuthor(snap, p.AuthorID) }
+	keep := func(p *posts.Post) bool {
+		return isPublic(p) && (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID))
+	}
 	page := Merge(res.sources, limit, keep)
 
 	out := &timelinev1.GetHomeTimelineResponse{Posts: toViews(page.Items)}
@@ -303,8 +305,8 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 
 // checkVisible answers NOT_FOUND, byte-identical to GetProfile's missing-user error, for a missing,
 // non-ACTIVE or caller-blocking target (D6). A caller who blocks or mutes the target still sees the posts.
-// TODO(private accounts, ADR-0008 D1): neither timeline filters Post.Visibility != PUBLIC today (P1 writes only PUBLIC);
-// add that filter, and a follower check here, when private accounts arrive.
+// Both timelines fail closed on Post.Visibility != PUBLIC (isPublic) even though P1 writes only PUBLIC.
+// TODO(private accounts, ADR-0008 D1): add a follower check here and in the home keep when private accounts arrive.
 func (s *Server) checkVisible(ctx context.Context, caller, target string) error {
 	profs, err := s.deps.Directory.GetProfiles(ctx, []string{target})
 	if err != nil {
@@ -352,7 +354,7 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 			if ok && (!rec.Truncated || len(rec.Posts) >= limit) {
 				res.cacheHit = true
 				res.entries = []time.Time{rec.LoadedAt}
-				res.page = Merge([]Source{{Posts: rec.Posts, Filled: rec.Truncated}}, limit, nil)
+				res.page = Merge([]Source{{Posts: rec.Posts, Filled: rec.Truncated}}, limit, isPublic)
 				return res, nil
 			}
 			// Miss: fill the entry with a Limit(20) query and serve the first page from it.
@@ -362,13 +364,13 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 			}
 			truncated := len(ps) >= userFirstPageMax
 			s.deps.Posts.StoreAuthorRecent(target, ps, truncated, start)
-			res.page = Merge([]Source{{Posts: ps, Filled: truncated}}, limit, nil)
+			res.page = Merge([]Source{{Posts: ps, Filled: truncated}}, limit, isPublic)
 			return res, nil
 		case md == modeRefresh:
 			if rec, ok := s.deps.Posts.AuthorRecent(target); ok && covers(rec, tok.Since) {
 				res.cacheHit = true
 				res.entries = []time.Time{rec.LoadedAt}
-				res.page = Merge([]Source{{Posts: inWindow(rec.Posts, nil, tok.Since)}}, limit, nil)
+				res.page = Merge([]Source{{Posts: inWindow(rec.Posts, nil, tok.Since)}}, limit, isPublic)
 				return res, nil
 			}
 		}
@@ -377,6 +379,9 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 	if err != nil {
 		return res, logger.RedactErr(fmt.Errorf("timeline: user posts: %w", err), target)
 	}
-	res.page = Merge([]Source{{Posts: ps, Filled: len(ps) >= limit}}, limit, nil)
+	res.page = Merge([]Source{{Posts: ps, Filled: len(ps) >= limit}}, limit, isPublic)
 	return res, nil
 }
+
+// isPublic keeps only public posts. Timelines fail closed so a future non-public visibility cannot leak by omission.
+func isPublic(p *posts.Post) bool { return p.Visibility == posts.VisibilityPublic }

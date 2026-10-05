@@ -5,7 +5,7 @@
 . "${0%/*}/lib.sh" || exit 2
 require_jq
 cmd=$(jq -r '.tool_input.command // empty')
-case "$cmd" in *"git commit"*) ;; *) exit 0 ;; esac
+if ! printf '%s' "$cmd" | grep -Eq '(^|[[:space:];&|])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[a-z-]+(=[^[:space:]]+)?))*[[:space:]]+commit([[:space:]]|$)'; then exit 0; fi
 cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
 staged=$(git diff --cached --name-only 2>/dev/null)
 fail=0

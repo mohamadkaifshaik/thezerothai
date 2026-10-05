@@ -37,7 +37,7 @@ recurs, a handle-reclaim cooldown needs an identity ADR.
 
 ## 6. DeletePost succeeds but the post is still visible
 Another instance may serve the post from its 60 s instance cache after the delete (ADR-0010 D15). It is NOT_FOUND on every
-instance within 60 s, and clients drop unknown ids on refresh. A post that is still there after 2 minutes means the delete
+instance within 60 s, and clients drop unknown ids on refresh. Treat 60 s as the user-facing SLA for "deleted posts disappear everywhere". A post that is still there after 2 minutes means the delete
 did not commit: look for `posts_op="delete"` request lines with `outcome="noop:not_owner"` (the caller was not the author;
 a spike of those is probing, see `docs/runbooks/abuse-spike.md`) or an ERROR with `posts: delete post` (Firestore).
 `outcome="noop"` is an unknown or already-deleted id and is normal on retries.

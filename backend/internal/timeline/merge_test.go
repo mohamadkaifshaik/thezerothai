@@ -235,3 +235,27 @@ func BenchmarkTimelineMerge(b *testing.B) {
 		Merge(srcs, 50, nil)
 	}
 }
+
+func TestIsPublic_FailsClosed(t *testing.T) {
+	t.Parallel()
+	for v, want := range map[posts.Visibility]bool{
+		posts.VisibilityPublic:    true,
+		posts.VisibilityFollowers: false,
+		"":                        false,
+	} {
+		if got := isPublic(&posts.Post{Visibility: v}); got != want {
+			t.Errorf("isPublic(%q) = %v, want %v", v, got, want)
+		}
+	}
+	p := mk(9, 90)
+	p.Visibility = posts.VisibilityFollowers
+	if page := Merge([]Source{{Posts: []*posts.Post{p, mkPublic(8, 80)}}}, 10, isPublic); len(page.Items) != 1 {
+		t.Errorf("Merge kept %d posts, want only the public one", len(page.Items))
+	}
+}
+
+func mkPublic(id int64, ts int64) *posts.Post {
+	p := mk(id, ts)
+	p.Visibility = posts.VisibilityPublic
+	return p
+}
