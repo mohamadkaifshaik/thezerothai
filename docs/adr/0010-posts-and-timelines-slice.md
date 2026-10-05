@@ -27,7 +27,7 @@ fixed list of blank-looking code points as invisible for the empty check (L5), a
 who blocked the author, because the drop was a "who blocked me" oracle (M2). The D6 table row and the D7 resolution rules
 follow. Cost impact: none; CreatePost reads one fewer document when the text has mention candidates (the author's graph is
 no longer read), so the cold ceiling of 14 stays as a conservative upper bound.
-Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01; D21 pending)
+Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01; D21 G1-G5 accepted 2026-10-01; L5 and M2 amendment decided 2026-10-05)
 
 Inputs: `docs/plans/posts-and-timeline.md` (Q1–Q12, T1–T27), `docs/plans/phase1.md` (P0, P1, D1–D5),
 ADR-0003 (data model, ids, idempotency), ADR-0004 (pull timeline), ADR-0008 (graph, D2 overflow, D6 flags, D9 block
