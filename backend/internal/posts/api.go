@@ -136,11 +136,29 @@ type Recent struct {
 	LoadedAt time.Time
 }
 
-// Service is the Connect handler's dependency. T8/T9 extend it with CreatePost, DeletePost and GetPost; it is
-// a Reader today.
+// Service is the Connect handler's dependency: the Reader plus CreatePost (T8). T9 adds DeletePost and GetPost.
 type Service interface {
 	Reader
+	// Create writes one root post for uid (ADR-0010 D2, T8). It returns the stored post, or, for a replayed
+	// idempotency key, the post the first call created. Worst-case Firestore cost: see the CreatePost proto
+	// comment (14 reads cold / 2 warm, 4 writes; replay 14 cold / 1 warm, 0 writes).
+	Create(ctx context.Context, uid string, in CreateInput) (*Post, error)
 }
+
+// CreateInput is the CreatePost request at the domain layer (server.go converts from the proto). Slice-2+
+// fields are carried only so the service can reject them uniformly (FEATURE_DISABLED, ADR-0010 D2).
+type CreateInput struct {
+	IdempotencyKey string
+	Text           string
+	MediaIDs       []string
+	MediaAltTexts  []string
+	ReplyToPostID  string
+	QuoteOfPostID  string
+}
+
+// ErrIdempotencyKeyReused is returned by Repo.Create when the idempotency key was already used for a different
+// request body (the service maps it to INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED).
+var ErrIdempotencyKeyReused = errors.New("posts: idempotency key reused with a different request")
 
 // Limits (ADR-0010 D15, ADR-0004).
 const (

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -23,20 +25,52 @@ type Deps struct {
 	Repo   Repo
 	Cache  *Cache
 	Events PostEvents
+	// Directory and Graph are only needed by Create (author profile, handle resolution, block filtering). They
+	// are the other modules' api.go interfaces (ADR-0002); a Reader-only service may leave them nil.
+	Directory identity.Directory
+	Graph     graph.Reader
+	// Daily CreatePost quotas and the new-account window (config.QuotaConfig, ADR-0006 §4).
+	PostsPerDay           int64
+	NewAccountPostsPerDay int64
+	NewAccountWindow      time.Duration
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
 }
 
 type service struct {
-	repo   Repo
-	cache  *Cache
-	events PostEvents
-	now    func() time.Time
+	repo      Repo
+	cache     *Cache
+	events    PostEvents
+	directory identity.Directory
+	graph     graph.Reader
+	now       func() time.Time
+
+	postsPerDay           int64
+	newAccountPostsPerDay int64
+	newAccountWindow      time.Duration
+	// allowAnonymous is set only by WithAllowAnonymous (wired from config.AuthEmulator); the default is false.
+	allowAnonymous bool
+}
+
+// Option configures New.
+type Option func(*service)
+
+// WithAllowAnonymous lets anonymous sign-ins post. Wire it from config.AuthEmulator only (ADR-0010 D5 A10):
+// never from a request or a global.
+func WithAllowAnonymous(allow bool) Option {
+	return func(s *service) { s.allowAnonymous = allow }
 }
 
 // New builds the posts service. A nil Events defaults to the no-op hook.
-func New(d Deps) Service {
-	s := &service{repo: d.Repo, cache: d.Cache, events: d.Events, now: d.Now}
+func New(d Deps, opts ...Option) Service {
+	s := &service{
+		repo: d.Repo, cache: d.Cache, events: d.Events, now: d.Now,
+		directory: d.Directory, graph: d.Graph,
+		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
+	}
+	for _, o := range opts {
+		o(s)
+	}
 	if s.events == nil {
 		s.events = NopEvents{}
 	}

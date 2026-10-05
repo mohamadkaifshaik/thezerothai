@@ -143,3 +143,14 @@ func TestNormalize_LineSeparators(t *testing.T) {
 		t.Error("11 lines via U+2029 must be rejected")
 	}
 }
+
+func TestParse_MentionsInURL(t *testing.T) {
+	t.Parallel()
+	p, err := Parse("https://ex.com/?ref=@bob and @carol https://x.y/,@dave https://x.y/@erin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(p.Mentions, []string{"carol"}) || p.MentionsInURL != 2 {
+		t.Fatalf("mentions=%v inURL=%d, want [carol] and 2 (@erin has no valid start, so it was never a candidate)", p.Mentions, p.MentionsInURL)
+	}
+}

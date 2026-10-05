@@ -8,6 +8,7 @@ package posts
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -57,12 +58,31 @@ func NewServer(svc Service, fc FlagChecker) *Server {
 
 var _ postsv1connect.PostServiceHandler = (*Server)(nil)
 
-// CreatePost is behind the flag and Unimplemented until T8.
+// createDeadline bounds one CreatePost call (<= 10 s, go-service skill); the transaction itself has 5 s.
+const createDeadline = 8 * time.Second
+
+// CreatePost is behind the flag; everything else (validation order, mentions, the transaction) is
+// Service.Create (T8).
 func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.CreatePostRequest]) (*connect.Response[postsv1.CreatePostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
 	}
-	return s.UnimplementedPostServiceHandler.CreatePost(ctx, req)
+	uid, _ := authn.UIDFromContext(ctx) // GuardFeature proved it is set
+	ctx, cancel := context.WithTimeout(ctx, createDeadline)
+	defer cancel()
+	m := req.Msg
+	post, err := s.svc.Create(ctx, uid, CreateInput{
+		IdempotencyKey: m.GetIdempotencyKey(),
+		Text:           m.GetText(),
+		MediaIDs:       m.GetMediaIds(),
+		MediaAltTexts:  m.GetMediaAltTexts(),
+		ReplyToPostID:  m.GetReplyToPostId(),
+		QuoteOfPostID:  m.GetQuoteOfPostId(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&postsv1.CreatePostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
 }
 
 // DeletePost is behind the flag and Unimplemented until T9.

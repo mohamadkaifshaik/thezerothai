@@ -33,11 +33,19 @@ type Repo interface {
 	ByAuthors(ctx context.Context, authorIDs []string, w Window, limit int) ([]*Post, error)
 	// ByAuthor is Q-P (includeReplies=false) or Q-R (true). Reads: len(result), minimum 1.
 	ByAuthor(ctx context.Context, authorID string, includeReplies bool, w Window, limit int) ([]*Post, error)
+	// Create runs the CreatePost transaction (repo_create.go). Reads 2 (idempotency, quotas) and 4 writes on a
+	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
+	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
+	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 }
 
 // FirestoreRepo implements Repo against the shared Firestore client.
 type FirestoreRepo struct {
 	client *firestore.Client
+	w      WriteDeps // CreatePost collaborators, set by SetWriters
+	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
+	// error makes the SDK retry the transaction. Never set outside tests.
+	attemptHook func(attempt int, id string) error
 }
 
 // NewFirestoreRepo builds the repo on the process-wide Firestore client.

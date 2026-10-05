@@ -33,10 +33,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/health"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/httpcors"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpush"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
 
 // healthPaths is exempt from PreAuthIPMiddleware (M1): Cloud Run's startup/liveness probe hits /health
@@ -134,7 +137,24 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// posts.Reader and graph.Reader seams (ADR-0004 handoff: it never queries `posts` or `graph` itself).
 	postsRepo := posts.NewFirestoreRepo(fsClient)
 	postsCache := posts.NewCache(cfg.CacheTTL, cfg.CachePostsEntries, cfg.CacheAuthorRecentEntries)
-	postsSvc := posts.New(posts.Deps{Repo: postsRepo, Cache: postsCache, Events: posts.NopEvents{}})
+	snowflakeNode, err := snowflake.NewNode()
+	if err != nil {
+		return nil, nil, fmt.Errorf("snowflake node: %w", err)
+	}
+	postsRepo.SetWriters(posts.WriteDeps{
+		Idempotency: idempotency.New(fsClient),
+		Quotas:      quota.New(fsClient),
+		Counters:    identityRepo,
+		IDs:         snowflakeNode,
+	})
+	postsSvc := posts.New(posts.Deps{
+		Repo: postsRepo, Cache: postsCache, Events: posts.NopEvents{},
+		Directory:             identitySvc.(identity.Directory),
+		Graph:                 graphSvc,
+		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
+		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
+		NewAccountWindow:      cfg.Quota.NewAccountWindow,
+	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
 	postsServer := posts.NewServer(postsSvc, featureFlags)
 	timelineServer := timeline.NewServer(timeline.Deps{Flags: featureFlags, Posts: postsSvc, Graph: graphSvc})
 

@@ -31,6 +31,9 @@ type Parsed struct {
 	// Mentions are lower-cased handles, deduplicated in first-occurrence order, at most MaxMentions. They are
 	// candidates: the caller resolves them against `handles/*`.
 	Mentions []string
+	// MentionsInURL counts well-formed @mention candidates dropped because they sit inside a URL span (D21 G1),
+	// for the mentions_in_url request-log field. A count only: never the handles.
+	MentionsInURL int
 	// Hashtags are lower-cased NFC bodies, deduplicated in first-occurrence order, at most MaxHashtags.
 	Hashtags []string
 }
@@ -42,7 +45,8 @@ func Parse(raw string) (Parsed, error) {
 	if err != nil {
 		return Parsed{}, err
 	}
-	return Parsed{Text: t, Mentions: Mentions(t), Hashtags: Hashtags(t)}, nil
+	m, inURL := scanMentions(t)
+	return Parsed{Text: t, Mentions: m, MentionsInURL: inURL, Hashtags: Hashtags(t)}, nil
 }
 
 // Normalize applies ADR-0010 D9 (with D21 G2 and G4) in order: UTF-8 check; CRLF, CR, U+2028 and U+2029 to LF
@@ -112,7 +116,14 @@ func bad(msg string) error { return apierr.Validation("text", msg) }
 
 // Mentions extracts @mention candidates from already-normalised text (D7).
 func Mentions(s string) []string {
+	m, _ := scanMentions(s)
+	return m
+}
+
+// scanMentions is Mentions plus the number of well-formed candidates excluded by a URL span.
+func scanMentions(s string) ([]string, int) {
 	rs := []rune(s)
+	inURL := 0
 	spans := urlSpans(rs)
 	var out []string
 	seen := map[string]struct{}{}
@@ -129,16 +140,17 @@ func Mentions(s string) []string {
 		if j < len(rs) && rs[j] == '@' {
 			continue
 		}
-		if overlaps(spans, i, j) {
-			continue // inside a URL span (D21 G1): not addressed to a person
-		}
 		run := string(rs[i+1 : j])
 		if j-(i+1) > handle.MaxLen || !handle.ValidRun(run) {
 			continue // too short, or too long: never truncated
 		}
+		if overlaps(spans, i, j) {
+			inURL++
+			continue // inside a URL span (D21 G1): not addressed to a person
+		}
 		out = appendUnique(out, seen, strings.ToLower(run), MaxMentions)
 	}
-	return out
+	return out, inURL
 }
 
 // mentionStartOK: the '@' is at the start or after a rune that is not \p{L}\p{M}\p{N} and not one of
