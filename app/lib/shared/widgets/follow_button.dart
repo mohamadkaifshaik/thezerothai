@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/bloc/relationship_state.dart';
 import '../../features/graph/presentation/graph_error_messages.dart';
@@ -19,6 +20,8 @@ import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 ///   defensively since the enum value exists on the wire.
 /// - Updates optimistically (via the cubit) and shows a friendly snackbar,
 ///   never the raw server message, if the server rejects the action.
+const _minSize = Size(88, AppSpacing.minTapTarget);
+
 class FollowButton extends StatelessWidget {
   const FollowButton({super.key});
 
@@ -70,15 +73,24 @@ class FollowButton extends StatelessWidget {
               )
             : Text(label);
 
-        // FilledButton/OutlinedButton both get a 48dp minimum height from
-        // the app theme (AppSpacing.minTapTarget) — no extra sizing needed
-        // here for the accessibility rule.
+        // The app theme gives buttons a full-width 48dp minimum
+        // (`Size.fromHeight`), which is an infinite width inside a Row (the
+        // profile header puts this button in one). Keep the 48dp height and
+        // use a finite minimum width.
         return Semantics(
           button: true,
           label: label,
           child: filled
-              ? FilledButton(onPressed: onPressed, child: child)
-              : OutlinedButton(onPressed: onPressed, child: child),
+              ? FilledButton(
+                  style: FilledButton.styleFrom(minimumSize: _minSize),
+                  onPressed: onPressed,
+                  child: child,
+                )
+              : OutlinedButton(
+                  style: OutlinedButton.styleFrom(minimumSize: _minSize),
+                  onPressed: onPressed,
+                  child: child,
+                ),
         );
       },
     );
