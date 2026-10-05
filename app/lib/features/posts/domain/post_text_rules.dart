@@ -104,8 +104,8 @@ PostDraft analyzePostDraft(String raw) {
   final folded = raw
       .replaceAll('\r\n', '\n')
       .replaceAll('\r', '\n')
-      .replaceAll(' ', '\n')
-      .replaceAll(' ', '\n')
+      .replaceAll('\u2028', '\n')
+      .replaceAll('\u2029', '\n')
       .replaceAll('\t', ' ');
   // Step 3: NFC.
   final runes = unorm.nfc(folded).runes.toList();

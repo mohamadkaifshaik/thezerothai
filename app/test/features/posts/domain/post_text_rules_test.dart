@@ -44,14 +44,14 @@ void main() {
     });
 
     test('decomposed input counts after NFC (e + U+0301 x 280 -> 0 left)', () {
-      final draft = analyzePostDraft('é' * 280);
+      final draft = analyzePostDraft('e\u0301' * 280);
       expect(draft.codePoints, 280);
       expect(draft.remaining, 0);
       expect(draft.canPost, isTrue);
     });
 
     test('an emoji ZWJ sequence counts every code point', () {
-      expect(analyzePostDraft('\u{1F469}‍\u{1F4BB}').codePoints, 3);
+      expect(analyzePostDraft('\u{1F469}\u200d\u{1F4BB}').codePoints, 3);
     });
 
     test('11 lines disables Post, 10 is allowed', () {

@@ -104,10 +104,10 @@ final _mentionRe = RegExp(r'@([A-Za-z0-9_]{3,15})(?![A-Za-z0-9_@])');
 // Hashtag candidate (D8): first rune is a letter/number/underscore, the rest
 // may also be marks and ZWJ/ZWNJ, at most 50 in all.
 final _hashtagRe = RegExp(
-  r'#([\p{L}\p{N}_][\p{L}\p{M}\p{N}_‌‍]{0,49})',
+  r'#([\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200c\u200d]{0,49})',
   unicode: true,
 );
-final _hashtagBodyRune = RegExp(r'[\p{L}\p{M}\p{N}_‌‍]', unicode: true);
+final _hashtagBodyRune = RegExp(r'[\p{L}\p{M}\p{N}_\u200c\u200d]', unicode: true);
 final _letter = RegExp(r'\p{L}', unicode: true);
 final _letterMarkNumber = RegExp(r'[\p{L}\p{M}\p{N}]', unicode: true);
 

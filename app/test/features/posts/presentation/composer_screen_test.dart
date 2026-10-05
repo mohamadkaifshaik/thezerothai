@@ -123,7 +123,7 @@ void main() {
 
   testWidgets('decomposed input counts after NFC (0 remaining)', (tester) async {
     await open(tester);
-    await tester.enterText(find.byType(TextField), 'é' * 280);
+    await tester.enterText(find.byType(TextField), 'e\u0301' * 280);
     await tester.pump();
     expect(find.text('0'), findsOneWidget);
     expect(postButton(tester).onPressed, isNotNull);
