@@ -157,11 +157,15 @@ func (f *fakePosts) queryCount(prefix string) int {
 type fakeGraph struct {
 	snaps map[string]graph.Snapshot
 	calls []string
+	errs  map[string]error // per-uid Snapshot failure
 }
 
 func (g *fakeGraph) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
 	g.calls = append(g.calls, uid)
 	budget.FromContext(ctx).AddReads(1)
+	if err := g.errs[uid]; err != nil {
+		return graph.Snapshot{}, err
+	}
 	return g.snaps[uid], nil
 }
 
@@ -177,9 +181,13 @@ func following(uids ...string) map[string]bool {
 type fakeDirectory struct {
 	identity.Directory
 	profiles map[string]identity.Profile
+	err      error // GetProfiles failure
 }
 
 func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
 	budget.FromContext(ctx).AddReads(1)
 	out := map[string]identity.Profile{}
 	for _, u := range uids {

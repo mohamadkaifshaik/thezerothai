@@ -62,7 +62,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	// 2. Author profile (cache-first; the interceptor has just warmed it) and mentions.
 	profiles, err := s.directory.GetProfiles(ctx, []string{uid})
 	if err != nil {
-		return nil, fmt.Errorf("posts: load author: %w", err)
+		return nil, logger.RedactErr(fmt.Errorf("posts: load author: %w", err), uid)
 	}
 	author, ok := profiles[uid]
 	if !ok {
@@ -145,14 +145,14 @@ func (s *service) resolveMentions(ctx context.Context, uid string, candidates []
 	}
 	snap, err := s.graph.Snapshot(ctx, uid)
 	if err != nil {
-		return nil, fmt.Errorf("posts: load author graph: %w", err)
+		return nil, logger.RedactErr(fmt.Errorf("posts: load author graph: %w", err), uid)
 	}
 	if snap.BlockedByOverflow {
 		return nil, nil
 	}
 	uids, err := s.directory.ResolveHandles(ctx, candidates)
 	if err != nil {
-		return nil, fmt.Errorf("posts: resolve mentions: %w", err)
+		return nil, logger.RedactErr(fmt.Errorf("posts: resolve mentions: %w", err), uid)
 	}
 	var out []Mention
 	seen := make(map[string]struct{}, len(candidates))

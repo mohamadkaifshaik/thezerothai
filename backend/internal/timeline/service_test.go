@@ -3,6 +3,7 @@ package timeline
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 type rig struct {
@@ -24,6 +26,7 @@ type rig struct {
 	graph *fakeGraph
 	dir   *fakeDirectory
 	srv   *Server
+	info  *logger.RequestInfo // request-log fields of the most recent home()/user() call
 }
 
 func newRig(t *testing.T) *rig {
@@ -60,7 +63,9 @@ func (r *rig) follow(caller string, n int) []string {
 
 func (r *rig) home(caller, since, page string, size int32) (*timelinev1.GetHomeTimelineResponse, *budget.Counter, error) {
 	r.t.Helper()
-	ctx, counter := budget.WithCounter(ctxFor(caller))
+	ictx, info := logger.WithRequestInfo(ctxFor(caller))
+	r.info = info
+	ctx, counter := budget.WithCounter(ictx)
 	resp, err := r.srv.GetHomeTimeline(ctx, connect.NewRequest(&timelinev1.GetHomeTimelineRequest{PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
 		return nil, counter, err
@@ -70,7 +75,9 @@ func (r *rig) home(caller, since, page string, size int32) (*timelinev1.GetHomeT
 
 func (r *rig) user(caller, target string, replies bool, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
 	r.t.Helper()
-	ctx, counter := budget.WithCounter(ctxFor(caller))
+	ictx, info := logger.WithRequestInfo(ctxFor(caller))
+	r.info = info
+	ctx, counter := budget.WithCounter(ictx)
 	resp, err := r.srv.GetUserTimeline(ctx, connect.NewRequest(&timelinev1.GetUserTimelineRequest{
 		UserId: target, IncludeReplies: replies, PageSize: size, SinceToken: since, PageToken: page,
 	}))
@@ -384,9 +391,6 @@ func TestHome_TokensOlderThan24hAreAcceptedUntilTheTTL(t *testing.T) {
 	r.follow("me", 2)
 	r.posts.add("f1", r.ms(-time.Hour))
 	cold := r.mustHome("", "", 1)
-	if cold.NextPageToken == "" && len(cold.Posts) > 0 {
-		r.posts.add("f2", r.ms(-2*time.Hour))
-	}
 	r.clock.Advance(25 * time.Hour)
 	if _, _, err := r.home("me", cold.SinceToken, "", 20); err != nil {
 		t.Fatalf("since token of 25 h: %v", err)
@@ -550,14 +554,15 @@ func TestUser_ColdBudgetWarmFirstPageAndCacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// target users + caller graph + Limit(20) = 3 + 20; the interceptor adds 1 for 24 vs the documented 23 at p=20
-	// (3 + p includes the interceptor).
+	// The fakes charge target users + caller graph + Limit(20) = 2 + 20; the account-status interceptor (not in
+	// this rig) adds the 3rd fixed read, giving the documented 3 + p = 23 at p = 20.
 	if counter.Reads() != 2+20 {
 		t.Fatalf("cold reads = %d, want 22 (+1 interceptor = 3 + p)", counter.Reads())
 	}
 	if len(resp.Posts) != 20 || resp.NextPageToken == "" {
 		t.Fatalf("first page: %d posts next=%q", len(resp.Posts), resp.NextPageToken)
 	}
+	wantCacheHit(t, r, false) // the cold open queried
 	r.posts.queries = nil
 	resp2, counter2, err := r.user("me", "bob", false, "", "", 20)
 	if err != nil {
@@ -566,6 +571,7 @@ func TestUser_ColdBudgetWarmFirstPageAndCacheHit(t *testing.T) {
 	if len(r.posts.queries) != 0 || counter2.Reads() != 2 { // users + graph are always charged by the fakes
 		t.Fatalf("warm first page ran queries %v reads %d, want 0 queries", r.posts.queries, counter2.Reads())
 	}
+	wantCacheHit(t, r, true) // T12 AC: the warm first page is served from the author-recent entry
 	if fmt.Sprint(userIDs(resp2)) != fmt.Sprint(userIDs(resp)) {
 		t.Fatal("cache-served page differs from the queried page")
 	}
@@ -755,5 +761,98 @@ func TestUser_OwnTimelineSkipsTheGraphRead(t *testing.T) {
 	}
 	if len(r.graph.calls) != 0 || counter.Reads() != 1+2 {
 		t.Fatalf("graph calls %v reads %d, want 0 graph reads, 3 total", r.graph.calls, counter.Reads())
+	}
+}
+
+func wantCacheHit(t *testing.T, r *rig, want bool) {
+	t.Helper()
+	got, ok := r.info.Get(fieldCacheHit)
+	if !ok || got != want {
+		t.Fatalf("%s = %v (set=%v), want %v", fieldCacheHit, got, ok, want)
+	}
+}
+
+func wantClamped(t *testing.T, r *rig, want bool) {
+	t.Helper()
+	got, ok := r.info.Get(fieldClamped)
+	if !ok || got != want {
+		t.Fatalf("%s = %v (set=%v), want %v", fieldClamped, got, ok, want)
+	}
+}
+
+// TestSinceClampedIsLogged (T13 AC): since_clamped is true exactly when the newest returned post is inside the
+// settle window (so it will come back on the next refresh), for both feeds.
+func TestSinceClampedIsLogged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		age   time.Duration // age of the one new post
+		clamp bool
+	}{
+		{"post inside the settle window", time.Second, true},
+		{"post older than the settle window", time.Minute, false},
+	}
+	for _, tt := range tests {
+		t.Run("home/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.follow("me", 1)
+			cold := r.mustHome("", "", 20)
+			r.posts.recent = map[string]posts.Recent{}
+			r.clock.Advance(2 * time.Minute)
+			r.posts.add("f1", r.ms(-tt.age))
+			r.mustHome(cold.SinceToken, "", 20)
+			wantClamped(t, r, tt.clamp)
+		})
+		t.Run("user/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.seedUser("bob", 0)
+			cold := r.mustUser("me", "bob", false, "", "", 20)
+			r.clock.Advance(2 * time.Minute)
+			r.posts.add("bob", r.ms(-tt.age))
+			r.mustUser("me", "bob", false, cold.SinceToken, "", 20)
+			wantClamped(t, r, tt.clamp)
+		})
+	}
+}
+
+// TestTimeline_ErrorsNeverCarryRawUids: a graph/directory failure whose text embeds a uid (graph's repo wraps
+// "graph: get <uid>: ...") must reach mw.ErrorMapping redacted (security review L4).
+func TestTimeline_ErrorsNeverCarryRawUids(t *testing.T) {
+	t.Parallel()
+	const callerUID, targetUID = "caller-uid-secret", "target-uid-secret"
+	leak := func(uid string) error { return fmt.Errorf("graph: get %s: rpc error: unavailable", uid) }
+	tests := []struct {
+		name  string
+		setup func(r *rig)
+		call  func(r *rig) error
+	}{
+		{"home caller graph", func(r *rig) { r.graph.errs[callerUID] = leak(callerUID) },
+			func(r *rig) error { _, _, err := r.home(callerUID, "", "", 20); return err }},
+		{"user target profile", func(r *rig) { r.dir.err = leak(targetUID) },
+			func(r *rig) error { _, _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
+		{"user caller graph", func(r *rig) { r.seedUser(targetUID, 1); r.graph.errs[callerUID] = leak(callerUID) },
+			func(r *rig) error { _, _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
+		{"user target graph", func(r *rig) {
+			r.seedUser(targetUID, 1)
+			r.graph.snaps[callerUID] = graph.Snapshot{BlockedByOverflow: true}
+			r.graph.errs[targetUID] = leak(targetUID)
+		}, func(r *rig) error { _, _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.graph.errs = map[string]error{}
+			tt.setup(r)
+			err := tt.call(r)
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if msg := logger.CauseChain(err); strings.Contains(msg, callerUID) || strings.Contains(msg, targetUID) || strings.Contains(err.Error(), "-uid-secret") {
+				t.Fatalf("raw uid in error: %q / %q", err.Error(), msg)
+			}
+		})
 	}
 }

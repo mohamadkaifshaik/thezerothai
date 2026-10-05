@@ -115,7 +115,7 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 
 	profiles, err := s.directory.GetProfiles(ctx, []string{p.AuthorID})
 	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID)
+		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID)
 	}
 	// GetProfiles omits SUSPENDED, DELETING and missing authors alike.
 	if _, ok := profiles[p.AuthorID]; !ok {
@@ -125,7 +125,7 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 	if p.AuthorID != callerUID {
 		snap, err := s.graph.Snapshot(ctx, callerUID)
 		if err != nil {
-			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID)
+			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID, p.AuthorID)
 		}
 		if snap.BlockedBy[p.AuthorID] {
 			return nil, s.notFound(ctx)
@@ -134,7 +134,7 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 			// The caller's blockedBy stopped growing at its cap, so also ask the author's own graph.
 			as, err := s.graph.Snapshot(ctx, p.AuthorID)
 			if err != nil {
-				return nil, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID)
+				return nil, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID, p.AuthorID)
 			}
 			if as.Blocked[callerUID] {
 				return nil, s.notFound(ctx)

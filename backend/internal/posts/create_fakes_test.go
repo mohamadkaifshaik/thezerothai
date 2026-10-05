@@ -80,6 +80,7 @@ type fakeDirectory struct {
 	handles    map[string]string
 	resolved   [][]string
 	profileErr error
+	resolveErr error // ResolveHandles failure
 	forgotten  []string
 	cachedH    map[string]bool // handles already cached (cost 0 reads)
 }
@@ -104,6 +105,9 @@ func (d *fakeDirectory) LookupProfiles(ctx context.Context, uids []string) (map[
 
 func (d *fakeDirectory) ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error) {
 	d.resolved = append(d.resolved, append([]string(nil), lowers...))
+	if d.resolveErr != nil {
+		return nil, d.resolveErr
+	}
 	out := map[string]string{}
 	var reads int64
 	for _, h := range lowers {
@@ -128,12 +132,16 @@ type fakeGraph struct {
 	snaps map[string]graph.Snapshot // per-uid override of snap
 	calls int
 	asked []string
+	errs  map[string]error // per-uid Snapshot failure
 }
 
 func (g *fakeGraph) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
 	g.calls++
 	g.asked = append(g.asked, uid)
 	budget.FromContext(ctx).AddReads(1)
+	if err := g.errs[uid]; err != nil {
+		return graph.Snapshot{}, err
+	}
 	if s, ok := g.snaps[uid]; ok {
 		return s, nil
 	}

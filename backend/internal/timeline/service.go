@@ -61,7 +61,7 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 
 	snap, err := s.deps.Graph.Snapshot(ctx, uid)
 	if err != nil {
-		return nil, fmt.Errorf("timeline: caller graph: %w", err)
+		return nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), uid)
 	}
 	authors := homeAuthors(uid, snap)
 
@@ -133,7 +133,7 @@ func (s *Server) homeSources(ctx context.Context, authors []string, tok request,
 		g.Go(func() error {
 			ps, err := s.deps.Posts.ByAuthors(gctx, c, w, k)
 			if err != nil {
-				return fmt.Errorf("timeline: chunk query: %w", err)
+				return logger.RedactErr(fmt.Errorf("timeline: chunk query: %w", err), c...)
 			}
 			results[i] = ps
 			return nil
@@ -306,7 +306,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 func (s *Server) checkVisible(ctx context.Context, caller, target string) error {
 	profs, err := s.deps.Directory.GetProfiles(ctx, []string{target})
 	if err != nil {
-		return fmt.Errorf("timeline: target profile: %w", err)
+		return logger.RedactErr(fmt.Errorf("timeline: target profile: %w", err), caller, target)
 	}
 	if _, ok := profs[target]; !ok {
 		return identity.ProfileNotFoundError()
@@ -316,7 +316,7 @@ func (s *Server) checkVisible(ctx context.Context, caller, target string) error 
 	}
 	snap, err := s.deps.Graph.Snapshot(ctx, caller)
 	if err != nil {
-		return fmt.Errorf("timeline: caller graph: %w", err)
+		return logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller, target)
 	}
 	if snap.BlockedBy[target] {
 		return identity.ProfileNotFoundError()
@@ -324,7 +324,7 @@ func (s *Server) checkVisible(ctx context.Context, caller, target string) error 
 	if snap.BlockedByOverflow {
 		ts, err := s.deps.Graph.Snapshot(ctx, target)
 		if err != nil {
-			return fmt.Errorf("timeline: target graph: %w", err)
+			return logger.RedactErr(fmt.Errorf("timeline: target graph: %w", err), caller, target)
 		}
 		if ts.Blocked[caller] {
 			return identity.ProfileNotFoundError()
@@ -356,7 +356,7 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 			// Miss: fill the entry with a Limit(20) query and serve the first page from it.
 			ps, err := s.deps.Posts.ByAuthor(ctx, target, false, posts.Window{}, userFirstPageMax)
 			if err != nil {
-				return res, fmt.Errorf("timeline: user posts: %w", err)
+				return res, logger.RedactErr(fmt.Errorf("timeline: user posts: %w", err), target)
 			}
 			truncated := len(ps) >= userFirstPageMax
 			s.deps.Posts.StoreAuthorRecent(target, ps, truncated, start)
@@ -373,7 +373,7 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 	}
 	ps, err := s.deps.Posts.ByAuthor(ctx, target, includeReplies, tok.window(), limit)
 	if err != nil {
-		return res, fmt.Errorf("timeline: user posts: %w", err)
+		return res, logger.RedactErr(fmt.Errorf("timeline: user posts: %w", err), target)
 	}
 	res.page = Merge([]Source{{Posts: ps, Filled: len(ps) >= limit}}, limit, nil)
 	return res, nil
