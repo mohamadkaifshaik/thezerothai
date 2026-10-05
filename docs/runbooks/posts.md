@@ -1,4 +1,4 @@
-# Runbook: posts failure modes (CreatePost, DeletePost, GetPost, purge)
+# Runbook: posts failure modes (CreatePost, DeletePost, GetPost, purge, timelines)
 
 Owner module: `backend/internal/posts` (ADR-0010). Data: `posts/{postId}`, `idempotency/{hash}` (24 h TTL),
 `quotas/{uid}.posts`, `users/{uid}.postsCount`. Everything is behind `FEATURE_POSTS` (off | allowlist | percent | on).
@@ -51,3 +51,26 @@ account is a bug: count with `opsctl purge-posts --dry-run` (read-only, `dry-run
 `opsctl purge-posts` and `opsctl export-posts` are steps of `docs/runbooks/account-deletion.md`. A purge that stops with
 "giving up after 5 consecutive errors" is resumable: re-run it. Log line `posts_purge_batch` carries `uid_hash`, `posts` and
 `deleted_total` for each 500-post batch. Cost is about 1 read and 1 delete per post, once per deletion.
+
+## Timelines (GetHomeTimeline, GetUserTimeline)
+
+Owner module: `backend/internal/timeline` (ADR-0004, ADR-0010 D13-D16). It stores nothing; request lines carry
+`timeline_op`, `timeline_mode` (`cold|refresh|older|gap`), `timeline_chunks`, `authors_from_cache`,
+`timeline_cache_hit`, `items_returned`, `items_filtered`, `gap`, `since_clamped`, `page_size` and `fs_reads`.
+
+## 9. Home timeline reads are high (`fs_reads` per `timeline_op=home`)
+Expected ceiling is `2 + C + 2*page` (269 at 5,000 followed, page 50). Find outliers with
+`jsonPayload.timeline_op="home" AND jsonPayload.fs_reads>100`; `timeline_chunks` is C of that caller. Many power users
+(> 5% of DAU above 1,000 followed) is the ADR-0004 revisit trigger. A sudden rise for everyone with `authors_from_cache`
+near 0 means the author-recent cache stopped filling (instance churn or `CACHE_AUTHOR_RECENT_ENTRIES` too small).
+
+## 10. Clients report `VALIDATION field=since_token` / `page_token`
+The token is expired (30 days, `TIMELINE_TOKEN_TTL`), tampered, from another account, another feed or tab, or a
+`CURSOR_HMAC_KEY` rotation invalidated it. This is the designed answer, with 0 reads: the client drops the token and
+cold-opens. A burst right after a key rotation is expected; a burst without one points at a client bug (sending both
+tokens is also `page_token`).
+
+## 11. A post appears twice, or a just-created post shows up late
+`since_token` trails the newest item by `TIMELINE_SETTLE_WINDOW` (15 s, D13), so a refresh may re-return recent posts
+(`since_clamped=true`); clients dedupe by `post_id`. A post can lag up to 60 s when another instance's author-recent
+entry still serves the author. Neither needs action.

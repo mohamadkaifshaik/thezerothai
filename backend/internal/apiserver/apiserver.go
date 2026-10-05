@@ -156,7 +156,10 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
 	postsServer := posts.NewServer(postsSvc, featureFlags)
-	timelineServer := timeline.NewServer(timeline.Deps{Flags: featureFlags, Posts: postsSvc, Graph: graphSvc})
+	timelineServer := timeline.NewServer(timeline.Deps{
+		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory),
+		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
+	})
 
 	// engagement, media, notifications, search, moderation, admin are not implemented in this bootstrap; their
 	// Connect servers are not registered.
