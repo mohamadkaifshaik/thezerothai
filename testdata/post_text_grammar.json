@@ -1,0 +1,519 @@
+{
+ "_comment": "Shared post-text grammar fixture (ADR-0010 D21 G1). Architect-owned: review changes like proto changes. Go (backend/internal/posts/text) and Dart (app) tests run every row and assert the row count.",
+ "grammar": [
+  {
+   "text": "https://ex.com/?ref=@bob",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/?ref=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?ref=@bob"
+   ]
+  },
+  {
+   "text": "see https://ex.com/?ref=@bob and @carol",
+   "mentions": [
+    "carol"
+   ],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/?ref=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?ref=@bob"
+   ]
+  },
+  {
+   "text": "https://ex.com/?a=1&b=#go #rust",
+   "mentions": [],
+   "hashtags": [
+    "rust"
+   ],
+   "url_spans": [
+    "https://ex.com/?a=1&b=#go"
+   ],
+   "tappable_links": [
+    "https://ex.com/?a=1&b=#go"
+   ]
+  },
+  {
+   "text": "(https://ex.com/a) @bob",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/a"
+   ],
+   "tappable_links": [
+    "https://ex.com/a"
+   ]
+  },
+  {
+   "text": "https://en.wikipedia.org/wiki/Foo_(bar) #go",
+   "mentions": [],
+   "hashtags": [
+    "go"
+   ],
+   "url_spans": [
+    "https://en.wikipedia.org/wiki/Foo_(bar)"
+   ],
+   "tappable_links": [
+    "https://en.wikipedia.org/wiki/Foo_(bar)"
+   ]
+  },
+  {
+   "text": "https://ex.com/?q=@bob.",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/?q=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?q=@bob"
+   ]
+  },
+  {
+   "text": "https://ex.com/,@bob",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/,@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/,@bob"
+   ]
+  },
+  {
+   "text": "https://ex.com/a.#go",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/a.#go"
+   ],
+   "tappable_links": [
+    "https://ex.com/a.#go"
+   ]
+  },
+  {
+   "text": "\"https://ex.com/?r=@bob\"",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/?r=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?r=@bob"
+   ]
+  },
+  {
+   "text": "xhttps://ex.com/?r=@bob",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "HTTPS://EX.COM/?r=@bob",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "HTTPS://EX.COM/?r=@bob"
+   ],
+   "tappable_links": [
+    "HTTPS://EX.COM/?r=@bob"
+   ]
+  },
+  {
+   "text": "ftp://ex.com/?r=@bob",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "www.ex.com/?r=@bob",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "https:// @bob",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "@https://ex.com",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com"
+   ],
+   "tappable_links": [
+    "https://ex.com"
+   ]
+  },
+  {
+   "text": "#https://ex.com",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com"
+   ],
+   "tappable_links": [
+    "https://ex.com"
+   ]
+  },
+  {
+   "text": "https://ex.café/?r=@bob",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.café/?r=@bob"
+   ],
+   "tappable_links": []
+  },
+  {
+   "text": "https://google.com@evil.com/x @bob",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [
+    "https://google.com@evil.com/x"
+   ],
+   "tappable_links": []
+  },
+  {
+   "text": "https://ex.com/?r=@bob\u00a0@carol",
+   "mentions": [
+    "carol"
+   ],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/?r=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?r=@bob"
+   ]
+  },
+  {
+   "text": "https://ex.com/?r=@bob\ufeff@carol",
+   "mentions": [
+    "carol"
+   ],
+   "hashtags": [],
+   "url_spans": [
+    "https://ex.com/?r=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?r=@bob"
+   ]
+  },
+  {
+   "text": "https://ex.com/?r=@bob\n#go",
+   "mentions": [],
+   "hashtags": [
+    "go"
+   ],
+   "url_spans": [
+    "https://ex.com/?r=@bob"
+   ],
+   "tappable_links": [
+    "https://ex.com/?r=@bob"
+   ]
+  },
+  {
+   "text": "@Alice @alice",
+   "mentions": [
+    "alice"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "email@example.com",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "(@bob)",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "@bob's",
+   "mentions": [
+    "bob"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "@@bob",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "@bob@host",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "https://x.y/@bob",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://x.y/@bob"
+   ],
+   "tappable_links": [
+    "https://x.y/@bob"
+   ]
+  },
+  {
+   "text": "@ab",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "@abcdefghijklmnop",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "@al-ice",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "hi @carol_",
+   "mentions": [
+    "carol_"
+   ],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#Go #go #GO",
+   "mentions": [],
+   "hashtags": [
+    "go"
+   ],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#१२३",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#भारत",
+   "mentions": [],
+   "hashtags": [
+    "भारत"
+   ],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#café",
+   "mentions": [],
+   "hashtags": [
+    "café"
+   ],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#go_lang",
+   "mentions": [],
+   "hashtags": [
+    "go_lang"
+   ],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#123",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "a#b",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "https://x.y/p#frag",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [
+    "https://x.y/p#frag"
+   ],
+   "tappable_links": [
+    "https://x.y/p#frag"
+   ]
+  },
+  {
+   "text": "&#39;",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#",
+   "mentions": [],
+   "hashtags": [],
+   "url_spans": [],
+   "tappable_links": []
+  },
+  {
+   "text": "#a #b #c #d #e #f #g #h #i #j #k",
+   "mentions": [],
+   "hashtags": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j"
+   ],
+   "url_spans": [],
+   "tappable_links": []
+  }
+ ],
+ "normalise": [
+  {
+   "raw": "a\r\nb",
+   "stored": "a\nb"
+  },
+  {
+   "raw": "a\rb",
+   "stored": "a\nb"
+  },
+  {
+   "raw": "a\tb",
+   "stored": "a b"
+  },
+  {
+   "raw": "a\u2028b",
+   "stored": "a\nb"
+  },
+  {
+   "raw": "a\u2029b",
+   "stored": "a\nb"
+  },
+  {
+   "raw": "l0\u2028l1\u2028l2\u2028l3\u2028l4\u2028l5\u2028l6\u2028l7\u2028l8\u2028l9",
+   "stored": "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9"
+  },
+  {
+   "raw": "l0\u2028l1\u2028l2\u2028l3\u2028l4\u2028l5\u2028l6\u2028l7\u2028l8\u2028l9\u2029l10",
+   "error": true
+  },
+  {
+   "raw": "  hi  ",
+   "stored": "hi"
+  },
+  {
+   "raw": "hi\u200b",
+   "stored": "hi"
+  },
+  {
+   "raw": "\u200b\u2060\ufeffhi\u00ad",
+   "stored": "hi"
+  },
+  {
+   "raw": "",
+   "error": true
+  },
+  {
+   "raw": "   ",
+   "error": true
+  },
+  {
+   "raw": "\u200b\u2060\ufeff",
+   "error": true
+  },
+  {
+   "raw": "\u200e",
+   "error": true
+  },
+  {
+   "raw": "\u200d",
+   "error": true
+  },
+  {
+   "raw": "️",
+   "error": true
+  },
+  {
+   "raw": "\u202e",
+   "error": true
+  },
+  {
+   "raw": "hi\u202e",
+   "error": true
+  },
+  {
+   "raw": "\u202ehi",
+   "error": true
+  },
+  {
+   "raw": "a\u0000b",
+   "error": true
+  },
+  {
+   "raw": "hi 🏴\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f",
+   "stored": "hi 🏴\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f"
+  },
+  {
+   "raw": "á",
+   "stored": "á"
+  }
+ ]
+}
