@@ -422,6 +422,12 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   CI). An emulator test proves the budget is charged from real `budget.Counter` values (a GetProfile cold call charges
   1–3). A regression test: every graph and identity RPC still passes its existing budget assertions. Instance churn
   can't be tested locally; it is a documented residual (ADR-0010 D5 R2).
+- **Status.** Done (2026-10-05, branch `feat/posts-t3-read-budget`). Items 1-11 were already merged on main by the P0
+  branch (A1-A10: `DailyCap` Reserve/Release/Charge, the interceptor, the `authn` gate, IP key, `check_handle_daily`,
+  `account_ops_daily`, identity `handleFree` cache, `apiserver/guard_test.go`, runbook `abuse-spike.md`). This ticket
+  audited them against D5 and added the explicit "2,001st read unit" unit test
+  (`TestReadBudget_2001stUnitRejectedWithReadBudgetDaily`). Emulator coverage:
+  `internal/graph/readbudget_integration_test.go`. 0 Firestore reads added, $0.
 - **Observability.** `limit_name`, `read_budget_key`, `read_budget_spent`, `read_budget_ip_spent`, `profile_required`,
   `gate=email_unverified`, and WARN `read_budget_over_max` (ADR-0010 D20). `docs/runbooks/abuse-spike.md` gets a Logs
   Explorer filter for each (T26 lists them; no new alert policy).
