@@ -1,4 +1,4 @@
-# Runbook: posts failure modes (CreatePost)
+# Runbook: posts failure modes (CreatePost, DeletePost, GetPost, purge)
 
 Owner module: `backend/internal/posts` (ADR-0010). Data: `posts/{postId}`, `idempotency/{hash}` (24 h TTL),
 `quotas/{uid}.posts`, `users/{uid}.postsCount`. Everything is behind `FEATURE_POSTS` (off | allowlist | percent | on).
@@ -34,3 +34,20 @@ new idempotency key.
 A mention can point at the wrong user only if a handle was renamed and re-claimed within 10 s and the post was created on
 another instance (ADR-0010 D21 G5, accepted residual). Fix by hand: correct `posts/{id}.mentions[]` and note it; if it
 recurs, a handle-reclaim cooldown needs an identity ADR.
+
+## 6. DeletePost succeeds but the post is still visible
+Another instance may serve the post from its 60 s instance cache after the delete (ADR-0010 D15). It is NOT_FOUND on every
+instance within 60 s, and clients drop unknown ids on refresh. A post that is still there after 2 minutes means the delete
+did not commit: look for `posts_op="delete"` request lines with `outcome="noop:not_owner"` (the caller was not the author;
+a spike of those is probing, see `docs/runbooks/abuse-spike.md`) or an ERROR with `posts: delete post` (Firestore).
+`outcome="noop"` is an unknown or already-deleted id and is normal on retries.
+
+## 7. `users.postsCount` looks wrong
+Create and delete each adjust it in the same atomic write as the post doc, so it should equal the user's post count. After
+an account purge (`opsctl purge-posts`) it is not updated on purpose: the `users` doc is deleted next. Drift on a live
+account is a bug: count with `opsctl purge-posts --dry-run` (read-only, `dry-run: posts=N`) and fix the field by hand.
+
+## 8. Account purge and export
+`opsctl purge-posts` and `opsctl export-posts` are steps of `docs/runbooks/account-deletion.md`. A purge that stops with
+"giving up after 5 consecutive errors" is resumable: re-run it. Log line `posts_purge_batch` carries `uid_hash`, `posts` and
+`deleted_total` for each 500-post batch. Cost is about 1 read and 1 delete per post, once per deletion.

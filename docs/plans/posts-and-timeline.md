@@ -751,6 +751,19 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Observability.** `posts_op=delete|get`, `outcome=deleted|noop|noop:not_owner|found|not_found`,
   `posts_cache_hit`. `noop:not_owner` feeds abuse review.
 - **Budget.** As the table.
+- **Status: built (branch claude/gracious-babbage-2barib).** `Service.Delete` / `Service.GetForViewer` (`service_delete.go`),
+  `FirestoreRepo.DeleteOwn` (`repo_delete.go`), handlers in `server.go`, `identity.ProfileNotFoundError` for T12. Decisions:
+  - **Order of validation:** `post_id` (`^[0-9]{19}$`, VALIDATION `field=post_id`) first, then `idempotency_key` format; both
+    0 reads. GetPost also rejects a malformed id with VALIDATION (0 reads); the plan only fixed this for DeletePost.
+  - **Lost races:** the batch counts its writes on a scratch counter, merged only on success, so a lost `Exists` race reports
+    0 W / 0 D. An `Aborted` (lock contention on the author's `users` doc from the concurrent `postsCount` increments) is retried
+    up to 4 times with 25 ms steps; the retry then loses the `Exists` check and ends as a no-op.
+  - **Non-public visibility:** a FOLLOWERS post is NOT_FOUND unless the caller is the author or follows the author (fail
+    closed; unreachable in P1 since only PUBLIC is written).
+  - **Own post in GetPost:** skips the caller's graph read (a user is never blocked by themselves): 2 R cold instead of 3.
+  - Measured on the emulator (`service_delete_integration_test.go`, interceptor read not included): DeletePost own cold 1 R / 1 W /
+    1 D, own warm 0 R / 1 W / 1 D, not-owner or unknown or repeat 1 R / 0 W / 0 D; 5 concurrent deletes: 1 W / 1 D in total,
+    `postsCount` decremented once. GetPost cold 3 R (post, author, caller graph), warm 0 R, overflow 4 R, 0 W.
 
 ### T10 — `posts.Eraser` + exporter + `opsctl` + account-deletion runbook  [owner: backend-developer] [size: S] [depends: T8, T9]
 - **Description.**
@@ -776,6 +789,22 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** An emulator crash-resume test (reuse graph's T11 harness; no second harness).
 - **Observability.** `posts_purge_batch` with counts.
 - **Budget.** O(posts) reads and deletes, once per deletion: a 300-post user costs ≈ 300 R and 300 D.
+- **Status: built (branch claude/gracious-babbage-2barib).** `posts/purge.go` (`PurgeUser`, `PlanPurge`, `ExportUser` on
+  `FirestoreRepo`), `opsctl purge-posts|export-posts`, runbook updated. Decisions:
+  - **Same guards as purge-graph:** `--project` required, `*-prod` typed confirmation, `--dry-run`, and the DELETING >= 120 s
+    start gate with `--skip-start-gate`. The retry/give-up loop and the `--out` writer were extracted from the graph code
+    (`purgeLoop`, `writeOut`), so there is one policy for both purges.
+  - **Dry run** uses a `count()` aggregation limited to 100,000 (billed 1 read per 1,000 index entries, minimum 1), prints
+    `dry-run: posts=N (nothing written)`.
+  - **Done condition:** a page of fewer than 500 posts ends the purge (the account is DELETING, nothing new arrives), so a
+    user with 1,203 posts costs 3 calls, 1,203 R, 1,203 D, 0 W. A user with no posts costs 1 R.
+  - **Deletes are not preconditioned** (a concurrent run deleting the same doc is harmless); no counter updates.
+  - **Export** streams `{"userId","posts":[{id,text,createdAt,hashtags,mentions(handles only)}]}`, newest first, 500 per page.
+  - The emulator does not enforce composite indexes; the queries are Q-E (`authorId ==` + `createdAt DESC, __name__ DESC`),
+    which the existing `(authorId ASC, createdAt DESC)` index serves, and `firestore.indexes.json` is unchanged.
+  - Measured (`TestPurge_Integration_CrashResume`, `TestExport_Integration`): purge of 1,203 posts killed after the first
+    batch and resumed with the checkpoint: 1,203 R / 0 W / 1,203 D, no `authorId == U` doc left, another user's 7 posts kept;
+    dry run 2 R max, 0 W; export 1,203 R + 1 (the final empty-page check is skipped when the last page is short, so 1,203 R).
 
 ### T28 — `pkg/platform/cursor`: two-bound `Window` tokens + TTL-aware decode  [owner: backend-developer] [size: S] [depends: T1]
 - **Description.** Extend the existing package (ADR-0010 D14; reuse-first, no new package):
