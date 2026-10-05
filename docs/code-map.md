@@ -70,6 +70,7 @@ details) are not catalogued here — only what other code should import and reus
 | Item | Location | Use it for |
 |---|---|---|
 | store.Batch / store.NewFirestoreBatch / store.NewFirestoreTxBatch | backend/pkg/platform/store | The cross-module unit-of-work seam (ADR-0002). Pass `store.Batch` into another module's interface method so it can append writes to your batch/transaction; never build another module's document paths yourself. |
+| store.CommitWithRetry / RetryConfig / Wait / IsContention / IsPreconditionFailed / NoteTxnAttempts | backend/pkg/platform/store/retry.go | The one precondition-batch commit with bounded full-jitter exponential contention retry (scratch counter folded in only on success, 0 writes on failed precondition) and the txn_attempts log field (ADR-0010 D20); used by graph.Unfollow and posts.DeleteOwn |
 | snowflake.Node / snowflake.NewNode / snowflake.Generate | backend/pkg/platform/snowflake | 64-bit time-ordered IDs (19-digit zero-padded decimal string) for posts/media doc IDs. Not yet wired into main.go — no module needs it until posts/media exist. |
 | cache.LRU\[K, V\] / cache.New | backend/pkg/platform/cache | Generic in-process LRU-with-TTL. Every module's instance cache (e.g. `identity.Cache`) wraps this instead of writing a new cache. `GetOrSet(key, mk)` is the atomic get-or-create (one winner under concurrent first access; used by `ratelimit.DailyCap.lock` and `Limiter.Allow`), never a Get-miss-then-Set. |
 

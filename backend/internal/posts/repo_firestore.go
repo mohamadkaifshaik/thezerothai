@@ -19,6 +19,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 const postsCollection = "posts"
@@ -50,6 +51,9 @@ type FirestoreRepo struct {
 	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
 	// error makes the SDK retry the transaction. Never set outside tests.
 	attemptHook func(attempt int, id string) error
+	// Test seams for DeleteOwn's retry loop (store.RetryConfig); nil means real commit and jittered wait.
+	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
+	backoff     func(ctx context.Context, ceiling time.Duration) error
 }
 
 // NewFirestoreRepo builds the repo on the process-wide Firestore client.

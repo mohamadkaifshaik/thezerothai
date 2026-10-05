@@ -3,13 +3,13 @@ package posts
 import (
 	"context"
 	"errors"
-	"log/slog"
 
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Request-log fields for CreatePost (ADR-0010 D20). They ride on the mw.Logging line; every value is an enum, a
@@ -25,9 +25,6 @@ const (
 	fieldTxnAttempts      = "txn_attempts"
 	fieldFeature          = "feature"
 )
-
-// txnWarnAttempts is the contention threshold: more attempts than this log one WARN (T8).
-const txnWarnAttempts = 3
 
 // outcomes of CreatePost (posts_op=create).
 const (
@@ -71,10 +68,7 @@ func rejectReason(err error) string {
 	return "error"
 }
 
-// noteTxnAttempts records txn_attempts and WARNs above txnWarnAttempts (only under real contention; no ids).
+// noteTxnAttempts records txn_attempts and WARNs above store.TxnWarnAttempts (only under real contention; no ids).
 func noteTxnAttempts(ctx context.Context, attempts int) {
-	logger.SetRequestField(ctx, fieldTxnAttempts, attempts)
-	if attempts > txnWarnAttempts {
-		slog.WarnContext(ctx, "posts_txn_contention", fieldTxnAttempts, attempts)
-	}
+	store.NoteTxnAttempts(ctx, "posts_txn_contention", attempts)
 }
