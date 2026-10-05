@@ -17,8 +17,8 @@ that names the cost and the user/revenue milestone that justifies it.
 
 ## Stack (fixed)
 
-- **Backend:** Go 1.23+, **one modular monolith** (`backend/cmd/api`) with Connect-RPC (HTTP/JSON + binary proto) managed with `buf`.
-- **Clients:** Flutter (iOS, Android, Web) — BLoc, go_router, freezed, connect-dart generated clients.
+- **Backend:** Go 1.26 (`backend/go.mod`; CI uses the latest 1.26.x), **one modular monolith** (`backend/cmd/api`) with Connect-RPC (HTTP/JSON + binary proto) managed with `buf`.
+- **Clients:** Flutter 3.47.x (pinned in `.github/workflows/ci.yml`; iOS, Android, Web) — BLoc, go_router, freezed, connect-dart generated clients.
 - **Cloud:** GCP + Firebase only. Terraform for infra. No click-ops.
 
 ## Growth stages (design for Stage 0, keep the door open to Stage 3)
@@ -134,6 +134,14 @@ docs/runbooks/
 7. **production-reviewer** → go/no-go → deployer shifts traffic 10% → 100%
 
 No agent marks work done while `make ci` fails.
+
+## Working conventions
+
+- **Status lives in `docs/plans/`.** `docs/plans/phase1.md` is the Phase 1 slice overview; each slice has its own plan with per-ticket `Status`. Read the relevant plan before starting work and update the ticket status in the PR that merges it.
+- **Branches and PRs:** `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `chore/<slug>`; one ticket per PR; merge `origin/main` into the branch rather than rewriting history. Never open a PR or push to `main` unless the human asked. See the `pr-workflow` skill.
+- **Rollout:** every user-facing feature ships behind a server flag (`FEATURE_<NAME>`: off → allowlist → percent → on). See the `flag-rollout` skill.
+- **Stop and ask the founder** before: adding any fixed-cost resource, bending a non-negotiable rule, changing a proto contract in a breaking way, accepting an ADR, or any `prod` apply/traffic shift.
+- **Hooks need `jq`.** The guard hooks fail closed (block the edit) when `jq` is missing.
 
 ## Commands
 

@@ -2,41 +2,108 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(make:*)", "Bash(go:*)", "Bash(golangci-lint:*)", "Bash(govulncheck:*)", "Bash(buf:*)", "Bash(ko build:*)",
-      "Bash(flutter:*)", "Bash(dart:*)", "Bash(k6:*)",
-      "Bash(firebase emulators:*)", "Bash(firebase --version)",
-      "Bash(terraform fmt:*)", "Bash(terraform validate:*)", "Bash(terraform plan:*)", "Bash(tflint:*)", "Bash(checkov:*)",
-      "Bash(git status)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)",
-      "Bash(gcloud config list)", "Bash(gcloud run services list:*)", "Bash(gcloud run services describe:*)",
-      "Bash(gcloud run revisions list:*)", "Bash(gcloud logging read:*)", "Bash(gcloud billing budgets list:*)"
+      "Bash(make:*)",
+      "Bash(go:*)",
+      "Bash(golangci-lint:*)",
+      "Bash(govulncheck:*)",
+      "Bash(buf:*)",
+      "Bash(ko build:*)",
+      "Bash(flutter:*)",
+      "Bash(dart:*)",
+      "Bash(k6:*)",
+      "Bash(firebase emulators:*)",
+      "Bash(firebase --version)",
+      "Bash(terraform fmt:*)",
+      "Bash(terraform validate:*)",
+      "Bash(terraform plan:*)",
+      "Bash(tflint:*)",
+      "Bash(checkov:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gcloud config list)",
+      "Bash(gcloud run services list:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud run revisions list:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(gcloud billing budgets list:*)"
     ],
     "ask": [
-      "Bash(terraform apply:*)", "Bash(gcloud run deploy:*)", "Bash(gcloud run services update:*)",
-      "Bash(gcloud run services update-traffic:*)", "Bash(firebase deploy:*)", "Bash(gcloud firestore:*)",
-      "Bash(gcloud services enable:*)", "Bash(gcloud storage:*)", "Bash(git push:*)"
+      "Bash(terraform apply:*)",
+      "Bash(gcloud run deploy:*)",
+      "Bash(gcloud run services update:*)",
+      "Bash(gcloud run services update-traffic:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(gcloud firestore:*)",
+      "Bash(gcloud services enable:*)",
+      "Bash(gcloud storage:*)",
+      "Bash(git push:*)"
     ],
     "deny": [
-      "Bash(terraform destroy:*)", "Bash(rm -rf /*)", "Bash(git push --force:*)", "Bash(gcloud projects delete:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(rm -rf /*)",
+      "Bash(git push --force:*)",
+      "Bash(gcloud projects delete:*)",
       "Bash(gcloud billing projects unlink:*)",
-      "Bash(gcloud container clusters create:*)", "Bash(gcloud spanner instances create:*)",
-      "Bash(gcloud redis instances create:*)", "Bash(gcloud redis clusters create:*)", "Bash(gcloud sql instances create:*)",
-      "Bash(gcloud compute instances create:*)", "Bash(gcloud compute forwarding-rules create:*)",
-      "Bash(gcloud compute security-policies create:*)", "Bash(gcloud compute routers nats create:*)",
+      "Bash(gcloud container clusters create:*)",
+      "Bash(gcloud spanner instances create:*)",
+      "Bash(gcloud redis instances create:*)",
+      "Bash(gcloud redis clusters create:*)",
+      "Bash(gcloud sql instances create:*)",
+      "Bash(gcloud compute instances create:*)",
+      "Bash(gcloud compute forwarding-rules create:*)",
+      "Bash(gcloud compute security-policies create:*)",
+      "Bash(gcloud compute routers nats create:*)",
       "Bash(firebase firestore:delete:*)",
-      "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)", "Read(./**/*-sa-key.json)", "Read(./**/credentials*.json)"
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*-sa-key.json)",
+      "Read(./**/credentials*.json)"
     ]
   },
   "hooks": {
     "PostToolUse": [
-      { "matcher": "Write|Edit|MultiEdit",
-        "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format.sh" } ] }
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format.sh"
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "matcher": "Write|Edit|MultiEdit",
+      {
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard.sh" },
-          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cost-guard.sh" }
-        ] }
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cost-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/commit-gate.sh",
+            "timeout": 300
+          }
+        ]
+      }
     ]
   }
 }

@@ -15,7 +15,7 @@ details) are not catalogued here — only what other code should import and reus
 | logger.WithRequestInfo / RequestInfoFromContext | backend/pkg/platform/logger | Mutable per-request pointer (uid, app_check_failed, xff_hops, via_hosting) inner interceptors set so `mw.Logging`'s one log line can see fields set *after* it calls `next` — the fix for "an inner interceptor's ctx.WithValue is invisible to an ancestor holding the original ctx"; don't add a second ad hoc ctx-value flag for a future log field, extend this struct instead |
 | httpcors.Wrap | backend/pkg/platform/httpcors | The one browser-CORS middleware for the Connect mux (wraps the whole handler, not a Connect interceptor — preflight OPTIONS never reaches one); no-op when the origin allowlist is empty |
 | fsclient.New | backend/pkg/platform/fsclient | The one process-wide `*firestore.Client` (emulator-aware via FIRESTORE_EMULATOR_HOST, standard SDK behavior) |
-| health.Handler | backend/pkg/platform/health | `/healthz` — zero-dependency liveness/startup probe |
+| health.Handler | backend/pkg/platform/health | `/health` (canonical; `/healthz` alias) — zero-dependency liveness/startup probe |
 | pubsubpush.NewVerifier / Middleware / PlaceholderHandler | backend/pkg/platform/pubsubpush | OIDC-verified `/internal/*` handlers for Pub/Sub push + Cloud Scheduler |
 
 ## Auth & abuse controls
@@ -70,7 +70,7 @@ details) are not catalogued here — only what other code should import and reus
 
 | Item | Location | Use it for |
 |---|---|---|
-| apiserver.Build | backend/internal/apiserver | The one `*http.ServeMux` wiring every module's Connect handler + `/health`(z) + `/internal/*` with the full interceptor chain (ADR-0006 §2), wrapped outermost by CORS -> ratelimit.PreAuthIPMiddleware -> http.MaxBytesHandler (M1/hardening, see its doc comment for the full per-request pipeline). `cmd/api/main.go` and `backend/e2e` both call this — a `package main` can't be imported, so the wiring can't live in cmd/api itself. |
+| apiserver.Build | backend/internal/apiserver | The one `*http.ServeMux` wiring every module's Connect handler + `/health` (+ `/healthz` alias) + `/internal/*` with the full interceptor chain (ADR-0006 §2), wrapped outermost by CORS -> ratelimit.PreAuthIPMiddleware -> http.MaxBytesHandler (M1/hardening, see its doc comment for the full per-request pipeline). `cmd/api/main.go` and `backend/e2e` both call this — a `package main` can't be imported, so the wiring can't live in cmd/api itself. |
 | apiserver.RateLimitConfig / profileExemptProcedures | backend/internal/apiserver/ratelimit_config.go | The one place `ratelimit.Config` is assembled (per-minute buckets, daily caps, read budget, IP sets); `profileExemptProcedures()` is the one profile-exempt set shared by `Build` (gate + account status) and the guard test; `Build` calls it and `guard_test.go` (T3.5) inspects it, failing CI if any linked NO_SIDE_EFFECTS procedure is not covered by the read budget |
 | identity.Cache GetHandleFree / SetHandleFree / InvalidateHandleFree | backend/internal/identity/cache.go | 10 s negative handle cache (`notFoundTTL`, ADR-0010 D5): a handle that `ResolveHandle` reported NotFound; used by CheckHandleAvailability and GetProfile-by-handle (and T7 `ResolveHandles`). Cleared by `SetProfile`; only a hint, CreateProfile/ChangeHandle stay transactional |
 | quota.UntilNextDay | backend/pkg/platform/quota | Duration until the next IST midnight (retry_after of daily-counter rejections) |
