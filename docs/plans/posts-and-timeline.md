@@ -1105,7 +1105,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Bloc tests (optimistic path, rollback, key reuse); widget tests.
 - **Observability.** —
 - **Budget.** 1 CreatePost per intent.
-- **Status: built (branch feat/app-t16-composer; not yet run, no Flutter SDK in the sandbox).**
+- **Status: built (branch feat/app-t16-composer; `flutter analyze` clean, full `flutter test` passes (388 tests)).**
   - `/compose` route plus a "New post" button in `MainShell` (posts flag on, not on Settings).
   - D9 mirror `analyzePostDraft` with the D21 G2/G4 rules, run against the fixture's `normalise` rows. NFC uses
     `unorm_dart` (added to `pubspec.yaml`; `pubspec.lock` still needs `flutter pub get`).
@@ -1139,7 +1139,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests with a fake clock and repository: refresh throttle, gap, pagination, empty, error.
 - **Observability.** —
 - **Budget.** ≤ 8 refreshes + ≤ 1 older page per DAU/day on the model's usage (the client enforces the throttle).
-- **Status: built (branch claude/gracious-babbage-2barib; not yet run, no Flutter SDK in the sandbox).**
+- **Status: built (branch claude/gracious-babbage-2barib; `flutter analyze` clean, full `flutter test` passes (388 tests)).**
   - `HomeScreen` (flag on) = `TimelineFeedView` over a `TimelineCubit(FeedKey.home())`; flag off keeps the placeholder.
     `TimelineCubit`/`TimelineFeedView` are generic (T18 reuses them for `user:{uid}:posts`).
   - Cache first (`cached` once per open), then one refresh unless the feed was refreshed < 60 s ago. The stamp lives in
@@ -1189,7 +1189,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests: own profile, other, blocked, empty, not-found.
 - **Observability.** —
 - **Budget.** 1 request per page; first page cached on the device.
-- **Status: built (branch claude/gracious-babbage-2barib; not yet run, no Flutter SDK in the sandbox).**
+- **Status: built (branch claude/gracious-babbage-2barib; `flutter analyze` clean, full `flutter test` passes (388 tests)).**
   - Profile (flag on): `ProfileHeader` (now with an optional "N Posts" count) + single "Posts" tab (Replies hidden) +
     `TimelineFeedView` over `FeedKey.user(uid)`. Own profile also shows pending posts and "You haven't posted yet".
   - Blocked by the viewer: "You blocked @x . Show posts" from the local relationship; the feed is **not requested** until

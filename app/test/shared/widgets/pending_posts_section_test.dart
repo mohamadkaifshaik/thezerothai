@@ -63,7 +63,7 @@ void main() {
       await pump(tester);
       expect(find.text('hello there'), findsOneWidget);
       expect(find.text('Posting...'), findsOneWidget);
-      expect(find.bySemanticsLabel('Sending your post'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('Sending your post')), findsOneWidget);
 
       cubit.remove('a');
       await tester.pump();

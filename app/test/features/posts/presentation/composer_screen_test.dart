@@ -211,7 +211,7 @@ void main() {
     await open(tester, theme: appDarkTheme);
     final size = tester.getSize(find.widgetWithText(FilledButton, 'Post'));
     expect(size.height, greaterThanOrEqualTo(48));
-    final close = tester.getSize(find.byTooltip('Close'));
+    final close = tester.getSize(find.widgetWithIcon(IconButton, Icons.close));
     expect(close.height, greaterThanOrEqualTo(48));
     expect(close.width, greaterThanOrEqualTo(48));
   });
