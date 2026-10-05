@@ -1071,7 +1071,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     - `https://google.com@evil.com/x @bob` → only `@bob` is tappable.
     - `؜ https://ex.com/?r=@bob` with `mentions=[bob]` → nothing tappable.
     - Every fixture row passes.
-  - **Status: built (branch feat/app-t16-composer; not yet run, no Flutter SDK in the sandbox).** The parser excludes
+  - **Status: built (branch feat/app-t16-composer; analyze clean, tests pass).** The parser excludes
     `@`/`#` candidates inside every syntactic URL span (unsafe spans render as plain text; detection runs even with bidi
     controls). `post_text_parser_test.dart` runs every `grammar` row of `testdata/post_text_grammar.json` and asserts
     the row count; the grammar rows that were duplicated inline were removed.
