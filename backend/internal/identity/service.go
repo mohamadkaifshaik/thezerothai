@@ -11,6 +11,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/handle"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -163,7 +164,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		}
 		// L3: only a well-formed handle can exist; anything else (reserved doc-id shape, over-long) would
 		// otherwise reach Firestore as an invalid document id and surface as INTERNAL.
-		if !handleRe.MatchString(target.Handle) || reservedDocID(target.Handle) {
+		if !handle.ValidRun(target.Handle) || reservedDocID(target.Handle) {
 			return Profile{}, apierr.Validation("handle", "handle must be 3-15 characters: letters, numbers, underscore")
 		}
 	} else if userIDIssue(uid) {

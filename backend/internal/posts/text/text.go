@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/handle"
 )
 
 // Limits (ADR-0010 D7-D9). The proto and the client use the same numbers.
@@ -21,7 +21,6 @@ const (
 	MaxMentions = 10
 	MaxHashtags = 10
 
-	maxMentionRun = 15 // identity's handle grammar, [A-Za-z0-9_]{3,15}
 	maxHashtagLen = 50 // code points of the hashtag body
 )
 
@@ -92,7 +91,7 @@ func Mentions(s string) []string {
 			continue
 		}
 		j := i + 1
-		for j < len(rs) && isHandleRune(rs[j]) {
+		for j < len(rs) && handle.IsRune(rs[j]) {
 			j++
 		}
 		// The run must be followed by the end or a rune that is not [A-Za-z0-9_@]. The run is maximal, so
@@ -101,7 +100,7 @@ func Mentions(s string) []string {
 			continue
 		}
 		run := string(rs[i+1 : j])
-		if j-(i+1) > maxMentionRun || !identity.ValidHandleRun(run) {
+		if j-(i+1) > handle.MaxLen || !handle.ValidRun(run) {
 			continue // too short, or too long: never truncated
 		}
 		out = appendUnique(out, seen, strings.ToLower(run), MaxMentions)
@@ -117,10 +116,6 @@ func mentionStartOK(rs []rune, i int) bool {
 	}
 	p := rs[i-1]
 	return !isLMN(p) && !strings.ContainsRune("_@#/.:&$+-", p)
-}
-
-func isHandleRune(r rune) bool {
-	return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
 // Hashtags extracts hashtags from already-normalised text (D8, Indic-safe grammar).
