@@ -19,6 +19,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 )
@@ -43,7 +44,13 @@ type backends struct {
 	exporter interface {
 		ExportUser(ctx context.Context, uid string) (graph.Export, error)
 	}
-	profile func(ctx context.Context, uid string) (identity.Profile, error)
+	// posts (ADR-0010 T10): the Eraser/Exporter seams and the dry-run counter.
+	postsEraser  posts.Eraser
+	postsPlanner interface {
+		PlanPurge(ctx context.Context, uid string) (posts.PurgePlan, error)
+	}
+	postsExporter posts.Exporter
+	profile       func(ctx context.Context, uid string) (identity.Profile, error)
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
@@ -65,6 +72,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
+	postsRepo := posts.NewFirestoreRepo(client)
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
 		_ = client.Close()
@@ -74,6 +82,9 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		eraser:        graphRepo,
 		planner:       graphRepo,
 		exporter:      graphRepo,
+		postsEraser:   postsRepo,
+		postsPlanner:  postsRepo,
+		postsExporter: postsRepo,
 		profile:       identityRepo.GetProfile,
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
@@ -84,6 +95,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 const usage = `usage:
   opsctl purge-graph  --project P --uid U [--dry-run] [--skip-start-gate]
   opsctl export-graph --project P --uid U [--out FILE]
+  opsctl purge-posts  --project P --uid U [--dry-run] [--skip-start-gate]   (run before purge-graph)
+  opsctl export-posts --project P --uid U [--out FILE]
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
 `
 
@@ -98,12 +111,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph: print counts, write nothing")
-	skipGate := fs.Bool("skip-start-gate", false, "purge-graph: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
-	outFile := fs.String("out", "", "export-graph: write JSON to this file instead of stdout")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts: print counts, write nothing")
+	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
+	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 
 	switch cmd {
-	case "purge-graph", "export-graph", "check-t26":
+	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -141,6 +154,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = checkT26(ctx, b, out)
 	case "purge-graph":
 		err = purge(ctx, b, *uid, *dryRun, *skipGate, out, now)
+	case "purge-posts":
+		err = purgePosts(ctx, b, *uid, *dryRun, *skipGate, out, now)
+	case "export-posts":
+		err = exportPosts(ctx, b, *uid, *outFile, out)
 	default:
 		err = export(ctx, b, *uid, *outFile, out)
 	}
@@ -179,24 +196,35 @@ func purge(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, 
 		}
 	}
 
+	return purgeLoop(ctx, out, graph.Checkpoint{},
+		func(ctx context.Context, cp graph.Checkpoint) (graph.Checkpoint, bool, error) {
+			return b.eraser.PurgeUser(ctx, uid, cp)
+		},
+		func(cp graph.Checkpoint) string { return fmt.Sprintf("step=%d offset=%d", cp.Step, cp.Offset) })
+}
+
+// purgeLoop drives one resumable purge to completion: call step with the last checkpoint until it reports done,
+// retrying a failed call (a concurrent run can fail a batch precondition; the purge re-queries) and giving up
+// after maxConsecutiveErrors. One policy for purge-graph and purge-posts. Prints the final cost line.
+func purgeLoop[C any](ctx context.Context, out io.Writer, cp C,
+	step func(context.Context, C) (C, bool, error), describe func(C) string,
+) error {
 	ctx, counter := budget.WithCounter(ctx)
-	cp := graph.Checkpoint{}
 	failures := 0
 	for calls := 1; calls <= maxPurgeCalls; calls++ {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
-		next, done, err := b.eraser.PurgeUser(cctx, uid, cp)
+		next, done, err := step(cctx, cp)
 		cancel()
 		if err != nil {
-			// A concurrent run can fail a batch's Exists precondition; PurgeUser re-queries on the retry.
 			failures++
-			fmt.Fprintf(out, "call %d: step=%d offset=%d error: %v\n", calls, cp.Step, cp.Offset, err)
+			fmt.Fprintf(out, "call %d: %s error: %v\n", calls, describe(cp), err)
 			if failures >= maxConsecutiveErrors {
-				return fmt.Errorf("giving up after %d consecutive errors (checkpoint step=%d offset=%d): %w", failures, cp.Step, cp.Offset, err)
+				return fmt.Errorf("giving up after %d consecutive errors (checkpoint %s): %w", failures, describe(cp), err)
 			}
 			continue
 		}
 		failures = 0
-		fmt.Fprintf(out, "call %d: step=%d offset=%d -> step=%d offset=%d done=%v\n", calls, cp.Step, cp.Offset, next.Step, next.Offset, done)
+		fmt.Fprintf(out, "call %d: %s -> %s done=%v\n", calls, describe(cp), describe(next), done)
 		if done {
 			fmt.Fprintf(out, "purged: reads=%d writes=%d deletes=%d\n", counter.Reads(), counter.Writes(), counter.Deletes())
 			return nil
@@ -204,6 +232,31 @@ func purge(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, 
 		cp = next
 	}
 	return errors.New("purge did not finish within the call limit")
+}
+
+// purgePosts is purge-posts (ADR-0010 T10): the same dry-run and start-gate guards as purge-graph, then the posts
+// Eraser. Run it BEFORE purge-graph and before users/{uid} is deleted (docs/runbooks/account-deletion.md).
+func purgePosts(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, out io.Writer, now func() time.Time) error {
+	if dryRun {
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		plan, err := b.postsPlanner.PlanPurge(cctx, uid)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "dry-run: posts=%d (nothing written)\n", plan.Posts)
+		return nil
+	}
+	if !skipGate {
+		if err := checkStartGate(ctx, b, uid, now()); err != nil {
+			return err
+		}
+	}
+	return purgeLoop(ctx, out, posts.Checkpoint{},
+		func(ctx context.Context, cp posts.Checkpoint) (posts.Checkpoint, bool, error) {
+			return b.postsEraser.PurgeUser(ctx, uid, cp)
+		},
+		func(cp posts.Checkpoint) string { return fmt.Sprintf("deleted=%d", cp.Deleted) })
 }
 
 // checkStartGate enforces ADR-0008 D10: purge only after status = DELETING has been committed >= 120 s.
@@ -230,21 +283,34 @@ func export(ctx context.Context, b *backends, uid, outFile string, out io.Writer
 	if err != nil {
 		return err
 	}
-	w := out
-	if outFile != "" {
-		// outFile is an operator-supplied CLI path (founder ADC tool); O_EXCL refuses to overwrite, 0600 perms.
-		f, err := os.OpenFile(outFile, //nolint:gosec // G703: intentional operator-chosen path
-			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err != nil {
-			return fmt.Errorf("create %s: %w", outFile, err)
+	return writeOut(outFile, out, func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(data); err != nil {
+			return fmt.Errorf("write export: %w", err)
 		}
-		defer f.Close()
-		w = f
+		return nil
+	})
+}
+
+// exportPosts is export-posts (ADR-0010 T10): the posts exporter streams its JSON straight to --out (or stdout).
+func exportPosts(ctx context.Context, b *backends, uid, outFile string, out io.Writer) error {
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	return writeOut(outFile, out, func(w io.Writer) error { return b.postsExporter.ExportUser(cctx, uid, w) })
+}
+
+// writeOut runs write against --out FILE (created 0600, never overwritten) or, without it, stdout.
+func writeOut(outFile string, stdout io.Writer, write func(io.Writer) error) error {
+	if outFile == "" {
+		return write(stdout)
 	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(data); err != nil {
-		return fmt.Errorf("write export: %w", err)
+	// outFile is an operator-supplied CLI path (founder ADC tool); O_EXCL refuses to overwrite, 0600 perms.
+	f, err := os.OpenFile(outFile, //nolint:gosec // G703: intentional operator-chosen path
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", outFile, err)
 	}
-	return nil
+	defer f.Close()
+	return write(f)
 }

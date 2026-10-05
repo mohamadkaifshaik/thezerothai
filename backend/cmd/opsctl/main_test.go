@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
 type fakeEraser struct {
@@ -34,27 +36,65 @@ func (f *fakeEraser) PurgeUser(_ context.Context, _ string, cp graph.Checkpoint)
 	return f.steps[i], false, nil
 }
 
+// fakePostsEraser returns the scripted checkpoints; the call after the last one is done. failFor leading calls fail.
+type fakePostsEraser struct {
+	calls   []posts.Checkpoint
+	steps   []posts.Checkpoint
+	failFor int
+}
+
+func (f *fakePostsEraser) PurgeUser(_ context.Context, _ string, cp posts.Checkpoint) (posts.Checkpoint, bool, error) {
+	f.calls = append(f.calls, cp)
+	if len(f.calls) <= f.failFor {
+		return posts.Checkpoint{}, false, errors.New("transient")
+	}
+	i := len(f.calls) - 1 - f.failFor
+	if i >= len(f.steps) {
+		return cp, true, nil
+	}
+	return f.steps[i], false, nil
+}
+
 type fakeBackend struct {
-	eraser *fakeEraser
-	plan   graph.PurgePlan
-	export graph.Export
-	prof   identity.Profile
-	profEr error
-	opened int
+	pEraser *fakePostsEraser
+	pPlan   posts.PurgePlan
+	pExport string
+	eraser  *fakeEraser
+	plan    graph.PurgePlan
+	export  graph.Export
+	prof    identity.Profile
+	profEr  error
+	opened  int
 }
 
 func (f *fakeBackend) open(context.Context, string) (*backends, error) {
 	f.opened++
 	return &backends{
-		eraser:   f.eraser,
-		planner:  f,
-		exporter: f,
-		profile:  func(context.Context, string) (identity.Profile, error) { return f.prof, f.profEr },
-		close:    func() {},
+		eraser:        f.eraser,
+		planner:       f,
+		exporter:      f,
+		postsEraser:   f.pEraser,
+		postsPlanner:  fakePostsPlanner{f.pPlan},
+		postsExporter: fakePostsExporter{f.pExport},
+		profile:       func(context.Context, string) (identity.Profile, error) { return f.prof, f.profEr },
+		close:         func() {},
 	}, nil
 }
 
 func (f *fakeBackend) PlanPurge(context.Context, string) (graph.PurgePlan, error) { return f.plan, nil }
+
+type fakePostsPlanner struct{ plan posts.PurgePlan }
+
+func (f fakePostsPlanner) PlanPurge(context.Context, string) (posts.PurgePlan, error) {
+	return f.plan, nil
+}
+
+type fakePostsExporter struct{ body string }
+
+func (f fakePostsExporter) ExportUser(_ context.Context, _ string, w io.Writer) error {
+	_, err := io.WriteString(w, f.body)
+	return err
+}
 
 func (f *fakeBackend) ExportUser(context.Context, string) (graph.Export, error) {
 	return f.export, nil
@@ -246,6 +286,89 @@ func TestExport_OutFile(t *testing.T) {
 	}
 	// Refuses to overwrite an existing export.
 	if code, _, _ := do(t, fb, "", "export-graph", "--project", "dzeroth-dev", "--uid", "u1", "--out", path); code != 1 {
+		t.Errorf("second export code = %d, want 1 (no overwrite)", code)
+	}
+}
+
+// ---- purge-posts / export-posts (ADR-0010 T10) ----
+
+func TestPurgePosts_DryRunWritesNothing(t *testing.T) {
+	fb := &fakeBackend{pEraser: &fakePostsEraser{}, pPlan: posts.PurgePlan{Posts: 1203}}
+	code, stdout, stderr := do(t, fb, "", "purge-posts", "--project", "dzeroth-dev", "--uid", "u1", "--dry-run")
+	if code != 0 || !strings.Contains(stdout, "dry-run: posts=1203 (nothing written)") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if len(fb.pEraser.calls) != 0 {
+		t.Fatalf("a dry run called the eraser %d times", len(fb.pEraser.calls))
+	}
+}
+
+func TestPurgePosts_ResumesFromCheckpointsAndRetries(t *testing.T) {
+	er := &fakePostsEraser{failFor: 1, steps: []posts.Checkpoint{{Deleted: 500}, {Deleted: 1000}}}
+	fb := &fakeBackend{pEraser: er}
+	code, stdout, stderr := do(t, fb, "", "purge-posts", "--project", "dzeroth-dev", "--uid", "u1", "--skip-start-gate")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	want := []posts.Checkpoint{{}, {}, {Deleted: 500}, {Deleted: 1000}}
+	if len(er.calls) != len(want) {
+		t.Fatalf("calls = %+v, want %+v", er.calls, want)
+	}
+	for i := range want {
+		if er.calls[i] != want[i] {
+			t.Errorf("call %d checkpoint = %+v, want %+v", i, er.calls[i], want[i])
+		}
+	}
+	if !strings.Contains(stdout, "purged: reads=") || !strings.Contains(stdout, "deleted=500") {
+		t.Errorf("stdout = %q", stdout)
+	}
+}
+
+func TestPurgePosts_GivesUpAndStartGate(t *testing.T) {
+	// Always failing eraser: gives up after maxConsecutiveErrors.
+	fb := &fakeBackend{pEraser: &fakePostsEraser{failFor: 1 << 20}}
+	code, _, stderr := do(t, fb, "", "purge-posts", "--project", "dzeroth-dev", "--uid", "u1", "--skip-start-gate")
+	if code != 1 || !strings.Contains(stderr, "giving up") || len(fb.pEraser.calls) != maxConsecutiveErrors {
+		t.Fatalf("code=%d stderr=%q calls=%d", code, stderr, len(fb.pEraser.calls))
+	}
+	// The start gate applies like purge-graph: an ACTIVE account is refused before any call.
+	fb = &fakeBackend{pEraser: &fakePostsEraser{}, prof: identity.Profile{Status: identity.AccountStatusActive}}
+	code, _, stderr = do(t, fb, "", "purge-posts", "--project", "dzeroth-dev", "--uid", "u1")
+	if code != 1 || !strings.Contains(stderr, "not in status DELETING") || len(fb.pEraser.calls) != 0 {
+		t.Fatalf("code=%d stderr=%q calls=%d", code, stderr, len(fb.pEraser.calls))
+	}
+}
+
+func TestPostsCommands_RequireProjectAndUID(t *testing.T) {
+	for _, cmd := range []string{"purge-posts", "export-posts"} {
+		fb := &fakeBackend{pEraser: &fakePostsEraser{}}
+		if code, _, stderr := do(t, fb, "", cmd, "--uid", "u1"); code != 2 || !strings.Contains(stderr, "--project is required") || fb.opened != 0 {
+			t.Errorf("%s without --project: code=%d stderr=%q opened=%d", cmd, code, stderr, fb.opened)
+		}
+		if code, _, stderr := do(t, fb, "", cmd, "--project", "dzeroth-dev"); code != 2 || !strings.Contains(stderr, "--uid is required") {
+			t.Errorf("%s without --uid: code=%d stderr=%q", cmd, code, stderr)
+		}
+		if code, _, _ := do(t, fb, "", cmd, "--project", "dzeroth-prod", "--uid", "u1", "--dry-run"); code != 1 || fb.opened != 0 {
+			t.Errorf("%s on prod without confirmation: code=%d opened=%d", cmd, code, fb.opened)
+		}
+	}
+}
+
+func TestExportPosts_StdoutAndOutFile(t *testing.T) {
+	body := `{"userId":"u1","posts":[]}` + "\n"
+	fb := &fakeBackend{pEraser: &fakePostsEraser{}, pExport: body}
+	code, stdout, stderr := do(t, fb, "", "export-posts", "--project", "dzeroth-dev", "--uid", "u1")
+	if code != 0 || stdout != body {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	path := filepath.Join(t.TempDir(), "posts.json")
+	if code, _, stderr := do(t, fb, "", "export-posts", "--project", "dzeroth-dev", "--uid", "u1", "--out", path); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != body {
+		t.Fatalf("file = %q, %v", data, err)
+	}
+	if code, _, _ := do(t, fb, "", "export-posts", "--project", "dzeroth-dev", "--uid", "u1", "--out", path); code != 1 {
 		t.Errorf("second export code = %d, want 1 (no overwrite)", code)
 	}
 }
