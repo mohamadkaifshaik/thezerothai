@@ -85,20 +85,37 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 	return connect.NewResponse(&postsv1.CreatePostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
 }
 
-// DeletePost is behind the flag and Unimplemented until T9.
+// readDeadline bounds DeletePost and GetPost (<= 10 s, go-service skill).
+const readDeadline = 5 * time.Second
+
+// DeletePost is behind the flag; the rules (ownership, no-op cases, the batch) are Service.Delete (T9).
 func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.DeletePostRequest]) (*connect.Response[postsv1.DeletePostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
 	}
-	return s.UnimplementedPostServiceHandler.DeletePost(ctx, req)
+	uid, _ := authn.UIDFromContext(ctx) // GuardFeature proved it is set
+	ctx, cancel := context.WithTimeout(ctx, readDeadline)
+	defer cancel()
+	if err := s.svc.Delete(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&postsv1.DeletePostResponse{}), nil
 }
 
-// GetPost is behind the flag and Unimplemented until T9.
+// GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags stay false until
+// engagement ships (ADR-0010 D3).
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
 	}
-	return s.UnimplementedPostServiceHandler.GetPost(ctx, req)
+	uid, _ := authn.UIDFromContext(ctx)
+	ctx, cancel := context.WithTimeout(ctx, readDeadline)
+	defer cancel()
+	post, err := s.svc.GetForViewer(ctx, uid, req.Msg.GetPostId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&postsv1.GetPostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
 }
 
 // GetThread is behind the flag and Unimplemented until the replies slice (P3).

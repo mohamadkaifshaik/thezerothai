@@ -37,6 +37,10 @@ type Repo interface {
 	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
 	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
+	// DeleteOwn deletes posts/{id} and decrements the author's postsCount in one batch, with an Exists
+	// precondition on the post. deleted=false (and 0 writes) when the post is already gone (a concurrent delete
+	// won). Reads 0; writes 1 + deletes 1 only when deleted.
+	DeleteOwn(ctx context.Context, id, authorID string) (deleted bool, err error)
 }
 
 // FirestoreRepo implements Repo against the shared Firestore client.

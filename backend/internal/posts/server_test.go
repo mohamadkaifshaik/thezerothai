@@ -84,8 +84,7 @@ func TestGuardFeature_LogsTheRejection(t *testing.T) {
 	}
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; on => Unimplemented (until
-// T9, and GetThread until P3).
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; on => GetThread is still Unimplemented (until P3).
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"CreatePost": func(s *Server, ctx context.Context) error {
@@ -120,8 +119,8 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 				t.Fatalf("a disabled call touched Firestore: reads=%d writes=%d", counter.Reads(), counter.Writes())
 			}
 		})
-		if name == "CreatePost" {
-			continue // implemented in T8; see TestServer_CreatePost
+		if name != "GetThread" {
+			continue // implemented in T8/T9; see TestServer_CreatePost, TestServer_DeleteAndGetPost
 		}
 		t.Run(name+" flag on", func(t *testing.T) {
 			err := call(NewServer(svc, &fakeFlags{on: true}), callerCtx("u1"))
@@ -153,6 +152,36 @@ func TestServer_CreatePost(t *testing.T) {
 	}
 
 	_, err = srv.CreatePost(callerCtx(testUID), connect.NewRequest(&postsv1.CreatePostRequest{IdempotencyKey: "short", Text: "hi"}))
+	var ae *apierr.Error
+	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
+		t.Fatalf("err = %v, want VALIDATION", err)
+	}
+}
+
+// TestServer_DeleteAndGetPost: the handlers pass the caller and ids through and map the result.
+func TestServer_DeleteAndGetPost(t *testing.T) {
+	e := newDeleteEnv()
+	srv := NewServer(e.svc, &fakeFlags{on: true})
+
+	got, err := srv.GetPost(callerCtx(testUID), connect.NewRequest(&postsv1.GetPostRequest{PostId: pidOther}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := got.Msg.GetPost().GetPost(); p.GetPostId() != pidOther || p.GetAuthor().GetHandle() != "zed" || got.Msg.GetPost().GetLikedByViewer() {
+		t.Fatalf("GetPost = %v", p)
+	}
+	var nf *apierr.Error
+	if _, err := srv.GetPost(callerCtx(testUID), connect.NewRequest(&postsv1.GetPostRequest{PostId: "0000000000000000999"})); !errors.As(err, &nf) || nf.Code != connect.CodeNotFound {
+		t.Fatalf("err = %v, want NOT_FOUND", err)
+	}
+
+	if _, err := srv.DeletePost(callerCtx(testUID), connect.NewRequest(&postsv1.DeletePostRequest{IdempotencyKey: key1, PostId: pidMine})); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.repo.docs[pidMine]; ok {
+		t.Fatal("post not deleted")
+	}
+	_, err = srv.DeletePost(callerCtx(testUID), connect.NewRequest(&postsv1.DeletePostRequest{IdempotencyKey: key1, PostId: "abc"}))
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
 		t.Fatalf("err = %v, want VALIDATION", err)

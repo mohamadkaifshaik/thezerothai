@@ -64,7 +64,7 @@ func TestPostsAndTimeline_DegradedReadonly(t *testing.T) {
 		{"GetPost is not blocked", func() error {
 			_, err := postClient.GetPost(ctx, connect.NewRequest(&postsv1.GetPostRequest{}))
 			return err
-		}, connect.CodeUnimplemented},
+		}, connect.CodeUnknown}, // reached the handler: T9 rejects the empty post_id with an *apierr.Error, which this harness (no mw.ErrorMapping) leaves unmapped
 		{"GetHomeTimeline is not blocked", func() error {
 			_, err := tlClient.GetHomeTimeline(ctx, connect.NewRequest(&timelinev1.GetHomeTimelineRequest{}))
 			return err

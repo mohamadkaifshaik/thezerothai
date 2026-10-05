@@ -37,6 +37,11 @@ type fakeRepo struct {
 	postsCount  int64
 	nextID      int64
 	lastCreate  CreateParams
+
+	// DeletePost model.
+	deleteCalls int
+	deleteErr   error
+	deleteRace  bool // the post vanishes between the read and the batch (a concurrent delete won)
 }
 
 func newFakeRepo(ps ...*Post) *fakeRepo {

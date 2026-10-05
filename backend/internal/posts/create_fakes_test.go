@@ -54,6 +54,25 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 	return CreateResult{Post: &post, Attempts: 1}, nil
 }
 
+// DeleteOwn implements Repo for unit tests: 0 reads; on success 1 write (postsCount) + 1 delete. A post that is
+// absent models a lost Exists precondition (deleted=false, nothing charged).
+func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string) (bool, error) {
+	r.deleteCalls++
+	if r.deleteErr != nil {
+		return false, r.deleteErr
+	}
+	if _, ok := r.docs[id]; !ok || r.deleteRace {
+		delete(r.docs, id)
+		return false, nil
+	}
+	delete(r.docs, id)
+	r.postsCount--
+	c := budget.FromContext(ctx)
+	c.AddWrites(1)
+	c.AddDeletes(1)
+	return true, nil
+}
+
 type fakeIdem struct{ hash, postID string }
 
 // fakeDirectory implements identity.Directory with counted reads.
@@ -107,19 +126,30 @@ var _ identity.Directory = (*fakeDirectory)(nil)
 // fakeGraph implements graph.Reader; each uncached Snapshot costs 1 read.
 type fakeGraph struct {
 	snap  graph.Snapshot
+	snaps map[string]graph.Snapshot // per-uid override of snap
 	calls int
+	asked []string
 }
 
-func (g *fakeGraph) Snapshot(ctx context.Context, _ string) (graph.Snapshot, error) {
+func (g *fakeGraph) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
 	g.calls++
+	g.asked = append(g.asked, uid)
 	budget.FromContext(ctx).AddReads(1)
+	if s, ok := g.snaps[uid]; ok {
+		return s, nil
+	}
 	return g.snap, nil
 }
 
-type recordingEvents struct{ created []*Post }
+type recordingEvents struct {
+	created []*Post
+	deleted []string
+}
 
-func (e *recordingEvents) Created(_ context.Context, p *Post)      { e.created = append(e.created, p) }
-func (e *recordingEvents) Deleted(context.Context, string, string) {}
+func (e *recordingEvents) Created(_ context.Context, p *Post) { e.created = append(e.created, p) }
+func (e *recordingEvents) Deleted(_ context.Context, postID, _ string) {
+	e.deleted = append(e.deleted, postID)
+}
 
 // googleCtx is a caller context the verified-identity gate accepts.
 func googleCtx(ctx context.Context, uid string) context.Context {

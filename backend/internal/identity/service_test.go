@@ -890,3 +890,11 @@ func TestLookupProfiles_MissingVsInactive(t *testing.T) {
 		t.Errorf("second lookup: missing=%v err=%v calls=%d", missing, err, repo.getProfilesCalls)
 	}
 }
+
+// TestProfileNotFoundError_IsTheGetProfileError: other modules reuse the exact NOT_FOUND bytes (ADR-0010 T9).
+func TestProfileNotFoundError_IsTheGetProfileError(t *testing.T) {
+	var a, b *apierr.Error
+	if !errors.As(ProfileNotFoundError(), &a) || !errors.As(notFoundErr(), &b) || a.Code != b.Code || a.Reason != b.Reason || a.Message != b.Message {
+		t.Fatalf("ProfileNotFoundError = %#v, want %#v", a, b)
+	}
+}

@@ -51,6 +51,10 @@ func New(repo Repo, c *Cache, handleChangeCooldown time.Duration, opts ...Option
 	return s
 }
 
+// ProfileNotFoundError is the one NOT_FOUND "profile not found" answer for a missing user, exposed so other
+// modules (posts' GetUserTimeline) return the same bytes as GetProfile instead of copying the string (ADR-0010 T9).
+func ProfileNotFoundError() error { return notFoundErr() }
+
 func notFoundErr() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "profile not found")
 }
