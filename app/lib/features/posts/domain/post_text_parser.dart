@@ -39,9 +39,13 @@ class PostSpan {
   String toString() => 'PostSpan($kind, "$text")';
 }
 
-// `http://` or `https://` (any case) followed by a run of non-space,
-// non-bracket characters. Nothing else is ever linkified: `javascript:`,
-// `data:`, `ftp://`, bare `www.` are plain text.
+// URL-span candidate (ADR-0010 D7 "URL spans", D21 G1): `http://` or
+// `https://` (any case) followed by one or more non-terminator runes. The
+// terminator set is ECMAScript `\s` plus `<`, `>` and `"`, which is exactly
+// what `[^\s<>"]` already means in Dart. It must equal the server's explicit
+// list (backend/internal/posts/text) - do not "simplify" it. Every candidate
+// is a span for `@`/`#` exclusion; only safe ones are tappable. Nothing else
+// is ever linkified: `javascript:`, `data:`, `ftp://`, bare `www.` are plain.
 final _urlRe = RegExp(r'https?://[^\s<>"]+', caseSensitive: false);
 
 // Sentence punctuation after a link is not part of it; a closing bracket is
@@ -125,7 +129,8 @@ bool _isBlockedBefore(String text, int index, String extra) {
 ///   unresolved `@carol` stays plain text.
 /// - Hashtags follow ADR-0010 D8; tapping them is a placeholder until
 ///   Phase 2.
-/// - `@` and `#` inside a link stay part of the link.
+/// - `@` and `#` inside any URL span (even one rendered as plain text) are
+///   never a mention or hashtag (D7/D8, D21 G1).
 ///
 /// Pure and allocation-light; cheap enough to run per card build, but
 /// callers cache the result (see `PostCard`).
@@ -139,18 +144,18 @@ List<PostSpan> parsePostText(String text, Iterable<pb.Mention> mentions) {
   final found = <(int, int, PostSpan)>[];
   final linkRanges = <(int, int)>[];
 
+  // D7 step 5: a span is syntactic. Mention/hashtag candidates inside *any*
+  // span are excluded, even when the span is rendered as plain text (unsafe
+  // host, spoofing characters, or a post with bidi controls).
   final allowLinks = !_bidiControlRe.hasMatch(text);
-  final Iterable<RegExpMatch> urlMatches = allowLinks
-      ? _urlRe.allMatches(text)
-      : const <RegExpMatch>[];
-  for (final match in urlMatches) {
+  for (final match in _urlRe.allMatches(text)) {
     if (_isBlockedBefore(text, match.start, '')) continue;
     final raw = _trimUrl(text, match.start, match.end);
-    if (_spoofingRe.hasMatch(raw)) continue;
-    final uri = Uri.tryParse(raw);
-    if (uri == null || !_isSafeLink(uri, raw)) continue;
     final end = match.start + raw.length;
     linkRanges.add((match.start, end));
+    if (!allowLinks || _spoofingRe.hasMatch(raw)) continue;
+    final uri = Uri.tryParse(raw);
+    if (uri == null || !_isSafeLink(uri, raw)) continue;
     found.add((match.start, end, PostSpan(PostSpanKind.link, raw, url: uri)));
   }
 
