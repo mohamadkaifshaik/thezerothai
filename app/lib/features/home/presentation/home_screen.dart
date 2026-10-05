@@ -1,12 +1,62 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../posts/data/posts_repository.dart';
+import '../../posts/domain/posts_feature_flag.dart';
+import '../../posts/presentation/bloc/pending_posts_cubit.dart';
+import '../../timeline/data/timeline_repository.dart';
+import '../../timeline/domain/feed_key.dart';
+import '../../timeline/presentation/bloc/timeline_cubit.dart';
+import '../../timeline/presentation/timeline_feed_view.dart';
 
-/// Placeholder for the pull-on-read, incrementally-refreshed timeline
-/// (ADR-0004 / the `timeline` skill). Phase 0 only wires navigation and
-/// auth; the real timeline is a separate feature.
+/// The Home timeline (T17, ADR-0004 section 7): the cached feed renders at
+/// once, then one throttled refresh with `since_token`; pull-to-refresh,
+/// resume and a 60 s foreground auto-refresh bring new posts behind an
+/// "N new posts" pill. With the posts flag off the Phase 0 placeholder stays.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isFeatureEnabled(context, kFeaturePosts)) {
+      return const _HomePlaceholder();
+    }
+    final viewerUserId = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile?.userId,
+    );
+    return BlocProvider<TimelineCubit>(
+      create: (context) => TimelineCubit(
+        feed: const FeedKey.home(),
+        timeline: context.read<TimelineRepository>(),
+        posts: context.read<PostsRepository>(),
+        viewerUserId: viewerUserId,
+      )..load(),
+      child: BlocListener<PendingPostsCubit, List<PendingPost>>(
+        // A pending post left the list: it was stored (or rolled back), so
+        // re-read the cache, with no RPC.
+        listenWhen: (before, after) => after.length < before.length,
+        listener: (context, _) =>
+            context.read<TimelineCubit>().reloadFromCache(),
+        child: Scaffold(
+          appBar: AppBar(title: const Text('Home')),
+          body: TimelineFeedView(
+            viewerUserId: viewerUserId,
+            emptyTitle: 'Your timeline is empty',
+            emptySubtitle:
+                'Follow people to see their posts here, or write your own '
+                'with the New post button.',
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomePlaceholder extends StatelessWidget {
+  const _HomePlaceholder();
 
   @override
   Widget build(BuildContext context) {

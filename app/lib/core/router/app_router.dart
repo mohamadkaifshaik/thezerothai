@@ -14,6 +14,7 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
 import '../../features/posts/presentation/composer_screen.dart';
+import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/splash_screen.dart';
@@ -49,6 +50,9 @@ class AppRouter {
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) => '/u/$userId';
+  /// One post (`GetPost`): what a post card opens.
+  static String postPath(String postId) =>
+      '/post/${Uri.encodeComponent(postId)}';
   static String followersPath(String handle) => '/profile/$handle/followers';
   static String followingPath(String handle) => '/profile/$handle/following';
 
@@ -91,6 +95,12 @@ class AppRouter {
             path: '/u/:userId',
             builder: (context, state) => AuthGate(
               child: ProfileScreen(userId: state.pathParameters['userId']!),
+            ),
+          ),
+          GoRoute(
+            path: '/post/:id',
+            builder: (context, state) => AuthGate(
+              child: PostDetailScreen(postId: state.pathParameters['id']!),
             ),
           ),
           GoRoute(

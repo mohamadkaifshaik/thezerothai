@@ -1111,8 +1111,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     `unorm_dart` (added to `pubspec.yaml`; `pubspec.lock` still needs `flutter pub get`).
   - `ComposerCubit` (one key per intent, reused on retry, dropped when the text changes) and `PendingPostsCubit`
     (optimistic items, rolled back on error).
-  - **Carry-over to T17/T18:** Home and the profile Posts tab are still placeholders or not built. They must mount
-    `PendingPostsSection` above their feed (`authorId:` on the own profile), so the optimistic post shows there.
+  - **Carry-over to T17/T18 (done in T17/T18):** Home and the own profile's Posts tab mount `PendingPostsSection`
+    above their feed (`TimelineFeedView`, `pendingAuthorId:` on the own profile).
+  - **Review fixes (T17/T18 pass):** U+2028/U+2029, ZWJ/ZWNJ and the combining acute were literal invisible characters
+    in `post_text_rules.dart`, `post_text_parser.dart` and two tests; they are now `\u` escapes (same behavior).
 
 ### T17 — Flutter: Home timeline screen  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.** Replace the `HomeScreen` placeholder (`home_screen.dart:5-37`) with the ADR-0004 §7 behaviour:
@@ -1137,6 +1139,25 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests with a fake clock and repository: refresh throttle, gap, pagination, empty, error.
 - **Observability.** —
 - **Budget.** ≤ 8 refreshes + ≤ 1 older page per DAU/day on the model's usage (the client enforces the throttle).
+- **Status: built (branch claude/gracious-babbage-2barib; not yet run, no Flutter SDK in the sandbox).**
+  - `HomeScreen` (flag on) = `TimelineFeedView` over a `TimelineCubit(FeedKey.home())`; flag off keeps the placeholder.
+    `TimelineCubit`/`TimelineFeedView` are generic (T18 reuses them for `user:{uid}:posts`).
+  - Cache first (`cached` once per open), then one refresh unless the feed was refreshed < 60 s ago. The stamp lives in
+    `TimelineRepository.sinceRefresh` (monotonic `Stopwatch`, survives screen re-creation; this settles the wall-clock
+    follow-up). Resume and a 30 s foreground tick (cancelled in the background) call `refreshIfStale`, at most one RPC per 60 s.
+  - "N new posts" pill: auto refreshes hold unseen posts back (counted by `post_id`, so the settle window never counts
+    twice; the viewer's own posts are not held); a pull shows them directly.
+  - Auto refresh is skipped once the list holds >= `kTimelineRetention` rows (reviewer contract: the store trims there).
+  - `RATE_LIMITED`: the repository remembers the last non-in-flight answer (`rateLimitedFor`, default 5 min daily / 30 s
+    otherwise when `retry_after` is missing); the cubit sends no timeline RPC while it holds and shows a notice banner over
+    the cache (blocking error only with an empty cache). The `read_budget_inflight` retry stays in `InflightRetryInterceptor`.
+  - Gap rows (`fillGap`, one call), infinite scroll prefetch at 70 % with no retry after a failure until the user taps
+    Retry, relative times re-rendered by the tick (no RPC), Block/Mute hide and Unblock/Unmute restore the author locally
+    (`onRelationshipChanged` acts on the cubit, never on the card's context).
+  - Own post stored: Home re-reads the cache (no RPC) when a pending post leaves `PendingPostsCubit`.
+  - Post cards open `/post/:id` on tap (beyond the plan; needed to reach the T18 route).
+  - Not done: the empty state only suggests following people (no people-search screen exists yet); the 500-row skip is by
+    cached row count, not scroll offset.
 - **Follow-up (PR #75 review, M3/M4/L1/L4/L6):** see the T14 follow-up list; T17 should call `TimelineRepository.cached` once per screen open and avoid a second full-feed decode per refresh.
 - **Reviewer contract (PR #75 review, T14 -> T17).**
   - `refresh` and `insertOwnPost` trim the cached feed to about 500 rows (`kTimelineRetention`). The Home screen must
@@ -1168,6 +1189,18 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests: own profile, other, blocked, empty, not-found.
 - **Observability.** —
 - **Budget.** 1 request per page; first page cached on the device.
+- **Status: built (branch claude/gracious-babbage-2barib; not yet run, no Flutter SDK in the sandbox).**
+  - Profile (flag on): `ProfileHeader` (now with an optional "N Posts" count) + single "Posts" tab (Replies hidden) +
+    `TimelineFeedView` over `FeedKey.user(uid)`. Own profile also shows pending posts and "You haven't posted yet".
+  - Blocked by the viewer: "You blocked @x . Show posts" from the local relationship; the feed is **not requested** until
+    "Show posts" (saves the read). Mute shows no banner.
+  - `/post/:id` (`PostDetailScreen`, `PostDetailCubit`, `AppRouter.postPath`): NOT_FOUND (and a malformed id) =
+    "This post isn't available" with no retry, caches pruned by `PostsRepository.getPost`; the same blocked banner
+    ("Show post"), from `GraphRepository.cached`, comes first.
+  - Delete: optimistic removal in the feed, restored + snackbar on error; success always removes (D4). One idempotency
+    key per post until it succeeds. `PostsRepository.removedPosts` tells every mounted feed (Home under a profile or a post)
+    to drop the post, and the header count decrements via `ProfileCubit.postDeleted`.
+  - Delete on the post detail pops the screen.
 
 ### T19 — Emulator integration tests: posts  [owner: tester] [size: M] [depends: T8, T9, T10]
 - **Description.**
