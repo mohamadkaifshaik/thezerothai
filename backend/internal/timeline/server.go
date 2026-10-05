@@ -91,7 +91,8 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 
 // GetUserTimeline returns one user's posts (Posts tab or Replies tab).
 //
-// Budget (ADR-0010 D16/D17), reads: 3 + page cold (interceptor + target users + caller graph + Limit(page);
+// Budget (ADR-0010 D16/D17), reads: 3 + max(page, 20) cold (interceptor + target users + caller graph +
+// Limit(max(page, 20)): a cold Posts tab fills the 20-post author-recent entry, so page < 20 still reads 20;
 // 53 at page 50; +1 when the caller's blockedBy overflowed), 0 warm for a Posts-tab first page (<= 20) or an
 // empty refresh served by a fresh author-recent entry, 4 for a cold refresh with 0 new posts. Planning 11.
 // Writes 0.
