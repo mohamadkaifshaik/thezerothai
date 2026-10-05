@@ -20,8 +20,8 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// lines. Links are kept as typed and count toward the length (no server rewriting or previews).
   /// Mentions (ADR-0010 D7): "@" + handle (3-15 of [A-Za-z0-9_], not preceded by a letter/number/_@#/.:&$+-,
   /// never truncated); first 10 distinct, stored lower-cased as {user_id, handle}. Unknown handles stay plain
-  /// text; mentions of users who blocked the author are dropped (all mentions are dropped if the author's
-  /// blocked-by list overflowed); mentioning a user the author blocks is allowed.
+  /// text; mentions never depend on the block graph (a user who blocked the author is kept, so the response
+  /// cannot reveal the block, ADR-0010 D7 M2); mentioning a user the author blocks is allowed.
   /// Hashtags (ADR-0010 D8): "#" + 1-50 of letters/marks/numbers/_ (plus ZWJ/ZWNJ inside), >= 1 letter;
   /// lower-cased, first 10 distinct stored; the text is unchanged.
   /// One transaction: idempotency doc + quotas read fresh; Create idempotency doc + Create post +
@@ -30,8 +30,8 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// Replay: idempotency doc exists => return the stored post (+1 read if not cached); a different body =>
   /// INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED, 0 writes.
   /// Firestore until replies/quotes/media ship (ADR-0010): reads 14 cold / 2 warm, planning 2.5 (caller users via
-  /// the account-status interceptor 1 + author graph 1, only if the text has mention candidates + handles <= 10 in
-  /// one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
+  /// the account-status interceptor 1 + handles <= 10 in (no author graph read since M2) if the text has mention
+  /// candidates in one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
   /// TTL delete. Replay: reads 14 cold / 1 warm, writes 0.
   /// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
   /// notification writes: 1 per mentioned user + 1 for the parent/quoted author).

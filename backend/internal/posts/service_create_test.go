@@ -125,13 +125,15 @@ func TestCreate_Mentions(t *testing.T) {
 		wantGraph    int
 		wantResolve  int
 	}{
-		{"no candidate: no graph read", "just text #tag", graph.Snapshot{}, nil, 0, 0},
-		{"unknown handle stays text", "@ghost hi", graph.Snapshot{}, nil, 1, 1},
-		{"blocked-by author is dropped", "@bob @carol", graph.Snapshot{BlockedBy: map[string]bool{"uid-bob": true}}, []string{"carol"}, 1, 1},
-		{"blockedBy overflow drops all, no handle read", "@bob @carol", graph.Snapshot{BlockedByOverflow: true}, nil, 1, 0},
-		{"author blocked bob: still mentioned", "@bob", graph.Snapshot{Blocked: map[string]bool{"uid-bob": true}}, []string{"bob"}, 1, 1},
-		{"mention inside URL: no graph, no handle read", "https://ex.com/?ref=@bob", graph.Snapshot{}, nil, 0, 0},
-		{"URL candidate does not cost a read but a real one does", "https://ex.com/?ref=@bob @carol", graph.Snapshot{}, []string{"carol"}, 1, 1},
+		{"no candidate: no handle read", "just text #tag", graph.Snapshot{}, nil, 0, 0},
+		{"unknown handle stays text", "@ghost hi", graph.Snapshot{}, nil, 0, 1},
+		// M2 privacy invariant: a user who blocked the author is mentioned exactly like anyone else, so the
+		// response cannot reveal the block. The result must not depend on the graph, and the graph is never read.
+		{"blocked-by author is kept (no block oracle)", "@bob @carol", graph.Snapshot{BlockedBy: map[string]bool{"uid-bob": true}}, []string{"bob", "carol"}, 0, 1},
+		{"blockedBy overflow is kept too", "@bob @carol", graph.Snapshot{BlockedByOverflow: true}, []string{"bob", "carol"}, 0, 1},
+		{"author blocked bob: still mentioned", "@bob", graph.Snapshot{Blocked: map[string]bool{"uid-bob": true}}, []string{"bob"}, 0, 1},
+		{"mention inside URL: no handle read", "https://ex.com/?ref=@bob", graph.Snapshot{}, nil, 0, 0},
+		{"URL candidate does not cost a read but a real one does", "https://ex.com/?ref=@bob @carol", graph.Snapshot{}, []string{"carol"}, 0, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -152,6 +154,28 @@ func TestCreate_Mentions(t *testing.T) {
 				t.Fatalf("graph reads=%d resolves=%d, want %d and %d", e.graph.calls, len(e.dir.resolved), tt.wantGraph, tt.wantResolve)
 			}
 		})
+	}
+}
+
+// TestCreate_MentionsDoNotRevealBlockers is the M2 privacy invariant: the stored and returned mentions are
+// identical whether or not the mentioned user blocked the author, and the author's graph is never consulted.
+func TestCreate_MentionsDoNotRevealBlockers(t *testing.T) {
+	run := func(snap graph.Snapshot) ([]Mention, int) {
+		e := newCreateEnv()
+		e.graph.snap = snap
+		p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Mentions, e.graph.calls
+	}
+	open, openCalls := run(graph.Snapshot{})
+	blocked, blockedCalls := run(graph.Snapshot{BlockedBy: map[string]bool{"uid-bob": true}})
+	if !reflect.DeepEqual(open, blocked) || len(open) != 1 {
+		t.Fatalf("mentions differ by block state: open=%v blocked=%v", open, blocked)
+	}
+	if openCalls != 0 || blockedCalls != 0 {
+		t.Fatalf("author graph read (%d, %d times); mentions must not depend on it", openCalls, blockedCalls)
 	}
 }
 
@@ -371,7 +395,7 @@ func TestCreate_Budget(t *testing.T) {
 	if err != nil || c.Reads() > 2 || c.Writes() > 4 {
 		t.Fatalf("warm: err=%v reads=%d writes=%d", err, c.Reads(), c.Writes())
 	}
-	// Cold ceiling: graph 1 + 10 handles + idempotency 1 + quotas 1 = 13 here (+1 interceptor = 14 documented).
+	// Cold ceiling: 10 handles + idempotency 1 + quotas 1 = 12 here (+1 interceptor = 13; documented ceiling 14).
 	e = newCreateEnv()
 	var parts []string
 	for i := 0; i < 10; i++ {

@@ -74,5 +74,23 @@ void main() {
       expect(analyzePostDraft('').problem, PostDraftProblem.empty);
       expect(analyzePostDraft(' \n\t ').problem, PostDraftProblem.empty);
     });
+
+    test('blank-looking drafts are empty (L5), but real text is kept', () {
+      for (final blank in [
+        '\u3164',
+        '\u115F\u1160\uFFA0',
+        '\u2800 \u2800',
+        '\u034F\u17B4\u17B5',
+        '\u200B\u3164\u200B',
+      ]) {
+        final draft = analyzePostDraft(blank);
+        expect(draft.problem, PostDraftProblem.empty, reason: blank);
+        expect(draft.canPost, isFalse, reason: blank);
+      }
+      // The empty check never trims: visible text keeps its filler characters.
+      final kept = analyzePostDraft('\u2800hi\u3164');
+      expect(kept.canPost, isTrue);
+      expect(kept.text, '\u2800hi\u3164');
+    });
   });
 }

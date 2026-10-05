@@ -60,8 +60,10 @@ class TimelineCubit extends Cubit<TimelineState> {
   final PostsRepository _posts;
   final Uuid _uuid;
 
-  /// The signed-in user: their own posts are never held behind the pill.
-  final String? viewerUserId;
+  /// The signed-in user: their own posts are never held behind the pill. It
+  /// can arrive after the cubit is created (the profile loads asynchronously),
+  /// so the screen updates it when the profile appears.
+  String? viewerUserId;
 
   /// Called after a post deleted through this cubit was confirmed by the
   /// server (the profile decrements its post count).
@@ -111,7 +113,9 @@ class TimelineCubit extends Cubit<TimelineState> {
     if (isClosed || state.refreshing || state.loadingMore) return;
     if (state.entries.length >= kTimelineRetention) return;
     if (_timeline.rateLimitedFor() != null) return;
-    final since = _timeline.sinceRefresh(_feed);
+    // Throttle on the last attempt, not the last success: during an outage the
+    // tick must not retry every 30 s.
+    final since = _timeline.sinceRefreshAttempt(_feed);
     if (since != null && since < kAutoRefreshInterval) return;
     await _refresh(userInitiated: false);
   }

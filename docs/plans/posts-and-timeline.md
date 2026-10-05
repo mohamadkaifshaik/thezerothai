@@ -122,7 +122,7 @@ Definitions (ADR-0008 A2 convention, ADR-0010 D17):
 | ↳ replay (same key, same body) / key reused with a different body | 14 / 1 / — | 0 | 0 | 30 | — | — | — | — |
 | DeletePost (own post) | 2 / 0 / 1 | 1 (0 on no-op) | 1 (0 on no-op) | 40 | 0.05 | 0.05 | 0.05 | 0.05 |
 | GetPost | 4 (+1 if caller `blockedByOverflow`) / 0 / 1 | 0 | 0 | 15 | 1 | 1.0 | 0 | 0 |
-| GetUserTimeline, page | 3 + p = 53 at p 50 (+1 overflow) / 0 / 11 | 0 | 0 | 50 | 2 | 22.0 | 0 | 0 |
+| GetUserTimeline, page | 3 + max(p, 20) = 53 at p 50, 23 at p 20 or less (+1 overflow; a cold Posts tab fills the 20-post author-recent entry) / 0 / 11 | 0 | 0 | 50 | 2 | 22.0 | 0 | 0 |
 | ↳ `since` refresh, 0 new posts | 4 / 0–1 / — | 0 | 0 | 20 | — | — | — | — |
 | GetHomeTimeline, refresh | 2 + C + 2p = **269** at F = 5,000, p = 50 / 0 to C / 4 overhead + new posts | 0 | 0 | 80 | 8 | 32.0 overhead + **60.0 new posts** | 0 | 0 |
 | ↳ settle-window re-reads (D13) | within the ceiling / 0 / ≈ 0.1 per refresh | 0 | 0 | — | 8 | ≈ 1.0 | 0 | 0 |
@@ -247,7 +247,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 |---|---|---|
 | `proto/dzeroth/posts/v1/posts.proto` | CreatePost: document the slice-1 `FEATURE_DISABLED` behaviour for reply/quote/media with `metadata["feature"]` (D2), the mention rules (D7) and hashtag rules (D8); budget "reads 14 cold / 2 warm, writes 4 until replies/quotes/media ship". DeletePost: "not own, unknown or already deleted ⇒ success with 0 writes (D4); reads 2/0, writes 1, deletes 1 (0 on no-op)". GetPost: "reads 4/0 (+1 overflow; +1 once engagement ships)" | Keep proto and cost model in sync (`common.proto:13-14`) |
 | `proto/dzeroth/common/v1/common.proto` | FEATURE_DISABLED comment: `metadata["feature"]` names a sub-feature (`replies`/`quotes`/`media`); absent means the whole service (D2). Comment only | Clients hide only the named sub-feature |
-| `proto/dzeroth/timeline/v1/timeline.proto` | GetHomeTimeline worst `2 + C + 2p` (269) until engagement adds `userLikes`; GetUserTimeline `3 + p` (53); the D6 visibility semantics; `since_token` is a settle watermark and refreshes may repeat items (the client dedupes by `post_id`, D13); tokens are caller-bound and expire after 30 days (D14) | same |
+| `proto/dzeroth/timeline/v1/timeline.proto` | GetHomeTimeline worst `2 + C + 2p` (269) until engagement adds `userLikes`; GetUserTimeline `3 + max(p, 20)` (53); the D6 visibility semantics; `since_token` is a settle watermark and refreshes may repeat items (the client dedupes by `post_id`, D13); tokens are caller-bound and expire after 30 days (D14) | same |
 | `proto/dzeroth/identity/v1/identity.proto` | CheckHandleAvailability/GetProfile: mention the daily read budget and `metadata["limit"]` = `read_budget_daily` / `check_handle_daily` | P0 contract visibility |
 | `firebase/firestore.indexes.json` | **No change** (D19). Every P1 query shape maps to an existing index when it orders `createdAt DESC, __name__ DESC`. No `mentionIds` exemption (D12) | Index write cost |
 | Firestore `posts/{postId}` | New collection, shape exactly as ADR-0003:80; `visibility = PUBLIC`, `kind = POST`, `isReply = false`, `conversationId = postId` | — |
@@ -922,13 +922,13 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     `next_page_token = ""`, and costs 1 query read.
   - Given `since_token` with 0 new posts, then reads ≤ 4 cold (3 + 1 empty query), 0–1 warm.
   - Given the author blocked the caller, then NOT_FOUND, byte-identical to a missing user and to a suspended user.
-  - Given a cold page of 20, then reads ≤ 23. At page 50, reads ≤ 53 (`3 + p`, +1 on overflow).
+  - Given a cold page of 20, then reads ≤ 23. At page 50, reads ≤ 53 (`3 + max(p, 20)`, +1 on overflow).
   - Given a warm Posts-tab first page, then reads = 0 and `timeline_cache_hit=true`.
 - **Test notes.** Budget assertions per D17; the ADR-0010 D6 matrix, GetUserTimeline column (every row, including
   the overflow and both-block rows).
 - **Observability.** `timeline_op=user`, `timeline_mode`, `fs_reads`, `timeline_cache_hit`, `items_returned`,
   `since_clamped`, `page_size`.
-- **Budget.** 3 + p cold (53 at p 50) / 0 warm / 11 planning.
+- **Budget.** 3 + max(p, 20) cold (53 at p 50) / 0 warm / 11 planning.
 - **Status: built (branch feat/timeline-t11-t13).** `internal/timeline/service.go` `user`, `server.go`
   `GetUserTimeline`. Decisions recorded for the PR:
   - `identity.ProfileNotFoundError()` is a new exported wrapper over identity's private `notFoundErr()`, so the missing /
@@ -1158,6 +1158,11 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - Post cards open `/post/:id` on tap (beyond the plan; needed to reach the T18 route).
   - Not done: the empty state only suggests following people (no people-search screen exists yet); the 500-row skip is by
     cached row count, not scroll offset.
+- **Review follow-ups (PR #94, 2026-10-05), done:** the Home screen hands the viewer id to the cubit when the profile loads
+  (own posts are never held behind the pill); the foreground tick throttles on the last refresh *attempt*
+  (`TimelineRepository.sinceRefreshAttempt`), so an outage retries once per 60 s; the feed rebuilds only when a minute
+  boundary passes; the composer keeps one idempotency key per submitted text, so edit-and-revert reuses the original key.
+  Flutter tests were written but not run (no Flutter SDK in the authoring container); CI is the first run.
 - **Follow-up (PR #75 review, M3/M4/L1/L4/L6):** see the T14 follow-up list; T17 should call `TimelineRepository.cached` once per screen open and avoid a second full-feed decode per refresh.
 - **Reviewer contract (PR #75 review, T14 -> T17).**
   - `refresh` and `insertOwnPost` trim the cached feed to about 500 rows (`kTimelineRetention`). The Home screen must
@@ -1240,7 +1245,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     - F = 60, p = 20: ≤ 2 + 3·14 = 44 cold;
     - "the gap token never re-reads items older than the previous since".
   - Seeded F = 5,000: home ≤ 2 + C + 2p = 269.
-  - GetUserTimeline ≤ 3 + p, including the exact-multiple final empty page (D16).
+  - GetUserTimeline ≤ 3 + max(p, 20), including the exact-multiple final empty page (D16).
   - The D6 block/mute matrix for both timelines (every row, including overflow, both-block, suspended and deleting).
   - The **D13 regression**: a post committed with `createdAt` older than an already-returned item (fake clock) is
     delivered on the next refresh.
@@ -1472,9 +1477,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Q6** Timeline visibility: **muted authors hidden in Home only; a caller who blocks the author still gets the
   author's posts on GetUserTimeline/GetPost (the client shows a banner); author blocked caller ⇒ NOT_FOUND
   everywhere**. → Accepted and made exhaustive in the D6 matrix.
-- **Q7** Mentions: **unknown handles stay plain text; mentions of users who blocked the author are dropped;
-  mentioning a user the author blocked is allowed** (notifications are suppressed later in P6). → Accepted, with an
-  exact grammar and the overflow rule (drop all mentions when `blockedByOverflow`) (D7).
+- **Q7** Mentions: **unknown handles stay plain text; mentioning a user the author blocked is allowed** (notifications
+  are suppressed later in P6). → Accepted, with an exact grammar (D7). **Amended 2026-10-05 (M2):** mentions of users
+  who blocked the author are no longer dropped, and the overflow rule is gone, because the drop revealed who blocked the
+  author. P6 must not notify a user who blocked the author.
 - **Q8** Hashtag grammar: **`#[\p{L}\p{N}_]{1,50}`, must contain ≥ 1 letter; lower-cased; ≤ 10 stored**.
   → **Changed (D8):** the body admits combining marks and ZWJ/ZWNJ (`#भारत` works); `#123` stays none.
 - **Q9** Text: **NFC, trim, ≤ 280 code points, `\n` allowed (≤ 10 lines), other control chars rejected; links count

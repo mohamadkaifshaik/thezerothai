@@ -24,11 +24,6 @@ func TestServiceErrorsNeverCarryRawUids(t *testing.T) {
 			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 			return err
 		}},
-		{"create: load author graph", func(e *createEnv) error {
-			e.graph.errs = map[string]error{testUID: leak(testUID)}
-			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})
-			return err
-		}},
 		{"create: resolve mentions", func(e *createEnv) error {
 			e.dir.resolveErr = leak(testUID)
 			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})

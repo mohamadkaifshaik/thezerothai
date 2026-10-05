@@ -3,7 +3,9 @@ package timeline
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -425,7 +427,18 @@ func TestHome_WorstCaseAtTheFollowingCapAndBoundedConcurrency(t *testing.T) {
 	for i := 1; i <= 5000; i += 3 {
 		r.posts.add(fmt.Sprintf("f%d", i), r.ms(-time.Duration(i)*time.Second))
 	}
-	r.posts.hook = func() { time.Sleep(2 * time.Millisecond) }
+	// Rendezvous instead of a sleep: the first two queries wait until both are in flight (bounded, so a serial
+	// implementation fails the max-in-flight assertion below instead of hanging).
+	var arrived atomic.Int32
+	r.posts.hook = func() {
+		if arrived.Add(1) > 2 {
+			return
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for arrived.Load() < 2 && time.Now().Before(deadline) {
+			runtime.Gosched()
+		}
+	}
 	start := time.Now()
 	resp, counter, err := r.home("me", "", "", 50)
 	if err != nil {

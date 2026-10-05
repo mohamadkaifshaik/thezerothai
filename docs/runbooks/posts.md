@@ -41,6 +41,8 @@ instance within 60 s, and clients drop unknown ids on refresh. Treat 60 s as the
 did not commit: look for `posts_op="delete"` request lines with `outcome="noop:not_owner"` (the caller was not the author;
 a spike of those is probing, see `docs/runbooks/abuse-spike.md`) or an ERROR with `posts: delete post` (Firestore).
 `outcome="noop"` is an unknown or already-deleted id and is normal on retries.
+A delete that loses the `users.postsCount` lock race is retried by the server: at most 4 attempts with full-jitter exponential
+backoff starting at 25 ms (`maxDeleteAttempts`, `deleteRetryBackoff` in `repo_delete.go`), then an INTERNAL error that the client may retry.
 
 ## 7. `users.postsCount` looks wrong
 Create and delete each adjust it in the same atomic write as the post doc, so it should equal the user's post count. After

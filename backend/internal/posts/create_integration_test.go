@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -189,7 +190,7 @@ func TestCreate_Integration_Replays(t *testing.T) {
 	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED {
 		t.Fatalf("err = %v, want IDEMPOTENCY_KEY_REUSED", err)
 	}
-	budgettest.Assert(t, "CreatePost reused key", c, budgettest.Budget{Reads: 2, Writes: 0})
+	budgettest.Assert(t, "CreatePost reused key", c, budgettest.Budget{Reads: 1, Writes: 0}) // the idempotency doc only; docs say 1
 
 	// Concurrent x10 with a fresh key, from this instance and a second one (cold caches).
 	other := newCreateInstance(t, client, time.Nanosecond)
@@ -275,8 +276,8 @@ func seedBlockedBy(t *testing.T, client *firestore.Client, uid string, blockedBy
 	}
 }
 
-// TestCreate_Integration_Mentions: unknown handles stay text, blockers are dropped, overflow drops everything, and
-// text without a candidate never reads the author graph (2 reads: idempotency + quotas).
+// TestCreate_Integration_Mentions: unknown handles stay text, a user who blocked the author is mentioned like any
+// other (M2: no block oracle), overflow changes nothing, and the author graph is never read.
 func TestCreate_Integration_Mentions(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
@@ -310,31 +311,31 @@ func TestCreate_Integration_Mentions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := handles(p); len(got) != 1 || got[0] != "carol" || p.Mentions[0].UserID != "uid-carol" {
-		t.Fatalf("mentions = %v, want only carol (ghost unknown, bob blocked the author)", p.Mentions)
+	if got := handles(p); len(got) != 2 || got[0] != "bob" || got[1] != "carol" || p.Mentions[0].UserID != "uid-bob" {
+		t.Fatalf("mentions = %v, want bob and carol (ghost unknown; bob blocked the author but is kept, M2)", p.Mentions)
 	}
-	// graph 1 + 3 handles + idempotency 1 + quotas 1 = 6 (no interceptor read in this harness).
-	budgettest.Assert(t, "3 mention candidates, cold handles", c, budgettest.Budget{Reads: 6, Writes: 4})
+	// 3 handles + idempotency 1 + quotas 1 = 5 (no interceptor read in this harness, no author-graph read).
+	budgettest.Assert(t, "3 mention candidates, cold handles", c, budgettest.Budget{Reads: 5, Writes: 4})
 	stored, err := client.Collection(postsCollection).Doc(p.ID).Get(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var d postDoc
-	if err := stored.DataTo(&d); err != nil || len(d.Mentions) != 1 || d.Mentions[0] != (mentionDoc{UserID: "uid-carol", Handle: "carol"}) {
+	if err := stored.DataTo(&d); err != nil || len(d.Mentions) != 2 || d.Mentions[0] != (mentionDoc{UserID: "uid-bob", Handle: "bob"}) || d.Mentions[1] != (mentionDoc{UserID: "uid-carol", Handle: "carol"}) {
 		t.Fatalf("stored mentions = %+v, %v", d.Mentions, err)
 	}
 
-	// Overflow: fail closed. A fresh instance so the graph is read again.
+	// Overflow of the author's blockedBy list changes nothing either: the graph is not consulted.
 	seedBlockedBy(t, client, "uid-alice", nil, true)
 	in2 := newCreateInstance(t, client, time.Nanosecond)
 	p, _, err = in2.create(t, "uid-alice", key(4), "@carol hi")
-	if err != nil || len(p.Mentions) != 0 {
+	if err != nil || len(p.Mentions) != 1 || p.Mentions[0].Handle != "carol" {
 		t.Fatalf("overflow: mentions=%v err=%v", p, err)
 	}
 }
 
-// TestCreate_Integration_ElevenMentions: the parser caps at 10 and the cold read ceiling holds (graph 1 + 10
-// handles + idempotency 1 + quotas 1 = 13, +1 interceptor read in a real request = the documented 14).
+// TestCreate_Integration_ElevenMentions: the parser caps at 10 and the cold read ceiling holds (10
+// handles + idempotency 1 + quotas 1 = 12, +1 interceptor read in a real request = 13, under the documented 14).
 func TestCreate_Integration_ElevenMentions(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
@@ -368,7 +369,11 @@ func TestCreate_Integration_RetriedAttemptDrawsAFreshID(t *testing.T) {
 	in.repo.attemptHook = func(attempt int, id string) error {
 		seen = append(seen, id)
 		if attempt == 1 {
-			time.Sleep(3 * time.Millisecond) // make the ms differ
+			// Make the next attempt's Snowflake ms differ without sleeping: spin until the wall clock moves on.
+			drawn, _ := snowflake.Time(id)
+			for time.Now().UnixMilli() <= drawn.UnixMilli() {
+				runtime.Gosched()
+			}
 			return status.Error(codes.Aborted, "simulated lock conflict")
 		}
 		return nil

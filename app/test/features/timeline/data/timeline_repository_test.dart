@@ -575,6 +575,23 @@ void main() {
       expect(timed.sinceRefresh(home), const Duration(seconds: 30));
     });
 
+    test('a failed refresh still counts as an attempt, so the foreground tick '
+        'retries once per interval', () async {
+      expect(timed.sinceRefreshAttempt(home), isNull);
+      script[_home]!.add(const NetworkException('offline'));
+
+      await expectLater(
+        timed.refresh(home),
+        throwsA(isA<NetworkException>()),
+      );
+      clock = const Duration(seconds: 25);
+
+      expect(timed.sinceRefresh(home), isNull);
+      expect(timed.sinceRefreshAttempt(home), const Duration(seconds: 25));
+      timed.clearSession();
+      expect(timed.sinceRefreshAttempt(home), isNull);
+    });
+
     test('a daily RATE_LIMITED is remembered with the time left, then '
         'released', () async {
       script[_home]!.add(rateLimited('read_budget_daily'));

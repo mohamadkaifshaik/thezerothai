@@ -22,6 +22,11 @@ package (G3), invisible-only posts treated as empty (G4) and a 10 s bound on pos
 mentions (G5). D7, D8 and D9 carry dated pointers to it; Handoff and Founder attention item 10 follow. **D21 must be
 accepted, or changed, by the founder before T8 (CreatePost) stores any post**, because `mentions[]` and `hashtags[]`
 are permanent once written. Cost impact: none (no fixed cost; no per-DAU read or write number changes).
+**Amended 2026-10-05 (security review of PR #94, L5 and M2; decided by the founder 2026-10-05)**: D21 G4 now also treats a
+fixed list of blank-looking code points as invisible for the empty check (L5), and D7 no longer drops a mention of a user
+who blocked the author, because the drop was a "who blocked me" oracle (M2). The D6 table row and the D7 resolution rules
+follow. Cost impact: none; CreatePost reads one fewer document when the text has mention candidates (the author's graph is
+no longer read), so the cold ceiling of 14 stays as a conservative upper bound.
 Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01; D21 pending)
 
 Inputs: `docs/plans/posts-and-timeline.md` (Q1–Q12, T1–T27), `docs/plans/phase1.md` (P0, P1, D1–D5),
@@ -563,13 +568,13 @@ The table is the tester's oracle (T19/T20). Every cell has exactly one outcome.
 | stranger (no relation) | returned | returned | not present (not followed) | kept | success, 0 writes (D4) |
 | A follows B | returned | returned | included | kept | success, 0 writes |
 | **A blocks B** | returned; client shows a "You blocked @B" banner first | returned; client banner "You blocked @B · Show posts" | dropped (also, the block removed the edge) | kept (P6 suppresses the notification) | success, 0 writes |
-| **B blocks A** (B ∈ A.blockedBy) | NOT_FOUND | NOT_FOUND (`profile not found`) | dropped, even if a stale `following` still lists B | **dropped** (plain text, no link) | success, 0 writes |
-| both block each other | NOT_FOUND | NOT_FOUND | dropped | dropped | success, 0 writes |
+| **B blocks A** (B ∈ A.blockedBy) | NOT_FOUND | NOT_FOUND (`profile not found`) | dropped, even if a stale `following` still lists B | **kept, same as a stranger** (M2: no block oracle; A cannot open B's profile, NOT_FOUND, and P6 must not notify B) | success, 0 writes |
+| both block each other | NOT_FOUND | NOT_FOUND | dropped | kept (M2) | success, 0 writes |
 | **A mutes B** | returned (mute is silent; no banner) | returned | dropped | kept | success, 0 writes |
 | **B SUSPENDED** | NOT_FOUND | NOT_FOUND | **still included** (Q10, D10) | kept | success, 0 writes |
 | **B DELETING** | NOT_FOUND | NOT_FOUND | still included until the purge removes the posts (Q10) | kept | success, 0 writes |
 | B's `users` doc missing (purged, posts not yet) | NOT_FOUND | NOT_FOUND | still included until purge-posts runs (runbook order: purge-posts before users delete) | plain text (handle gone) | success, 0 writes |
-| A's `blockedByOverflow` = true (ADR-0008 D2) | +1 read of B's graph; `A ∈ B.blocked` ⇒ NOT_FOUND | same +1 read and rule | no extra read: B can't be in A's `following` (Follow is fail-closed, Block removed edges) | **all mentions dropped** (fail closed, 0 extra reads) | unchanged |
+| A's `blockedByOverflow` = true (ADR-0008 D2) | +1 read of B's graph; `A ∈ B.blocked` ⇒ NOT_FOUND | same +1 read and rule | no extra read: B can't be in A's `following` (Follow is fail-closed, Block removed edges) | kept (M2: mentions never read A's graph) | unchanged |
 | A is SUSPENDED/DELETING | PERMISSION_DENIED `ACCOUNT_RESTRICTED` (interceptor, every RPC) | same | same | same | same |
 
 Rules behind the table:
@@ -593,8 +598,12 @@ Rules behind the table:
   - Resolve all of them in one `identity.Directory.ResolveHandles` call: cache-first, one `GetAll` for misses, and
     NotFound negatively cached for 10 s.
   - Unknown or reserved handles stay plain text.
-  - Drop uids in the author's `blockedBy`. If the author's `blockedByOverflow` is true, drop all mentions.
-  - The author's graph is read only when at least one candidate exists, so posts without mentions cost 0 graph reads.
+  - **M2 (amended 2026-10-05).** Mentions do not depend on the block graph. A user who blocked the author is mentioned
+    exactly like anyone else, and `blockedByOverflow` changes nothing. Dropping them (the earlier rule) let an author learn
+    "X blocked me" from the missing link in the response, which D6 forbids as a block oracle. The relationship is
+    suppressed where it matters: A cannot open B's profile (NOT_FOUND, byte-identical to a missing user, ADR-0008 D9);
+    B never sees A's posts; and the notifications module (P6) must check the graph and not notify a user who blocked the
+    author. The author's graph is no longer read by CreatePost at all, so nothing here costs a read.
   - Mentioning oneself or a user the author blocks is allowed.
 - **Stored** as `mentions[] = {userId, handle}`, where `handle` is the **lower-case** handle as resolved at write
   time. Clients match text spans case-insensitively and always navigate by `userId`. The text itself is unchanged.
@@ -1005,8 +1014,16 @@ independently. **The founder accepted all five (G1–G5) as recommended on 2026-
   there only affects newly assigned `Cf` code points, and the server decides. Under B, a post of only LRM, ZWJ or
   VS16 is empty, too (A would let those through). A post made of only U+202E now fails as "empty" instead of
   "control character". Both are VALIDATION `field=text`, so only the message differs.
-- **Residual (accepted at Stage 0):** visible-width blanks that are letters, such as the Hangul fillers U+3164,
-  U+115F, U+1160 and U+FFA0 (`Lo`), still pass. Reports and moderation handle them; a list would only grow.
+- **Amended 2026-10-05 (L5, decided by the founder).** The empty check also skips an explicit **blank-looking** list:
+  U+034F (combining grapheme joiner), U+115F, U+1160, U+3164 and U+FFA0 (Hangul fillers), U+17B4 and U+17B5 (Khmer inherent
+  vowels) and U+2800 (Braille blank). A post made only of these, whitespace, `\p{Cf}` and variation selectors has no visible
+  content and is VALIDATION `field=text`, in Go (`isBlankLooking`) and in Dart (`_isBlankLooking`), pinned by six new rows
+  in `testdata/post_text_grammar.json`. The list is for the empty check only: it never trims, so `⠀hiㅤ` is stored as
+  typed. The earlier "Residual (accepted)" for these characters no longer applies; other blank-looking letters outside the
+  list still pass, and reports and moderation handle them.
+- **Tag characters (U+E0000-U+E007F) are unchanged.** They are `Cf`, so a post of only tag characters is already empty. Inside
+  visible text they stay, because subdivision flags (England, Scotland, Wales) end in them; rejecting them would need a
+  flag-sequence parser and is out of scope.
 - **Client composer (T16):** the same trim list and the same empty predicate disable Post.
 
 **G5. Positive handle-cache staleness vs permanent `mentions[]` (review note; replaces T8's either/or carry-over).**

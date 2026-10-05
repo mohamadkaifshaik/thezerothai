@@ -82,9 +82,25 @@ bool _isGoSpace(int r) =>
 
 final _formatChar = RegExp(r'\p{Cf}', unicode: true);
 
-// G4 empty predicate: whitespace, any `Cf`, or a variation selector.
+// G4 (L5 amendment, 2026-10-05) blank-looking, non-`Cf` code points: the Hangul
+// fillers U+115F/U+1160/U+3164/U+FFA0, Braille blank U+2800, combining grapheme
+// joiner U+034F and Khmer inherent vowels U+17B4/U+17B5. Spelled out like the
+// Go `isBlankLooking`; used only by the empty check, never to trim.
+bool _isBlankLooking(int r) =>
+    r == 0x034F ||
+    r == 0x115F ||
+    r == 0x1160 ||
+    r == 0x17B4 ||
+    r == 0x17B5 ||
+    r == 0x2800 ||
+    r == 0x3164 ||
+    r == 0xFFA0;
+
+// G4 empty predicate: whitespace, any `Cf`, a variation selector, or a
+// blank-looking code point.
 bool _isInvisibleForEmptyCheck(int r) =>
     _isGoSpace(r) ||
+    _isBlankLooking(r) ||
     (r >= 0xFE00 && r <= 0xFE0F) ||
     (r >= 0xE0100 && r <= 0xE01EF) ||
     _formatChar.hasMatch(String.fromCharCode(r));

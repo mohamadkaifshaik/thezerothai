@@ -48,6 +48,7 @@ void main() {
     removed = StreamController<String>.broadcast();
     when(() => posts.removedPosts).thenAnswer((_) => removed.stream);
     when(() => timeline.sinceRefresh(feed)).thenReturn(null);
+    when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
     when(() => timeline.rateLimitedFor()).thenReturn(null);
     cubit = build(viewer: 'me');
   });
@@ -97,6 +98,23 @@ void main() {
       expect(ids(cubit.state), idsOf([2, 1]));
     });
 
+    test('a viewer id set after creation still exempts own posts', () async {
+      final late = build(); // profile not loaded yet: no viewer id
+      addTearDown(late.close);
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(
+        TimelineSnapshot(
+          entries: [postEntry(3, authorId: 'me'), postEntry(2), postEntry(1)],
+        ),
+      );
+      late.viewerUserId = 'me'; // the Home screen sets it when the profile loads
+
+      await late.load();
+
+      expect(ids(late.state), idsOf([3, 2, 1]));
+      expect(late.state.newPosts, 0);
+    });
+
     test('a viewer\'s own new post is not held behind the pill', () async {
       stubCached(snapshotOf([2, 1]));
       stubRefresh(
@@ -124,13 +142,13 @@ void main() {
 
     test('20 s after the last refresh sends nothing, 61 s sends one', () async {
       when(
-        () => timeline.sinceRefresh(feed),
+        () => timeline.sinceRefreshAttempt(feed),
       ).thenReturn(const Duration(seconds: 20));
       await cubit.refreshIfStale();
       verifyNever(() => timeline.refresh(feed));
 
       when(
-        () => timeline.sinceRefresh(feed),
+        () => timeline.sinceRefreshAttempt(feed),
       ).thenReturn(const Duration(seconds: 61));
       stubRefresh(snapshotOf([2, 1]));
       await cubit.refreshIfStale();
@@ -138,7 +156,7 @@ void main() {
     });
 
     test('two refreshes returning the same new post count it once', () async {
-      when(() => timeline.sinceRefresh(feed)).thenReturn(null);
+      when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
       stubRefresh(snapshotOf([3, 2, 1]));
       await cubit.refreshIfStale();
       await cubit.refreshIfStale();
@@ -148,7 +166,7 @@ void main() {
     });
 
     test('a pull shows new posts directly and clears the pill', () async {
-      when(() => timeline.sinceRefresh(feed)).thenReturn(null);
+      when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
       stubRefresh(snapshotOf([3, 2, 1]));
       await cubit.refreshIfStale();
       expect(cubit.state.newPosts, 1);
@@ -166,7 +184,7 @@ void main() {
       stubCached(big);
       final other = build();
       addTearDown(other.close);
-      when(() => timeline.sinceRefresh(feed)).thenReturn(null);
+      when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
       stubRefresh(big);
       await other.load();
       clearInteractions(timeline);

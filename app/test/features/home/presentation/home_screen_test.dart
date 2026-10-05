@@ -41,6 +41,7 @@ void main() {
     onboardingBloc = MockOnboardingBloc();
     pending = PendingPostsCubit();
     when(() => timeline.sinceRefresh(feed)).thenAnswer((_) => since);
+    when(() => timeline.sinceRefreshAttempt(feed)).thenAnswer((_) => since);
     when(() => timeline.rateLimitedFor()).thenReturn(null);
     when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
   });

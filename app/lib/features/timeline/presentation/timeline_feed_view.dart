@@ -108,9 +108,15 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
 
   void _tick() {
     if (!mounted) return;
-    setState(() => _now = DateTime.now());
+    // Relative times have minute granularity, so rebuild the feed only when a
+    // minute boundary was crossed, not on every 30 s tick.
+    final now = DateTime.now();
+    if (_minuteOf(now) != _minuteOf(_now)) setState(() => _now = now);
     unawaited(context.read<TimelineCubit>().refreshIfStale());
   }
+
+  static int _minuteOf(DateTime t) =>
+      t.millisecondsSinceEpoch ~/ Duration.millisecondsPerMinute;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

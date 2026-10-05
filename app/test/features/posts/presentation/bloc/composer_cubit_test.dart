@@ -131,6 +131,26 @@ void main() {
     expect(keys[0], isNot(keys[1]));
   });
 
+  test('edit-and-revert after a failure reuses the original key', () async {
+    stubCreate(() async => throw const NetworkException('offline'));
+    cubit.textChanged('hello');
+    await cubit.submit();
+    cubit.textChanged('hello world');
+    await cubit.submit();
+    cubit.textChanged('hello'); // back to the first text
+    await cubit.submit();
+
+    final keys = verify(
+      () => repo.createPost(
+        idempotencyKey: captureAny(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+      ),
+    ).captured;
+    expect(keys, hasLength(3));
+    expect(keys[0], isNot(keys[1]));
+    expect(keys[2], keys[0], reason: 'a dropped response may have stored it');
+  });
+
   test('a successful post clears the key so the next post gets a new one',
       () async {
     stubCreate(() async => postView(1));

@@ -44,6 +44,17 @@ void main() {
       expect(spans.single.kind, PostSpanKind.mention);
     });
 
+    test('every returned mention renders alike: no block oracle (M2)', () {
+      // The server returns a mention for a user who blocked the author just
+      // like any other (it no longer drops them), so the client must not
+      // render anything different. Both are tappable mention spans.
+      final blocker = parsePostText('hi @bob', [_m('bob', 'u-blocker')]);
+      final other = parsePostText('hi @bob', [_m('bob', 'u-other')]);
+      expect(blocker.map((s) => s.kind), other.map((s) => s.kind));
+      expect(blocker.map((s) => s.text), other.map((s) => s.text));
+      expect(_tappable(blocker).single.kind, PostSpanKind.mention);
+    });
+
     test('without a mentions entry it is plain text', () {
       final spans = parsePostText('@carol', [_m('bob')]);
       expect(spans.single.kind, PostSpanKind.plain);

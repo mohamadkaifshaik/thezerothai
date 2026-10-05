@@ -52,6 +52,7 @@ void main() {
     when(() => graphRepository.cached(any())).thenReturn(null);
     when(() => timeline.rateLimitedFor()).thenReturn(null);
     when(() => timeline.sinceRefresh(any())).thenReturn(null);
+    when(() => timeline.sinceRefreshAttempt(any())).thenReturn(null);
     when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
   });
 

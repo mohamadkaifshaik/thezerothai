@@ -94,13 +94,26 @@ func isTrimmable(r rune) bool {
 	}
 }
 
-// hasVisible reports whether s has a rune outside unicode.IsSpace, \p{Cf} and the variation selectors
-// U+FE00-U+FE0F and U+E0100-U+E01EF (D21 G4 step 5). Only this emptiness check uses the wide set.
+// hasVisible reports whether s has a rune outside unicode.IsSpace, \p{Cf}, the variation selectors U+FE00-U+FE0F
+// and U+E0100-U+E01EF, and the blank-looking set in isBlankLooking (D21 G4 step 5, amended 2026-10-05 for L5).
+// Only this emptiness check uses the wide set; it never trims or changes stored text.
 func hasVisible(s string) bool {
 	for _, r := range s {
-		if unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) || (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF) {
+		if unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) || (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF) || isBlankLooking(r) {
 			continue
 		}
+		return true
+	}
+	return false
+}
+
+// isBlankLooking is the explicit list of non-Cf code points that render as blank space: the Hangul fillers
+// U+115F, U+1160, U+3164 and U+FFA0, the Braille blank U+2800, the combining grapheme joiner U+034F and the Khmer
+// inherent vowels U+17B4 and U+17B5. A post made only of these (and of whitespace and \p{Cf}) has no visible
+// content. Spelled out, like isTrimmable, so it is stable across Go's and Dart's Unicode versions.
+func isBlankLooking(r rune) bool {
+	switch r {
+	case 0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0:
 		return true
 	}
 	return false

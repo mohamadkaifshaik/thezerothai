@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../onboarding/presentation/bloc/onboarding_state.dart';
 import '../../posts/data/posts_repository.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../posts/presentation/bloc/pending_posts_cubit.dart';
@@ -34,12 +35,25 @@ class HomeScreen extends StatelessWidget {
         posts: context.read<PostsRepository>(),
         viewerUserId: viewerUserId,
       )..load(),
-      child: BlocListener<PendingPostsCubit, List<PendingPost>>(
-        // A pending post left the list: it was stored (or rolled back), so
-        // re-read the cache, with no RPC.
-        listenWhen: (before, after) => after.length < before.length,
-        listener: (context, _) =>
-            context.read<TimelineCubit>().reloadFromCache(),
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<PendingPostsCubit, List<PendingPost>>(
+            // A pending post left the list: it was stored (or rolled back), so
+            // re-read the cache, with no RPC.
+            listenWhen: (before, after) => after.length < before.length,
+            listener: (context, _) =>
+                context.read<TimelineCubit>().reloadFromCache(),
+          ),
+          BlocListener<OnboardingBloc, OnboardingState>(
+            // The profile can load after the cubit was created: without the
+            // viewer id the user's own new posts would be held behind the pill.
+            listenWhen: (before, after) =>
+                before.profile?.userId != after.profile?.userId,
+            listener: (context, state) =>
+                context.read<TimelineCubit>().viewerUserId =
+                    state.profile?.userId,
+          ),
+        ],
         child: Scaffold(
           appBar: AppBar(title: const Text('Home')),
           body: TimelineFeedView(

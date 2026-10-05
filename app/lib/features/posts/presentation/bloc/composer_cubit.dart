@@ -44,12 +44,18 @@ class ComposerState {
 /// [PendingPostsCubit], rollback on error, and one idempotency key per
 /// intent.
 ///
-/// The key is generated at the first submit and reused by every retry of the
-/// same text (a dropped response can never create a second post). It is
-/// dropped when the text changes (the server would answer
-/// IDEMPOTENCY_KEY_REUSED for a different body) and once the post succeeded.
+/// The key is generated at the first submit of a text and reused by every
+/// retry of that same text (a dropped response can never create a second
+/// post), even after the user edited to another text and back: keys are kept
+/// per submitted text, so edit-and-revert cannot mint a second key for a post
+/// that may already exist. A different text gets its own key (the server
+/// would answer IDEMPOTENCY_KEY_REUSED for a different body), and a text's key
+/// is dropped once its post succeeded.
 /// [DegradedModeException] is never retried automatically; the user may tap
 /// Post again.
+/// How many failed texts keep their idempotency key (a handful of edits).
+const _maxRememberedKeys = 8;
+
 class ComposerCubit extends Cubit<ComposerState> {
   ComposerCubit({
     required PostsRepository postsRepository,
@@ -70,12 +76,13 @@ class ComposerCubit extends Cubit<ComposerState> {
   final Uuid _uuid;
   final DateTime Function() _clock;
 
-  String? _key;
+  /// Idempotency key per submitted text, insertion-ordered and bounded.
+  final Map<String, String> _keys = {};
   String? _keyText;
 
   /// The key of the current intent, for tests and diagnostics.
   @visibleForTesting
-  String? get currentKey => _key;
+  String? get currentKey => _keyText == null ? null : _keys[_keyText];
 
   void textChanged(String raw) {
     if (state.isSubmitting) return;
@@ -87,10 +94,8 @@ class ComposerCubit extends Cubit<ComposerState> {
   Future<void> submit() async {
     if (!state.canSubmit) return;
     final text = state.draft.text;
-    if (_keyText != text) {
-      _key = null;
-    }
-    final key = _key ??= _uuid.v4();
+    final key = _keys.putIfAbsent(text, _uuid.v4);
+    if (_keys.length > _maxRememberedKeys) _keys.remove(_keys.keys.first);
     _keyText = text;
 
     _pending.add(
@@ -104,7 +109,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     emit(state.copyWith(status: ComposerStatus.submitting, clearError: true));
     try {
       await _repository.createPost(idempotencyKey: key, text: text);
-      _key = null;
+      _keys.remove(text);
       _keyText = null;
       _pending.remove(key);
       if (!isClosed) emit(state.copyWith(status: ComposerStatus.posted));

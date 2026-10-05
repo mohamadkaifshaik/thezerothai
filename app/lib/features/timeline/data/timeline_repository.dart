@@ -44,6 +44,7 @@ class TimelineRepository {
   /// double a refresh).
   final Duration Function() _elapsed;
   final Map<String, Duration> _refreshedAt = {};
+  final Map<String, Duration> _attemptedAt = {};
   Duration? _rateLimitedUntil;
   RateLimitedException? _rateLimit;
 
@@ -58,6 +59,7 @@ class TimelineRepository {
     _inflight.clear();
     _lockTails.clear();
     _refreshedAt.clear();
+    _attemptedAt.clear();
     _rateLimitedUntil = null;
     _rateLimit = null;
   }
@@ -67,6 +69,15 @@ class TimelineRepository {
   /// refreshes (ADR-0004: at most one per 60 s) across screen re-creations.
   Duration? sinceRefresh(FeedKey feed) {
     final at = _refreshedAt[feed.value];
+    return at == null ? null : _elapsed() - at;
+  }
+
+  /// Time since the last [refresh] of [feed] was *attempted*, whether it
+  /// succeeded or failed; null when none was. The foreground tick throttles
+  /// on this, so an outage retries at most once per interval instead of
+  /// every tick.
+  Duration? sinceRefreshAttempt(FeedKey feed) {
+    final at = _attemptedAt[feed.value];
     return at == null ? null : _elapsed() - at;
   }
 
@@ -98,9 +109,13 @@ class TimelineRepository {
   Future<TimelineSnapshot> refresh(FeedKey feed) {
     final session = _store.session;
     return _single(feed, 'refresh', () async {
-      final snapshot = await _refresh(feed, session);
-      if (_store.session == session) _refreshedAt[feed.value] = _elapsed();
-      return snapshot;
+      try {
+        final snapshot = await _refresh(feed, session);
+        if (_store.session == session) _refreshedAt[feed.value] = _elapsed();
+        return snapshot;
+      } finally {
+        if (_store.session == session) _attemptedAt[feed.value] = _elapsed();
+      }
     });
   }
 

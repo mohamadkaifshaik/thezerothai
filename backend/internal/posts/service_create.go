@@ -22,11 +22,12 @@ import (
 //
 // Firestore, worst case (CreatePost proto comment; keep the integration budget assertion in sync):
 //
-//	reads : author profile (the account-status interceptor's cached read) 1, author graph 1 (only when the text
-//	        has mention candidates outside URLs), handles/* <= 10 in one GetAll, idempotency 1, quotas 1 (the
-//	        last two fresh inside the transaction)  => 14 cold / 2 warm, planning 2.5
+//	reads : author profile (the account-status interceptor's cached read) 1, handles/* <= 10 in one GetAll (only
+//	        when the text has mention candidates outside URLs), idempotency 1, quotas 1 (the last two fresh inside
+//	        the transaction)  => 13 cold / 2 warm, planning 2.5. The documented ceiling stays 14: the author graph
+//	        is no longer read (M2, D7 amendment), so the proto, ADR and plan numbers are conservative upper bounds.
 //	writes: idempotency doc, post, users.postsCount, quotas = 4, plus 1 eventual TTL delete
-//	replay: the idempotency doc, then the post (cache first): 14 cold / 1 warm reads, 0 writes
+//	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
 	defer func() {
@@ -134,21 +135,16 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 }
 
 // resolveMentions turns the parser's candidates (lower-case, valid, at most MaxMentions after the cap) into stored
-// mentions (D7): nothing without candidates (so no graph read); everything dropped when the author's blockedBy
-// overflowed (fail closed); unknown handles and users who blocked the author dropped.
+// mentions (D7, amended 2026-10-05, M2): nothing without candidates (so no handle read); unknown handles dropped.
+// Mentions never depend on the block graph: dropping a user who blocked the author would let the author learn
+// "X blocked me" from the response (a block oracle). A blocker is suppressed where it matters instead: the author
+// cannot open the blocker's profile (NOT_FOUND, ADR-0008 D9) and notifications (P6) must filter by the graph.
 func (s *service) resolveMentions(ctx context.Context, uid string, candidates []string) ([]Mention, error) {
 	if len(candidates) == 0 {
 		return nil, nil
 	}
 	if len(candidates) > text.MaxMentions {
 		candidates = candidates[:text.MaxMentions]
-	}
-	snap, err := s.graph.Snapshot(ctx, uid)
-	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("posts: load author graph: %w", err), uid)
-	}
-	if snap.BlockedByOverflow {
-		return nil, nil
 	}
 	uids, err := s.directory.ResolveHandles(ctx, candidates)
 	if err != nil {
@@ -158,7 +154,7 @@ func (s *service) resolveMentions(ctx context.Context, uid string, candidates []
 	seen := make(map[string]struct{}, len(candidates))
 	for _, h := range candidates {
 		mu, ok := uids[h]
-		if !ok || snap.BlockedBy[mu] {
+		if !ok {
 			continue
 		}
 		if _, dup := seen[mu]; dup {
