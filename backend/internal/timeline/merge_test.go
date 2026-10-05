@@ -65,7 +65,7 @@ func TestMerge_Table(t *testing.T) {
 			t.Parallel()
 			got := Merge(tc.sources, tc.limit, tc.keep)
 			gotIDs := idsOf(got.Items)
-			if fmt.Sprint(gotIDs) != fmt.Sprint(tc.want) && !(len(gotIDs) == 0 && len(tc.want) == 0) {
+			if fmt.Sprint(gotIDs) != fmt.Sprint(tc.want) && (len(gotIDs) != 0 || len(tc.want) != 0) {
 				t.Fatalf("items = %v, want %v", gotIDs, tc.want)
 			}
 			if got.HasMore != tc.wantMore {

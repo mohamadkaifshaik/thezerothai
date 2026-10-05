@@ -208,8 +208,8 @@ func TestCreate_Validation(t *testing.T) {
 		{"short key", CreateInput{IdempotencyKey: "short", Text: "hi"}, "idempotency_key"},
 		{"empty text", CreateInput{IdempotencyKey: key1, Text: "  "}, "text"},
 		{"too long", CreateInput{IdempotencyKey: key1, Text: strings.Repeat("a", 281)}, "text"},
-		{"bidi control", CreateInput{IdempotencyKey: key1, Text: "hi ‮"}, "text"},
-		{"invisible only", CreateInput{IdempotencyKey: key1, Text: "​⁠"}, "text"},
+		{"bidi control", CreateInput{IdempotencyKey: key1, Text: "hi \u202e"}, "text"},
+		{"invisible only", CreateInput{IdempotencyKey: key1, Text: "\u200b\u2060"}, "text"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -247,7 +247,7 @@ func TestCreate_EmailNotVerified(t *testing.T) {
 				}
 				return
 			}
-			wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED)
+			_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED)
 			if c.Reads() != 0 {
 				t.Fatalf("reads = %d, want 0", c.Reads())
 			}
@@ -259,7 +259,7 @@ func TestCreate_NoProfile(t *testing.T) {
 	e := newCreateEnv()
 	delete(e.dir.profiles, testUID)
 	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
-	wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
+	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
 }
 
 func TestCreate_ReplayAndKeyReuse(t *testing.T) {
@@ -289,7 +289,7 @@ func TestCreate_ReplayAndKeyReuse(t *testing.T) {
 	}
 	// A different body with the same key.
 	_, c, err = e.create(CreateInput{IdempotencyKey: key1, Text: "different"})
-	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	if c.Writes() != 0 {
 		t.Fatalf("reused key wrote %d docs", c.Writes())
 	}
@@ -305,7 +305,7 @@ func TestCreate_ReplayOfDeletedPost(t *testing.T) {
 	delete(e.repo.docs, p.ID)
 	e.cache.DeletePost(p.ID)
 	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
-	wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+	_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }
 
 func TestCreate_QuotaTiers(t *testing.T) {
@@ -348,7 +348,7 @@ func TestCreate_QuotaExceeded(t *testing.T) {
 	e.dir.profiles[testUID] = pr
 	e.repo.quotaUsed = 20
 	_, _, err = e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
-	wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+	_ = wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
 }
 
 func TestCreate_UnexpectedErrorIsNotAnAPIError(t *testing.T) {

@@ -298,6 +298,7 @@ func TestCreate_Integration_Mentions(t *testing.T) {
 		t.Fatal(err)
 	}
 	budgettest.Assert(t, "no mention candidate", c, budgettest.Budget{Reads: 2, Writes: 4})
+	_ = p
 
 	p, c, err = in.create(t, "uid-alice", key(2), "https://ex.com/?ref=@carol")
 	if err != nil || len(p.Mentions) != 0 {

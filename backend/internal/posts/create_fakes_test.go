@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -155,7 +154,5 @@ func (e *recordingEvents) Deleted(_ context.Context, postID, _ string) {
 func googleCtx(ctx context.Context, uid string) context.Context {
 	return authn.WithClaims(ctx, authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 }
-
-func repeatKey(s string) string { return strings.Repeat(s, 16) }
 
 var errBoom = errors.New("boom")
