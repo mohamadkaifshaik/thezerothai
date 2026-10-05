@@ -356,6 +356,8 @@ func (s *service) LookupProfiles(ctx context.Context, uids []string) (map[string
 // ResolveHandles implements Directory (ADR-0010 D7, T7): cache-first (handle->uid hits, then the negative handle
 // cache), then one GetAll for the remaining handles. Malformed and reserved handles are skipped without a read
 // (they can never own a handle doc); more than MaxResolveHandles distinct candidates is a caller bug.
+// A positive cache entry older than notFoundTTL (10 s), or contradicted by a cached profile, is a miss (ADR-0010
+// D21 G5). Residual, accepted: a rename plus a reclaim within 10 s observed on another instance.
 // Firestore: reads = uncached handles <= 10, writes 0.
 func (s *service) ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error) {
 	out := make(map[string]string, len(lowers))
@@ -370,9 +372,16 @@ func (s *service) ResolveHandles(ctx context.Context, lowers []string) (map[stri
 		if handleFormatIssue(h) != "" {
 			continue
 		}
-		if uid, ok := s.cache.GetHandleUID(h); ok {
-			out[h] = uid
-			continue
+		// D21 G5: mentions are stored permanently, so a positive entry only counts while it is at most
+		// notFoundTTL old (GetProfile by handle keeps the 60 s TTL), and not when a cached profile of that uid
+		// shows another handle (a rename seen through a fresher profile). Both only turn a hit into a miss in
+		// the same single GetAll below.
+		if uid, ok := s.cache.GetHandleUIDFresh(h, notFoundTTL); ok {
+			if p, cached := s.cache.GetProfile(uid); !cached || p.HandleLower == h {
+				out[h] = uid
+				continue
+			}
+			s.cache.InvalidateHandle(h)
 		}
 		if s.cache.GetHandleFree(h) {
 			continue

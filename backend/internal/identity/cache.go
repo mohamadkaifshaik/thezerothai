@@ -24,23 +24,32 @@ const (
 // cache from written data instead of re-reading"). One per process; safe for concurrent use.
 type Cache struct {
 	profiles *cache.LRU[string, Profile]
-	handles  *cache.LRU[string, string] // handleLower -> uid
+	handles  *cache.LRU[string, handleEntry] // handleLower -> uid and when it was learned (ADR-0010 D21 G5)
 	unread   *cache.LRU[string, int64]
 	notFound *cache.LRU[string, struct{}] // uid -> "no profile yet" (M1 negative cache)
 	// handleFree is the ADR-0010 D5 negative handle cache: handleLower -> "ResolveHandle said NotFound" for
 	// notFoundTTL. Only a hint: CreateProfile/ChangeHandle stay transactional (handles Create), so a stale
 	// "free" answer can never produce a duplicate handle.
 	handleFree *cache.LRU[string, struct{}]
+	now        func() time.Time // overridable for tests
+}
+
+// handleEntry is a positive handle-cache entry. at lets ResolveHandles honour a shorter bound than the 60 s
+// TTL: mentions are stored permanently, so a stale handle->uid mapping must not outlive notFoundTTL (G5).
+type handleEntry struct {
+	uid string
+	at  time.Time
 }
 
 // NewCache builds the cache. ttl is the profile/handle TTL (config.CacheTTL, default 60s).
 func NewCache(ttl time.Duration) *Cache {
 	return &Cache{
 		profiles:   cache.New[string, Profile](cacheCapacity, ttl),
-		handles:    cache.New[string, string](cacheCapacity, ttl),
+		handles:    cache.New[string, handleEntry](cacheCapacity, ttl),
 		unread:     cache.New[string, int64](cacheCapacity, unreadTTL),
 		notFound:   cache.New[string, struct{}](cacheCapacity, notFoundTTL),
 		handleFree: cache.New[string, struct{}](cacheCapacity, notFoundTTL),
+		now:        time.Now,
 	}
 }
 
@@ -55,7 +64,7 @@ func (c *Cache) GetProfile(uid string) (Profile, bool) {
 func (c *Cache) SetProfile(p Profile) {
 	c.profiles.Set(p.UserID, p)
 	if p.HandleLower != "" {
-		c.handles.Set(p.HandleLower, p.UserID)
+		c.handles.Set(p.HandleLower, handleEntry{uid: p.UserID, at: c.now()})
 		c.handleFree.Delete(p.HandleLower)
 	}
 	c.notFound.Delete(p.UserID)
@@ -77,13 +86,24 @@ func (c *Cache) InvalidateProfile(uid string) {
 }
 
 func (c *Cache) GetHandleUID(handleLower string) (string, bool) {
-	return c.handles.Get(handleLower)
+	e, ok := c.handles.Get(handleLower)
+	return e.uid, ok
+}
+
+// GetHandleUIDFresh is GetHandleUID for entries learned at most maxAge ago; an older entry is a miss (it is left
+// in place and replaced by the next fresh read).
+func (c *Cache) GetHandleUIDFresh(handleLower string, maxAge time.Duration) (string, bool) {
+	e, ok := c.handles.Get(handleLower)
+	if !ok || c.now().Sub(e.at) > maxAge {
+		return "", false
+	}
+	return e.uid, true
 }
 
 // SetHandleUID records that handleLower is owned by uid, from a fresh handles/* read (ResolveHandles). It never
 // touches the profile cache.
 func (c *Cache) SetHandleUID(handleLower, uid string) {
-	c.handles.Set(handleLower, uid)
+	c.handles.Set(handleLower, handleEntry{uid: uid, at: c.now()})
 	c.handleFree.Delete(handleLower)
 }
 
