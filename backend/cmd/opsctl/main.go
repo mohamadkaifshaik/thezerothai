@@ -300,8 +300,10 @@ func exportPosts(ctx context.Context, b *backends, uid, outFile string, out io.W
 	return writeOut(outFile, out, func(w io.Writer) error { return b.postsExporter.ExportUser(cctx, uid, w) })
 }
 
-// writeOut runs write against --out FILE (created 0600, never overwritten) or, without it, stdout.
-func writeOut(outFile string, stdout io.Writer, write func(io.Writer) error) error {
+// writeOut runs write against --out FILE (created 0600, never overwritten) or, without it, stdout. If write (or
+// the final close) fails, the partial file is removed: a truncated export must not be mistaken for a complete
+// one. The file is removed only after this call created it (O_EXCL), never a pre-existing one.
+func writeOut(outFile string, stdout io.Writer, write func(io.Writer) error) (err error) {
 	if outFile == "" {
 		return write(stdout)
 	}
@@ -311,6 +313,13 @@ func writeOut(outFile string, stdout io.Writer, write func(io.Writer) error) err
 	if err != nil {
 		return fmt.Errorf("create %s: %w", outFile, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); err == nil && cerr != nil {
+			err = fmt.Errorf("close %s: %w", outFile, cerr)
+		}
+		if err != nil {
+			_ = os.Remove(outFile) //nolint:gosec // G703: the file this call just created
+		}
+	}()
 	return write(f)
 }

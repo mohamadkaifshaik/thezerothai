@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// TestLoad_TimelineTokenTTL (ADR-0010 D14): default 720h, overridable, and a value below 24h (including zero and
-// negative values) or an unparsable one fails startup.
+// TestLoad_TimelineTokenTTL (ADR-0010 D14): default 720h, overridable within [24h, 2160h], and a value outside it
+// (including zero and negative values) or an unparsable one fails startup.
 func TestLoad_TimelineTokenTTL(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -17,6 +17,9 @@ func TestLoad_TimelineTokenTTL(t *testing.T) {
 		{"default", "", 720 * time.Hour, false},
 		{"override", "48h", 48 * time.Hour, false},
 		{"exactly 24h", "24h", 24 * time.Hour, false},
+		{"exactly 2160h", "2160h", 2160 * time.Hour, false},
+		{"just over 2160h", "2160h1s", 0, true},
+		{"typo: years", "87600h", 0, true},
 		{"just under 24h", "23h59m59s", 0, true},
 		{"zero", "0s", 0, true},
 		{"negative", "-720h", 0, true},

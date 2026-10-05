@@ -372,3 +372,31 @@ func TestExportPosts_StdoutAndOutFile(t *testing.T) {
 		t.Errorf("second export code = %d, want 1 (no overwrite)", code)
 	}
 }
+
+// TestWriteOut_RemovesPartialFileOnFailure: a mid-stream failure must not leave a truncated export that looks
+// complete; a pre-existing file is never touched (O_EXCL refuses before write runs).
+func TestWriteOut_RemovesPartialFileOnFailure(t *testing.T) {
+	boom := errors.New("stream broke")
+	path := filepath.Join(t.TempDir(), "posts.json")
+	err := writeOut(path, io.Discard, func(w io.Writer) error {
+		_, _ = io.WriteString(w, `{"userId":"u1","posts":[`)
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the write error", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("partial file still exists (stat err = %v)", statErr)
+	}
+
+	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := writeOut(path, io.Discard, func(io.Writer) error { called = true; return nil }); err == nil || called {
+		t.Fatalf("existing file: err=%v called=%v, want refusal before writing", err, called)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "keep" {
+		t.Fatalf("existing file was modified: %q", data)
+	}
+}
