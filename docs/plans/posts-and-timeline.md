@@ -562,7 +562,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     - The fuzz target also checks that no stored mention or hashtag overlaps a URL span.
   - **Budget.** 0 (parser). It lowers CreatePost reads when the only candidates sit in URLs.
   - **Status: built (branch claude/gracious-babbage-2barib).** G1/G2/G4 in `posts/text`; `testdata/post_text_grammar.json`
-    (41 grammar + 22 normalise rows, architect to review); Go loads every row and asserts the row count. `Parsed.MentionsInURL`
+    (43 grammar + 22 normalise rows, architect to review); Go loads every row and asserts the row count. `Parsed.MentionsInURL`
     feeds the T8 `mentions_in_url` log field. The Dart side (T15 delta) must load the same file.
 
 ### T6b — Shared handle grammar: `pkg/platform/handle` (ADR-0010 D21 G3)  [owner: backend-developer] [size: S] [depends: founder accepts D21 G3; merges before the T6 D21 delta and T8]
