@@ -1,4 +1,4 @@
-# Runbook: posts failure modes (CreatePost)
+# Runbook: posts failure modes (CreatePost, timelines)
 
 Owner module: `backend/internal/posts` (ADR-0010). Data: `posts/{postId}`, `idempotency/{hash}` (24 h TTL),
 `quotas/{uid}.posts`, `users/{uid}.postsCount`. Everything is behind `FEATURE_POSTS` (off | allowlist | percent | on).
@@ -34,3 +34,26 @@ new idempotency key.
 A mention can point at the wrong user only if a handle was renamed and re-claimed within 10 s and the post was created on
 another instance (ADR-0010 D21 G5, accepted residual). Fix by hand: correct `posts/{id}.mentions[]` and note it; if it
 recurs, a handle-reclaim cooldown needs an identity ADR.
+
+## Timelines (GetHomeTimeline, GetUserTimeline)
+
+Owner module: `backend/internal/timeline` (ADR-0004, ADR-0010 D13-D16). It stores nothing; request lines carry
+`timeline_op`, `timeline_mode` (`cold|refresh|older|gap`), `timeline_chunks`, `authors_from_cache`,
+`timeline_cache_hit`, `items_returned`, `items_filtered`, `gap`, `since_clamped`, `page_size` and `fs_reads`.
+
+## 6. Home timeline reads are high (`fs_reads` per `timeline_op=home`)
+Expected ceiling is `2 + C + 2*page` (269 at 5,000 followed, page 50). Find outliers with
+`jsonPayload.timeline_op="home" AND jsonPayload.fs_reads>100`; `timeline_chunks` is C of that caller. Many power users
+(> 5% of DAU above 1,000 followed) is the ADR-0004 revisit trigger. A sudden rise for everyone with `authors_from_cache`
+near 0 means the author-recent cache stopped filling (instance churn or `CACHE_AUTHOR_RECENT_ENTRIES` too small).
+
+## 7. Clients report `VALIDATION field=since_token` / `page_token`
+The token is expired (30 days, `TIMELINE_TOKEN_TTL`), tampered, from another account, another feed or tab, or a
+`CURSOR_HMAC_KEY` rotation invalidated it. This is the designed answer, with 0 reads: the client drops the token and
+cold-opens. A burst right after a key rotation is expected; a burst without one points at a client bug (sending both
+tokens is also `page_token`).
+
+## 8. A post appears twice, or a just-created post shows up late
+`since_token` trails the newest item by `TIMELINE_SETTLE_WINDOW` (15 s, D13), so a refresh may re-return recent posts
+(`since_clamped=true`); clients dedupe by `post_id`. A post can lag up to 60 s when another instance's author-recent
+entry still serves the author. Neither needs action.

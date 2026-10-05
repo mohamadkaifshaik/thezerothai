@@ -853,6 +853,18 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   handoff requirement. Table tests for every binding pair and for the watermark (fake clock).
 - **Observability.** —
 - **Budget.** 0 (pure).
+- **Status: built (branch feat/timeline-t11-t13).** `merge.go` (`Merge`, `Source`, `Page`, `Compare`), `tokens.go`
+  (bindings, `codec`, closed-gap rule), `watermark.go` (`Watermark`, `NextSince`). Decisions recorded for the PR:
+  - **`Merge` takes a `keep` filter and returns `Newest`/`Last`/`HasMore`.** The bound B is computed on the unfiltered
+    chunk results; filtering and the limit cut come after it. `Last` is the last *examined* item (or the last returned one
+    after a limit cut), so a page of mostly filtered posts never re-reads the filtered ones. `Newest` (pre-filter) feeds
+    the watermark.
+  - **Gap on refresh = `HasMore`,** not only "a chunk filled k": with C = 1, k = 2p and more than p new posts a limit cut
+    also leaves items above the old since. A covered author (author-recent) is never "filled": coverage already requires
+    a complete entry or one that reaches the lower bound.
+  - **Page responses carry no `since_token`** (cold and refresh only); the Flutter store ignores an empty one.
+  - Property tests (`merge_test.go`) walk adversarial chunk sets (1,000-post chunk, sparse chunks, ties) through pages,
+    gap walks and filtered walks and compare with the true merge.
 
 ### T12 — GetUserTimeline  [owner: backend-developer] [size: S] [depends: T11]
 - **Description.**
@@ -887,6 +899,17 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Observability.** `timeline_op=user`, `timeline_mode`, `fs_reads`, `timeline_cache_hit`, `items_returned`,
   `since_clamped`, `page_size`.
 - **Budget.** 3 + p cold (53 at p 50) / 0 warm / 11 planning.
+- **Status: built (branch feat/timeline-t11-t13).** `internal/timeline/service.go` `user`, `server.go`
+  `GetUserTimeline`. Decisions recorded for the PR:
+  - `identity.ProfileNotFoundError()` is a new exported wrapper over identity's private `notFoundErr()`, so the missing /
+    non-ACTIVE / blocking-target answer is byte-identical to GetProfile without copying the string. The timeline import
+    lint now allows `identity.Directory`, `Profile`, `AccountStatusActive`, `ProfileNotFoundError`, `ValidUserID` and
+    `posts.ToProto`.
+  - Own timeline (`target == caller`) skips the caller graph read (a caller cannot block or be blocked by self).
+  - Posts-tab first page: `page_size <= 20`, no tokens, entry fresh and (complete or at least `page_size` posts).
+    A refresh is also served from a fresh entry when it is complete or reaches the old since (0 reads).
+  - Integration tests live in `internal/timeline/integration` (own directory, so the lint on `internal/timeline`
+    still covers every file there).
 
 ### T13 — GetHomeTimeline  [owner: backend-developer] [size: M] [depends: T11, T12]
 - **Description.** ADR-0004 Decision 1–9, minus the viewer flags (Q3):
@@ -928,6 +951,16 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `authors_from_cache`, `items_returned`, `items_filtered`, `fs_reads`, `gap`, `since_clamped`, `page_size`.
 - **Budget.** 2 + C + 2p = 269 cold at F = 5,000 / refresh planning 4 overhead + new posts (+ ≈ 0.1 settle re-read) /
   older page 30 / cold open 30.
+- **Status: built (branch feat/timeline-t11-t13).** `internal/timeline/service.go` `home`/`homeSources`,
+  `server.go` `GetHomeTimeline`, wired in `apiserver.Build` (`Directory`, `CursorKey`, `TokenTTL`, `SettleWindow`).
+  Decisions recorded for the PR:
+  - Blocked, muted and blocked-by authors are removed from the author list **before** chunking (cheaper than the
+    plan's post-merge drop, same result; a `keep` filter in `Merge` stays as defence in depth). C and k use the
+    chunks actually queried (`ceil(uncovered/30)`), `k` is capped at the repo's 50 and "filled" is judged against it.
+  - A cold-open page can be short (ADR-0004 exact-prefix cut): F = 60, p = 20 returned 14 posts in the emulator test;
+    the client follows `next_page_token`.
+  - `golang.org/x/sync` moved from indirect to direct in `go.mod` (errgroup, limit 4).
+  - `userLikes` / viewer flags are not read (D3): `liked_by_viewer` is always false.
 
 ### T14 — Flutter: repositories, drift timeline store, flag plumbing  [owner: frontend-developer] [size: M] [depends: T2]
 - **Description.**

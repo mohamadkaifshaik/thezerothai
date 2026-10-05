@@ -55,6 +55,11 @@ func notFoundErr() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "profile not found")
 }
 
+// ProfileNotFoundError is the one missing-user answer (NOT_FOUND, UNSPECIFIED, "profile not found"). Modules that
+// must answer a missing, suspended or blocking user byte-identically to GetProfile (ADR-0010 D6, GetUserTimeline)
+// return this instead of copying the string.
+func ProfileNotFoundError() error { return notFoundErr() }
+
 // getProfileCached is the read-through cache every RPC uses: 0 reads on a cache hit (ADR-0003: 60s TTL),
 // 0 reads on a negative-cache hit (M1: ~10s "no profile yet" cache) — the latter matters because this is
 // exactly what authn.AccountStatusInterceptor calls (via AccountStatus below) for every request from a
