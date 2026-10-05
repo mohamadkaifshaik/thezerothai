@@ -529,4 +529,98 @@ void main() {
       expect(transport.calledProcedures, isEmpty);
     });
   });
+  group('refresh stamp and rate-limit hold (T17)', () {
+    var clock = Duration.zero;
+    late TimelineRepository timed;
+
+    setUp(() {
+      clock = Duration.zero;
+      timed = TimelineRepository(
+        apiClient: ApiClient.withTransport(transport),
+        store: store,
+        gate: gate,
+        monotonic: () => clock,
+      );
+    });
+
+    Object rateLimited(String limit) => serverError(
+      connect.Code.resourceExhausted,
+      common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+      metadata: {'limit': limit},
+    );
+
+    test('sinceRefresh is null until a refresh succeeds, then follows the '
+        'monotonic clock', () async {
+      expect(timed.sinceRefresh(home), isNull);
+
+      giveHome([5], since: 's1');
+      await timed.refresh(home);
+      clock = const Duration(seconds: 20);
+
+      expect(timed.sinceRefresh(home), const Duration(seconds: 20));
+      expect(timed.sinceRefresh(FeedKey.user('u1')), isNull);
+    });
+
+    test('a failed refresh leaves the stamp alone', () async {
+      giveHome([5], since: 's1');
+      await timed.refresh(home);
+      clock = const Duration(seconds: 30);
+      script[_home]!.add(const NetworkException('offline'));
+
+      await expectLater(
+        timed.refresh(home),
+        throwsA(isA<NetworkException>()),
+      );
+
+      expect(timed.sinceRefresh(home), const Duration(seconds: 30));
+    });
+
+    test('a daily RATE_LIMITED is remembered with the time left, then '
+        'released', () async {
+      script[_home]!.add(rateLimited('read_budget_daily'));
+      expect(timed.rateLimitedFor(), isNull);
+
+      await expectLater(
+        timed.refresh(home),
+        throwsA(isA<RateLimitedException>()),
+      );
+
+      final held = timed.rateLimitedFor()!;
+      expect(held.isDaily, isTrue);
+      expect(held.limitName, 'read_budget_daily');
+      expect(held.retryAfter, const Duration(minutes: 5));
+
+      clock = const Duration(minutes: 2);
+      expect(timed.rateLimitedFor()!.retryAfter, const Duration(minutes: 3));
+
+      clock = const Duration(minutes: 6);
+      expect(timed.rateLimitedFor(), isNull);
+    });
+
+    test('the short in-flight hold is not remembered', () async {
+      script[_home]!.add(rateLimited('read_budget_inflight'));
+
+      await expectLater(
+        timed.refresh(home),
+        throwsA(isA<RateLimitedException>()),
+      );
+
+      expect(timed.rateLimitedFor(), isNull);
+    });
+
+    test('clearSession forgets the stamp and the hold', () async {
+      giveHome([5], since: 's1');
+      await timed.refresh(home);
+      script[_home]!.add(rateLimited('read_budget_daily'));
+      await expectLater(
+        timed.refresh(home),
+        throwsA(isA<RateLimitedException>()),
+      );
+
+      timed.clearSession();
+
+      expect(timed.sinceRefresh(home), isNull);
+      expect(timed.rateLimitedFor(), isNull);
+    });
+  });
 }

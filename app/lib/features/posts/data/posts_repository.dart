@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -27,6 +29,13 @@ class PostsRepository {
   final ApiClient _apiClient;
   final TimelineStore _store;
   final PostsFeatureGate _gate;
+
+  final StreamController<String> _removed = StreamController.broadcast();
+
+  /// Ids of posts that left every cached feed (deleted by the caller, or
+  /// NOT_FOUND on open). A screen that is still mounted under another one
+  /// (Home under a profile or a post) hides them at once, with no refetch.
+  Stream<String> get removedPosts => _removed.stream;
 
   /// Creates a post. [idempotencyKey] must be reused when retrying the same
   /// post (the server replays the stored result).
@@ -85,6 +94,7 @@ class PostsRepository {
       return response.post;
     } on NotFoundException {
       await _store.removePost(postId);
+      _removed.add(postId);
       rethrow;
     }
   }
@@ -102,5 +112,6 @@ class PostsRepository {
       ),
     );
     await _store.removePost(postId);
+    _removed.add(postId);
   }
 }
