@@ -1237,7 +1237,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `code-map.md` test-helpers section.
 - **Observability.** —
 - **Budget.** Not applicable (emulator).
-- **Status: integration tests present and green in CI (2026-10-06).** `internal/posts/*_integration_test.go` cover CreatePost, DeletePost, GetPost, budgets, replay and the visibility matrix. A bullet-by-bullet audit of this ticket's list (IST quota rollover, new-account quota, purge crash-resume, degraded readonly) is still open.
+- **Status: audited 2026-10-06, not yet complete: 16 covered, 12 partial, 1 missing of 29 bullets; D6 matrix 28/8/24 of 60 cells.** Tests are present and green in CI; the audit was static. Main gaps: no posts invariant checker (missing), no posts IST-rollover test, D6 rows for CreatePost mentions and DeletePost mostly unasserted, D21 G2/G5 not end to end, cold replay and reused-key ceilings and several `budgettest.Assert` calls absent. See `docs/reviews/test-audit-posts-timeline-t19-t20.md`.
 
 ### T20 — Emulator integration tests: timelines and read budget  [owner: tester] [size: M] [depends: T3, T12, T13]
 - **Description.**
@@ -1267,7 +1267,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Reuse the T19 fixtures.
 - **Observability.** —
 - **Budget.** Not applicable.
-- **Status: integration tests present and green in CI (2026-10-06).** `internal/timeline/integration` and the read-budget suites are in `make test-int`. A bullet-by-bullet audit against this ticket's list (F = 5,000 ceiling, D13 regression, D14 token cases, T3 scenarios) is still open.
+- **Status: audited 2026-10-06, not yet complete: 15 covered, 9 partial, 0 missing of 24 bullets; D6 matrix 28/8/24 of 60 cells.** Tests are present and green in CI; the audit was static. F = 5,000, F = 60, refresh = C, D14 expiry and the T3 unit scenarios are covered. Main gaps: Home D6 rows (suspended, deleting, doc missing, overflow, both-block), the two acceptance scripts (P0 random-handle loop, unverified-account rotation) exist only as components, home older-page and settle-window budgets unasserted, D13 not on the user timeline, D14 since-token posts/replies binding. Bullet 7 still says the IP budget is enforced on CheckHandleAvailability; ADR D5 A8 made it charge-only. See `docs/reviews/test-audit-posts-timeline-t19-t20.md`.
 
 ### T21 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T16, T17, T18, T19, T20]
 - **Description.**
