@@ -36,7 +36,7 @@ dependencies:
   crypto: ^3.0.7
 
   # Media / images
-  cached_network_image: ^3.4.1
+  cached_network_image: ^4.0.4
 
   # Local cache (offline-first)
   drift: ^2.35.1
