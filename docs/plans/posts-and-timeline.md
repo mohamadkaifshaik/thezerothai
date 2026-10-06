@@ -1369,6 +1369,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** —
 - **Observability.** The query is documented in `cost-model.md` §9.
 - **Budget.** —
+- **Status: done 2026-10-06 (not committed).** `cost-model.md` and `cost-report-posts-timeline.md` re-based on emulator measurements. Released-scope reads 192.9/DAU vs the ADR's 182.6 (+5.6%; crossover ≈ 259 DAU, 80% line ≈ 207, ≈ $0.14/month at 300 DAU vs $0.09). One planning value above 25%: home older page 40-42 measured vs 30 (+33%), so the ADR-0010 revisit is triggered and the `k` factor lever (`2p` to `1.5p`) is flagged for P9. Not measured: real traffic, hit rates, dev latency or cold start.
 
 ### T26 — Infra/config, indexes READY, runbooks, dev deploy  [owner: production-deployer] [size: S] [depends: T3, T4, T5]
 - **Description.**
