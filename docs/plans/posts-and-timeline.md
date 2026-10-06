@@ -122,7 +122,7 @@ Definitions (ADR-0008 A2 convention, ADR-0010 D17):
 | ↳ replay (same key, same body) / key reused with a different body | 14 / 1 / — | 0 | 0 | 30 | — | — | — | — |
 | DeletePost (own post) | 2 / 0 / 1 | 1 (0 on no-op) | 1 (0 on no-op) | 40 | 0.05 | 0.05 | 0.05 | 0.05 |
 | GetPost | 4 (+1 if caller `blockedByOverflow`) / 0 / 1 | 0 | 0 | 15 | 1 | 1.0 | 0 | 0 |
-| GetUserTimeline, page | 3 + p = 53 at p 50 (+1 overflow) / 0 / 11 | 0 | 0 | 50 | 2 | 22.0 | 0 | 0 |
+| GetUserTimeline, page | 3 + max(p, 20) = 53 at p 50, 23 at p 20 or less (+1 overflow; a cold Posts tab fills the 20-post author-recent entry) / 0 / 11 | 0 | 0 | 50 | 2 | 22.0 | 0 | 0 |
 | ↳ `since` refresh, 0 new posts | 4 / 0–1 / — | 0 | 0 | 20 | — | — | — | — |
 | GetHomeTimeline, refresh | 2 + C + 2p = **269** at F = 5,000, p = 50 / 0 to C / 4 overhead + new posts | 0 | 0 | 80 | 8 | 32.0 overhead + **60.0 new posts** | 0 | 0 |
 | ↳ settle-window re-reads (D13) | within the ceiling / 0 / ≈ 0.1 per refresh | 0 | 0 | — | 8 | ≈ 1.0 | 0 | 0 |
@@ -247,7 +247,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 |---|---|---|
 | `proto/dzeroth/posts/v1/posts.proto` | CreatePost: document the slice-1 `FEATURE_DISABLED` behaviour for reply/quote/media with `metadata["feature"]` (D2), the mention rules (D7) and hashtag rules (D8); budget "reads 14 cold / 2 warm, writes 4 until replies/quotes/media ship". DeletePost: "not own, unknown or already deleted ⇒ success with 0 writes (D4); reads 2/0, writes 1, deletes 1 (0 on no-op)". GetPost: "reads 4/0 (+1 overflow; +1 once engagement ships)" | Keep proto and cost model in sync (`common.proto:13-14`) |
 | `proto/dzeroth/common/v1/common.proto` | FEATURE_DISABLED comment: `metadata["feature"]` names a sub-feature (`replies`/`quotes`/`media`); absent means the whole service (D2). Comment only | Clients hide only the named sub-feature |
-| `proto/dzeroth/timeline/v1/timeline.proto` | GetHomeTimeline worst `2 + C + 2p` (269) until engagement adds `userLikes`; GetUserTimeline `3 + p` (53); the D6 visibility semantics; `since_token` is a settle watermark and refreshes may repeat items (the client dedupes by `post_id`, D13); tokens are caller-bound and expire after 30 days (D14) | same |
+| `proto/dzeroth/timeline/v1/timeline.proto` | GetHomeTimeline worst `2 + C + 2p` (269) until engagement adds `userLikes`; GetUserTimeline `3 + max(p, 20)` (53); the D6 visibility semantics; `since_token` is a settle watermark and refreshes may repeat items (the client dedupes by `post_id`, D13); tokens are caller-bound and expire after 30 days (D14) | same |
 | `proto/dzeroth/identity/v1/identity.proto` | CheckHandleAvailability/GetProfile: mention the daily read budget and `metadata["limit"]` = `read_budget_daily` / `check_handle_daily` | P0 contract visibility |
 | `firebase/firestore.indexes.json` | **No change** (D19). Every P1 query shape maps to an existing index when it orders `createdAt DESC, __name__ DESC`. No `mentionIds` exemption (D12) | Index write cost |
 | Firestore `posts/{postId}` | New collection, shape exactly as ADR-0003:80; `visibility = PUBLIC`, `kind = POST`, `isReply = false`, `conversationId = postId` | — |
@@ -422,6 +422,12 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   CI). An emulator test proves the budget is charged from real `budget.Counter` values (a GetProfile cold call charges
   1–3). A regression test: every graph and identity RPC still passes its existing budget assertions. Instance churn
   can't be tested locally; it is a documented residual (ADR-0010 D5 R2).
+- **Status.** Done (2026-10-05, branch `feat/posts-t3-read-budget`). Items 1-11 were already merged on main by the P0
+  branch (A1-A10: `DailyCap` Reserve/Release/Charge, the interceptor, the `authn` gate, IP key, `check_handle_daily`,
+  `account_ops_daily`, identity `handleFree` cache, `apiserver/guard_test.go`, runbook `abuse-spike.md`). This ticket
+  audited them against D5 and added the explicit "2,001st read unit" unit test
+  (`TestReadBudget_2001stUnitRejectedWithReadBudgetDaily`). Emulator coverage:
+  `internal/graph/readbudget_integration_test.go`. 0 Firestore reads added, $0.
 - **Observability.** `limit_name`, `read_budget_key`, `read_budget_spent`, `read_budget_ip_spent`, `profile_required`,
   `gate=email_unverified`, and WARN `read_budget_over_max` (ADR-0010 D20). `docs/runbooks/abuse-spike.md` gets a Logs
   Explorer filter for each (T26 lists them; no new alert policy).
@@ -561,6 +567,9 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
       VALIDATION (still rejected, not trimmed).
     - The fuzz target also checks that no stored mention or hashtag overlaps a URL span.
   - **Budget.** 0 (parser). It lowers CreatePost reads when the only candidates sit in URLs.
+  - **Status: built (branch claude/gracious-babbage-2barib).** G1/G2/G4 in `posts/text`; `testdata/post_text_grammar.json`
+    (43 grammar + 22 normalise rows, architect to review); Go loads every row and asserts the row count. `Parsed.MentionsInURL`
+    feeds the T8 `mentions_in_url` log field. The Dart side (T15 delta) must load the same file.
 
 ### T6b — Shared handle grammar: `pkg/platform/handle` (ADR-0010 D21 G3)  [owner: backend-developer] [size: S] [depends: founder accepts D21 G3; merges before the T6 D21 delta and T8]
 - **Description.** A refactor with no behaviour change. Reuse-first "generalise and move": one handle grammar, used by
@@ -584,6 +593,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Unit tests only.
 - **Observability.** —
 - **Budget.** 0.
+- **Status: built (branch claude/gracious-babbage-2barib).** `pkg/platform/handle`, identity and `posts/text` use it;
+  the import-guard test is `posts/text/imports_test.go`; `docs/code-map.md` updated.
 
 ### T7 — Identity: `Directory.ResolveHandles`; shared verified-email check  [owner: backend-developer] [size: S] [depends: T3 (negative cache)]
 - **Description.**
@@ -681,6 +692,23 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `mentions_dropped`, `hashtags_count`, `text_len`, `txn_attempts` (WARN if > 3), `feature` on a sub-feature rejection.
   Never log text, handles, hashtags or mention lists (D20).
 - **Budget.** 14 cold / 2 warm / 2.5 planning R, 4 W, +1 eventual TTL delete.
+- **Status: built (branch claude/gracious-babbage-2barib).** Decisions recorded for the PR:
+  - **Stale handle cache (G5):** both halves are in `identity.ResolveHandles` (10 s positive bound via `handleEntry{uid, at}`,
+    plus a 0-read profile-cache peek). The residual (rename + reclaim within 10 s on another instance) is asserted and named in
+    `resolve_handles_g5_test.go`.
+  - **More than 10 handles:** the parser caps at 10 and `resolveMentions` truncates again as a backstop (unit test with 11).
+  - **Lower-casing order:** untouched; CreatePost passes parser output.
+  - **`allowAnonymous`:** `posts.WithAllowAnonymous` option, wired only as `posts.WithAllowAnonymous(cfg.AuthEmulator)` in
+    `apiserver.Build`; default false (unit test) and a source guard `apiserver/posts_anonymous_test.go`.
+  - **Settle window:** `TIMELINE_SETTLE_WINDOW` (default and floor 15 s) added to `config.Load`, with tests. T11 reads
+    `cfg.TimelineSettleWindow`.
+  - **Author profile eviction:** after a commit `Directory.Forget(author)` (as in graph), so the next request on that instance
+    pays the interceptor's profile read (cold). The warm figures above assume the profile is cached.
+  - Measured on the emulator (`create_integration_test.go`, no interceptor read in the harness): warm 2 R / 4 W; replay warm 1 R /
+    0 W; reused key 1 R / 0 W; 3 mention candidates 6 R; cold ceiling with 10 uncached handles 14 R (author profile 1 + graph 1 +
+    handles 10 + idempotency 1 + quotas 1) / 4 W. The real interceptor read of the caller's `users` doc is the same
+    document as the author profile that `Create` reads through the profile cache (the interceptor has just warmed it),
+    so the real cold ceiling is still 14, not 15: the documented 14 counts that one read once.
 
 ### T9 — DeletePost + GetPost  [owner: backend-developer] [size: S] [depends: T5]
 - **Description.**
@@ -724,6 +752,19 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Observability.** `posts_op=delete|get`, `outcome=deleted|noop|noop:not_owner|found|not_found`,
   `posts_cache_hit`. `noop:not_owner` feeds abuse review.
 - **Budget.** As the table.
+- **Status: built (branch claude/gracious-babbage-2barib).** `Service.Delete` / `Service.GetForViewer` (`service_delete.go`),
+  `FirestoreRepo.DeleteOwn` (`repo_delete.go`), handlers in `server.go`, `identity.ProfileNotFoundError` for T12. Decisions:
+  - **Order of validation:** `post_id` (`^[0-9]{19}$`, VALIDATION `field=post_id`) first, then `idempotency_key` format; both
+    0 reads. GetPost also rejects a malformed id with VALIDATION (0 reads); the plan only fixed this for DeletePost.
+  - **Lost races:** the batch counts its writes on a scratch counter, merged only on success, so a lost `Exists` race reports
+    0 W / 0 D. An `Aborted` (lock contention on the author's `users` doc from the concurrent `postsCount` increments) is retried
+    up to 4 times with 25 ms steps; the retry then loses the `Exists` check and ends as a no-op.
+  - **Non-public visibility:** a FOLLOWERS post is NOT_FOUND unless the caller is the author or follows the author (fail
+    closed; unreachable in P1 since only PUBLIC is written).
+  - **Own post in GetPost:** skips the caller's graph read (a user is never blocked by themselves): 2 R cold instead of 3.
+  - Measured on the emulator (`service_delete_integration_test.go`, interceptor read not included): DeletePost own cold 1 R / 1 W /
+    1 D, own warm 0 R / 1 W / 1 D, not-owner or unknown or repeat 1 R / 0 W / 0 D; 5 concurrent deletes: 1 W / 1 D in total,
+    `postsCount` decremented once. GetPost cold 3 R (post, author, caller graph), warm 0 R, overflow 4 R, 0 W.
 
 ### T10 — `posts.Eraser` + exporter + `opsctl` + account-deletion runbook  [owner: backend-developer] [size: S] [depends: T8, T9]
 - **Description.**
@@ -749,6 +790,22 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** An emulator crash-resume test (reuse graph's T11 harness; no second harness).
 - **Observability.** `posts_purge_batch` with counts.
 - **Budget.** O(posts) reads and deletes, once per deletion: a 300-post user costs ≈ 300 R and 300 D.
+- **Status: built (branch claude/gracious-babbage-2barib).** `posts/purge.go` (`PurgeUser`, `PlanPurge`, `ExportUser` on
+  `FirestoreRepo`), `opsctl purge-posts|export-posts`, runbook updated. Decisions:
+  - **Same guards as purge-graph:** `--project` required, `*-prod` typed confirmation, `--dry-run`, and the DELETING >= 120 s
+    start gate with `--skip-start-gate`. The retry/give-up loop and the `--out` writer were extracted from the graph code
+    (`purgeLoop`, `writeOut`), so there is one policy for both purges.
+  - **Dry run** uses a `count()` aggregation limited to 100,000 (billed 1 read per 1,000 index entries, minimum 1), prints
+    `dry-run: posts=N (nothing written)`.
+  - **Done condition:** a page of fewer than 500 posts ends the purge (the account is DELETING, nothing new arrives), so a
+    user with 1,203 posts costs 3 calls, 1,203 R, 1,203 D, 0 W. A user with no posts costs 1 R.
+  - **Deletes are not preconditioned** (a concurrent run deleting the same doc is harmless); no counter updates.
+  - **Export** streams `{"userId","posts":[{id,text,createdAt,hashtags,mentions(handles only)}]}`, newest first, 500 per page.
+  - The emulator does not enforce composite indexes; the queries are Q-E (`authorId ==` + `createdAt DESC, __name__ DESC`),
+    which the existing `(authorId ASC, createdAt DESC)` index serves, and `firestore.indexes.json` is unchanged.
+  - Measured (`TestPurge_Integration_CrashResume`, `TestExport_Integration`): purge of 1,203 posts killed after the first
+    batch and resumed with the checkpoint: 1,203 R / 0 W / 1,203 D, no `authorId == U` doc left, another user's 7 posts kept;
+    dry run 2 R max, 0 W; export 1,203 R + 1 (the final empty-page check is skipped when the last page is short, so 1,203 R).
 
 ### T28 — `pkg/platform/cursor`: two-bound `Window` tokens + TTL-aware decode  [owner: backend-developer] [size: S] [depends: T1]
 - **Description.** Extend the existing package (ADR-0010 D14; reuse-first, no new package):
@@ -760,8 +817,8 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - `Encode`/`Decode` and their 24 h default stay **byte-for-byte compatible**, so graph list tokens already issued
     keep decoding.
   - Add the config key `TIMELINE_TOKEN_TTL` (default `720h`) to `config.Config` (rule 11). T11 consumes it.
-    **Follow-up (T4/T28 notes):** `config.Load` rejects values below 24h but has no upper bound; add one (for
-    example <= 2160h = 90 days) so a typo cannot make timeline tokens effectively immortal.
+    **Follow-up (T4/T28 notes), done:** `config.Load` also rejects values above `MaxTimelineTokenTTL` (2160h = 90
+    days) so a typo cannot make timeline tokens effectively immortal.
   - Update `docs/code-map.md`.
 - **Acceptance criteria.**
   - Given a Window with and without a Lower bound, when encoded and decoded with the same binding, then it round-trips
@@ -826,6 +883,18 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   handoff requirement. Table tests for every binding pair and for the watermark (fake clock).
 - **Observability.** —
 - **Budget.** 0 (pure).
+- **Status: built (branch feat/timeline-t11-t13).** `merge.go` (`Merge`, `Source`, `Page`, `Compare`), `tokens.go`
+  (bindings, `codec`, closed-gap rule), `watermark.go` (`Watermark`, `NextSince`). Decisions recorded for the PR:
+  - **`Merge` takes a `keep` filter and returns `Newest`/`Last`/`HasMore`.** The bound B is computed on the unfiltered
+    chunk results; filtering and the limit cut come after it. `Last` is the last *examined* item (or the last returned one
+    after a limit cut), so a page of mostly filtered posts never re-reads the filtered ones. `Newest` (pre-filter) feeds
+    the watermark.
+  - **Gap on refresh = `HasMore`,** not only "a chunk filled k": with C = 1, k = 2p and more than p new posts a limit cut
+    also leaves items above the old since. A covered author (author-recent) is never "filled": coverage already requires
+    a complete entry or one that reaches the lower bound.
+  - **Page responses carry no `since_token`** (cold and refresh only); the Flutter store ignores an empty one.
+  - Property tests (`merge_test.go`) walk adversarial chunk sets (1,000-post chunk, sparse chunks, ties) through pages,
+    gap walks and filtered walks and compare with the true merge.
 
 ### T12 — GetUserTimeline  [owner: backend-developer] [size: S] [depends: T11]
 - **Description.**
@@ -853,13 +922,24 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     `next_page_token = ""`, and costs 1 query read.
   - Given `since_token` with 0 new posts, then reads ≤ 4 cold (3 + 1 empty query), 0–1 warm.
   - Given the author blocked the caller, then NOT_FOUND, byte-identical to a missing user and to a suspended user.
-  - Given a cold page of 20, then reads ≤ 23. At page 50, reads ≤ 53 (`3 + p`, +1 on overflow).
+  - Given a cold page of 20, then reads ≤ 23. At page 50, reads ≤ 53 (`3 + max(p, 20)`, +1 on overflow).
   - Given a warm Posts-tab first page, then reads = 0 and `timeline_cache_hit=true`.
 - **Test notes.** Budget assertions per D17; the ADR-0010 D6 matrix, GetUserTimeline column (every row, including
   the overflow and both-block rows).
 - **Observability.** `timeline_op=user`, `timeline_mode`, `fs_reads`, `timeline_cache_hit`, `items_returned`,
   `since_clamped`, `page_size`.
-- **Budget.** 3 + p cold (53 at p 50) / 0 warm / 11 planning.
+- **Budget.** 3 + max(p, 20) cold (53 at p 50) / 0 warm / 11 planning.
+- **Status: built (branch feat/timeline-t11-t13).** `internal/timeline/service.go` `user`, `server.go`
+  `GetUserTimeline`. Decisions recorded for the PR:
+  - `identity.ProfileNotFoundError()` is a new exported wrapper over identity's private `notFoundErr()`, so the missing /
+    non-ACTIVE / blocking-target answer is byte-identical to GetProfile without copying the string. The timeline import
+    lint now allows `identity.Directory`, `Profile`, `AccountStatusActive`, `ProfileNotFoundError`, `ValidUserID` and
+    `posts.ToProto`.
+  - Own timeline (`target == caller`) skips the caller graph read (a caller cannot block or be blocked by self).
+  - Posts-tab first page: `page_size <= 20`, no tokens, entry fresh and (complete or at least `page_size` posts).
+    A refresh is also served from a fresh entry when it is complete or reaches the old since (0 reads).
+  - Integration tests live in `internal/timeline/integration` (own directory, so the lint on `internal/timeline`
+    still covers every file there).
 
 ### T13 — GetHomeTimeline  [owner: backend-developer] [size: M] [depends: T11, T12]
 - **Description.** ADR-0004 Decision 1–9, minus the viewer flags (Q3):
@@ -901,6 +981,16 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `authors_from_cache`, `items_returned`, `items_filtered`, `fs_reads`, `gap`, `since_clamped`, `page_size`.
 - **Budget.** 2 + C + 2p = 269 cold at F = 5,000 / refresh planning 4 overhead + new posts (+ ≈ 0.1 settle re-read) /
   older page 30 / cold open 30.
+- **Status: built (branch feat/timeline-t11-t13).** `internal/timeline/service.go` `home`/`homeSources`,
+  `server.go` `GetHomeTimeline`, wired in `apiserver.Build` (`Directory`, `CursorKey`, `TokenTTL`, `SettleWindow`).
+  Decisions recorded for the PR:
+  - Blocked, muted and blocked-by authors are removed from the author list **before** chunking (cheaper than the
+    plan's post-merge drop, same result; a `keep` filter in `Merge` stays as defence in depth). C and k use the
+    chunks actually queried (`ceil(uncovered/30)`), `k` is capped at the repo's 50 and "filled" is judged against it.
+  - A cold-open page can be short (ADR-0004 exact-prefix cut): F = 60, p = 20 returned 14 posts in the emulator test;
+    the client follows `next_page_token`.
+  - `golang.org/x/sync` moved from indirect to direct in `go.mod` (errgroup, limit 4).
+  - `userLikes` / viewer flags are not read (D3): `liked_by_viewer` is always false.
 
 ### T14 — Flutter: repositories, drift timeline store, flag plumbing  [owner: frontend-developer] [size: M] [depends: T2]
 - **Description.**
@@ -981,6 +1071,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     - `https://google.com@evil.com/x @bob` → only `@bob` is tappable.
     - `؜ https://ex.com/?r=@bob` with `mentions=[bob]` → nothing tappable.
     - Every fixture row passes.
+  - **Status: built (branch feat/app-t16-composer; analyze clean, tests pass).** The parser excludes
+    `@`/`#` candidates inside every syntactic URL span (unsafe spans render as plain text; detection runs even with bidi
+    controls). `post_text_parser_test.dart` runs every `grammar` row of `testdata/post_text_grammar.json` and asserts
+    the row count; the grammar rows that were duplicated inline were removed.
 
 ### T16 — Flutter: composer  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.**
@@ -1011,6 +1105,16 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Bloc tests (optimistic path, rollback, key reuse); widget tests.
 - **Observability.** —
 - **Budget.** 1 CreatePost per intent.
+- **Status: built (branch feat/app-t16-composer; `flutter analyze` clean, full `flutter test` passes (388 tests)).**
+  - `/compose` route plus a "New post" button in `MainShell` (posts flag on, not on Settings).
+  - D9 mirror `analyzePostDraft` with the D21 G2/G4 rules, run against the fixture's `normalise` rows. NFC uses
+    `unorm_dart` (added to `pubspec.yaml`; `pubspec.lock` still needs `flutter pub get`).
+  - `ComposerCubit` (one key per intent, reused on retry, dropped when the text changes) and `PendingPostsCubit`
+    (optimistic items, rolled back on error).
+  - **Carry-over to T17/T18 (done in T17/T18):** Home and the own profile's Posts tab mount `PendingPostsSection`
+    above their feed (`TimelineFeedView`, `pendingAuthorId:` on the own profile).
+  - **Review fixes (T17/T18 pass):** U+2028/U+2029, ZWJ/ZWNJ and the combining acute were literal invisible characters
+    in `post_text_rules.dart`, `post_text_parser.dart` and two tests; they are now `\u` escapes (same behavior).
 
 ### T17 — Flutter: Home timeline screen  [owner: frontend-developer] [size: M] [depends: T15]
 - **Description.** Replace the `HomeScreen` placeholder (`home_screen.dart:5-37`) with the ADR-0004 §7 behaviour:
@@ -1035,6 +1139,30 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests with a fake clock and repository: refresh throttle, gap, pagination, empty, error.
 - **Observability.** —
 - **Budget.** ≤ 8 refreshes + ≤ 1 older page per DAU/day on the model's usage (the client enforces the throttle).
+- **Status: built (branch claude/gracious-babbage-2barib; `flutter analyze` clean, full `flutter test` passes (388 tests)).**
+  - `HomeScreen` (flag on) = `TimelineFeedView` over a `TimelineCubit(FeedKey.home())`; flag off keeps the placeholder.
+    `TimelineCubit`/`TimelineFeedView` are generic (T18 reuses them for `user:{uid}:posts`).
+  - Cache first (`cached` once per open), then one refresh unless the feed was refreshed < 60 s ago. The stamp lives in
+    `TimelineRepository.sinceRefresh` (monotonic `Stopwatch`, survives screen re-creation; this settles the wall-clock
+    follow-up). Resume and a 30 s foreground tick (cancelled in the background) call `refreshIfStale`, at most one RPC per 60 s.
+  - "N new posts" pill: auto refreshes hold unseen posts back (counted by `post_id`, so the settle window never counts
+    twice; the viewer's own posts are not held); a pull shows them directly.
+  - Auto refresh is skipped once the list holds >= `kTimelineRetention` rows (reviewer contract: the store trims there).
+  - `RATE_LIMITED`: the repository remembers the last non-in-flight answer (`rateLimitedFor`, default 5 min daily / 30 s
+    otherwise when `retry_after` is missing); the cubit sends no timeline RPC while it holds and shows a notice banner over
+    the cache (blocking error only with an empty cache). The `read_budget_inflight` retry stays in `InflightRetryInterceptor`.
+  - Gap rows (`fillGap`, one call), infinite scroll prefetch at 70 % with no retry after a failure until the user taps
+    Retry, relative times re-rendered by the tick (no RPC), Block/Mute hide and Unblock/Unmute restore the author locally
+    (`onRelationshipChanged` acts on the cubit, never on the card's context).
+  - Own post stored: Home re-reads the cache (no RPC) when a pending post leaves `PendingPostsCubit`.
+  - Post cards open `/post/:id` on tap (beyond the plan; needed to reach the T18 route).
+  - Not done: the empty state only suggests following people (no people-search screen exists yet); the 500-row skip is by
+    cached row count, not scroll offset.
+- **Review follow-ups (PR #94, 2026-10-05), done:** the Home screen hands the viewer id to the cubit when the profile loads
+  (own posts are never held behind the pill); the foreground tick throttles on the last refresh *attempt*
+  (`TimelineRepository.sinceRefreshAttempt`), so an outage retries once per 60 s; the feed rebuilds only when a minute
+  boundary passes; the composer keeps one idempotency key per submitted text, so edit-and-revert reuses the original key.
+  Flutter tests were written but not run (no Flutter SDK in the authoring container); CI is the first run.
 - **Follow-up (PR #75 review, M3/M4/L1/L4/L6):** see the T14 follow-up list; T17 should call `TimelineRepository.cached` once per screen open and avoid a second full-feed decode per refresh.
 - **Reviewer contract (PR #75 review, T14 -> T17).**
   - `refresh` and `insertOwnPost` trim the cached feed to about 500 rows (`kTimelineRetention`). The Home screen must
@@ -1066,6 +1194,18 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Widget tests: own profile, other, blocked, empty, not-found.
 - **Observability.** —
 - **Budget.** 1 request per page; first page cached on the device.
+- **Status: built (branch claude/gracious-babbage-2barib; `flutter analyze` clean, full `flutter test` passes (388 tests)).**
+  - Profile (flag on): `ProfileHeader` (now with an optional "N Posts" count) + single "Posts" tab (Replies hidden) +
+    `TimelineFeedView` over `FeedKey.user(uid)`. Own profile also shows pending posts and "You haven't posted yet".
+  - Blocked by the viewer: "You blocked @x . Show posts" from the local relationship; the feed is **not requested** until
+    "Show posts" (saves the read). Mute shows no banner.
+  - `/post/:id` (`PostDetailScreen`, `PostDetailCubit`, `AppRouter.postPath`): NOT_FOUND (and a malformed id) =
+    "This post isn't available" with no retry, caches pruned by `PostsRepository.getPost`; the same blocked banner
+    ("Show post"), from `GraphRepository.cached`, comes first.
+  - Delete: optimistic removal in the feed, restored + snackbar on error; success always removes (D4). One idempotency
+    key per post until it succeeds. `PostsRepository.removedPosts` tells every mounted feed (Home under a profile or a post)
+    to drop the post, and the header count decrements via `ProfileCubit.postDeleted`.
+  - Delete on the post detail pops the screen.
 
 ### T19 — Emulator integration tests: posts  [owner: tester] [size: M] [depends: T8, T9, T10]
 - **Description.**
@@ -1081,7 +1221,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - DeletePost on another user's post, on an unknown id and on an already-deleted id: byte-identical success, 0 writes,
     0 deletes.
   - The D7/D8 mention and hashtag example tables end to end (stored `mentions`/`hashtags`).
-  - **D21 delta (if accepted):** `https://ex.com/?ref=@bob` stores no mention, with 0 `handles/*` and 0 `graph`
+  - **D21 delta (accepted 2026-10-01):** `https://ex.com/?ref=@bob` stores no mention, with 0 `handles/*` and 0 `graph`
     reads (G1); text with U+2028 line breaks is stored with `\n` (G2); an invisible-only post is VALIDATION (G4); a
     handle freed and reclaimed is resolved to the new owner after 11 s (G5).
   - Purge crash-resume (descending query, T10).
@@ -1097,6 +1237,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `code-map.md` test-helpers section.
 - **Observability.** —
 - **Budget.** Not applicable (emulator).
+- **Status: tests written 2026-10-06 (audit items #1, #8, #10, #12, #14-16, #19-22 in `docs/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: `assertPostsInvariants` (swept after every create/delete test), cold replay and reused-key budgets, quota rejection and concurrent-create budgets, posts IST rollover, the CreatePost mentions D6 matrix, GetPost and DeletePost D6 matrices, stored mentions/hashtags table, U+2028 to `\n`, purge restart from an empty checkpoint. Still open: the D21 G5 11 s row end to end through CreatePost (covered in `identity/resolve_handles_g5_test.go`; the posts test skips it because `identity.Cache.now` is unexported), and golden JSON for happy responses (no golden convention in the repo).
 
 ### T20 — Emulator integration tests: timelines and read budget  [owner: tester] [size: M] [depends: T3, T12, T13]
 - **Description.**
@@ -1105,7 +1246,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     - F = 60, p = 20: ≤ 2 + 3·14 = 44 cold;
     - "the gap token never re-reads items older than the previous since".
   - Seeded F = 5,000: home ≤ 2 + C + 2p = 269.
-  - GetUserTimeline ≤ 3 + p, including the exact-multiple final empty page (D16).
+  - GetUserTimeline ≤ 3 + max(p, 20), including the exact-multiple final empty page (D16).
   - The D6 block/mute matrix for both timelines (every row, including overflow, both-block, suspended and deleting).
   - The **D13 regression**: a post committed with `createdAt` older than an already-returned item (fake clock) is
     delivered on the next refresh.
@@ -1113,7 +1254,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     (accepted at 30 d − 1 s).
   - T3 (ADR-0010 D5 A1–A7): the read budget rejects at the cap; the parallel-call hold never lets the counter pass
     `cap − 1 + M`; unverified password uids cost 0 reads; verified uids without a profile are charged to their /64;
-    the IP budget is enforced on CheckHandleAvailability and charge-only on CreateProfile; the three account
+    the IP budget is charge-only on CheckHandleAvailability and CreateProfile (ADR-0010 D5 A8); the three account
     operations are never rejected by the budget; /64 keying of the IP budget and both per-minute IP limiters; the
     negative handle cache; and the guard test fails when a fake uncapped read procedure is registered.
 - **Acceptance criteria.**
@@ -1126,6 +1267,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Reuse the T19 fixtures.
 - **Observability.** —
 - **Budget.** Not applicable.
+- **Status: tests written 2026-10-06 (audit items #2-#7, #9, #11, #13, #17, #18, #23, #24 in `docs/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: the P0 random-handle loop and unverified-account rotation as e2e tests, restricted (SUSPENDED/DELETING) callers on every posts/timeline RPC, home D6 matrix (unit and emulator), older-page and cold-page budgets, settle-window re-read cost and user-timeline late-commit test, user token binding, wire-level reason/metadata contract tests, `budgettest.Assert` self-test, IPv6 /64 keying. The contract tests found and the fix commit closed one bug: QUOTA_EXCEEDED had no `retry_after`. Note: the limiter key count for AC4 is not observable, so it is asserted indirectly (every call `fs_reads == 0`).
 
 ### T21 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T16, T17, T18, T19, T20]
 - **Description.**
@@ -1143,6 +1285,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** The smoke test cleans up after itself, so it can re-run on `candidate`.
 - **Observability.** —
 - **Budget.** A smoke run ≈ 20 reads and 10 writes.
+- **Status: partly done (2026-10-06).** `backend/e2e/posts_smoke_test.go` added and passing on the emulators; `docs/reviews/test-report-posts-timeline.md` written. Open (blocked on credentials): run the smoke on the dev URL with the flag on (T26) and on the prod `candidate` URL (T27).
 
 ### T22 — k6 emulator load smoke: timeline read + post create  [owner: sre-performance] [size: S] [depends: T8, T13]
 - **Description.** Add `loadtest/timeline_read.js` (50 virtual users, F distributed 10–300, refresh + older page) and
@@ -1159,6 +1302,12 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Results go in T25.
 - **Observability.** Existing fields.
 - **Budget.** Emulator only.
+- **Status: run, partly (2026-10-06).** `loadtest/posts_create.js`, `loadtest/timeline_read.js` and a generic `rpcCall` in `graph_common.js`. Machine: 4-core cloud container, k6 v0.54, API, Firestore/Auth/Pub/Sub/Storage emulators and k6 all on the same host; API built with Go 1.26.0; `FEATURE_POSTS=on`, per-IP limits and graph follow limits/quotas raised.
+  - `posts_create` (full scale, 150 users, 20 rps x 2 min): CreatePost p95 14.8 ms, 0 failures, 0 ERROR lines; mean `fs_reads` **2.94** (hist 2:150, 3:2251) vs planning 2.5 (+18%, cause not investigated), `fs_writes` 4.0.
+  - `timeline_read` at **reduced scale** (100 users, 40 authors, 7 rps refresh, 1 rps older, 2 rps user timeline, 1 rps CreatePost, 2 min): refresh p95 28 ms, older p95 32 ms, user timeline p95 10 ms, CreatePost p95 16 ms, 0 failures, 0 ERROR lines. Home `fs_reads` by `timeline_mode` (reduced-scale run, setup included; this replaces an earlier split by read count that was wrong): cold 17.5 mean (100 calls, max 42); older page 5.8 mean (80 calls, max 42; most served from the author-recent cache, so this does **not** confirm or refute the 40-vs-30 older-page finding, which stands from the T25 measurement); refresh 5.2 mean (841 calls). Refresh with no gap and no clamp: 1.14 mean (224 calls), the planning shape (4 + new posts). 64% of refreshes returned a full 20-item page with `gap_page_token` (mean 6.9 reads when also clamped, max 42) and 71% were `since_clamped`. My first explanation (the script's 1 post/s write rate) is **not supported**: a rerun at 1 post per 10 s with gap pages followed (`home_gap`, 1,587 gap-fill calls, mean 5.2 reads) still gave 55% of refreshes with a gap, refresh mean 4.91 reads, 0 failures, p95 refresh 75 ms. Unverified hypothesis: the watermark is `min(request start, loadedAt of the author-recent entries used) - 15 s`, so entries loaded at the setup cold open pin it far behind now and every refresh re-reads the seeded posts; real traffic may behave differently. **Open question for P9 / the cost model:** measure the gap rate and refresh reads against real or longer-running traffic (and check the author-recent entry TTL) before trusting 4 + new posts as the refresh cost. GetUserTimeline: 1.71 mean (241 calls; planning 11 cold / 0 warm).
+  - **Not met:** the full-scale `timeline_read` (200 users, 14 + 2 + 4 + 1 rps) did not complete. Seeding needed the follow limits raised, and once timed traffic started the Firestore emulator hit `DeadlineExceeded` on every operation type (CPU saturation of the shared 4-core host, not an API fault) and wedged until restarted. Latency numbers above are therefore indicative only and from a lighter load than the ticket asks. Re-run at full scale on a larger machine before relying on them.
+  - **Not recorded:** the interceptor cold share (no log field for it).
+  - Open: full-scale `timeline_read` rerun on a larger machine (the script now follows gap pages and posts 1 per 10 s by default) to get a steady-state refresh cost and explain the gap rate; add a `timeline_mode` split to `analyze_logs.js`; fold the measured means into T25 / the cost model.
 
 ### T23 — Code review  [owner: code-reviewer] [size: S] [depends: T3–T18 (per PR)]
 - **Description.** Review each PR against CLAUDE.md rules 1–11, ADR-0004/0010 and reuse-first:
@@ -1175,6 +1324,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** —
 - **Observability.** —
 - **Budget.** —
+- **Status: done for PR #94 (2026-10-05).** APPROVE, no open Blockers; see `docs/reviews/code-review-posts-timeline.md`.
 
 ### T24 — Security review: posts/timeline threat model + P0 closure  [owner: security-auditor] [size: M] [depends: T3, T8–T13]
 - **Description.** Threat-model:
@@ -1199,6 +1349,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Findings go back to the owning ticket.
 - **Observability.** Confirm no request body or text is logged.
 - **Budget.** —
+- **Status: done for PR #94 (2026-10-05).** 0 Critical/High open; see `docs/reviews/security-review-posts-timeline.md`. Open: mark the public-repo finding Closed with test-name evidence in the posts readiness report (`docs/reviews/release-v0.3.0-readiness.md`, draft started), and record the founder's R1/R2 acceptance there (founder's decision).
 
 ### T25 — Cost report and cost-model update  [owner: sre-performance] [size: S] [depends: T19, T20, T22]
 - **Description.** Re-base the `cost-model.md` §2 rows for CreatePost, DeletePost, GetPost and the timelines on
@@ -1223,6 +1374,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** —
 - **Observability.** The query is documented in `cost-model.md` §9.
 - **Budget.** —
+- **Status: done 2026-10-06 (commit 3d4106e).** `cost-model.md` and `cost-report-posts-timeline.md` re-based on emulator measurements. Released-scope reads 192.9/DAU vs the ADR's 182.6 (+5.6%; crossover ≈ 259 DAU, 80% line ≈ 207, ≈ $0.14/month at 300 DAU vs $0.09). One planning value above 25%: home older page 40-42 measured vs 30 (+33%), so the ADR-0010 revisit is triggered and the `k` factor lever (`2p` to `1.5p`) is flagged for P9. Not measured: real traffic, hit rates, dev latency or cold start.
 
 ### T26 — Infra/config, indexes READY, runbooks, dev deploy  [owner: production-deployer] [size: S] [depends: T3, T4, T5]
 - **Description.**
@@ -1267,6 +1419,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** —
 - **Observability.** —
 - **Budget.** $0.
+- **Status: repo side done, nothing applied (2026-10-06).** `infra/terraform/envs/{dev,prod}/main.tf` now set `FEATURE_POSTS` (+ allowlist/percent variables; dev default `on`, prod default `off`, both explicit), `TIMELINE_SETTLE_WINDOW=15s`, `TIMELINE_TOKEN_TTL=720h`, `CACHE_POSTS_ENTRIES=20000`, `CACHE_AUTHOR_RECENT_ENTRIES=1000`, the T4 rate-limit keys and the posts quotas through `local.posts_env_vars`; the `READ_BUDGET_*`, `CHECK_HANDLE_CALLS_PER_DAY` and `ACCOUNT_OPS_CALLS_PER_DAY` vars were already set. Env-var changes only, no new resources (cost-guard clean). Runbooks `posts.md`, `abuse-spike.md`, `cost-spike.md` and `account-deletion.md` already exist; not re-audited in this pass. **Not done, needs GCP credentials and the founder's OK:** `terraform plan` (not run: no terraform and no credentialed account in the authoring container) then apply to dev and prod; confirm the three posts indexes READY in dev and prod; the A2 pre-check (count of `emailVerified=false` password accounts owning a `users` doc); the T21 smoke against dev with the flag on.
 
 ### T27 — Prod candidate and allowlist rollout  [owner: production-deployer] [size: S] [depends: T21, T23, T24, T25, T26]
 - **Description.**
@@ -1337,9 +1490,10 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Q6** Timeline visibility: **muted authors hidden in Home only; a caller who blocks the author still gets the
   author's posts on GetUserTimeline/GetPost (the client shows a banner); author blocked caller ⇒ NOT_FOUND
   everywhere**. → Accepted and made exhaustive in the D6 matrix.
-- **Q7** Mentions: **unknown handles stay plain text; mentions of users who blocked the author are dropped;
-  mentioning a user the author blocked is allowed** (notifications are suppressed later in P6). → Accepted, with an
-  exact grammar and the overflow rule (drop all mentions when `blockedByOverflow`) (D7).
+- **Q7** Mentions: **unknown handles stay plain text; mentioning a user the author blocked is allowed** (notifications
+  are suppressed later in P6). → Accepted, with an exact grammar (D7). **Amended 2026-10-05 (M2):** mentions of users
+  who blocked the author are no longer dropped, and the overflow rule is gone, because the drop revealed who blocked the
+  author. P6 must not notify a user who blocked the author.
 - **Q8** Hashtag grammar: **`#[\p{L}\p{N}_]{1,50}`, must contain ≥ 1 letter; lower-cased; ≤ 10 stored**.
   → **Changed (D8):** the body admits combining marks and ZWJ/ZWNJ (`#भारत` works); `#123` stays none.
 - **Q9** Text: **NFC, trim, ≤ 280 code points, `\n` allowed (≤ 10 lines), other control chars rejected; links count

@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -107,7 +106,7 @@ type FirestoreRepo struct {
 
 	// Test seams for Unfollow's retry loop; nil means production behaviour (real commit, jittered timer).
 	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
-	backoff     func(ctx context.Context, ceiling time.Duration) error
+	backoff     func(ctx context.Context, ceiling time.Duration) error // see store.RetryConfig
 }
 
 // NewFirestoreRepo builds a FirestoreRepo. Unchanged signature from the Phase 0 bootstrap so every existing
@@ -343,69 +342,29 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 	if err != nil {
 		return false, err
 	}
-	var lastErr error
-	for attempt := 0; attempt < unfollowMaxAttempts; attempt++ {
-		if attempt > 0 {
-			if err := r.wait(ctx, unfollowRetryBackoff<<(attempt-1)); err != nil {
-				noteTxnAttempts(ctx, attempt)
-				return false, fmt.Errorf("graph: unfollow: %w", err)
-			}
-		}
-		var scratch budget.Counter
-		b := store.NewFirestoreBatch(r.client, &scratch)
-		b.Delete(edgeRef, firestore.Exists)
-		b.Update(r.graphRef(callerUID), []firestore.Update{
-			{Path: "following", Value: firestore.ArrayRemove(targetUID)},
-			{Path: "updatedAt", Value: now},
+	res, err := store.CommitWithRetry(ctx,
+		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		store.RetryConfig{MaxAttempts: unfollowMaxAttempts, Backoff: unfollowRetryBackoff, Commit: r.commitBatch, Sleep: r.backoff},
+		func(b store.Batch) {
+			b.Delete(edgeRef, firestore.Exists)
+			b.Update(r.graphRef(callerUID), []firestore.Update{
+				{Path: "following", Value: firestore.ArrayRemove(targetUID)},
+				{Path: "updatedAt", Value: now},
+			})
+			r.counters.AddFollowingCount(b, callerUID, -1)
+			r.counters.AddFollowersCount(b, targetUID, -1)
 		})
-		r.counters.AddFollowingCount(b, callerUID, -1)
-		r.counters.AddFollowersCount(b, targetUID, -1)
-
-		err := r.commit(ctx, b)
-		switch {
-		case err == nil:
-			noteTxnAttempts(ctx, attempt+1)
-			counter := budget.FromContext(ctx)
-			counter.AddWrites(scratch.Writes())
-			counter.AddDeletes(scratch.Deletes())
-			return true, nil
-		case isPreconditionFailed(err):
-			noteTxnAttempts(ctx, attempt+1)
-			// Ops were counted into scratch only: a failed Exists precondition is a no-op that performs (and
-			// bills) no writes. ADR-0009: for an ACTIVE caller, edge <=> following entry <=> both users docs
-			// exist, so this is a correct no-op; (false, nil) deliberately does not reveal which case it was.
-			return false, nil
-		case isContention(err):
-			lastErr = err
-		default:
-			return false, fmt.Errorf("graph: unfollow: %w", err)
-		}
+	noteTxnAttempts(ctx, res.Attempts)
+	switch {
+	case errors.Is(err, store.ErrContended):
+		return false, fmt.Errorf("%w: %v", ErrContention, err)
+	case err != nil:
+		return false, fmt.Errorf("graph: unfollow: %w", err)
 	}
-	noteTxnAttempts(ctx, unfollowMaxAttempts)
-	return false, fmt.Errorf("%w: %v", ErrContention, lastErr)
-}
-
-func (r *FirestoreRepo) commit(ctx context.Context, b *store.FirestoreBatch) error {
-	if r.commitBatch != nil {
-		return r.commitBatch(ctx, b)
-	}
-	return b.Commit(ctx)
-}
-
-// wait sleeps for a full-jitter delay in [0, ceiling), returning ctx.Err() if the context ends first. Full
-// jitter de-synchronises the retries of concurrent Unfollows that lost the same lock race.
-func (r *FirestoreRepo) wait(ctx context.Context, ceiling time.Duration) error {
-	if r.backoff != nil {
-		return r.backoff(ctx, ceiling)
-	}
-	t := time.NewTimer(rand.N(ceiling))
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
+	// !Committed with nil error: a failed Exists precondition is a no-op that performs (and bills) no writes.
+	// ADR-0009: for an ACTIVE caller, edge <=> following entry <=> both users docs exist, so this is a
+	// correct no-op; (false, nil) deliberately does not reveal which case it was.
+	return res.Committed, nil
 }
 
 // runTx is client.RunTransaction plus the ADR-0008 D3 contention signal: it counts how many times the
@@ -420,24 +379,6 @@ func (r *FirestoreRepo) runTx(ctx context.Context, fn func(context.Context, *fir
 	})
 	noteTxnAttempts(ctx, attempts)
 	return err
-}
-
-// isContention reports whether err is Firestore's lost-lock-race answer (Aborted, or the emulator's
-// "Transaction lock timeout" surfaced as such): safe to retry, nothing was written.
-func isContention(err error) bool {
-	code := status.Code(err)
-	return code == codes.Aborted
-}
-
-// isPreconditionFailed reports whether err is the Firestore error for a failed batch precondition (e.g.
-// Exists on a doc that doesn't exist) — Firestore surfaces this as NotFound or FailedPrecondition depending
-// on the SDK/emulator version, so both are treated as "the precondition wasn't met" (ADR-0008 T7/D10: a
-// no-op, not a real error). ADR-0009: NotFound/FailedPrecondition on Unfollow is a correct no-op because the
-// invariant (edge <=> following entry <=> both users docs exist) holds for ACTIVE callers; callers return
-// (false, nil) and never reveal why.
-func isPreconditionFailed(err error) bool {
-	code := status.Code(err)
-	return code == codes.NotFound || code == codes.FailedPrecondition
 }
 
 // blockLimits/muteLimits bundle the standard/new-account quota tier plus the window, so Block/Mute's

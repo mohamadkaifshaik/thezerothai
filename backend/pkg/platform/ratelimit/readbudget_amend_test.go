@@ -183,6 +183,34 @@ func TestA3_VerifiedCallerWithoutProfileIsChargedToIPAndMarked(t *testing.T) {
 	}
 }
 
+// TestA3_ProfileLessIPChargeKeysBy64 (audit #23): a profile-less verified uid calling from two addresses in one
+// IPv6 /64 is charged to ONE IP key (the /64), and an address in another /64 is charged to a different key.
+func TestA3_ProfileLessIPChargeKeysBy64(t *testing.T) {
+	cfg := a3Config()
+	rig := newMultiRig(t, "uid-v6", cfg, map[string]handler{procOther: fixed(3, pRequired)})
+	const a, b, other = "2001:db8:1:2::1", "2001:db8:1:2::2", "2001:db8:1:3::1"
+	if ipKey(a) != ipKey(b) || ipKey(a) == ipKey(other) {
+		t.Fatalf("test premise: keys a=%q b=%q other=%q", ipKey(a), ipKey(b), ipKey(other))
+	}
+	for _, ip := range []string{a, b} {
+		if err := rig.call(t, procOther, ip); err != nil {
+			t.Fatalf("call from %s: %v", ip, err)
+		}
+	}
+	if got := cfg.ReadBudgetIP.Spent(ipKey(a)); got != 6 {
+		t.Errorf("/64 key spent = %d, want 6 (both calls charge the one shared key)", got)
+	}
+	if err := rig.call(t, procOther, other); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ReadBudgetIP.Spent(ipKey(other)); got != 3 {
+		t.Errorf("other /64 spent = %d, want 3", got)
+	}
+	if got := cfg.ReadBudgetIP.Spent(ipKey(a)); got != 6 {
+		t.Errorf("/64 key spent = %d after the other /64 call, want still 6", got)
+	}
+}
+
 // TestA3_NoMarkWithoutProfileRequired: a caller whose profile this instance has seen is never marked, so its
 // calls never touch the IP key (carrier-grade NAT protection).
 func TestA3_NoMarkWithoutProfileRequired(t *testing.T) {
@@ -428,8 +456,10 @@ func TestA1_InterceptorConcurrencyBound(t *testing.T) {
 			const n = 40
 			var admitted, rejected atomic.Int64
 			release := make(chan struct{})
+			decided := make(chan struct{}, n) // one token per call once the herd has decided it (admitted or rejected)
 			rig := newMultiRig(t, "uid-a", cfg, map[string]handler{tt.proc: func(context.Context) (int64, pflag, error) {
 				admitted.Add(1)
+				decided <- struct{}{}
 				<-release
 				return tt.m, pNone, nil
 			}})
@@ -440,12 +470,16 @@ func TestA1_InterceptorConcurrencyBound(t *testing.T) {
 					defer wg.Done()
 					if err := rig.call(t, tt.proc, testIP); err != nil {
 						rejected.Add(1)
+						decided <- struct{}{}
 					}
 				}()
 			}
-			deadline := time.Now().Add(5 * time.Second)
-			for admitted.Load()+rejected.Load() < n && time.Now().Before(deadline) {
-				time.Sleep(time.Millisecond) // bounded poll: the herd decides without the handler's help
+			for i := 0; i < n; i++ { // rendezvous: every call is admitted (handler entered) or rejected before release
+				select {
+				case <-decided:
+				case <-time.After(10 * time.Second):
+					t.Fatalf("herd did not decide after %d of %d calls", i, n)
+				}
 			}
 			close(release)
 			wg.Wait()

@@ -10,6 +10,11 @@ Every other slice gets its own plan (same format as `docs/plans/graph.md`) when 
 
 ## 1. Where we are (verified in code on branch `docs/adr-0009-n4-and-t31`)
 
+> **Update 2026-10-06:** this table is the 2026-09-30 snapshot. Since then P0 (T3) and P1 (posts, timeline, composer, home
+> timeline, profile Posts tab, delete; T1-T25) have been built on the PR #94 branch, so the posts, timeline and Flutter rows
+> below no longer hold for that branch. DeleteAccount/export, avatars and everything from P2 on are unchanged. Per-ticket
+> status is in `docs/plans/posts-and-timeline.md`.
+
 | Area | State | Evidence |
 |---|---|---|
 | identity module | Built: CreateProfile, CheckHandleAvailability, GetMe, GetProfile, UpdateProfile, ChangeHandle | `backend/internal/identity/api.go:80-91` |

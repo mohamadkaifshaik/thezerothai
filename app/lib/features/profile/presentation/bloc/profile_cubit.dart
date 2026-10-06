@@ -1,3 +1,4 @@
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
@@ -79,6 +80,19 @@ class ProfileCubit extends Cubit<ProfileState> {
     } on AppException catch (e) {
       emit(ProfileState(status: ProfileStatus.error, error: e));
     }
+  }
+
+  /// One of the viewer's own posts was deleted from this profile's Posts
+  /// tab: the header's post count follows without a reload.
+  void postDeleted() {
+    final profile = state.profile;
+    if (profile == null || profile.postsCount <= Int64.ZERO) return;
+    final remaining = profile.postsCount - Int64.ONE;
+    emit(
+      state.copyWith(
+        profile: profile.copyWith((p) => p.postsCount = remaining),
+      ),
+    );
   }
 
   /// Reflects a relationship change (e.g. after Block/Unblock/Mute) without

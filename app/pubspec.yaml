@@ -50,6 +50,8 @@ dependencies:
   logging: ^1.3.0
   stream_transform: ^2.1.2
   url_launcher: ^6.3.2
+  # NFC for the composer's code-point counter (ADR-0010 D9 step 3). Pure Dart.
+  unorm_dart: ^0.3.0
 
 dev_dependencies:
   flutter_test:

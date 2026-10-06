@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -86,4 +87,14 @@ func (n *Node) generateInt() int64 {
 
 func (n *Node) millisSinceEpoch() int64 {
 	return n.now().UTC().UnixMilli() - epochMillis
+}
+
+// Time returns the millisecond timestamp encoded in a Generate()d id. posts use it as createdAt (ADR-0010 D18),
+// so (createdAt, id) order equals id order. It errors for anything that is not a non-negative decimal id.
+func Time(id string) (time.Time, error) {
+	v, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || v < 0 {
+		return time.Time{}, fmt.Errorf("snowflake: %q is not an id", id)
+	}
+	return time.UnixMilli(epochMillis + (v >> timeShift)).UTC(), nil
 }

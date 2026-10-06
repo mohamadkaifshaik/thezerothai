@@ -3,17 +3,11 @@
 Same 10-agent team, re-targeted from a 50M-DAU design (GKE, Spanner, Redis, global LB, 3 envs) to a
 **GCP Always Free + Firebase** architecture that costs $0 idle and grows pay-per-use. See `docs/adr/0001-free-tier-first-architecture.md`.
 
-## Install
+## Using it
 
-Copy everything in this folder into the root of your repo:
-
-```
-unzip dzeroth-lean.zip -d your-repo/   # CLAUDE.md, .claude/, docs/, .gitignore
-cd your-repo && claude
-```
-
-Check it's loaded: `/agents` shows the 10 team members, `/` shows the commands.
-Hooks need `jq` (`brew install jq` / `apt install jq`). Local dev needs the Firebase CLI (`npm i -g firebase-tools`) and Java 11+ for the emulators.
+This setup is committed in the repo (`CLAUDE.md`, `.claude/`, `docs/`). Run `claude` in the repo root;
+`/agents` shows the 10 team members and `/` the commands. Hooks need `jq` (they block edits without it).
+Local dev needs the Firebase CLI (`npx firebase-tools`), Go 1.26, Flutter 3.47.x and Java 21 for the emulators.
 
 ## Architecture in one line
 
@@ -40,7 +34,7 @@ code-reviewer · security-auditor · sre-performance (cost + perf) · production
 
 free-tier-budget, firestore-data-model, timeline, go-service, media-pipeline, flutter-feature, gcp-terraform,
 observability, load-testing, testing-strategy, release-rollout, security-checklist, production-readiness,
-ship-feature, mvp-roadmap, adr
+ship-feature, mvp-roadmap, adr, reuse-first, flag-rollout, pr-workflow
 
 ## Guardrails
 
@@ -48,7 +42,8 @@ ship-feature, mvp-roadmap, adr
   Cloud Deploy, Vertex search and Cloud Run `min_instance_count > 0` — unless the line says `# cost-approved: ADR-NNNN`.
 - `gcloud` create commands for those services are denied; deploys, traffic changes, `terraform apply`, `firebase deploy` ask first.
 - `terraform destroy`, force-push, project deletion and unlinking billing are blocked.
-- Claude can't edit generated code or secret files. Go/Dart/TF/proto files are auto-formatted after each edit.
+- Claude can't edit generated code or secret files, including via shell redirects (`bash-guard`). Go/Dart/TF/proto files are auto-formatted after each edit.
+- `commit-gate` runs `gofmt`/`go vet`/`flutter analyze` before `git commit`; guard hooks fail closed if `jq` is missing.
 
 ## One-time manual steps (not automatable for free)
 
@@ -57,10 +52,6 @@ ship-feature, mvp-roadmap, adr
 3. Decide the Firestore region (default `asia-south1`; it can never be changed).
 4. Apple Developer Program and Google Play Console fees are outside GCP and not covered by any free tier.
 
-## Suggested first session
+## Where we are
 
-1. `/bootstrap`
-2. `/ship user profiles and follow graph`
-3. `/ship create text post with up to 4 images`
-4. `/ship home timeline`
-5. `/cost-check 300`
+Phase 0 is done and Phase 1 is underway; see `docs/plans/phase1.md` for the current slice status.

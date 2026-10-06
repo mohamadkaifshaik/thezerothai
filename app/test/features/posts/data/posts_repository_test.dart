@@ -157,6 +157,23 @@ void main() {
     expect((await store.read(FeedKey.user('u1'))).entries, isEmpty);
   });
 
+  test('removedPosts announces a deleted post and a NOT_FOUND post', () async {
+    final seen = <String>[];
+    final sub = repo.removedPosts.listen(seen.add);
+    answer = (_) => pb.DeletePostResponse();
+    await repo.deletePost(postId: postId(5), idempotencyKey: 'k');
+    answer = (_) =>
+        connect.ConnectException(connect.Code.notFound, 'post not found');
+    await expectLater(
+      repo.getPost(postId(6)),
+      throwsA(isA<NotFoundException>()),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(seen, [postId(5), postId(6)]);
+    await sub.cancel();
+  });
+
   test('getPost returns the post and leaves caches alone', () async {
     await seed(const FeedKey.home(), [5]);
     answer = (p) {

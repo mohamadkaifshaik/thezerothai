@@ -21,7 +21,7 @@ import (
 
 // TestE2E_PostsFlag_BuildLevel (T5): through apiserver.Build, the real interceptor chain and the real flag
 // registry, a caller with a profile gets FEATURE_DISABLED from PostService and TimelineService while
-// FEATURE_POSTS is off, and the handlers (Unimplemented until T8-T13) once it is on. It proves both services
+// FEATURE_POSTS is off, and the real handlers (an unknown post is NOT_FOUND) once it is on. It proves both services
 // are registered in Build and behind the flag.
 func TestE2E_PostsFlag_BuildLevel(t *testing.T) {
 	skipIfNoEmulators(t)
@@ -53,5 +53,5 @@ func TestE2E_PostsFlag_BuildLevel(t *testing.T) {
 	})
 	onPosts := postsv1connect.NewPostServiceClient(http.DefaultClient, onURL)
 	_, err = onPosts.GetPost(ctx, authedRequest(idToken, &postsv1.GetPostRequest{PostId: "0000000000000000001"}))
-	assertCode(t, err, connect.CodeUnimplemented)
+	assertCode(t, err, connect.CodeNotFound) // the real handler ran: no such post
 }

@@ -114,6 +114,28 @@ locals {
   ]
 }
 
+// Posts + timeline slice (T26, ADR-0010 Handoff). Names and defaults mirror backend/pkg/platform/config/config.go;
+// caps are code, so a change here needs a cost note in the PR. FEATURE_POSTS is set explicitly in both envs so the
+// environment does not depend on the code default (on in dev/local, off in prod). The rollout (off -> allowlist ->
+// percent -> on) is driven by var.feature_posts*, not by ad-hoc `gcloud run services update`.
+locals {
+  posts_env_vars = [
+    { name = "FEATURE_POSTS", value = var.feature_posts },
+    { name = "FEATURE_POSTS_ALLOWLIST", value = var.feature_posts_allowlist },
+    { name = "FEATURE_POSTS_PERCENT", value = tostring(var.feature_posts_percent) },
+    { name = "TIMELINE_SETTLE_WINDOW", value = "15s" }, # validated >= 15s at startup (3 x the 5 s CreatePost deadline)
+    { name = "TIMELINE_TOKEN_TTL", value = "720h" },
+    { name = "CACHE_POSTS_ENTRIES", value = "20000" },
+    { name = "CACHE_AUTHOR_RECENT_ENTRIES", value = "1000" },
+    { name = "RATE_LIMIT_TIMELINE_PER_MIN", value = "6" },
+    { name = "RATE_LIMIT_USER_TIMELINE_PER_MIN", value = "30" },
+    { name = "RATE_LIMIT_POST_CREATE_PER_MIN", value = "10" },
+    { name = "RATE_LIMIT_POST_DELETE_PER_MIN", value = "20" },
+    { name = "QUOTA_POSTS_PER_DAY", value = "100" },
+    { name = "QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", value = "20" },
+  ]
+}
+
 module "cloud_run_api" {
   source                            = "../../modules/cloud-run-api"
   project_id                        = var.project_id
@@ -138,6 +160,7 @@ module "cloud_run_api" {
     { name = "MEDIA_BUCKET", value = module.media_buckets.media_bucket_name },
     ],
     local.graph_env_vars,
+    local.posts_env_vars,
   )
 
   depends_on = [module.project_services, module.secrets]

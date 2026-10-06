@@ -52,3 +52,20 @@
 | UserListRow | app/lib/features/graph/presentation/widgets/user_list_row.dart | one row (avatar, name, handle, trailing) in any graph user list; defaults to a `FollowButton` seeded from `UserListItem.relationship` |
 | BlockedAccountsScreen / MutedAccountsScreen | app/lib/features/graph/presentation/managed_accounts_screen.dart | Settings → Blocked/Muted accounts, optimistic unblock/unmute + undo |
 | GraphListScreen | app/lib/features/graph/presentation/graph_list_screen.dart | `/profile/:handle/followers` and `/profile/:handle/following`, tabbed, paged; lazy per-tab `UserListCubit`, flag-off redirects to the profile |
+| analyzePostDraft / PostDraft / PostDraftProblem / kMaxPostCodePoints / kMaxPostLines | app/lib/features/posts/domain/post_text_rules.dart | client mirror of ADR-0010 D9 (+D21 G2/G4): normalise, NFC, trim, count code points/lines, why Post is disabled; the server stays authoritative |
+| ComposerScreen / CharacterCounter | app/lib/features/posts/presentation/composer_screen.dart | `/compose`: 280 code-point composer with counter, EMAIL_NOT_VERIFIED -> `VerifyEmailView` |
+| ComposerCubit / ComposerState | app/lib/features/posts/presentation/bloc/composer_cubit.dart | create-post intent: one idempotency key per intent (reused on retry), optimistic pending post, rollback on error |
+| PendingPostsCubit / PendingPost | app/lib/features/posts/presentation/bloc/pending_posts_cubit.dart | app-wide, session-only list of optimistic posts; provided by `AppWidget`, cleared on sign-out |
+| PendingPostsSection | app/lib/shared/widgets/pending_posts_section.dart | optimistic posts above a feed (Home, own profile via `authorId`); mounted by `TimelineFeedView` |
+| createPostErrorMessage | app/lib/features/posts/presentation/post_error_messages.dart | friendly snackbar text for CreatePost `AppException`s (quota, rate limit, degraded, flag off, network) |
+| AppRouter.composePath | app/lib/core/router/app_router.dart | the `/compose` route (outside the shell) |
+| TimelineCubit / TimelineState / kAutoRefreshInterval | app/lib/features/timeline/presentation/bloc/timeline_cubit.dart | one cached feed (Home, a profile's Posts tab): cache first, throttled refresh, "N new posts" hold-back, older pages, gaps, optimistic delete, local hide of blocked/muted authors, RATE_LIMITED notice |
+| TimelineFeedView | app/lib/features/timeline/presentation/timeline_feed_view.dart | scrolling feed body over a `TimelineCubit` (slivers + `headerSlivers`): pull-to-refresh, pill, notice banner, pending posts, gap rows, 70 % prefetch, empty/error/loading, foreground-only 30 s tick; reuse for any feed |
+| NewPostsPill / TimelineGapRow | app/lib/features/timeline/presentation/widgets/ | the "N new posts" pill and the "Show more posts" gap row |
+| timelineNoticeMessage | app/lib/features/timeline/presentation/timeline_error_messages.dart | friendly banner text for a failed refresh over cached posts |
+| TimelineRepository.sinceRefresh / rateLimitedFor | app/lib/features/timeline/data/timeline_repository.dart | monotonic refresh stamp (60 s throttle across screen re-creation) and the RATE_LIMITED hold timeline calls must respect |
+| PostsRepository.removedPosts | app/lib/features/posts/data/posts_repository.dart | stream of post ids that left every cached feed (delete / NOT_FOUND); mounted feeds drop them |
+| PostDetailScreen / PostDetailCubit | app/lib/features/posts/presentation/post_detail_screen.dart | `/post/:id`: GetPost, "This post isn't available", blocked-author banner, delete |
+| AppRouter.postPath | app/lib/core/router/app_router.dart | the `/post/:id` deep link |
+| HomeScreen | app/lib/features/home/presentation/home_screen.dart | Home timeline (`TimelineFeedView` + `TimelineCubit`); placeholder with the posts flag off |
+| ProfileHeader.showPostsCount / ProfileCubit.postDeleted | app/lib/features/profile/ | "N Posts" in the header and its local decrement after a delete |

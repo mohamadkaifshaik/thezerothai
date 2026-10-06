@@ -136,11 +136,38 @@ type Recent struct {
 	LoadedAt time.Time
 }
 
-// Service is the Connect handler's dependency. T8/T9 extend it with CreatePost, DeletePost and GetPost; it is
-// a Reader today.
+// Service is the Connect handler's dependency: the Reader plus CreatePost (T8), DeletePost and GetPost (T9).
 type Service interface {
 	Reader
+	// Create writes one root post for uid (ADR-0010 D2, T8). It returns the stored post, or, for a replayed
+	// idempotency key, the post the first call created. Worst-case Firestore cost: see the CreatePost proto
+	// comment (14 reads cold / 2 warm, 4 writes; replay 14 cold / 1 warm, 0 writes).
+	Create(ctx context.Context, uid string, in CreateInput) (*Post, error)
+	// Delete removes uid's own post (ADR-0010 D4, T9). Success for every other case (another user's post, an
+	// unknown or already-deleted id) with 0 writes: no existence oracle. Firestore: reads 1 (the post; 0 when
+	// cached) plus the interceptor's profile read; writes 1 (users.postsCount -1) + 1 delete (Exists precondition).
+	Delete(ctx context.Context, uid, idempotencyKey, postID string) error
+	// GetForViewer returns one post as seen by callerUID (ADR-0010 D6 GetPost column), or the one NOT_FOUND
+	// "post not found" answer for a missing, deleted, hidden, blocked-author or non-ACTIVE-author post.
+	// Firestore: reads post 1 + author users 1 + caller graph 1 cold (+1 author graph if the caller's blockedBy
+	// overflowed), 0 warm; writes 0.
+	GetForViewer(ctx context.Context, callerUID, postID string) (*Post, error)
 }
+
+// CreateInput is the CreatePost request at the domain layer (server.go converts from the proto). Slice-2+
+// fields are carried only so the service can reject them uniformly (FEATURE_DISABLED, ADR-0010 D2).
+type CreateInput struct {
+	IdempotencyKey string
+	Text           string
+	MediaIDs       []string
+	MediaAltTexts  []string
+	ReplyToPostID  string
+	QuoteOfPostID  string
+}
+
+// ErrIdempotencyKeyReused is returned by Repo.Create when the idempotency key was already used for a different
+// request body (the service maps it to INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED).
+var ErrIdempotencyKeyReused = errors.New("posts: idempotency key reused with a different request")
 
 // Limits (ADR-0010 D15, ADR-0004).
 const (
