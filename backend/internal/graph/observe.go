@@ -3,13 +3,13 @@ package graph
 import (
 	"context"
 	"errors"
-	"log/slog"
 
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Request-log fields ADR-0008 "Required log fields" asks of every graph RPC. They ride on the mw.Logging
@@ -85,17 +85,10 @@ func rejectReason(err error) string {
 	return "error"
 }
 
-// txnWarnAttempts is the ADR-0008 threshold: a request whose write needed more than this many attempts
-// logs a WARN (plan T7: "WARN on txn_attempts > 3").
-const txnWarnAttempts = 3
-
-// noteTxnAttempts records txn_attempts on the request line and WARNs above txnWarnAttempts. The WARN is the
-// only extra line graph ever emits and fires only under real contention; it carries no uids.
+// noteTxnAttempts records txn_attempts on the request line and WARNs above store.TxnWarnAttempts (plan T7);
+// the WARN fires only under real contention and carries no uids.
 func noteTxnAttempts(ctx context.Context, attempts int) {
-	logger.SetRequestField(ctx, fieldTxnAttempt, attempts)
-	if attempts > txnWarnAttempts {
-		slog.WarnContext(ctx, "graph_txn_contention", fieldTxnAttempt, attempts)
-	}
+	store.NoteTxnAttempts(ctx, "graph_txn_contention", attempts)
 }
 
 func b2i(b bool) int {

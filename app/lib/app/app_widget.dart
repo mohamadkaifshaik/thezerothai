@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/router/app_router.dart';
 import '../core/theme/app_theme.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
+import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
+import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
 import '../features/timeline/data/timeline_repository.dart';
 
 /// Root widget: theme + `go_router`. All dependency wiring happens in
@@ -38,6 +42,25 @@ class AppWidget extends StatefulWidget {
 }
 
 class _AppWidgetState extends State<AppWidget> {
+  // Optimistic posts live for the session only (T16); sign-out drops them.
+  final PendingPostsCubit _pendingPosts = PendingPostsCubit();
+  late final StreamSubscription<AuthState> _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSub = widget.authBloc.stream.listen((state) {
+      if (state.status == AuthStatus.unauthenticated) _pendingPosts.clear();
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub.cancel();
+    _pendingPosts.close();
+    super.dispose();
+  }
+
   late final AppRouter _appRouter = AppRouter(
     authBloc: widget.authBloc,
     onboardingBloc: widget.onboardingBloc,
@@ -57,6 +80,7 @@ class _AppWidgetState extends State<AppWidget> {
         providers: [
           BlocProvider.value(value: widget.authBloc),
           BlocProvider.value(value: widget.onboardingBloc),
+          BlocProvider.value(value: _pendingPosts),
         ],
         child: MaterialApp.router(
           title: 'dZeroth',

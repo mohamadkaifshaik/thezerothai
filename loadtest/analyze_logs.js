@@ -28,8 +28,9 @@ for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
   if (o.severity === 'WARNING' || o.severity === 'WARN') warns++;
   if (o.message !== 'request' || !o.rpc) continue;
   if (filters.length && !filters.some((f) => o.rpc.includes(f))) continue;
-  if (!byRpc.has(o.rpc)) byRpc.set(o.rpc, []);
-  byRpc.get(o.rpc).push(o);
+  const key = o.timeline_mode ? `${o.rpc} [${o.timeline_op}/${o.timeline_mode}]` : o.rpc; // timeline RPCs: split by mode
+  if (!byRpc.has(key)) byRpc.set(key, []);
+  byRpc.get(key).push(o);
 }
 
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];

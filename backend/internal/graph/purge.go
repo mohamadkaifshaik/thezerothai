@@ -115,7 +115,7 @@ func (r *FirestoreRepo) purgeEdges(ctx context.Context, uid string, outgoing boo
 
 	skipped, err := r.deleteEdges(ctx, uid, edges, outgoing, false)
 	if err != nil {
-		if !isPreconditionFailed(err) {
+		if !store.IsPreconditionFailed(err) {
 			return Checkpoint{}, false, err
 		}
 		// Either a counterpart doc is missing (its owner was purged) or another run already deleted an
@@ -247,7 +247,7 @@ func (r *FirestoreRepo) purgeArray(ctx context.Context, uid string, cp Checkpoin
 
 	skipped, err := r.removeFromCounterparts(ctx, uid, chunk, counterField, false)
 	if err != nil {
-		if !isPreconditionFailed(err) {
+		if !store.IsPreconditionFailed(err) {
 			return Checkpoint{}, false, err
 		}
 		if skipped, err = r.removeFromCounterparts(ctx, uid, chunk, counterField, true); err != nil {

@@ -142,7 +142,7 @@ func CheckAndReserve(b store.Batch, ref *firestore.DocumentRef, rec Record, kind
 			connect.CodeResourceExhausted,
 			commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
 			"daily limit reached, please try again tomorrow",
-		).WithMeta("quota", string(kind))
+		).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(time.Now()))
 	}
 	rec.increment(kind)
 	b.Set(ref, rec)

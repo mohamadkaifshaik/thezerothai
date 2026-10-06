@@ -456,3 +456,33 @@ func TestInterceptor_DailyCapRejectionCarriesLimitMetadata(t *testing.T) {
 		t.Errorf("retry_after = %v, want 12h", got)
 	}
 }
+
+// ADR-0010 D5 / T3 acceptance: 2,000 read units are admitted (one call each), the 2,001st is rejected with
+// RATE_LIMITED, limit_name=read_budget_daily and 0 handler reads.
+func TestReadBudget_2001stUnitRejectedWithReadBudgetDaily(t *testing.T) {
+	now := time.Date(2026, 1, 1, 10, 0, 0, 0, istZone)
+	uidCap := ratelimit.NewDailyCap(2000).WithClock(func() time.Time { return now })
+	rig := newBudgetServer(t, "uid-a", ratelimit.Config{ReadBudget: uidCap}, 1, nil)
+
+	for i := 1; i <= 2000; i++ {
+		if err := call(t, rig.srv, ""); err != nil {
+			t.Fatalf("call %d rejected: %v", i, err)
+		}
+	}
+	if got := uidCap.Spent("uid-a"); got != 2000 {
+		t.Fatalf("spent = %d, want 2000", got)
+	}
+	d := rateLimitDetail(t, call(t, rig.srv, ""))
+	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
+		t.Errorf("reason = %v, want RATE_LIMITED", d.GetReason())
+	}
+	if d.GetMetadata()["limit"] != "read_budget_daily" {
+		t.Errorf("metadata limit = %q, want read_budget_daily", d.GetMetadata()["limit"])
+	}
+	if (*rig.info).LimitName != "read_budget_daily" {
+		t.Errorf("LimitName = %q", (*rig.info).LimitName)
+	}
+	if rig.calls.Load() != 2000 {
+		t.Errorf("handler ran %d times, want 2000 (the 2,001st must cost 0 reads)", rig.calls.Load())
+	}
+}

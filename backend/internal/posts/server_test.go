@@ -84,8 +84,7 @@ func TestGuardFeature_LogsTheRejection(t *testing.T) {
 	}
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; on => Unimplemented (until
-// T8/T9, and GetThread until P3).
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; on => GetThread is still Unimplemented (until P3).
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"CreatePost": func(s *Server, ctx context.Context) error {
@@ -120,11 +119,71 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 				t.Fatalf("a disabled call touched Firestore: reads=%d writes=%d", counter.Reads(), counter.Writes())
 			}
 		})
+		if name != "GetThread" {
+			continue // implemented in T8/T9; see TestServer_CreatePost, TestServer_DeleteAndGetPost
+		}
 		t.Run(name+" flag on", func(t *testing.T) {
 			err := call(NewServer(svc, &fakeFlags{on: true}), callerCtx("u1"))
 			if connect.CodeOf(err) != connect.CodeUnimplemented {
 				t.Fatalf("err = %v, want UNIMPLEMENTED", err)
 			}
 		})
+	}
+}
+
+// TestServer_CreatePost maps a Service result onto the proto PostView and hands the flag-guarded request through.
+func TestServer_CreatePost(t *testing.T) {
+	e := newCreateEnv()
+	srv := NewServer(e.svc, &fakeFlags{on: true})
+	resp, err := srv.CreatePost(callerCtx(testUID), connect.NewRequest(&postsv1.CreatePostRequest{IdempotencyKey: key1, Text: "hi @bob #Go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := resp.Msg.GetPost().GetPost()
+	if p.GetPostId() == "" || p.GetConversationId() != p.GetPostId() || p.GetText() != "hi @bob #Go" ||
+		p.GetKind() != postsv1.PostKind_POST_KIND_POST || p.GetVisibility() != postsv1.Visibility_VISIBILITY_PUBLIC ||
+		p.GetAuthor().GetUserId() != testUID || p.GetAuthor().GetHandle() != "Alice" ||
+		len(p.GetMentions()) != 1 || p.GetMentions()[0].GetUserId() != "uid-bob" || len(p.GetHashtags()) != 1 || p.GetHashtags()[0] != "go" ||
+		p.GetCreatedAt() == nil || p.GetCreatedAt().AsTime().IsZero() {
+		t.Fatalf("response = %v", p)
+	}
+	if resp.Msg.GetPost().GetLikedByViewer() || resp.Msg.GetPost().GetRepostedByViewer() {
+		t.Fatal("viewer flags must be false")
+	}
+
+	_, err = srv.CreatePost(callerCtx(testUID), connect.NewRequest(&postsv1.CreatePostRequest{IdempotencyKey: "short", Text: "hi"}))
+	var ae *apierr.Error
+	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
+		t.Fatalf("err = %v, want VALIDATION", err)
+	}
+}
+
+// TestServer_DeleteAndGetPost: the handlers pass the caller and ids through and map the result.
+func TestServer_DeleteAndGetPost(t *testing.T) {
+	e := newDeleteEnv()
+	srv := NewServer(e.svc, &fakeFlags{on: true})
+
+	got, err := srv.GetPost(callerCtx(testUID), connect.NewRequest(&postsv1.GetPostRequest{PostId: pidOther}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := got.Msg.GetPost().GetPost(); p.GetPostId() != pidOther || p.GetAuthor().GetHandle() != "zed" || got.Msg.GetPost().GetLikedByViewer() {
+		t.Fatalf("GetPost = %v", p)
+	}
+	var nf *apierr.Error
+	if _, err := srv.GetPost(callerCtx(testUID), connect.NewRequest(&postsv1.GetPostRequest{PostId: "0000000000000000999"})); !errors.As(err, &nf) || nf.Code != connect.CodeNotFound {
+		t.Fatalf("err = %v, want NOT_FOUND", err)
+	}
+
+	if _, err := srv.DeletePost(callerCtx(testUID), connect.NewRequest(&postsv1.DeletePostRequest{IdempotencyKey: key1, PostId: pidMine})); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.repo.docs[pidMine]; ok {
+		t.Fatal("post not deleted")
+	}
+	_, err = srv.DeletePost(callerCtx(testUID), connect.NewRequest(&postsv1.DeletePostRequest{IdempotencyKey: key1, PostId: "abc"}))
+	var ae *apierr.Error
+	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
+		t.Fatalf("err = %v, want VALIDATION", err)
 	}
 }

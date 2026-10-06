@@ -28,6 +28,20 @@ type fakeRepo struct {
 	queryResult   []*Post
 	queryErr      error
 	getAllErr     error
+
+	// CreatePost model (create_fakes_test.go).
+	idem        map[string]fakeIdem
+	createCalls int
+	createErr   error
+	quotaUsed   int64
+	postsCount  int64
+	nextID      int64
+	lastCreate  CreateParams
+
+	// DeletePost model.
+	deleteCalls int
+	deleteErr   error
+	deleteRace  bool // the post vanishes between the read and the batch (a concurrent delete won)
 }
 
 func newFakeRepo(ps ...*Post) *fakeRepo {

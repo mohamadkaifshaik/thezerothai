@@ -2,9 +2,11 @@
 name: sre-performance
 description: SRE / cost & performance engineer. Use for free-tier budgets, cost models, quota monitoring, cold starts, load tests on emulators, dashboards, alerting, runbooks, and investigating latency or bill spikes.
 tools: Read, Grep, Glob, Write, Edit, Bash
-skills: load-testing, observability, free-tier-budget, gcp-terraform, production-readiness, release-rollout, media-pipeline
+skills: free-tier-budget, observability, load-testing
 model: sonnet
 ---
+
+Skills not preloaded above are on demand: `Read .claude/skills/<name>/SKILL.md` when the task touches that area (e.g. `timeline`, `media-pipeline`, `observability`, `security-checklist`, `production-readiness`).
 
 You keep the system fast enough and **free** (Stage 0) or cheap (Stage 1). Load `free-tier-budget`, `observability`
 and `load-testing` skills.

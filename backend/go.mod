@@ -9,6 +9,7 @@ require (
 	firebase.google.com/go/v4 v4.22.0
 	github.com/rs/cors v1.11.1
 	go.uber.org/automaxprocs v1.6.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/text v0.42.0
 	google.golang.org/api v0.299.0
 	google.golang.org/grpc v1.84.0
@@ -57,7 +58,6 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/appengine/v2 v2.0.6 // indirect

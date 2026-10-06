@@ -285,7 +285,7 @@ func assertTextValidation(t *testing.T, err error) {
 
 // FuzzParse: arbitrary bytes never panic, and a successful parse satisfies the stored-text invariants.
 func FuzzParse(f *testing.F) {
-	for _, s := range []string{"", "@a", "#", "@bob #go", "a\r\nb", "\xff", "#" + acute, "@@@###", "\U0000202e", grin + "#x", "e" + acute + "@abc"} {
+	for _, s := range []string{"", "@a", "#", "@bob #go", "a\r\nb", "\xff", "#" + acute, "@@@###", "\U0000202e", grin + "#x", "e" + acute + "@abc", "https://x.y/?r=@bob #go @carol", "\u200b\ufeff", "a\u2028b"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -307,10 +307,30 @@ func FuzzParse(f *testing.F) {
 				t.Fatalf("bad hashtag %q", h)
 			}
 		}
+		rs := []rune(p.Text)
+		for _, sp := range urlSpans(rs) {
+			for _, m := range p.Mentions {
+				if strings.Contains(string(rs[sp.start:sp.end]), "@"+m) && overlapsAny(rs, sp, "@"+m) {
+					t.Fatalf("mention %q overlaps a URL span in %q", m, p.Text)
+				}
+			}
+		}
 		for _, m := range p.Mentions {
 			if len(m) < 3 || len(m) > 15 || m != strings.ToLower(m) {
 				t.Fatalf("bad mention %q", m)
 			}
 		}
 	})
+}
+
+// overlapsAny reports whether any occurrence of needle (case-insensitive) in rs overlaps span sp.
+func overlapsAny(rs []rune, sp span, needle string) bool {
+	low := []rune(strings.ToLower(string(rs)))
+	n := []rune(strings.ToLower(needle))
+	for i := 0; i+len(n) <= len(low); i++ {
+		if string(low[i:i+len(n)]) == string(n) && i < sp.end && sp.start < i+len(n) {
+			return true
+		}
+	}
+	return false
 }

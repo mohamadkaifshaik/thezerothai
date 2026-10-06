@@ -30,7 +30,7 @@ func ctxFor(uid string) context.Context {
 	return authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 reads; on => Unimplemented until T12/T13.
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 reads (the enabled paths are in service_test.go).
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"GetHomeTimeline": func(s *Server, ctx context.Context) error {
@@ -54,12 +54,6 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 				t.Fatalf("a disabled call read %d docs", counter.Reads())
 			}
 		})
-		t.Run(name+" flag on", func(t *testing.T) {
-			err := call(NewServer(Deps{Flags: fakeFlags{on: true}}), ctxFor("u1"))
-			if connect.CodeOf(err) != connect.CodeUnimplemented {
-				t.Fatalf("err = %v, want UNIMPLEMENTED", err)
-			}
-		})
 	}
 }
 
@@ -72,12 +66,12 @@ func keys(m map[string]bool) []string {
 	return out
 }
 
-// TestImports_OnlyPostsAndGraphAmongInternalModules is the ADR-0004 handoff import lint: timeline reads posts
+// TestImports_OnlySeamsOfPostsGraphIdentity is the ADR-0004 handoff import lint: timeline reads posts
 // through posts.Reader and the social context through graph.Reader, never another module's package (and so
 // never a repo or a collection). Test files are included so a test cannot smuggle in a repo either.
-func TestImports_OnlyPostsAndGraphAmongInternalModules(t *testing.T) {
+func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 	const internalPrefix = "github.com/dzeroth/dzeroth/backend/internal/"
-	allowed := map[string]bool{"posts": true, "graph": true}
+	allowed := map[string]bool{"posts": true, "graph": true, "identity": true}
 
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) == 0 {
@@ -89,12 +83,14 @@ func TestImports_OnlyPostsAndGraphAmongInternalModules(t *testing.T) {
 		"posts": {
 			"Reader": true, "Window": true, "Position": true, "Post": true, "Recent": true, "Mention": true,
 			"AuthorSnapshot": true, "Kind": true, "Visibility": true, "ErrNotFound": true, "ErrInvalidID": true,
-			"FlagChecker": true, "GuardFeature": true, "FlagName": true,
+			"FlagChecker": true, "GuardFeature": true, "FlagName": true, "ToProto": true,
 			"MaxGetMany": true, "MaxByAuthors": true, "MaxLimit": true, "MaxRecent": true,
 			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
 			"VisibilityPublic": true, "VisibilityFollowers": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
+		// identity: the Directory seam, its Profile value type, the one missing-user error and the uid predicate.
+		"identity": {"Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true},
 	}
 	sawAny := false
 	for _, f := range files {
@@ -116,7 +112,7 @@ func TestImports_OnlyPostsAndGraphAmongInternalModules(t *testing.T) {
 			sawAny = true
 			pkg := strings.SplitN(rest, "/", 2)[0]
 			if !allowed[pkg] || strings.Contains(rest, "/") {
-				t.Errorf("%s imports %s: timeline may import only the posts and graph packages", f, path)
+				t.Errorf("%s imports %s: timeline may import only the posts, graph and identity packages", f, path)
 				continue
 			}
 			name := pkg
