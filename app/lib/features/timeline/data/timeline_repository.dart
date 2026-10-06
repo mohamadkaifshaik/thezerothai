@@ -26,10 +26,12 @@ class TimelineRepository {
     required TimelineStore store,
     required PostsFeatureGate gate,
     int pageSize = 0,
+    Duration Function()? monotonic,
   }) : _apiClient = apiClient,
        _store = store,
        _gate = gate,
-       _pageSize = pageSize;
+       _pageSize = pageSize,
+       _elapsed = monotonic ?? _stopwatchClock();
 
   final ApiClient _apiClient;
   final TimelineStore _store;
@@ -37,6 +39,14 @@ class TimelineRepository {
 
   /// 0 lets the server pick its default (20).
   final int _pageSize;
+
+  /// Monotonic time (never wall-clock: a clock change must not suppress or
+  /// double a refresh).
+  final Duration Function() _elapsed;
+  final Map<String, Duration> _refreshedAt = {};
+  final Map<String, Duration> _attemptedAt = {};
+  Duration? _rateLimitedUntil;
+  RateLimitedException? _rateLimit;
 
   final Map<String, Future<void>> _lockTails = {};
   final Map<String, Future<TimelineSnapshot>> _inflight = {};
@@ -48,6 +58,48 @@ class TimelineRepository {
     _store.endSession();
     _inflight.clear();
     _lockTails.clear();
+    _refreshedAt.clear();
+    _attemptedAt.clear();
+    _rateLimitedUntil = null;
+    _rateLimit = null;
+  }
+
+  /// Time since the last successful [refresh] of [feed] in this session, or
+  /// null when it was never refreshed. Screens use it to throttle automatic
+  /// refreshes (ADR-0004: at most one per 60 s) across screen re-creations.
+  Duration? sinceRefresh(FeedKey feed) {
+    final at = _refreshedAt[feed.value];
+    return at == null ? null : _elapsed() - at;
+  }
+
+  /// Time since the last [refresh] of [feed] was *attempted*, whether it
+  /// succeeded or failed; null when none was. The foreground tick throttles
+  /// on this, so an outage retries at most once per interval instead of
+  /// every tick.
+  Duration? sinceRefreshAttempt(FeedKey feed) {
+    final at = _attemptedAt[feed.value];
+    return at == null ? null : _elapsed() - at;
+  }
+
+  /// The RATE_LIMITED answer timeline calls are still held back for
+  /// (ADR-0010 D5: no timeline RPC before `retry_after`), with `retryAfter`
+  /// reduced to the time left; null when nothing is held back. The short
+  /// in-flight hold is excluded: the API client already retries it once.
+  RateLimitedException? rateLimitedFor() {
+    final until = _rateLimitedUntil;
+    final original = _rateLimit;
+    if (until == null || original == null) return null;
+    final left = until - _elapsed();
+    if (left <= Duration.zero) {
+      _rateLimitedUntil = null;
+      _rateLimit = null;
+      return null;
+    }
+    return RateLimitedException(
+      original.message,
+      retryAfter: left,
+      limitName: original.limitName,
+    );
   }
 
   /// What is on disk for [feed]. Never touches the network.
@@ -57,26 +109,36 @@ class TimelineRepository {
   Future<TimelineSnapshot> refresh(FeedKey feed) {
     final session = _store.session;
     return _single(feed, 'refresh', () async {
-      final state = await _store.read(feed);
-      if (state.sinceToken.isEmpty) return _coldOpen(feed, session);
-      final page = await _fetchUnlessRejected(
-        feed,
-        'since_token',
-        sinceToken: state.sinceToken,
-      );
-      if (page == null) {
-        await _store.clearSince(feed, session: session);
-        return _coldOpen(feed, session);
+      try {
+        final snapshot = await _refresh(feed, session);
+        if (_store.session == session) _refreshedAt[feed.value] = _elapsed();
+        return snapshot;
+      } finally {
+        if (_store.session == session) _attemptedAt[feed.value] = _elapsed();
       }
-      await _store.applyRefresh(
-        feed,
-        posts: page.posts,
-        sinceToken: page.sinceToken,
-        gapPageToken: page.gapPageToken,
-        session: session,
-      );
-      return _store.read(feed);
     });
+  }
+
+  Future<TimelineSnapshot> _refresh(FeedKey feed, int session) async {
+    final state = await _store.read(feed);
+    if (state.sinceToken.isEmpty) return _coldOpen(feed, session);
+    final page = await _fetchUnlessRejected(
+      feed,
+      'since_token',
+      sinceToken: state.sinceToken,
+    );
+    if (page == null) {
+      await _store.clearSince(feed, session: session);
+      return _coldOpen(feed, session);
+    }
+    await _store.applyRefresh(
+      feed,
+      posts: page.posts,
+      sinceToken: page.sinceToken,
+      gapPageToken: page.gapPageToken,
+      session: session,
+    );
+    return _store.read(feed);
   }
 
   /// Infinite scroll: the page below the oldest cached item. No call when
@@ -202,6 +264,17 @@ class TimelineRepository {
         r.sinceToken,
         r.gapPageToken,
       );
+    } on RateLimitedException catch (error) {
+      if (!error.isInflightHold) {
+        _rateLimit = error;
+        _rateLimitedUntil =
+            _elapsed() +
+            (error.retryAfter ??
+                (error.isDaily
+                    ? const Duration(minutes: 5)
+                    : const Duration(seconds: 30)));
+      }
+      rethrow;
     } on NotFoundException {
       // The user vanished or blocks the caller: forget their feed so a
       // warm start never shows what the server now hides (ADR-0010 D6).
@@ -234,6 +307,11 @@ class TimelineRepository {
         .ignore();
     return future;
   }
+}
+
+Duration Function() _stopwatchClock() {
+  final stopwatch = Stopwatch()..start();
+  return () => stopwatch.elapsed;
 }
 
 class _Page {

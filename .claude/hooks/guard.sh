@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Block edits to generated code and secret files. Exit 2 = block with message to Claude.
+. "${0%/*}/lib.sh" || exit 2
+require_jq
 f=$(jq -r '.tool_input.file_path // empty')
 case "$f" in
   */gen/*|*.pb.go|*.connect.go|*.pb.dart|*.pbgrpc.dart|*.g.dart|*.freezed.dart)

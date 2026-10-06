@@ -47,9 +47,14 @@ export function mintUsers(n, handlePrefix) {
   return users;
 }
 
-export function graphCall(method, body, idToken, rpcTag) {
-  return http.post(`${API_URL}/dzeroth.graph.v1.GraphService/${method}`, JSON.stringify(body), {
+// rpcCall posts a Connect JSON unary call to any service (T22 reuses it for PostService/TimelineService).
+export function rpcCall(service, method, body, idToken, rpcTag) {
+  return http.post(`${API_URL}/${service}/${method}`, JSON.stringify(body), {
     headers: authHeaders(idToken),
     tags: { rpc: rpcTag || method },
   });
+}
+
+export function graphCall(method, body, idToken, rpcTag) {
+  return rpcCall('dzeroth.graph.v1.GraphService', method, body, idToken, rpcTag);
 }

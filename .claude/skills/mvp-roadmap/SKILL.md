@@ -5,13 +5,15 @@ description: The phased product roadmap for the X-like platform, from a $0 free-
 
 # Roadmap
 
-## Phase 0 — Foundation (week 1–2) — $0
+Status (2026-10): **Phase 0 done** (v0.1.0). **Phase 1 in progress**: profiles, follow/block/mute, read-budget hardening and part of posts/timeline are done; replies, images, likes, notifications, reports and deletion/export are not started. Live ticket status: `docs/plans/phase1.md` and `docs/plans/posts-and-timeline.md`. Update this note when a phase moves.
+
+## Phase 0 — Foundation — $0  ✅ done
 - Monorepo skeleton: `backend/` Go module, `buf`, Flutter app shell, `firebase/` config, Makefile, emulator scripts.
 - Terraform: dev + prod projects, Firestore, Cloud Run `api`, media buckets, Pub/Sub, Artifact Registry (cleanup), IAM + WIF, **budget alerts**, dashboard, uptime check, Firebase apps + Hosting.
 - CI (PR checks on emulators) + CD to dev; tagged-revision release to prod.
 - `identity` module; Firebase Auth sign-up/sign-in (email, Google, Apple) on all 3 platforms; App Check.
 
-## Phase 1 — Core MVP (week 3–6) — $0 at < ~300 DAU
+## Phase 1 — Core MVP — $0 at < ~300 DAU  🚧 in progress
 - Profiles (handle, bio, avatar), follow/unfollow, block/mute.
 - Create post (text ≤ 280, mentions, hashtags, links), delete post, reply threads.
 - Images (≤ 4) via client compression + signed uploads + SafeSearch within quota.
@@ -21,7 +23,7 @@ description: The phased product roadmap for the X-like platform, from a $0 free-
 - Report + block flows, account deletion + export (store requirements).
 - Cost model doc with real numbers after first 100 users.
 
-## Phase 2 — Growth (week 7–10) — pay-per-use, a few $/month
+## Phase 2 — Growth — pay-per-use, a few $/month
 - Handle/hashtag search (Firestore prefix + array-contains), trending hashtags from a daily Scheduler job.
 - Bookmarks, pinned posts, edit window.
 - Link previews (SSRF-safe fetcher, cached in Firestore).

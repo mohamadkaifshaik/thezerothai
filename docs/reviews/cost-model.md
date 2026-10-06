@@ -1,6 +1,7 @@
-# Cost model — v0.1 (design estimate; Graph rows use emulator-measured numbers, no production data yet)
+# Cost model — v0.3 (design estimate; Graph and Posts/Timeline rows use emulator-measured numbers, no production data yet)
 Owner: sre-performance (maintains actuals weekly). Seeded by: architect, 2026-09-26, from ADR-0002…0007 and the protos.
 Updated 2026-09-30 (T21): Graph rows re-based on `docs/reviews/loadtest-graph.md` (T18) and the T16a/T16b `budgettest` ceilings; see `cost-report-v0.2.0.md` §Graph.
+Updated 2026-10-06 (posts-and-timeline T25): Post/Timeline rows re-based on emulator measurements; see `cost-report-posts-timeline.md`. Whole product 191 to 230.0 reads/DAU (released scope 192.9; ADR-0010 forecast 182.6).
 Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same worst/typical numbers; change both together.
 
 ## 1. Assumptions (replace with measured values after the first 100 users)
@@ -8,13 +9,13 @@ Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same w
 |---|---|---|
 | Sessions (app opens) per DAU/day | 4 | drives GetMe, refreshes |
 | Home refreshes per DAU/day | 8 (pull + resume; auto-refresh ≥ 60 s apart) | each costs `C` = ceil((F+1)/30) reads even if empty |
-| Median following F | 60 → C = 3 incl. self; modelled as ~3 reads overhead/refresh incl. cached graph/userLikes misses | a user following 300 pays ~11/refresh |
+| Median following F | 60 → C = 3 incl. self; measured 2-4 reads overhead/refresh (graph cold 4, warm 3, all warm 2); modelled 4. `userLikes` is not read until P5 and is not in any row | a user following 300 pays ~11/refresh |
 | Posts per DAU/day (incl. replies) | 1.0 (30% replies) | conservative; lurker-heavy apps see 0.2–0.5 |
 | New followee posts seen per DAU/day | 60 (each read once via `since`) | biggest single read line; scales with F × activity |
 | Older pages (infinite scroll) per DAU/day | 1 × 20 items | |
 | Likes / reposts / follows per DAU/day | 5 / 0.3 / 0.5 | likes dominate writes |
 | Images per DAU/day | 0.2 (≈ 0.15 upload calls) | drives GCS + Vision |
-| Instance cache hit rate | ~50% for users/graph/userLikes/post docs | low at Stage 0: few concurrent users, scale-to-zero empties caches |
+| Instance cache hit rate | ~50% for users/graph/post docs (assumption; never measured, no traffic yet) | low at Stage 0: few concurrent users, scale-to-zero empties caches |
 | Avg billable Cloud Run time per request | 0.1 s at 1 vCPU (low concurrency, little overlap) | conservative: overlap at higher traffic lowers it |
 | Avg API response (binary proto, gzip) | 6 KB | |
 | Image sizes | thumb ≈ 40 KB, full ≈ 250 KB, avatar thumb ≈ 4 KB; pair stored ≈ 300 KB | |
@@ -44,15 +45,19 @@ Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same w
 | GraphService.ListBlockedUsers / ListMutedUsers | 51 / 10 | 0 | 0 | 40 | 0.02 | 0.2 | 0 | 0 |
 | GraphService.ListFollowRequests / RespondToFollowRequest (flag-off stubs) | 0 | 0 | 0 | 5 | 0 | 0 | 0 | 0 |
 | **Graph slice subtotal** | | | | | **≈ 4.0 req** | **≈ 13.1** (was 10.2) | **≈ 2.9** (was 3.35) | **≈ 0.1** |
-| PostService.CreatePost (+async notifications) | 19 / 1.5 | 6 + 11 / 4.8 | 1 (idempotency TTL) | 80 | 1.0 | 1.5 | 4.8 | 1.0 |
-| PostService.DeletePost (+job) | 1 / 1 | 2 / 2 | 1 + likes/reposts / ~4 | 40 (+job) | 0.05 | 0.05 | 0.1 | 0.2 |
-| PostService.GetPost | 4 / 0.5 | 0 | 0 | 15 | 1 | 0.5 | 0 | 0 |
-| PostService.GetThread | 56 / 7.5 | 0 | 0 | 60 | 2 | 15.0 | 0 | 0 |
-| TimelineService.GetHomeTimeline — refresh overhead | 2 + C / 3 | 0 | 0 | 80 | 8 | 24.0 | 0 | 0 |
-| ↳ new followee posts returned by refreshes | (included in 2C + 2·page) | 0 | 0 | — | 60 posts | 60.0 | 0 | 0 |
-| TimelineService.GetHomeTimeline — older page | 2 + C + 2·page (269 @ F=5,000) / 23 | 0 | 0 | 120 | 1 | 23.0 | 0 | 0 |
-| TimelineService.GetHomeTimeline — cold open | same / 23 | 0 | 0 | 150 | 0.1 | 2.3 | 0 | 0 |
-| TimelineService.GetUserTimeline | 54 / 11 | 0 | 0 | 50 | 2 | 22.0 | 0 | 0 |
+| PostService.CreatePost (root; reads exclude the interceptor) | 14 / **2.2** planning (measured 2 warm; +1 per uncached mentioned handle, 3 cold instance, 5 cold with 2 mentions) | 4 / 4 (measured) | 1 (idempotency TTL) | 80 | 1.0 | 2.2 | 4.0 | 1.0 |
+| PostService.CreatePost, replay / reused key | 14 / 1 warm (measured); 3 on a cold instance (users + idempotency + post) | 0 | 0 | 30 | — | — | — | — |
+| PostService.DeletePost (own post) | 2 / **1** (measured 1 cold, 0 warm, 1 on a no-op or another user's post) | 1 / 1 (0 on no-op, measured) | 1 / 1 (0 on no-op) | 40 | 0.05 | 0.05 | 0.05 | 0.05 |
+| PostService.GetPost | 4 / **1.0** (measured 3 cold: post + author + caller graph; 1 post miss with author+graph warm; 0 warm) | 0 | 0 | 15 | 1 | 1.0 | 0 | 0 |
+| PostService.GetThread **[planned, P3, not released, not measured]** | 56 / 7.5 | 0 | 0 | 60 | 2 | 15.0 | 0 | 0 |
+| TimelineService.GetHomeTimeline — refresh overhead (no `userLikes` until P5) | 2 + C / **4** (measured 4 graph cold, 3 graph warm, 2 all warm; F=60) | 0 | 0 | 80 | 8 | 32.0 | 0 | 0 |
+| ↳ new followee posts returned by refreshes | measured +1 read per returned post (new=1: 4, 8: 10, 20: 22) | 0 | 0 | — | 60 posts | 60.0 | 0 | 0 |
+| ↳ settle-window re-reads (ADR-0010 D13) | measured unit: +1 read per re-delivered post; frequency derived, ≤ 0.1 per refresh | 0 | 0 | — | 8 | 1.0 | 0 | 0 |
+| TimelineService.GetHomeTimeline — older page | 269 (assert 268 + interceptor) / **40** (measured 40 mixed feed, 42 dense feed, 43 on a cold instance; **ADR planning 30, +33%: ADR-0010 revisit flagged**) | 0 | 0 | 120 | 1 | 40.0 | 0 | 0 |
+| TimelineService.GetHomeTimeline — cold open | same / **36.5** (measured 30 mixed, 43 dense; midpoint; ADR 30) | 0 | 0 | 150 | 0.1 | 3.65 | 0 | 0 |
+| TimelineService.GetUserTimeline (page 20) | 54 / **11** (measured 22 cold page, 0 warm first page, 20-22 page 2, 3 cold refresh with 0 new, 0-1 warm refresh; mix of cold and warm) | 0 | 0 | 50 | 2 | 22.0 | 0 | 0 |
+| `AccountStatusInterceptor` caller read on posts/timeline requests (measured unit: 1 cold, 0 warm; mix derived) | 1 / 0 / 1 per home refresh, 0.5 on the other 5.15 requests | 0 | 0 | — | 13.15 req | 10.6 | 0 | 0 |
+| **Posts + timeline subtotal (released in P1)** | | | | | **≈ 13.15 req** | **≈ 172.5** (ADR-0010: 162.2) | **≈ 4.05** | **≈ 1.05** |
 | MediaService.CreateUpload | 2 / 1 | 6 / 3.3 | 1 (idempotency TTL) | 150 (signBlob ×2/image) | 0.15 | 0.15 | 0.5 | 0.15 |
 | MediaService.FinalizeUpload | 5 / 1.7 | 5 / 2.7 | 0 | 800 (Vision + copies) | 0.15 | 0.25 | 0.4 | 0 |
 | [planned] Like (+in-batch notification) | 1 / 0 | 4 / 4 | ~0.9 (notification TTL) | 40 | 5 | 0 | 20.0 | 4.5 |
@@ -61,9 +66,9 @@ Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same w
 | [planned] ListNotifications + mark seen | 21 / 10 | 1 / 0.5 | 0 | 40 | 2 | 20.0 | 1.0 | 0 |
 | [planned] Pub/Sub push send (reply/mention/follow/repost) | 1 / 1 (device tokens) | 0 | 1 (notification TTL) | 100 | 1.3 | 1.3 | 0 | 1.3 |
 | [planned] RegisterDevice (FCM token) | 0 | 1 / 1 | 0 | 20 | 0.1 | 0 | 0.1 | 0 |
-| **Total per DAU/day** | | | | | **36.8 requests** | **≈ 191** (was 188) | **≈ 32.6** (was 33) | **≈ 7.8** |
+| **Total per DAU/day (whole product, incl. `[planned]` rows)** | | | | | **36.8 requests** | **≈ 230.0** (was 191) | **≈ 31.8** (was 32.6) | **≈ 7.65** |
 
-Home timeline = 109 reads/DAU/day (57% of all reads). Likes = 20 writes/DAU/day (61% of all writes).
+Home timeline = 136.7 reads/DAU/day (59% of all reads). Likes = 20 writes/DAU/day (63% of all writes).
 
 Graph notes (T21, all from emulator runs; `loadtest-graph.md` is the source):
 - **Follow is 4 reads, not the plan's 3.** After a successful Follow, `directory.Forget(caller, target)` evicts both
@@ -78,30 +83,58 @@ Graph notes (T21, all from emulator runs; `loadtest-graph.md` is the source):
   Mute's 3 depends on T26 (not merged as of this update); today's Mute is 2 reads.
 - GetRelationships measured 0.11 mean on a warm pool (worst 2). 0.5 is kept, the planning value.
 
+Posts/timeline notes (T25, emulator runs; `cost-report-posts-timeline.md` is the source; reads exclude the interceptor unless stated):
+- **Measured values** are from the existing integration tests plus throwaway `-overlay` tests (not in the repo). Cache hit rates, the 60 new posts/DAU
+  and the call mix are still model assumptions: there is no real traffic.
+- **Older page is 40 (mixed feed) to 42 (dense feed), planning 30: +33% to +40%, above the 25% line.** With 61 authors (self + 60) the
+  first chunk is self + 29, so there are three chunks and k = ceil(2p/3) = 14; once the small chunk is covered by author-recent, two
+  chunks run at k = 20. This is the ADR-0004 over-read, priced higher than the ADR assumed. ADR-0010 lever ("`2p` to `1.5p`
+  when older-page reads > 1.4 x page size") has fired: 40 / 20 = 2.0. Not applied (no code change in T25); flagged for P9.
+- **Home refresh overhead is 4 only on a fully cold instance** (graph expired, author-recent empty). Graph warm is 3, all warm 2.
+  Modelled 4 because refreshes are >= 60 s apart and `CACHE_TTL` is capped at 60 s.
+- **New posts cost 1 read each** (measured exactly), so 60 posts/DAU = 60 reads/DAU. The count of 60 is an input, not a measurement.
+- **Settle re-read**: measured unit is 1 read per re-delivered post; the frequency (about 0.1 per refresh) is derived, not measurable
+  without traffic. Uniform arrivals would give about 0.01 per refresh, so 1.0/DAU is an upper bound.
+- **`userLikes` is out of every timeline row until P5** (no read, no cache entry).
+- **F = 5,000 measures 168 reads (169 with the interceptor) against the 269 ceiling.** The seeded shape has 8 real authors; the ceiling
+  needs every chunk to fill k. The ceiling is an assertion bound, not a planning value.
+- Unit costs are exact across runs (deterministic emulator, no variance), so "mean" = the value.
+
 ## 3. Firestore totals vs quota (80% line = 40k reads, 16k writes, 16k deletes per day)
+Whole product, including the `[planned]` likes, notifications and GetThread rows (230.0 reads, 31.8 writes, 7.65 deletes per DAU):
 | DAU | reads/day | % of 80% line | writes/day | % of 80% line | deletes/day | % of 80% line |
 |---|---|---|---|---|---|---|
-| 100 | 19.1k | 48% | 3.3k | 20% | 0.8k | 5% |
-| 300 (Stage 0 target) | **57.3k** | **143% (115% of quota)** | 9.8k | 61% | 2.3k | 15% |
+| 100 | 23.0k | 58% | 3.2k | 20% | 0.8k | 5% |
+| 300 (Stage 0 target) | **69.0k** | **173% (138% of quota)** | 9.5k | 60% | 2.3k | 14% |
 
-**Finding:** reads cross the 80% line at **~210 DAU** (was ~213) and the full free quota at **~262 DAU** (was ~266). Stage 0's
-300-DAU target therefore costs a little: ≈ 7.3k reads/day over → ≈ $0.13/month at the upper-bound read price. This is
-inside the constitution (pay-per-use, no step change), but the "$0 up to 300 DAU" goal is **not** met on reads without
-the levers in §6. Writes stay free to ~614 DAU (was ~603); deletes to ~2,600 DAU. The move is measurement, not design:
-graph reads/DAU went 10.2 → 13.1 (Follow 4 not 3, lists 30.5, Unfollow 1, Mute 3).
+**Finding (whole product):** reads cross the 80% line at **~174 DAU** (was ~210) and the full free quota at **~217 DAU** (was ~262). Stage 0's
+300-DAU target costs ≈ 19.0k reads/day over → ≈ **$0.34/month** at the upper-bound read price (was $0.13). Still pay-per-use with no step change, but the
+"$0 up to 300 DAU" goal is **not** met on reads without the §6 levers. Writes stay free to ~630 DAU (was ~614); deletes to ~2,600 DAU.
+Where the +39.2 reads/DAU since the 191 came from, row by row: older page 23 to 40 (+17.0), interceptor line (+10.6, new line), refresh overhead 3 to 4 (+8.0),
+cold open 2.3 to 3.65 (+1.35), settle re-reads (+1.0, new line), CreatePost 1.5 to 2.2 (+0.7), GetPost 0.5 to 1.0 (+0.5). The ADR-0010 corrections account for +28.9
+(162.2 vs the old posts rows); the measured values add +10.3 on top.
 
-**This whole-product row includes the `[planned]` likes/notifications/timeline rows, which are not released.** The
-released v0.2.0 scope (identity + graph) is 20.4 reads, 3.1 writes, 0.1 deletes per DAU: at 300 DAU that is 6.1k reads
-(12.2% of quota, 15% of the 80% line), 0.93k writes (4.6%) and 30 deletes (0.2%), and it runs out at ≈ **2,450 DAU**
-(80% line ≈ 1,960). See `cost-report-v0.2.0.md`. The 262-DAU crossover applies once posts, timeline and engagement ship.
+**Released scope (identity + graph + posts/timelines, after P1), the one that matters for the next release:**
+20.4 + 172.5 = **192.9 reads**, 7.15 writes, 1.15 deletes, 24.45 requests per DAU. ADR-0010 forecast: 182.6 reads (**measured +5.6%**, within 25%).
+| | ADR-0010 forecast | Re-based on measurements | Difference |
+|---|---|---|---|
+| Reads per DAU per day | 182.6 | **192.9** | +5.6% |
+| Reads at 300 DAU | 54.8k (110% of free) | **57.9k (116% of free)** | +5.6% |
+| Free quota runs out at | ≈ 274 DAU | **≈ 259 DAU** | -5.5% |
+| 80% line (40k) crossed at | ≈ 219 DAU | **≈ 207 DAU** | -5.5% |
+| Overage at 300 DAU | 4.8k reads/day, ≈ $0.09/month | **7.9k reads/day, ≈ $0.14/month** | **+64% in dollars (+3.1k reads/day, +$0.05)** |
+The reads figure is within 25% of the ADR. The dollar figure is not, only because overage is the small difference between two close numbers; it is 5 cents. It is
+still inside founder decision D1 (pay-per-use), but the cause is one planning value above 25% (older page, +33%), so the k lever is flagged for P9 and the ADR-0010
+revisit is triggered (`cost-report-posts-timeline.md`). At 300 DAU the identity + graph + posts scope costs 57.9k reads against a 40k alert threshold.
+Writes: 2.1k/day at 300 DAU (11%), free to ~2,800 DAU. v0.2.0 (identity + graph only) is unchanged: 20.4 reads, ≈ 2,450 DAU.
 
 ## 4. Every free quota: where it runs out, and overage at 2× / 10× that DAU
 Overage is for that line alone. Prices are the upper-bound list prices in §7 — **verify** before relying on them.
 | Quota (free per month) | Usage per DAU-month | Runs out at DAU | Overage $/month at 2× | at 10× |
 |---|---|---|---|---|
-| Firestore reads (1.5M = 50k/day) | 5,726 | **262** | $0.90 | $8.10 |
-| Firestore writes (600k = 20k/day) | 977 | 614 | $1.08 | $9.72 |
-| Firestore deletes (600k = 20k/day) | 233 | 2,581 | $0.12 | $1.08 |
+| Firestore reads (1.5M = 50k/day) | 6,902 | **217** | $0.90 | $8.10 |
+| Firestore writes (600k = 20k/day) | 952 | 630 | $1.08 | $9.72 |
+| Firestore deletes (600k = 20k/day) | 230 | 2,614 | $0.12 | $1.08 |
 | Firestore storage (1 GiB) | ≈ 6.4 KB/day (posts, likes, notifications with 90-day TTL) | ~1.5 years at 300 DAU | cents | cents |
 | Cloud Run requests (2M, shared with dev; ~29k/month fixed: uptime + CI) | 1,104 | 1,786 | $0.79 | $7.10 |
 | Cloud Run vCPU-s (180k, shared) | 110 | **1,603** (first Cloud Run limit) | $4.25 | $38.23 |
@@ -119,19 +152,35 @@ Overage is for that line alone. Prices are the upper-bound list prices in §7 �
 | Secret Manager (6 versions, 10k accesses) | 1 version, 1 access per instance start | n/a | $0 | $0 |
 | Artifact Registry (0.5 GB) | 3 images × ~25 MB | n/a | $0 | $0 |
 
+### Read budget as an abuse bound (ADR-0010 D5 as amended; posts-and-timeline T24/T25)
+The read-budget counters live in instance memory, so every bound is **per instance lifetime**. Numbers are the ADR/plan bounds (derived, not load-tested here).
+The measured per-call costs above stay under them: the largest single call, F = 5,000 home, measures 168 reads against the in-flight hold M = 269.
+| Actor | Bound | Reads | $ at the §7 upper-bound price |
+|---|---|---|---|
+| Unverified (minted) password account, any RPC | 0-read verified-identity gate (`PROFILE_REQUIRED` / `EMAIL_NOT_VERIFIED` from token claims) | **0** | $0 |
+| One verified account, one instance lifetime | `READ_BUDGET_PER_UID_PER_DAY` 2,000 + in-flight hold 269 - 1 | **2,308** | $0.0014 |
+| One verified account, a day, steady state (<= 3 instances) | 3 x 2,308 | **<= 6,924** (13.8% of free) | ≈ $0.004 |
+| Same, rollout day (<= 6 instances) | 6 x 2,308 | <= 13,848 | ≈ $0.008 |
+| Same, idle cycling (<= 90 lifetimes/day) | 90 x 2,308 | ≈ 208k | ≈ $0.12 |
+| **Deliberate instance churn (residual R2), ceiling** (<= 270 lifetimes/day) | 270 x 2,308 | **≈ 623k per day** | ≈ $0.37/day |
+| Verified sybils (residual R1) | per account x accounts | ≈ 8 accounts exhaust a day's free reads | ≈ $0.004/day each |
+Detect with `jsonPayload.limit_name` (`read_budget_daily`, `read_budget_inflight`) split by `read_budget_key`, and the `read_budget_spent` field on every request
+line; levers are in `docs/runbooks/abuse-spike.md` (T26). The bound is a hard stop on reads only for the account; the cost is cents, not a step change.
+
 ## 5. Whole bill by DAU (Vision: every image screened, paid past 1,000/month, capped at 10,000 — ADR-0005, founder 2026-09-27)
 | DAU | Firestore | Cloud Run (req + CPU + egress) | GCS (ops + egress) | Hosting | SafeSearch | **Total/month** |
 |---|---|---|---|---|---|---|
 | 100 | $0 | $0.08 (egress) | $0.02 | $0 | $0 | **≈ $0.10** |
-| 300 | $0.13 | $0.24 | $0.10 | $0 | $1.20 | **≈ $1.67** |
-| 600 | $1.16 | $0.48 | $0.25 | $0 | $3.90 | **≈ $5.79** |
-| 1,000 | $3.22 | $0.79 | $0.45 | $0 | $7.50 | **≈ $11.98** |
-| 3,000 | $13.63 | $6.62 | $6.30 | $0.16 | $13.50 (cap hit) | **≈ $40.22** |
+| 300 | $0.34 | $0.24 | $0.10 | $0 | $1.20 | **≈ $1.88** |
+| 600 | $1.58 | $0.48 | $0.25 | $0 | $3.90 | **≈ $6.21** |
+| 1,000 | $3.87 | $0.79 | $0.45 | $0 | $7.50 | **≈ $12.61** |
+| 3,000 | $15.60 | $6.62 | $6.30 | $0.16 | $13.50 (cap hit) | **≈ $42.18** |
 Plus prod Firestore weekly backups (ADR-0007): storage-priced, cents/month at < 1 GiB.
 Nothing in this table is a fixed fee; every line falls back to $0 with traffic. With paid SafeSearch the $5 budget
-alert (ADR-0007) fires at ≈ 550 DAU — consider raising the budget amount then (config change, not an ADR).
+alert (ADR-0007) fires at ≈ 520 DAU (was ≈ 550) — consider raising the budget amount then (config change, not an ADR).
 
 ## 6. Levers, cheapest first (use before any Stage 2 ADR)
+0. **Older-page over-read: k from `2p` to `1.5p` (ADR-0010 reserve lever; its trigger has fired, older page = 2.0 x page).** Derived, not measured: two chunks at k = 15 instead of 20 saves ≈ 10 reads per older page, so ≈ -10 reads/DAU (back to ≈ 183 released). Needs a one-constant backend change and a re-run of the timeline budget tests; flagged for P9.
 1. Notifications list via `since` + client cache (like the timeline): −15 reads/DAU → reads free to ~250 DAU.
 2. GetThread first page 10 instead of 20; lazy "show replies": −5 reads/DAU.
 3. Older-page prefetch only after the user scrolls past 70% (never on open): −5…10 reads/DAU.
@@ -139,7 +188,7 @@ alert (ADR-0007) fires at ≈ 550 DAU — consider raising the budget amount the
 5. Cloud Run CPU: gzip and binary proto (already), avoid per-request allocations in the merge; raise concurrency
    overlap by keeping max instances at 3.
 6. Image egress: keep thumbnails ≤ 40 KB; never load `url` in lists.
-Scale-up triggers remain those in `free-tier-budget` §6 (Firestore > 1.5M reads/day ≈ 7.9k DAU on this model, or bill > $30/month ≈ 3.3k DAU).
+Scale-up triggers remain those in `free-tier-budget` §6 (Firestore > 1.5M reads/day ≈ 6.5k DAU on this model, or bill > $30/month ≈ 2.2k DAU).
 
 ## 7. Prices used (upper bounds; verify on the pricing pages before each stage change)
 The pricing pages could not be fetched on 2026-09-26, so these are the upper-bound list prices from memory — **sre-performance
@@ -170,3 +219,12 @@ must verify** and replace them, especially for `asia-south1`:
   lines `graph_purge_batch` / `purge_missing_counterpart` exist but are written by `opsctl` on the operator's terminal,
   not by the `api` service, so they are not in Cloud Logging.
 - Existing alerts (uptime, 5xx, Firestore reads > 40k/day) are unchanged; the graph adds no alert policy.
+- **Posts and timeline (T25).** Same form as the graph query above. Fields on the request line: `rpc`, `fs_reads`, `fs_writes`, `fs_deletes`, `posts_op`
+  (`create|get|delete`), `outcome` (`created|replay|found|not_found|deleted|noop:not_owner|rejected:<reason>`), `timeline_op` (`home|user`), `timeline_mode`
+  (`cold|refresh|older|gap`), `page_size`, `graph_cache_hit`, `timeline_chunks`, `authors_from_cache`, `items_returned`, `read_budget_spent`.
+  - **Reads by RPC, Post and Timeline:** `jsonPayload.rpc=~"PostService|TimelineService" | sum fs_reads by rpc`
+    (Log Analytics form, only if enabled; it is not at Stage 0: `SELECT JSON_VALUE(json_payload.rpc) AS rpc, SUM(CAST(JSON_VALUE(json_payload.fs_reads) AS INT64)) AS reads, COUNT(*) AS calls ... WHERE JSON_VALUE(json_payload.rpc) LIKE '%PostService%' OR JSON_VALUE(json_payload.rpc) LIKE '%TimelineService%' GROUP BY rpc`).
+  - By operation: `jsonPayload.posts_op!="" | sum fs_reads by posts_op` and `jsonPayload.timeline_op!="" | sum fs_reads by timeline_op, timeline_mode` (split `outcome` for posts).
+  - The T25 revisit signal: mean `fs_reads` where `timeline_mode="older"` over 7 days, against 40 (modelled) and 30 (ADR). Above 1.4 x `page_size` means apply the k lever.
+  - Per-user spread: `jsonPayload.read_budget_spent` (never a body or text; `uid_hash` only).
+- No new log-based metric or alert policy. The existing "reads > 40k/day" alert fires at ≈ 207 DAU for the released scope (≈ 174 whole product).
