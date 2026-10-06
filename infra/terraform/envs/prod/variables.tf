@@ -131,3 +131,31 @@ variable "feature_graph_percent" {
     error_message = "feature_graph_percent must be an integer 0-100."
   }
 }
+
+variable "feature_posts" {
+  description = "FEATURE_POSTS rollout mode for the posts and timeline slice (ADR-0010): off | allowlist | percent | on."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_posts)
+    error_message = "feature_posts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_posts_allowlist" {
+  description = "FEATURE_POSTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_posts_percent" {
+  description = "FEATURE_POSTS_PERCENT: 0-100, only meaningful when feature_posts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_posts_percent >= 0 && var.feature_posts_percent <= 100 && floor(var.feature_posts_percent) == var.feature_posts_percent
+    error_message = "feature_posts_percent must be an integer 0-100."
+  }
+}
