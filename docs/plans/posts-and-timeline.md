@@ -1221,7 +1221,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - DeletePost on another user's post, on an unknown id and on an already-deleted id: byte-identical success, 0 writes,
     0 deletes.
   - The D7/D8 mention and hashtag example tables end to end (stored `mentions`/`hashtags`).
-  - **D21 delta (if accepted):** `https://ex.com/?ref=@bob` stores no mention, with 0 `handles/*` and 0 `graph`
+  - **D21 delta (accepted 2026-10-01):** `https://ex.com/?ref=@bob` stores no mention, with 0 `handles/*` and 0 `graph`
     reads (G1); text with U+2028 line breaks is stored with `\n` (G2); an invisible-only post is VALIDATION (G4); a
     handle freed and reclaimed is resolved to the new owner after 11 s (G5).
   - Purge crash-resume (descending query, T10).
@@ -1237,7 +1237,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `code-map.md` test-helpers section.
 - **Observability.** —
 - **Budget.** Not applicable (emulator).
-- **Status: audited 2026-10-06, not yet complete: 16 covered, 12 partial, 1 missing of 29 bullets; D6 matrix 28/8/24 of 60 cells.** Tests are present and green in CI; the audit was static. Main gaps: no posts invariant checker (missing), no posts IST-rollover test, D6 rows for CreatePost mentions and DeletePost mostly unasserted, D21 G2/G5 not end to end, cold replay and reused-key ceilings and several `budgettest.Assert` calls absent. See `docs/reviews/test-audit-posts-timeline-t19-t20.md`.
+- **Status: tests written 2026-10-06 (audit items #1, #8, #10, #12, #14-16, #19-22 in `docs/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: `assertPostsInvariants` (swept after every create/delete test), cold replay and reused-key budgets, quota rejection and concurrent-create budgets, posts IST rollover, the CreatePost mentions D6 matrix, GetPost and DeletePost D6 matrices, stored mentions/hashtags table, U+2028 to `\n`, purge restart from an empty checkpoint. Still open: the D21 G5 11 s row end to end through CreatePost (covered in `identity/resolve_handles_g5_test.go`; the posts test skips it because `identity.Cache.now` is unexported), and golden JSON for happy responses (no golden convention in the repo).
 
 ### T20 — Emulator integration tests: timelines and read budget  [owner: tester] [size: M] [depends: T3, T12, T13]
 - **Description.**
@@ -1254,7 +1254,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     (accepted at 30 d − 1 s).
   - T3 (ADR-0010 D5 A1–A7): the read budget rejects at the cap; the parallel-call hold never lets the counter pass
     `cap − 1 + M`; unverified password uids cost 0 reads; verified uids without a profile are charged to their /64;
-    the IP budget is enforced on CheckHandleAvailability and charge-only on CreateProfile; the three account
+    the IP budget is charge-only on CheckHandleAvailability and CreateProfile (ADR-0010 D5 A8); the three account
     operations are never rejected by the budget; /64 keying of the IP budget and both per-minute IP limiters; the
     negative handle cache; and the guard test fails when a fake uncapped read procedure is registered.
 - **Acceptance criteria.**
@@ -1267,7 +1267,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Reuse the T19 fixtures.
 - **Observability.** —
 - **Budget.** Not applicable.
-- **Status: audited 2026-10-06, not yet complete: 15 covered, 9 partial, 0 missing of 24 bullets; D6 matrix 28/8/24 of 60 cells.** Tests are present and green in CI; the audit was static. F = 5,000, F = 60, refresh = C, D14 expiry and the T3 unit scenarios are covered. Main gaps: Home D6 rows (suspended, deleting, doc missing, overflow, both-block), the two acceptance scripts (P0 random-handle loop, unverified-account rotation) exist only as components, home older-page and settle-window budgets unasserted, D13 not on the user timeline, D14 since-token posts/replies binding. Bullet 7 still says the IP budget is enforced on CheckHandleAvailability; ADR D5 A8 made it charge-only. See `docs/reviews/test-audit-posts-timeline-t19-t20.md`.
+- **Status: tests written 2026-10-06 (audit items #2-#7, #9, #11, #13, #17, #18, #23, #24 in `docs/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: the P0 random-handle loop and unverified-account rotation as e2e tests, restricted (SUSPENDED/DELETING) callers on every posts/timeline RPC, home D6 matrix (unit and emulator), older-page and cold-page budgets, settle-window re-read cost and user-timeline late-commit test, user token binding, wire-level reason/metadata contract tests, `budgettest.Assert` self-test, IPv6 /64 keying. The contract tests found and the fix commit closed one bug: QUOTA_EXCEEDED had no `retry_after`. Note: the limiter key count for AC4 is not observable, so it is asserted indirectly (every call `fs_reads == 0`).
 
 ### T21 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T16, T17, T18, T19, T20]
 - **Description.**
