@@ -1237,6 +1237,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `code-map.md` test-helpers section.
 - **Observability.** —
 - **Budget.** Not applicable (emulator).
+- **Status: integration tests present and green in CI (2026-10-06).** `internal/posts/*_integration_test.go` cover CreatePost, DeletePost, GetPost, budgets, replay and the visibility matrix. A bullet-by-bullet audit of this ticket's list (IST quota rollover, new-account quota, purge crash-resume, degraded readonly) is still open.
 
 ### T20 — Emulator integration tests: timelines and read budget  [owner: tester] [size: M] [depends: T3, T12, T13]
 - **Description.**
@@ -1266,6 +1267,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Reuse the T19 fixtures.
 - **Observability.** —
 - **Budget.** Not applicable.
+- **Status: integration tests present and green in CI (2026-10-06).** `internal/timeline/integration` and the read-budget suites are in `make test-int`. A bullet-by-bullet audit against this ticket's list (F = 5,000 ceiling, D13 regression, D14 token cases, T3 scenarios) is still open.
 
 ### T21 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T16, T17, T18, T19, T20]
 - **Description.**
@@ -1283,6 +1285,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** The smoke test cleans up after itself, so it can re-run on `candidate`.
 - **Observability.** —
 - **Budget.** A smoke run ≈ 20 reads and 10 writes.
+- **Status: partly done (2026-10-06).** `backend/e2e/posts_smoke_test.go` added and passing on the emulators; `docs/reviews/test-report-posts-timeline.md` written. Open: run the smoke on the prod `candidate` URL (T27).
 
 ### T22 — k6 emulator load smoke: timeline read + post create  [owner: sre-performance] [size: S] [depends: T8, T13]
 - **Description.** Add `loadtest/timeline_read.js` (50 virtual users, F distributed 10–300, refresh + older page) and
@@ -1299,6 +1302,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Results go in T25.
 - **Observability.** Existing fields.
 - **Budget.** Emulator only.
+- **Status: scripts written, not yet run (2026-10-06).** `loadtest/posts_create.js`, `loadtest/timeline_read.js` and a generic `rpcCall` in `graph_common.js`; k6 is not installed in the authoring container. Open: run `make loadtest SCENARIO=timeline_read` and `posts_create`, record results.
 
 ### T23 — Code review  [owner: code-reviewer] [size: S] [depends: T3–T18 (per PR)]
 - **Description.** Review each PR against CLAUDE.md rules 1–11, ADR-0004/0010 and reuse-first:
@@ -1315,6 +1319,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** —
 - **Observability.** —
 - **Budget.** —
+- **Status: done for PR #94 (2026-10-05).** APPROVE, no open Blockers; see `docs/reviews/code-review-posts-timeline.md`.
 
 ### T24 — Security review: posts/timeline threat model + P0 closure  [owner: security-auditor] [size: M] [depends: T3, T8–T13]
 - **Description.** Threat-model:
@@ -1339,6 +1344,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Findings go back to the owning ticket.
 - **Observability.** Confirm no request body or text is logged.
 - **Budget.** —
+- **Status: done for PR #94 (2026-10-05).** 0 Critical/High open; see `docs/reviews/security-review-posts-timeline.md`. Open: mark the public-repo finding Closed with test-name evidence in the readiness report, and record the founder's R1/R2 acceptance there.
 
 ### T25 — Cost report and cost-model update  [owner: sre-performance] [size: S] [depends: T19, T20, T22]
 - **Description.** Re-base the `cost-model.md` §2 rows for CreatePost, DeletePost, GetPost and the timelines on

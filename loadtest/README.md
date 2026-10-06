@@ -33,6 +33,8 @@ how many requests k6 manages to fire.
 | `identity_getme` | `identity_getme.js` | `IdentityService.GetMe` | Steady-state (mostly cache-hit) latency and error rate for the highest-frequency identity call (cost-model.md: 4 calls/DAU/day) |
 | `graph_follow` | `graph_follow.js` | `GraphService.Follow` / `Unfollow` | 50-user churn at 20 rps; Follow p95 < 500 ms; `MODE=follow_only` for a no-Unfollow variant |
 | `graph_lists` | `graph_lists.js` | `GraphService.ListFollowers` (+ `GetRelationships` at 5 rps) | 100 callers, 5 targets with 99 followers; ListFollowers p95 < 400 ms |
+| `posts_create` | `posts_create.js` | `PostService.CreatePost` | 150 new users, 20 rps x 2 min, unique idempotency keys (16 posts/user, inside 10/min and the 20/day new-account quota); p95 < 500 ms |
+| `timeline_read` | `timeline_read.js` | `TimelineService.GetHomeTimeline` (refresh with `since_token`, older page) + `GetUserTimeline` | 200 users following 10-45 accounts (60 authors); 14 rps refresh + 2 rps older + 4 rps user timeline + 1 rps background CreatePost; refresh p95 < 400 ms |
 
 The graph scenarios share `graph_common.js`, and `analyze_logs.js` turns the API log into per-RPC mean/p95
 `fs_reads`. They share 127.0.0.1, so raise `RATE_LIMIT_PER_IP_PER_MIN` and `RATE_LIMIT_PRE_AUTH_IP_PER_MIN` on the
@@ -60,6 +62,36 @@ API_URL=http://localhost:8081 RATE=50 DURATION=1m NUM_USERS=50 make loadtest SCE
 | `RATE` | `20` | Requests/second (k6 `constant-arrival-rate`) |
 | `DURATION` | `30s` | How long the timed scenario runs |
 | `VUS` / `MAX_VUS` | `20` / `50` | Pre-allocated / max virtual users k6 may use to sustain `RATE` |
+
+### Posts and timelines (T22)
+
+`posts_create` and `timeline_read` reuse `graph_common.js` (`mintUsers`, `rpcCall`). Extra requirements on top of the
+graph ones: `FEATURE_POSTS=on` on the API, and the per-IP limiters raised (`RATE_LIMIT_PER_IP_PER_MIN`,
+`RATE_LIMIT_PRE_AUTH_IP_PER_MIN`). Per-user limits stay at defaults: the scripts spread calls over enough users to
+stay inside them (home 6/min, CreatePost 10/min, 20 posts/day and 50 follows/day for new accounts). `timeline_read`
+setup is slow (it seeds posts and follows, retrying on 429); `setupTimeout` is 900 s. For F up to 300 (ticket) raise
+`QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY`, `QUOTA_FOLLOWS_PER_DAY`, `RATE_LIMIT_GRAPH_FOLLOW_PER_MIN` on the API and set `MAX_F=300`.
+
+```sh
+make loadtest SCENARIO=posts_create  2>&1 | tee posts_create.k6.txt
+make loadtest SCENARIO=timeline_read 2>&1 | tee timeline_read.k6.txt
+```
+
+Env: `NUM_USERS`, `RATE`/`DURATION`/`VUS`/`MAX_VUS` (`posts_create`); `NUM_USERS`, `NUM_AUTHORS`, `POSTS_PER_AUTHOR`,
+`MIN_F`, `MAX_F`, `REFRESH_RATE`, `OLDER_RATE`, `USER_RATE`, `NEW_POST_RATE`, `DURATION` (`timeline_read`). Raise rates only
+together with `NUM_USERS`.
+
+k6 thresholds encode only latency/error targets (CreatePost p95 < 500 ms; `home_refresh`, `home_older`, `user_timeline`
+p95 < 400 ms; 0 unexpected responses). **Reads per RPC are not a k6 metric.** Capture the API stdout to a file and run:
+
+```sh
+node loadtest/analyze_logs.js api.log CreatePost GetHomeTimeline GetUserTimeline
+```
+
+Check mean `fs_reads` per rpc against the planning budget (CreatePost 2.5; home refresh 4 + new posts; older page ~30;
+GetUserTimeline 11) and 0 ERROR lines. Older-page reads per page > 1.4 x page size flags the `k`-factor lever. The
+`since_clamped` rate and the interceptor cold share are read from the corresponding log fields with `jq` on the same
+log. Record the machine used; emulator latency is indicative only.
 
 ## Reading the results
 
