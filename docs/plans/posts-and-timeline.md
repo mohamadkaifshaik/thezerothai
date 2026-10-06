@@ -1302,7 +1302,12 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Results go in T25.
 - **Observability.** Existing fields.
 - **Budget.** Emulator only.
-- **Status: scripts written, not yet run (2026-10-06).** `loadtest/posts_create.js`, `loadtest/timeline_read.js` and a generic `rpcCall` in `graph_common.js`; k6 is not installed in the authoring container. Open: run `make loadtest SCENARIO=timeline_read` and `posts_create`, record results.
+- **Status: run, partly (2026-10-06).** `loadtest/posts_create.js`, `loadtest/timeline_read.js` and a generic `rpcCall` in `graph_common.js`. Machine: 4-core cloud container, k6 v0.54, API, Firestore/Auth/Pub/Sub/Storage emulators and k6 all on the same host; API built with Go 1.26.0; `FEATURE_POSTS=on`, per-IP limits and graph follow limits/quotas raised.
+  - `posts_create` (full scale, 150 users, 20 rps x 2 min): CreatePost p95 14.8 ms, 0 failures, 0 ERROR lines; mean `fs_reads` **2.94** (hist 2:150, 3:2251) vs planning 2.5 (+18%, cause not investigated), `fs_writes` 4.0.
+  - `timeline_read` at **reduced scale** (100 users, 40 authors, 7 rps refresh, 1 rps older, 2 rps user timeline, 1 rps CreatePost, 2 min): refresh p95 28 ms, older p95 32 ms, user timeline p95 10 ms, CreatePost p95 16 ms, 0 failures, 0 ERROR lines. Home `fs_reads`: refresh-like calls (<= 8 reads) mean **1.12** (856 calls); older-page / cold-open calls (> 8 reads) mean **34.1** (165 calls, 40-42 reads for a full page, matching the 40-vs-30 finding: > 1.4 x page size of 20 is 28, so the `k` lever stays flagged for P9); GetUserTimeline mean 1.71 reads (planning 11 cold / 0 warm). CreatePost mean 2.50 in this mix.
+  - **Not met:** the full-scale `timeline_read` (200 users, 14 + 2 + 4 + 1 rps) did not complete. Seeding needed the follow limits raised, and once timed traffic started the Firestore emulator hit `DeadlineExceeded` on every operation type (CPU saturation of the shared 4-core host, not an API fault) and wedged until restarted. Latency numbers above are therefore indicative only and from a lighter load than the ticket asks. Re-run at full scale on a larger machine before relying on them.
+  - **Not recorded:** `since_clamped` rate and the interceptor cold share (not extracted from the log); the refresh overhead split between "4 + new posts" and the mean above is not separated by call type because `analyze_logs.js` groups by RPC only.
+  - Open: full-scale `timeline_read` rerun; extract `since_clamped` and cold share; fold the measured means into T25 / the cost model.
 
 ### T23 — Code review  [owner: code-reviewer] [size: S] [depends: T3–T18 (per PR)]
 - **Description.** Review each PR against CLAUDE.md rules 1–11, ADR-0004/0010 and reuse-first:
