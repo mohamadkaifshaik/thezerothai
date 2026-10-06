@@ -157,3 +157,90 @@ func TestCodec_RejectsForeignKeyAndCursorAsWindow(t *testing.T) {
 	_, err = cd.parse(f, "", raw)
 	wantField(t, err, fieldPage)
 }
+
+// flip returns tok with one character in the middle replaced, so the AEAD tag or ciphertext no longer matches.
+func flip(tok string) string {
+	b := []byte(tok)
+	i := len(b) / 2
+	if b[i] == 'A' {
+		b[i] = 'B'
+	} else {
+		b[i] = 'A'
+	}
+	return string(b)
+}
+
+// ADR-0010 D14 on user feeds: since, page and gap tokens open only for the caller, target and tab that sealed
+// them (posts<->replies in both directions, caller A<->B), and a tampered page or gap token is VALIDATION.
+func TestCodec_UserTokenBinding(t *testing.T) {
+	t.Parallel()
+	cd := newCodec(newClock())
+	posts := userFeed("alice", "carol", false)
+	replies := userFeed("alice", "carol", true)
+	tokens := func(f feed) (since, page, gap string) {
+		return cd.encodeSince(f, pos(5000, 5)), cd.encodePage(f, pos(4000, 4), nil), cd.encodePage(f, pos(4000, 4), ptr(pos(1000, 1)))
+	}
+	pSince, pPage, pGap := tokens(posts)
+	rSince, rPage, rGap := tokens(replies)
+
+	// Own tokens open.
+	for name, f := range map[string]feed{"posts": posts, "replies": replies} {
+		since, page, gap := tokens(f)
+		if _, err := cd.parse(f, since, ""); err != nil {
+			t.Fatalf("%s since: %v", name, err)
+		}
+		if _, err := cd.parse(f, "", page); err != nil {
+			t.Fatalf("%s page: %v", name, err)
+		}
+		if r, err := cd.parse(f, "", gap); err != nil || r.mode() != modeGap {
+			t.Fatalf("%s gap: %+v %v", name, r, err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		on   feed
+	}{
+		{"posts tokens on the replies tab", replies},
+		{"caller B", userFeed("bob", "carol", false)},
+		{"caller B, replies tab", userFeed("bob", "carol", true)},
+		{"another target", userFeed("alice", "dave", false)},
+		{"home feed", homeFeed("alice")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cd.parse(tc.on, pSince, "")
+			wantField(t, err, fieldSince)
+			_, err = cd.parse(tc.on, "", pPage)
+			wantField(t, err, fieldPage)
+			_, err = cd.parse(tc.on, "", pGap)
+			wantField(t, err, fieldPage)
+		})
+	}
+	t.Run("replies tokens on the posts tab", func(t *testing.T) {
+		_, err := cd.parse(posts, rSince, "")
+		wantField(t, err, fieldSince)
+		_, err = cd.parse(posts, "", rPage)
+		wantField(t, err, fieldPage)
+		_, err = cd.parse(posts, "", rGap)
+		wantField(t, err, fieldPage)
+	})
+	t.Run("kind: a since token is not a page token and vice versa", func(t *testing.T) {
+		_, err := cd.parse(posts, "", pSince)
+		wantField(t, err, fieldPage)
+		_, err = cd.parse(posts, pPage, "")
+		wantField(t, err, fieldSince)
+		_, err = cd.parse(posts, pGap, "")
+		wantField(t, err, fieldSince)
+	})
+	t.Run("tampered", func(t *testing.T) {
+		_, err := cd.parse(posts, flip(pSince), "")
+		wantField(t, err, fieldSince)
+		_, err = cd.parse(posts, "", flip(pPage))
+		wantField(t, err, fieldPage)
+		_, err = cd.parse(posts, "", flip(pGap))
+		wantField(t, err, fieldPage)
+		_, err = cd.parse(posts, "", pPage[:len(pPage)-8]) // truncated
+		wantField(t, err, fieldPage)
+	})
+}

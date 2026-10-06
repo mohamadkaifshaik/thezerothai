@@ -21,6 +21,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
+// nonActive stands in for SUSPENDED (nonActive) and DELETING (nonActive + 1) here: the import lint lets timeline
+// name only AccountStatusActive, and the home must not look at status at all. The emulator test uses the real values.
+const nonActive = identity.AccountStatusActive + 1
+
 type rig struct {
 	t     *testing.T
 	clock *fakeClock
@@ -241,6 +245,9 @@ func TestHome_FiltersBlockedMutedBlockedByAndKeepsSelf(t *testing.T) {
 	snap.Blocked = following("f3")
 	snap.BlockedBy = following("f4") // stale following still lists f4 (D6)
 	r.graph.snaps["me"] = snap
+	// A SUSPENDED author is not filtered (D10): f5 is suspended and the Directory fails if the home reads status.
+	r.dir.profiles["f5"] = identity.Profile{UserID: "f5", Status: nonActive}
+	r.dir.err = errors.New("home must not read account status")
 	for _, a := range []string{"f1", "f2", "f3", "f4", "f5", "me"} {
 		r.posts.add(a, r.ms(-time.Minute))
 	}
@@ -259,9 +266,74 @@ func TestHome_FiltersBlockedMutedBlockedByAndKeepsSelf(t *testing.T) {
 			t.Errorf("home shows %s (muted/blocked/blocked-by)", a)
 		}
 	}
-	// Suspended or deleting authors are not filtered (D10): the home never reads their status.
-	if len(r.dir.profiles) != 5 || r.graph.calls[0] != "me" {
-		t.Fatal("unexpected reads")
+}
+
+// D6 home column: SUSPENDED, DELETING and users-doc-missing authors stay in the home (D10: the home never reads
+// status, so the Directory is armed to fail if it is touched), an overflowed caller costs no extra read, both-block
+// drops the author, and a non-followed author is absent. Reads are exactly graph (1) + the docs returned.
+func TestHome_D6Matrix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		setup      func(r *rig)
+		wantIn     []string
+		wantAbsent []string
+	}{
+		{"own and followed authors", func(r *rig) {}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
+		{"SUSPENDED author stays", func(r *rig) {
+			r.dir.profiles["f1"] = identity.Profile{UserID: "f1", Status: nonActive}
+		}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
+		{"DELETING author stays", func(r *rig) {
+			r.dir.profiles["f2"] = identity.Profile{UserID: "f2", Status: nonActive + 1}
+		}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
+		{"users doc missing author stays", func(r *rig) { delete(r.dir.profiles, "f3") }, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
+		{"blockedByOverflow caller: all stay, no extra read", func(r *rig) {
+			r.graph.snaps["me"] = graph.Snapshot{Following: r.graph.snaps["me"].Following, BlockedByOverflow: true}
+		}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
+		{"both block: author dropped despite stale following", func(r *rig) {
+			sn := r.graph.snaps["me"]
+			sn.Blocked, sn.BlockedBy = following("f2"), following("f2")
+			r.graph.snaps["me"] = sn
+		}, []string{"me", "f1", "f3"}, []string{"f2", "s1"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.follow("me", 3)
+			r.dir.err = errors.New("home must not read account status")
+			tc.setup(r)
+			for _, a := range []string{"me", "f1", "f2", "f3", "s1"} { // s1 is nobody's followee
+				r.posts.add(a, r.ms(-time.Minute))
+			}
+			resp, counter, err := r.home("me", "", "", 50)
+			if err != nil {
+				t.Fatalf("home read status or failed: %v", err)
+			}
+			got := map[string]bool{}
+			for _, v := range resp.Posts {
+				got[v.Post.Author.UserId] = true
+			}
+			for _, a := range tc.wantIn {
+				if !got[a] {
+					t.Errorf("home is missing %s", a)
+				}
+			}
+			for _, a := range tc.wantAbsent {
+				if got[a] {
+					t.Errorf("home shows %s", a)
+				}
+			}
+			if len(got) != len(tc.wantIn) {
+				t.Errorf("authors = %v, want exactly %v", got, tc.wantIn)
+			}
+			if len(r.graph.calls) != 1 || r.graph.calls[0] != "me" {
+				t.Errorf("graph snapshots = %v, want only the caller's", r.graph.calls)
+			}
+			if want := int64(1 + len(resp.Posts)); counter.Reads() != want {
+				t.Errorf("reads = %d, want %d (graph + returned docs, no status or target-graph read)", counter.Reads(), want)
+			}
+		})
 	}
 }
 
@@ -349,6 +421,46 @@ func TestHome_SettleWindowDeliversALateCommit(t *testing.T) {
 	}
 	if !got[p1.ID] {
 		t.Fatal("p1 should come back (newer than W); the client dedupes by post_id")
+	}
+}
+
+// The settle window's price (D13): the refresh that re-delivers p1 alongside the late p2 reads graph (1) + the
+// two docs of ONE chunk (C = 1), and once the window has passed the following refresh is back to C with 0 posts.
+func TestHome_SettleWindowReReadCost(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.follow("me", 2) // 3 authors: C = 1
+	cold := r.mustHome("", "", 20)
+	r.posts.recent = map[string]posts.Recent{}
+	r.clock.Advance(time.Minute)
+	p1 := r.posts.add("f1", r.ms(-time.Second))
+	resp1 := r.mustHome(cold.SinceToken, "", 20)
+	p2 := r.posts.add("f2", r.ms(-5*time.Second))
+	r.clock.Advance(30 * time.Second)
+	r.posts.recent = map[string]posts.Recent{}
+	r.posts.queries = nil
+	resp2, c2, err := r.home("me", resp1.SinceToken, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp2.Posts) != 2 {
+		t.Fatalf("refresh 2 = %v, want exactly the late p2 and the overlapping p1 (%s, %s)", homeIDs(resp2), p2.ID, p1.ID)
+	}
+	if n := r.posts.queryCount("ByAuthors"); n != 1 {
+		t.Fatalf("refresh 2 ran %d chunk queries, want C = 1", n)
+	}
+	if c2.Reads() != 1+2 { // graph + one chunk returning the 2 docs
+		t.Fatalf("refresh 2 reads = %d, want 3 (graph + C=1 chunk + overlap)", c2.Reads())
+	}
+	// The overlap is paid once: the next refresh (window passed, nothing new) is graph + C empty = 2 reads.
+	r.clock.Advance(time.Minute)
+	r.posts.recent = map[string]posts.Recent{}
+	resp3, c3, err := r.home("me", resp2.SinceToken, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp3.Posts) != 0 || c3.Reads() != 2 {
+		t.Fatalf("refresh 3: %d posts, %d reads, want 0 posts and 2 reads (the overlap must not repeat)", len(resp3.Posts), c3.Reads())
 	}
 }
 
@@ -728,6 +840,81 @@ func TestUser_VisibilityMatrix(t *testing.T) {
 			}
 			if counter.Reads() > tc.maxReads {
 				t.Fatalf("reads = %d, want <= %d", counter.Reads(), tc.maxReads)
+			}
+		})
+	}
+}
+
+// D13 on the user timeline: a post committed late with createdAt older than an item an earlier refresh returned
+// is delivered by the next refresh, because since trails by the settle window.
+func TestUser_SettleWindowDeliversALateCommit(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.seedUser("bob", 0)
+	cold := r.mustUser("me", "bob", false, "", "", 20)
+	r.posts.recent = map[string]posts.Recent{}
+	r.clock.Advance(time.Minute)
+
+	p1 := r.posts.add("bob", r.ms(-time.Second)) // visible to refresh 1
+	resp1 := r.mustUser("me", "bob", false, cold.SinceToken, "", 20)
+	if got := userIDs(resp1); len(got) != 1 || got[0] != p1.ID {
+		t.Fatalf("refresh 1 = %v, want [p1]", got)
+	}
+	// p2 committed after refresh 1, with createdAt older than p1 (but inside the settle window).
+	p2 := r.posts.add("bob", r.ms(-5*time.Second))
+	r.clock.Advance(30 * time.Second)
+	r.posts.recent = map[string]posts.Recent{}
+	resp2, counter, err := r.user("me", "bob", false, resp1.SinceToken, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, id := range userIDs(resp2) {
+		got[id] = true
+	}
+	if !got[p2.ID] {
+		t.Fatalf("late commit %s was skipped by the since watermark", p2.ID)
+	}
+	if !got[p1.ID] {
+		t.Fatal("p1 should come back (newer than W); the client dedupes by post_id")
+	}
+	if counter.Reads() != 2+2 { // target + graph + the two docs of the one query
+		t.Fatalf("refresh 2 reads = %d, want 4", counter.Reads())
+	}
+}
+
+// D14 through the service: a user-feed token opens only for the caller, target and tab it was issued for; a
+// rejection costs 0 reads.
+func TestUser_TokensBoundToCallerTargetAndTab(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.seedUser("bob", 45)
+	r.dir.profiles["carol"] = identity.Profile{UserID: "carol", Status: identity.AccountStatusActive}
+	posts1 := r.mustUser("me", "bob", false, "", "", 20)
+	repl := r.mustUser("me", "bob", true, "", "", 20)
+	if posts1.NextPageToken == "" || repl.NextPageToken == "" {
+		t.Fatal("setup: both tabs must return a next_page_token")
+	}
+	tests := []struct {
+		name                  string
+		caller, target        string
+		replies               bool
+		since, page, wantFiel string
+	}{
+		{"since: posts token on replies", "me", "bob", true, posts1.SinceToken, "", fieldSince},
+		{"since: replies token on posts", "me", "bob", false, repl.SinceToken, "", fieldSince},
+		{"page: replies token on posts", "me", "bob", false, "", repl.NextPageToken, fieldPage},
+		{"page: posts token on replies", "me", "bob", true, "", posts1.NextPageToken, fieldPage},
+		{"page: other caller", "mallory", "bob", false, "", posts1.NextPageToken, fieldPage},
+		{"page: other target", "me", "carol", false, "", posts1.NextPageToken, fieldPage},
+		{"since: other caller", "mallory", "bob", false, posts1.SinceToken, "", fieldSince},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, counter, err := r.user(tc.caller, tc.target, tc.replies, tc.since, tc.page, 20)
+			wantField(t, err, tc.wantFiel)
+			if counter.Reads() != 0 {
+				t.Fatalf("rejected token read %d docs, want 0", counter.Reads())
 			}
 		})
 	}

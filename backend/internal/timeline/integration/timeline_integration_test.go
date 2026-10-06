@@ -612,3 +612,143 @@ func TestHome_Integration_TokenTTL(t *testing.T) {
 		t.Fatalf("31 d old token: err=%v reads=%d, want VALIDATION since_token with 0 reads", err, c.Reads())
 	}
 }
+
+// ADR-0010 D6 home column with real status and graph data: SUSPENDED, DELETING and users-doc-missing authors stay
+// (D10: the home never reads status, so the reads are exactly graph + the returned docs), a both-block author is
+// dropped even though a stale `following` lists them, a non-followed author is absent, and a caller whose
+// blockedByOverflow is set pays no extra read.
+func TestHome_Integration_D6Matrix(t *testing.T) {
+	client := newClient(t)
+	seed := newInstance(t, client)
+	ctx := context.Background()
+	for _, u := range []string{"me", "plain", "susp", "del", "gone", "both", "stranger"} {
+		seed.signUp(t, u)
+		if u != "me" {
+			seed.post(t, u, 1)
+		}
+	}
+	followed := []string{"plain", "susp", "del", "gone", "both"}
+	for _, u := range followed {
+		if err := seed.followFn(ctx, "me", u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := seed.blockFn(ctx, "me", "both"); err != nil {
+		t.Fatal(err)
+	}
+	if err := seed.blockFn(ctx, "both", "me"); err != nil {
+		t.Fatal(err)
+	}
+	seedFollowing(t, client, "me", followed) // stale following that still lists the both-block author
+	for u, status := range map[string]string{"susp": "SUSPENDED", "del": "DELETING"} {
+		if _, err := client.Collection("users").Doc(u).Update(ctx, []firestore.Update{{Path: "status", Value: status}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := client.Collection("users").Doc("gone").Delete(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(name string, in *instance) int64 {
+		t.Helper()
+		resp, c, err := in.home(t, "me", "", "", 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, v := range resp.Posts {
+			got[v.Post.Author.UserId] = true
+		}
+		for _, a := range []string{"plain", "susp", "del", "gone"} {
+			if !got[a] {
+				t.Errorf("%s: home is missing %s (status/doc state must not filter)", name, a)
+			}
+		}
+		for _, a := range []string{"both", "stranger", "me"} {
+			if got[a] {
+				t.Errorf("%s: home shows %s", name, a)
+			}
+		}
+		// graph (1) + one chunk returning the 4 docs; a status read would add 1.
+		budgettest.Assert(t, "GetHomeTimeline D6 "+name, c, budgettest.Budget{Reads: 1 + 4})
+		return c.Reads()
+	}
+	base := check("baseline", newInstance(t, client))
+
+	if _, err := client.Collection("graph").Doc("me").Update(ctx, []firestore.Update{{Path: "blockedByOverflow", Value: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if over := check("blockedByOverflow caller", newInstance(t, client)); over != base {
+		t.Fatalf("overflow caller reads = %d, want the same %d as without overflow (no extra read)", over, base)
+	}
+}
+
+// Older home page at F = 5,000 with every chunk dense (167 chunks, each holding 2 posts, so k=1 chunks fill and
+// the older page queries them all): the older page stays within 2 + C + 2p = 269 (268 without the interceptor).
+func TestHome_Integration_OlderPageAtTheFollowingCap(t *testing.T) {
+	client := newClient(t)
+	seed := newInstance(t, client)
+	seed.signUp(t, "me")
+	following := make([]string, 5000)
+	for i := range following {
+		following[i] = fmt.Sprintf("u%05d", i)
+	}
+	// authors = me + sorted(following): index i+1, chunk (i+1)/30; i = 30j+15 puts one real author in every chunk.
+	for j := 0; 30*j+15 < len(following); j++ {
+		u := following[30*j+15]
+		seed.signUp(t, u)
+		seed.post(t, u, 1)
+		seed.post(t, u, 2)
+	}
+	seedFollowing(t, client, "me", following)
+
+	first, c1, err := newInstance(t, client).home(t, "me", "", "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetHomeTimeline dense F=5000 first page", c1, budgettest.Budget{Reads: 268})
+	if len(first.Posts) == 0 || first.NextPageToken == "" {
+		t.Fatalf("first page: %d posts next=%q, want a short page with a next token", len(first.Posts), first.NextPageToken)
+	}
+	older, c2, err := newInstance(t, client).home(t, "me", "", first.NextPageToken, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetHomeTimeline dense F=5000 older page", c2, budgettest.Budget{Reads: 268})
+	if len(older.Posts) == 0 {
+		t.Fatal("older page returned no posts")
+	}
+	if older.SinceToken != "" {
+		t.Fatal("an older page must not carry a since_token")
+	}
+	seen := map[string]bool{}
+	for _, id := range homeIDs(first) {
+		seen[id] = true
+	}
+	for _, id := range homeIDs(older) {
+		if seen[id] {
+			t.Fatalf("older page repeats %s", id)
+		}
+	}
+	t.Logf("BUDGET GetHomeTimeline dense F=5000 first reads=%d older reads=%d (ceiling 268 + interceptor)", c1.Reads(), c2.Reads())
+}
+
+// A cold first page with p < 20 still fills the 20-entry author-recent query: 3 + max(p, 20), i.e. 22 here.
+func TestUser_Integration_ColdSmallPageBudget(t *testing.T) {
+	client := newClient(t)
+	seed := newInstance(t, client)
+	seed.signUp(t, "me")
+	seed.signUp(t, "bob")
+	for i := 0; i < 25; i++ {
+		seed.post(t, "bob", i)
+	}
+	resp, c, err := newInstance(t, client).user(t, "me", "bob", "", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetUserTimeline cold p=5", c, budgettest.Budget{Reads: 22})
+	if len(resp.Posts) != 5 || resp.NextPageToken == "" {
+		t.Fatalf("p=5: %d posts next=%q, want 5 and a next token", len(resp.Posts), resp.NextPageToken)
+	}
+	t.Logf("BUDGET GetUserTimeline cold p=5 reads=%d (ceiling 22 + interceptor)", c.Reads())
+}
