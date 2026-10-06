@@ -96,6 +96,10 @@ func TestCheckAndReserve_AtLimitRejectsWithoutWriting(t *testing.T) {
 	if ae.Metadata["quota"] != "follows" {
 		t.Errorf("Metadata[quota] = %q, want follows", ae.Metadata["quota"])
 	}
+	// common.proto: retry_after is set for QUOTA_EXCEEDED and runs to the next IST midnight (at most one day).
+	if ae.RetryAfter <= 0 || ae.RetryAfter > 24*time.Hour {
+		t.Errorf("RetryAfter = %v, want in (0, 24h]", ae.RetryAfter)
+	}
 }
 
 func TestCheckAndReserve_KindsAreIndependent(t *testing.T) {
