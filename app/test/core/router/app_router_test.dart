@@ -36,6 +36,7 @@ void main() {
     WidgetTester tester, {
     required AuthState auth,
     required OnboardingState onboarding,
+    String? path,
   }) async {
     whenListen(authBloc, const Stream<AuthState>.empty(), initialState: auth);
     whenListen(
@@ -56,7 +57,7 @@ void main() {
         child: MaterialApp.router(routerConfig: appRouter.router),
       ),
     );
-    appRouter.router.go(AppRouter.profileByIdPath('someone'));
+    appRouter.router.go(path ?? AppRouter.profileByIdPath('someone'));
     await tester.pump();
     await tester.pump();
     return appRouter.router.routeInformationProvider.value.uri.path;
@@ -86,5 +87,23 @@ void main() {
     );
 
     expect(path, AppRouter.onboardingPath);
+  });
+
+  test('postPath builds the /post/:id deep link', () {
+    expect(AppRouter.postPath('123'), '/post/123');
+    expect(AppRouter.postPath('a/b'), '/post/a%2Fb');
+  });
+
+  testWidgets('/post/:id redirects a signed-out visitor to sign-in', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.unauthenticated),
+      onboarding: const OnboardingState(),
+      path: AppRouter.postPath('123'),
+    );
+
+    expect(path, AppRouter.signInPath);
   });
 }

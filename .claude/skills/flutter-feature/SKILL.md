@@ -67,3 +67,6 @@ class TimelineBloc extends Bloc<TimelineEvent, TimelineState> {
 - Compress/resize images on device before upload (see `media-pipeline`).
 - Debounce search input (300 ms) and require ≥ 2 chars.
 - Attach App Check token + Firebase ID token to every API call; handle `RESOURCE_EXHAUSTED` (quota) and `UNAVAILABLE` (degraded mode) with friendly UI.
+
+## Keep the catalog current
+- Add every new shared widget, cubit or helper to `docs/ui-catalog.md` in the same PR (`reuse-first` depends on it).

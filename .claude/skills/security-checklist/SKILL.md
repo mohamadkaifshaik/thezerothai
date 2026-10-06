@@ -23,3 +23,6 @@ description: Security review checklist for features, APIs, infra and releases us
 - [ ] Admin Activity audit logs (on by default, free). Data Access logs only for IAM/Secret Manager (volume = cost).
 - [ ] PII: minimal (email lives in Firebase Auth); Google-managed encryption at rest; deletion and export paths tested.
 - [ ] Budget alerts + degraded mode are part of the abuse response (a scraping/spam spike is also a cost spike).
+
+## Known-public files (don't flag)
+- `app/android/app/google-services.json` and `app/lib/firebase_options*.dart` hold Firebase **client** config, not secrets. They are protected by App Check enforcement and the API-key restrictions in `infra/terraform/modules/apikeys`. Flag them only if a service-account key or private key appears.

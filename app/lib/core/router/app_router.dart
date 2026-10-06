@@ -13,6 +13,8 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
+import '../../features/posts/presentation/composer_screen.dart';
+import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/splash_screen.dart';
@@ -37,6 +39,7 @@ class AppRouter {
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
   static const homePath = '/home';
+  static const composePath = '/compose';
   static const settingsPath = '/settings';
   // The Settings routes land with T15; the constants live here so
   // ProfileHeader and SettingsScreen share one source of truth.
@@ -47,6 +50,9 @@ class AppRouter {
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) => '/u/$userId';
+  /// One post (`GetPost`): what a post card opens.
+  static String postPath(String postId) =>
+      '/post/${Uri.encodeComponent(postId)}';
   static String followersPath(String handle) => '/profile/$handle/followers';
   static String followingPath(String handle) => '/profile/$handle/following';
 
@@ -72,6 +78,11 @@ class AppRouter {
         builder: (context, state) =>
             const AuthGate(child: CreateProfileScreen()),
       ),
+      // Full-screen, outside the shell: no nav chrome while writing.
+      GoRoute(
+        path: composePath,
+        builder: (context, state) => const AuthGate(child: ComposerScreen()),
+      ),
       ShellRoute(
         builder: (context, state, child) =>
             MainShell(location: state.matchedLocation, child: child),
@@ -84,6 +95,12 @@ class AppRouter {
             path: '/u/:userId',
             builder: (context, state) => AuthGate(
               child: ProfileScreen(userId: state.pathParameters['userId']!),
+            ),
+          ),
+          GoRoute(
+            path: '/post/:id',
+            builder: (context, state) => AuthGate(
+              child: PostDetailScreen(postId: state.pathParameters['id']!),
             ),
           ),
           GoRoute(

@@ -1,3 +1,4 @@
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -29,6 +30,7 @@ class ProfileHeader extends StatelessWidget {
     required this.graphEnabled,
     this.relationship,
     this.onRelationshipChanged,
+    this.showPostsCount = false,
   });
 
   final identity.Profile profile;
@@ -41,13 +43,21 @@ class ProfileHeader extends StatelessWidget {
   final graph.Relationship? relationship;
   final ValueChanged<graph.Relationship>? onRelationshipChanged;
 
+  /// Adds the post count next to Following/Followers (only with the posts
+  /// flag on).
+  final bool showPostsCount;
+
   bool get _showGraphActions =>
       !isOwnProfile && graphEnabled && relationship != null;
 
   @override
   Widget build(BuildContext context) {
     if (!_showGraphActions) {
-      return _ProfileHeaderBody(profile: profile, showActions: false);
+      return _ProfileHeaderBody(
+        profile: profile,
+        showActions: false,
+        showPostsCount: showPostsCount,
+      );
     }
     return BlocProvider(
       create: (context) => RelationshipCubit(
@@ -67,17 +77,26 @@ class ProfileHeader extends StatelessWidget {
               );
           }
         },
-        child: _ProfileHeaderBody(profile: profile, showActions: true),
+        child: _ProfileHeaderBody(
+          profile: profile,
+          showActions: true,
+          showPostsCount: showPostsCount,
+        ),
       ),
     );
   }
 }
 
 class _ProfileHeaderBody extends StatelessWidget {
-  const _ProfileHeaderBody({required this.profile, required this.showActions});
+  const _ProfileHeaderBody({
+    required this.profile,
+    required this.showActions,
+    required this.showPostsCount,
+  });
 
   final identity.Profile profile;
   final bool showActions;
+  final bool showPostsCount;
 
   @override
   Widget build(BuildContext context) {
@@ -131,7 +150,7 @@ class _ProfileHeaderBody extends StatelessWidget {
           if (isBlocking)
             _BlockedBanner(handle: profile.handle)
           else
-            _CountsRow(profile: profile),
+            _CountsRow(profile: profile, showPostsCount: showPostsCount),
         ],
       ),
     );
@@ -139,14 +158,19 @@ class _ProfileHeaderBody extends StatelessWidget {
 }
 
 class _CountsRow extends StatelessWidget {
-  const _CountsRow({required this.profile});
+  const _CountsRow({required this.profile, required this.showPostsCount});
 
   final identity.Profile profile;
+  final bool showPostsCount;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
+        if (showPostsCount) ...[
+          _PostsCount(count: profile.postsCount),
+          const SizedBox(width: AppSpacing.md),
+        ],
         _CountLink(
           count: profile.followingCount.toInt(),
           label: 'Following',
@@ -165,6 +189,38 @@ class _CountsRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// "12 Posts" (display only: the Posts tab below is the way in).
+class _PostsCount extends StatelessWidget {
+  const _PostsCount({required this.count});
+
+  final Int64 count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count == Int64.ONE ? 'Post' : 'Posts';
+    return Semantics(
+      label: '$count $label',
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '$count ',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              TextSpan(text: label),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -26,8 +26,8 @@ curl -s "${H[@]}" "https://firestore.googleapis.com/v1/projects/$P/databases/(de
 
 ## 3a. Export (a right-to-access / portability request)
 Send the user their data as JSON: the `users/<uid>` document from step 2, plus the Auth record (email, provider,
-created and last-login times) from `accounts:lookup`, plus the graph export below. Phase 1 will add posts and likes
-here as those modules ship. Don't include internal fields such as `status`.
+created and last-login times) from `accounts:lookup`, plus the graph export and the posts export below. Phase 1 will
+add likes here as those modules ship. Don't include internal fields such as `status`.
 
 **Graph export** (`opsctl export-graph`, ADR-0008 D12). It runs from the `backend/` directory with Application Default
 Credentials (`gcloud auth application-default login` once) and always needs an explicit `--project`. A `*-prod`
@@ -42,8 +42,15 @@ contains who blocked the user (`blockedBy`)**. That's third-party data and revea
 decision 2026-09-28). Never add it by hand from the Firestore document. Send the file over the same confirmed email
 thread, then delete your local copy.
 
+**Posts export** (`opsctl export-posts`, ADR-0010 T10). Same flags and guards as `export-graph`. It reads only and writes JSON
+`{"userId", "posts": [{id, text, createdAt, hashtags, mentions}]}`, newest first; mentions are handles only. Cost: 1 read per post.
+```bash
+go run ./cmd/opsctl export-posts --project $P --uid "$UID_" --out "$HOME/export-posts-<hashed-uid>.json"
+```
+Send both files over the same confirmed email thread, then delete your local copies.
+
 ## 3b. Delete
-Order matters: **the graph purge comes before `users/{uid}` is deleted**, because the purge decrements the counters on
+Order matters: **the posts purge and the graph purge come before `users/{uid}` is deleted**, because the purge decrements the counters on
 other users' `users/*` docs and its start gate reads this user's profile (ADR-0008 D10).
 
 **Step 0. Mark the account DELETING and stop it signing in.** `opsctl purge-graph` refuses to run unless
@@ -58,6 +65,20 @@ curl -s "${H[@]}" -X PATCH \
 curl -s -X POST "${H[@]}" -d "{\"localId\":\"$UID_\",\"disableUser\":true}" \
   "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:update"
 ```
+
+**Step 1a. Purge the posts (before the graph).** Same flags and guards as `purge-graph` (explicit `--project`, typed
+confirmation for `*-prod`, the DELETING >= 120 s start gate, `--dry-run`, `--skip-start-gate`). It deletes every
+`posts` doc with `authorId == uid`, 500 per batch, newest first; it is resumable (deleted docs drop out of the next page,
+so a re-run after a crash simply continues) and does not touch `users.postsCount` because the `users` doc is deleted
+later. Cost: about 1 read and 1 delete per post (a 300-post user: 300 reads, 300 deletes).
+```bash
+cd backend
+go run ./cmd/opsctl purge-posts --project $P --uid "$UID_" --dry-run   # prints: dry-run: posts=N (nothing written)
+go run ./cmd/opsctl purge-posts --project $P --uid "$UID_"             # ends with "purged: reads=.. writes=0 deletes=.."
+go run ./cmd/opsctl purge-posts --project $P --uid "$UID_" --dry-run   # must print: dry-run: posts=0 (nothing written)
+```
+If a run stops with "giving up after 5 consecutive errors", re-run the same command. Do not go on to Step 1 until the last
+dry run shows `posts=0`. Other instances may serve a purged post from their 60 s cache for up to a minute.
 
 **Step 1. Purge the graph.** Dry run first (prints counts, writes nothing), then the real run. It is resumable and safe
 to re-run: it deletes the follow edges both ways, fixes the other users' `followersCount` / `followingCount` and their
@@ -93,7 +114,7 @@ remaining follower unable to unfollow the account (ADR-0009 state S2; repair bel
 ```bash
 npx -y firebase-tools@15 firestore:delete "users/$UID_" --recursive --project $P --force   # profile + subcollections
 npx -y firebase-tools@15 firestore:delete "handles/<handleLower>" --project $P --force     # frees the handle
-npx -y firebase-tools@15 firestore:delete "quotas/$UID_" --recursive --project $P --force  # per-user daily quota counters (written by graph)
+npx -y firebase-tools@15 firestore:delete "quotas/$UID_" --recursive --project $P --force  # per-user daily quota counters (graph writes follows/blocks, posts writes posts)
 curl -s "${H[@]}" -X POST "https://identitytoolkit.googleapis.com/v1/projects/$P/accounts:delete" \
   -d "{\"localId\":\"$UID_\"}"                                                               # Firebase Auth user
 ```
@@ -131,7 +152,13 @@ against a cloud project.
   built) removes them from the owner's own array the next time the owner opens ListMutedUsers / ListBlockedUsers
   (uids with no `users/{uid}` doc only; SUSPENDED/DELETING are kept). So the residue is bounded by "until that
   user next opens the list", not permanent. Do not hand-edit other users' documents.
-- **Media:** Phase 0 has no avatars or posts, so there's nothing to delete. When media ships, also delete
+- **Mentions of the deleted user in other users' posts:** a post by someone else that @-mentions the deleted account
+  keeps `mentions[] = {userId, handle}` for it (Firestore array-of-maps is not queryable by member without a
+  `mentionIds` field, which P1 does not write, ADR-0010). Decision: these are kept as third-party content, the same
+  stance as other people's replies and quotes; the purge neither finds nor edits them, and the deleted uid and
+  handle stay readable there. Scrubbing them is deferred to a follow-up ADR (P6, when `mentionIds` and mention
+  notifications land). Do not hand-edit other users' posts. Tell the requester about this residue in the reply.
+- **Media:** posts carry no media yet (P1 is text-only), so there are no objects to delete. When media ships, also delete
   `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
   Phase 1 module lands.
 - **Backups:** prod weekly Firestore backups keep data for up to **14 days**, and deleted data ages out with them.

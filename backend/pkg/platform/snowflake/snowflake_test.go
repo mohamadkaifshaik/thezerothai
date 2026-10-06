@@ -140,3 +140,16 @@ func TestGenerate_ClockRollbackWaits(t *testing.T) {
 		t.Fatalf("expected id after clock rollback to still be strictly increasing: first=%d second=%d", first, second)
 	}
 }
+
+func TestTime(t *testing.T) {
+	n := &Node{node: 5, now: func() time.Time { return Epoch.Add(1234 * time.Millisecond) }}
+	got, err := Time(n.Generate())
+	if err != nil || !got.Equal(Epoch.Add(1234*time.Millisecond)) {
+		t.Fatalf("Time = %v, %v", got, err)
+	}
+	for _, bad := range []string{"", "abc", "-1"} {
+		if _, err := Time(bad); err == nil {
+			t.Errorf("Time(%q) must fail", bad)
+		}
+	}
+}
