@@ -78,7 +78,7 @@ make loadtest SCENARIO=timeline_read 2>&1 | tee timeline_read.k6.txt
 ```
 
 Env: `NUM_USERS`, `RATE`/`DURATION`/`VUS`/`MAX_VUS` (`posts_create`); `NUM_USERS`, `NUM_AUTHORS`, `POSTS_PER_AUTHOR`,
-`MIN_F`, `MAX_F`, `REFRESH_RATE`, `OLDER_RATE`, `USER_RATE`, `NEW_POST_RATE`, `DURATION` (`timeline_read`). Raise rates only
+`MIN_F`, `MAX_F`, `REFRESH_RATE`, `OLDER_RATE`, `USER_RATE`, `NEW_POST_RATE` with `NEW_POST_EVERY` (seconds per unit, default 10), `DURATION` (`timeline_read`). A refresh gap is followed with `gap_page_token` (tagged `home_gap`); those extra calls need `RATE_LIMIT_TIMELINE_PER_MIN` raised on the API. Raise rates only
 together with `NUM_USERS`.
 
 k6 thresholds encode only latency/error targets (CreatePost p95 < 500 ms; `home_refresh`, `home_older`, `user_timeline`
