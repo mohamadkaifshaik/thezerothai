@@ -21,6 +21,14 @@ import (
 // instance caches must expire well inside it.
 const MaxCacheTTL = 60 * time.Second
 
+// MinTimelineSettleWindow is the lower bound (and default) for TIMELINE_SETTLE_WINDOW: 3 x the 5 s CreatePost
+// transaction deadline (ADR-0010 D13).
+const MinTimelineSettleWindow = 15 * time.Second
+
+// MaxTimelineTokenTTL is the upper bound for TIMELINE_TOKEN_TTL (90 days, T28 follow-up): a typo must not make
+// timeline tokens effectively immortal.
+const MaxTimelineTokenTTL = 2160 * time.Hour
+
 // ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call, the figure ADR-0010 D5's
 // cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
 // 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto). Keep it in sync with that RPC's
@@ -191,8 +199,12 @@ type Config struct {
 
 	// TimelineTokenTTL is how long timeline since/page/gap tokens stay valid (ADR-0010 D14), env
 	// TIMELINE_TOKEN_TTL, default 720h (30 days). The client persists since and gap tokens across days. It must
-	// be at least 24h (the graph-token TTL); a shorter value would turn every morning refresh into a cold open.
+	// be between 24h (the graph-token TTL) and MaxTimelineTokenTTL (90 days); a shorter value would turn every morning refresh into a cold open.
 	TimelineTokenTTL time.Duration
+	// TimelineSettleWindow is the since-watermark settle window (ADR-0010 D13), env TIMELINE_SETTLE_WINDOW,
+	// default and minimum MinTimelineSettleWindow: a post whose transaction started before the watermark has
+	// committed or timed out (3 x the 5 s transaction deadline), so a `since` refresh cannot skip it.
+	TimelineSettleWindow time.Duration
 
 	// InternalOIDCAudience/InternalOIDCAllowedEmails configure /internal/* OIDC verification (ADR-0006
 	// §5). Empty only in local dev (no real Pub/Sub push subscriptions exist yet); Load fails closed (M8)
@@ -288,8 +300,15 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if timelineTokenTTL < 24*time.Hour {
-		return Config{}, fmt.Errorf("config: TIMELINE_TOKEN_TTL %v must be at least 24h (default 720h)", timelineTokenTTL)
+	if timelineTokenTTL < 24*time.Hour || timelineTokenTTL > MaxTimelineTokenTTL {
+		return Config{}, fmt.Errorf("config: TIMELINE_TOKEN_TTL %v must be between 24h and %v (default 720h)", timelineTokenTTL, MaxTimelineTokenTTL)
+	}
+	timelineSettleWindow, err := getDuration("TIMELINE_SETTLE_WINDOW", MinTimelineSettleWindow)
+	if err != nil {
+		return Config{}, err
+	}
+	if timelineSettleWindow < MinTimelineSettleWindow {
+		return Config{}, fmt.Errorf("config: TIMELINE_SETTLE_WINDOW %v must be at least %v (3 x the 5 s CreatePost transaction deadline, ADR-0010 D13)", timelineSettleWindow, MinTimelineSettleWindow)
 	}
 	cacheTTL, err := getDuration("CACHE_TTL", 60*time.Second)
 	if err != nil {
@@ -531,6 +550,7 @@ func Load() (Config, error) {
 		CachePostsEntries:         cachePostsEntries,
 		CacheAuthorRecentEntries:  cacheAuthorRecentEntries,
 		TimelineTokenTTL:          timelineTokenTTL,
+		TimelineSettleWindow:      timelineSettleWindow,
 		InternalOIDCAudience:      internalOIDCAudience,
 		InternalOIDCAllowedEmails: allowedEmails,
 		CORSAllowedOrigins:        corsOrigins,

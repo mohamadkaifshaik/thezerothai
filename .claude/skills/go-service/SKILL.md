@@ -45,7 +45,8 @@ func main() {
     interceptors := connect.WithInterceptors(authn.Interceptor(auth), ratelimit.Interceptor(cfg), degraded.Interceptor(cfg))
     mux.Handle(postsv1connect.NewPostServiceHandler(posts.Server(), interceptors))
     mux.Handle("/internal/", pubsubpush.Handler(cfg, routes)) // OIDC-verified
-    mux.HandleFunc("/healthz", health.OK)
+    mux.HandleFunc("/health", health.Handler())
+    mux.HandleFunc("/healthz", health.Handler()) // legacy alias only; *.run.app reserves paths ending in "z"
 
     srv := &http.Server{Addr: ":" + cfg.Port, Handler: h2c.NewHandler(mux, &http2.Server{}), ReadHeaderTimeout: 5 * time.Second}
     go func() { _ = srv.ListenAndServe() }()
@@ -61,7 +62,7 @@ func main() {
 - Enable Cloud Run **startup CPU boost** (free for request-based billing within quota).
 
 ## Required
-- `/healthz` (no deps). Cloud Run's startup probe hits it.
+- `/health` (no deps; `/healthz` is a legacy alias). Cloud Run's startup probe hits it.
 - Build with `ko` → distroless static, non-root, `GOMAXPROCS` via `automaxprocs`, `GOMEMLIMIT` = 90% of 512 MiB.
 - Log fields: `severity, message, logging.googleapis.com/trace, rpc, uid_hash, fs_reads, fs_writes, latency_ms`.
 - Dedicated runtime service account with only: Firestore user, Storage object admin on the media bucket, Pub/Sub publisher, token creator for signing URLs on itself.

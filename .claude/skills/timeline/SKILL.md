@@ -8,7 +8,7 @@ description: Home, profile and thread timelines on Firestore within free-tier re
 Why pull: push fan-out costs 1 Firestore write per follower per post (the 20k writes/day quota disappears fast).
 Pull costs reads, and reads are made cheap by incremental refresh + caching.
 
-## Home timeline — `GetHomeTimeline(since_cursor | before_cursor, limit ≤ 30)`
+## Home timeline — `GetHomeTimeline(since_cursor | before_cursor, page_size default 20, max 50 — CLAUDE.md rule 5)`
 1. Load `graph/{uid}` (instance cache 60 s) → `following` (+ self), `blocked`, `muted`.
 2. Chunk followees into groups of 30. For each chunk (run concurrently, `errgroup` limit 4):
    - **Refresh** (client sent `since`): `posts where authorId in chunk and createdAt > since order by createdAt desc limit 50`.

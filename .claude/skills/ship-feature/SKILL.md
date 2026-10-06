@@ -11,7 +11,7 @@ Skip stages the plan marks N/A (e.g., no design change → skip 2) — every sub
 
 | # | Stage | Agent | Output / gate |
 |---|---|---|---|
-| 1 | Plan | `planner` | `docs/plans/<date>-<slug>.md` incl. cost rows |
+| 1 | Plan | `planner` | `docs/plans/<slug>.md` incl. cost rows |
 | 2 | Design (only if contract/data model changes) | `architect` | ADR + `proto/` + Firestore model/index changes; `make proto` passes |
 | 3 | Build API | `backend-developer` | code + tests; `make ci` green |
 | 3 | Build client (parallel with 3) | `frontend-developer` | screens + widget tests; `flutter analyze` clean |

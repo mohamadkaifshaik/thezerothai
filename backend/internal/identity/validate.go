@@ -1,24 +1,15 @@
 package identity
 
 import (
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/handle"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 )
-
-var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,15}$`)
-
-// ValidHandleRun reports whether s has the handle grammar `[A-Za-z0-9_]{3,15}` (handleRe), without the reserved
-// list or the Firestore doc-id check. Exported so posts/text can recognise an @mention candidate with the one
-// handle grammar instead of redefining it (ADR-0010 D7: "identity's handleRe, reused, not redefined").
-func ValidHandleRun(s string) bool {
-	return handleRe.MatchString(s)
-}
 
 // reservedHandles blocks a small, obvious set of confusable/system handles. Extend via config later if
 // abuse shows up (ADR-0006 abuse-spike runbook), not by redeploying this list under pressure.
@@ -30,11 +21,11 @@ var reservedHandles = map[string]struct{}{
 
 // handleFormatIssue returns "invalid_format", "reserved", or "" (ok). It never reads Firestore — pure
 // validation, safe to call before any quota/rate-limit check.
-func handleFormatIssue(handle string) string {
-	if !handleRe.MatchString(handle) || reservedDocID(handle) {
+func handleFormatIssue(h string) string {
+	if !handle.ValidRun(h) || reservedDocID(h) {
 		return "invalid_format"
 	}
-	if _, reserved := reservedHandles[strings.ToLower(handle)]; reserved {
+	if _, reserved := reservedHandles[strings.ToLower(h)]; reserved {
 		return "reserved"
 	}
 	return ""
