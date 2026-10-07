@@ -32,7 +32,7 @@
 | AccountRepository / AccountExport | app/lib/features/account/data/account_repository.dart | DeleteAccount, RequestAccountExport, GetAccountExport; caller owns the idempotency key |
 | AccountCubit | app/lib/features/account/presentation/bloc/account_cubit.dart | delete/export intents: one key per intent, re-auth once on REAUTH_REQUIRED then retry once, cancel sends nothing |
 | AuthRepository.reauthenticate / revokeAppleToken | app/lib/features/auth/data/auth_repository.dart | provider/password re-auth + forced token refresh; Apple token revocation (plan Q7) |
-| kFeatureAccountLifecycle / isAccountLifecycleEnabled | app/lib/features/account/domain/account_feature_flag.dart | gate delete-account and export UI |
+| kFeatureAccountLifecycle / isAccountLifecycleEnabled | app/lib/features/account/presentation/account_feature_flags.dart | gate delete-account and export UI |
 | ReauthRequiredException | app/lib/core/network/app_exception.dart | typed `ERROR_REASON_REAUTH_REQUIRED` |
 | kFeaturePosts / kPostsSubFeature{Replies,Quotes,Media} | app/lib/features/posts/domain/posts_feature_flag.dart | the `"posts"` flag name (ADR-0010 D1) and the `metadata["feature"]` sub-feature names (D2) - never hardcode the strings |
 | PostsFeatureGate | app/lib/features/posts/domain/posts_feature_flag.dart | wraps every posts/timeline RPC (`run`): flag off => no RPC; FEATURE_DISABLED with `feature` hides only that sub-feature, without it all of posts; `subFeatureEnabled(name)` for UI; `reset()` after GetMe; Crashlytics hook for unexpected errors |

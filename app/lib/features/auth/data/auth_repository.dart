@@ -31,10 +31,36 @@ class AuthRepository implements AuthTokenProvider {
   AuthRepository({
     fb.FirebaseAuth? firebaseAuth,
     GoogleSignIn? googleSignIn,
+    this.googleWebClientId,
+    this.appleServiceId,
+    this.appleRedirectUri,
     @visibleForTesting bool isWeb = kIsWeb,
+    @visibleForTesting TargetPlatform? platform,
   }) : _firebaseAuth = firebaseAuth ?? fb.FirebaseAuth.instance,
        _googleSignIn = googleSignIn ?? GoogleSignIn.instance,
-       _isWeb = isWeb;
+       _isWeb = isWeb,
+       _platform = platform ?? defaultTargetPlatform;
+
+  /// Provider configuration of this build (from `AppConfig`): the one source
+  /// for sign-in and re-authentication. [googleWebClientId] is the Web OAuth
+  /// client of the build's Firebase project; [appleServiceId] and
+  /// [appleRedirectUri] drive Apple's web flow (web and Android).
+  final String? googleWebClientId;
+  final String? appleServiceId;
+  final String? appleRedirectUri;
+  final TargetPlatform _platform;
+
+  String? get _googleClientId =>
+      (googleWebClientId == null || googleWebClientId!.isEmpty)
+      ? null
+      : googleWebClientId;
+
+  WebAuthenticationOptions? get _appleWebOptions {
+    final id = appleServiceId;
+    final uri = appleRedirectUri;
+    if (id == null || id.isEmpty || uri == null || uri.isEmpty) return null;
+    return WebAuthenticationOptions(clientId: id, redirectUri: Uri.parse(uri));
+  }
 
   final fb.FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
@@ -142,7 +168,9 @@ class AuthRepository implements AuthTokenProvider {
       return;
     }
     try {
-      await _ensureGoogleInitialized(serverClientId: webClientId);
+      await _ensureGoogleInitialized(
+        serverClientId: webClientId ?? _googleClientId,
+      );
       if (!_googleSignIn.supportsAuthenticate()) {
         throw const AuthFailure.unknown(
           'Google sign-in is not supported on this platform.',
@@ -180,7 +208,7 @@ class AuthRepository implements AuthTokenProvider {
           AppleIDAuthorizationScopes.fullName,
         ],
         nonce: hashedNonce,
-        webAuthenticationOptions: webOptions,
+        webAuthenticationOptions: webOptions ?? _appleWebOptions,
       );
       final oauthCredential = fb.OAuthProvider('apple.com').credential(
         idToken: appleCredential.identityToken,
@@ -211,8 +239,6 @@ class AuthRepository implements AuthTokenProvider {
   /// Apple flow only) so the caller can revoke it, see [revokeAppleToken].
   Future<ReauthResult> reauthenticate({
     required Future<String?> Function() promptPassword,
-    WebAuthenticationOptions? appleWebOptions,
-    String? googleWebClientId,
   }) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
@@ -225,7 +251,7 @@ class AuthRepository implements AuthTokenProvider {
         if (_isWeb) {
           await user.reauthenticateWithPopup(fb.GoogleAuthProvider());
         } else {
-          await _ensureGoogleInitialized(serverClientId: googleWebClientId);
+          await _ensureGoogleInitialized(serverClientId: _googleClientId);
           if (!_googleSignIn.supportsAuthenticate()) {
             throw const AuthFailure.unknown(
               'Google sign-in is not supported on this platform.',
@@ -251,15 +277,18 @@ class AuthRepository implements AuthTokenProvider {
           final apple = await SignInWithApple.getAppleIDCredential(
             scopes: const [AppleIDAuthorizationScopes.email],
             nonce: hashedNonce,
-            webAuthenticationOptions: appleWebOptions,
+            webAuthenticationOptions: _appleWebOptions,
           );
-          appleCode = apple.authorizationCode;
+          // Only the native iOS/macOS code can be revoked (the Android/web
+          // service-id flow belongs to another client). It is single use, so
+          // it is deliberately NOT passed as `accessToken` to Firebase here.
+          if (_platform == TargetPlatform.iOS ||
+              _platform == TargetPlatform.macOS) {
+            appleCode = apple.authorizationCode;
+          }
           await user.reauthenticateWithCredential(
-            fb.OAuthProvider('apple.com').credential(
-              idToken: apple.identityToken,
-              rawNonce: rawNonce,
-              accessToken: apple.authorizationCode,
-            ),
+            fb.OAuthProvider('apple.com')
+                .credential(idToken: apple.identityToken, rawNonce: rawNonce),
           );
         }
       } else if (providers.contains('password')) {
@@ -285,13 +314,21 @@ class AuthRepository implements AuthTokenProvider {
         throw const AuthFailure.cancelled();
       }
       throw AuthFailure.unknown(e.description ?? e.code.toString());
+    } on AuthFailure {
+      rethrow;
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) {
         throw const AuthFailure.cancelled();
       }
       throw AuthFailure.unknown(e.message);
+    } on SignInWithAppleException catch (e) {
+      // Includes SignInWithAppleNotSupportedException (e.g. no web options).
+      throw AuthFailure.unknown(e.toString());
     } on fb.FirebaseAuthException catch (e) {
       throw _mapFirebaseAuthException(e);
+    } catch (e) {
+      // Platform channel / plugin errors: never leave the caller hanging.
+      throw AuthFailure.unknown(e.toString());
     }
     return ReauthResult(appleAuthorizationCode: appleCode);
   }
@@ -355,7 +392,7 @@ class AuthRepository implements AuthTokenProvider {
         return const AuthFailure.cancelled();
       case 'popup-blocked':
         return const AuthFailure.unknown(
-          'Your browser blocked the Google sign-in window. Allow pop-ups for '
+          'Your browser blocked the sign-in window. Allow pop-ups for '
           'this site and try again.',
         );
       case 'account-exists-with-different-credential':

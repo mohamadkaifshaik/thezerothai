@@ -62,7 +62,11 @@ Future<void> bootstrap() async {
 
   await _activateAppCheck(config);
 
-  final authRepository = AuthRepository();
+  final authRepository = AuthRepository(
+    googleWebClientId: config.googleWebClientId,
+    appleServiceId: config.appleServiceId,
+    appleRedirectUri: config.appleRedirectUri,
+  );
   final apiClient = ApiClient(
     baseUrl: config.apiBaseUrl,
     authTokens: authRepository,

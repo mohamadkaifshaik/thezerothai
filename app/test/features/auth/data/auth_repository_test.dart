@@ -187,6 +187,100 @@ void main() {
       );
     });
 
+    test('google on mobile re-authenticates with the Google credential and '
+        'the configured web client id', () async {
+      stubProviders('google.com');
+      final account = _MockGoogleSignInAccount();
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
+      when(() => googleSignIn.authenticate()).thenAnswer((_) async => account);
+      when(
+        () => account.authentication,
+      ).thenReturn(const GoogleSignInAuthentication(idToken: 'tok'));
+      when(
+        () => user.reauthenticateWithCredential(any()),
+      ).thenAnswer((_) async => _MockUserCredential());
+
+      await AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        googleWebClientId: 'prod-web',
+        isWeb: false,
+      ).reauthenticate(promptPassword: () async => null);
+
+      verify(
+        () => googleSignIn.initialize(serverClientId: 'prod-web'),
+      ).called(1);
+      verify(() => user.reauthenticateWithCredential(any())).called(1);
+      verify(() => user.getIdToken(true)).called(1);
+    });
+
+    test('a cancelled Google sheet maps to cancelled', () async {
+      stubProviders('google.com');
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
+      when(() => googleSignIn.authenticate()).thenThrow(
+        const GoogleSignInException(code: GoogleSignInExceptionCode.canceled),
+      );
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => null),
+        throwsA(const AuthFailure.cancelled()),
+      );
+    });
+
+    test('a generic platform error becomes AuthFailure.unknown', () async {
+      stubProviders('google.com');
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenThrow(Exception('channel error'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => null),
+        throwsA(isA<AuthUnknown>()),
+      );
+    });
+
+    test('a blocked web popup explains how to fix it', () async {
+      stubProviders('google.com');
+      when(
+        () => user.reauthenticateWithPopup(any()),
+      ).thenThrow(fb.FirebaseAuthException(code: 'popup-blocked'));
+
+      await expectLater(
+        repo(isWeb: true).reauthenticate(promptPassword: () async => null),
+        throwsA(
+          isA<AuthUnknown>().having(
+            (f) => f.message,
+            'message',
+            contains('pop-ups'),
+          ),
+        ),
+      );
+    });
+
+    test('a wrong password maps to invalidCredentials', () async {
+      stubProviders('password');
+      when(
+        () => user.reauthenticateWithCredential(any()),
+      ).thenThrow(fb.FirebaseAuthException(code: 'wrong-password'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => 'bad'),
+        throwsA(const AuthFailure.invalidCredentials()),
+      );
+    });
+
     test('revokeAppleToken forwards the authorization code', () async {
       when(() => firebaseAuth.revokeTokenWithAuthorizationCode('c'))
           .thenAnswer((_) async {});
