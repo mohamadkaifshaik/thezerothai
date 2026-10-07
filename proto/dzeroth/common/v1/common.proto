@@ -93,4 +93,8 @@ enum ErrorReason {
   // metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
   // (ADR-0010 D2). When absent, the whole feature behind the called service is off.
   ERROR_REASON_FEATURE_DISABLED = 14;
+  // FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
+  // ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
+  // same idempotency_key; do not loop.
+  ERROR_REASON_REAUTH_REQUIRED = 15;
 }

@@ -68,6 +68,10 @@ AppException mapConnectError(Object error) {
           message,
           feature: (feature == null || feature.isEmpty) ? null : feature,
         );
+      // P8 T2a stop-gap: falls back to the code-based mapping until T13 adds
+      // a typed re-authentication exception.
+      case common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED:
+        break;
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

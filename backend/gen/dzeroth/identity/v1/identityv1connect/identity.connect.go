@@ -118,7 +118,8 @@ type IdentityServiceClient interface {
 	// Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.
 	// Firestore: reads 2/2, writes 2/2 + deletes 1/1 (+ async snapshot job).
 	ChangeHandle(context.Context, *connect.Request[v1.ChangeHandleRequest]) (*connect.Response[v1.ChangeHandleResponse], error)
-	// Irreversible account deletion. Requires a recent sign-in (ID token auth_time < 5 min).
+	// Irreversible account deletion. Requires a recent sign-in: ID token auth_time older than
+	// ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, 0 writes.
 	// Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
 	// document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
 	// Firestore (sync part): reads 1/1, writes 1/1.
@@ -315,7 +316,8 @@ type IdentityServiceHandler interface {
 	// Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.
 	// Firestore: reads 2/2, writes 2/2 + deletes 1/1 (+ async snapshot job).
 	ChangeHandle(context.Context, *connect.Request[v1.ChangeHandleRequest]) (*connect.Response[v1.ChangeHandleResponse], error)
-	// Irreversible account deletion. Requires a recent sign-in (ID token auth_time < 5 min).
+	// Irreversible account deletion. Requires a recent sign-in: ID token auth_time older than
+	// ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, 0 writes.
 	// Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
 	// document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
 	// Firestore (sync part): reads 1/1, writes 1/1.

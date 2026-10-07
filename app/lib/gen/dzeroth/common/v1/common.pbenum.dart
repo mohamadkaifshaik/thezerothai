@@ -83,6 +83,12 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
       ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
 
+  /// FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
+  /// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
+  /// same idempotency_key; do not loop.
+  static const ErrorReason ERROR_REASON_REAUTH_REQUIRED =
+      ErrorReason._(15, _omitEnumNames ? '' : 'ERROR_REASON_REAUTH_REQUIRED');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -99,10 +105,11 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_ACCOUNT_RESTRICTED,
     ERROR_REASON_TARGET_BLOCKED,
     ERROR_REASON_FEATURE_DISABLED,
+    ERROR_REASON_REAUTH_REQUIRED,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 14);
+      $pb.ProtobufEnum.$_initByValueList(values, 15);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
