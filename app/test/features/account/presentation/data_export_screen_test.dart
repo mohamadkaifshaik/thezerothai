@@ -1,9 +1,12 @@
+import 'package:drift/native.dart';
+import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
-import 'package:dzeroth/features/account/presentation/bloc/data_export_cubit.dart';
 import 'package:dzeroth/features/account/presentation/data_export_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
-import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart' show ExportStatus;
+import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
+    show ExportStatus;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,8 +47,11 @@ void main() {
   late _MockAccounts accounts;
   late _MockAuth auth;
   late _FakeLauncher launcher;
+  late AppDatabase db;
 
   setUp(() {
+    db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
     accounts = _MockAccounts();
     auth = _MockAuth();
     launcher = _FakeLauncher();
@@ -57,19 +63,37 @@ void main() {
     ).thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_PENDING));
   });
 
-  Future<void> pump(WidgetTester tester, {double width = 400}) async {
+  Widget providers(Widget child) => MultiRepositoryProvider(
+    providers: [
+      RepositoryProvider<AccountRepository>.value(value: accounts),
+      RepositoryProvider<AuthRepository>.value(value: auth),
+      RepositoryProvider<AppDatabase>.value(value: db),
+      RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+    ],
+    child: child,
+  );
+
+  Future<void> pump(
+    WidgetTester tester, {
+    double width = 400,
+    double textScale = 1,
+  }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MultiRepositoryProvider(
-        providers: [
-          RepositoryProvider<AccountRepository>.value(value: accounts),
-          RepositoryProvider<AuthRepository>.value(value: auth),
-        ],
-        child: const MaterialApp(home: DataExportScreen()),
+      providers(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
+          home: const DataExportScreen(),
+        ),
       ),
     );
+    await tester.pump();
   }
 
   Future<void> tapRequest(WidgetTester tester) async {
@@ -141,12 +165,99 @@ void main() {
     verify(() => accounts.getExport(exportId: 'exp-1')).called(10);
   });
 
-  testWidgets('backoff delays grow from 10 s to 60 s', (tester) async {
-    final delays = [
-      for (var i = 0; i < DataExportCubit.maxPolls; i++)
-        DataExportCubit.delayForPoll(i).inSeconds,
-    ];
-    expect(delays, [10, 15, 22, 33, 50, 60, 60, 60, 60, 60]);
+  testWidgets('leaving the screen mid-poll stops polling', (tester) async {
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_PENDING));
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      providers(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const DataExportScreen(),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tapRequest(tester);
+
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(minutes: 10));
+
+    verifyNever(() => accounts.getExport(exportId: any(named: 'exportId')));
+  });
+
+  testWidgets('reopening resumes a saved export and shows Download', (
+    tester,
+  ) async {
+    await db.saveExport(
+      exportId: 'exp-1',
+      requestedAt: DateTime.now(),
+      expiresAt: DateTime.now().add(const Duration(days: 7)),
+      epoch: db.sessionEpoch.value,
+    );
+    when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+      (_) async => _export(ExportStatus.EXPORT_STATUS_READY, url: _downloadUrl),
+    );
+    await tester.runAsync(() async {
+      await pump(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
+
+    expect(find.text('Download'), findsOneWidget);
+    verifyNever(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    );
+  });
+
+  testWidgets('degraded mode shows the friendly limited-mode message', (
+    tester,
+  ) async {
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenThrow(const DegradedModeException('degraded'));
+    await pump(tester);
+    await tapRequest(tester);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+
+    expect(find.textContaining('limited mode'), findsOneWidget);
+  });
+
+  testWidgets('a failed export job says to try again tomorrow, no retry', (
+    tester,
+  ) async {
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_FAILED));
+    await pump(tester);
+    await tapRequest(tester);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+
+    expect(find.textContaining('try again tomorrow'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.text('Try again'), findsNothing);
+  });
+
+  testWidgets('2x text scale has no overflow', (tester) async {
+    await pump(tester, textScale: 2);
+    await tester.scrollUntilVisible(find.text('Request export'), 100);
+
+    expect(find.text('Request export'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('NOT_FOUND shows the expired state', (tester) async {

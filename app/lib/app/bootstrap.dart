@@ -143,6 +143,7 @@ Future<void> bootstrap() async {
       graphRepository: graphRepository,
       accountRepository: AccountRepository(apiClient: apiClient),
       authRepository: authRepository,
+      database: database,
       postsRepository: postsRepository,
       timelineRepository: timelineRepository,
       postsGate: postsGate,

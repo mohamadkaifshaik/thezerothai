@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/router/app_router.dart';
+import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
+import 'session_wiring.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -28,6 +30,7 @@ class AppWidget extends StatefulWidget {
     required this.graphRepository,
     required this.accountRepository,
     required this.authRepository,
+    required this.database,
     required this.postsRepository,
     required this.timelineRepository,
     required this.postsGate,
@@ -39,6 +42,7 @@ class AppWidget extends StatefulWidget {
   final GraphRepository graphRepository;
   final AccountRepository accountRepository;
   final AuthRepository authRepository;
+  final AppDatabase database;
   final PostsRepository postsRepository;
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
@@ -80,6 +84,10 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.graphRepository),
         RepositoryProvider.value(value: widget.accountRepository),
         RepositoryProvider.value(value: widget.authRepository),
+        RepositoryProvider.value(value: widget.database),
+        RepositoryProvider<UnexpectedErrorReporter>.value(
+          value: reportUnexpectedError,
+        ),
         RepositoryProvider.value(value: widget.postsRepository),
         RepositoryProvider.value(value: widget.timelineRepository),
         RepositoryProvider.value(value: widget.postsGate),

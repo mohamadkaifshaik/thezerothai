@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -127,7 +128,7 @@ void main() {
       onboardingBloc,
       const Stream<OnboardingState>.empty(),
       initialState: const OnboardingState(
-        enabledFeatures: {'account_lifecycle'},
+        enabledFeatures: {kFeatureAccountLifecycle},
       ),
     );
     await tester.pumpWidget(wrap());

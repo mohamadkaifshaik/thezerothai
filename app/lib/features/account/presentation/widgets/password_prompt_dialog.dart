@@ -29,7 +29,8 @@ class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
 
   void _submit() {
     final value = _controller.text;
-    Navigator.of(context).pop(value.isEmpty ? null : value);
+    if (value.isEmpty) return;
+    Navigator.of(context).pop(value);
   }
 
   @override
@@ -40,6 +41,7 @@ class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
         controller: _controller,
         autofocus: true,
         obscureText: true,
+        textInputAction: TextInputAction.done,
         autofillHints: const [AutofillHints.password],
         decoration: const InputDecoration(labelText: 'Password'),
         onSubmitted: (_) => _submit(),
@@ -49,7 +51,13 @@ class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Continue')),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _controller,
+          builder: (context, value, _) => FilledButton(
+            onPressed: value.text.isEmpty ? null : _submit,
+            child: const Text('Continue'),
+          ),
+        ),
       ],
     );
   }

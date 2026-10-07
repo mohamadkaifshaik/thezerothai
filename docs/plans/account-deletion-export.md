@@ -677,7 +677,7 @@ Order:
 - **Budget.** 1 request per completed intent.
 
 ### T15 — Flutter: Settings → Download my data  [owner: frontend-developer] [size: S] [depends: T13]
-- **Status:** Done (route `/settings/export`, flag-gated with redirect; `DataExportCubit` + screen; analyze + tests green). Deviations: the `export_id` is held in memory for the screen lifetime only (no persistence dependency exists in the app; leaving the screen drops it, a re-request within the day hits QUOTA_EXCEEDED); added `showPasswordPromptDialog` and wired `AccountRepository`/`AuthRepository` into `AppWidget`/`bootstrap`.
+- **Status:** Done (route `/settings/export`, flag-gated with redirect; `DataExportCubit` + screen; analyze + tests green). The `export_id` + lifetime are persisted in drift (`AccountExportEntries`, schema v4, wiped on sign-out, never the URL), so reopening the screen resumes polling with a fresh 10-poll budget and "check back later" works. T15 also owns the shared wiring T14 reuses: `showPasswordPromptDialog`, `UnexpectedErrorReporter`, account/auth repository providers.
 - **Description.**
   - An entry leading to `/settings/export`.
   - "Request export" calls RequestAccountExport and keeps the `export_id` on the device.

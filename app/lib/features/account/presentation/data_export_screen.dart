@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../app/session_wiring.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../auth/data/auth_repository.dart';
@@ -14,7 +16,8 @@ import 'widgets/password_prompt_dialog.dart';
 
 /// Settings -> Download my data (`/settings/export`, only reachable with the
 /// account-lifecycle flag on; see `AppRouter`). Request, bounded polling,
-/// then open the signed link with `url_launcher` (never logged).
+/// then open the signed link with `url_launcher` (never logged). A pending
+/// export survives leaving the screen (saved id, see `AppDatabase`).
 class DataExportScreen extends StatefulWidget {
   const DataExportScreen({super.key});
 
@@ -26,11 +29,19 @@ class _DataExportScreenState extends State<DataExportScreen> {
   late final AccountCubit _account = AccountCubit(
     accountRepository: context.read<AccountRepository>(),
     authRepository: context.read<AuthRepository>(),
+    onUnexpectedError: context.read<UnexpectedErrorReporter>(),
   );
   late final DataExportCubit _export = DataExportCubit(
     accountCubit: _account,
     accountRepository: context.read<AccountRepository>(),
+    database: context.read<AppDatabase>(),
   );
+
+  @override
+  void initState() {
+    super.initState();
+    _export.init();
+  }
 
   @override
   void dispose() {
@@ -79,7 +90,8 @@ class _DataExportScreenState extends State<DataExportScreen> {
                   Text(
                     'Get a copy of the data we hold about you: your profile, '
                     'posts and the accounts you follow. You can request one '
-                    'export per day, and the link expires after a while.',
+                    'export per day, and your export stays available for '
+                    '7 days.',
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
                   const SizedBox(height: AppSpacing.lg),
@@ -93,12 +105,11 @@ class _DataExportScreenState extends State<DataExportScreen> {
     );
   }
 
-  Widget _requestButton(String label) => FilledButton(
-    onPressed: () => _export.request(
-      promptPassword: () => showPasswordPromptDialog(context),
-    ),
-    child: Text(label),
-  );
+  void _request() =>
+      _export.request(promptPassword: () => showPasswordPromptDialog(context));
+
+  Widget _requestButton(String label) =>
+      FilledButton(onPressed: _request, child: Text(label));
 
   Widget _body(BuildContext context, DataExportState state) {
     switch (state.phase) {
@@ -126,11 +137,21 @@ class _DataExportScreenState extends State<DataExportScreen> {
           liveRegion: true,
           child: Column(
             children: [
-              const Text('Your export is ready.'),
+              Text(
+                state.linkRefreshed
+                    ? 'Link refreshed, tap Download.'
+                    : 'Your export is ready.',
+              ),
               const SizedBox(height: AppSpacing.md),
               FilledButton.icon(
-                onPressed: _download,
-                icon: const Icon(Icons.download_outlined),
+                onPressed: state.refreshing ? null : _download,
+                icon: state.refreshing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download_outlined),
                 label: const Text('Download'),
               ),
             ],
@@ -141,7 +162,7 @@ class _DataExportScreenState extends State<DataExportScreen> {
           liveRegion: true,
           child: const Text(
             'Your export is taking longer than expected. Please check back '
-            'later; this page will not keep checking.',
+            'later: reopen this page and we will look again.',
           ),
         );
       case DataExportPhase.expired:
@@ -168,24 +189,28 @@ class _DataExportScreenState extends State<DataExportScreen> {
         child: const Text('You can request one export per day.'),
       );
     }
-    if (error != null) {
-      return AppErrorView(
-        error: error,
-        onRetry: () => _export.request(
-          promptPassword: () => showPasswordPromptDialog(context),
+    if (state.jobFailed) {
+      return Semantics(
+        liveRegion: true,
+        child: const Text(
+          'We could not prepare your export. Please try again tomorrow.',
         ),
       );
     }
-    final message =
-        state.authFailure?.message ??
-        (state.jobFailed
-            ? 'We could not prepare your export. Please try again later.'
-            : 'Something went wrong. Please try again.');
+    if (error != null) {
+      return AppErrorView(
+        error: error,
+        onRetry: _export.canResume ? _export.resume : _request,
+      );
+    }
     return Semantics(
       liveRegion: true,
       child: Column(
         children: [
-          Text(message),
+          Text(
+            state.authFailure?.message ??
+                'Something went wrong. Please try again.',
+          ),
           const SizedBox(height: AppSpacing.md),
           _requestButton('Try again'),
         ],
