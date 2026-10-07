@@ -108,6 +108,9 @@ class TimelineStateEntries extends Table {
 @DataClassName('SavedAccountExport')
 class AccountExportEntries extends Table {
   TextColumn get exportId => text()();
+
+  /// Firebase uid the export belongs to; another account never sees it.
+  TextColumn get uid => text()();
   DateTimeColumn get requestedAt => dateTime()();
 
   /// Server `expireAt` (request time + 7 days); after it GetAccountExport
@@ -160,15 +163,27 @@ class AppDatabase extends _$AppDatabase {
     },
   );
 
-  /// The saved export of the signed-in user, if any.
-  Future<SavedAccountExport?> savedExport() async {
+  /// The saved export of [uid], if any. A row of another uid is treated as
+  /// absent and deleted (a shared device must never resume someone else's).
+  Future<SavedAccountExport?> savedExport(String uid) async {
     final rows = await select(accountExportEntries).get();
-    return rows.isEmpty ? null : rows.first;
+    SavedAccountExport? mine;
+    for (final row in rows) {
+      if (row.uid == uid) {
+        mine = row;
+      } else {
+        await (delete(
+          accountExportEntries,
+        )..where((t) => t.exportId.equals(row.exportId))).go();
+      }
+    }
+    return mine;
   }
 
   /// Replaces the saved export (one row). Guarded like every cache write.
   Future<void> saveExport({
     required String exportId,
+    required String uid,
     required DateTime requestedAt,
     required DateTime expiresAt,
     required int epoch,
@@ -179,6 +194,7 @@ class AppDatabase extends _$AppDatabase {
       await into(accountExportEntries).insert(
         AccountExportEntriesCompanion.insert(
           exportId: exportId,
+          uid: uid,
           requestedAt: requestedAt,
           expiresAt: expiresAt,
         ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -33,6 +35,7 @@ void main() {
   late _MockAuth auth;
   late AppDatabase db;
   late DateTime now;
+  final reported = <Object>[];
 
   DataExportCubit build({bool tapAfterRefresh = false}) => DataExportCubit(
     accountCubit: AccountCubit(
@@ -41,6 +44,8 @@ void main() {
     ),
     accountRepository: accounts,
     database: db,
+    uid: 'u1',
+    onUnexpectedError: (e, _) => reported.add(e),
     clock: () => now,
     tapAfterRefresh: tapAfterRefresh,
   );
@@ -68,6 +73,7 @@ void main() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
     now = DateTime(2026, 10, 7, 12);
+    reported.clear();
     when(() => auth.reauthNeedsGesture).thenReturn(false);
     when(
       () =>
@@ -161,13 +167,13 @@ void main() {
       return _ready('https://example/1');
     });
     final cubit = await readyCubit(tester);
-    expect(await db.savedExport(), isNotNull);
+    expect(await db.savedExport('u1'), isNotNull);
 
     now = now.add(const Duration(minutes: 20));
     expect(await cubit.downloadUrl(), isNull);
 
     expect(cubit.state.phase, DataExportPhase.expired);
-    expect(await db.savedExport(), isNull);
+    expect(await db.savedExport('u1'), isNull);
     await cubit.close();
   });
 
@@ -208,7 +214,7 @@ void main() {
     expect(cubit.state.phase, DataExportPhase.failed);
     expect(cubit.state.jobFailed, isTrue);
     expect(cubit.canResume, isFalse);
-    expect(await db.savedExport(), isNull);
+    expect(await db.savedExport('u1'), isNull);
     verify(() => accounts.getExport(exportId: 'exp-1')).called(1);
     await cubit.close();
   });
@@ -308,7 +314,7 @@ void main() {
         .thenAnswer((_) async => _pending);
     final first = build();
     await first.request(promptPassword: _pw);
-    final saved = await db.savedExport();
+    final saved = await db.savedExport('u1');
     expect(saved?.exportId, 'exp-1');
     expect(saved?.expiresAt, now.add(const Duration(days: 7)));
     await first.close();
@@ -324,6 +330,7 @@ void main() {
   test('init drops an expired saved export', () async {
     await db.saveExport(
       exportId: 'old',
+      uid: 'u1',
       requestedAt: now.subtract(const Duration(days: 8)),
       expiresAt: now.subtract(const Duration(days: 1)),
       epoch: db.sessionEpoch.value,
@@ -332,7 +339,7 @@ void main() {
     await cubit.init();
 
     expect(cubit.state.phase, DataExportPhase.idle);
-    expect(await db.savedExport(), isNull);
+    expect(await db.savedExport('u1'), isNull);
     await cubit.close();
   });
 
@@ -343,11 +350,93 @@ void main() {
         .thenThrow(const NotFoundException('gone'));
     final cubit = build();
     await cubit.request(promptPassword: _pw);
-    expect(await db.savedExport(), isNotNull);
+    expect(await db.savedExport('u1'), isNotNull);
     await elapse(tester, const Duration(seconds: 10));
 
     expect(cubit.state.phase, DataExportPhase.expired);
-    expect(await db.savedExport(), isNull);
+    expect(await db.savedExport('u1'), isNull);
+    await cubit.close();
+  });
+
+  testWidgets('closing while RequestAccountExport is in flight still saves '
+      'the accepted export', (tester) async {
+    final gate = Completer<AccountExport>();
+    when(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenAnswer((_) => gate.future);
+    final account = AccountCubit(
+      accountRepository: accounts,
+      authRepository: auth,
+    );
+    final cubit = DataExportCubit(
+      accountCubit: account,
+      accountRepository: accounts,
+      database: db,
+      uid: 'u1',
+      clock: () => now,
+      tapAfterRefresh: false,
+    );
+    final pending = cubit.request(promptPassword: _pw);
+    await tester.pump();
+    await cubit.close();
+    await account.close();
+    gate.complete(_pending);
+    await pending;
+
+    expect((await db.savedExport('u1'))?.exportId, 'exp-1');
+    verifyNever(() => accounts.getExport(exportId: any(named: 'exportId')));
+  });
+
+  test('a saved export of another uid is absent and deleted', () async {
+    await db.saveExport(
+      exportId: 'theirs',
+      uid: 'someone-else',
+      requestedAt: now,
+      expiresAt: now.add(const Duration(days: 7)),
+      epoch: db.sessionEpoch.value,
+    );
+    final cubit = build();
+    await cubit.init();
+
+    expect(cubit.state.phase, DataExportPhase.idle);
+    expect(await db.savedExport('someone-else'), isNull);
+    await cubit.close();
+  });
+
+  testWidgets('the server expiresAt updates the saved row', (tester) async {
+    final serverExpiry = now.add(const Duration(days: 6));
+    when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+      (_) async => AccountExport(
+        exportId: 'exp-1',
+        status: ExportStatus.EXPORT_STATUS_PENDING,
+        expiresAt: serverExpiry,
+      ),
+    );
+    final cubit = build();
+    await cubit.request(promptPassword: _pw);
+    await elapse(tester, const Duration(seconds: 10));
+
+    expect((await db.savedExport('u1'))?.expiresAt, serverExpiry);
+    await cubit.close();
+  });
+
+  testWidgets('an unknown error while polling is reported once per budget', (
+    tester,
+  ) async {
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenThrow(const UnknownApiException('boom'));
+    final cubit = build();
+    await cubit.request(promptPassword: _pw);
+    for (var i = 0; i < 12; i++) {
+      await elapse(tester, const Duration(seconds: 60));
+    }
+
+    expect(cubit.state.phase, DataExportPhase.checkBackLater);
+    expect(reported, hasLength(1));
+    cubit.resume();
+    await elapse(tester, Duration.zero);
+    expect(reported, hasLength(2));
     await cubit.close();
   });
 

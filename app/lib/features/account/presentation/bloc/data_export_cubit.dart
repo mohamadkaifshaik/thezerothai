@@ -124,9 +124,13 @@ class DataExportCubit extends Cubit<DataExportState> {
     required AccountCubit accountCubit,
     required AccountRepository accountRepository,
     required AppDatabase database,
+    required String uid,
+    void Function(Object error, StackTrace stack)? onUnexpectedError,
     DateTime Function()? clock,
     bool? tapAfterRefresh,
-  }) : _account = accountCubit,
+  }) : _uid = uid,
+       _onUnexpectedError = onUnexpectedError,
+       _account = accountCubit,
        _repository = accountRepository,
        _db = database,
        _clock = clock ?? DateTime.now,
@@ -150,8 +154,18 @@ class DataExportCubit extends Cubit<DataExportState> {
   final DateTime Function() _clock;
   final bool _tapAfterRefresh;
 
+  final String _uid;
+
+  /// Crashlytics non-fatal hook (never pass URLs).
+  final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
   Timer? _timer;
   String? _exportId;
+  DateTime? _requestedAt;
+  DateTime? _savedExpiresAt;
+
+  /// An unexpected error was already reported in this poll budget.
+  bool _reported = false;
   int _polls = 0;
   DateTime? _urlFetchedAt;
   bool _busy = false;
@@ -169,7 +183,7 @@ class DataExportCubit extends Cubit<DataExportState> {
   /// Resumes a saved, non-expired export (screen opened again): waits with
   /// a fresh poll budget, first poll right away.
   Future<void> init() async {
-    final saved = await _db.savedExport();
+    final saved = await _db.savedExport(_uid);
     if (isClosed || saved == null) return;
     if (!_clock().isBefore(saved.expiresAt)) {
       await _db.clearSavedExport();
@@ -177,8 +191,11 @@ class DataExportCubit extends Cubit<DataExportState> {
     }
     if (state.phase != DataExportPhase.idle) return;
     _exportId = saved.exportId;
+    _requestedAt = saved.requestedAt;
+    _savedExpiresAt = saved.expiresAt;
     emit(const DataExportState(phase: DataExportPhase.waiting));
     _polls = 0;
+    _reported = false;
     _schedule(Duration.zero);
   }
 
@@ -190,6 +207,7 @@ class DataExportCubit extends Cubit<DataExportState> {
   void resume() {
     if (isClosed || _exportId == null || _busy) return;
     _polls = 0;
+    _reported = false;
     emit(DataExportState(phase: DataExportPhase.waiting, export: state.export));
     _schedule(Duration.zero);
   }
@@ -201,7 +219,25 @@ class DataExportCubit extends Cubit<DataExportState> {
     _timer?.cancel();
     final epoch = _db.sessionEpoch.value;
     emit(const DataExportState(phase: DataExportPhase.requesting));
-    await _account.requestExport(promptPassword: promptPassword);
+    final accepted = await _account.requestExport(
+      promptPassword: promptPassword,
+    );
+    // Save BEFORE any isClosed check: the server already spent the daily
+    // quota, so the id must survive the screen having been closed meanwhile
+    // (the SessionEpoch guard still drops it after a sign-out).
+    if (accepted != null &&
+        accepted.status != ExportStatus.EXPORT_STATUS_FAILED) {
+      final now = _clock();
+      _requestedAt = now;
+      _savedExpiresAt = now.add(exportLifetime);
+      await _db.saveExport(
+        exportId: accepted.exportId,
+        uid: _uid,
+        requestedAt: now,
+        expiresAt: now.add(exportLifetime),
+        epoch: epoch,
+      );
+    }
     if (isClosed) return;
     final result = _account.state;
     switch (result.status) {
@@ -209,6 +245,7 @@ class DataExportCubit extends Cubit<DataExportState> {
         final export = result.export!;
         _exportId = export.exportId;
         _polls = 0;
+        _reported = false;
         _urlFetchedAt = null;
         if (export.status == ExportStatus.EXPORT_STATUS_FAILED) {
           _exportId = null;
@@ -220,14 +257,6 @@ class DataExportCubit extends Cubit<DataExportState> {
           );
           return;
         }
-        final now = _clock();
-        await _db.saveExport(
-          exportId: export.exportId,
-          requestedAt: now,
-          expiresAt: now.add(exportLifetime),
-          epoch: epoch,
-        );
-        if (isClosed) return;
         emit(DataExportState(phase: DataExportPhase.waiting, export: export));
         // A READY answer still needs a GetAccountExport for the URL.
         _schedule(
@@ -261,6 +290,25 @@ class DataExportCubit extends Cubit<DataExportState> {
     await _db.clearSavedExport();
   }
 
+  /// Keeps the saved row's expiry in line with the server's `expiresAt`.
+  Future<void> _syncExpiry(AccountExport export) async {
+    final expiresAt = export.expiresAt;
+    final requestedAt = _requestedAt;
+    if (expiresAt == null ||
+        requestedAt == null ||
+        expiresAt == _savedExpiresAt) {
+      return;
+    }
+    _savedExpiresAt = expiresAt;
+    await _db.saveExport(
+      exportId: export.exportId,
+      uid: _uid,
+      requestedAt: requestedAt,
+      expiresAt: expiresAt,
+      epoch: _db.sessionEpoch.value,
+    );
+  }
+
   Future<void> _poll() async {
     final id = _exportId;
     if (isClosed || id == null || _busy) return;
@@ -269,6 +317,8 @@ class DataExportCubit extends Cubit<DataExportState> {
     Duration? minNext;
     try {
       final export = await _repository.getExport(exportId: id);
+      if (isClosed) return;
+      await _syncExpiry(export);
       if (isClosed) return;
       if (export.status == ExportStatus.EXPORT_STATUS_FAILED) {
         await _forget();
@@ -294,6 +344,10 @@ class DataExportCubit extends Cubit<DataExportState> {
       return;
     } on AppException catch (error) {
       if (isClosed) return;
+      if (error is UnknownApiException && !_reported) {
+        _reported = true;
+        _onUnexpectedError?.call(error, StackTrace.current);
+      }
       if (error is RateLimitedException && !error.isDaily) {
         // Transient limit: wait at least what the server asked for.
         minNext = error.retryAfter;

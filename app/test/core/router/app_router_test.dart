@@ -123,6 +123,18 @@ void main() {
     expect(path, AppRouter.settingsPath);
   });
 
+  testWidgets('/settings/delete-account redirects to /settings when the flag '
+      'is off', (tester) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.ready),
+      path: '/settings/delete-account',
+    );
+
+    expect(path, AppRouter.settingsPath);
+  });
+
   testWidgets('/settings/export is reachable when the flag is on', (
     tester,
   ) async {

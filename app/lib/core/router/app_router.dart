@@ -197,9 +197,7 @@ class AppRouter {
     }
   }
 
-  static final _graphOnlyRoutes = RegExp(
-    r'^/settings/(?:blocked|muted)$',
-  );
+  static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
   static final _accountOnlyRoutes = RegExp(
     r'^/settings/(?:export|delete-account)$',
   );

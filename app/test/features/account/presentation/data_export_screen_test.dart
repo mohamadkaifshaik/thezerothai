@@ -8,6 +8,11 @@ import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
     show ExportStatus;
 import 'package:flutter/material.dart';
+import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -17,6 +22,9 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 class _MockAccounts extends Mock implements AccountRepository {}
 
 class _MockAuth extends Mock implements AuthRepository {}
+
+class _FakeAuthBloc extends MockBloc<AuthEvent, AuthState>
+    implements AuthBloc {}
 
 class _FakeLauncher extends UrlLauncherPlatform {
   final launched = <String>[];
@@ -48,9 +56,24 @@ void main() {
   late _MockAuth auth;
   late _FakeLauncher launcher;
   late AppDatabase db;
+  late _FakeAuthBloc authBloc;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
+    authBloc = _FakeAuthBloc();
+    whenListen(
+      authBloc,
+      const Stream<AuthState>.empty(),
+      initialState: const AuthState(
+        status: AuthStatus.authenticated,
+        user: AppUser(
+          uid: 'uid-1',
+          email: 'a@example.com',
+          emailVerified: true,
+          isPasswordProvider: true,
+        ),
+      ),
+    );
     addTearDown(db.close);
     accounts = _MockAccounts();
     auth = _MockAuth();
@@ -70,7 +93,7 @@ void main() {
       RepositoryProvider<AppDatabase>.value(value: db),
       RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
     ],
-    child: child,
+    child: BlocProvider<AuthBloc>.value(value: authBloc, child: child),
   );
 
   Future<void> pump(
@@ -203,6 +226,7 @@ void main() {
   ) async {
     await db.saveExport(
       exportId: 'exp-1',
+      uid: 'uid-1',
       requestedAt: DateTime.now(),
       expiresAt: DateTime.now().add(const Duration(days: 7)),
       epoch: db.sessionEpoch.value,

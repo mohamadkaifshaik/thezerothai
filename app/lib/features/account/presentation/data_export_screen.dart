@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
+import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../data/account_repository.dart';
 import 'bloc/account_cubit.dart';
 import 'bloc/data_export_cubit.dart';
@@ -35,6 +36,8 @@ class _DataExportScreenState extends State<DataExportScreen> {
     accountCubit: _account,
     accountRepository: context.read<AccountRepository>(),
     database: context.read<AppDatabase>(),
+    uid: context.read<AuthBloc>().state.user?.uid ?? '',
+    onUnexpectedError: context.read<UnexpectedErrorReporter>(),
   );
 
   @override
@@ -160,9 +163,18 @@ class _DataExportScreenState extends State<DataExportScreen> {
       case DataExportPhase.checkBackLater:
         return Semantics(
           liveRegion: true,
-          child: const Text(
-            'Your export is taking longer than expected. Please check back '
-            'later: reopen this page and we will look again.',
+          child: Column(
+            children: [
+              const Text(
+                'Your export is taking longer than expected. Please check '
+                'back later; you can also reopen this page.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              OutlinedButton(
+                onPressed: _export.resume,
+                child: const Text('Check again'),
+              ),
+            ],
           ),
         );
       case DataExportPhase.expired:

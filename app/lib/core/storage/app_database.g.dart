@@ -1723,6 +1723,15 @@ class $AccountExportEntriesTable extends AccountExportEntries
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
   static const VerificationMeta _requestedAtMeta = const VerificationMeta(
     'requestedAt',
   );
@@ -1746,7 +1755,7 @@ class $AccountExportEntriesTable extends AccountExportEntries
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [exportId, requestedAt, expiresAt];
+  List<GeneratedColumn> get $columns => [exportId, uid, requestedAt, expiresAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1766,6 +1775,14 @@ class $AccountExportEntriesTable extends AccountExportEntries
       );
     } else if (isInserting) {
       context.missing(_exportIdMeta);
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
     }
     if (data.containsKey('requested_at')) {
       context.handle(
@@ -1799,6 +1816,10 @@ class $AccountExportEntriesTable extends AccountExportEntries
         DriftSqlType.string,
         data['${effectivePrefix}export_id'],
       )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
       requestedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}requested_at'],
@@ -1819,6 +1840,9 @@ class $AccountExportEntriesTable extends AccountExportEntries
 class SavedAccountExport extends DataClass
     implements Insertable<SavedAccountExport> {
   final String exportId;
+
+  /// Firebase uid the export belongs to; another account never sees it.
+  final String uid;
   final DateTime requestedAt;
 
   /// Server `expireAt` (request time + 7 days); after it GetAccountExport
@@ -1826,6 +1850,7 @@ class SavedAccountExport extends DataClass
   final DateTime expiresAt;
   const SavedAccountExport({
     required this.exportId,
+    required this.uid,
     required this.requestedAt,
     required this.expiresAt,
   });
@@ -1833,6 +1858,7 @@ class SavedAccountExport extends DataClass
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['export_id'] = Variable<String>(exportId);
+    map['uid'] = Variable<String>(uid);
     map['requested_at'] = Variable<DateTime>(requestedAt);
     map['expires_at'] = Variable<DateTime>(expiresAt);
     return map;
@@ -1841,6 +1867,7 @@ class SavedAccountExport extends DataClass
   AccountExportEntriesCompanion toCompanion(bool nullToAbsent) {
     return AccountExportEntriesCompanion(
       exportId: Value(exportId),
+      uid: Value(uid),
       requestedAt: Value(requestedAt),
       expiresAt: Value(expiresAt),
     );
@@ -1853,6 +1880,7 @@ class SavedAccountExport extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return SavedAccountExport(
       exportId: serializer.fromJson<String>(json['exportId']),
+      uid: serializer.fromJson<String>(json['uid']),
       requestedAt: serializer.fromJson<DateTime>(json['requestedAt']),
       expiresAt: serializer.fromJson<DateTime>(json['expiresAt']),
     );
@@ -1862,6 +1890,7 @@ class SavedAccountExport extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'exportId': serializer.toJson<String>(exportId),
+      'uid': serializer.toJson<String>(uid),
       'requestedAt': serializer.toJson<DateTime>(requestedAt),
       'expiresAt': serializer.toJson<DateTime>(expiresAt),
     };
@@ -1869,16 +1898,19 @@ class SavedAccountExport extends DataClass
 
   SavedAccountExport copyWith({
     String? exportId,
+    String? uid,
     DateTime? requestedAt,
     DateTime? expiresAt,
   }) => SavedAccountExport(
     exportId: exportId ?? this.exportId,
+    uid: uid ?? this.uid,
     requestedAt: requestedAt ?? this.requestedAt,
     expiresAt: expiresAt ?? this.expiresAt,
   );
   SavedAccountExport copyWithCompanion(AccountExportEntriesCompanion data) {
     return SavedAccountExport(
       exportId: data.exportId.present ? data.exportId.value : this.exportId,
+      uid: data.uid.present ? data.uid.value : this.uid,
       requestedAt: data.requestedAt.present
           ? data.requestedAt.value
           : this.requestedAt,
@@ -1890,6 +1922,7 @@ class SavedAccountExport extends DataClass
   String toString() {
     return (StringBuffer('SavedAccountExport(')
           ..write('exportId: $exportId, ')
+          ..write('uid: $uid, ')
           ..write('requestedAt: $requestedAt, ')
           ..write('expiresAt: $expiresAt')
           ..write(')'))
@@ -1897,12 +1930,13 @@ class SavedAccountExport extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(exportId, requestedAt, expiresAt);
+  int get hashCode => Object.hash(exportId, uid, requestedAt, expiresAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is SavedAccountExport &&
           other.exportId == this.exportId &&
+          other.uid == this.uid &&
           other.requestedAt == this.requestedAt &&
           other.expiresAt == this.expiresAt);
 }
@@ -1910,31 +1944,37 @@ class SavedAccountExport extends DataClass
 class AccountExportEntriesCompanion
     extends UpdateCompanion<SavedAccountExport> {
   final Value<String> exportId;
+  final Value<String> uid;
   final Value<DateTime> requestedAt;
   final Value<DateTime> expiresAt;
   final Value<int> rowid;
   const AccountExportEntriesCompanion({
     this.exportId = const Value.absent(),
+    this.uid = const Value.absent(),
     this.requestedAt = const Value.absent(),
     this.expiresAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   AccountExportEntriesCompanion.insert({
     required String exportId,
+    required String uid,
     required DateTime requestedAt,
     required DateTime expiresAt,
     this.rowid = const Value.absent(),
   }) : exportId = Value(exportId),
+       uid = Value(uid),
        requestedAt = Value(requestedAt),
        expiresAt = Value(expiresAt);
   static Insertable<SavedAccountExport> custom({
     Expression<String>? exportId,
+    Expression<String>? uid,
     Expression<DateTime>? requestedAt,
     Expression<DateTime>? expiresAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (exportId != null) 'export_id': exportId,
+      if (uid != null) 'uid': uid,
       if (requestedAt != null) 'requested_at': requestedAt,
       if (expiresAt != null) 'expires_at': expiresAt,
       if (rowid != null) 'rowid': rowid,
@@ -1943,12 +1983,14 @@ class AccountExportEntriesCompanion
 
   AccountExportEntriesCompanion copyWith({
     Value<String>? exportId,
+    Value<String>? uid,
     Value<DateTime>? requestedAt,
     Value<DateTime>? expiresAt,
     Value<int>? rowid,
   }) {
     return AccountExportEntriesCompanion(
       exportId: exportId ?? this.exportId,
+      uid: uid ?? this.uid,
       requestedAt: requestedAt ?? this.requestedAt,
       expiresAt: expiresAt ?? this.expiresAt,
       rowid: rowid ?? this.rowid,
@@ -1960,6 +2002,9 @@ class AccountExportEntriesCompanion
     final map = <String, Expression>{};
     if (exportId.present) {
       map['export_id'] = Variable<String>(exportId.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
     }
     if (requestedAt.present) {
       map['requested_at'] = Variable<DateTime>(requestedAt.value);
@@ -1977,6 +2022,7 @@ class AccountExportEntriesCompanion
   String toString() {
     return (StringBuffer('AccountExportEntriesCompanion(')
           ..write('exportId: $exportId, ')
+          ..write('uid: $uid, ')
           ..write('requestedAt: $requestedAt, ')
           ..write('expiresAt: $expiresAt, ')
           ..write('rowid: $rowid')
@@ -3009,6 +3055,7 @@ typedef $$TimelineStateEntriesTableProcessedTableManager =
 typedef $$AccountExportEntriesTableCreateCompanionBuilder =
     AccountExportEntriesCompanion Function({
       required String exportId,
+      required String uid,
       required DateTime requestedAt,
       required DateTime expiresAt,
       Value<int> rowid,
@@ -3016,6 +3063,7 @@ typedef $$AccountExportEntriesTableCreateCompanionBuilder =
 typedef $$AccountExportEntriesTableUpdateCompanionBuilder =
     AccountExportEntriesCompanion Function({
       Value<String> exportId,
+      Value<String> uid,
       Value<DateTime> requestedAt,
       Value<DateTime> expiresAt,
       Value<int> rowid,
@@ -3032,6 +3080,11 @@ class $$AccountExportEntriesTableFilterComposer
   });
   ColumnFilters<String> get exportId => $composableBuilder(
     column: $table.exportId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3060,6 +3113,11 @@ class $$AccountExportEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get requestedAt => $composableBuilder(
     column: $table.requestedAt,
     builder: (column) => ColumnOrderings(column),
@@ -3082,6 +3140,9 @@ class $$AccountExportEntriesTableAnnotationComposer
   });
   GeneratedColumn<String> get exportId =>
       $composableBuilder(column: $table.exportId, builder: (column) => column);
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
 
   GeneratedColumn<DateTime> get requestedAt => $composableBuilder(
     column: $table.requestedAt,
@@ -3136,11 +3197,13 @@ class $$AccountExportEntriesTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> exportId = const Value.absent(),
+                Value<String> uid = const Value.absent(),
                 Value<DateTime> requestedAt = const Value.absent(),
                 Value<DateTime> expiresAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => AccountExportEntriesCompanion(
                 exportId: exportId,
+                uid: uid,
                 requestedAt: requestedAt,
                 expiresAt: expiresAt,
                 rowid: rowid,
@@ -3148,11 +3211,13 @@ class $$AccountExportEntriesTableTableManager
           createCompanionCallback:
               ({
                 required String exportId,
+                required String uid,
                 required DateTime requestedAt,
                 required DateTime expiresAt,
                 Value<int> rowid = const Value.absent(),
               }) => AccountExportEntriesCompanion.insert(
                 exportId: exportId,
+                uid: uid,
                 requestedAt: requestedAt,
                 expiresAt: expiresAt,
                 rowid: rowid,
