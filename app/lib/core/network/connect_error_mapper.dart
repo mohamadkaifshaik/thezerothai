@@ -68,10 +68,10 @@ AppException mapConnectError(Object error) {
           message,
           feature: (feature == null || feature.isEmpty) ? null : feature,
         );
-      // P8 T2a stop-gap: falls back to the code-based mapping until T13 adds
-      // a typed re-authentication exception.
+      // P8 (account-deletion plan Q5): the sign-in is too old for a sensitive
+      // call. The caller re-authenticates once and retries with the same key.
       case common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED:
-        break;
+        return ReauthRequiredException(message);
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

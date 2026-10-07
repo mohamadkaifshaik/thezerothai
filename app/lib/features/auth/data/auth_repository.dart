@@ -11,6 +11,15 @@ import '../../../core/network/auth_token_provider.dart';
 import '../domain/app_user.dart';
 import '../domain/auth_failure.dart';
 
+/// Outcome of [AuthRepository.reauthenticate].
+class ReauthResult {
+  const ReauthResult({this.appleAuthorizationCode});
+
+  /// Set after a native Apple re-auth; hand it to
+  /// [AuthRepository.revokeAppleToken].
+  final String? appleAuthorizationCode;
+}
+
 /// Wraps Firebase Auth + Google Sign-In + Sign in with Apple behind one
 /// interface. No phone/SMS auth (CLAUDE.md, ADR-0006): the sign-in surface is
 /// intentionally limited to email/password, Google and Apple.
@@ -184,6 +193,114 @@ class AuthRepository implements AuthTokenProvider {
         throw const AuthFailure.cancelled();
       }
       throw AuthFailure.unknown(e.message);
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapFirebaseAuthException(e);
+    }
+  }
+
+  /// Re-authenticates the signed-in user with the provider they signed in
+  /// with, then forces an ID-token refresh so the next API call carries a
+  /// fresh `auth_time` (needed by sensitive RPCs such as DeleteAccount).
+  ///
+  /// - Google / Apple: provider flow (web: popup).
+  /// - Password: [promptPassword] asks the user; null or empty means they
+  ///   cancelled.
+  ///
+  /// Throws [AuthFailure.cancelled] when the user backs out; nothing is sent
+  /// to the API in that case. Returns the Apple authorization code (native
+  /// Apple flow only) so the caller can revoke it, see [revokeAppleToken].
+  Future<ReauthResult> reauthenticate({
+    required Future<String?> Function() promptPassword,
+    WebAuthenticationOptions? appleWebOptions,
+    String? googleWebClientId,
+  }) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw const AuthFailure.unknown('You are signed out.');
+    }
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+    String? appleCode;
+    try {
+      if (providers.contains('google.com')) {
+        if (_isWeb) {
+          await user.reauthenticateWithPopup(fb.GoogleAuthProvider());
+        } else {
+          await _ensureGoogleInitialized(serverClientId: googleWebClientId);
+          if (!_googleSignIn.supportsAuthenticate()) {
+            throw const AuthFailure.unknown(
+              'Google sign-in is not supported on this platform.',
+            );
+          }
+          final account = await _googleSignIn.authenticate();
+          final idToken = account.authentication.idToken;
+          if (idToken == null) {
+            throw const AuthFailure.unknown(
+              'Google sign-in did not return a token.',
+            );
+          }
+          await user.reauthenticateWithCredential(
+            fb.GoogleAuthProvider.credential(idToken: idToken),
+          );
+        }
+      } else if (providers.contains('apple.com')) {
+        if (_isWeb) {
+          await user.reauthenticateWithPopup(fb.OAuthProvider('apple.com'));
+        } else {
+          final rawNonce = _generateNonce();
+          final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+          final apple = await SignInWithApple.getAppleIDCredential(
+            scopes: const [AppleIDAuthorizationScopes.email],
+            nonce: hashedNonce,
+            webAuthenticationOptions: appleWebOptions,
+          );
+          appleCode = apple.authorizationCode;
+          await user.reauthenticateWithCredential(
+            fb.OAuthProvider('apple.com').credential(
+              idToken: apple.identityToken,
+              rawNonce: rawNonce,
+              accessToken: apple.authorizationCode,
+            ),
+          );
+        }
+      } else if (providers.contains('password')) {
+        final email = user.email;
+        if (email == null) {
+          throw const AuthFailure.unknown('This account has no email.');
+        }
+        final password = await promptPassword();
+        if (password == null || password.isEmpty) {
+          throw const AuthFailure.cancelled();
+        }
+        await user.reauthenticateWithCredential(
+          fb.EmailAuthProvider.credential(email: email, password: password),
+        );
+      } else {
+        throw const AuthFailure.unknown(
+          'This sign-in method cannot be re-confirmed.',
+        );
+      }
+      await user.getIdToken(true);
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        throw const AuthFailure.cancelled();
+      }
+      throw AuthFailure.unknown(e.description ?? e.code.toString());
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) {
+        throw const AuthFailure.cancelled();
+      }
+      throw AuthFailure.unknown(e.message);
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapFirebaseAuthException(e);
+    }
+    return ReauthResult(appleAuthorizationCode: appleCode);
+  }
+
+  /// Revokes the Sign in with Apple token (Apple's account-deletion rule,
+  /// plan Q7). Call after an Apple [reauthenticate], before DeleteAccount.
+  Future<void> revokeAppleToken(String authorizationCode) async {
+    try {
+      await _firebaseAuth.revokeTokenWithAuthorizationCode(authorizationCode);
     } on fb.FirebaseAuthException catch (e) {
       throw _mapFirebaseAuthException(e);
     }

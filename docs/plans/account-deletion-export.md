@@ -635,7 +635,7 @@ Order:
 - **Budget.** Same as the job.
 
 ### T13 — Flutter: AccountRepository + re-authentication  [owner: frontend-developer] [size: M] [depends: — (T2a for the reason mapping)]
-- **Status:** Open. Not blocked (built against the existing generated client and fakes).
+- **Status:** Done (repository, cubit, reauthenticate, mapper, flag accessor; analyze + tests green). Not blocked (built against the existing generated client and fakes).
 - **Description.**
   - Check `docs/ui-catalog.md` first.
   - Add `features/account/data/account_repository.dart` (DeleteAccount, RequestAccountExport, GetAccountExport;

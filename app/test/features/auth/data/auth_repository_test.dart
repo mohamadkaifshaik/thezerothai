@@ -13,6 +13,10 @@ class _MockGoogleSignInAccount extends Mock implements GoogleSignInAccount {}
 
 class _MockUserCredential extends Mock implements fb.UserCredential {}
 
+class _MockUser extends Mock implements fb.User {}
+
+class _MockUserInfo extends Mock implements fb.UserInfo {}
+
 void main() {
   late _MockFirebaseAuth firebaseAuth;
   late _MockGoogleSignIn googleSignIn;
@@ -105,6 +109,92 @@ void main() {
               as fb.AuthCredential;
       expect(credential.providerId, 'google.com');
       verifyNever(() => firebaseAuth.signInWithPopup(any()));
+    });
+  });
+
+  group('reauthenticate', () {
+    late _MockUser user;
+
+    void stubProviders(String id) {
+      final i = _MockUserInfo();
+      when(() => i.providerId).thenReturn(id);
+      when(() => user.providerData).thenReturn([i]);
+    }
+
+    AuthRepository repo({bool isWeb = false}) => AuthRepository(
+      firebaseAuth: firebaseAuth,
+      googleSignIn: googleSignIn,
+      isWeb: isWeb,
+    );
+
+    setUp(() {
+      user = _MockUser();
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      when(() => user.email).thenReturn('a@b.c');
+      when(() => user.getIdToken(true)).thenAnswer((_) async => 'fresh');
+    });
+
+    test('password: prompts, re-authenticates, then force-refreshes the '
+        'token', () async {
+      stubProviders('password');
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+
+      final result = await repo().reauthenticate(
+        promptPassword: () async => 'pw',
+      );
+
+      expect(result.appleAuthorizationCode, isNull);
+      verifyInOrder([
+        () => user.reauthenticateWithCredential(any()),
+        () => user.getIdToken(true),
+      ]);
+    });
+
+    test(
+      'password: a dismissed prompt is cancelled and sends nothing',
+      () async {
+        stubProviders('password');
+
+        await expectLater(
+          repo().reauthenticate(promptPassword: () async => null),
+          throwsA(const AuthFailure.cancelled()),
+        );
+        verifyNever(() => user.reauthenticateWithCredential(any()));
+        verifyNever(() => user.getIdToken(true));
+      },
+    );
+
+    test('google on web uses the popup', () async {
+      stubProviders('google.com');
+      when(() => user.reauthenticateWithPopup(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+
+      await repo(isWeb: true).reauthenticate(promptPassword: () async => null);
+
+      verify(() => user.reauthenticateWithPopup(any())).called(1);
+      verify(() => user.getIdToken(true)).called(1);
+    });
+
+    test('closing the web popup maps to cancelled', () async {
+      stubProviders('google.com');
+      when(() => user.reauthenticateWithPopup(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'popup-closed-by-user'));
+
+      await expectLater(
+        repo(isWeb: true).reauthenticate(promptPassword: () async => null),
+        throwsA(const AuthFailure.cancelled()),
+      );
+    });
+
+    test('revokeAppleToken forwards the authorization code', () async {
+      when(() => firebaseAuth.revokeTokenWithAuthorizationCode('c'))
+          .thenAnswer((_) async {});
+
+      await repo().revokeAppleToken('c');
+
+      verify(() => firebaseAuth.revokeTokenWithAuthorizationCode('c'))
+          .called(1);
     });
   });
 }

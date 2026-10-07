@@ -127,6 +127,13 @@ final class FeatureDisabledException extends AppException {
   final String? feature;
 }
 
+/// The caller's sign-in is too old for this sensitive call (e.g.
+/// `DeleteAccount`, `ERROR_REASON_REAUTH_REQUIRED`). Re-authenticate, force an
+/// ID-token refresh and retry once with the same idempotency key.
+final class ReauthRequiredException extends AppException {
+  const ReauthRequiredException(super.message);
+}
+
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
 final class NotFoundException extends AppException {
   const NotFoundException(super.message);
