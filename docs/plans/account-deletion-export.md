@@ -341,7 +341,9 @@ Order:
   (replacing the OPEN items).
 
 ### T2a — Proto: `ERROR_REASON_REAUTH_REQUIRED` + DeleteAccount comment  [owner: architect] [size: S] [depends: —]
-- **Status:** Open. Not blocked: an additive change that doesn't depend on any T1 option.
+- **Status:** In review (branch `feat/p8-t2a-reauth-reason`). Proto + generated Go/Dart done; `buf lint` /
+  `buf breaking` clean. Not Done until `flutter analyze` is green: the new value trips `exhaustive_cases` in
+  `app/lib/core/network/connect_error_mapper.dart:25` (needs a `REAUTH_REQUIRED` case; owner frontend-developer).
 - **Description.**
   - Add `ERROR_REASON_REAUTH_REQUIRED = 15` to `common.proto` (FAILED_PRECONDITION: "sign in again to continue").
   - DeleteAccount comment: "auth_time older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION

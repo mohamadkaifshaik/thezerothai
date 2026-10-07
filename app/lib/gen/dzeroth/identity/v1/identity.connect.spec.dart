@@ -96,7 +96,8 @@ abstract final class IdentityService {
     dzerothidentityv1identity.ChangeHandleResponse.new,
   );
 
-  /// Irreversible account deletion. Requires a recent sign-in (ID token auth_time < 5 min).
+  /// Irreversible account deletion. Requires a recent sign-in: ID token auth_time older than
+  /// ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, 0 writes.
   /// Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
   /// document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
   /// Firestore (sync part): reads 1/1, writes 1/1.

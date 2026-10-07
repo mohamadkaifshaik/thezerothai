@@ -76,6 +76,10 @@ const (
 	// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
 	// (ADR-0010 D2). When absent, the whole feature behind the called service is off.
 	ErrorReason_ERROR_REASON_FEATURE_DISABLED ErrorReason = 14
+	// FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
+	// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
+	// same idempotency_key; do not loop.
+	ErrorReason_ERROR_REASON_REAUTH_REQUIRED ErrorReason = 15
 )
 
 // Enum value maps for ErrorReason.
@@ -96,6 +100,7 @@ var (
 		12: "ERROR_REASON_ACCOUNT_RESTRICTED",
 		13: "ERROR_REASON_TARGET_BLOCKED",
 		14: "ERROR_REASON_FEATURE_DISABLED",
+		15: "ERROR_REASON_REAUTH_REQUIRED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -113,6 +118,7 @@ var (
 		"ERROR_REASON_ACCOUNT_RESTRICTED":     12,
 		"ERROR_REASON_TARGET_BLOCKED":         13,
 		"ERROR_REASON_FEATURE_DISABLED":       14,
+		"ERROR_REASON_REAUTH_REQUIRED":        15,
 	}
 )
 
@@ -418,7 +424,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x88\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xaa\x04\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -435,7 +441,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"#ERROR_REASON_IDEMPOTENCY_KEY_REUSED\x10\v\x12#\n" +
 	"\x1fERROR_REASON_ACCOUNT_RESTRICTED\x10\f\x12\x1f\n" +
 	"\x1bERROR_REASON_TARGET_BLOCKED\x10\r\x12!\n" +
-	"\x1dERROR_REASON_FEATURE_DISABLED\x10\x0eBCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1dERROR_REASON_FEATURE_DISABLED\x10\x0e\x12 \n" +
+	"\x1cERROR_REASON_REAUTH_REQUIRED\x10\x0fBCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once
