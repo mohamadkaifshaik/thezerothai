@@ -91,7 +91,8 @@ const recentSignInSkew = 30 * time.Second
 // It reads Claims.AuthTime (the Firebase `auth_time` claim: when the user last authenticated, not when the token
 // was refreshed) and returns FAILED_PRECONDITION + REAUTH_REQUIRED when it is zero (missing), older than maxAge,
 // or more than 30 s in the future (fail closed). A future auth_time of up to 30 s passes. now is injected so tests
-// need no sleeps. 0 Firestore reads. A rejection logs reauth_required=true on the request line.
+// need no sleeps. Callers pass the config-validated maxAge (config.AccountDeleteReauthMaxAge, in (0, 10m]); a
+// zero maxAge here would reject every token. 0 Firestore reads. A rejection logs reauth_required=true on the request line.
 func RequireRecentSignIn(ctx context.Context, maxAge time.Duration, now time.Time) error {
 	claims, _ := ClaimsFromContext(ctx)
 	age := now.Sub(claims.AuthTime)

@@ -10,7 +10,27 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
+
+func TestRequireRecentSignIn_LogsTheRejection(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	ctx, info := logger.WithRequestInfo(WithClaims(context.Background(), Claims{UID: "u", AuthTime: now.Add(-time.Hour)}))
+	if err := RequireRecentSignIn(ctx, 5*time.Minute, now); err == nil {
+		t.Fatal("want REAUTH_REQUIRED")
+	}
+	if v, ok := info.Get("reauth_required"); !ok || v != true {
+		t.Fatalf("reauth_required = %v, %v", v, ok)
+	}
+
+	okCtx, okInfo := logger.WithRequestInfo(WithClaims(context.Background(), Claims{UID: "u", AuthTime: now}))
+	if err := RequireRecentSignIn(okCtx, 5*time.Minute, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := okInfo.Get("reauth_required"); ok {
+		t.Error("reauth_required must not be set on a pass")
+	}
+}
 
 func TestRequireRecentSignIn(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)

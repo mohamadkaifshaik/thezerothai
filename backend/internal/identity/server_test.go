@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -16,6 +18,8 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
@@ -295,7 +299,7 @@ func callAccountRPCs(client identityv1connect.IdentityServiceClient) map[string]
 }
 
 // TestServer_AccountLifecycle_FlagOff (P8 T4): flag off (or no checker wired, or on for a different uid) gives
-// FAILED_PRECONDITION + FEATURE_DISABLED from all three RPCs, with 0 service calls (so 0 Firestore reads).
+// FAILED_PRECONDITION + FEATURE_DISABLED from all three RPCs, before the Service is reached (the guard is in the handler, so no Firestore access).
 func TestServer_AccountLifecycle_FlagOff(t *testing.T) {
 	tests := []struct {
 		name string
@@ -330,6 +334,67 @@ func TestServer_AccountLifecycle_FlagOff(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestServer_AccountLifecycle_FlagOffLogsTheRejection: each RPC records feature_disabled=true and
+// outcome=rejected:feature_disabled on the request line (called directly so the ctx carries RequestInfo).
+func TestServer_AccountLifecycle_FlagOffLogsTheRejection(t *testing.T) {
+	calls := map[string]func(*Server, context.Context) error{
+		"DeleteAccount": func(s *Server, ctx context.Context) error {
+			_, err := s.DeleteAccount(ctx, connect.NewRequest(&identityv1.DeleteAccountRequest{}))
+			return err
+		},
+		"RequestAccountExport": func(s *Server, ctx context.Context) error {
+			_, err := s.RequestAccountExport(ctx, connect.NewRequest(&identityv1.RequestAccountExportRequest{}))
+			return err
+		},
+		"GetAccountExport": func(s *Server, ctx context.Context) error {
+			_, err := s.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{}))
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			ctx, info := logger.WithRequestInfo(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-1"}))
+			if err := call(NewServer(&fakeService{}, WithFlagChecker(fakeFlagChecker{})), ctx); err == nil {
+				t.Fatal("want FEATURE_DISABLED")
+			}
+			if v, ok := info.Get("feature_disabled"); !ok || v != true {
+				t.Errorf("feature_disabled = %v, %v", v, ok)
+			}
+			if v, ok := info.Get("outcome"); !ok || v != "rejected:feature_disabled" {
+				t.Errorf("outcome = %v, %v", v, ok)
+			}
+		})
+	}
+}
+
+// TestGetMe_ReportsAccountLifecycleWhenFlagOn: wiring check with the real flags.Registry (as apiserver builds
+// it): the wire name is in GetMe.enabled_features only for the uid the flag is on for.
+func TestGetMe_ReportsAccountLifecycleWhenFlagOn(t *testing.T) {
+	t.Setenv("FEATURE_ACCOUNT_LIFECYCLE", "allowlist")
+	t.Setenv("FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST", "uid-1")
+	spec, err := flags.LoadSpec("ACCOUNT_LIFECYCLE", AccountLifecycleFlag, flags.Off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := flags.NewRegistry(spec)
+	repo := newFakeRepo()
+	for _, uid := range []string{"uid-1", "uid-2"} {
+		if _, _, err := repo.CreateProfile(context.Background(), uid, "H"+uid, "h"+uid, "N", time.Now()); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithFeatureFlags(reg))
+	for uid, want := range map[string]bool{"uid-1": true, "uid-2": false} {
+		res, err := svc.GetMe(context.Background(), uid)
+		if err != nil {
+			t.Fatalf("GetMe(%s): %v", uid, err)
+		}
+		if got := slices.Contains(res.EnabledFeatures, "account_lifecycle"); got != want {
+			t.Errorf("%s: enabled_features = %v, want account_lifecycle=%v", uid, res.EnabledFeatures, want)
+		}
 	}
 }
 

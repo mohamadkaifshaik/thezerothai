@@ -17,14 +17,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // AccountLifecycleFlag is the wire name of FEATURE_ACCOUNT_LIFECYCLE (P8 T4), the flag guarding DeleteAccount,
 // RequestAccountExport and GetAccountExport.
 const AccountLifecycleFlag = "account_lifecycle"
 
-// FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry (ADR-0002).
+// FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry (ADR-0002). It is
+// separate from FeatureFlags (api.go, used by the service for GetMe.enabled_features): the handler guards RPCs
+// before the service is called, and each consumer-side interface stays one method wide. *flags.Registry
+// satisfies both.
 type FlagChecker interface {
 	Enabled(uid, name string) bool
 }
@@ -167,11 +169,10 @@ func (s *Server) guardAccountLifecycle(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.flags == nil || !s.flags.Enabled(uid, AccountLifecycleFlag) {
-		logger.SetRequestField(ctx, "feature_disabled", true)
-		return flags.DisabledError()
+	if s.flags == nil {
+		return flags.Guard(ctx, nil, uid, AccountLifecycleFlag)
 	}
-	return nil
+	return flags.Guard(ctx, s.flags.Enabled, uid, AccountLifecycleFlag)
 }
 
 func (s *Server) DeleteAccount(ctx context.Context, _ *connect.Request[identityv1.DeleteAccountRequest]) (*connect.Response[identityv1.DeleteAccountResponse], error) {
