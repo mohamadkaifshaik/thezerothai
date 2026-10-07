@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
+import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
@@ -44,6 +45,15 @@ class SettingsScreen extends StatelessWidget {
               title: const Text('Muted accounts'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push(AppRouter.mutedAccountsPath),
+            ),
+            const Divider(height: 1),
+          ],
+          if (isAccountLifecycleEnabled(context)) ...[
+            ListTile(
+              leading: const Icon(Icons.download_outlined),
+              title: const Text('Download my data'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(AppRouter.exportDataPath),
             ),
             const Divider(height: 1),
           ],

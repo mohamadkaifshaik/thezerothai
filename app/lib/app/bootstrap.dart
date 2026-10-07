@@ -14,6 +14,7 @@ import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/account/data/account_repository.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -140,6 +141,9 @@ Future<void> bootstrap() async {
       onboardingBloc: onboardingBloc,
       identityRepository: identityRepository,
       graphRepository: graphRepository,
+      accountRepository: AccountRepository(apiClient: apiClient),
+      authRepository: authRepository,
+      database: database,
       postsRepository: postsRepository,
       timelineRepository: timelineRepository,
       postsGate: postsGate,

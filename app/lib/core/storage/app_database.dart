@@ -101,12 +101,33 @@ class TimelineStateEntries extends Table {
   Set<Column> get primaryKey => {feedKey};
 }
 
+/// The signed-in user's pending/ready data export (account plan T15): just
+/// the id and its lifetime, so "Download my data" can resume polling after
+/// the screen or app was closed. Never holds the signed download URL. At most
+/// one row; wiped on sign-out ([AppDatabase.clearAll]).
+@DataClassName('SavedAccountExport')
+class AccountExportEntries extends Table {
+  TextColumn get exportId => text()();
+
+  /// Firebase uid the export belongs to; another account never sees it.
+  TextColumn get uid => text()();
+  DateTimeColumn get requestedAt => dateTime()();
+
+  /// Server `expireAt` (request time + 7 days); after it GetAccountExport
+  /// answers NOT_FOUND (plan Q6).
+  DateTimeColumn get expiresAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {exportId};
+}
+
 @DriftDatabase(
   tables: [
     ProfileCacheEntries,
     FollowingCacheEntries,
     TimelineItemEntries,
     TimelineStateEntries,
+    AccountExportEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -120,7 +141,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -135,8 +156,54 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(timelineItemEntries);
         await m.createTable(timelineStateEntries);
       }
+      // v3 -> v4 (account plan T15): the pending data export.
+      if (from < 4) {
+        await m.createTable(accountExportEntries);
+      }
     },
   );
+
+  /// The saved export of [uid], if any. A row of another uid is treated as
+  /// absent and deleted (a shared device must never resume someone else's).
+  Future<SavedAccountExport?> savedExport(String uid) async {
+    final rows = await select(accountExportEntries).get();
+    SavedAccountExport? mine;
+    for (final row in rows) {
+      if (row.uid == uid) {
+        mine = row;
+      } else {
+        await (delete(
+          accountExportEntries,
+        )..where((t) => t.exportId.equals(row.exportId))).go();
+      }
+    }
+    return mine;
+  }
+
+  /// Replaces the saved export (one row). Guarded like every cache write.
+  Future<void> saveExport({
+    required String exportId,
+    required String uid,
+    required DateTime requestedAt,
+    required DateTime expiresAt,
+    required int epoch,
+  }) {
+    return transaction(() async {
+      if (!sessionEpoch.allows(epoch)) return;
+      await delete(accountExportEntries).go();
+      await into(accountExportEntries).insert(
+        AccountExportEntriesCompanion.insert(
+          exportId: exportId,
+          uid: uid,
+          requestedAt: requestedAt,
+          expiresAt: expiresAt,
+        ),
+      );
+    });
+  }
+
+  /// Unguarded on purpose: removing a row can never leak data.
+  Future<void> clearSavedExport() => delete(accountExportEntries).go();
 
   Future<CachedProfile?> profileByUserId(String userId) {
     return (select(
@@ -207,6 +274,7 @@ class AppDatabase extends _$AppDatabase {
       await delete(followingCacheEntries).go();
       await delete(timelineItemEntries).go();
       await delete(timelineStateEntries).go();
+      await delete(accountExportEntries).go();
     });
   }
 
