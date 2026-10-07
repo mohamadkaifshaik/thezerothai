@@ -110,6 +110,30 @@ void main() {
     expect(find.textContaining('Private account'), findsNothing);
   });
 
+  testWidgets('"Download my data" follows the account_lifecycle flag', (
+    tester,
+  ) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+
+    await tester.pumpWidget(wrap());
+    expect(find.text('Download my data'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        enabledFeatures: {'account_lifecycle'},
+      ),
+    );
+    await tester.pumpWidget(wrap());
+    expect(find.text('Download my data'), findsOneWidget);
+  });
+
   testWidgets('shows "Blocked accounts"/"Muted accounts" when the graph flag '
       'is on', (tester) async {
     whenListen(

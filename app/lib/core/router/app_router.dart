@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/account/domain/account_feature_flag.dart';
+import '../../features/account/presentation/data_export_screen.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/sign_in_screen.dart';
@@ -45,11 +47,13 @@ class AppRouter {
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
   static const mutedAccountsPath = '/settings/muted';
+  static const exportDataPath = '/settings/export';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) => '/u/$userId';
+
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
@@ -140,6 +144,11 @@ class AppRouter {
                 const AuthGate(child: BlockedAccountsScreen()),
           ),
           GoRoute(
+            path: exportDataPath,
+            builder: (context, state) =>
+                const AuthGate(child: DataExportScreen()),
+          ),
+          GoRoute(
             path: mutedAccountsPath,
             builder: (context, state) =>
                 const AuthGate(child: MutedAccountsScreen()),
@@ -176,7 +185,7 @@ class AppRouter {
         return loc == onboardingPath ? null : onboardingPath;
       case OnboardingStatus.ready:
         if (loc == onboardingPath) return homePath;
-        return _graphFlagRedirect(loc);
+        return _graphFlagRedirect(loc) ?? _accountFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
       case OnboardingStatus.error:
@@ -188,9 +197,20 @@ class AppRouter {
     }
   }
 
-  static final _graphOnlyRoutes = RegExp(
-    r'^/settings/(?:blocked|muted)$',
-  );
+  static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
+  static final _accountOnlyRoutes = RegExp(r'^/settings/export$');
+
+  /// Account-lifecycle routes (data export; delete-account joins) redirect to
+  /// Settings when the flag is off for this caller.
+  String? _accountFlagRedirect(String loc) {
+    if (_onboardingBloc.state.enabledFeatures.contains(
+      kFeatureAccountLifecycle,
+    )) {
+      return null;
+    }
+    return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
+  }
+
   static final _followersOrFollowing = RegExp(
     r'^/profile/([^/]+)/(?:followers|following)$',
   );

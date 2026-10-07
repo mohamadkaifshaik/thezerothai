@@ -94,6 +94,19 @@ void main() {
     expect(AppRouter.postPath('a/b'), '/post/a%2Fb');
   });
 
+  testWidgets('/settings/export redirects to /settings when the flag is off', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.ready),
+      path: AppRouter.exportDataPath,
+    );
+
+    expect(path, AppRouter.settingsPath);
+  });
+
   testWidgets('/post/:id redirects a signed-out visitor to sign-in', (
     tester,
   ) async {
