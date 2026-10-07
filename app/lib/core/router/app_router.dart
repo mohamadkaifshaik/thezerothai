@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/account/domain/account_feature_flag.dart';
+import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/sign_in_screen.dart';
@@ -45,11 +47,17 @@ class AppRouter {
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
   static const mutedAccountsPath = '/settings/muted';
+  static const deleteAccountPath = '/settings/delete-account';
+  // Final page after DeleteAccount: reachable signed out.
+  static const accountDeletedPath = '/account-deleted';
+  // Download my data (T15 owns the route and screen).
+  static const exportPath = '/settings/export';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) => '/u/$userId';
+
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
@@ -82,6 +90,10 @@ class AppRouter {
       GoRoute(
         path: composePath,
         builder: (context, state) => const AuthGate(child: ComposerScreen()),
+      ),
+      GoRoute(
+        path: accountDeletedPath,
+        builder: (context, state) => const AccountDeletedScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) =>
@@ -144,6 +156,11 @@ class AppRouter {
             builder: (context, state) =>
                 const AuthGate(child: MutedAccountsScreen()),
           ),
+          GoRoute(
+            path: deleteAccountPath,
+            builder: (context, state) =>
+                const AuthGate(child: DeleteAccountScreen()),
+          ),
         ],
       ),
     ],
@@ -153,6 +170,7 @@ class AppRouter {
     final authState = _authBloc.state;
     final loc = state.matchedLocation;
     final isAuthRoute = loc == signInPath || loc == signUpPath;
+    if (loc == accountDeletedPath) return null;
 
     if (authState.status == AuthStatus.unknown) {
       return loc == '/' ? null : '/';
@@ -176,7 +194,7 @@ class AppRouter {
         return loc == onboardingPath ? null : onboardingPath;
       case OnboardingStatus.ready:
         if (loc == onboardingPath) return homePath;
-        return _graphFlagRedirect(loc);
+        return _accountFlagRedirect(loc) ?? _graphFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
       case OnboardingStatus.error:
@@ -188,9 +206,18 @@ class AppRouter {
     }
   }
 
-  static final _graphOnlyRoutes = RegExp(
-    r'^/settings/(?:blocked|muted)$',
-  );
+  /// `/settings/delete-account` redirects to Settings when the
+  /// `account_lifecycle` flag is off (same precedent as the graph routes).
+  String? _accountFlagRedirect(String loc) {
+    if (_onboardingBloc.state.enabledFeatures.contains(
+      kFeatureAccountLifecycle,
+    )) {
+      return null;
+    }
+    return loc == deleteAccountPath ? settingsPath : null;
+  }
+
+  static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
   static final _followersOrFollowing = RegExp(
     r'^/profile/([^/]+)/(?:followers|following)$',
   );

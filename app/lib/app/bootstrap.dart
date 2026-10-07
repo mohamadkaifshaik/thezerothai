@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../core/network/api_client.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/storage/app_database.dart';
+import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -143,6 +144,8 @@ Future<void> bootstrap() async {
       postsRepository: postsRepository,
       timelineRepository: timelineRepository,
       postsGate: postsGate,
+      accountRepository: AccountRepository(apiClient: apiClient),
+      authRepository: authRepository,
     ),
   );
 }

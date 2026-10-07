@@ -128,4 +128,36 @@ void main() {
     expect(find.text('Blocked accounts'), findsOneWidget);
     expect(find.text('Muted accounts'), findsOneWidget);
   });
+
+  testWidgets('hides "Delete account" when the account_lifecycle flag is off', (
+    tester,
+  ) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+
+    await tester.pumpWidget(wrap());
+    expect(find.text('Delete account'), findsNothing);
+  });
+
+  testWidgets('shows "Delete account" with the account_lifecycle flag', (
+    tester,
+  ) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        enabledFeatures: {'account_lifecycle'},
+      ),
+    );
+    await tester.pumpWidget(wrap());
+    expect(find.text('Delete account'), findsOneWidget);
+  });
 }

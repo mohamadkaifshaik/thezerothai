@@ -1,5 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/features/account/data/account_repository.dart';
+import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -10,8 +12,13 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
+
+class _MockAccounts extends Mock implements AccountRepository {}
+
+class _MockAuth extends Mock implements AuthRepository {}
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -49,12 +56,18 @@ void main() {
       onboardingBloc: onboardingBloc,
     );
     await tester.pumpWidget(
-      MultiBlocProvider(
+      MultiRepositoryProvider(
         providers: [
-          BlocProvider<AuthBloc>.value(value: authBloc),
-          BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+          RepositoryProvider<AccountRepository>.value(value: _MockAccounts()),
+          RepositoryProvider<AuthRepository>.value(value: _MockAuth()),
         ],
-        child: MaterialApp.router(routerConfig: appRouter.router),
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+          ],
+          child: MaterialApp.router(routerConfig: appRouter.router),
+        ),
       ),
     );
     appRouter.router.go(path ?? AppRouter.profileByIdPath('someone'));
@@ -87,6 +100,45 @@ void main() {
     );
 
     expect(path, AppRouter.onboardingPath);
+  });
+
+  testWidgets('/settings/delete-account redirects to settings with the flag '
+      'off', (tester) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.ready),
+      path: AppRouter.deleteAccountPath,
+    );
+
+    expect(path, AppRouter.settingsPath);
+  });
+
+  testWidgets('/settings/delete-account stays with the flag on', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(
+        status: OnboardingStatus.ready,
+        enabledFeatures: {'account_lifecycle'},
+      ),
+      path: AppRouter.deleteAccountPath,
+    );
+
+    expect(path, AppRouter.deleteAccountPath);
+  });
+
+  testWidgets('the deleted page is reachable signed out', (tester) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.unauthenticated),
+      onboarding: const OnboardingState(),
+      path: AppRouter.accountDeletedPath,
+    );
+
+    expect(path, AppRouter.accountDeletedPath);
   });
 
   test('postPath builds the /post/:id deep link', () {
