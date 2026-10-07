@@ -1,6 +1,7 @@
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mocktail/mocktail.dart';
@@ -13,7 +14,12 @@ class _MockGoogleSignInAccount extends Mock implements GoogleSignInAccount {}
 
 class _MockUserCredential extends Mock implements fb.UserCredential {}
 
+class _MockUser extends Mock implements fb.User {}
+
+class _MockUserInfo extends Mock implements fb.UserInfo {}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late _MockFirebaseAuth firebaseAuth;
   late _MockGoogleSignIn googleSignIn;
 
@@ -105,6 +111,285 @@ void main() {
               as fb.AuthCredential;
       expect(credential.providerId, 'google.com');
       verifyNever(() => firebaseAuth.signInWithPopup(any()));
+    });
+  });
+
+  group('reauthenticate', () {
+    late _MockUser user;
+
+    void stubProviders(String id) {
+      final i = _MockUserInfo();
+      when(() => i.providerId).thenReturn(id);
+      when(() => user.providerData).thenReturn([i]);
+    }
+
+    AuthRepository repo({bool isWeb = false}) => AuthRepository(
+      firebaseAuth: firebaseAuth,
+      googleSignIn: googleSignIn,
+      isWeb: isWeb,
+    );
+
+    setUp(() {
+      user = _MockUser();
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      when(() => user.email).thenReturn('a@b.c');
+      when(() => user.getIdToken(true)).thenAnswer((_) async => 'fresh');
+    });
+
+    test('password: prompts, re-authenticates, then force-refreshes the '
+        'token', () async {
+      stubProviders('password');
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+
+      final result = await repo().reauthenticate(
+        promptPassword: () async => 'pw',
+      );
+
+      expect(result.appleAuthorizationCode, isNull);
+      verifyInOrder([
+        () => user.reauthenticateWithCredential(any()),
+        () => user.getIdToken(true),
+      ]);
+    });
+
+    test(
+      'password: a dismissed prompt is cancelled and sends nothing',
+      () async {
+        stubProviders('password');
+
+        await expectLater(
+          repo().reauthenticate(promptPassword: () async => null),
+          throwsA(const AuthFailure.cancelled()),
+        );
+        verifyNever(() => user.reauthenticateWithCredential(any()));
+        verifyNever(() => user.getIdToken(true));
+      },
+    );
+
+    test('google on web uses the popup', () async {
+      stubProviders('google.com');
+      when(() => user.reauthenticateWithPopup(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+
+      await repo(isWeb: true).reauthenticate(promptPassword: () async => null);
+
+      verify(() => user.reauthenticateWithPopup(any())).called(1);
+      verify(() => user.getIdToken(true)).called(1);
+    });
+
+    test('closing the web popup maps to cancelled', () async {
+      stubProviders('google.com');
+      when(() => user.reauthenticateWithPopup(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'popup-closed-by-user'));
+
+      await expectLater(
+        repo(isWeb: true).reauthenticate(promptPassword: () async => null),
+        throwsA(const AuthFailure.cancelled()),
+      );
+    });
+
+    test('google on mobile re-authenticates with the Google credential and '
+        'the configured web client id', () async {
+      stubProviders('google.com');
+      final account = _MockGoogleSignInAccount();
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
+      when(() => googleSignIn.authenticate()).thenAnswer((_) async => account);
+      when(() => account.authentication)
+          .thenReturn(const GoogleSignInAuthentication(idToken: 'tok'));
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+
+      await AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        googleWebClientId: 'prod-web',
+        isWeb: false,
+      ).reauthenticate(promptPassword: () async => null);
+
+      verify(() => googleSignIn.initialize(serverClientId: 'prod-web'))
+          .called(1);
+      verify(() => user.reauthenticateWithCredential(any())).called(1);
+      verify(() => user.getIdToken(true)).called(1);
+    });
+
+    test('a cancelled Google sheet maps to cancelled', () async {
+      stubProviders('google.com');
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
+      when(() => googleSignIn.authenticate()).thenThrow(
+        const GoogleSignInException(code: GoogleSignInExceptionCode.canceled),
+      );
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => null),
+        throwsA(const AuthFailure.cancelled()),
+      );
+    });
+
+    test('a blocked web popup explains how to fix it', () async {
+      stubProviders('google.com');
+      when(() => user.reauthenticateWithPopup(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'popup-blocked'));
+
+      await expectLater(
+        repo(isWeb: true).reauthenticate(promptPassword: () async => null),
+        throwsA(
+          isA<AuthUnknown>().having(
+            (f) => f.message,
+            'message',
+            contains('pop-ups'),
+          ),
+        ),
+      );
+    });
+
+    test('a wrong password maps to invalidCredentials', () async {
+      stubProviders('password');
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'wrong-password'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => 'bad'),
+        throwsA(const AuthFailure.invalidCredentials()),
+      );
+    });
+
+    test(
+      'a PlatformException becomes a friendly AuthFailure.unknown',
+      () async {
+        stubProviders('google.com');
+        when(
+          () => googleSignIn.initialize(
+            serverClientId: any(named: 'serverClientId'),
+          ),
+        ).thenThrow(PlatformException(code: 'channel-error', message: 'raw'));
+
+        await expectLater(
+          repo().reauthenticate(promptPassword: () async => null),
+          throwsA(
+            isA<AuthUnknown>().having(
+              (f) => f.message,
+              'message',
+              'Sign-in failed. Please try again.',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('other errors reach the caller unchanged', () async {
+      stubProviders('google.com');
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenThrow(StateError('bug'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => null),
+        throwsStateError,
+      );
+    });
+
+    test('user-mismatch asks for the signed-in account', () async {
+      stubProviders('password');
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'user-mismatch'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => 'pw'),
+        throwsA(
+          isA<AuthUnknown>().having(
+            (f) => f.message,
+            'message',
+            contains('signed in with'),
+          ),
+        ),
+      );
+    });
+
+    test('reauthNeedsGesture is true only on web', () {
+      expect(repo(isWeb: true).reauthNeedsGesture, isTrue);
+      expect(repo().reauthNeedsGesture, isFalse);
+    });
+
+    group('Apple code gate', () {
+      const channel = MethodChannel(
+        'com.aboutyou.dart_packages.sign_in_with_apple',
+      );
+
+      setUp(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              return <String, dynamic>{
+                'type': 'appleid',
+                'authorizationCode': 'apple-code',
+                'identityToken': 'id-token',
+              };
+            });
+        stubProviders('apple.com');
+        when(() => user.reauthenticateWithCredential(any()))
+            .thenAnswer((_) async => _MockUserCredential());
+      });
+
+      tearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      Future<ReauthResult> run(TargetPlatform platform) => AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        isWeb: false,
+        platform: platform,
+      ).reauthenticate(promptPassword: () async => null);
+
+      for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+        test('$platform returns the code', () async {
+          final result = await run(platform);
+          expect(result.appleAuthorizationCode, 'apple-code');
+        });
+      }
+
+      test('android returns no code', () async {
+        final result = await run(TargetPlatform.android);
+        expect(result.appleAuthorizationCode, isNull);
+      });
+
+      test(
+        'the Firebase credential never carries the single-use code',
+        () async {
+          await run(TargetPlatform.iOS);
+
+          final credential =
+              verify(() => user.reauthenticateWithCredential(captureAny()))
+                      .captured
+                      .single
+                  as fb.AuthCredential;
+          expect(credential.providerId, 'apple.com');
+          expect(credential.accessToken, isNull);
+        },
+      );
+    });
+
+    test('revokeAppleToken forwards the authorization code', () async {
+      when(() => firebaseAuth.revokeTokenWithAuthorizationCode('c'))
+          .thenAnswer((_) async {});
+
+      await repo().revokeAppleToken('c');
+
+      verify(() => firebaseAuth.revokeTokenWithAuthorizationCode('c'))
+          .called(1);
     });
   });
 }

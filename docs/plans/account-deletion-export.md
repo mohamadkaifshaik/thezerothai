@@ -635,7 +635,7 @@ Order:
 - **Budget.** Same as the job.
 
 ### T13 — Flutter: AccountRepository + re-authentication  [owner: frontend-developer] [size: M] [depends: — (T2a for the reason mapping)]
-- **Status:** Open. Not blocked (built against the existing generated client and fakes).
+- **Status:** Done (repository, cubit, reauthenticate, mapper, flag accessor; analyze + tests green). Not blocked (built against the existing generated client and fakes). Deviations: no web redirect fallback (popup-only re-auth, founder decision 2026-10-07); Apple token revoke is delete-only and iOS/macOS-only; on-device checks of the native Google/Apple re-auth and revoke are deferred to T20.
 - **Description.**
   - Check `docs/ui-catalog.md` first.
   - Add `features/account/data/account_repository.dart` (DeleteAccount, RequestAccountExport, GetAccountExport;
@@ -890,7 +890,7 @@ Order:
 | The export job exceeds one 30 s invocation for big accounts | Medium / low | Retries; T21 measures the threshold; a chunked composer is a follow-up if hit |
 | A later slice ships a user-owned collection without an Eraser | Medium / high (privacy) | T11 guard fails `make ci` |
 | The runtime SA's Firebase Auth admin role lets an RCE delete any user | Low / high | Narrowest role (T1), security review T20, no Auth admin call path reachable from public RPCs except via the DELETING job |
-| A re-auth UX failure on web (popup blocked) prevents deletion | Medium / medium | Redirect fallback in T13; the email path stays documented in the app's privacy policy |
+| A re-auth UX failure on web (popup blocked) prevents deletion | Medium / medium | Popup opened synchronously from the tap; `popup-blocked` shows the allow-pop-ups message; redirect fallback dropped (founder decision 2026-10-07); the email path stays documented in the app's privacy policy |
 | Residue in `idempotency/*` or others' arrays is read as a privacy failure | Low / medium | Q10 allowlist in the ADR, the privacy policy and the runbook |
 | A deletion racing in-flight writes recreates docs | Low / medium | 120 s gate after DELETING (ADR-0008 D10), the interceptor rejects DELETING, Erasers use `Exists` preconditions |
 | Lifecycle edit (option A for D-B) deletes exports early or keeps uploads too long | Low / low | T3a acceptance test on dev |

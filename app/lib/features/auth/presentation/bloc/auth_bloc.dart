@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../data/auth_repository.dart';
 import '../../domain/app_user.dart';
@@ -10,21 +9,12 @@ import 'auth_event.dart';
 import 'auth_state.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
-  /// [googleWebClientId] is the Web OAuth client of the build's Firebase
-  /// project, used as `serverClientId` for Google sign-in on Android/iOS (web
-  /// uses Firebase Auth's popup and doesn't need it). [appleServiceId] and
-  /// [appleRedirectUri] are only used by Apple's web flow (web and Android).
-  /// See `AppConfig` and the Phase-0 manual steps for how to provision them.
-  AuthBloc({
-    required AuthRepository authRepository,
-    String? googleWebClientId,
-    String? appleServiceId,
-    String? appleRedirectUri,
-  }) : _authRepository = authRepository,
-       _googleWebClientId = googleWebClientId,
-       _appleServiceId = appleServiceId,
-       _appleRedirectUri = appleRedirectUri,
-       super(const AuthState()) {
+  /// Provider configuration (Google web client id, Apple service id and
+  /// redirect URI) lives on [AuthRepository], the single source shared with
+  /// re-authentication.
+  AuthBloc({required AuthRepository authRepository})
+    : _authRepository = authRepository,
+      super(const AuthState()) {
     on<AuthSubscriptionRequested>(_onSubscriptionRequested);
     on<AuthUserChanged>(_onUserChanged);
     on<AuthEmailSignUpRequested>(_onEmailSignUpRequested);
@@ -40,9 +30,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   final AuthRepository _authRepository;
-  final String? _googleWebClientId;
-  final String? _appleServiceId;
-  final String? _appleRedirectUri;
   StreamSubscription<AppUser?>? _userSubscription;
 
   void _onSubscriptionRequested(
@@ -100,10 +87,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(isSubmitting: true, failure: null));
-    await _run(
-      emit,
-      () => _authRepository.signInWithGoogle(webClientId: _googleWebClientId),
-    );
+    await _run(emit, _authRepository.signInWithGoogle);
   }
 
   Future<void> _onAppleSignInRequested(
@@ -111,22 +95,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(state.copyWith(isSubmitting: true, failure: null));
-    final serviceId = _appleServiceId;
-    final redirectUri = _appleRedirectUri;
-    final webOptions =
-        (serviceId != null &&
-            serviceId.isNotEmpty &&
-            redirectUri != null &&
-            redirectUri.isNotEmpty)
-        ? WebAuthenticationOptions(
-            clientId: serviceId,
-            redirectUri: Uri.parse(redirectUri),
-          )
-        : null;
-    await _run(
-      emit,
-      () => _authRepository.signInWithApple(webOptions: webOptions),
-    );
+    await _run(emit, _authRepository.signInWithApple);
   }
 
   Future<void> _onVerificationResendRequested(

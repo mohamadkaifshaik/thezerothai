@@ -215,5 +215,73 @@ void main() {
       final mapped = mapConnectError(error) as FeatureDisabledException;
       expect(mapped.feature, 'media');
     });
+    test('maps ERROR_REASON_REAUTH_REQUIRED to ReauthRequiredException', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED,
+          message: 'Please sign in again',
+        ),
+      );
+
+      final mapped = mapConnectError(error);
+      expect(mapped, isA<ReauthRequiredException>());
+      expect(mapped.message, 'Please sign in again');
+    });
+
+    test('account-lifecycle reasons keep their typed mapping', () {
+      AppException map(
+        connect.Code code,
+        common.ErrorReason reason, [
+        Map<String, String> metadata = const {},
+      ]) {
+        return mapConnectError(
+          _withDetail(
+            code,
+            'x',
+            common.ErrorDetail(
+              reason: reason,
+              message: 'm',
+              metadata: metadata.entries,
+            ),
+          ),
+        );
+      }
+
+      final quota = map(
+        connect.Code.resourceExhausted,
+        common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
+        {'quota': 'exports'},
+      );
+      expect((quota as QuotaExceededException).quota, 'exports');
+
+      final limited = map(
+        connect.Code.resourceExhausted,
+        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+        {'limit': 'account_ops_daily'},
+      );
+      expect((limited as RateLimitedException).isDaily, isTrue);
+
+      expect(
+        map(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          {'feature': 'account_lifecycle'},
+        ),
+        isA<FeatureDisabledException>().having(
+          (e) => e.feature,
+          'feature',
+          'account_lifecycle',
+        ),
+      );
+      expect(
+        map(
+          connect.Code.unavailable,
+          common.ErrorReason.ERROR_REASON_DEGRADED_MODE,
+        ),
+        isA<DegradedModeException>(),
+      );
+    });
   });
 }
