@@ -1,3 +1,4 @@
+import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -5,14 +6,13 @@ import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/data_export_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
-import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
-    show ExportStatus;
-import 'package:flutter/material.dart';
-import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
+    show ExportStatus;
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -186,6 +186,11 @@ void main() {
 
     expect(find.textContaining('check back later'), findsOneWidget);
     verify(() => accounts.getExport(exportId: 'exp-1')).called(10);
+
+    await tester.tap(find.text('Check again'));
+    await tester.pump(Duration.zero);
+    await tester.pump();
+    verify(() => accounts.getExport(exportId: 'exp-1')).called(1);
   });
 
   testWidgets('leaving the screen mid-poll stops polling', (tester) async {

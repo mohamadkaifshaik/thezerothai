@@ -358,6 +358,83 @@ void main() {
       expect(cubit.state.error, isA<QuotaExceededException>());
     });
 
+    test('returns the accepted export even when closed mid-RPC', () async {
+      final gate = Completer<AccountExport>();
+      when(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) => gate.future);
+      final cubit = build();
+      final result = cubit.requestExport(promptPassword: _pw);
+      await Future<void>.delayed(Duration.zero);
+      await cubit.close();
+      gate.complete(pending);
+
+      expect((await result)?.exportId, 'e1');
+    });
+
+    test('returns the accepted export even when reset mid-RPC', () async {
+      final gate = Completer<AccountExport>();
+      when(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) => gate.future);
+      final cubit = build();
+      final result = cubit.requestExport(promptPassword: _pw);
+      await Future<void>.delayed(Duration.zero);
+      cubit.reset();
+      gate.complete(pending);
+
+      expect((await result)?.exportId, 'e1');
+      expect(cubit.state.status, AccountStatus.idle);
+    });
+
+    test('returns null on failure and on a cancelled re-auth', () async {
+      when(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(const QuotaExceededException('x'));
+      final cubit = build();
+      expect(await cubit.requestExport(promptPassword: _pw), isNull);
+
+      when(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(const ReauthRequiredException('old'));
+      stubReauth((_) async => throw const AuthFailure.cancelled());
+      expect(await cubit.requestExport(promptPassword: _pw), isNull);
+      expect(cubit.state.status, AccountStatus.cancelled);
+    });
+
+    test(
+      'a retry after failure reuses the key; success mints a fresh one',
+      () async {
+        final keys = <String>[];
+        var fail = true;
+        when(
+          () => accounts.requestExport(
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer((invocation) async {
+          keys.add(invocation.namedArguments[#idempotencyKey] as String);
+          if (fail) throw const NetworkException('offline');
+          return pending;
+        });
+        final cubit = build();
+        await cubit.requestExport(promptPassword: _pw);
+        fail = false;
+        await cubit.requestExport(promptPassword: _pw);
+        await cubit.requestExport(promptPassword: _pw);
+
+        expect(keys[0], keys[1]);
+        expect(keys[2], isNot(keys[1]));
+      },
+    );
+
     test('Apple re-auth on export never revokes the token', () async {
       var calls = 0;
       when(

@@ -388,6 +388,42 @@ void main() {
     verifyNever(() => accounts.getExport(exportId: any(named: 'exportId')));
   });
 
+  testWidgets('resetting the account cubit mid-RPC still starts polling', (
+    tester,
+  ) async {
+    final gate = Completer<AccountExport>();
+    when(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenAnswer((_) => gate.future);
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenAnswer((_) async => _pending);
+    final account = AccountCubit(
+      accountRepository: accounts,
+      authRepository: auth,
+    );
+    final cubit = DataExportCubit(
+      accountCubit: account,
+      accountRepository: accounts,
+      database: db,
+      uid: 'u1',
+      clock: () => now,
+      tapAfterRefresh: false,
+    );
+    final pending = cubit.request(promptPassword: _pw);
+    await tester.pump();
+    account.reset();
+    gate.complete(_pending);
+    await pending;
+
+    expect(cubit.state.phase, DataExportPhase.waiting);
+    expect(cubit.canResume, isTrue);
+    await elapse(tester, const Duration(seconds: 10));
+    verify(() => accounts.getExport(exportId: 'exp-1')).called(1);
+    await cubit.close();
+    await account.close();
+  });
+
   test('a saved export of another uid is absent and deleted', () async {
     await db.saveExport(
       exportId: 'theirs',

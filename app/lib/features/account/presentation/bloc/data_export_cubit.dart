@@ -128,7 +128,8 @@ class DataExportCubit extends Cubit<DataExportState> {
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     DateTime Function()? clock,
     bool? tapAfterRefresh,
-  }) : _uid = uid,
+  }) : assert(uid != '', 'uid must not be empty'),
+       _uid = uid,
        _onUnexpectedError = onUnexpectedError,
        _account = accountCubit,
        _repository = accountRepository,
@@ -239,44 +240,40 @@ class DataExportCubit extends Cubit<DataExportState> {
       );
     }
     if (isClosed) return;
-    final result = _account.state;
-    switch (result.status) {
-      case AccountStatus.exportRequested:
-        final export = result.export!;
-        _exportId = export.exportId;
-        _polls = 0;
-        _reported = false;
-        _urlFetchedAt = null;
-        if (export.status == ExportStatus.EXPORT_STATUS_FAILED) {
-          _exportId = null;
-          emit(
-            const DataExportState(
-              phase: DataExportPhase.failed,
-              jobFailed: true,
-            ),
-          );
-          return;
-        }
-        emit(DataExportState(phase: DataExportPhase.waiting, export: export));
-        // A READY answer still needs a GetAccountExport for the URL.
-        _schedule(
-          export.status == ExportStatus.EXPORT_STATUS_READY
-              ? Duration.zero
-              : delayForPoll(0),
-        );
-      case AccountStatus.failed:
+    // The returned export is the source of truth (it survives the account
+    // cubit having been reset mid-RPC); its state only explains failures.
+    if (accepted != null) {
+      _exportId = accepted.exportId;
+      _polls = 0;
+      _reported = false;
+      _urlFetchedAt = null;
+      if (accepted.status == ExportStatus.EXPORT_STATUS_FAILED) {
+        _exportId = null;
         emit(
-          DataExportState(
-            phase: DataExportPhase.failed,
-            error: result.error,
-            authFailure: result.authFailure,
-          ),
+          const DataExportState(phase: DataExportPhase.failed, jobFailed: true),
         );
-      case AccountStatus.cancelled:
-      case AccountStatus.idle:
-      case AccountStatus.working:
-      case AccountStatus.deleted:
-        emit(const DataExportState());
+        return;
+      }
+      emit(DataExportState(phase: DataExportPhase.waiting, export: accepted));
+      // A READY answer still needs a GetAccountExport for the URL.
+      _schedule(
+        accepted.status == ExportStatus.EXPORT_STATUS_READY
+            ? Duration.zero
+            : delayForPoll(0),
+      );
+      return;
+    }
+    final result = _account.state;
+    if (result.status == AccountStatus.failed) {
+      emit(
+        DataExportState(
+          phase: DataExportPhase.failed,
+          error: result.error,
+          authFailure: result.authFailure,
+        ),
+      );
+    } else {
+      emit(const DataExportState());
     }
   }
 
@@ -294,9 +291,13 @@ class DataExportCubit extends Cubit<DataExportState> {
   Future<void> _syncExpiry(AccountExport export) async {
     final expiresAt = export.expiresAt;
     final requestedAt = _requestedAt;
+    final saved = _savedExpiresAt;
+    // drift stores DateTime as unix seconds: compare at that resolution.
     if (expiresAt == null ||
         requestedAt == null ||
-        expiresAt == _savedExpiresAt) {
+        (saved != null &&
+            expiresAt.millisecondsSinceEpoch ~/ 1000 ==
+                saved.millisecondsSinceEpoch ~/ 1000)) {
       return;
     }
     _savedExpiresAt = expiresAt;
