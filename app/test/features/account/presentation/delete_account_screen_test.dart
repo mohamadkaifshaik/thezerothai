@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
@@ -69,25 +70,32 @@ void main() {
     ).thenAnswer((_) async => DateTime(2026));
   });
 
-  Future<GoRouter> pump(WidgetTester tester, {Size? size}) async {
+  Future<GoRouter> pump(
+    WidgetTester tester, {
+    Size? size,
+    double textScale = 1,
+    String initial = AppRouter.deleteAccountPath,
+    bool showExportLink = true,
+  }) async {
     if (size != null) {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
     }
     final router = GoRouter(
-      initialLocation: AppRouter.deleteAccountPath,
+      initialLocation: initial,
       routes: [
         GoRoute(
           path: AppRouter.deleteAccountPath,
-          builder: (_, _) => const DeleteAccountScreen(),
+          builder: (_, _) =>
+              DeleteAccountScreen(showExportLink: showExportLink),
         ),
         GoRoute(
           path: AppRouter.accountDeletedPath,
           builder: (_, _) => const AccountDeletedScreen(),
         ),
         GoRoute(
-          path: AppRouter.exportPath,
+          path: AppRouter.exportDataPath,
           builder: (_, _) => const Scaffold(body: Text('export stub')),
         ),
         GoRoute(
@@ -101,13 +109,21 @@ void main() {
         providers: [
           RepositoryProvider<AccountRepository>.value(value: accounts),
           RepositoryProvider<AuthRepository>.value(value: auth),
+          RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
         child: MultiBlocProvider(
           providers: [
             BlocProvider<AuthBloc>.value(value: authBloc),
             BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
           ],
-          child: MaterialApp.router(routerConfig: router),
+          child: MaterialApp.router(
+            routerConfig: router,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+          ),
         ),
       ),
     );
@@ -256,8 +272,56 @@ void main() {
     });
   }
 
-  testWidgets('handleMatches ignores case, @ and spaces', (tester) async {
+  for (final path in const [
+    AppRouter.deleteAccountPath,
+    AppRouter.accountDeletedPath,
+  ]) {
+    testWidgets('no overflow at 2x text on 360x640 ($path)', (tester) async {
+      await pump(
+        tester,
+        size: const Size(360, 640),
+        textScale: 2,
+        initial: path,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('ACCOUNT_RESTRICTED shows the in-progress deletion message', (
+    tester,
+  ) async {
+    when(
+      () =>
+          accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenThrow(const AccountRestrictedException('restricted'));
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('deletion is in progress'), findsOneWidget);
+    verifyNever(() => authBloc.add(any()));
+  });
+
+  testWidgets('showExportLink false hides the export link', (tester) async {
+    await pump(tester, showExportLink: false);
+    expect(find.text('Download my data first'), findsNothing);
+  });
+
+  testWidgets('Done signs out again while still authenticated', (tester) async {
+    await pump(tester, initial: AppRouter.accountDeletedPath);
+
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    expect(find.text('sign in stub'), findsOneWidget);
+  });
+
+  test('handleMatches ignores case, @ and spaces', () {
     expect(handleMatches(' @KAIF ', 'kaif'), isTrue);
+    expect(handleMatches('@Kaif', 'kAIF'), isTrue);
     expect(handleMatches('', ''), isFalse);
     expect(handleMatches('kai', 'kaif'), isFalse);
   });

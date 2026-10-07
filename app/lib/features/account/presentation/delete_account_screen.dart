@@ -4,12 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
 import 'bloc/account_cubit.dart';
 
@@ -25,6 +27,15 @@ String deleteAccountErrorMessage(AppException error) {
       'dZeroth is in a limited mode right now. Please try again shortly.',
     FeatureDisabledException() => "This feature isn't available yet.",
     NetworkException() => 'No connection. Check your network and try again.',
+    AccountRestrictedException() =>
+      "This account can't be changed right now. If you already asked to "
+          'delete it, deletion is in progress; sign out and check back later.',
+    UnauthenticatedException() =>
+      'Your session expired. Please sign in again, then retry.',
+    EmailNotVerifiedException() =>
+      'Please verify your email address to continue.',
+    // Unreachable in practice (the cubit maps every unexpected error to
+    // UnknownApiException); kept so no raw server text can ever show.
     _ => 'Something went wrong. Please try again.',
   };
 }
@@ -41,7 +52,10 @@ bool handleMatches(String typed, String handle) {
 /// the handle, then re-authenticates and calls DeleteAccount through
 /// [AccountCubit] (one request per completed intent).
 class DeleteAccountScreen extends StatefulWidget {
-  const DeleteAccountScreen({super.key});
+  const DeleteAccountScreen({super.key, this.showExportLink = true});
+
+  /// Whether to offer "Download my data first" (the T15 route).
+  final bool showExportLink;
 
   @override
   State<DeleteAccountScreen> createState() => _DeleteAccountScreenState();
@@ -57,6 +71,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     _cubit = AccountCubit(
       accountRepository: context.read<AccountRepository>(),
       authRepository: context.read<AuthRepository>(),
+      onUnexpectedError: context.read<UnexpectedErrorReporter>(),
     );
   }
 
@@ -105,52 +120,54 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 children: [
                   Text(
                     'Delete your account?',
                     style: theme.textTheme.headlineSmall,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   const Text(
                     'This is permanent and cannot be undone. We delete your '
                     'profile, your posts and media, and your follows, '
                     'blocks and mutes.',
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   const Text(
                     "What remains: mentions of you in other people's posts, "
                     'and backups, which expire within 14 days.',
                   ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      onPressed: working
-                          ? null
-                          : () => context.push(AppRouter.exportPath),
-                      icon: const Icon(Icons.download_outlined),
-                      label: const Text('Download my data first'),
+                  const SizedBox(height: AppSpacing.md),
+                  if (widget.showExportLink)
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        onPressed: working
+                            ? null
+                            : () => context.push(AppRouter.exportDataPath),
+                        icon: const Icon(Icons.download_outlined),
+                        label: const Text('Download my data first'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   TextField(
                     controller: _handleController,
                     enabled: !working,
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: InputDecoration(
-                      labelText: 'Type your handle ($handle) to confirm',
+                      labelText: handle.isEmpty
+                          ? 'Type your handle to confirm'
+                          : 'Type your handle ($handle) to confirm',
                       border: const OutlineInputBorder(),
                     ),
                     onChanged: (_) => setState(() {}),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.md),
                   FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: theme.colorScheme.error,
                       foregroundColor: theme.colorScheme.onError,
-                      minimumSize: const Size.fromHeight(48),
                     ),
                     // Straight from the tap: the web re-auth popup must open
                     // inside the user gesture.
@@ -161,12 +178,15 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                         : null,
                     child: working
                         ? const SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            dimension: AppSpacing.lg - AppSpacing.xs,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              semanticsLabel: 'Deleting account',
+                            ),
                           )
                         : const Text('Delete my account'),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.md),
                   _StatusMessage(state: state),
                 ],
               ),
@@ -259,35 +279,45 @@ class AccountDeletedScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_outline, size: 48),
-                const SizedBox(height: 16),
-                Text(
-                  'Your account is being deleted',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'You have been signed out. Deletion can take a little while '
-                  'to finish. You do not need to do anything else.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(160, 48),
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle_outline, size: 48),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Your account is being deleted',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
                   ),
-                  onPressed: () => context.go(AppRouter.signInPath),
-                  child: const Text('Done'),
-                ),
-              ],
+                  const SizedBox(height: AppSpacing.md),
+                  const Text(
+                    'You have been signed out. Deletion can take a little while '
+                    'to finish. You do not need to do anything else.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(160, AppSpacing.minTapTarget),
+                    ),
+                    onPressed: () {
+                      // Idempotent: makes sure the session is gone even if the
+                      // first sign-out has not landed yet.
+                      final auth = context.read<AuthBloc>();
+                      if (auth.state.isAuthenticated) {
+                        auth.add(const AuthSignOutRequested());
+                      }
+                      context.go(AppRouter.signInPath);
+                    },
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

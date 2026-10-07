@@ -51,13 +51,12 @@ class AppRouter {
   // Final page after DeleteAccount: reachable signed out.
   static const accountDeletedPath = '/account-deleted';
   // Download my data (T15 owns the route and screen).
-  static const exportPath = '/settings/export';
+  static const exportDataPath = '/settings/export';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) => '/u/$userId';
-
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
@@ -194,7 +193,7 @@ class AppRouter {
         return loc == onboardingPath ? null : onboardingPath;
       case OnboardingStatus.ready:
         if (loc == onboardingPath) return homePath;
-        return _accountFlagRedirect(loc) ?? _graphFlagRedirect(loc);
+        return _graphFlagRedirect(loc) ?? _accountFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
       case OnboardingStatus.error:
@@ -206,18 +205,24 @@ class AppRouter {
     }
   }
 
-  /// `/settings/delete-account` redirects to Settings when the
-  /// `account_lifecycle` flag is off (same precedent as the graph routes).
+  static final _accountOnlyRoutes = RegExp(
+    r'^/settings/(?:export|delete-account)$',
+  );
+
+  /// Account-lifecycle routes (data export, delete account) redirect to
+  /// Settings when the `account_lifecycle` flag is off for this caller.
   String? _accountFlagRedirect(String loc) {
     if (_onboardingBloc.state.enabledFeatures.contains(
       kFeatureAccountLifecycle,
     )) {
       return null;
     }
-    return loc == deleteAccountPath ? settingsPath : null;
+    return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
   }
 
-  static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
+  static final _graphOnlyRoutes = RegExp(
+    r'^/settings/(?:blocked|muted)$',
+  );
   static final _followersOrFollowing = RegExp(
     r'^/profile/([^/]+)/(?:followers|following)$',
   );

@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
@@ -60,6 +61,9 @@ void main() {
         providers: [
           RepositoryProvider<AccountRepository>.value(value: _MockAccounts()),
           RepositoryProvider<AuthRepository>.value(value: _MockAuth()),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (_, _) {},
+          ),
         ],
         child: MultiBlocProvider(
           providers: [
@@ -128,6 +132,46 @@ void main() {
     );
 
     expect(path, AppRouter.deleteAccountPath);
+  });
+
+  testWidgets('signed-out users go from /settings/delete-account and /home to '
+      'sign-in', (tester) async {
+    for (final target in const [AppRouter.deleteAccountPath, '/home']) {
+      final path = await openUserRoute(
+        tester,
+        auth: const AuthState(status: AuthStatus.unauthenticated),
+        onboarding: const OnboardingState(),
+        path: target,
+      );
+      expect(path, AppRouter.signInPath, reason: target);
+    }
+  });
+
+  testWidgets('the deleted page renders while auth is still unknown', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(),
+      onboarding: const OnboardingState(),
+      path: AppRouter.accountDeletedPath,
+    );
+
+    expect(path, AppRouter.accountDeletedPath);
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+  });
+
+  testWidgets('/settings/export also redirects with the flag off', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.ready),
+      path: AppRouter.exportDataPath,
+    );
+
+    expect(path, AppRouter.settingsPath);
   });
 
   testWidgets('the deleted page is reachable signed out', (tester) async {

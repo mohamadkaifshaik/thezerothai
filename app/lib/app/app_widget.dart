@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../core/router/app_router.dart';
 import '../core/theme/app_theme.dart';
 import '../features/account/data/account_repository.dart';
+import 'session_wiring.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
@@ -82,6 +83,9 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.timelineRepository),
         RepositoryProvider.value(value: widget.postsGate),
         RepositoryProvider.value(value: widget.accountRepository),
+        RepositoryProvider<UnexpectedErrorReporter>.value(
+          value: reportUnexpectedError,
+        ),
         RepositoryProvider.value(value: widget.authRepository),
       ],
       child: MultiBlocProvider(

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
+
 import '../core/storage/app_database.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -27,6 +29,17 @@ PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
     }
   });
   return gate;
+}
+
+/// Reports an unexpected (non-user) error. One shared hook, wired from
+/// bootstrap into every cubit that wants Crashlytics non-fatals. For now it
+/// goes through [FlutterError.reportError] (the Crashlytics handler hooks it).
+typedef UnexpectedErrorReporter = void Function(Object error, StackTrace stack);
+
+void reportUnexpectedError(Object error, StackTrace stack) {
+  FlutterError.reportError(
+    FlutterErrorDetails(exception: error, stack: stack, library: 'dzeroth'),
+  );
 }
 
 /// Sign-out: end the shared session epoch first (timeline, graph and
