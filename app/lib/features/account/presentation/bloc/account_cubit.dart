@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
@@ -98,10 +98,15 @@ class AccountCubit extends Cubit<AccountState> {
 
   bool _stale(int generation) => isClosed || generation != _generation;
 
+  /// True while a DeleteAccount RPC is on the wire: its result must not be
+  /// dropped (an accepted deletion has to be recorded), so [reset] waits.
+  bool _rpcInFlight = false;
+
   /// Abandons an in-flight flow (e.g. the user left the screen or a provider
   /// UI never returned) and returns to idle. The idempotency keys are kept.
+  /// A no-op while the DeleteAccount RPC is in flight.
   void reset() {
-    if (isClosed) return;
+    if (isClosed || _rpcInFlight) return;
     _generation++;
     emit(const AccountState());
   }
@@ -109,7 +114,7 @@ class AccountCubit extends Cubit<AccountState> {
   /// Call straight from the tap handler: no `await` runs before the
   /// re-authentication starts.
   Future<void> deleteAccount({required PasswordPrompt promptPassword}) async {
-    if (state.status == AccountStatus.working) return;
+    if (isClosed || state.status == AccountStatus.working) return;
     final generation = ++_generation;
     final key = _deleteKey ??= _uuid.v4();
     emit(const AccountState(status: AccountStatus.working));
@@ -117,7 +122,14 @@ class AccountCubit extends Cubit<AccountState> {
       await _reauthenticate(promptPassword, revokeApple: true);
       if (_stale(generation)) return;
       await _withReauth(
-        () => _accounts.deleteAccount(idempotencyKey: key),
+        () async {
+          _rpcInFlight = true;
+          try {
+            return await _accounts.deleteAccount(idempotencyKey: key);
+          } finally {
+            _rpcInFlight = false;
+          }
+        },
         promptPassword,
         generation,
         revokeApple: true,
@@ -131,7 +143,7 @@ class AccountCubit extends Cubit<AccountState> {
   }
 
   Future<void> requestExport({required PasswordPrompt promptPassword}) async {
-    if (state.status == AccountStatus.working) return;
+    if (isClosed || state.status == AccountStatus.working) return;
     final generation = ++_generation;
     final key = _exportKey ??= _uuid.v4();
     emit(const AccountState(status: AccountStatus.working));
@@ -161,7 +173,12 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       return await call();
     } on ReauthRequiredException {
-      if (_stale(generation)) rethrow;
+      // A web popup opened from this continuation is outside the tap's user
+      // gesture and would be blocked: surface the error instead; the next
+      // tap re-authenticates up front and reuses the same key.
+      if (_stale(generation) || _auth.reauthNeedsGesture) rethrow;
+      // Revoking again here is harmless: the earlier attempt was best-effort
+      // and a fresh Apple code is issued by this second re-auth.
       await _reauthenticate(promptPassword, revokeApple: revokeApple);
       if (_stale(generation)) rethrow;
       return call();

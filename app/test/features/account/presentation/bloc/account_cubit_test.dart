@@ -51,6 +51,7 @@ void main() {
     auth = _MockAuth();
     reported.clear();
     stubReauth(ok());
+    when(() => auth.reauthNeedsGesture).thenReturn(false);
   });
 
   group('deleteAccount', () {
@@ -265,6 +266,46 @@ void main() {
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
       );
+    });
+
+    test('on web the fallback re-auth is skipped (outside the gesture); the '
+        'next tap retries with the same key', () async {
+      when(() => auth.reauthNeedsGesture).thenReturn(true);
+      final keys = <String>[];
+      var calls = 0;
+      stubDelete((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        if (++calls == 1) throw const ReauthRequiredException('old');
+        return null;
+      });
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw);
+      expect(cubit.state.error, isA<ReauthRequiredException>());
+      // Only the up-front re-auth ran, no fallback one.
+      verify(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).called(1);
+
+      await cubit.deleteAccount(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.deleted);
+      expect(keys[0], keys[1]);
+    });
+
+    test('reset during the DeleteAccount RPC does not drop the accepted '
+        'deletion', () async {
+      final gate = Completer<DateTime?>();
+      stubDelete((_) => gate.future);
+      final cubit = build();
+
+      final run = cubit.deleteAccount(promptPassword: _pw);
+      await Future<void>.delayed(Duration.zero);
+      cubit.reset();
+      expect(cubit.state.status, AccountStatus.working);
+      gate.complete(null);
+      await run;
+
+      expect(cubit.state.status, AccountStatus.deleted);
     });
 
     test('reset frees a flow stuck behind a provider UI', () async {

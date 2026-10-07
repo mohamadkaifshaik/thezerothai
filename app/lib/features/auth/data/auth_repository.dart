@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
@@ -66,6 +67,11 @@ class AuthRepository implements AuthTokenProvider {
   final GoogleSignIn _googleSignIn;
   final bool _isWeb;
   bool _googleInitialized = false;
+
+  /// True when [reauthenticate] needs a fresh user gesture (web popups are
+  /// blocked outside one), so callers must not re-run it from a later async
+  /// continuation.
+  bool get reauthNeedsGesture => _isWeb;
 
   /// Emits the current [AppUser], or null when signed out. Uses
   /// `userChanges()` (not `authStateChanges()`) so profile reloads —
@@ -326,9 +332,10 @@ class AuthRepository implements AuthTokenProvider {
       throw AuthFailure.unknown(e.toString());
     } on fb.FirebaseAuthException catch (e) {
       throw _mapFirebaseAuthException(e);
-    } catch (e) {
-      // Platform channel / plugin errors: never leave the caller hanging.
-      throw AuthFailure.unknown(e.toString());
+    } on PlatformException {
+      // Plugin/channel failure: a friendly message, never raw SDK text.
+      // Anything else propagates to the caller's catch-all (reported there).
+      throw const AuthFailure.unknown('Sign-in failed. Please try again.');
     }
     return ReauthResult(appleAuthorizationCode: appleCode);
   }
@@ -381,6 +388,10 @@ class AuthRepository implements AuthTokenProvider {
         return const AuthFailure.userDisabled();
       case 'too-many-requests':
         return const AuthFailure.tooManyRequests();
+      case 'user-mismatch':
+        return const AuthFailure.unknown(
+          "Choose the account you're signed in with.",
+        );
       case 'requires-recent-login':
         return const AuthFailure.requiresRecentLogin();
       case 'network-request-failed':

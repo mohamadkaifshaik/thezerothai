@@ -86,12 +86,8 @@ Future<void> bootstrap() async {
   // "Following" instantly on a warm start (CLAUDE.md prime directive).
   await graphRepository.primeFromDatabase();
 
-  final authBloc = AuthBloc(
-    authRepository: authRepository,
-    googleWebClientId: config.googleWebClientId,
-    appleServiceId: config.appleServiceId,
-    appleRedirectUri: config.appleRedirectUri,
-  )..add(const AuthSubscriptionRequested());
+  final authBloc = AuthBloc(authRepository: authRepository)
+    ..add(const AuthSubscriptionRequested());
   final onboardingBloc = OnboardingBloc(identityRepository: identityRepository);
 
   // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via

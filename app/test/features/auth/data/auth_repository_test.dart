@@ -1,6 +1,7 @@
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mocktail/mocktail.dart';
@@ -18,6 +19,7 @@ class _MockUser extends Mock implements fb.User {}
 class _MockUserInfo extends Mock implements fb.UserInfo {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late _MockFirebaseAuth firebaseAuth;
   late _MockGoogleSignIn googleSignIn;
 
@@ -198,12 +200,10 @@ void main() {
       ).thenAnswer((_) async {});
       when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
       when(() => googleSignIn.authenticate()).thenAnswer((_) async => account);
-      when(
-        () => account.authentication,
-      ).thenReturn(const GoogleSignInAuthentication(idToken: 'tok'));
-      when(
-        () => user.reauthenticateWithCredential(any()),
-      ).thenAnswer((_) async => _MockUserCredential());
+      when(() => account.authentication)
+          .thenReturn(const GoogleSignInAuthentication(idToken: 'tok'));
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenAnswer((_) async => _MockUserCredential());
 
       await AuthRepository(
         firebaseAuth: firebaseAuth,
@@ -212,9 +212,8 @@ void main() {
         isWeb: false,
       ).reauthenticate(promptPassword: () async => null);
 
-      verify(
-        () => googleSignIn.initialize(serverClientId: 'prod-web'),
-      ).called(1);
+      verify(() => googleSignIn.initialize(serverClientId: 'prod-web'))
+          .called(1);
       verify(() => user.reauthenticateWithCredential(any())).called(1);
       verify(() => user.getIdToken(true)).called(1);
     });
@@ -237,25 +236,10 @@ void main() {
       );
     });
 
-    test('a generic platform error becomes AuthFailure.unknown', () async {
-      stubProviders('google.com');
-      when(
-        () => googleSignIn.initialize(
-          serverClientId: any(named: 'serverClientId'),
-        ),
-      ).thenThrow(Exception('channel error'));
-
-      await expectLater(
-        repo().reauthenticate(promptPassword: () async => null),
-        throwsA(isA<AuthUnknown>()),
-      );
-    });
-
     test('a blocked web popup explains how to fix it', () async {
       stubProviders('google.com');
-      when(
-        () => user.reauthenticateWithPopup(any()),
-      ).thenThrow(fb.FirebaseAuthException(code: 'popup-blocked'));
+      when(() => user.reauthenticateWithPopup(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'popup-blocked'));
 
       await expectLater(
         repo(isWeb: true).reauthenticate(promptPassword: () async => null),
@@ -271,13 +255,130 @@ void main() {
 
     test('a wrong password maps to invalidCredentials', () async {
       stubProviders('password');
-      when(
-        () => user.reauthenticateWithCredential(any()),
-      ).thenThrow(fb.FirebaseAuthException(code: 'wrong-password'));
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'wrong-password'));
 
       await expectLater(
         repo().reauthenticate(promptPassword: () async => 'bad'),
         throwsA(const AuthFailure.invalidCredentials()),
+      );
+    });
+
+    test(
+      'a PlatformException becomes a friendly AuthFailure.unknown',
+      () async {
+        stubProviders('google.com');
+        when(
+          () => googleSignIn.initialize(
+            serverClientId: any(named: 'serverClientId'),
+          ),
+        ).thenThrow(PlatformException(code: 'channel-error', message: 'raw'));
+
+        await expectLater(
+          repo().reauthenticate(promptPassword: () async => null),
+          throwsA(
+            isA<AuthUnknown>().having(
+              (f) => f.message,
+              'message',
+              'Sign-in failed. Please try again.',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('other errors reach the caller unchanged', () async {
+      stubProviders('google.com');
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenThrow(StateError('bug'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => null),
+        throwsStateError,
+      );
+    });
+
+    test('user-mismatch asks for the signed-in account', () async {
+      stubProviders('password');
+      when(() => user.reauthenticateWithCredential(any()))
+          .thenThrow(fb.FirebaseAuthException(code: 'user-mismatch'));
+
+      await expectLater(
+        repo().reauthenticate(promptPassword: () async => 'pw'),
+        throwsA(
+          isA<AuthUnknown>().having(
+            (f) => f.message,
+            'message',
+            contains('signed in with'),
+          ),
+        ),
+      );
+    });
+
+    test('reauthNeedsGesture is true only on web', () {
+      expect(repo(isWeb: true).reauthNeedsGesture, isTrue);
+      expect(repo().reauthNeedsGesture, isFalse);
+    });
+
+    group('Apple code gate', () {
+      const channel = MethodChannel(
+        'com.aboutyou.dart_packages.sign_in_with_apple',
+      );
+
+      setUp(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              return <String, dynamic>{
+                'type': 'appleid',
+                'authorizationCode': 'apple-code',
+                'identityToken': 'id-token',
+              };
+            });
+        stubProviders('apple.com');
+        when(() => user.reauthenticateWithCredential(any()))
+            .thenAnswer((_) async => _MockUserCredential());
+      });
+
+      tearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      Future<ReauthResult> run(TargetPlatform platform) => AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        isWeb: false,
+        platform: platform,
+      ).reauthenticate(promptPassword: () async => null);
+
+      for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+        test('$platform returns the code', () async {
+          final result = await run(platform);
+          expect(result.appleAuthorizationCode, 'apple-code');
+        });
+      }
+
+      test('android returns no code', () async {
+        final result = await run(TargetPlatform.android);
+        expect(result.appleAuthorizationCode, isNull);
+      });
+
+      test(
+        'the Firebase credential never carries the single-use code',
+        () async {
+          await run(TargetPlatform.iOS);
+
+          final credential =
+              verify(() => user.reauthenticateWithCredential(captureAny()))
+                      .captured
+                      .single
+                  as fb.AuthCredential;
+          expect(credential.providerId, 'apple.com');
+          expect(credential.accessToken, isNull);
+        },
       );
     });
 
