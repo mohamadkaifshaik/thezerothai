@@ -14,6 +14,7 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
 import 'bloc/account_cubit.dart';
+import 'widgets/password_prompt_dialog.dart';
 
 /// Friendly text for a failed DeleteAccount (never the raw server message).
 String deleteAccountErrorMessage(AppException error) {
@@ -52,10 +53,7 @@ bool handleMatches(String typed, String handle) {
 /// the handle, then re-authenticates and calls DeleteAccount through
 /// [AccountCubit] (one request per completed intent).
 class DeleteAccountScreen extends StatefulWidget {
-  const DeleteAccountScreen({super.key, this.showExportLink = true});
-
-  /// Whether to offer "Download my data first" (the T15 route).
-  final bool showExportLink;
+  const DeleteAccountScreen({super.key});
 
   @override
   State<DeleteAccountScreen> createState() => _DeleteAccountScreenState();
@@ -84,12 +82,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     super.dispose();
   }
 
-  Future<String?> _promptPassword() {
-    return showDialog<String>(
-      context: context,
-      builder: (_) => const _PasswordDialog(),
-    );
-  }
+  Future<String?> _promptPassword() => showPasswordPromptDialog(context);
 
   void _onState(BuildContext context, AccountState state) {
     if (state.status != AccountStatus.deleted) return;
@@ -138,17 +131,16 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                     'and backups, which expire within 14 days.',
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  if (widget.showExportLink)
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: TextButton.icon(
-                        onPressed: working
-                            ? null
-                            : () => context.push(AppRouter.exportDataPath),
-                        icon: const Icon(Icons.download_outlined),
-                        label: const Text('Download my data first'),
-                      ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      onPressed: working
+                          ? null
+                          : () => context.push(AppRouter.exportDataPath),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Download my data first'),
                     ),
+                  ),
                   const SizedBox(height: AppSpacing.md),
                   TextField(
                     controller: _handleController,
@@ -226,47 +218,6 @@ class _StatusMessage extends StatelessWidget {
           color: isError ? Theme.of(context).colorScheme.error : null,
         ),
       ),
-    );
-  }
-}
-
-class _PasswordDialog extends StatefulWidget {
-  const _PasswordDialog();
-
-  @override
-  State<_PasswordDialog> createState() => _PasswordDialogState();
-}
-
-class _PasswordDialogState extends State<_PasswordDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Confirm your password'),
-      content: TextField(
-        controller: _controller,
-        obscureText: true,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Password'),
-        onSubmitted: (v) => Navigator.of(context).pop(v),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Continue'),
-        ),
-      ],
     );
   }
 }

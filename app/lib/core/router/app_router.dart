@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/account/domain/account_feature_flag.dart';
+import '../../features/account/presentation/data_export_screen.dart';
 import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
@@ -50,13 +51,13 @@ class AppRouter {
   static const deleteAccountPath = '/settings/delete-account';
   // Final page after DeleteAccount: reachable signed out.
   static const accountDeletedPath = '/account-deleted';
-  // Download my data (T15 owns the route and screen).
   static const exportDataPath = '/settings/export';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) => '/u/$userId';
+
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
@@ -151,6 +152,11 @@ class AppRouter {
                 const AuthGate(child: BlockedAccountsScreen()),
           ),
           GoRoute(
+            path: exportDataPath,
+            builder: (context, state) =>
+                const AuthGate(child: DataExportScreen()),
+          ),
+          GoRoute(
             path: mutedAccountsPath,
             builder: (context, state) =>
                 const AuthGate(child: MutedAccountsScreen()),
@@ -205,12 +211,13 @@ class AppRouter {
     }
   }
 
+  static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
   static final _accountOnlyRoutes = RegExp(
     r'^/settings/(?:export|delete-account)$',
   );
 
-  /// Account-lifecycle routes (data export, delete account) redirect to
-  /// Settings when the `account_lifecycle` flag is off for this caller.
+  /// Account-lifecycle routes (data export; delete-account joins) redirect to
+  /// Settings when the flag is off for this caller.
   String? _accountFlagRedirect(String loc) {
     if (_onboardingBloc.state.enabledFeatures.contains(
       kFeatureAccountLifecycle,
@@ -220,9 +227,6 @@ class AppRouter {
     return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
   }
 
-  static final _graphOnlyRoutes = RegExp(
-    r'^/settings/(?:blocked|muted)$',
-  );
   static final _followersOrFollowing = RegExp(
     r'^/profile/([^/]+)/(?:followers|following)$',
   );

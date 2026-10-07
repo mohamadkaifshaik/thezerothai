@@ -36,12 +36,14 @@ void main() {
   late _MockAuth auth;
   late _MockAuthBloc authBloc;
   late _MockOnboardingBloc onboardingBloc;
+  String? passwordSeen;
 
   setUpAll(() {
     registerFallbackValue(const AuthSignOutRequested());
   });
 
   setUp(() {
+    passwordSeen = null;
     accounts = _MockAccounts();
     auth = _MockAuth();
     authBloc = _MockAuthBloc();
@@ -75,7 +77,6 @@ void main() {
     Size? size,
     double textScale = 1,
     String initial = AppRouter.deleteAccountPath,
-    bool showExportLink = true,
   }) async {
     if (size != null) {
       tester.view.physicalSize = size;
@@ -87,8 +88,7 @@ void main() {
       routes: [
         GoRoute(
           path: AppRouter.deleteAccountPath,
-          builder: (_, _) =>
-              DeleteAccountScreen(showExportLink: showExportLink),
+          builder: (_, _) => const DeleteAccountScreen(),
         ),
         GoRoute(
           path: AppRouter.accountDeletedPath,
@@ -304,9 +304,70 @@ void main() {
     verifyNever(() => authBloc.add(any()));
   });
 
-  testWidgets('showExportLink false hides the export link', (tester) async {
-    await pump(tester, showExportLink: false);
-    expect(find.text('Download my data first'), findsNothing);
+  group('password prompt (password accounts)', () {
+    // The screen's re-auth asks for the password through the shared dialog.
+    void stubPasswordReauth() {
+      when(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).thenAnswer((invocation) async {
+        final prompt =
+            invocation.namedArguments[#promptPassword]
+                as Future<String?> Function();
+        final password = await prompt();
+        if (password == null) throw const AuthFailure.cancelled();
+        passwordSeen = password;
+        return const ReauthResult();
+      });
+    }
+
+    testWidgets('Cancel cancels the flow and sends nothing', (tester) async {
+      stubPasswordReauth();
+      await pump(tester);
+      await typeHandle(tester, 'kaif');
+
+      await tester.tap(button());
+      // The in-button spinner never settles while the dialog is open.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(passwordSeen, isNull);
+      expect(find.textContaining('Nothing was changed'), findsOneWidget);
+      verifyNever(
+        () => accounts.deleteAccount(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      );
+    });
+
+    testWidgets('Continue is disabled while empty and passes the text', (
+      tester,
+    ) async {
+      stubPasswordReauth();
+      await pump(tester);
+      await typeHandle(tester, 'kaif');
+
+      await tester.tap(button());
+      // The in-button spinner never settles while the dialog is open.
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final continueButton = find.widgetWithText(FilledButton, 'Continue');
+      expect(tester.widget<FilledButton>(continueButton).onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField).last, 's3cret');
+      await tester.pump();
+      expect(tester.widget<FilledButton>(continueButton).onPressed, isNotNull);
+
+      await tester.tap(continueButton);
+      await tester.pumpAndSettle();
+
+      expect(passwordSeen, 's3cret');
+      verify(
+        () => accounts.deleteAccount(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).called(1);
+    });
   });
 
   testWidgets('Done signs out again while still authenticated', (tester) async {

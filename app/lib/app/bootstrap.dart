@@ -141,11 +141,12 @@ Future<void> bootstrap() async {
       onboardingBloc: onboardingBloc,
       identityRepository: identityRepository,
       graphRepository: graphRepository,
+      accountRepository: AccountRepository(apiClient: apiClient),
+      authRepository: authRepository,
+      database: database,
       postsRepository: postsRepository,
       timelineRepository: timelineRepository,
       postsGate: postsGate,
-      accountRepository: AccountRepository(apiClient: apiClient),
-      authRepository: authRepository,
     ),
   );
 }

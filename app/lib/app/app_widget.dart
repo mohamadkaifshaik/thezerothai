@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/router/app_router.dart';
+import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
 import '../features/account/data/account_repository.dart';
-import 'session_wiring.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
@@ -17,6 +17,7 @@ import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
 import '../features/timeline/data/timeline_repository.dart';
+import 'session_wiring.dart';
 
 /// Root widget: theme + `go_router`. All dependency wiring happens in
 /// `bootstrap.dart`; this widget only assembles what it's given.
@@ -27,22 +28,24 @@ class AppWidget extends StatefulWidget {
     required this.onboardingBloc,
     required this.identityRepository,
     required this.graphRepository,
+    required this.accountRepository,
+    required this.authRepository,
+    required this.database,
     required this.postsRepository,
     required this.timelineRepository,
     required this.postsGate,
-    required this.accountRepository,
-    required this.authRepository,
   });
 
   final AuthBloc authBloc;
   final OnboardingBloc onboardingBloc;
   final IdentityRepository identityRepository;
   final GraphRepository graphRepository;
+  final AccountRepository accountRepository;
+  final AuthRepository authRepository;
+  final AppDatabase database;
   final PostsRepository postsRepository;
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
-  final AccountRepository accountRepository;
-  final AuthRepository authRepository;
 
   @override
   State<AppWidget> createState() => _AppWidgetState();
@@ -79,14 +82,15 @@ class _AppWidgetState extends State<AppWidget> {
       providers: [
         RepositoryProvider.value(value: widget.identityRepository),
         RepositoryProvider.value(value: widget.graphRepository),
-        RepositoryProvider.value(value: widget.postsRepository),
-        RepositoryProvider.value(value: widget.timelineRepository),
-        RepositoryProvider.value(value: widget.postsGate),
         RepositoryProvider.value(value: widget.accountRepository),
+        RepositoryProvider.value(value: widget.authRepository),
+        RepositoryProvider.value(value: widget.database),
         RepositoryProvider<UnexpectedErrorReporter>.value(
           value: reportUnexpectedError,
         ),
-        RepositoryProvider.value(value: widget.authRepository),
+        RepositoryProvider.value(value: widget.postsRepository),
+        RepositoryProvider.value(value: widget.timelineRepository),
+        RepositoryProvider.value(value: widget.postsGate),
       ],
       child: MultiBlocProvider(
         providers: [

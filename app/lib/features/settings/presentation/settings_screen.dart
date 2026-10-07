@@ -48,6 +48,15 @@ class SettingsScreen extends StatelessWidget {
             ),
             const Divider(height: 1),
           ],
+          if (isAccountLifecycleEnabled(context)) ...[
+            ListTile(
+              leading: const Icon(Icons.download_outlined),
+              title: const Text('Download my data'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(AppRouter.exportDataPath),
+            ),
+            const Divider(height: 1),
+          ],
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
             title: const Text('Privacy Policy'),

@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -108,6 +109,30 @@ void main() {
     expect(find.text('Blocked accounts'), findsNothing);
     expect(find.text('Muted accounts'), findsNothing);
     expect(find.textContaining('Private account'), findsNothing);
+  });
+
+  testWidgets('"Download my data" follows the account_lifecycle flag', (
+    tester,
+  ) async {
+    whenListen(
+      authBloc,
+      Stream<AuthState>.empty(),
+      initialState: const AuthState(),
+    );
+
+    await tester.pumpWidget(wrap());
+    expect(find.text('Download my data'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        enabledFeatures: {kFeatureAccountLifecycle},
+      ),
+    );
+    await tester.pumpWidget(wrap());
+    expect(find.text('Download my data'), findsOneWidget);
   });
 
   testWidgets('shows "Blocked accounts"/"Muted accounts" when the graph flag '

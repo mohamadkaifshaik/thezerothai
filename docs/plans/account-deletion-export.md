@@ -657,7 +657,7 @@ Order:
 - **Budget.** At most 1 DeleteAccount and 1 RequestAccountExport per intent.
 
 ### T14 — Flutter: Settings → Delete account  [owner: frontend-developer] [size: M] [depends: T13]
-- **Status:** Done (screen, flag gate + redirect, final page, widget/router/settings tests; analyze + tests green). Deviations: the Download-my-data link pushes `/settings/export` (`AppRouter.exportPath`); the route itself belongs to T15. The local-DB-cleared AC is met by the existing sign-out listener in bootstrap (`wipeSessionData`, covered by its own tests): the screen only dispatches `AuthSignOutRequested`. `DeleteAccountScreen(showExportLink:)` defaults true.
+- **Status:** Done (screen, flag gate + redirect, final page, widget/router/settings tests; analyze + tests green). Merged with T15: the Download-my-data link pushes `AppRouter.exportDataPath` (T15's route); the password prompt is T15's shared `showPasswordPromptDialog`. The local-DB-cleared AC is met by the existing sign-out listener in bootstrap (`wipeSessionData`, covered by its own tests): the screen only dispatches `AuthSignOutRequested`.
 - **Description.**
   - A Settings entry (flag on only) leading to `/settings/delete-account`. The screen explains:
     - what is deleted;
@@ -677,7 +677,7 @@ Order:
 - **Budget.** 1 request per completed intent.
 
 ### T15 — Flutter: Settings → Download my data  [owner: frontend-developer] [size: S] [depends: T13]
-- **Status:** Open. Not blocked.
+- **Status:** Done (route `/settings/export`, flag-gated with redirect; `DataExportCubit` + screen; analyze + tests green). The `export_id` + lifetime are persisted in drift (`AccountExportEntries`, schema v4, wiped on sign-out, never the URL), so reopening the screen resumes polling with a fresh 10-poll budget and "check back later" works. T15 also owns the shared wiring T14 reuses: `showPasswordPromptDialog`, `UnexpectedErrorReporter`, account/auth repository providers.
 - **Description.**
   - An entry leading to `/settings/export`.
   - "Request export" calls RequestAccountExport and keeps the `export_id` on the device.

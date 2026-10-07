@@ -142,8 +142,14 @@ class AccountCubit extends Cubit<AccountState> {
     }
   }
 
-  Future<void> requestExport({required PasswordPrompt promptPassword}) async {
-    if (isClosed || state.status == AccountStatus.working) return;
+  /// Returns the accepted export even when the flow was abandoned while the
+  /// RPC was in flight (the server already spent the daily quota, so the
+  /// caller must still be able to record the id); null on failure, cancel or
+  /// a blocked double tap.
+  Future<AccountExport?> requestExport({
+    required PasswordPrompt promptPassword,
+  }) async {
+    if (isClosed || state.status == AccountStatus.working) return null;
     final generation = ++_generation;
     final key = _exportKey ??= _uuid.v4();
     emit(const AccountState(status: AccountStatus.working));
@@ -154,11 +160,13 @@ class AccountCubit extends Cubit<AccountState> {
         generation,
         revokeApple: false,
       );
-      if (_stale(generation)) return;
       _exportKey = null;
+      if (_stale(generation)) return export;
       emit(AccountState(status: AccountStatus.exportRequested, export: export));
+      return export;
     } catch (error, stack) {
       _fail(generation, error, stack);
+      return null;
     }
   }
 
