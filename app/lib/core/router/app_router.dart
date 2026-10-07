@@ -216,7 +216,7 @@ class AppRouter {
     r'^/settings/(?:export|delete-account)$',
   );
 
-  /// Account-lifecycle routes (data export; delete-account joins) redirect to
+  /// Account-lifecycle routes (data export, delete account) redirect to
   /// Settings when the flag is off for this caller.
   String? _accountFlagRedirect(String loc) {
     if (_onboardingBloc.state.enabledFeatures.contains(

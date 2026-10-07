@@ -238,7 +238,7 @@ class AccountDeletedScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.check_circle_outline, size: 48),
+                  const Icon(Icons.check_circle_outline, size: AppSpacing.xxl),
                   const SizedBox(height: AppSpacing.md),
                   Text(
                     'Your account is being deleted',
@@ -253,9 +253,6 @@ class AccountDeletedScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   FilledButton(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(160, AppSpacing.minTapTarget),
-                    ),
                     onPressed: () {
                       // Idempotent: makes sure the session is gone even if the
                       // first sign-out has not landed yet.

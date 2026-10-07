@@ -380,6 +380,23 @@ void main() {
     expect(find.text('sign in stub'), findsOneWidget);
   });
 
+  testWidgets('Done does not sign out again when already unauthenticated', (
+    tester,
+  ) async {
+    whenListen(
+      authBloc,
+      const Stream<AuthState>.empty(),
+      initialState: const AuthState(status: AuthStatus.unauthenticated),
+    );
+    await pump(tester, initial: AppRouter.accountDeletedPath);
+
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    verifyNever(() => authBloc.add(any()));
+    expect(find.text('sign in stub'), findsOneWidget);
+  });
+
   test('handleMatches ignores case, @ and spaces', () {
     expect(handleMatches(' @KAIF ', 'kaif'), isTrue);
     expect(handleMatches('@Kaif', 'kAIF'), isTrue);
