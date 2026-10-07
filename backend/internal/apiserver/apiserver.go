@@ -88,7 +88,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -129,7 +129,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
-	identityServer := identity.NewServer(identitySvc, identity.WithAllowAnonymous(cfg.AuthEmulator))
+	identityServer := identity.NewServer(identitySvc, identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags))
 	graphServer := graph.NewServer(graphSvc)
 
 	// posts and timeline (ADR-0010, T5): both services are registered behind FEATURE_POSTS. Their RPC bodies land

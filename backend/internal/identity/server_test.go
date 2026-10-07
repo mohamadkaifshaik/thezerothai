@@ -79,7 +79,7 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newTestServerHTTPWithClaims(t *testing.T, svc Service, claims authn.Claims) (identityv1connect.IdentityServiceClient, func()) {
+func newTestServerHTTPWithClaims(t *testing.T, svc Service, claims authn.Claims, opts ...ServerOption) (identityv1connect.IdentityServiceClient, func()) {
 	t.Helper()
 	mux := http.NewServeMux()
 	// mw.ErrorMapping is wired here to match the real chain (apiserver.Build, innermost before the
@@ -87,7 +87,7 @@ func newTestServerHTTPWithClaims(t *testing.T, svc Service, claims authn.Claims)
 	// service error as-is"; see authn.RequireVerifiedEmail) and rely on ErrorMapping to
 	// shape it into a proper *connect.Error — without it here, connect-go has no idea how to encode an
 	// unrecognized error type and falls back to CodeUnknown, which every real deployment never sees.
-	path, handler := identityv1connect.NewIdentityServiceHandler(NewServer(svc), connect.WithInterceptors(authInjectClaims(claims), mw.ErrorMapping(discardLogger())))
+	path, handler := identityv1connect.NewIdentityServiceHandler(NewServer(svc, opts...), connect.WithInterceptors(authInjectClaims(claims), mw.ErrorMapping(discardLogger())))
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
 	client := identityv1connect.NewIdentityServiceClient(srv.Client(), srv.URL)
@@ -279,62 +279,80 @@ func TestServer_CheckHandleAvailability(t *testing.T) {
 	}
 }
 
-func TestServer_Phase1Stubs_ReturnUnimplemented(t *testing.T) {
-	svc := &fakeService{}
-	client, closeFn := newTestServerHTTP(t, svc, "uid-1")
-	defer closeFn()
+// fakeFlagChecker answers Enabled from a fixed set of "uid/name" pairs.
+type fakeFlagChecker map[string]bool
 
-	assertUnimplemented := func(t *testing.T, err error) {
-		t.Helper()
-		var cerr *connect.Error
-		if !errors.As(err, &cerr) || cerr.Code() != connect.CodeUnimplemented {
-			t.Fatalf("expected Unimplemented, got %v", err)
-		}
-	}
+func (f fakeFlagChecker) Enabled(uid, name string) bool { return f[uid+"/"+name] }
 
-	_, err := client.DeleteAccount(context.Background(), connect.NewRequest(&identityv1.DeleteAccountRequest{}))
-	assertUnimplemented(t, err)
-
-	_, err = client.RequestAccountExport(context.Background(), connect.NewRequest(&identityv1.RequestAccountExportRequest{}))
-	assertUnimplemented(t, err)
-
-	_, err = client.GetAccountExport(context.Background(), connect.NewRequest(&identityv1.GetAccountExportRequest{}))
-	assertUnimplemented(t, err)
+// callAccountRPCs calls the three account-lifecycle RPCs and returns their errors by name.
+func callAccountRPCs(client identityv1connect.IdentityServiceClient) map[string]error {
+	ctx := context.Background()
+	out := map[string]error{}
+	_, out["DeleteAccount"] = client.DeleteAccount(ctx, connect.NewRequest(&identityv1.DeleteAccountRequest{}))
+	_, out["RequestAccountExport"] = client.RequestAccountExport(ctx, connect.NewRequest(&identityv1.RequestAccountExportRequest{}))
+	_, out["GetAccountExport"] = client.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{}))
+	return out
 }
 
-// TestServer_Phase1Stubs_DoNotLeakInternalRoadmap (L10, 2026-09-27 security audit): the Unimplemented
-// message must be generic — the previous text named the exact modules (graph/posts/engagement/media/
-// notifications) and ADR needed to finish the feature, disclosing internal roadmap details to any
-// authenticated caller.
-func TestServer_Phase1Stubs_DoNotLeakInternalRoadmap(t *testing.T) {
-	svc := &fakeService{}
-	client, closeFn := newTestServerHTTP(t, svc, "uid-1")
-	defer closeFn()
+// TestServer_AccountLifecycle_FlagOff (P8 T4): flag off (or no checker wired, or on for a different uid) gives
+// FAILED_PRECONDITION + FEATURE_DISABLED from all three RPCs, with 0 service calls (so 0 Firestore reads).
+func TestServer_AccountLifecycle_FlagOff(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []ServerOption
+	}{
+		{"no checker wired", nil},
+		{"flag off", []ServerOption{WithFlagChecker(fakeFlagChecker{})}},
+		{"on for another uid only", []ServerOption{WithFlagChecker(fakeFlagChecker{"other/" + AccountLifecycleFlag: true})}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeService{}
+			client, closeFn := newTestServerHTTPWithClaims(t, svc, authn.Claims{UID: "uid-1", EmailVerified: true, SignInProvider: "google.com"}, tc.opts...)
+			defer closeFn()
+			for rpc, err := range callAccountRPCs(client) {
+				var cerr *connect.Error
+				if !errors.As(err, &cerr) || cerr.Code() != connect.CodeFailedPrecondition {
+					t.Fatalf("%s: err = %v, want FAILED_PRECONDITION", rpc, err)
+				}
+				var found bool
+				for _, d := range cerr.Details() {
+					v, derr := d.Value()
+					if derr != nil {
+						continue
+					}
+					if info, ok := v.(*commonv1.ErrorDetail); ok && info.GetReason() == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("%s: no FEATURE_DISABLED detail in %v", rpc, cerr)
+				}
+			}
+		})
+	}
+}
 
-	leaky := []string{"graph", "posts", "engagement", "media", "notifications", "ADR", "Phase 1", "Phase0", "Phase 0"}
-	assertGeneric := func(t *testing.T, err error) {
-		t.Helper()
+// TestServer_AccountLifecycle_FlagOn: with the flag on for the caller the RPCs pass the guard and reach the
+// Unimplemented placeholder (T5/T9 replace it), whose message stays generic (L10).
+func TestServer_AccountLifecycle_FlagOn(t *testing.T) {
+	fc := fakeFlagChecker{"uid-1/" + AccountLifecycleFlag: true}
+	client, closeFn := newTestServerHTTPWithClaims(t, &fakeService{}, authn.Claims{UID: "uid-1", EmailVerified: true, SignInProvider: "google.com"}, WithFlagChecker(fc))
+	defer closeFn()
+	for rpc, err := range callAccountRPCs(client) {
 		var cerr *connect.Error
-		if !errors.As(err, &cerr) {
-			t.Fatalf("error is %T, want *connect.Error", err)
+		if !errors.As(err, &cerr) || cerr.Code() != connect.CodeUnimplemented {
+			t.Fatalf("%s: err = %v, want Unimplemented", rpc, err)
 		}
-		msg := cerr.Message()
-		if msg != "not available yet" {
-			t.Errorf("Unimplemented message = %q, want the generic \"not available yet\"", msg)
+		if cerr.Message() != "not available yet" {
+			t.Errorf("%s: message = %q, want the generic \"not available yet\"", rpc, cerr.Message())
 		}
-		for _, term := range leaky {
+		for _, term := range []string{"graph", "posts", "engagement", "media", "notifications", "ADR", "Phase"} {
 			if strings.Contains(cerr.Error(), term) {
-				t.Errorf("Unimplemented error leaks internal roadmap term %q: %v", term, cerr)
+				t.Errorf("%s: error leaks internal roadmap term %q: %v", rpc, term, cerr)
 			}
 		}
 	}
-
-	_, err := client.DeleteAccount(context.Background(), connect.NewRequest(&identityv1.DeleteAccountRequest{}))
-	assertGeneric(t, err)
-	_, err = client.RequestAccountExport(context.Background(), connect.NewRequest(&identityv1.RequestAccountExportRequest{}))
-	assertGeneric(t, err)
-	_, err = client.GetAccountExport(context.Background(), connect.NewRequest(&identityv1.GetAccountExportRequest{}))
-	assertGeneric(t, err)
 }
 
 func TestToProtoStatus(t *testing.T) {
