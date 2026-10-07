@@ -18,7 +18,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // FlagChecker is the minimal seam posts and timeline need from pkg/platform/flags.Registry (ADR-0002: depend
@@ -36,12 +35,10 @@ func GuardFeature(ctx context.Context, fc FlagChecker) error {
 	if !ok || uid == "" {
 		return apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "unauthenticated")
 	}
-	if fc == nil || !fc.Enabled(uid, FlagName) {
-		logger.SetRequestField(ctx, "feature_disabled", true)
-		logger.SetRequestField(ctx, "outcome", "rejected:feature_disabled")
-		return flags.DisabledError()
+	if fc == nil {
+		return flags.Guard(ctx, nil, uid, FlagName)
 	}
-	return nil
+	return flags.Guard(ctx, fc.Enabled, uid, FlagName)
 }
 
 // Server adapts Service to postsv1connect.PostServiceHandler.

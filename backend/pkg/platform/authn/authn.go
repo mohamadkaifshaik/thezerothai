@@ -12,6 +12,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // Claims is the subset of Firebase ID token claims the platform cares about. UID is the only trusted
@@ -80,6 +81,30 @@ func RequireVerifiedEmail(ctx context.Context, allowAnonymous bool, action strin
 		commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED,
 		"please verify your email before "+action,
 	)
+}
+
+// recentSignInSkew is how far in the future a token's auth_time may be (clock skew between Firebase and this
+// instance) and still count as a fresh sign-in.
+const recentSignInSkew = 30 * time.Second
+
+// RequireRecentSignIn is the shared "recent sign-in" check for destructive account actions (P8 T4, DeleteAccount).
+// It reads Claims.AuthTime (the Firebase `auth_time` claim: when the user last authenticated, not when the token
+// was refreshed) and returns FAILED_PRECONDITION + REAUTH_REQUIRED when it is zero (missing), older than maxAge,
+// or more than 30 s in the future (fail closed). A future auth_time of up to 30 s passes. now is injected so tests
+// need no sleeps. Callers pass the config-validated maxAge (config.AccountDeleteReauthMaxAge, in (0, 10m]); a
+// zero maxAge here would reject every token. 0 Firestore reads. A rejection logs reauth_required=true on the request line.
+func RequireRecentSignIn(ctx context.Context, maxAge time.Duration, now time.Time) error {
+	claims, _ := ClaimsFromContext(ctx)
+	age := now.Sub(claims.AuthTime)
+	if claims.AuthTime.IsZero() || age > maxAge || age < -recentSignInSkew {
+		logger.SetRequestField(ctx, "reauth_required", true)
+		return apierr.New(
+			connect.CodeFailedPrecondition,
+			commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED,
+			"please sign in again to continue",
+		)
+	}
+	return nil
 }
 
 // IDTokenVerifier verifies a Firebase Auth ID token from the `Authorization: Bearer` header.

@@ -413,7 +413,7 @@ Order:
 - **Budget.** $0 fixed. Pay-per-use as in the T1 option.
 
 ### T4 — Server flag, recent-sign-in check, stub replacement  [owner: backend-developer] [size: S] [depends: — (T2a for the reason constant)]
-- **Status:** Open. Not blocked.
+- **Status:** Done.
 - **Description.**
   - Add `account_lifecycle` to `pkg/platform/flags` (`FEATURE_ACCOUNT_LIFECYCLE`, default `off`). GetMe's
     `enabled_features` reports it with 0 reads.

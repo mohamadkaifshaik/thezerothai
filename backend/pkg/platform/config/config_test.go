@@ -21,6 +21,8 @@ func clearEnv(t *testing.T) {
 		"INTERNAL_OIDC_AUDIENCE", "INTERNAL_OIDC_ALLOWED_EMAILS", "CORS_ALLOWED_ORIGINS", "TRUSTED_PROXY_HOPS",
 		"FEATURE_GRAPH", "FEATURE_GRAPH_ALLOWLIST", "FEATURE_GRAPH_PERCENT",
 		"FEATURE_POSTS", "FEATURE_POSTS_ALLOWLIST", "FEATURE_POSTS_PERCENT",
+		"FEATURE_ACCOUNT_LIFECYCLE", "FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST", "FEATURE_ACCOUNT_LIFECYCLE_PERCENT",
+		"ACCOUNT_DELETE_REAUTH_MAX_AGE",
 		"CACHE_POSTS_ENTRIES", "CACHE_AUTHOR_RECENT_ENTRIES",
 		"RATE_LIMIT_USER_TIMELINE_PER_MIN", "RATE_LIMIT_POST_CREATE_PER_MIN", "RATE_LIMIT_POST_DELETE_PER_MIN",
 		"QUOTA_BLOCKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY",
@@ -73,6 +75,51 @@ func TestLoad_LocalDefaults(t *testing.T) {
 	}
 	if cfg.TrustedProxyHops != 1 {
 		t.Errorf("TrustedProxyHops = %d, want 1 (default: current/original rightmost-entry behavior)", cfg.TrustedProxyHops)
+	}
+}
+
+// TestLoad_AccountLifecycle (P8 T4): the flag defaults off and the reauth window defaults to 5m; a window of 0,
+// a negative one, one over 10m or an unparsable one fails startup with a clear error naming the variable.
+func TestLoad_AccountLifecycle(t *testing.T) {
+	tests := []struct {
+		name    string
+		flag    string
+		maxAge  string
+		wantErr string
+		wantAge time.Duration
+		wantOn  bool
+	}{
+		{name: "defaults", wantAge: 5 * time.Minute},
+		{name: "flag on, 10m max", flag: "on", maxAge: "10m", wantAge: 10 * time.Minute, wantOn: true},
+		{name: "zero", maxAge: "0", wantErr: "ACCOUNT_DELETE_REAUTH_MAX_AGE must be > 0"},
+		{name: "negative", maxAge: "-1m", wantErr: "ACCOUNT_DELETE_REAUTH_MAX_AGE must be > 0"},
+		{name: "over 10m", maxAge: "10m1s", wantErr: "ACCOUNT_DELETE_REAUTH_MAX_AGE must be > 0"},
+		{name: "unparsable", maxAge: "soon", wantErr: "ACCOUNT_DELETE_REAUTH_MAX_AGE"},
+		{name: "bad flag mode", flag: "maybe", wantErr: "FEATURE_ACCOUNT_LIFECYCLE"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("FEATURE_ACCOUNT_LIFECYCLE", tc.flag)
+			t.Setenv("ACCOUNT_DELETE_REAUTH_MAX_AGE", tc.maxAge)
+			cfg, err := Load()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load() error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.AccountDeleteReauthMaxAge != tc.wantAge {
+				t.Errorf("AccountDeleteReauthMaxAge = %s, want %s", cfg.AccountDeleteReauthMaxAge, tc.wantAge)
+			}
+			reg := flags.NewRegistry(cfg.FeatureAccountLifecycle)
+			if got := reg.Enabled("uid-1", "account_lifecycle"); got != tc.wantOn {
+				t.Errorf("account_lifecycle enabled = %v, want %v", got, tc.wantOn)
+			}
+		})
 	}
 }
 

@@ -16,12 +16,31 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
+
+// AccountLifecycleFlag is the wire name of FEATURE_ACCOUNT_LIFECYCLE (P8 T4), the flag guarding DeleteAccount,
+// RequestAccountExport and GetAccountExport.
+const AccountLifecycleFlag = "account_lifecycle"
+
+// FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry (ADR-0002). It is
+// separate from FeatureFlags (api.go, used by the service for GetMe.enabled_features): the handler guards RPCs
+// before the service is called, and each consumer-side interface stays one method wide. *flags.Registry
+// satisfies both.
+type FlagChecker interface {
+	Enabled(uid, name string) bool
+}
 
 // Server adapts Service to identityv1connect.IdentityServiceHandler.
 type Server struct {
 	svc            Service
 	allowAnonymous bool
+	flags          FlagChecker
+}
+
+// WithFlagChecker wires the account_lifecycle flag check. Without it (nil) the flag is off for everyone.
+func WithFlagChecker(fc FlagChecker) ServerOption {
+	return func(s *Server) { s.flags = fc }
 }
 
 // ServerOption configures NewServer.
@@ -139,27 +158,48 @@ func (s *Server) ChangeHandle(ctx context.Context, req *connect.Request[identity
 	return connect.NewResponse(&identityv1.ChangeHandleResponse{Profile: toProtoProfile(profile)}), nil
 }
 
-// DeleteAccount, RequestAccountExport and GetAccountExport need the resumable delete/export jobs from
-// ADR-0003 ("Deletes & privacy"), which fan out across graph/posts/engagement/media/notifications —
-// none of which exist in this Phase 0 bootstrap. Stubbed Unimplemented; tracked for Phase 1.
+// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE (P8 T4). Flag
+// off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access (0 reads). Flag on:
+// Unimplemented until T5/T9 land the real bodies. The three stay in the charge-only set and account_ops_daily
+// (apiserver/ratelimit_config.go), so a rejected call still counts against the daily cap.
 
-func (s *Server) DeleteAccount(context.Context, *connect.Request[identityv1.DeleteAccountRequest]) (*connect.Response[identityv1.DeleteAccountResponse], error) {
+// guardAccountLifecycle returns the flag rejection, or nil when the flag is on for the caller.
+func (s *Server) guardAccountLifecycle(ctx context.Context) error {
+	uid, err := callerUID(ctx)
+	if err != nil {
+		return err
+	}
+	if s.flags == nil {
+		return flags.Guard(ctx, nil, uid, AccountLifecycleFlag)
+	}
+	return flags.Guard(ctx, s.flags.Enabled, uid, AccountLifecycleFlag)
+}
+
+func (s *Server) DeleteAccount(ctx context.Context, _ *connect.Request[identityv1.DeleteAccountRequest]) (*connect.Response[identityv1.DeleteAccountResponse], error) {
+	if err := s.guardAccountLifecycle(ctx); err != nil {
+		return nil, err
+	}
 	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 }
 
-func (s *Server) RequestAccountExport(context.Context, *connect.Request[identityv1.RequestAccountExportRequest]) (*connect.Response[identityv1.RequestAccountExportResponse], error) {
+func (s *Server) RequestAccountExport(ctx context.Context, _ *connect.Request[identityv1.RequestAccountExportRequest]) (*connect.Response[identityv1.RequestAccountExportResponse], error) {
+	if err := s.guardAccountLifecycle(ctx); err != nil {
+		return nil, err
+	}
 	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 }
 
-func (s *Server) GetAccountExport(context.Context, *connect.Request[identityv1.GetAccountExportRequest]) (*connect.Response[identityv1.GetAccountExportResponse], error) {
+func (s *Server) GetAccountExport(ctx context.Context, _ *connect.Request[identityv1.GetAccountExportRequest]) (*connect.Response[identityv1.GetAccountExportResponse], error) {
+	if err := s.guardAccountLifecycle(ctx); err != nil {
+		return nil, err
+	}
 	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 }
 
 // errUnimplementedPhase1's message is deliberately generic (L10, 2026-09-27 security audit): it is sent
-// verbatim to the client by connect.NewError. The real reason — these need the resumable delete/export
-// jobs from ADR-0003 "Deletes & privacy", which fan out across graph/posts/engagement/media/notifications,
-// none of which exist in this Phase 0 bootstrap (see the doc comment above) — must stay in source comments,
-// not on the wire, so a caller can't map our internal module roadmap from error text.
+// verbatim to the client by connect.NewError, so the module roadmap must not appear in it. The real reason is
+// that the resumable delete/export jobs (ADR-0003 "Deletes & privacy") are not built yet; it stays in source
+// comments, not on the wire.
 var errUnimplementedPhase1 = errors.New("not available yet")
 
 func toProtoStatus(s AccountStatus) identityv1.AccountStatus {

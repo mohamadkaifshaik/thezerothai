@@ -240,11 +240,23 @@ type Config struct {
 	// and on in dev and local, like FeatureGraph.
 	FeaturePosts flags.Spec
 
+	// FeatureAccountLifecycle is the P8 T4 server flag (wire name `account_lifecycle`) gating DeleteAccount,
+	// RequestAccountExport and GetAccountExport. FEATURE_ACCOUNT_LIFECYCLE[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
+	FeatureAccountLifecycle flags.Spec
+
+	// AccountDeleteReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (default 5m, must be in (0, 10m]): how recent the
+	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
+	AccountDeleteReauthMaxAge time.Duration
+
 	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
 	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
 	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
 	AuthEmulator bool
 }
+
+// MaxAccountDeleteReauthMaxAge is the upper bound of ACCOUNT_DELETE_REAUTH_MAX_AGE (P8 T4).
+const MaxAccountDeleteReauthMaxAge = 10 * time.Minute
 
 // Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
 func Load() (Config, error) {
@@ -517,6 +529,20 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	// P8 T4: off everywhere until the founder turns it on; the reauth window is bounded so a typo cannot
+	// quietly disable the recent-sign-in check.
+	featureAccountLifecycle, err := flags.LoadSpec("ACCOUNT_LIFECYCLE", "account_lifecycle", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	if reauthMaxAge <= 0 || reauthMaxAge > MaxAccountDeleteReauthMaxAge {
+		return Config{}, fmt.Errorf("config: ACCOUNT_DELETE_REAUTH_MAX_AGE must be > 0 and <= %s (got %s)", MaxAccountDeleteReauthMaxAge, reauthMaxAge)
+	}
+
 	// M10: PORT defaults to 8081 in local dev so `go run ./cmd/api` never collides with the Firestore
 	// emulator's fixed port 8080 (firebase.json); Cloud Run always sets PORT explicitly in dev/prod, so
 	// that default is unchanged there.
@@ -558,6 +584,8 @@ func Load() (Config, error) {
 		FeatureGraph:              featureGraph,
 		FeaturePosts:              featurePosts,
 		AuthEmulator:              authEmulator,
+		FeatureAccountLifecycle:   featureAccountLifecycle,
+		AccountDeleteReauthMaxAge: reauthMaxAge,
 	}, nil
 }
 
