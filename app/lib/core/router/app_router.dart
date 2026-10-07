@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/account/domain/account_feature_flag.dart';
 import '../../features/account/presentation/data_export_screen.dart';
+import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/sign_in_screen.dart';
@@ -47,6 +48,9 @@ class AppRouter {
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
   static const mutedAccountsPath = '/settings/muted';
+  static const deleteAccountPath = '/settings/delete-account';
+  // Final page after DeleteAccount: reachable signed out.
+  static const accountDeletedPath = '/account-deleted';
   static const exportDataPath = '/settings/export';
   static String profilePath(String handle) => '/profile/$handle';
 
@@ -86,6 +90,10 @@ class AppRouter {
       GoRoute(
         path: composePath,
         builder: (context, state) => const AuthGate(child: ComposerScreen()),
+      ),
+      GoRoute(
+        path: accountDeletedPath,
+        builder: (context, state) => const AccountDeletedScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) =>
@@ -153,6 +161,11 @@ class AppRouter {
             builder: (context, state) =>
                 const AuthGate(child: MutedAccountsScreen()),
           ),
+          GoRoute(
+            path: deleteAccountPath,
+            builder: (context, state) =>
+                const AuthGate(child: DeleteAccountScreen()),
+          ),
         ],
       ),
     ],
@@ -162,6 +175,7 @@ class AppRouter {
     final authState = _authBloc.state;
     final loc = state.matchedLocation;
     final isAuthRoute = loc == signInPath || loc == signUpPath;
+    if (loc == accountDeletedPath) return null;
 
     if (authState.status == AuthStatus.unknown) {
       return loc == '/' ? null : '/';
@@ -202,7 +216,7 @@ class AppRouter {
     r'^/settings/(?:export|delete-account)$',
   );
 
-  /// Account-lifecycle routes (data export; delete-account joins) redirect to
+  /// Account-lifecycle routes (data export, delete account) redirect to
   /// Settings when the flag is off for this caller.
   String? _accountFlagRedirect(String loc) {
     if (_onboardingBloc.state.enabledFeatures.contains(

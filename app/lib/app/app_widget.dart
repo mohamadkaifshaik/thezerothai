@@ -6,7 +6,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../core/router/app_router.dart';
 import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
-import 'session_wiring.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -18,6 +17,7 @@ import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
 import '../features/timeline/data/timeline_repository.dart';
+import 'session_wiring.dart';
 
 /// Root widget: theme + `go_router`. All dependency wiring happens in
 /// `bootstrap.dart`; this widget only assembles what it's given.

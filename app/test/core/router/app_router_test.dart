@@ -6,8 +6,8 @@ import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
 import 'package:dzeroth/features/account/presentation/data_export_screen.dart';
+import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -18,6 +18,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
@@ -105,12 +106,70 @@ void main() {
     expect(path, AppRouter.onboardingPath);
   });
 
-  test('postPath builds the /post/:id deep link', () {
-    expect(AppRouter.postPath('123'), '/post/123');
-    expect(AppRouter.postPath('a/b'), '/post/a%2Fb');
+  testWidgets('/settings/delete-account redirects to settings with the flag '
+      'off', (tester) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(status: OnboardingStatus.ready),
+      path: AppRouter.deleteAccountPath,
+    );
+
+    expect(path, AppRouter.settingsPath);
   });
 
-  testWidgets('/settings/export redirects to /settings when the flag is off', (
+  testWidgets('/settings/delete-account stays with the flag on', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: const OnboardingState(
+        status: OnboardingStatus.ready,
+        enabledFeatures: {'account_lifecycle'},
+      ),
+      path: AppRouter.deleteAccountPath,
+      repositories: [
+        RepositoryProvider<AccountRepository>.value(
+          value: MockAccountRepository(),
+        ),
+        RepositoryProvider<AuthRepository>.value(value: MockAuthRepository()),
+        RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+      ],
+    );
+
+    expect(path, AppRouter.deleteAccountPath);
+    expect(find.byType(DeleteAccountScreen), findsOneWidget);
+  });
+
+  testWidgets('signed-out users go from /settings/delete-account and /home to '
+      'sign-in', (tester) async {
+    for (final target in const [AppRouter.deleteAccountPath, '/home']) {
+      final path = await openUserRoute(
+        tester,
+        auth: const AuthState(status: AuthStatus.unauthenticated),
+        onboarding: const OnboardingState(),
+        path: target,
+      );
+      expect(path, AppRouter.signInPath, reason: target);
+    }
+  });
+
+  testWidgets('the deleted page renders while auth is still unknown', (
+    tester,
+  ) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(),
+      onboarding: const OnboardingState(),
+      path: AppRouter.accountDeletedPath,
+    );
+
+    expect(path, AppRouter.accountDeletedPath);
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+  });
+
+  testWidgets('/settings/export also redirects with the flag off', (
     tester,
   ) async {
     final path = await openUserRoute(
@@ -123,16 +182,20 @@ void main() {
     expect(path, AppRouter.settingsPath);
   });
 
-  testWidgets('/settings/delete-account redirects to /settings when the flag '
-      'is off', (tester) async {
+  testWidgets('the deleted page is reachable signed out', (tester) async {
     final path = await openUserRoute(
       tester,
-      auth: const AuthState(status: AuthStatus.authenticated, user: user),
-      onboarding: const OnboardingState(status: OnboardingStatus.ready),
-      path: '/settings/delete-account',
+      auth: const AuthState(status: AuthStatus.unauthenticated),
+      onboarding: const OnboardingState(),
+      path: AppRouter.accountDeletedPath,
     );
 
-    expect(path, AppRouter.settingsPath);
+    expect(path, AppRouter.accountDeletedPath);
+  });
+
+  test('postPath builds the /post/:id deep link', () {
+    expect(AppRouter.postPath('123'), '/post/123');
+    expect(AppRouter.postPath('a/b'), '/post/a%2Fb');
   });
 
   testWidgets('/settings/export is reachable when the flag is on', (

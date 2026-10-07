@@ -657,7 +657,7 @@ Order:
 - **Budget.** At most 1 DeleteAccount and 1 RequestAccountExport per intent.
 
 ### T14 — Flutter: Settings → Delete account  [owner: frontend-developer] [size: M] [depends: T13]
-- **Status:** Open. Not blocked.
+- **Status:** Done (screen, flag gate + redirect, final page, widget/router/settings tests; analyze + tests green). Merged with T15: the Download-my-data link pushes `AppRouter.exportDataPath` (T15's route); the password prompt is T15's shared `showPasswordPromptDialog`. The local-DB-cleared AC is met by the existing sign-out listener in bootstrap (`wipeSessionData`, covered by its own tests): the screen only dispatches `AuthSignOutRequested`.
 - **Description.**
   - A Settings entry (flag on only) leading to `/settings/delete-account`. The screen explains:
     - what is deleted;

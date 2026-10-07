@@ -64,6 +64,15 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => launchPrivacyPolicy(context),
           ),
           const Divider(height: 1),
+          if (isAccountLifecycleEnabled(context)) ...[
+            ListTile(
+              leading: const Icon(Icons.delete_forever_outlined),
+              title: const Text('Delete account'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(AppRouter.deleteAccountPath),
+            ),
+            const Divider(height: 1),
+          ],
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Sign out'),
