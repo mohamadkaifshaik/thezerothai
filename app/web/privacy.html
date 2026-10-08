@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-09-30 -->
+<!-- Draft — last updated 2026-10-07 (retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07;
+     any new entry needs an ADR-0011 amendment and an update here in the same PR) -->
 <!--
   MAINTAINERS: this policy is still a DRAFT. Do not remove the Draft marker until ALL of these are resolved:
   1. Legal/privacy review of the whole text (not done; this is not legal advice).
@@ -105,7 +106,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>dZeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 30 September 2026</p>
+    <p class="updated">Last updated: 7 October 2026</p>
 
     <p>
       dZeroth ("dZeroth", "we", "us") is a text-first social app at
@@ -307,19 +308,66 @@
     </p>
     <p>
       When your account is deleted, we delete your profile, your handle
-      (which frees it for others), your sign-in account, your follows and
-      followers, your blocked and muted lists and your daily limit counters.
-      You are also removed from other people's follower, following and block
-      lists, and their counts are corrected. Deleted data can remain in our
-      database backups for up to 14 days, as described above. Server logs
-      containing the hashed version of your user ID stay until they expire
-      (about 30 days). One thing can outlast that: if someone muted you, your
-      account ID (an internal identifier, not your name or handle) may remain
-      in that person's private muted list until a clean-up that removes it
-      ships. We have not set a date for it. Only the person who muted you can
-      have that list read back, the app does not show it for accounts that no
-      longer exist, and it is not part of any profile.
+      (which frees it for others), your sign-in account, your posts, your
+      follows and followers, your blocked and muted lists, any data exports
+      you requested and your daily limit counters. You are also removed from
+      other people's follower, following and block lists, and their counts
+      are corrected. Once deletion starts it can't be undone. Your sign-in
+      account is disabled within seconds, and for a typical account the rest
+      is done within minutes.
     </p>
+    <p id="retained-after-deletion">
+      <strong>What can remain after deletion, and for how long.</strong>
+      These are the only things that can outlast the deletion of your
+      account:
+    </p>
+    <ul>
+      <li>
+        <strong>Duplicate-request records, up to 24 hours.</strong> To avoid
+        acting twice on the same request, our database keeps a short record
+        of recent actions that contains your account ID (an internal
+        identifier, not your name or handle). Each record is deleted
+        automatically 24 hours after it was made.
+      </li>
+      <li>
+        <strong>Other people's private block and mute lists, until cleaned
+        up.</strong> If someone blocked or muted you, your account ID may
+        stay in that person's private list. Those lists are cleaned up the
+        next time their owner views them, and we have not set a fixed date
+        for a complete clean-up. Only the owner can have the list read back,
+        the app does not show accounts that no longer exist, and the list is
+        not part of any profile.
+      </li>
+      <li>
+        <strong>Mentions in other people's posts.</strong> If someone else
+        mentioned your handle in their post, that post belongs to them and
+        stays as they wrote it.
+      </li>
+      <li>
+        <strong>Database backups, up to 14 days.</strong> Backups are taken
+        weekly and each is deleted after 14 days. We don't restore deleted
+        accounts from them.
+      </li>
+      <li>
+        <strong>Internal deletion task messages, up to 7 days.</strong> The
+        deletion runs as a background task. The messages that drive it
+        contain your account ID and are kept by Google Cloud for at most 1
+        day, or at most 7 days if a message has to be set aside after
+        repeated failures.
+      </li>
+      <li>
+        <strong>Device-level diagnostics.</strong> The app has no crash
+        reporting or analytics today. If we add them, that data will be tied
+        to your device rather than to your account, so it can't be found or
+        deleted by account; we will describe it on this page before we
+        switch it on.
+      </li>
+      <li>
+        <strong>Server logs, about 30 days.</strong> Our logs contain only a
+        hashed version of your user ID, never the ID itself or your email,
+        and expire after about 30 days.
+      </li>
+    </ul>
 
     <h2>Age requirement</h2>
     <p>

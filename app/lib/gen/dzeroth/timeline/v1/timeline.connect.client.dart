@@ -53,7 +53,8 @@ extension type TimelineServiceClient (connect.Transport _transport) {
   /// (60 s). Pages use Limit(page_size); next_page_token is set whenever a page is full (ADR-0010 D16).
   /// Reads: caller users (account-status interceptor) + user users (status) + caller graph (blocked-by), all
   /// cached 60 s, + page; +1 user graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-  /// Firestore: reads 3 + page_size cold (53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
+  /// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
+  /// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
   /// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
   Future<dzerothtimelinev1timeline.GetUserTimelineResponse> getUserTimeline(
     dzerothtimelinev1timeline.GetUserTimelineRequest input, {

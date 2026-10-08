@@ -74,23 +74,42 @@ service IdentityService {
   // Firestore: reads 2/2, writes 2/2 + deletes 1/1 (+ async snapshot job).
   rpc ChangeHandle(ChangeHandleRequest) returns (ChangeHandleResponse);
 
-  // Irreversible account deletion. Requires a recent sign-in: ID token auth_time older than
+  // Irreversible account deletion of the caller's own account (ADR-0011). The uid always comes from the ID token; the
+  // request has no uid field and must never get one. Requires a recent sign-in: ID token auth_time older than
   // ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, 0 writes.
-  // Sets users.status = DELETING and publishes `account-delete`; the resumable job deletes every owned
-  // document and object in batches of <= 500 and finally the Firebase Auth user (ADR-0003, Privacy).
-  // Firestore (sync part): reads 1/1, writes 1/1.
+  // ACTIVE and SUSPENDED callers may both delete (ADR-0011 Q3): this is the only RPC the account-status interceptor
+  // lets a SUSPENDED or DELETING caller through to.
+  // Sync part: one transaction reads users/{uid} fresh and sets status = DELETING, updatedAt, deletionRequestedAt and
+  // deletionJob{seq: 0} (no job doc); after the commit it publishes {kind: account_delete, uid, seq: 0} to the
+  // `jobs` Pub/Sub topic. A failed publish still returns success: a replay or the daily backstop re-publishes.
+  // Replay: a caller already DELETING (same or new idempotency_key) gets the stored deletion_requested_at, 0 writes,
+  // and the current job seq is re-published (deduped by the job).
+  // The job (`/internal/pubsub/jobs`, self-chaining, <= 20 s of work per delivery) disables the Firebase Auth user and
+  // revokes refresh tokens on its first delivery, waits until 120 s after deletionRequestedAt (ADR-0008 D10), then
+  // deletes posts, the social graph, later-slice data, exports, handle and quotas in batches of <= 500, then the
+  // Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
+  // about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
+  // Firestore (sync part): reads 2/1 (interceptor + users), writes 1/1; replay reads 2/1, writes 0.
   // Never rejected by the read budget (charge-only, CLAUDE.md rule 10); bounded instead by account_ops_daily:
   // 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
-  // metadata["limit"] = "account_ops_daily"; ADR-0010 D5 A6).
+  // metadata["limit"] = "account_ops_daily"; ADR-0010 D5 A6). DEGRADED_MODE=readonly rejects it (ADR-0011 Q8); a
+  // started deletion still finishes.
   rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
 
-  // Starts a data export (1/day/user). Doc id = hash(uid, idempotency_key) so a replay returns the same export.
-  // Firestore: reads 1/1 (quotas), writes 2/2 (exports doc + quotas).
-  // Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
+  // Starts a data export of the caller's own account (1/day/user, quota "exports"; over it => RESOURCE_EXHAUSTED +
+  // QUOTA_EXCEEDED, metadata["quota"] = "exports"). Doc id = hash(uid, idempotency_key), so a replay with the same key
+  // returns the same export and status. After the commit it publishes {kind: account_export, export_id} to the `jobs`
+  // topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
+  // private `<project>-exports` bucket and sets READY, usually within a minute (ADR-0011 D-B, D-D).
+  // Firestore: reads 2/1 (interceptor + quotas), writes 2/2 (exports doc + quotas); replay reads 3/2, writes 0.
+  // Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
+  // rejects it.
   rpc RequestAccountExport(RequestAccountExportRequest) returns (RequestAccountExportResponse);
 
-  // Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored).
-  // Firestore: reads 1/1, writes 0.
+  // Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored or logged).
+  // NOT_FOUND, byte-identical in every case, when the export doesn't exist, belongs to another user, or is past
+  // expires_at (even if the TTL or bucket lifecycle has not deleted it yet; ADR-0011 Q6).
+  // Firestore: reads 2/1 (interceptor + exports, read fresh), writes 0.
   // Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
   rpc GetAccountExport(GetAccountExportRequest) returns (GetAccountExportResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -227,6 +246,8 @@ message GetAccountExportResponse {
   // Only when READY. 15-minute signed GET URL for a private JSON object.
   string download_url = 3;
   google.protobuf.Timestamp download_url_expires_at = 4;
-  // The export object and doc are deleted 7 days after creation (Firestore TTL + bucket lifecycle).
+  // created_at + 7 days. The JSON object in the private `<project>-exports` bucket (age = 7 lifecycle) and the
+  // exports doc (Firestore TTL) are deleted after it; both delete late, so the server returns NOT_FOUND from this
+  // time on (ADR-0011 D-B, Q6). Deleting the account deletes its exports at once.
   google.protobuf.Timestamp expires_at = 5;
 }

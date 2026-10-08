@@ -1169,7 +1169,9 @@ type GetAccountExportResponse struct {
 	// Only when READY. 15-minute signed GET URL for a private JSON object.
 	DownloadUrl          string                 `protobuf:"bytes,3,opt,name=download_url,json=downloadUrl,proto3" json:"download_url,omitempty"`
 	DownloadUrlExpiresAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=download_url_expires_at,json=downloadUrlExpiresAt,proto3" json:"download_url_expires_at,omitempty"`
-	// The export object and doc are deleted 7 days after creation (Firestore TTL + bucket lifecycle).
+	// created_at + 7 days. The JSON object in the private `<project>-exports` bucket (age = 7 lifecycle) and the
+	// exports doc (Firestore TTL) are deleted after it; both delete late, so the server returns NOT_FOUND from this
+	// time on (ADR-0011 D-B, Q6). Deleting the account deletes its exports at once.
 	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -14,7 +14,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 ## Collections
 | Path | Shape (key fields) | Written when | Cost notes |
 |---|---|---|---|
-| `users/{uid}` | handle, handleLower, displayName, bio, avatarUrl, isPrivate, followersCount, followingCount, postsCount, postsToday, postsDay, unreadNotifs, createdAt | signup, profile edit, counters | cache 60 s in instance |
+| `users/{uid}` | handle, handleLower, displayName, bio, avatarUrl, isPrivate, status (ACTIVE/SUSPENDED/DELETING), followersCount, followingCount, postsCount, postsToday, postsDay, unreadNotifs, createdAt, updatedAt; **deletion job state (ADR-0011):** deletionRequestedAt (start-gate clock; checkpoint writes and counter increments never move it), deletionJob {seq, step, checkpoint (opaque bytes), progressAt} | signup, profile edit, counters; DeleteAccount sets DELETING + deletionRequestedAt + deletionJob{seq 0} in 1 write; each job invocation 1 read + 1 checkpoint write (`UpdateTime` precondition, seq-deduped) | cache 60 s in instance. Deleted **last** in account deletion (after the Auth user), so it stays the backstop's marker. Never exported: status, snapshotVersion, deletionJob |
 | `handles/{handleLower}` | uid | signup / rename (transaction `Create` → uniqueness) | 1 read on lookup |
 | `graph/{uid}` | following[] (≤ 5,000), blocked[] (≤ 2,000), muted[] (≤ 2,000), requested[] (≤ 500, unused until private accounts), blockedBy[] (≤ 10,000; never serialized/exported), blockedByOverflow (bool), updatedAt | follow/unfollow/block/mute (`ArrayUnion/ArrayRemove`); own-list lazy clean-up (T27: ListBlockedUsers/ListMutedUsers `ArrayRemove` of uids with no users doc, skipped under DEGRADED_MODE=readonly); Block/Unblock also write the target's `blockedBy` (ADR-0008) | **1 read = whole social context** incl. both block directions. ≈ 566 KB at all caps (28-char UIDs) < 1 MiB. Arrays exempt from indexing |
 | `follows/{followerId}_{followeeId}` | followerId, followeeId, createdAt | follow | for followers/following list pages only |
@@ -25,13 +25,14 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | `users/{uid}/notifications/{id}` | type, actor snapshot, postId, createdAt, expireAt (TTL 90 d) | like/reply/follow/mention | TTL deletes are billed (cheap) |
 | `media/{mediaId}` | ownerId, status (PENDING/READY/REJECTED), objectPath, thumbPath, bytes, contentType, createdAt, expireAt (TTL 2 d while PENDING) | upload init / finalize | |
 | `reports/{id}` | reporterId, targetType, targetId, reason, status | report | |
+| `exports/{hash(uid,key)}` [identity] | uid, status (PENDING/READY/FAILED), objectPath (in `<proj>-exports`), createdAt, expireAt (TTL 7 d), leaseUntil (optional, L-4: the claiming delivery's 35 s lease; status stays PENDING) | RequestAccountExport (`Create`, AlreadyExists = replay; a replay re-publishes only when createdAt is 2+ min old); export job claims (`leaseUntil`, precondition), then sets READY/FAILED (precondition) | doc = export job state (ADR-0011). GetAccountExport enforces `now ≥ expireAt` → NOT_FOUND itself. Deleted with the account (identity step) |
 | `quotas/{uid}` | day (IST), posts, follows, blocks (Block + Mute), uploads, exports | quota'd mutations, same batch/txn | 1 read + 1 write per quota'd call (ADR-0003, ADR-0008 D7) |
 | `admin/vision-{yyyymm}` / `admin/config` | monthly counters, ops switches | rare | cache 5 min. Feature flags are **env vars**, not this doc (ADR-0008 D6) |
 
 ## Operation cost table (keep in sync with code)
 | Operation | Reads | Writes |
 |---|---|---|
-| Sign up | 1 (handle check) | 3 (users, handles, graph) |
+| Sign up | 1 (handle check) | 3 (users, handles, graph); plus 1 Firebase Auth `users.get` of the caller (ADR-0011 M2), 0 on a replay |
 | Follow (ADR-0008 A2) | 4 cold / 2 warm (+1 if caller `blockedByOverflow`); planning value 4 (caller graph + quotas fresh in txn; users cache misses after a `Forget`) | 5 (follows doc, graph, 2 user counters, quotas); replay 0 writes, reads 4 cold / 2 warm |
 | Unfollow | batch 0 (blind, `Exists` precondition); request logs 1 (caller profile read by the account-status interceptor, cold after a Follow) | 3 + 1 delete; no-op 0 |
 | Block (ADR-0008) | 3 (both graphs, quotas) | 5 worst / 3 typical (2 graphs, quotas, + 2 users counters if edges) + ≤ 2 deletes |
@@ -51,6 +52,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 - posts: `conversationId ASC, createdAt ASC` (threads)
 - posts: `hashtags ARRAY_CONTAINS, createdAt DESC` (hashtag pages)
 - follows: `followeeId ASC, createdAt DESC`; `followerId ASC, createdAt DESC`
+- users: `status ASC, deletionJob.progressAt ASC`; exports: `status ASC, createdAt ASC` (account-lifecycle backstop: ordered cursor scans of stuck jobs, ADR-0011 amendment 2026-10-08)
 - users: single-field on `handleLower` (default) for prefix search
 - Exempt large text fields from indexing (`posts.text`, `users.bio`) — saves storage and write cost.
 
