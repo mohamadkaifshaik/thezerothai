@@ -16,11 +16,8 @@ resource "google_project_iam_member" "runtime_firestore" {
   member  = "serviceAccount:${google_service_account.runtime.email}"
 }
 
-resource "google_project_iam_member" "runtime_pubsub_publisher" {
-  project = var.project_id
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:${google_service_account.runtime.email}"
-}
+// roles/pubsub.publisher is NOT granted project-wide: the runtime SA only publishes to the `jobs` topic, so the
+// binding lives on that topic in modules/pubsub (runtime_publisher_topics).
 
 // No project-wide roles/secretmanager.secretAccessor here — grant it per
 // secret instead (see the `secrets` module's `runtime_accessor` /
@@ -57,6 +54,28 @@ resource "google_service_account_iam_member" "runtime_self_token_creator" {
   service_account_id = google_service_account.runtime.name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:${google_service_account.runtime.email}"
+}
+
+// Account lifecycle (ADR-0011 IAM): the narrowest Firebase Auth role. roles/firebaseauth.admin is rejected (it also
+// grants configs.getSecret, users.create, users.createSession, users.sendEmail). Deletion and export may only
+// act on the caller's own uid; that is enforced in code (controls C1-C3) and watched by the C4 alert in the
+// monitoring module. Emergency stop: remove this binding (all Auth mutations stop at once).
+resource "google_project_iam_custom_role" "account_lifecycle_auth" {
+  project     = var.project_id
+  role_id     = "accountLifecycleAuth"
+  title       = "Account lifecycle Firebase Auth (ADR-0011)"
+  description = "Read, disable/revoke and delete a Firebase Auth user. Nothing else."
+  permissions = [
+    "firebaseauth.users.get",
+    "firebaseauth.users.update",
+    "firebaseauth.users.delete",
+  ]
+}
+
+resource "google_project_iam_member" "runtime_account_lifecycle_auth" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.account_lifecycle_auth.id
+  member  = "serviceAccount:${google_service_account.runtime.email}"
 }
 
 // ---------------------------------------------------------------------------

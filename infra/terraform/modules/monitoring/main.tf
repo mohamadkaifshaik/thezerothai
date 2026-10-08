@@ -1,6 +1,6 @@
 // One dashboard (5 charts from free-tier-budget §5), one uptime check, and a
-// small handful of alert policies. All free at Stage 0 volumes — no custom
-// or log-based metrics (those are billable beyond a small allotment).
+// small handful of alert policies. Free at Stage 0 volumes, with one approved exception:
+// the ADR-0011 C4 log-based metric + alert policy (~$0.40/month, founder-approved).
 
 resource "google_monitoring_notification_channel" "email" {
   for_each = toset(var.founder_emails)
@@ -96,6 +96,32 @@ locals {
       }
     }
   }
+
+  # ADR-0011 D-A: messages that exhausted retries on the jobs topic (dead-lettered). Any non-zero bar needs a look;
+  # the daily-maintenance backstop re-publishes stuck jobs.
+  dlq_tile = {
+    width  = 12
+    height = 4
+    yPos   = 12
+    widget = {
+      title = "Pub/Sub jobs DLQ: dead-lettered messages"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter = "metric.type=\"pubsub.googleapis.com/topic/send_message_operation_count\" resource.type=\"pubsub_topic\" resource.label.\"topic_id\"=\"jobs-dlq\""
+              aggregation = {
+                alignmentPeriod  = "3600s"
+                perSeriesAligner = "ALIGN_SUM"
+              }
+            }
+          }
+          plotType   = "LINE"
+          targetAxis = "Y1"
+        }]
+      }
+    }
+  }
 }
 
 resource "google_monitoring_dashboard" "free_tier" {
@@ -105,7 +131,7 @@ resource "google_monitoring_dashboard" "free_tier" {
     displayName = "Free-tier budget (${var.env})"
     mosaicLayout = {
       columns = 12
-      tiles   = concat(local.chart_tiles, [local.egress_tile])
+      tiles   = concat(local.chart_tiles, [local.egress_tile, local.dlq_tile])
     }
   })
 }
@@ -229,5 +255,59 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
 
   alert_strategy {
     auto_close = "86400s"
+  }
+}
+
+// 4. ADR-0011 control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
+// disable/delete ANY Auth user (IAM cannot scope it to one uid); code controls C1-C3 limit it to the caller's own
+// uid, and this alert detects misuse after the fact. Expected ~9 deletions/month; the metric counts successful deletes (op=delete, outcome=ok: one per deletion) plus ERROR refusals. The read-only `get` op (export, M2 sign-up check) never matches.
+// Response (runbook, T22): set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
+// Cost: the only recurring charge in ADR-0011, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
+// alert and relies on log inspection). The label-free log-based counter is inside the free metric ingestion
+// allotment, so it stays in both envs at $0. Founder-approved 2026-10-07, prod-only 2026-10-08.
+resource "google_logging_metric" "auth_admin_mutations" { # cost-approved: ADR-0011
+  project     = var.project_id
+  name        = "auth_admin_mutations"
+  description = "Successful Firebase Auth delete calls (one per deletion) plus C1 refusals (ERROR auth_admin_refused) made by the api (ADR-0011 C3/C1)."
+  filter      = "resource.type=\"cloud_run_revision\" AND ((jsonPayload.auth_admin_op=\"delete\" AND jsonPayload.outcome=\"ok\") OR (severity=ERROR AND jsonPayload.outcome=\"refused\"))"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approved: ADR-0011
+  count        = var.enable_auth_admin_alert ? 1 : 0
+  project      = var.project_id
+  display_name = "Firebase Auth mutations > ${var.auth_admin_alert_per_hour}/hour (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "auth_admin_mutations, 1 h sum"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.auth_admin_mutations.name}\" resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = var.auth_admin_alert_per_hour
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. Runbook: docs/runbooks (account lifecycle)."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
   }
 }
