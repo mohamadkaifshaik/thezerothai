@@ -63,6 +63,14 @@ func reportError(ctx context.Context, log *slog.Logger, rpc string, err error) {
 	)
 }
 
+// ReportError is reportError for code that runs outside the Connect chain (the /internal/* job handlers, which
+// have no interceptors): an Error-Reporting-shaped ERROR entry with err's full cause chain and a stack trace.
+// op names the failing operation in the entry's rpc field (for example "jobs/account_delete"). Callers must pass
+// errors already free of raw uids (logger.RedactErr), exactly as for the interceptors.
+func ReportError(ctx context.Context, log *slog.Logger, op string, err error) {
+	reportError(ctx, log, op, err)
+}
+
 // Recover converts a panic inside the handler chain into connect.CodeInternal instead of crashing the
 // process (CLAUDE.md: "no panics on request paths"). It logs the panic and stack as an Error
 // Reporting-shaped entry (M3) so it is never silently lost; the client only ever sees a generic message.

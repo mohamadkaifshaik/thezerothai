@@ -18,22 +18,33 @@ import (
 // TraceKey is the Cloud Logging structured-log field that correlates a log line with a Cloud Trace span.
 const TraceKey = "logging.googleapis.com/trace"
 
+// LevelNotice is Cloud Logging's NOTICE severity (between INFO and WARNING) for audit lines that are normal but
+// must stay greppable and alertable, such as the identity module's one-line-per-Firebase-Auth-mutation record
+// (ADR-0011 IAM control C3). New renders it as severity "NOTICE"; slog.Level(2) would otherwise print "INFO+2".
+const LevelNotice = slog.LevelInfo + 2
+
 // New builds the process-wide slog.Logger. Cheap: no I/O, safe to call before ListenAndServe.
 func New(projectID string) *slog.Logger {
 	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     slog.LevelInfo,
-		AddSource: false,
-		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
-			switch a.Key {
-			case slog.LevelKey:
-				a.Key = "severity"
-			case slog.MessageKey:
-				a.Key = "message"
-			}
-			return a
-		},
+		Level:       slog.LevelInfo,
+		AddSource:   false,
+		ReplaceAttr: replaceAttr,
 	})
 	return slog.New(h).With("project_id", projectID)
+}
+
+// replaceAttr renames slog's level and message keys to Cloud Logging's and renders LevelNotice as NOTICE.
+func replaceAttr(_ []string, a slog.Attr) slog.Attr {
+	switch a.Key {
+	case slog.LevelKey:
+		a.Key = "severity"
+		if lvl, ok := a.Value.Any().(slog.Level); ok && lvl == LevelNotice {
+			a.Value = slog.StringValue("NOTICE")
+		}
+	case slog.MessageKey:
+		a.Key = "message"
+	}
+	return a
 }
 
 type traceCtxKey struct{}
@@ -50,6 +61,16 @@ func WithTrace(ctx context.Context, trace string) context.Context {
 func TraceFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(traceCtxKey{}).(string)
 	return v
+}
+
+// TraceAttrs returns the slog key/value pair that correlates a log line with ctx's Cloud Trace span (see
+// WithTrace), or nil when ctx has none, so callers can append it to an attribute list unconditionally:
+// `append(attrs, logger.TraceAttrs(ctx)...)`.
+func TraceAttrs(ctx context.Context) []any {
+	if trace := TraceFromContext(ctx); trace != "" {
+		return []any{TraceKey, trace}
+	}
+	return nil
 }
 
 // TraceFromRequest extracts a Cloud Trace resource name ("projects/{p}/traces/{id}") from the standard

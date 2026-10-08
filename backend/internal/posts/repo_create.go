@@ -88,7 +88,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 	)
 	for try := 0; try <= maxIDCollisionRetries; try++ {
 		res = CreateResult{}
-		err = r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 			attempts++
 			var err error
 			res, err = r.createAttempt(ctx, tx, p, attempts)

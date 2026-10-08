@@ -249,11 +249,31 @@ type Config struct {
 	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
 	AccountDeleteReauthMaxAge time.Duration
 
+	// ExportBucket is EXPORT_BUCKET, the private account-export bucket (ADR-0011 D-B). Default `<project>-exports`,
+	// the name Terraform gives it.
+	ExportBucket string
+	// ExportURLTTL is EXPORT_URL_TTL (default 15m, in (0, 1h]): the lifetime of the signed GET URL minted per
+	// GetAccountExport call.
+	ExportURLTTL time.Duration
+	// ExportRetention is EXPORT_RETENTION (default 168h = 7 d, in (0, 30d]): exports/{id}.expireAt = createdAt + this.
+	// The bucket's age = 7 lifecycle rule is Terraform's; this value only drives the Firestore TTL field and the
+	// NOT_FOUND-after-expiry rule (ADR-0011 Q6), so it must not exceed what the bucket keeps.
+	ExportRetention time.Duration
+	// JobsTopic is JOBS_TOPIC, the shared Pub/Sub topic account deletion and export jobs self-chain on (default "jobs").
+	JobsTopic string
+
 	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
 	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
 	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
 	AuthEmulator bool
 }
+
+// Bounds of the export settings (ADR-0011 D-B): a signed URL is a bearer credential, and the retention
+// promised to users is 7 days.
+const (
+	MaxExportURLTTL    = time.Hour
+	MaxExportRetention = 30 * 24 * time.Hour
+)
 
 // MaxAccountDeleteReauthMaxAge is the upper bound of ACCOUNT_DELETE_REAUTH_MAX_AGE (P8 T4).
 const MaxAccountDeleteReauthMaxAge = 10 * time.Minute
@@ -543,6 +563,21 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: ACCOUNT_DELETE_REAUTH_MAX_AGE must be > 0 and <= %s (got %s)", MaxAccountDeleteReauthMaxAge, reauthMaxAge)
 	}
 
+	exportURLTTL, err := getDuration("EXPORT_URL_TTL", 15*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	if exportURLTTL <= 0 || exportURLTTL > MaxExportURLTTL {
+		return Config{}, fmt.Errorf("config: EXPORT_URL_TTL must be > 0 and <= %s (got %s)", MaxExportURLTTL, exportURLTTL)
+	}
+	exportRetention, err := getDuration("EXPORT_RETENTION", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if exportRetention <= 0 || exportRetention > MaxExportRetention {
+		return Config{}, fmt.Errorf("config: EXPORT_RETENTION must be > 0 and <= %s (got %s)", MaxExportRetention, exportRetention)
+	}
+
 	// M10: PORT defaults to 8081 in local dev so `go run ./cmd/api` never collides with the Firestore
 	// emulator's fixed port 8080 (firebase.json); Cloud Run always sets PORT explicitly in dev/prod, so
 	// that default is unchanged there.
@@ -586,6 +621,10 @@ func Load() (Config, error) {
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
 		AccountDeleteReauthMaxAge: reauthMaxAge,
+		ExportBucket:              getenv("EXPORT_BUCKET", projectID+"-exports"),
+		ExportURLTTL:              exportURLTTL,
+		ExportRetention:           exportRetention,
+		JobsTopic:                 getenv("JOBS_TOPIC", "jobs"),
 	}, nil
 }
 

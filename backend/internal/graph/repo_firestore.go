@@ -370,13 +370,9 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 // runTx is client.RunTransaction plus the ADR-0008 D3 contention signal: it counts how many times the
 // callback ran (the SDK retries Aborted transactions internally) and records txn_attempts on the request
 // log line. More than txnWarnAttempts attempts also emits one WARN, the measurement that decides the
-// sharded-counter ADR. A callback re-run costs reads again, but budget.Counter is unchanged by this wrapper.
+// sharded-counter ADR. A callback re-run costs reads again (counted); its queued writes are counted only for the attempt that commits.
 func (r *FirestoreRepo) runTx(ctx context.Context, fn func(context.Context, *firestore.Transaction) error) error {
-	attempts := 0
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		attempts++
-		return fn(ctx, tx)
-	})
+	attempts, err := store.RunTransaction(ctx, r.client, fn)
 	noteTxnAttempts(ctx, attempts)
 	return err
 }

@@ -55,3 +55,23 @@ func TestRedactErr_As(t *testing.T) {
 		t.Error("errors.As must reach the original type")
 	}
 }
+
+func TestScrubErr(t *testing.T) {
+	uid := "aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	other := "bbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	export := strings.Repeat("ab", 32)
+	err := fmt.Errorf("rpc error: document documents/users/%s/x failed; edge %s_%s; object %s.json: %w", other, uid, other, export, errSentinel)
+	got := ScrubErr(err, uid)
+	full := got.Error()
+	for _, raw := range []string{uid, other, export} {
+		if strings.Contains(full, raw) {
+			t.Errorf("%q still contains %q", full, raw)
+		}
+	}
+	if !errors.Is(got, errSentinel) {
+		t.Error("errors.Is must still reach the original cause")
+	}
+	if ScrubErr(nil, uid) != nil {
+		t.Error("nil must stay nil")
+	}
+}
