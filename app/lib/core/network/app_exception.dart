@@ -30,11 +30,7 @@ final class ValidationException extends AppException {
 /// (ADR-0010 D5 A7), e.g. `read_budget_inflight` (transient, ~1 s),
 /// `read_budget_daily`, `check_handle_daily`, `account_ops_daily`.
 final class RateLimitedException extends AppException {
-  const RateLimitedException(
-    super.message, {
-    this.retryAfter,
-    this.limitName,
-  });
+  const RateLimitedException(super.message, {this.retryAfter, this.limitName});
   final Duration? retryAfter;
   final String? limitName;
 
@@ -76,7 +72,16 @@ final class AppCheckRequiredException extends AppException {
 
 /// The caller has a Firebase account but has not called CreateProfile yet.
 final class ProfileRequiredException extends AppException {
-  const ProfileRequiredException(super.message);
+  const ProfileRequiredException(
+    super.message, {
+    this.fromServerReason = false,
+  });
+
+  /// True only when the server attached `ERROR_REASON_PROFILE_REQUIRED`. The
+  /// code-only fallback (any FAILED_PRECONDITION without a detail) leaves it
+  /// false, so callers that act on "no profile" (account deletion fallback,
+  /// P8 L-5) never trigger on an unrelated precondition failure.
+  final bool fromServerReason;
 }
 
 /// Email must be verified before this action.

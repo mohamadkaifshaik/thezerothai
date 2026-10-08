@@ -121,24 +121,43 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       await _reauthenticate(promptPassword, revokeApple: true);
       if (_stale(generation)) return;
-      await _withReauth(
-        () async {
-          _rpcInFlight = true;
-          try {
-            return await _accounts.deleteAccount(idempotencyKey: key);
-          } finally {
-            _rpcInFlight = false;
-          }
-        },
-        promptPassword,
-        generation,
-        revokeApple: true,
-      );
+      try {
+        await _withReauth(
+          () async {
+            _rpcInFlight = true;
+            try {
+              return await _accounts.deleteAccount(idempotencyKey: key);
+            } finally {
+              _rpcInFlight = false;
+            }
+          },
+          promptPassword,
+          generation,
+          revokeApple: true,
+        );
+      } on ProfileRequiredException catch (e) {
+        // P8 L-5: no profile (or the identity gate refused an unverified
+        // caller), so the server has nothing to delete. Only the explicit
+        // server reason qualifies, never a code-only FAILED_PRECONDITION.
+        if (!e.fromServerReason || _stale(generation)) rethrow;
+        // The Apple token was already revoked by the re-auth above.
+        await _deleteAuthUserFromClient();
+      }
       if (_stale(generation)) return;
       _deleteKey = null;
       emit(const AccountState(status: AccountStatus.deleted));
     } catch (error, stack) {
       _fail(generation, error, stack);
+    }
+  }
+
+  /// Deletes the Firebase Auth user from the device. Firebase's own
+  /// `requires-recent-login` is shown as the normal re-auth prompt.
+  Future<void> _deleteAuthUserFromClient() async {
+    try {
+      await _auth.deleteCurrentUser();
+    } on AuthRequiresRecentLogin {
+      throw const ReauthRequiredException('Please sign in again.');
     }
   }
 

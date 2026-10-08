@@ -49,6 +49,9 @@ class AppRouter {
   static const blockedAccountsPath = '/settings/blocked';
   static const mutedAccountsPath = '/settings/muted';
   static const deleteAccountPath = '/settings/delete-account';
+  // Delete account for callers without a profile or with an unverified
+  // email (P8 L-5): reachable while the profile-required redirect is active.
+  static const onboardingDeletePath = '/onboarding/delete-account';
   // Final page after DeleteAccount: reachable signed out.
   static const accountDeletedPath = '/account-deleted';
   static const exportDataPath = '/settings/export';
@@ -85,6 +88,12 @@ class AppRouter {
         path: onboardingPath,
         builder: (context, state) =>
             const AuthGate(child: CreateProfileScreen()),
+      ),
+      // No AuthGate: unverified callers must reach it too (the gate would
+      // swap in the verification prompt).
+      GoRoute(
+        path: onboardingDeletePath,
+        builder: (context, state) => const DeleteAccountScreen(),
       ),
       // Full-screen, outside the shell: no nav chrome while writing.
       GoRoute(
@@ -196,9 +205,14 @@ class AppRouter {
     final onboardingStatus = _onboardingBloc.state.status;
     switch (onboardingStatus) {
       case OnboardingStatus.profileRequired:
-        return loc == onboardingPath ? null : onboardingPath;
+        // The delete-account page must not be trapped by this redirect.
+        return (loc == onboardingPath || loc == onboardingDeletePath)
+            ? null
+            : onboardingPath;
       case OnboardingStatus.ready:
         if (loc == onboardingPath) return homePath;
+        // Only meaningful without a profile; Settings has the real entry.
+        if (loc == onboardingDeletePath) return settingsPath;
         return _graphFlagRedirect(loc) ?? _accountFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:

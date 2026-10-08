@@ -8,7 +8,10 @@ amendment), ADR-0008 (D10, D12), ADR-0009, ADR-0010 (D5 A6, D10, D19 Q-E, budget
 `backend/internal/apiserver/apiserver.go`, `infra/terraform/modules/{media-buckets,pubsub,scheduler,iam,firestore}`,
 `app/lib/features/{settings,auth}`, `docs/reviews/cost-model.md`, `free-tier-budget` skill.
 
-> **Blocked on a founder decision.** Two architecture choices need an ADR with costs, and the founder must accept it
+> **Update 2026-10-07: unblocked.** ADR-0011 is Accepted (see T1's status). The "[blocked: T1 accepted]" tags below
+> are historical; the per-ticket "Blocked on the founder accepting T1" lines now mean "Open".
+>
+> **(Original note) Blocked on a founder decision.** Two architecture choices need an ADR with costs, and the founder must accept it
 > before most of this plan can start (CLAUDE.md: "stop and ask the founder before accepting an ADR"):
 > - **D-A: job orchestration mechanism** (Pub/Sub push self-chaining, Cloud Tasks, Scheduler sweep, or a hybrid).
 > - **D-B: export storage** (prefix-scoped lifecycle in the existing private bucket, or a third private bucket).
@@ -208,7 +211,7 @@ Derivation notes, from the code:
 |---|---|---|
 | Polling GetAccountExport | `account_ops_daily` 20 calls/uid/IST day per instance, shared by the three RPCs (ADR-0010 D5 A6) | 20 × 2 reads × 3 instances = **120 reads** |
 | Repeated exports of a large account | quota `exports` 1/day | 1 export job (formula above) |
-| Sybil create → delete churn | verified-identity gate (ADR-0010 D5 A2/A10); CreateProfile 2 R / 3 W; delete of an empty account ≈ 10 ops | ≈ 15 ops per cycle; bounded by sign-up throttles |
+| Sybil create → delete churn | verified-identity gate (ADR-0010 D5 A2/A10); CreateProfile 2 R / 3 W + 1 Auth `users.get` (M2: refuses a deleted/disabled Auth user; 0 on replay); delete of an empty account ≈ 10 ops | ≈ 15 ops per cycle; bounded by sign-up throttles |
 | Forged job request to `/internal/*` | OIDC verifier with an allowed-email list (`pubsubpush.go:31-51`) | 0 (rejected before any read) |
 
 ## Dependencies & open questions
@@ -265,7 +268,13 @@ Order:
 ## Tickets
 
 ### T1 — ADR: account lifecycle (orchestration, export storage, placement, semantics)  [owner: architect] [size: M] [depends: —]
-- **Status:** Open. **Founder acceptance required before T2b, T3a, T3b and T5–T12 start.**
+- **Status:** Done. ADR-0011 **Accepted 2026-10-07** (founder decisions relayed by the lead; branch `docs/p8-t1-adr`).
+  D-A = D with Pub/Sub (shared `jobs` topic, self-chaining, `daily-maintenance` backstop; no Cloud Tasks);
+  D-B = separate private bucket `<proj>-exports` (P4 upload prefixes unchanged); D-C = orchestrator in `identity`;
+  Q3 SUSPENDED may delete; Q10 list accepted and published in `app/web/privacy.html`; IAM = custom role **plus**
+  compensating controls C1–C4 (own-uid-only via DELETING check, narrow Auth-admin wrapper, audit line per Auth call,
+  log-based volume alert ≈ $0.40/month); ≈ $0.03 per max-size deletion accepted, no spreading. CLAUDE.md unchanged
+  (its "Async work" line already names Pub/Sub push). T2b, T3a, T3b and T5–T12 are unblocked.
 - **Description.** Write `docs/adr/00NN-account-lifecycle.md` (next free number; 0011 today) using the `adr` template.
   Each option needs an idle cost, a cost at 300 DAU and at 3k DAU, and its quota use. The planner makes no
   recommendation; the architect recommends and the founder decides.
@@ -357,7 +366,9 @@ Order:
 - **Budget.** Not applicable.
 
 ### T2b — Proto comments: budgets and semantics from the ADR  [owner: architect] [size: S] [depends: T1 accepted] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (branch `docs/p8-t1-adr`, 2026-10-07). Comment-only changes to the three RPCs and `expires_at`;
+  `make proto` (buf lint, buf breaking vs `main`, generate Go + Dart) clean; the generated diff is comments only. No
+  job collection was added, so the header's "Collections owned" line is unchanged.
 - **Description.** Comment-only updates in `identity.proto`:
   - DeleteAccount: reads 2/1 (interceptor + users), writes per ADR, the 120 s start gate, Auth disable in the first
     job step, replay semantics (Q2), the SUSPENDED rule (Q3), the job mechanism.
@@ -373,7 +384,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T3a — Terraform: export storage (D-B), Firebase Auth IAM, env vars  [owner: production-deployer] [size: S] [depends: T1 accepted] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (code, not applied). `<proj>-exports` bucket (option B, PAP enforced, 7-day lifecycle, runtime SA objectAdmin) in `modules/media-buckets`; custom role `accountLifecycleAuth` + runtime SA binding in `modules/iam`; C4 log metric `auth_admin_mutations` + alert policy in `modules/monitoring` (`# cost-approved: ADR-0011`); `EXPORT_*`, `ACCOUNT_DELETE_REAUTH_MAX_AGE`, `JOBS_TOPIC` and the flag trio wired in dev (on) and prod (off). Dev `terraform plan`: 11 add, 2 change, 0 destroy. Not applied; awaiting plan review by the founder.
 - **Description.**
   - Implement D-B as decided: either the prefix-scoped lifecycle rules in `modules/media-buckets`, or a new private
     `<proj>-exports` bucket in `us-central1` with an `age = 7` lifecycle and runtime-SA-only IAM.
@@ -394,7 +405,7 @@ Order:
 - **Budget.** $0. No new fixed-cost resource.
 
 ### T3b — Terraform: job transport (D-A)  [owner: production-deployer] [size: S] [depends: T1 accepted] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (code, not applied). `jobs` topic, DLQ and push subscription to `/internal/pubsub/jobs` added to the `modules/pubsub` default topics with new per-topic `minimum_backoff` (60s) and `max_delivery_attempts` (10); DLQ tile added to the existing dashboard. The OIDC allowlist already contains the push SA. The no-OIDC 401 / with-OIDC 2xx check on dev runs after apply.
 - **Description.** Implement D-A as decided:
   - **A:** add `account-jobs` (or `jobs`) to `modules/pubsub` `topics`, with the push path the ADR names and any
     per-subscription backoff override.
@@ -438,7 +449,7 @@ Order:
 - **Budget.** 0 reads and 0 writes added.
 
 ### T5 — DeleteAccount (sync part)  [owner: backend-developer] [size: M] [depends: T1 accepted, T2b, T4, T6, T8] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (local branch `docs/p8-t1-adr`, not pushed). `Lifecycle.DeleteAccount` + `identity.Server` (flag, `RequireRecentSignIn` with `config.AccountDeleteReauthMaxAge`), interceptor exemption `authn.AllowRestricted` / `apiserver.RestrictedAllowedProcedures` (DeleteAccount only, guard test). Budget: 1 read, 1 write (replay 1/0), asserted in `repo_lifecycle_integration_test.go` and through the real chain in `apiserver/account_lifecycle_integration_test.go`.
 - **Description.**
   1. `RequireRecentSignIn` (T4); validate the idempotency key format.
   2. In a transaction, read `users/{uid}` fresh:
@@ -465,7 +476,7 @@ Order:
 - **Budget.** 2/1 reads; 1 write (+1 if there is a job doc, per the ADR); 0 deletes.
 
 ### T6 — Orchestrator core: step registry, adapters, start gate, time budget  [owner: backend-developer] [size: M] [depends: T1 accepted] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (local). Orchestrator in `internal/identity` (`StepEraser`, `RegisterEraser(BeforeIdentity, ...)`, 20 s slices, 5-error policy, `StartGate` moved from opsctl and keyed on `deletionRequestedAt`); adapters in `apiserver/lifecycle_wiring.go`. Code-review fixes (2026-10-08): step errors are scrubbed (`logger.ScrubErr`: uid, `documents/...` paths, edge ids, 64-hex export ids) in one place, `retry()`, so no raw uid or export id reaches a log line (graph purge also hashes counterpart ids at the source); a step that fails because the work context ran out saves its checkpoint instead of burning retries, with jittered backoff between same-step retries and the whole delivery bounded at 27 s; the final `users/{uid}` delete is one transaction requiring DELETING and `deletionJob.seq == msg.seq` (ErrJobConflict acks as a duplicate); Jobs and Cron handlers recover panics into a 500 + Error Reporting entry; the delete line carries `step_calls`, `deleted_docs`, `deleted_objects`; `StepNames()`/`ExportSectionNames()` are pinned by the apiserver wiring test (step names are persisted in `deletionJob.step`). Known limit: the backstop queries are Limit(50) and unordered, so a stuck job can hide behind 50 fresh ones; a full page logs WARN `backstop_page_full` (`TestBackstop_FullPageIsLogged`).
 - **Description.**
   - Build the transport-independent orchestrator, placed as D-C decides. An ordered registry of steps, each with
     `Run(ctx, uid, checkpoint []byte) (next []byte, done bool, err error)`.
@@ -494,7 +505,7 @@ Order:
 - **Budget.** Orchestrator overhead: job-state reads and writes per the ADR (≤ 1 + ≤ 1 per invocation).
 
 ### T7 — Identity Eraser + Firebase Auth steps  [owner: backend-developer] [size: M] [depends: T6, T3a] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (local). **M2 (2026-10-08, ADR-0011 amendment, founder option (a)):** `CreateProfile` checks the caller's own Auth user (`authAdmin.checkSignup`, `signupTarget` from the token uid) on the not-found path only, before any create; deleted/disabled = PERMISSION_DENIED, outage = UNAVAILABLE, nothing written. Budget: 0 extra Firestore ops, 1 Auth `users.get` per real sign-up, 0 on replay. C4 filter tightened to `delete AND ok` OR `ERROR AND refused`. Identity step + Auth steps in the Q1 order (`users/{uid}` last) through the narrow wrapper `authadmin.go` (C1 fresh DELETING check, C3 NOTICE audit line, ERROR `auth_admin_refused`), CI guard `TestAuthAdminConfinement` (C2). The custom role, C4 metric/alert and `EXPORT_*` env vars are Terraform (T3a, not done here). Code-review fix: the C2 guard is now one type-based check (`golang.org/x/tools/go/packages`, test-only) that flags every use of an Auth admin method (calls, method values, promoted calls via `*baseClient`/`TenantClient`) and of `(*firebase.App).Auth` outside the allowed packages/files, with a closed-holes test over overlaid virtual files. The identity step logs `deleted_docs`/`deleted_objects`.
 - **Description.**
   - **Auth step 1 (first in the chain):** disable the Firebase Auth user and revoke refresh tokens (Admin SDK).
     NotFound counts as done.
@@ -518,7 +529,7 @@ Order:
 - **Budget.** Reads 4 + E; writes 0; deletes 3 + E (+ `private/*`); GCS deletes free; Auth 0 Firestore ops.
 
 ### T8 — Job transport handler on `/internal/*` (+ backstop if D)  [owner: backend-developer] [size: M] [depends: T6, T3b] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (local). `/internal/pubsub/jobs` (seq dedupe, `UpdateTime` precondition, re-publish of seq-1, 429 gate, no flag/degraded gate) and the `daily-maintenance` backstop (`/internal/cron/daily-maintenance`) in `lifecycle_jobs.go`, wired in `apiserver.Build` behind the OIDC verifier. Terraform for the `jobs` topic is T3b (not done here). See T6 for the review fixes (panic recovery, 27 s bound, backstop page-full WARN, `backstop_skipped` trace field).
 - **Description.**
   - Replace the placeholder handler for the ADR's path(s) (`pubsubpush.PlaceholderHandler`, `apiserver.go:221`)
     with a real handler behind the existing OIDC verifier.
@@ -544,7 +555,7 @@ Order:
 - **Budget.** Per invocation: job-state 1 read + 1 write (OPEN, per the ADR) + the steps' own ops.
 
 ### T9 — RequestAccountExport + GetAccountExport  [owner: backend-developer] [size: M] [depends: T2b, T4, T3a] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (local). RequestAccountExport (doc id hash(uid, key), quota `exports`, reads 1 + interceptor, writes 2; replay 2 reads, 0 writes) and GetAccountExport (fresh read, byte-identical NOT_FOUND incl. expiry, signed 15-minute GET per call via `pkg/platform/objstore`).
 - **Description.**
   - **RequestAccountExport:**
     - `exportId = hash(uid, idempotency_key)` (ADR-0003:54);
@@ -573,7 +584,7 @@ Order:
 - **Budget.** Request 2/1 R, 2 W (replay 3 R, 0 W); Get 2/1 R, 0 W; 1 Class B per download.
 
 ### T10 — Export composer + export job  [owner: backend-developer] [size: M] [depends: T6, T8, T9] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (local). Streaming composer (`exportVersion:1`, account, profile, registered `graph` and `posts` sections) writing to the exports bucket through an aborting `Put`; READY/FAILED with precondition; DELETING or missing user = FAILED, no object. Code-review fixes: the export delivery is bounded at 25 s and logs `sections` and `bytes`; errors that could carry an export id are scrubbed.
 - **Description.**
   - Implement the D-D section interface and stream one JSON object to a GCS writer at `objectPath`.
   - The envelope is `{exportVersion: 1, generatedAt, account, profile, graph, posts, …}`:
@@ -601,7 +612,7 @@ Order:
 - **Budget.** Reference account ≈ 703 R / 1 W / 0 D + job state (OPEN); 1 Class A.
 
 ### T11 — Collection-coverage guard + residue allowlist  [owner: tester] [size: S] [depends: T6, T7] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Add a CI unit test (`make ci`, no emulator) with a table of every Firestore collection and GCS prefix in ADR-0003
     and later ADRs. Each row maps to a registered Eraser step, a registered export section, or an ADR-referenced
@@ -619,7 +630,7 @@ Order:
 - **Budget.** Not applicable (emulator / unit).
 
 ### T12 — `opsctl delete-account` and `export-account` on the orchestrator  [owner: backend-developer] [size: S] [depends: T7, T10] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - `delete-account --project P --uid U [--dry-run]` sets DELETING if needed, waits for the gate, then runs the
     T6 orchestrator to completion locally with the founder's ADC.
@@ -695,7 +706,7 @@ Order:
 - **Budget.** ≤ 11 requests per export (1 request + ≤ 10 polls).
 
 ### T16 — Emulator integration: deletion chain  [owner: tester] [size: M] [depends: T5, T7, T8, T11] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Seed U with posts, edges both ways, blocks both ways, mutes, an export, a handle and quotas.
   - DeleteAccount → drive the job to completion.
@@ -714,7 +725,7 @@ Order:
 - **Budget.** Not applicable (emulator).
 
 ### T17 — Emulator integration: export privacy and access  [owner: tester] [size: M] [depends: T9, T10] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Test the contents against a golden file, including the `blockedBy` grep and that no third party's email, `muted`
     or `blocked` data appears.
@@ -728,7 +739,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T18 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T14, T15, T16, T17] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Add `backend/e2e/account_smoke_test.go`, runnable against emulators and the `candidate` URL with throwaway
     accounts: create profile → follow → post → request export → READY → download → delete → poll until the Auth user
@@ -757,7 +768,7 @@ Order:
 - **Budget.** Verify the tables against the code.
 
 ### T20 — Security review: account lifecycle threat model  [owner: security-auditor] [size: M] [depends: T5, T7–T10, T13] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Done (2026-10-08), report in `docs/reviews/security-review-account-lifecycle.md`; M-1, M-2, M-3, L-1 to L-4, L-6, L-7 fixed; L-5 fixed in the client (founder-accepted flag exception). Still open: on-device checks of Apple/Google/password re-auth, revoke and client delete.
 - **Description.** Write `docs/reviews/security-review-account-lifecycle.md`, covering:
   - re-auth bypass (missing, forged or future `auth_time`);
   - the Q2/Q3 interceptor exemption (scope exactly one procedure);
@@ -777,7 +788,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T21 — Cost report + cost-model rows 35–36  [owner: sre-performance] [size: S] [depends: T16, T17] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Replace cost-model rows 35–36 with the measured values and the ADR's job-state numbers.
   - Measure the time per invocation and find the account size at which the export needs more than one invocation
@@ -794,7 +805,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T22 — Runbooks: in-app first, manual fallback, new failure modes  [owner: production-deployer] [size: S] [depends: T12] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Partly done (2026-10-08): `docs/runbooks/account-deletion.md` section 6 covers the in-app flow, the C4 alert, stuck jobs, sign-up failures and exports. Still to do: the client-facing wording once T12 lands, and a drill record on dev.
 - **Description.**
   - Rewrite `docs/runbooks/account-deletion.md`:
     - in-app is the primary path;
@@ -813,7 +824,7 @@ Order:
 - **Budget.** Drill ≈ tens of ops on dev.
 
 ### T23 — Dev deploy + drill  [owner: production-deployer] [size: S] [depends: T3a, T3b, T18, T22] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Apply the dev Terraform and deploy to `dzeroth-dev` with the flag `on`.
   - Run the T18 smoke, one real signed-URL download, and one in-app deletion by a throwaway account.
@@ -825,7 +836,7 @@ Order:
 - **Budget.** ≈ 100 ops.
 
 ### T24 — Release v0.4.0 readiness (flag off, then allowlist)  [owner: production-deployer] [size: M] [depends: T19, T20, T21, T23] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.**
   - Prepare the inputs for `docs/reviews/release-v0.4.0-readiness.md`: this plan's part of it.
   - production-reviewer must write `VERDICT: GO`.
@@ -840,7 +851,7 @@ Order:
 - **Budget.** Smoke ≈ 60 ops.
 
 ### T25 — Flag rollout in prod: allowlist → 10% → on  [owner: production-deployer] [size: S] [depends: T24] [blocked: T1 accepted]
-- **Status:** Open. Blocked on the founder accepting T1.
+- **Status:** Open (T1 is Accepted; unblocked).
 - **Description.** Run the flag stages below with the pinned-traffic env procedure, then reconcile Terraform. Write
   `docs/reviews/release-v0.4.0-postrelease.md` (this slice's section).
 - **Acceptance criteria.**

@@ -397,6 +397,40 @@ void main() {
     expect(find.text('sign in stub'), findsOneWidget);
   });
 
+  testWidgets('without a profile: confirm word, no export link, client delete '
+      'after PROFILE_REQUIRED', (tester) async {
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        status: OnboardingStatus.profileRequired,
+      ),
+    );
+    when(
+      () =>
+          accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenThrow(const ProfileRequiredException('x', fromServerReason: true));
+    when(() => auth.deleteCurrentUser()).thenAnswer((_) async {});
+    await pump(tester);
+
+    expect(find.text('Download my data first'), findsNothing);
+    expect(find.text('Type DELETE to confirm'), findsOneWidget);
+    expect(enabled(tester), isFalse);
+    await typeHandle(tester, 'delete');
+    expect(enabled(tester), isTrue);
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    verify(() => auth.deleteCurrentUser()).called(1);
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+  });
+
+  test('confirmWordMatches ignores case and spaces', () {
+    expect(confirmWordMatches(' delete '), isTrue);
+    expect(confirmWordMatches('del'), isFalse);
+  });
+
   test('handleMatches ignores case, @ and spaces', () {
     expect(handleMatches(' @KAIF ', 'kaif'), isTrue);
     expect(handleMatches('@Kaif', 'kAIF'), isTrue);

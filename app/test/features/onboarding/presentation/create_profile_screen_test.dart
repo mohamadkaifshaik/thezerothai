@@ -1,5 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/router/app_router.dart';
+import 'package:go_router/go_router.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -62,6 +64,45 @@ void main() {
       find.widgetWithText(FilledButton, 'Continue'),
     );
     expect(continueButton.onPressed, isNull);
+  });
+
+  testWidgets('offers Delete account, which opens the delete page (L-5)', (
+    tester,
+  ) async {
+    whenListen(
+      onboardingBloc,
+      Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        status: OnboardingStatus.profileRequired,
+      ),
+    );
+    final router = GoRouter(
+      routes: [
+        GoRoute(path: '/', builder: (_, _) => const CreateProfileScreen()),
+        GoRoute(
+          path: AppRouter.onboardingDeletePath,
+          builder: (_, _) => const Scaffold(body: Text('delete stub')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+
+    final link = find.widgetWithText(TextButton, 'Delete account');
+    expect(link, findsOneWidget);
+    expect(tester.getSize(link).height, greaterThanOrEqualTo(48));
+    await tester.ensureVisible(link);
+    await tester.tap(link);
+    await tester.pumpAndSettle();
+
+    expect(find.text('delete stub'), findsOneWidget);
   });
 
   testWidgets('enables Continue once the handle is available', (tester) async {
