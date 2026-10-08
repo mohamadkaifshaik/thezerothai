@@ -163,6 +163,10 @@ func TestPurge_StartGate(t *testing.T) {
 	}{
 		{"deleting long enough", identity.Profile{Status: identity.AccountStatusDeleting, UpdatedAt: now.Add(-3 * time.Minute)}, nil, nil, 0, true, ""},
 		{"deleting too recently", identity.Profile{Status: identity.AccountStatusDeleting, UpdatedAt: now.Add(-30 * time.Second)}, nil, nil, 1, false, "wait another"},
+		// ADR-0011: the gate runs from deletionRequestedAt, which checkpoint writes never move; updatedAt is only
+		// the fallback for an account set to DELETING by hand.
+		{"requested long ago, updated just now", identity.Profile{Status: identity.AccountStatusDeleting, DeletionRequestedAt: now.Add(-3 * time.Minute), UpdatedAt: now.Add(-time.Second)}, nil, nil, 0, true, ""},
+		{"requested just now, updated long ago", identity.Profile{Status: identity.AccountStatusDeleting, DeletionRequestedAt: now.Add(-time.Second), UpdatedAt: now.Add(-3 * time.Minute)}, nil, nil, 1, false, "wait another"},
 		{"still active", identity.Profile{Status: identity.AccountStatusActive}, nil, nil, 1, false, "not in status DELETING"},
 		{"profile unreadable", identity.Profile{}, errors.New("nope"), nil, 1, false, "cannot read the profile"},
 		{"gate skipped", identity.Profile{Status: identity.AccountStatusActive}, nil, []string{"--skip-start-gate"}, 0, true, ""},

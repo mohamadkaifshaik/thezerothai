@@ -31,7 +31,7 @@ func TestGetProfile_NonActiveIsNotFound(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newFakeRepo()
-			if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+			if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
 				t.Fatal(err)
 			}
 			p := repo.profiles["uid-b"]
@@ -61,7 +61,7 @@ func TestGetProfile_NonActiveIsNotFound(t *testing.T) {
 // GetMe (the caller's own profile) is not subject to the M3 hiding.
 func TestGetMe_NonActiveStillServed(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
 		t.Fatal(err)
 	}
 	p := repo.profiles["uid-b"]

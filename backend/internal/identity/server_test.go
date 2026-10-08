@@ -382,7 +382,7 @@ func TestGetMe_ReportsAccountLifecycleWhenFlagOn(t *testing.T) {
 	reg := flags.NewRegistry(spec)
 	repo := newFakeRepo()
 	for _, uid := range []string{"uid-1", "uid-2"} {
-		if _, _, err := repo.CreateProfile(context.Background(), uid, "H"+uid, "h"+uid, "N", time.Now()); err != nil {
+		if _, _, err := repo.CreateProfile(context.Background(), uid, "H"+uid, "h"+uid, "N", time.Now(), nil); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}

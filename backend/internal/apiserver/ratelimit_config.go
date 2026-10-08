@@ -114,6 +114,14 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	}
 }
 
+// RestrictedAllowedProcedures is the exact set of procedures a SUSPENDED or DELETING caller may still reach
+// (ADR-0011 Q2/Q3): DeleteAccount only. A suspended user keeps the right to erase their own account, and a client
+// that retries DeleteAccount after a lost response must get a replay, not ACCOUNT_RESTRICTED. Build wires it into
+// authn.AccountStatusInterceptor and guard_test.go asserts it is exactly one procedure.
+func RestrictedAllowedProcedures() []string {
+	return []string{identityv1connect.IdentityServiceDeleteAccountProcedure}
+}
+
 // profileExemptProcedures is the set of procedures allowed before a profile exists (ADR-0006 §2). Build and the
 // guard test share it, so the ratelimit IP sets cannot drift from it.
 func profileExemptProcedures() map[string]struct{} {

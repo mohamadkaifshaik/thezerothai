@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ type service struct {
 	now                  func() time.Time
 	blockChecker         BlockChecker
 	features             FeatureFlags
+	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
+	// wires it, so production never runs without it.
+	signup *authAdmin
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -40,6 +44,17 @@ func WithBlockChecker(bc BlockChecker) Option {
 // WithFeatureFlags wires GetMe.enabled_features (ADR-0008 D6). Nil (the default) reports no flags.
 func WithFeatureFlags(ff FeatureFlags) Option {
 	return func(s *service) { s.features = ff }
+}
+
+// WithSignupAuth wires the M2 check (ADR-0011 amendment 2026-10-08): before a first profile is created the caller's
+// own Firebase Auth user must exist and be enabled, because an ID token can outlive its deleted or disabled user.
+// auth is the same narrow client the account lifecycle holds (C2); log receives the C3 audit line.
+func WithSignupAuth(auth AuthClient, log *slog.Logger) Option {
+	return func(s *service) {
+		if auth != nil {
+			s.signup = newAuthAdmin(auth, log)
+		}
+	}
 }
 
 // New builds the identity Service.
@@ -83,8 +98,11 @@ func (s *service) getProfileCached(ctx context.Context, uid string) (Profile, er
 	return p, nil
 }
 
-// CreateProfile: worst case reads 2, writes 3 (ADR-0003; see repo_firestore.go). Idempotent by uid: a
-// replay (profile already exists) is a pure read, no writes.
+// CreateProfile: worst case Firestore reads 2, writes 3 (ADR-0003; see repo_firestore.go). Idempotent by uid: a
+// replay (profile already exists) is a pure read, no writes and no Auth call. Auth (M2, ADR-0011 amendment): exactly
+// one users.get of the token's own uid, only when users/{uid} does not exist, before any create; a deleted or
+// disabled Auth user is PERMISSION_DENIED, an Auth outage UNAVAILABLE (fail closed), nothing written either way.
+// 0 extra Firestore ops.
 func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle, displayName string) (Profile, error) {
 	if idempotencyKeyIssue(idempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -97,8 +115,18 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 	}
 
 	handleLower := strings.ToLower(handle)
-	profile, _, err := s.repo.CreateProfile(ctx, uid, handle, handleLower, normalizeDisplayName(displayName), s.now().UTC())
+	var authorize func(context.Context) error
+	if s.signup != nil {
+		authorize = func(ctx context.Context) error { return s.signup.checkSignup(ctx, newSignupTarget(uid)) }
+	}
+	profile, _, err := s.repo.CreateProfile(ctx, uid, handle, handleLower, normalizeDisplayName(displayName), s.now().UTC(), authorize)
 	if err != nil {
+		switch {
+		case errors.Is(err, errSignupRefused), errors.Is(err, ErrAuthAdminRefused):
+			return Profile{}, apierr.New(connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "this account cannot be used to sign up")
+		case errors.Is(err, errSignupUnavailable):
+			return Profile{}, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "sign-up is temporarily unavailable, please retry").WithCause(err)
+		}
 		if errors.Is(err, ErrHandleTaken) {
 			s.cache.InvalidateHandleFree(handleLower)
 			return Profile{}, apierr.New(connect.CodeAlreadyExists, commonv1.ErrorReason_ERROR_REASON_HANDLE_TAKEN, "handle is taken")

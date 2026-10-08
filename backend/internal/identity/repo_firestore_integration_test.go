@@ -46,7 +46,7 @@ func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
 	ctx, counter := budget.WithCounter(context.Background())
 	now := time.Now().UTC()
 
-	profile, replay, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now)
+	profile, replay, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil)
 	if err != nil {
 		t.Fatalf("CreateProfile() error = %v", err)
 	}
@@ -68,7 +68,7 @@ func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
 	// only reads users/{uid} (it never gets to the handle check), so its budget is tighter than the
 	// documented worst case.
 	ctx2, counter2 := budget.WithCounter(context.Background())
-	replayed, isReplay, err := repo.CreateProfile(ctx2, "uid-1", "Bob", "bob", "Bob B.", now)
+	replayed, isReplay, err := repo.CreateProfile(ctx2, "uid-1", "Bob", "bob", "Bob B.", now, nil)
 	if err != nil {
 		t.Fatalf("CreateProfile() replay error = %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCreateProfile_Integration_HandleRace(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			ctx, _ := budget.WithCounter(context.Background())
-			p, _, err := repo.CreateProfile(ctx, fmt.Sprintf("uid-race-%d", i), "Racer", "racer", fmt.Sprintf("Racer %d", i), now)
+			p, _, err := repo.CreateProfile(ctx, fmt.Sprintf("uid-race-%d", i), "Racer", "racer", fmt.Sprintf("Racer %d", i), now, nil)
 			results[i] = err
 			profiles[i] = p
 		}(i)
@@ -136,12 +136,12 @@ func TestCreateProfile_Integration_HandleTaken(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("first CreateProfile: %v", err)
 	}
 
 	ctx2, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx2, "uid-2", "Alice", "alice", "Someone Else", now); err != identity.ErrHandleTaken {
+	if _, _, err := repo.CreateProfile(ctx2, "uid-2", "Alice", "alice", "Someone Else", now, nil); err != identity.ErrHandleTaken {
 		t.Fatalf("expected ErrHandleTaken, got %v", err)
 	}
 }
@@ -155,7 +155,7 @@ func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -178,7 +178,7 @@ func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
 
 	// The old handle must be free again.
 	ctx3, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now, nil); err != nil {
 		t.Fatalf("expected old handle 'alice' to be free after rename: %v", err)
 	}
 }
@@ -191,7 +191,7 @@ func TestChangeHandle_Integration_TrueNoOp(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -214,7 +214,7 @@ func TestChangeHandle_Integration_CaseOnlyRename(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -243,7 +243,7 @@ func TestChangeHandle_Integration_CooldownBlocksBeforeSecondRead(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 	if _, _, err := repo.ChangeHandle(ctx, "uid-1", "Alicia", "alicia", now, changeHandleCooldown); err != nil {
@@ -271,7 +271,7 @@ func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 	// Simulate a prior attempt that reserved handles/bob for uid-1 without users/uid-1 reflecting it yet.
@@ -290,7 +290,7 @@ func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 	budgettest.Assert(t, "ChangeHandle (idempotent retry, owned handle)", counter, budgettest.Budget{Reads: 2, Writes: 2, Deletes: 1})
 
 	ctx3, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now, nil); err != nil {
 		t.Fatalf("expected old handle 'alice' to be free after rename: %v", err)
 	}
 }
@@ -302,7 +302,7 @@ func TestGetProfile_Integration_Budget(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -329,7 +329,7 @@ func TestResolveHandle_Integration_Budget(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -357,7 +357,7 @@ func TestUpdateProfile_Integration_Budget(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -388,7 +388,7 @@ func TestUnreadNotificationCount_Integration_Budget(t *testing.T) {
 	now := time.Now().UTC()
 
 	ctx, _ := budget.WithCounter(context.Background())
-	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
@@ -425,4 +425,46 @@ func TestUnreadNotificationCount_Integration_Budget(t *testing.T) {
 		t.Fatalf("UnreadNotificationCount() = %d, want 2", n)
 	}
 	budgettest.Assert(t, "UnreadNotificationCount (2 matches)", counter3, budgettest.Budget{Reads: 1})
+}
+
+// TestCreateProfile_Integration_AuthorizeSeam (ADR-0011 amendment M2): authorize runs once on the not-found path, its
+// error aborts the transaction with nothing written, it adds no Firestore ops, and it never runs on a replay.
+func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
+	client := newTestClient(t)
+	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
+	now := time.Now().UTC()
+	refuse := errors.New("refused by authorize")
+
+	calls := 0
+	ctx, counter := budget.WithCounter(context.Background())
+	_, _, err := repo.CreateProfile(ctx, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return refuse })
+	if !errors.Is(err, refuse) {
+		t.Fatalf("err = %v, want the authorize error", err)
+	}
+	if calls != 1 {
+		t.Fatalf("authorize calls = %d, want 1", calls)
+	}
+	budgettest.Assert(t, "CreateProfile (refused)", counter, budgettest.Budget{Reads: 1, Writes: 0})
+	for _, path := range []string{"users/uid-m2", "handles/zed", "graph/uid-m2"} {
+		if snap, gerr := client.Doc(path).Get(context.Background()); gerr == nil && snap.Exists() {
+			t.Errorf("%s exists after a refused CreateProfile", path)
+		}
+	}
+
+	ctx2, counter2 := budget.WithCounter(context.Background())
+	if _, _, err := repo.CreateProfile(ctx2, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("authorize calls = %d, want 2 (once per not-found attempt)", calls)
+	}
+	budgettest.Assert(t, "CreateProfile (authorized)", counter2, budgettest.Budget{Reads: 2, Writes: 3})
+
+	_, isReplay, err := repo.CreateProfile(context.Background(), "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return refuse })
+	if err != nil || !isReplay {
+		t.Fatalf("replay err = %v replay = %v", err, isReplay)
+	}
+	if calls != 2 {
+		t.Fatalf("authorize ran on a replay (calls = %d)", calls)
+	}
 }

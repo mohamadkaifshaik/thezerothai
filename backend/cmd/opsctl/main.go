@@ -25,9 +25,6 @@ import (
 )
 
 const (
-	// startGate is ADR-0008 D10's wait after users/{uid}.status = DELETING: 2x the 60 s instance-cache TTL, so
-	// no instance still sees the user as ACTIVE and can create a new edge mid-purge.
-	startGate = 120 * time.Second
 	// callTimeout bounds every PurgeUser call / export (every outbound call has a deadline).
 	callTimeout = 2 * time.Minute
 	// maxConsecutiveErrors stops a purge that keeps failing instead of looping forever.
@@ -267,10 +264,13 @@ func checkStartGate(ctx context.Context, b *backends, uid string, now time.Time)
 	if err != nil {
 		return fmt.Errorf("start gate: cannot read the profile (%w); purge before deleting users/{uid}, or pass --skip-start-gate", err)
 	}
-	if p.Status != identity.AccountStatusDeleting {
+	// identity.StartGate is the one gate (ADR-0008 D10, ADR-0011): 120 s from deletionRequestedAt, updatedAt for an
+	// account set to DELETING by hand.
+	wait, err := identity.StartGate(p, now)
+	if err != nil {
 		return errors.New("start gate: the account is not in status DELETING; set it first, or pass --skip-start-gate")
 	}
-	if wait := startGate - now.Sub(p.UpdatedAt); wait > 0 {
+	if wait > 0 {
 		return fmt.Errorf("start gate: wait another %s after DELETING was set (ADR-0008 D10), or pass --skip-start-gate", wait.Round(time.Second))
 	}
 	return nil
