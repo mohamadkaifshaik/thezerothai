@@ -10,6 +10,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
+import '../../auth/presentation/bloc/auth_state.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
@@ -47,6 +48,13 @@ bool handleMatches(String typed, String handle) {
   final t = typed.trim().replaceFirst(RegExp('^@'), '').toLowerCase();
   return handle.isNotEmpty && t == handle.toLowerCase();
 }
+
+/// The word typed to confirm when the caller has no handle yet (no profile).
+const deleteConfirmWord = 'DELETE';
+
+/// True when [typed] is [deleteConfirmWord] (case-insensitive).
+bool confirmWordMatches(String typed) =>
+    typed.trim().toLowerCase() == deleteConfirmWord.toLowerCase();
 
 /// Settings -> Delete account (`/settings/delete-account`, only reachable
 /// with the `account_lifecycle` flag on). Explains the consequences, asks for
@@ -98,94 +106,108 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       (OnboardingBloc b) => b.state.profile?.handle ?? '',
     );
     final theme = Theme.of(context);
-    return BlocConsumer<AccountCubit, AccountState>(
-      bloc: _cubit,
-      listener: _onState,
-      builder: (context, state) {
-        final working = state.status == AccountStatus.working;
-        final enabled =
-            !working &&
-            handleMatches(_handleController.text, handle) &&
-            state.status != AccountStatus.deleted;
-        return Scaffold(
-          appBar: AppBar(title: const Text('Delete account')),
-          body: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 600),
-              child: ListView(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                children: [
-                  Text(
-                    'Delete your account?',
-                    style: theme.textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  const Text(
-                    'This is permanent and cannot be undone. We delete your '
-                    'profile, your posts and media, and your follows, '
-                    'blocks and mutes.',
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  const Text(
-                    "What remains: mentions of you in other people's posts, "
-                    'and backups, which expire within 14 days.',
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      onPressed: working
-                          ? null
-                          : () => context.push(AppRouter.exportDataPath),
-                      icon: const Icon(Icons.download_outlined),
-                      label: const Text('Download my data first'),
+    // No handle means no profile (P8 L-5): confirm with a word instead.
+    final hasProfile = handle.isNotEmpty;
+    return BlocListener<AuthBloc, AuthState>(
+      // The client-side Auth user delete signs the user out; Firebase can
+      // report that before the cubit emits `deleted`, and the router would
+      // then leave this screen with no confirmation page.
+      listenWhen: (previous, current) =>
+          current.status == AuthStatus.unauthenticated &&
+          _cubit.state.status == AccountStatus.working,
+      listener: (context, _) => context.go(AppRouter.accountDeletedPath),
+      child: BlocConsumer<AccountCubit, AccountState>(
+        bloc: _cubit,
+        listener: _onState,
+        builder: (context, state) {
+          final working = state.status == AccountStatus.working;
+          final confirmed = hasProfile
+              ? handleMatches(_handleController.text, handle)
+              : confirmWordMatches(_handleController.text);
+          final enabled =
+              !working && confirmed && state.status != AccountStatus.deleted;
+          return Scaffold(
+            appBar: AppBar(title: const Text('Delete account')),
+            body: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: ListView(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  children: [
+                    Text(
+                      'Delete your account?',
+                      style: theme.textTheme.headlineSmall,
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  TextField(
-                    controller: _handleController,
-                    enabled: !working,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: handle.isEmpty
-                          ? 'Type your handle to confirm'
-                          : 'Type your handle ($handle) to confirm',
-                      border: const OutlineInputBorder(),
+                    const SizedBox(height: AppSpacing.md),
+                    const Text(
+                      'This is permanent and cannot be undone. We delete your '
+                      'profile, your posts and media, and your follows, '
+                      'blocks and mutes.',
                     ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: theme.colorScheme.error,
-                      foregroundColor: theme.colorScheme.onError,
+                    const SizedBox(height: AppSpacing.md),
+                    const Text(
+                      "What remains: mentions of you in other people's posts, "
+                      'and backups, which expire within 14 days.',
                     ),
-                    // Straight from the tap: the web re-auth popup must open
-                    // inside the user gesture.
-                    onPressed: enabled
-                        ? () => _cubit.deleteAccount(
-                            promptPassword: _promptPassword,
-                          )
-                        : null,
-                    child: working
-                        ? const SizedBox.square(
-                            dimension: AppSpacing.lg - AppSpacing.xs,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              semanticsLabel: 'Deleting account',
-                            ),
-                          )
-                        : const Text('Delete my account'),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _StatusMessage(state: state),
-                ],
+                    const SizedBox(height: AppSpacing.md),
+                    if (hasProfile) ...[
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton.icon(
+                          onPressed: working
+                              ? null
+                              : () => context.push(AppRouter.exportDataPath),
+                          icon: const Icon(Icons.download_outlined),
+                          label: const Text('Download my data first'),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    TextField(
+                      controller: _handleController,
+                      enabled: !working,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: InputDecoration(
+                        labelText: !hasProfile
+                            ? 'Type $deleteConfirmWord to confirm'
+                            : 'Type your handle ($handle) to confirm',
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.error,
+                        foregroundColor: theme.colorScheme.onError,
+                      ),
+                      // Straight from the tap: the web re-auth popup must open
+                      // inside the user gesture.
+                      onPressed: enabled
+                          ? () => _cubit.deleteAccount(
+                              promptPassword: _promptPassword,
+                            )
+                          : null,
+                      child: working
+                          ? const SizedBox.square(
+                              dimension: AppSpacing.lg - AppSpacing.xs,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                semanticsLabel: 'Deleting account',
+                              ),
+                            )
+                          : const Text('Delete my account'),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _StatusMessage(state: state),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

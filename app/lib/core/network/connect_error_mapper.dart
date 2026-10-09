@@ -42,7 +42,7 @@ AppException mapConnectError(Object error) {
       case common.ErrorReason.ERROR_REASON_APP_CHECK_REQUIRED:
         return AppCheckRequiredException(message);
       case common.ErrorReason.ERROR_REASON_PROFILE_REQUIRED:
-        return ProfileRequiredException(message);
+        return ProfileRequiredException(message, fromServerReason: true);
       case common.ErrorReason.ERROR_REASON_EMAIL_NOT_VERIFIED:
         return EmailNotVerifiedException(message);
       case common.ErrorReason.ERROR_REASON_HANDLE_TAKEN:

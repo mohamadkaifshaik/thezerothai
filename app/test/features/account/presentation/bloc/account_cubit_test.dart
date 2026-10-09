@@ -329,6 +329,113 @@ void main() {
     });
   });
 
+  group('deleteAccount client-side fallback (P8 L-5)', () {
+    void stubDeleteUser() {
+      when(() => auth.deleteCurrentUser()).thenAnswer((_) async {});
+    }
+
+    test('PROFILE_REQUIRED from the server deletes the Auth user from the '
+        'client after re-auth, with no retry', () async {
+      stubDelete(
+        (_) async => throw const ProfileRequiredException(
+          'create a profile first',
+          fromServerReason: true,
+        ),
+      );
+      stubDeleteUser();
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw);
+
+      expect(cubit.state.status, AccountStatus.deleted);
+      verifyInOrder([
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+        () => accounts.deleteAccount(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+        () => auth.deleteCurrentUser(),
+      ]);
+      verifyNoMoreInteractions(accounts);
+    });
+
+    test('an Apple caller is revoked once before the client delete', () async {
+      stubReauth((_) async => const ReauthResult(appleAuthorizationCode: 'c'));
+      when(() => auth.revokeAppleToken('c')).thenAnswer((_) async {});
+      stubDelete(
+        (_) async =>
+            throw const ProfileRequiredException('x', fromServerReason: true),
+      );
+      stubDeleteUser();
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw);
+
+      expect(cubit.state.status, AccountStatus.deleted);
+      verifyInOrder([
+        () => auth.revokeAppleToken('c'),
+        () => auth.deleteCurrentUser(),
+      ]);
+    });
+
+    test(
+      'requires-recent-login becomes the re-auth prompt, not a success',
+      () async {
+        stubDelete(
+          (_) async =>
+              throw const ProfileRequiredException('x', fromServerReason: true),
+        );
+        when(() => auth.deleteCurrentUser()).thenAnswer(
+          (_) async => throw const AuthFailure.requiresRecentLogin(),
+        );
+        final cubit = build();
+
+        await cubit.deleteAccount(promptPassword: _pw);
+
+        expect(cubit.state.status, AccountStatus.failed);
+        expect(cubit.state.error, isA<ReauthRequiredException>());
+      },
+    );
+
+    test('a code-only FAILED_PRECONDITION does not fall back', () async {
+      stubDelete((_) async => throw const ProfileRequiredException('x'));
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw);
+
+      expect(cubit.state.status, AccountStatus.failed);
+      verifyNever(() => auth.deleteCurrentUser());
+    });
+
+    for (final error in <AppException>[
+      const NetworkException('offline'),
+      const DegradedModeException('degraded'),
+      const EmailNotVerifiedException('verify'),
+      const AccountRestrictedException('restricted'),
+      const UnknownApiException('boom'),
+    ]) {
+      test('${error.runtimeType} does not fall back', () async {
+        stubDelete((_) async => throw error);
+        final cubit = build();
+
+        await cubit.deleteAccount(promptPassword: _pw);
+
+        expect(cubit.state.status, AccountStatus.failed);
+        expect(cubit.state.error, error);
+        verifyNever(() => auth.deleteCurrentUser());
+      });
+    }
+
+    test('a cancelled re-auth never reaches the client delete', () async {
+      stubReauth((_) async => throw const AuthFailure.cancelled());
+      final cubit = build();
+
+      await cubit.deleteAccount(promptPassword: _pw);
+
+      expect(cubit.state.status, AccountStatus.cancelled);
+      verifyNever(() => auth.deleteCurrentUser());
+    });
+  });
+
   group('requestExport', () {
     const pending = AccountExport(
       exportId: 'e1',

@@ -350,6 +350,29 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
+  /// Deletes the signed-in Firebase Auth user from the client (P8 L-5: the
+  /// account has no profile, so the server cannot delete it). Call right after
+  /// [reauthenticate]. Firebase then emits a signed-out user, which wipes the
+  /// local session data through the normal sign-out listener.
+  ///
+  /// Throws [AuthFailure.requiresRecentLogin] when Firebase still wants a
+  /// fresher sign-in.
+  Future<void> deleteCurrentUser() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return;
+    try {
+      await user.delete();
+    } on fb.FirebaseAuthException catch (e) {
+      throw _mapFirebaseAuthException(e);
+    }
+    // Drop the Google session too (best effort), as sign-out does.
+    if (_googleInitialized) {
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {}
+    }
+  }
+
   Future<void> signOut() async {
     await Future.wait([
       _firebaseAuth.signOut(),

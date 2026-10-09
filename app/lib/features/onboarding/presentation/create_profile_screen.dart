@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../account/presentation/widgets/delete_account_link.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
@@ -163,6 +164,8 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                             )
                           : const Text('Continue'),
                     ),
+                    const SizedBox(height: AppSpacing.sm),
+                    const DeleteAccountLink(),
                   ],
                 ),
               ),

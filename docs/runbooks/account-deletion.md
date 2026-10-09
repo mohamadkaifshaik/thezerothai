@@ -1,8 +1,9 @@
 # Runbook: manual account deletion and data export
 
-**Why this exists:** in-app `DeleteAccount` / `RequestAccountExport` ship in Phase 1. Until then, requests to
-**privacy@dzeroth.com** are handled by hand, within **30 days**, as the privacy policy promises. This closes security
-audit finding M5 for the web launch. App Store and Play submissions still need the in-app flow.
+**Why this exists:** requests to **privacy@dzeroth.com** are handled by hand, within **30 days**, as the privacy policy
+promises. This closes security audit finding M5 for the web launch. The in-app flow (`DeleteAccount` /
+`RequestAccountExport`, ADR-0011, P8) is built and on dev behind `FEATURE_ACCOUNT_LIFECYCLE`; **section 6** is its
+operations guide. Sections 1 to 5 stay valid as the manual fallback (and for accounts the in-app flow cannot reach).
 
 Run it from Git Bash with the founder's gcloud login. Examples use prod; use `dzeroth-dev` for dev accounts.
 ```bash
@@ -215,3 +216,81 @@ GOWORK=off go run ./cmd/opsctl check-t26 --project dzeroth-prod   # asks you to 
 - Record only the date, project and the five counts (for example in the release readiness doc). Never paste uids.
 - On `T26: FAIL`, do not enable the gate. Find the offending accounts by hand in the Firebase console (they are not
   printed on purpose), then handle each as an account deletion (sections 3b and 4) or amend ADR-0010 before retrying.
+
+## 6. In-app account deletion and export (P8, ADR-0011)
+
+### How it works (one paragraph)
+`DeleteAccount` (own uid only, sign-in no older than `ACCOUNT_DELETE_REAUTH_MAX_AGE`, 5 min) marks `users/{uid}` as
+`DELETING` with a `deletionJob` and publishes to the Pub/Sub topic `jobs`. The push subscription `jobs-push` calls
+`/internal/pubsub/jobs` (OIDC, only the `pubsub-push` service account). After a **120 s gate** (so no instance still
+treats the user as ACTIVE) the job runs the steps in this fixed order, in 20 s slices that re-publish themselves:
+`auth_disable`, `posts`, `graph`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
+persisted in `deletionJob.step`; never rename or remove one without a migration. `RequestAccountExport` writes
+`exports/{id}` and a JSON object to the private bucket `<project>-exports` (7-day lifecycle, soft delete off); each
+`GetAccountExport` signs a fresh 15-minute GET URL. Exports are capped at 1 per day per user.
+
+### Where to look
+- Logs (Cloud Run `api`): `account_job` lines per delivery (fields `step`, `outcome`, `step_calls`, `deleted_docs`,
+  `deleted_objects`, `sections`, `bytes`); `auth_admin_op` NOTICE lines (C3 audit: `get`, `disable_revoke`, `delete`
+  with `outcome`, `actor`, `uid_hash`); `auth_admin_refused` at ERROR (C1 refusal); `outcome=leased` (export deliveries),
+  `backstop_page_full` (WARN). Logs hold only hashed uids. A raw uid or export id in a log line is a bug: stop and fix it.
+- Dashboard: the DLQ tile (topic `jobs-dlq`).
+- Firestore console: `users` documents with `status == DELETING` show `deletionJob.step` and progress time.
+
+### The C4 alert (prod only, about $0.40/month)
+Fires when more than 5 successful Auth deletions (`auth_admin_op="delete"`, `outcome="ok"`) happen in an hour, or on
+any `auth_admin_refused` ERROR. Dev has no alert; inspect logs instead.
+1. Find the lines: filter `jsonPayload.auth_admin_op:*` and read `actor`, `account_job`, `outcome`. Count distinct `uid_hash` values.
+2. A burst of real user deletions (for example after a press mention) is fine: confirm each `uid_hash` has a matching
+   `DeleteAccount` request line and a re-auth, then adjust `auth_admin_alert_per_hour` in Terraform if it is routinely noisy.
+3. Any `auth_admin_refused` means a C1 check stopped an Auth mutation on an account that was not DELETING. Treat as a
+   potential bug or compromise: read the line, check the user's `users/{uid}` state, and file it before re-enabling anything.
+4. If you suspect misuse: set `feature_account_lifecycle = "off"` (Terraform, `envs/prod`, plan then founder-approved apply).
+   That stops new `DeleteAccount` and export requests; **jobs already accepted keep running on purpose** (users must
+   not be left half-deleted). To halt in-flight jobs too, remove the `accountLifecycleAuth` binding from the runtime
+   service account in Terraform: Auth steps then fail, retry and end in the DLQ. Put it back to resume.
+
+### A deletion is stuck
+Symptom: a user is `DELETING` for longer than about an hour, or the DLQ tile moved.
+1. Read the latest `account_job` line for that `uid_hash` (use the hash, not the uid): `step` and `outcome` say where it stopped.
+2. Delivery retries use a 60 s minimum backoff and up to 10 attempts, then the message goes to `jobs-dlq`. The DLQ topic
+   has no pull subscription, so nothing is lost that the backstop cannot rebuild.
+3. The Cloud Scheduler job `daily-maintenance` calls `/internal/cron/daily-maintenance`, which re-publishes stuck
+   `DELETING` accounts and `PENDING` exports (resuming from the saved step). To run it now:
+   `gcloud scheduler jobs run daily-maintenance --project <project> --location asia-south1`.
+4. The backstop only reads accounts with no progress for an hour, oldest progress first, 50 per page and up to 4 pages
+   (200) per run, so fresh deletions never hide a stuck one (L-6 fixed). WARN `backstop_page_full` (fields `query`,
+   `pages`, `cursor_at`) means the 4th page was full: more than 200 jobs are stuck at once, which is itself an
+   incident (each one is also in the DLQ). Fix the common cause first, then run the backstop again; it continues from
+   the oldest still-stuck job. For one urgent account, finish it with the manual steps in section 3b (the graph and
+   posts purges are resumable). The composite indexes `users(status, deletionJob.progressAt)` and
+   `exports(status, createdAt)` must be deployed (`firebase deploy --only firestore:indexes`); without them the cron
+   returns 500 with FAILED_PRECONDITION in `account_job` (Error Reporting).
+5. A step that fails 5 times in a row ends the delivery with an error (Error Reporting); look for the underlying
+   cause in the same log line (it is scrubbed of uids). Fix the cause, then run the backstop.
+
+### Sign-up failures after the P8 deploy
+`CreateProfile` now asks Firebase Auth whether the caller's Auth user still exists and is enabled, only on a first
+sign-up (no profile yet). Replays for an existing profile make no Auth call.
+- `PERMISSION_DENIED "this account cannot be used to sign up"`: the Auth user is deleted or disabled. Expected for a
+  user who just deleted their account and reuses an old token. No action; tell them to sign up again.
+- `UNAVAILABLE` on sign-up while Firebase Auth / Identity Toolkit is down: new sign-ups fail closed (no profile is
+  created) and existing users are unaffected. Retry when Auth recovers; no data repair is needed.
+
+### Export problems
+- `GetAccountExport` returns NOT_FOUND for unknown, foreign, malformed and expired ids alike (by design, so ids cannot
+  be probed). An expired export must be re-requested.
+- An export stays `PENDING` while a delivery composes it. One delivery at a time holds a 35 s lease (`exports/{id}.leaseUntil`);
+  other deliveries log `outcome=leased` (HTTP 429) and retry after 60 s, which is normal. A crashed run is retried by the
+  next redelivery, or by the daily backstop once the export is an hour old (GetAccountExport keeps saying PENDING until
+  then). A client replay inside 2 minutes of the request does not publish again.
+- `FAILED` export: the object is deleted and the document says so; the user can request again after the daily cap resets.
+  An export for a user who is `DELETING` or gone becomes `FAILED` with no object.
+- Never copy an export object out of the bucket by hand; if you must inspect, read metadata only.
+
+### Rollout and rollback
+Dev is `allowlist` (founder uid). Prod is `off`. Ramp with the `flag-rollout` skill (off, allowlist, percent, on).
+Before the prod flag leaves `off`: the privacy policy rights section is reworded and reviewed, the security review
+items for prod are closed (see `docs/reviews/security-review-account-lifecycle.md`), and `production-reviewer` says GO.
+Rollback of a bad deploy is the usual Cloud Run traffic shift to the previous revision (the code is backward
+compatible with in-flight `deletionJob` documents as long as step names are unchanged).

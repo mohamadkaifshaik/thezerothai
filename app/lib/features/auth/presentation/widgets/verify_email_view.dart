@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../account/presentation/widgets/delete_account_link.dart';
 import '../../domain/auth_failure.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
@@ -88,6 +89,7 @@ class VerifyEmailView extends StatelessWidget {
                       ),
                 child: const Text('Resend email'),
               ),
+              const DeleteAccountLink(),
               if (state.failure != null && state.failure!.message.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
