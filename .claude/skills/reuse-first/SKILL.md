@@ -19,7 +19,7 @@ Search with Grep/Glob for at least 3 variants: the exact name, synonyms, and the
 - Types: check `internal/domain`, `pkg/`, `internal/platform`, `app/lib/core`, `app/lib/shared`, and the generated API client before defining any struct/model
 - SQL: search `backend/**/queries/*.sql` (sqlc) for an existing query that selects the same data; extend with a parameter instead of a near-copy
 - Widgets: search `app/lib/shared/widgets` and `app/lib/features/*/presentation` for similar layout (avatar, post card, empty state, error state, skeleton, button, sheet, dialog)
-- Providers/repositories: search for an existing provider or repository for the same entity before adding another
+- Blocs/repositories: search for an existing bloc or repository for the same entity before adding another (state management is BLoC only)
 
 ## Step 3: Decide (in this order)
 1. **Reuse as-is** if it fits.
@@ -95,12 +95,11 @@ For each new function, type, query or widget in the diff: search for an existing
 
 `docs/ui-catalog.md`
 ```markdown
-# UI catalog (Flutter). One line per reusable widget/provider/helper.
+# UI catalog (Flutter). One line per reusable widget/bloc/helper.
 | Item | Location | Use it for |
 |---|---|---|
 | AppAvatar | app/lib/shared/widgets/app_avatar.dart | user avatar, all sizes |
-| PostCard | app/lib/features/posts/presentation/post_card.dart | any post row |
-| AsyncValueView | app/lib/shared/widgets/async_value_view.dart | loading / error / empty states |
-| AppButton | app/lib/shared/widgets/app_button.dart | primary/secondary/text buttons |
-| apiClientProvider | app/lib/core/network/api_client.dart | generated API client |
+| PostCard | app/lib/shared/widgets/post_card.dart | any post row |
+| AppErrorView | app/lib/core/widgets/app_error_view.dart | typed, friendly error state |
+| ApiClient | app/lib/core/network/api_client.dart | the one Connect-RPC client |
 ```
