@@ -81,3 +81,6 @@
 | AppRouter.postPath | app/lib/core/router/app_router.dart | the `/post/:id` deep link |
 | HomeScreen | app/lib/features/home/presentation/home_screen.dart | Home timeline (`TimelineFeedView` + `TimelineCubit`); placeholder with the posts flag off |
 | ProfileHeader.showPostsCount / ProfileCubit.postDeleted | app/lib/features/profile/ | "N Posts" in the header and its local decrement after a delete |
+| AppIconSize | app/lib/core/theme/app_theme.dart | icon size tokens (sm 16 / md 20 / lg 24); visuals sit inside 48dp targets |
+| PostMedia | app/lib/shared/widgets/post_media.dart | a post's 1-4 images: rounded, bordered, aspect-clamped, thumb-decoded; alt text as semantics |
+| PostActionBar / PostActions | app/lib/shared/widgets/post_action_bar.dart | reply/repost/like/share row (spaceBetween, outline icons, compact counts); callbacks dispatch bloc events; PostCard shows it only when given `actions` (engagement, P5) |

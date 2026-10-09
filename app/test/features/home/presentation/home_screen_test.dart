@@ -145,16 +145,19 @@ void main() {
     expect(find.textContaining('Follow people'), findsOneWidget);
   });
 
-  testWidgets('loading: a spinner while the first page is fetched', (
+  testWidgets('loading: skeleton rows while the first page is fetched', (
     tester,
   ) async {
     stubCached(const TimelineSnapshot());
     final never = Completer<TimelineSnapshot>();
     when(() => timeline.refresh(feed)).thenAnswer((_) => never.future);
 
+    final handle = tester.ensureSemantics();
     await open(tester, settle: false);
 
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.bySemanticsLabel('Loading posts'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    handle.dispose();
     never.complete(const TimelineSnapshot());
     await tester.pumpAndSettle();
   });

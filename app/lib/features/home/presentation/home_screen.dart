@@ -55,9 +55,11 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
         child: Scaffold(
-          appBar: AppBar(title: const Text('Home')),
           body: TimelineFeedView(
             viewerUserId: viewerUserId,
+            headerSlivers: const [
+              SliverAppBar(title: Text('Home'), floating: true, snap: true),
+            ],
             emptyTitle: 'Your timeline is empty',
             emptySubtitle:
                 'Follow people to see their posts here, or write your own '

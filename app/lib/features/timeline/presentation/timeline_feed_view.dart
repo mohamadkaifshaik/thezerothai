@@ -204,7 +204,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                 ),
                 if (state.newPosts > 0)
                   Positioned(
-                    top: AppSpacing.sm,
+                    top: kToolbarHeight + AppSpacing.sm,
                     left: 0,
                     right: 0,
                     child: Center(
@@ -239,21 +239,14 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
       if (state.status == TimelineStatus.error && state.error != null) {
         child = AppErrorView(error: state.error!, onRetry: cubit.refresh);
       } else if (state.status == TimelineStatus.loading || state.refreshing) {
-        child = const Center(
-          child: Padding(
-            padding: EdgeInsets.all(AppSpacing.xl),
-            child: CircularProgressIndicator(),
-          ),
-        );
+        child = const _FeedSkeleton();
       } else {
         child = _EmptyView(
           title: widget.emptyTitle,
           subtitle: widget.emptySubtitle,
         );
       }
-      return [
-        _inset(inset, SliverToBoxAdapter(child: child)),
-      ];
+      return [_inset(inset, SliverToBoxAdapter(child: child))];
     }
     final entries = state.entries;
     return [
@@ -284,9 +277,8 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
               mainAxisSize: MainAxisSize.min,
               children: [
                 InkWell(
-                  onTap: () => context.push(
-                    AppRouter.postPath(view.post.postId),
-                  ),
+                  onTap: () =>
+                      context.push(AppRouter.postPath(view.post.postId)),
                   child: PostCard(
                     view: view,
                     viewerUserId: widget.viewerUserId,
@@ -343,16 +335,18 @@ class _NoticeBanner extends StatelessWidget {
       liveRegion: true,
       child: Container(
         width: double.infinity,
-        color: colors.secondaryContainer,
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHigh,
+          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+        ),
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
           vertical: AppSpacing.sm,
         ),
         child: Text(
           timelineNoticeMessage(error),
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: colors.onSecondaryContainer),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: colors.onSurface),
         ),
       ),
     );
@@ -369,30 +363,100 @@ class _EmptyView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.xl),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.xxl,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.dynamic_feed_outlined,
-            size: 40,
-            color: theme.colorScheme.primary,
+            size: AppSpacing.xxl,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
             title,
-            style: theme.textTheme.titleMedium,
+            style: theme.textTheme.titleLarge,
             textAlign: TextAlign.center,
           ),
           if (subtitle != null) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(
               subtitle!,
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Placeholder rows shaped like posts, shown while the first page loads.
+/// Static (no shimmer): cheap, and respects reduced motion.
+class _FeedSkeleton extends StatelessWidget {
+  const _FeedSkeleton();
+
+  static const _rows = 5;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    Widget bar(double widthFactor) => FractionallySizedBox(
+      alignment: AlignmentDirectional.centerStart,
+      widthFactor: widthFactor,
+      child: Container(
+        height: AppSpacing.md,
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+      ),
+    );
+    return Semantics(
+      liveRegion: true,
+      label: 'Loading posts',
+      child: ExcludeSemantics(
+        child: Column(
+          children: [
+            for (var i = 0; i < _rows; i++) ...[
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: AppSpacing.xxl - AppSpacing.sm,
+                      height: AppSpacing.xxl - AppSpacing.sm,
+                      decoration: BoxDecoration(
+                        color: colors.surfaceContainerHigh,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          bar(0.4),
+                          const SizedBox(height: AppSpacing.sm),
+                          bar(1),
+                          const SizedBox(height: AppSpacing.sm),
+                          bar(0.7),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(),
+            ],
+          ],
+        ),
       ),
     );
   }
