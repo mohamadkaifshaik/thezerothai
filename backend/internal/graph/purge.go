@@ -87,13 +87,14 @@ func (r *FirestoreRepo) queryEdges(ctx context.Context, uid string, outgoing boo
 	}
 	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
-		return nil, fmt.Errorf("graph: purge query %s: %w", field, err)
+		return nil, logger.RedactErr(fmt.Errorf("graph: purge query %s: %w", field, err), uid)
 	}
 	out := make([]Edge, 0, len(docs))
 	for _, d := range docs {
 		var f followDoc
 		if err := d.DataTo(&f); err != nil {
-			return nil, fmt.Errorf("graph: purge decode follow %s: %w", d.Ref.ID, err)
+			// The doc id is "<follower>_<followee>": only its hash is logged.
+			return nil, logger.RedactErr(fmt.Errorf("graph: purge decode follow %s: %w", logger.HashUID(d.Ref.ID), err), uid)
 		}
 		out = append(out, Edge{DocID: d.Ref.ID, FollowerID: f.FollowerID, FolloweeID: f.FolloweeID, CreatedAt: f.CreatedAt})
 	}
@@ -186,7 +187,12 @@ func (r *FirestoreRepo) deleteEdges(ctx context.Context, uid string, edges []Edg
 		}
 	}
 	if err := b.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("graph: purge edges: %w", err)
+		// Firestore's message names the documents ("follows/<a>_<b>"), so every uid in the batch is hashed.
+		ids := []string{uid}
+		for _, e := range edges {
+			ids = append(ids, e.FollowerID, e.FolloweeID)
+		}
+		return 0, logger.RedactErr(fmt.Errorf("graph: purge edges: %w", err), ids...)
 	}
 	counter := budget.FromContext(ctx)
 	counter.AddWrites(scratch.Writes())
@@ -206,7 +212,7 @@ func (r *FirestoreRepo) existingCounterparts(ctx context.Context, others []strin
 		end := min(start+profileGetAllCap, len(others))
 		got, err := r.profiles.GetProfiles(ctx, others[start:end])
 		if err != nil {
-			return nil, nil, fmt.Errorf("graph: purge: counterpart profiles: %w", err)
+			return nil, nil, logger.RedactErr(fmt.Errorf("graph: purge: counterpart profiles: %w", err), others...)
 		}
 		for uid := range got {
 			userOK[uid] = true
@@ -220,7 +226,7 @@ func (r *FirestoreRepo) existingCounterparts(ctx context.Context, others []strin
 		snaps, err := r.client.GetAll(ctx, refs)
 		budget.FromContext(ctx).AddReads(int64(len(refs)))
 		if err != nil {
-			return nil, nil, fmt.Errorf("graph: purge: counterpart graphs: %w", err)
+			return nil, nil, logger.RedactErr(fmt.Errorf("graph: purge: counterpart graphs: %w", err), others...)
 		}
 		for i, s := range snaps {
 			graphOK[others[i]] = s.Exists()
@@ -273,7 +279,7 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 		snaps, err := r.client.GetAll(ctx, refs)
 		budget.FromContext(ctx).AddReads(int64(len(refs)))
 		if err != nil {
-			return 0, fmt.Errorf("graph: purge: counterpart graphs: %w", err)
+			return 0, logger.RedactErr(fmt.Errorf("graph: purge: counterpart graphs: %w", err), append([]string{uid}, chunk...)...)
 		}
 		exists = make(map[string]bool, len(chunk))
 		for i, s := range snaps {
@@ -298,7 +304,7 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 		return skipped, nil
 	}
 	if err := b.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("graph: purge array: %w", err)
+		return 0, logger.RedactErr(fmt.Errorf("graph: purge array: %w", err), append([]string{uid}, chunk...)...)
 	}
 	budget.FromContext(ctx).AddWrites(scratch.Writes())
 	return skipped, nil
@@ -317,7 +323,7 @@ func (r *FirestoreRepo) purgeFinish(ctx context.Context, uid string) (Checkpoint
 		}
 	}
 	if _, err := r.graphRef(uid).Delete(ctx); err != nil {
-		return Checkpoint{}, false, fmt.Errorf("graph: purge delete graph doc: %w", err)
+		return Checkpoint{}, false, logger.RedactErr(fmt.Errorf("graph: purge delete graph doc: %w", err), uid)
 	}
 	budget.FromContext(ctx).AddDeletes(1)
 	slog.Info("graph_purge_batch", "uid_hash", logger.HashUID(uid), "step", purgeStepFinish, "graph_doc_deleted", true)

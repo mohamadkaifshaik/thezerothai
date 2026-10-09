@@ -175,9 +175,33 @@ func ProfileExemptProcedures(procedures ...string) map[string]struct{} {
 	return set
 }
 
+// AccountStatusOption configures AccountStatusInterceptor.
+type AccountStatusOption func(*accountStatusConfig)
+
+type accountStatusConfig struct {
+	allowRestricted map[string]struct{}
+}
+
+// AllowRestricted lets a SUSPENDED or DELETING caller through to exactly these procedures, and no others
+// (ADR-0011 Q2/Q3: DeleteAccount only, so a user can always erase their own account and a client retry after a
+// lost response is a replay rather than ACCOUNT_RESTRICTED). The caller must still have a profile. Every other
+// procedure keeps rejecting restricted accounts.
+func AllowRestricted(procedures ...string) AccountStatusOption {
+	return func(c *accountStatusConfig) {
+		for _, p := range procedures {
+			c.allowRestricted[p] = struct{}{}
+		}
+	}
+}
+
 // AccountStatusInterceptor rejects SUSPENDED/DELETING accounts and enforces PROFILE_REQUIRED for every
-// procedure not in exempt (ADR-0006 §2, §6). Must run after IDTokenInterceptor.
-func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]struct{}) connect.UnaryInterceptorFunc {
+// procedure not in exempt (ADR-0006 §2, §6), except the procedures named by AllowRestricted. Must run after
+// IDTokenInterceptor.
+func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]struct{}, opts ...AccountStatusOption) connect.UnaryInterceptorFunc {
+	cfg := accountStatusConfig{allowRestricted: map[string]struct{}{}}
+	for _, o := range opts {
+		o(&cfg)
+	}
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			if _, ok := exempt[req.Spec().Procedure]; ok {
@@ -216,6 +240,9 @@ func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]
 			}
 			switch status {
 			case AccountStatusSuspended, AccountStatusDeleting:
+				if _, ok := cfg.allowRestricted[req.Spec().Procedure]; ok {
+					return next(ctx, req)
+				}
 				return nil, apierr.ToConnect(apierr.New(connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_ACCOUNT_RESTRICTED, "account is restricted"))
 			}
 			return next(ctx, req)

@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -82,5 +83,39 @@ func TestWithLogger_FallbackWhenUnset(t *testing.T) {
 	ctx := WithLogger(context.Background(), custom)
 	if got := L(ctx, fallback); got != custom {
 		t.Error("L() should return the attached logger")
+	}
+}
+
+func TestReplaceAttr_SeverityNames(t *testing.T) {
+	tests := []struct {
+		name string
+		in   slog.Attr
+		want slog.Attr
+	}{
+		{"notice", slog.Any(slog.LevelKey, LevelNotice), slog.String("severity", "NOTICE")},
+		{"info is untouched", slog.Any(slog.LevelKey, slog.LevelInfo), slog.Any("severity", slog.LevelInfo)},
+		{"message key", slog.String(slog.MessageKey, "m"), slog.String("message", "m")},
+		{"other keys", slog.String("k", "v"), slog.String("k", "v")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := replaceAttr(nil, tt.in)
+			if got.Key != tt.want.Key || got.Value.String() != tt.want.Value.String() {
+				t.Errorf("replaceAttr(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+	if LevelNotice <= slog.LevelInfo || LevelNotice >= slog.LevelWarn {
+		t.Errorf("LevelNotice %d must sit between INFO and WARN", LevelNotice)
+	}
+}
+
+func TestTraceAttrs(t *testing.T) {
+	if got := TraceAttrs(context.Background()); got != nil {
+		t.Errorf("TraceAttrs(no trace) = %v, want nil", got)
+	}
+	got := TraceAttrs(WithTrace(context.Background(), "projects/p/traces/t"))
+	if len(got) != 2 || got[0] != TraceKey || got[1] != "projects/p/traces/t" {
+		t.Errorf("TraceAttrs = %v", got)
 	}
 }

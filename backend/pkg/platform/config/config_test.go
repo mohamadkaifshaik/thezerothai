@@ -22,7 +22,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_GRAPH", "FEATURE_GRAPH_ALLOWLIST", "FEATURE_GRAPH_PERCENT",
 		"FEATURE_POSTS", "FEATURE_POSTS_ALLOWLIST", "FEATURE_POSTS_PERCENT",
 		"FEATURE_ACCOUNT_LIFECYCLE", "FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST", "FEATURE_ACCOUNT_LIFECYCLE_PERCENT",
-		"ACCOUNT_DELETE_REAUTH_MAX_AGE",
+		"ACCOUNT_DELETE_REAUTH_MAX_AGE", "EXPORT_BUCKET", "EXPORT_URL_TTL", "EXPORT_RETENTION", "JOBS_TOPIC",
 		"CACHE_POSTS_ENTRIES", "CACHE_AUTHOR_RECENT_ENTRIES",
 		"RATE_LIMIT_USER_TIMELINE_PER_MIN", "RATE_LIMIT_POST_CREATE_PER_MIN", "RATE_LIMIT_POST_DELETE_PER_MIN",
 		"QUOTA_BLOCKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY",
@@ -118,6 +118,51 @@ func TestLoad_AccountLifecycle(t *testing.T) {
 			reg := flags.NewRegistry(cfg.FeatureAccountLifecycle)
 			if got := reg.Enabled("uid-1", "account_lifecycle"); got != tc.wantOn {
 				t.Errorf("account_lifecycle enabled = %v, want %v", got, tc.wantOn)
+			}
+		})
+	}
+}
+
+// TestLoad_AccountExportSettings (P8, ADR-0011 D-B): the defaults and the bounds on the signed-URL lifetime and the
+// export retention, which a typo must not turn into a bearer URL valid for days.
+func TestLoad_AccountExportSettings(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       map[string]string
+		wantErr   string
+		wantTTL   time.Duration
+		wantKeep  time.Duration
+		wantBkt   string
+		wantTopic string
+	}{
+		{name: "defaults", wantTTL: 15 * time.Minute, wantKeep: 168 * time.Hour, wantBkt: "demo-dzeroth-local-exports", wantTopic: "jobs"},
+		{name: "overrides", env: map[string]string{"EXPORT_BUCKET": "b", "EXPORT_URL_TTL": "1h", "EXPORT_RETENTION": "24h", "JOBS_TOPIC": "t"},
+			wantTTL: time.Hour, wantKeep: 24 * time.Hour, wantBkt: "b", wantTopic: "t"},
+		{name: "ttl zero", env: map[string]string{"EXPORT_URL_TTL": "0"}, wantErr: "EXPORT_URL_TTL must be > 0"},
+		{name: "ttl over 1h", env: map[string]string{"EXPORT_URL_TTL": "61m"}, wantErr: "EXPORT_URL_TTL must be > 0"},
+		{name: "ttl unparsable", env: map[string]string{"EXPORT_URL_TTL": "soon"}, wantErr: "EXPORT_URL_TTL"},
+		{name: "retention negative", env: map[string]string{"EXPORT_RETENTION": "-1h"}, wantErr: "EXPORT_RETENTION must be > 0"},
+		{name: "retention over 30d", env: map[string]string{"EXPORT_RETENTION": "721h"}, wantErr: "EXPORT_RETENTION must be > 0"},
+		{name: "retention unparsable", env: map[string]string{"EXPORT_RETENTION": "x"}, wantErr: "EXPORT_RETENTION"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cfg, err := Load()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load() error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.ExportURLTTL != tc.wantTTL || cfg.ExportRetention != tc.wantKeep || cfg.ExportBucket != tc.wantBkt || cfg.JobsTopic != tc.wantTopic {
+				t.Errorf("got ttl=%s keep=%s bucket=%s topic=%s", cfg.ExportURLTTL, cfg.ExportRetention, cfg.ExportBucket, cfg.JobsTopic)
 			}
 		})
 	}

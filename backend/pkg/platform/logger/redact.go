@@ -2,6 +2,7 @@ package logger
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 )
 
@@ -47,4 +48,34 @@ func CauseChain(err error) string {
 		}
 	}
 	return msg
+}
+
+var (
+	// docPathRe matches a Firestore document path as the SDK prints it in errors ("documents/users/<uid>/...").
+	docPathRe = regexp.MustCompile(`documents/\S+`)
+	// edgeIDRe matches a composite edge/like doc id "<uid>_<uid>" (uids are 20-128 chars of [A-Za-z0-9-] and never
+	// contain "_", ADR-0008 A3).
+	edgeIDRe = regexp.MustCompile(`[A-Za-z0-9-]{20,128}_[A-Za-z0-9-]{20,128}`)
+	// hexIDRe matches a 64-char hex id (an export id, or an object path "<id>.json").
+	hexIDRe = regexp.MustCompile(`[0-9a-f]{64}`)
+)
+
+// ScrubErr is RedactErr plus a pattern pass for identifiers the caller cannot list: third-party uids inside
+// Firestore document paths (documents/...), composite edge ids and 64-hex export ids, each replaced by
+// "<redacted>". Use it on any error that leaves a job or an eraser for a log line. errors.Is/As still reach err.
+func ScrubErr(err error, ids ...string) error {
+	if err == nil {
+		return nil
+	}
+	// Patterns first: once an id is hashed, the 16-char hash would no longer look like half of an edge id.
+	msg := CauseChain(err)
+	msg = docPathRe.ReplaceAllString(msg, "<redacted>")
+	msg = edgeIDRe.ReplaceAllString(msg, "<redacted>")
+	msg = hexIDRe.ReplaceAllString(msg, "<redacted>")
+	for _, id := range ids {
+		if id != "" {
+			msg = strings.ReplaceAll(msg, id, HashUID(id))
+		}
+	}
+	return &redactedError{msg: msg, cause: err}
 }

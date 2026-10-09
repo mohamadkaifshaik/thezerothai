@@ -441,3 +441,15 @@ func TestLogging_EmitsRequestLineWhenRecoverCatchesPanic(t *testing.T) {
 		t.Errorf("expected exactly one Error-Reporting-shaped entry for the panic, got %d; log: %s", got, out)
 	}
 }
+
+func TestReportError_ExportedForJobHandlers(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	mw.ReportError(context.Background(), log, "jobs/account_delete", errors.New("boom"))
+	out := buf.String()
+	for _, want := range []string{`"level":"ERROR"`, `"msg":"boom"`, `"rpc":"jobs/account_delete"`, "ReportedErrorEvent", "stack_trace"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log %s lacks %s", out, want)
+		}
+	}
+}

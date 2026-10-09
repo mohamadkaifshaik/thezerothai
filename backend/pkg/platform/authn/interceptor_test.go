@@ -283,3 +283,44 @@ func TestAccountStatusInterceptor_ActiveAccountAllowed(t *testing.T) {
 		t.Fatalf("unexpected error for an active account: %v", err)
 	}
 }
+
+// TestAccountStatusInterceptor_AllowRestricted (ADR-0011 Q2/Q3): a SUSPENDED or DELETING caller is let through to
+// the allowed procedure only; any other procedure, and a caller with no profile, are still rejected.
+func TestAccountStatusInterceptor_AllowRestricted(t *testing.T) {
+	type acct = struct {
+		exists bool
+		status authn.AccountStatus
+	}
+	tests := []struct {
+		name      string
+		account   acct
+		allowed   []string
+		wantCode  connect.Code
+		wantAllow bool
+	}{
+		{"suspended, procedure allowed", acct{true, authn.AccountStatusSuspended}, []string{procedure}, 0, true},
+		{"deleting, procedure allowed", acct{true, authn.AccountStatusDeleting}, []string{procedure}, 0, true},
+		{"suspended, another procedure allowed", acct{true, authn.AccountStatusSuspended}, []string{"/x.v1.S/Other"}, connect.CodePermissionDenied, false},
+		{"deleting, nothing allowed", acct{true, authn.AccountStatusDeleting}, nil, connect.CodePermissionDenied, false},
+		{"no profile is still PROFILE_REQUIRED", acct{false, authn.AccountStatusUnknown}, []string{procedure}, connect.CodeFailedPrecondition, false},
+		{"active passes", acct{true, authn.AccountStatusActive}, nil, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := fakeAccountStatusProvider{byUID: map[string]acct{"u": tt.account}}
+			idVerifier := fakeIDTokenVerifier{tokens: map[string]authn.Claims{"good": {UID: "u"}}}
+			srv := newServer(t, authn.IDTokenInterceptor(idVerifier),
+				authn.AccountStatusInterceptor(provider, authn.ProfileExemptProcedures(), authn.AllowRestricted(tt.allowed...)))
+			err := call(t, srv, map[string]string{"Authorization": "Bearer good"})
+			if tt.wantAllow {
+				if err != nil {
+					t.Fatalf("want pass, got %v", err)
+				}
+				return
+			}
+			if err == nil || codeOf(t, err) != tt.wantCode {
+				t.Fatalf("err = %v, want code %v", err, tt.wantCode)
+			}
+		})
+	}
+}
