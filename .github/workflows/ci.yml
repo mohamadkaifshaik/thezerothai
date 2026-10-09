@@ -35,8 +35,8 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          # Latest 1.26 patch (stdlib security fixes); go.mod only states the minimum language version.
-          go-version: "1.26.x"
+          # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
+          go-version: "1.26.9"
           check-latest: true
           cache: false
 
@@ -101,8 +101,8 @@ jobs:
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          # Latest 1.26 patch (stdlib security fixes); go.mod only states the minimum language version.
-          go-version: "1.26.x"
+          # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
+          go-version: "1.26.9"
           check-latest: true
           cache: false
 
