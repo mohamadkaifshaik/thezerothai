@@ -90,7 +90,6 @@ class _AppWidgetState extends State<AppWidget> {
         ),
         RepositoryProvider.value(value: widget.postsRepository),
         RepositoryProvider.value(value: widget.timelineRepository),
-        RepositoryProvider.value(value: widget.postsGate),
       ],
       child: MultiBlocProvider(
         providers: [
