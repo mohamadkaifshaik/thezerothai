@@ -245,10 +245,28 @@ any `auth_admin_refused` ERROR. Dev has no alert; inspect logs instead.
    `DeleteAccount` request line and a re-auth, then adjust `auth_admin_alert_per_hour` in Terraform if it is routinely noisy.
 3. Any `auth_admin_refused` means a C1 check stopped an Auth mutation on an account that was not DELETING. Treat as a
    potential bug or compromise: read the line, check the user's `users/{uid}` state, and file it before re-enabling anything.
-4. If you suspect misuse: set `feature_account_lifecycle = "off"` (Terraform, `envs/prod`, plan then founder-approved apply).
-   That stops new `DeleteAccount` and export requests; **jobs already accepted keep running on purpose** (users must
+4. If you suspect misuse: set `feature_account_lifecycle = "off"` (Terraform, `envs/prod`, plan then founder-approved apply),
+   **then shift traffic to the revision that apply creates.** In prod `promote-prod.yml` pins traffic to a named revision
+   (`--to-revisions`), so the apply alone creates a 0% revision and changes nothing (same trap as
+   [cost-spike.md](cost-spike.md)):
+   ```bash
+   G="$LOCALAPPDATA/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.cmd"   # Git Bash on Windows
+   P="--project=dzeroth-prod --region=asia-south1"
+   SERVING=$("$G" run services describe api $P --format="value(status.traffic[0].revisionName)")  # note it: instant fallback
+   NEW=$("$G" run services describe api $P --format="value(status.latestCreatedRevisionName)")
+   # Wait until $NEW is Ready and carries the flag off before shifting:
+   "$G" run revisions describe $NEW $P --format=json | grep -A1 '"FEATURE_ACCOUNT_LIFECYCLE"'
+   "$G" run services update-traffic api $P --to-revisions=$NEW=100 --quiet
+   # Verify: DeleteAccount / RequestAccountExport now answer FAILED_PRECONDITION FEATURE_DISABLED.
+   # Fallback while anything is unclear: update-traffic --to-revisions=$SERVING=100
+   ```
+   Check that `$NEW` was built from the image that is serving today: Terraform ignores the image, so it carries the
+   service template's image, which `release-prod` may have staged as a newer candidate. If it differs, use
+   `--image=<serving image>` on a `gcloud run services update` instead of shifting to it.
+   The flag stops new `DeleteAccount` and export requests; **jobs already accepted keep running on purpose** (users must
    not be left half-deleted). To halt in-flight jobs too, remove the `accountLifecycleAuth` binding from the runtime
-   service account in Terraform: Auth steps then fail, retry and end in the DLQ. Put it back to resume.
+   service account in Terraform: Auth steps then fail, retry and end in the DLQ. Put it back to resume. IAM takes
+   effect at once, with no revision or traffic shift.
 
 ### A deletion is stuck
 Symptom: a user is `DELETING` for longer than about an hour, or the DLQ tile moved.
