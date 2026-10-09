@@ -1,0 +1,82 @@
+{
+  "account": {
+    "createdAt": "<time>",
+    "email": "<email:A>",
+    "emailVerified": true,
+    "lastSignInAt": "<time>",
+    "providers": [
+      "password"
+    ]
+  },
+  "exportVersion": 1,
+  "generatedAt": "<time>",
+  "graph": {
+    "blocked": [
+      {
+        "handle": "<handle:x>",
+        "userId": "<uid:x>"
+      }
+    ],
+    "followers": [
+      {
+        "handle": "<handle:g>",
+        "userId": "<uid:g>"
+      }
+    ],
+    "following": [
+      {
+        "handle": "<handle:f>",
+        "userId": "<uid:f>"
+      }
+    ],
+    "muted": [
+      {
+        "handle": "<handle:z>",
+        "userId": "<uid:z>"
+      }
+    ],
+    "userId": "<uid:A>"
+  },
+  "posts": {
+    "posts": [
+      {
+        "createdAt": "<time>",
+        "hashtags": [],
+        "id": "<post-id>",
+        "mentions": [
+          "<handle:f>"
+        ],
+        "text": "hello @<handle:f> from A"
+      },
+      {
+        "createdAt": "<time>",
+        "hashtags": [],
+        "id": "<post-id>",
+        "mentions": [],
+        "text": "unicode ünïcödé 日本語 😀 emoji and RTL שלום مرحبا"
+      },
+      {
+        "createdAt": "<time>",
+        "hashtags": [
+          "golden"
+        ],
+        "id": "<post-id>",
+        "mentions": [],
+        "text": "plain ascii post #golden"
+      }
+    ],
+    "userId": "<uid:A>"
+  },
+  "profile": {
+    "bio": "",
+    "createdAt": "<time>",
+    "displayName": "Apiserver Test",
+    "followersCount": 1,
+    "followingCount": 1,
+    "handle": "<handle:A>",
+    "isPrivate": false,
+    "postsCount": 3,
+    "userId": "<uid:A>",
+    "verified": false
+  }
+}

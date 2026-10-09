@@ -612,7 +612,7 @@ Order:
 - **Budget.** Reference account ≈ 703 R / 1 W / 0 D + job state (OPEN); 1 Class A.
 
 ### T11 — Collection-coverage guard + residue allowlist  [owner: tester] [size: S] [depends: T6, T7] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Done (2026-10-09). The table, the Q10 allowlist and the `make ci` guard are in `backend/internal/apiserver/lifecycle_collections_guard_test.go` (mutation-tested by `TestLifecycleCollections_GuardCatchesGaps`); the emulator residue sweep (`sweepResidue`, unknown collections and subcollections fail by name) is in `account_lifecycle_sweep_integration_test.go`. Rows for the P4-P7 collections are `pendingEraser` until those slices register their Erasers; `notifications` is the one such collection the code already names (read-only today). Helpers are listed in `docs/code-map.md`.
 - **Description.**
   - Add a CI unit test (`make ci`, no emulator) with a table of every Firestore collection and GCS prefix in ADR-0003
     and later ADRs. Each row maps to a registered Eraser step, a registered export section, or an ADR-referenced
@@ -706,7 +706,7 @@ Order:
 - **Budget.** ≤ 11 requests per export (1 request + ≤ 10 polls).
 
 ### T16 — Emulator integration: deletion chain  [owner: tester] [size: M] [depends: T5, T7, T8, T11] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Done (2026-10-09), report `docs/reviews/test-report-account-lifecycle.md`. Crash-resume at all 33 side effects of a complete deletion, 3 racing deliveries, the T11 sweep and counter invariants after every scenario, and the reference account (P 300, O 100, I 100, E 1) measured at 509 R / 300 W / 505 D in one delivery. Deviations: the graph/posts invariant checkers are unexported, so `requireInvariants` restates them; the fault-injection chain reaches the Auth emulator over REST because only `apiserver.go` may build the Admin SDK client (C2).
 - **Description.**
   - Seed U with posts, edges both ways, blocks both ways, mutes, an export, a handle and quotas.
   - DeleteAccount → drive the job to completion.
@@ -725,7 +725,7 @@ Order:
 - **Budget.** Not applicable (emulator).
 
 ### T17 — Emulator integration: export privacy and access  [owner: tester] [size: M] [depends: T9, T10] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Done (2026-10-09). Golden export with the `blockedBy` and third-party-data greps, IDOR/expiry/replay (existing audit tests), IST-day quota rollover, export while DELETING, flag-off RPCs and the reference-account export budget (703 R / 2 W). Signed download URLs cannot be minted on the emulators (covered by unit tests and the dev smoke); the exact IST-midnight instant is `quota.TestTodayAt_ISTBoundary`.
 - **Description.**
   - Test the contents against a golden file, including the `blockedBy` grep and that no third party's email, `muted`
     or `blocked` data appears.
@@ -739,7 +739,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T18 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T14, T15, T16, T17] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Done for emulators (2026-10-09): `backend/e2e/account_smoke_test.go` PASS, `make ci` and the full emulator suite green, Flutter 516 tests + analyze green, report PASS. NOT verified and deferred: the `candidate` run of the smoke (remote mode is written but has never been executed; T23), and on-device client delete (Google, Apple, password, web) and Apple token revocation (T13/T20).
 - **Description.**
   - Add `backend/e2e/account_smoke_test.go`, runnable against emulators and the `candidate` URL with throwaway
     accounts: create profile → follow → post → request export → READY → download → delete → poll until the Auth user

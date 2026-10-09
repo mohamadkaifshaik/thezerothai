@@ -79,6 +79,11 @@ func mayUseAuthAdmin(pkgPath, rel string) bool {
 	switch {
 	case pkgPath == backendModule+"/cmd/opsctl" || strings.HasPrefix(pkgPath, backendModule+"/cmd/opsctl/"):
 		return true
+	case rel == "internal/apiserver/account_lifecycle_crash_integration_test.go":
+		// Exact-path exception (founder-approved): a test-only, pure pass-through wrapper (crashAuth) that forwards
+		// each call unchanged to the wrapper-built client and kills the instance afterwards, to inject crashes after
+		// Auth calls (T16). It implements no authorization and bypasses none in production code.
+		return true
 	case pkgPath == backendModule+"/internal/identity":
 		return rel == "internal/identity/authadmin.go" || strings.HasSuffix(rel, "_test.go")
 	}
