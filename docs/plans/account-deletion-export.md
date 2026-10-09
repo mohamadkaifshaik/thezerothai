@@ -155,15 +155,15 @@ P = 300, O = 100, I = 100, B = Bb = M = 0, E = 1.
 ### Per-RPC and per-job budget
 | RPC / job | reads cold / warm / planning | writes | deletes | calls/DAU/day | reads/DAU | writes/DAU | deletes/DAU |
 |---|---|---|---|---|---|---|---|
-| DeleteAccount (sync) | 2 / 1 / 2 (interceptor + fresh `users` read in the txn; ADR-0010 table row "DeleteAccount / …": 2 each) | 1 (`users.status`, `updatedAt`) **+1 if the ADR adds a separate job doc (OPEN)** | 0 | 0.001 (cost-model row 35) | 0.002 | 0.001–0.002 | 0 |
+| DeleteAccount (sync) | 2 / 1 / 2 (interceptor + fresh `users` read in the txn; ADR-0010 table row "DeleteAccount / …": 2 each) | 1 (`users`: status, `deletionRequestedAt`, `deletionJob`; no separate job doc, ADR-0011) | 0 | 0.001 (cost-model row 35) | 0.002 | 0.001–0.002 | 0 |
 | ↳ replay (already DELETING, Q2) | 2 / 1 | 0 | 0 | — | — | — | — |
-| `account-delete` job, general formula (normal path) | P + O + I + 2·⌈(max(B,Bb)+1)/500⌉ + 2 (finish queries) + ≤ 3 (empty last pages) + 1 (start gate) + 4 (identity) + E + **job-state reads (OPEN, ≤ 1 per invocation)** | O + 2I + B + Bb + **checkpoint writes (OPEN, ≤ 1 per invocation)** | P + O + I + 1 (graph doc) + 3 (users, handles, quotas) + E (+ `private/*` docs, 0 at Stage 0) | 0.001 | see the reference row | | |
+| `account-delete` job, general formula (normal path) | P + O + I + 2·⌈(max(B,Bb)+1)/500⌉ + 2 (finish queries) + ≤ 3 (empty last pages) + 1 (start gate) + 3 (identity: 2 + max(E, 1)) + E + job-state read (1 per delivery, +1 per save conflict retry, ≤ 3) | O + 2I + B + Bb + checkpoint writes (≤ 1 per non-final slice) | P + O + I + 1 (graph doc) + 3 (users, handles, quotas) + E (+ `private/*` docs, 0 at Stage 0) | 0.001 | see the reference row | | |
 | ↳ worst path (a counterpart was already purged: the precondition fallback) | + up to 2O + 3I + B + Bb (re-query + `GetProfiles` + counterpart `graph` `GetAll`; `graph/purge.go:116-131,199-230,253`) | same | same | — | — | — | — |
-| ↳ **reference account** | **≈ 509** (posts 300 + graph 204 + identity 4 + gate 1) + job-state | **≈ 300** + checkpoints | **≈ 505** | 0.001 | **0.51** | **0.30** | **0.51** |
+| ↳ **reference account** | **≈ 512** (posts 300 + graph 204 + identity 3 + gate 1 + job-state 1 + users_doc 1 + slice overhead) | **≈ 300** + checkpoints | **≈ 505** | 0.001 | **0.51** | **0.30** | **0.51** |
 | RequestAccountExport | 2 / 1 / 2 (interceptor + `quotas`; proto 1/1 + interceptor) | 2 (`exports` doc + `quotas`) | 0 (+1 TTL delete after 7 d) | 0.001 (**assumption**: cost-model row 36 says "~0") | 0.002 | 0.002 | 0.001 |
 | ↳ replay (same key) | 3 (+1 `exports` read after `AlreadyExists`) | 0 | 0 | — | — | — | — |
-| `account-export` job, general formula | 1 (`users`) + 1 (`exports`) + (P or 1) + (O or 1) + (I or 1) + 1 (`graph`) + distinct(O ∪ I ∪ B ∪ M) handle reads (`graph/export.go:30-32`, `posts/purge.go:107-108`) + job-state (OPEN) | 1 (`exports.status`) + checkpoints (OPEN) | 0 | 0.001 | | | |
-| ↳ **reference account** | **≈ 703** | **1** | 0 | 0.001 | **0.70** | 0.001 | 0 |
+| `account-export` job, general formula | 1 (`users`) + 1 (`exports`) + (P or 1) + (O or 1) + (I or 1) + 1 (`graph`) + distinct(O ∪ I ∪ B ∪ M) handle reads (`graph/export.go:30-32`, `posts/purge.go:107-108`) | 2 (lease claim, then `exports.status`; L-4) | 0 | 0.001 | | | |
+| ↳ **reference account** | **≈ 703** | **2** | 0 | 0.001 | **0.70** | 0.001 | 0 |
 | GetAccountExport | 2 / 1 / 1 (interceptor + `exports`, read fresh) | 0 | 0 | 0.003 (≈ 3 polls per export; capped by `account_ops_daily`) | 0.003 | 0 | 0 |
 | **Slice total** | | | | **≈ 0.005 req** + job invocations | **≈ 1.22** | **≈ 0.31** | **≈ 0.51** |
 
@@ -754,7 +754,7 @@ Order:
 - **Budget.** Per smoke run ≈ 30 reads, 15 writes, 15 deletes.
 
 ### T19 — Code review  [owner: code-reviewer] [size: S] [depends: T4–T15 (per PR)]
-- **Status:** Open.
+- **Status:** Done (2026-10-09), report in `docs/reviews/code-review-account-lifecycle.md`: REQUEST CHANGES, B1 and M1-M3 fixed in #107, 0 open Blockers. Minor 6 (HashUID pepper) and Nit 1 (sleep poll) deferred.
 - **Description.** Review each PR against CLAUDE.md rules 1–11, the ADR and reuse-first:
   - no second limiter or signer;
   - the start gate is reused, not copied;
@@ -762,7 +762,7 @@ Order:
   - no reads in a loop;
   - budget comments match the code;
   - the URL is never logged.
-- **Acceptance criteria.** `docs/reviews/account-lifecycle-code-review.md` has 0 open Blockers.
+- **Acceptance criteria.** `docs/reviews/code-review-account-lifecycle.md` has 0 open Blockers.
 - **Test notes.** —
 - **Observability.** Every new path has `fs_*` fields and an Error Reporting-visible ERROR path.
 - **Budget.** Verify the tables against the code.
@@ -788,7 +788,13 @@ Order:
 - **Budget.** Not applicable.
 
 ### T21 — Cost report + cost-model rows 35–36  [owner: sre-performance] [size: S] [depends: T16, T17] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Done (partial measurement), 2026-10-09 (branch `docs/p8-t21-cost-report`). Report: `docs/reviews/cost-report-account-lifecycle.md`;
+  cost-model rows 35-36 replaced. All figures are derived from the code and ADR-0011, not emulator-measured (T16/T17 not
+  yet re-run for budgets). Acceptance: slice share at 300 DAU is 0.7% reads / 0.5% writes / 0.8% deletes at the ADR rate
+  and 3.9% / 1.5% / 2.5% at 1 deletion + 2 exports per day; crossover restated (released scope about 258 DAU, whole product
+  about 216). Carried as named risks: R1 export single-invocation ceiling unmeasured (dev drill T22), R2 uncapped I and P,
+  R3 retry amplification, R4 existing alert policies about $2.1-2.4/month not in the cost model, R5 unverified prices,
+  R6 emulator `BUDGET` run for the reference account.
 - **Description.**
   - Replace cost-model rows 35–36 with the measured values and the ADR's job-state numbers.
   - Measure the time per invocation and find the account size at which the export needs more than one invocation

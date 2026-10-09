@@ -91,26 +91,38 @@ func TestDeleteAccount(t *testing.T) {
 		}
 	})
 
-	t.Run("replay: same requestedAt, 0 writes, re-publishes the current seq", func(t *testing.T) {
+	t.Run("replay: same requestedAt, 0 writes, publishes only when progressAt is stale (M2)", func(t *testing.T) {
 		h := newHarness(t)
 		h.seedActive("u1", "Alice")
 		first, _ := h.l.DeleteAccount(context.Background(), "u1", delKey)
-		h.clock.Advance(time.Minute)
 		// Pretend the job already advanced to seq 3.
 		h.repo.mu.Lock()
 		h.repo.users["u1"].p.DeletionJob.Seq = 3
 		h.repo.mu.Unlock()
-		writes := h.repo.writes
-		again, err := h.l.DeleteAccount(context.Background(), "u1", "another-key-0123456")
-		if err != nil {
-			t.Fatalf("replay: %v", err)
+		writes, published := h.repo.writes, h.pub.count()
+
+		// Replays inside the window (a live job moves progressAt every ~25 s) must not start duplicate slices.
+		for range 5 {
+			h.clock.Advance(20 * time.Second) // 100 s in total
+			again, err := h.l.DeleteAccount(context.Background(), "u1", "another-key-0123456")
+			if err != nil || !again.Equal(first) || h.repo.writes != writes {
+				t.Fatalf("replay = %v, %v (first %v), writes %d -> %d", again, err, first, writes, h.repo.writes)
+			}
 		}
-		if !again.Equal(first) || h.repo.writes != writes {
-			t.Errorf("replay requestedAt = %v (first %v), writes %d -> %d", again, first, writes, h.repo.writes)
+		if h.pub.count() != published {
+			t.Errorf("replays inside %s published %d messages, want 0", deleteRepublishAfter, h.pub.count()-published)
 		}
-		last := h.pub.msgs[len(h.pub.msgs)-1]
-		if last.Seq != 3 {
-			t.Errorf("replay published seq %d, want the current seq 3", last.Seq)
+
+		// A stale progressAt (a lost publish or a DLQ'd job) is recovered by the replay: the current seq goes out.
+		h.clock.Advance(deleteRepublishAfter)
+		if _, err := h.l.DeleteAccount(context.Background(), "u1", "another-key-0123456"); err != nil {
+			t.Fatalf("stale replay: %v", err)
+		}
+		if h.pub.count() != published+1 {
+			t.Fatalf("stale replay published %d messages, want 1", h.pub.count()-published)
+		}
+		if last := h.pub.msgs[len(h.pub.msgs)-1]; last.Seq != 3 {
+			t.Errorf("stale replay published seq %d, want the current seq 3", last.Seq)
 		}
 	})
 

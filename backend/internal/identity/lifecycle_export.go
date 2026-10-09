@@ -16,10 +16,13 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// exportBudget bounds one export delivery inside the 30 s Pub/Sub ack deadline and Cloud Run request timeout.
-const exportBudget = 25 * time.Second
+// defaultExportBudget bounds the composing of one export (the bucket Put) inside the 27 s handlerBudget, which is
+// itself inside the 30 s Pub/Sub ack deadline and Cloud Run request timeout. It leaves saveReserve (5 s) for the
+// status write and object clean-up that follow, including the too_large failure path.
+const defaultExportBudget = 22 * time.Second
 
 const (
 	// exportLease is how long a claimed export is protected from other deliveries (L-4). It exceeds handlerBudget
@@ -80,8 +83,6 @@ func profileSection(p Profile) exportProfile {
 // its 60 s backoff, when the lease has expired or the export is done. Only the claimant composes: concurrent or
 // replayed deliveries no longer each stream the whole export (L-4).
 func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult) jobResult {
-	ctx, cancel := context.WithTimeout(ctx, exportBudget)
-	defer cancel()
 	doc, err := l.repo.GetExport(ctx, msg.ExportID)
 	switch {
 	case isNotFound(err):
@@ -126,14 +127,23 @@ func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult
 	doc.UpdateTime = updateTime
 
 	cw := &countingWriter{}
-	err = l.objects.Put(ctx, doc.ObjectPath, "application/json", func(w io.Writer) error {
+	cctx, ccancel := context.WithTimeout(ctx, l.exportBudget)
+	defer ccancel()
+	err = l.objects.Put(cctx, doc.ObjectPath, "application/json", func(w io.Writer) error {
 		*cw = countingWriter{w: w} // a retried Put restarts the object
-		return l.composeExport(ctx, cw, profile, target)
+		return l.composeExport(cctx, cw, profile, target)
 	})
 	res.sections, res.bytes = cw.sections, cw.n
 	switch {
 	case errors.Is(err, errPermanent):
 		return l.failExport(ctx, res, doc, "permanent")
+	case err != nil && ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || cctx.Err() != nil):
+		// The export outgrew the compose budget. A redelivery would re-read everything it reached in that time (up to
+		// 10 deliveries, and again from the backstop), so this is a permanent failure: FAILED, ERROR for Error
+		// Reporting, runbook "Export fails with too_large". ctx (the handler's) still has the reserve to record it.
+		mw.ReportError(ctx, l.log.With(logger.TraceAttrs(ctx)...), "jobs/account_export_too_large",
+			logger.ScrubErr(fmt.Errorf("account_export_too_large: sections=%d bytes=%d: %w", cw.sections, cw.n, err), doc.UID))
+		return l.failExport(ctx, res, doc, "too_large")
 	case err != nil:
 		return retry(res, "error", logger.RedactErr(fmt.Errorf("identity: compose export: %w", err), doc.UID))
 	}

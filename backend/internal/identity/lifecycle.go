@@ -32,6 +32,13 @@ const (
 	defaultWorkBudget = 20 * time.Second
 	// stepGrace is how long past the soft budget one step call may still run (a call that starts at 19.9 s).
 	stepGrace = 5 * time.Second
+	// saveReserve is the part of a delivery's handlerBudget that the work never uses: the checkpoint save (2 s deadline
+	// share) plus the 5 s-bounded Publish of the continuation, or the status write after a failed export.
+	saveReserve = 5 * time.Second
+	// deleteRepublishAfter is the no-progress age under which a DeleteAccount replay does not re-publish the current
+	// seq (M2): a live job moves progressAt every ~25 s, so a replay inside the window would only start a duplicate
+	// slice. Longer than that, the job is stuck or its publish was lost, and the replay is the recovery.
+	deleteRepublishAfter = 2 * time.Minute
 	// maxStepErrors is opsctl purgeLoop's policy, moved here: after this many consecutive errors on one step the
 	// delivery fails (Pub/Sub then retries it with backoff).
 	maxStepErrors = 5
@@ -90,6 +97,8 @@ type LifecycleDeps struct {
 	// WorkBudget and StartGate are test seams; zero means the production values (20 s, 120 s).
 	WorkBudget time.Duration
 	StartGate  time.Duration
+	// ExportBudget is a test seam for the export compose budget; zero means 22 s.
+	ExportBudget time.Duration
 	// RetryBackoff is the first jitter ceiling between retries of a failing step (doubled per retry); zero means 200 ms.
 	RetryBackoff time.Duration
 }
@@ -109,6 +118,8 @@ type Lifecycle struct {
 	urlTTL     time.Duration
 	workBudget time.Duration
 	startGate  time.Duration
+	// exportBudget bounds the composing of one export (see defaultExportBudget).
+	exportBudget time.Duration
 	// retryBackoff is the first jitter ceiling between retries of one failing step.
 	retryBackoff time.Duration
 
@@ -141,6 +152,10 @@ func NewLifecycle(d LifecycleDeps) (*Lifecycle, error) {
 	}
 	if l.workBudget <= 0 {
 		l.workBudget = defaultWorkBudget
+	}
+	l.exportBudget = d.ExportBudget
+	if l.exportBudget <= 0 {
+		l.exportBudget = defaultExportBudget
 	}
 	if l.retryBackoff <= 0 {
 		l.retryBackoff = defaultRetryBackoff
@@ -245,10 +260,16 @@ func (l *Lifecycle) publish(ctx context.Context, msg JobMessage) error {
 	return l.pub.Publish(ctx, data)
 }
 
-// DeleteAccount (ADR-0011 D-A): one transaction sets DELETING + the deletion state (1 read, 1 write; a replay 1
-// read, 0 writes), then it publishes the job message. A publish failure still returns success (ERROR
-// account_delete_enqueue_failed): a replay or the daily backstop re-publishes. The caller's recent sign-in and the
-// flag are checked by the handler; the uid is the token's own, never a request field (IAM control C1).
+// DeleteAccount (ADR-0011 D-A): one transaction sets DELETING + the deletion state (first call: 1 read, 1 write; a
+// replay 2 reads, 0 writes, 3 with the interceptor's cold profile read), then it publishes the job message. A publish
+// failure still returns success (ERROR account_delete_enqueue_failed). A replay re-publishes the current seq only
+// when the job has made no progress for deleteRepublishAfter (M2), so a replay storm cannot start duplicate slices;
+// the daily backstop covers the rest. The throttle reads deletionJob.progressAt from the profile the replay already
+// read, so it adds no Firestore operation. The caller's recent sign-in and the flag are checked by the handler; the
+// uid is the token's own, never a request field (IAM control C1).
+//
+// Rule 4 deviation (ADR-0011 amendment 2026-10-09): idempotency_key is validated but not stored. DELETING is itself
+// the idempotency record: a second call, with any key, is a replay of the same one-way transition.
 func (l *Lifecycle) DeleteAccount(ctx context.Context, uid, idempotencyKey string) (time.Time, error) {
 	logger.SetRequestField(ctx, "account_op", "delete_request")
 	if idempotencyKeyIssue(idempotencyKey) {
@@ -270,8 +291,11 @@ func (l *Lifecycle) DeleteAccount(ctx context.Context, uid, idempotencyKey strin
 		outcome = "replay"
 	}
 	logger.SetRequestField(ctx, "outcome", outcome)
-	if err := l.publish(ctx, JobMessage{Kind: JobKindAccountDelete, UID: uid, Seq: start.Profile.DeletionJob.Seq}); err != nil {
-		mw.ReportError(ctx, l.log, "account_delete_enqueue_failed", logger.RedactErr(fmt.Errorf("account_delete_enqueue_failed: %w", err), uid))
+	job := start.Profile.DeletionJob
+	if !start.Replay || l.now().Sub(job.ProgressAt) >= deleteRepublishAfter {
+		if err := l.publish(ctx, JobMessage{Kind: JobKindAccountDelete, UID: uid, Seq: job.Seq}); err != nil {
+			mw.ReportError(ctx, l.log, "account_delete_enqueue_failed", logger.RedactErr(fmt.Errorf("account_delete_enqueue_failed: %w", err), uid))
+		}
 	}
 	return start.Profile.DeletionRequestedAt, nil
 }
@@ -281,7 +305,7 @@ func exportNotFound() error {
 }
 
 // RequestAccountExport: reads 1 (first call: +1 quotas), writes 2 (exports + quotas); a replay with the same key
-// reads 1 and writes nothing. The export id is hash(uid, key), so a replay returns the same export. A publish
+// reads 2 (quotas, then the exports doc) and writes nothing. The export id is hash(uid, key), so a replay returns the same export. A publish
 // failure still returns success (ERROR account_export_enqueue_failed). A replay re-publishes only a PENDING export
 // older than exportRepublishAfter (L-4: a lost publish is recovered by the client's retry, without a replay storm
 // re-composing the export); the daily backstop covers the rest. The throttle reads createdAt from the doc the replay

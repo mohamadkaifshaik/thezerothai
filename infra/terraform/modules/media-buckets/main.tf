@@ -103,7 +103,7 @@ resource "google_storage_bucket" "exports" {
 
   lifecycle_rule {
     condition {
-      age = 7 # days; keep in step with EXPORT_RETENTION
+      age = 7 # days; config caps EXPORT_RETENTION at 7d (MaxExportRetention), so it can never outlive this rule
     }
     action {
       type = "Delete"
