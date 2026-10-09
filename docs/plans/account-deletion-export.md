@@ -754,7 +754,7 @@ Order:
 - **Budget.** Per smoke run ≈ 30 reads, 15 writes, 15 deletes.
 
 ### T19 — Code review  [owner: code-reviewer] [size: S] [depends: T4–T15 (per PR)]
-- **Status:** Open.
+- **Status:** Done (2026-10-09), report in `docs/reviews/code-review-account-lifecycle.md`: REQUEST CHANGES, B1 and M1-M3 fixed in #107, 0 open Blockers. Minor 6 (HashUID pepper) and Nit 1 (sleep poll) deferred.
 - **Description.** Review each PR against CLAUDE.md rules 1–11, the ADR and reuse-first:
   - no second limiter or signer;
   - the start gate is reused, not copied;
@@ -762,7 +762,7 @@ Order:
   - no reads in a loop;
   - budget comments match the code;
   - the URL is never logged.
-- **Acceptance criteria.** `docs/reviews/account-lifecycle-code-review.md` has 0 open Blockers.
+- **Acceptance criteria.** `docs/reviews/code-review-account-lifecycle.md` has 0 open Blockers.
 - **Test notes.** —
 - **Observability.** Every new path has `fs_*` fields and an Error Reporting-visible ERROR path.
 - **Budget.** Verify the tables against the code.
