@@ -17,7 +17,7 @@ description: Test conventions, tooling and commands for Go and Flutter using the
 - Benchmarks for hot paths (`BenchmarkTimelineMerge`), compare with `benchstat`.
 
 ## Flutter
-- `flutter test --coverage`; mock repos with `mocktail`; override providers in `ProviderScope`.
+- `flutter test --coverage`; mock repos with `mocktail`; test blocs with `bloc_test` (`blocTest`: events in → states out) and widgets by supplying a mock bloc via `BlocProvider.value`.
 - Goldens with `alchemist`; update only intentionally.
 - `integration_test` against local API + emulators; run on Android emulator and `-d chrome`.
 

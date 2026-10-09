@@ -15,6 +15,8 @@ import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../format/relative_time.dart';
 import 'app_avatar.dart';
+import 'post_action_bar.dart';
+import 'post_media.dart';
 
 /// Opens [uri] in the external browser (a new tab on web). Only ever called
 /// with an `http(s)` URL produced by [parsePostText]. Returns false when the
@@ -60,9 +62,15 @@ class PostCard extends StatelessWidget {
     this.onOpenLink,
     this.onHashtagTap,
     this.onRelationshipChanged,
+    this.actions,
   });
 
   final pb.PostView view;
+
+  /// Engagement callbacks. Null (the default) hides the action bar, which
+  /// stays hidden until engagement ships (P5). When set, the bar dispatches
+  /// these as events; the card holds no engagement state.
+  final PostActions? actions;
 
   /// The signed-in user's id; decides own-post vs other-post menu.
   final String? viewerUserId;
@@ -148,9 +156,11 @@ class PostCard extends StatelessWidget {
     ].join(', ');
 
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.sm,
+        AppSpacing.sm,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -220,7 +230,22 @@ class PostCard extends StatelessWidget {
                       onHashtagTap ??
                       () => _showMessage(context, 'Hashtags are coming soon.'),
                 ),
-                const SizedBox(height: AppSpacing.xs),
+                if (_post.media.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  PostMedia(media: _post.media),
+                ],
+                if (actions != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  PostActionBar(
+                    likeCount: _post.likeCount.toInt(),
+                    repostCount: _post.repostCount.toInt(),
+                    replyCount: _post.replyCount.toInt(),
+                    liked: view.likedByViewer,
+                    reposted: view.repostedByViewer,
+                    actions: actions!,
+                  ),
+                ] else
+                  const SizedBox(height: AppSpacing.xs),
               ],
             ),
           ),
@@ -265,7 +290,11 @@ class _AuthorLine extends StatelessWidget {
         ),
         if (verified) ...[
           const SizedBox(width: AppSpacing.xs),
-          Icon(Icons.verified, size: 16, color: theme.colorScheme.primary),
+          Icon(
+            Icons.verified,
+            size: AppIconSize.sm,
+            color: theme.colorScheme.primary,
+          ),
         ],
         const SizedBox(width: AppSpacing.xs),
         Flexible(
@@ -483,7 +512,11 @@ class _PostMenuState extends State<_PostMenu> {
 
     return PopupMenuButton<_MenuAction>(
       tooltip: 'More options',
-      icon: const Icon(Icons.more_horiz),
+      icon: Icon(
+        Icons.more_horiz,
+        size: AppIconSize.lg,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
       padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
       onSelected: (action) => _onSelected(context, action),
       itemBuilder: (context) {

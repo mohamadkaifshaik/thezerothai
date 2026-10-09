@@ -112,7 +112,7 @@ class _ProfileHeaderBody extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(url: profile.avatarUrl, radius: 32),
+              AppAvatar(url: profile.avatarUrl, radius: AppSpacing.xl + AppSpacing.sm),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -124,7 +124,9 @@ class _ProfileHeaderBody extends StatelessWidget {
                     ),
                     Text(
                       '@${profile.handle}',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -143,8 +145,8 @@ class _ProfileHeaderBody extends StatelessWidget {
             ],
           ),
           if (profile.bio.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Text(profile.bio),
+            const SizedBox(height: AppSpacing.md),
+            Text(profile.bio, style: Theme.of(context).textTheme.bodyLarge),
           ],
           const SizedBox(height: AppSpacing.md),
           if (isBlocking)
@@ -216,7 +218,7 @@ class _PostsCount extends StatelessWidget {
                   context,
                 ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
-              TextSpan(text: label),
+              TextSpan(text: label, style: _mutedLabel(context)),
             ],
           ),
         ),
@@ -224,6 +226,12 @@ class _PostsCount extends StatelessWidget {
     );
   }
 }
+
+/// Count labels ("Posts", "Followers") read secondary to the bold number.
+TextStyle? _mutedLabel(BuildContext context) => Theme.of(context)
+    .textTheme
+    .bodyMedium
+    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
 
 class _CountLink extends StatelessWidget {
   const _CountLink({
@@ -253,7 +261,7 @@ class _CountLink extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
-                TextSpan(text: label),
+                TextSpan(text: label, style: _mutedLabel(context)),
               ],
             ),
           ),
@@ -278,17 +286,18 @@ class _BlockedBanner extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.errorContainer,
+            color: Theme.of(context).colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
           ),
           child: Row(
             children: [
               Expanded(
                 child: Text(
                   'You blocked @$handle',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                  ),
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
               TextButton(
@@ -318,6 +327,12 @@ class _OverflowMenu extends StatelessWidget {
           button: true,
           label: 'More options',
           child: PopupMenuButton<String>(
+            icon: Icon(
+              Icons.more_horiz,
+              size: AppIconSize.lg,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
             onSelected: (value) async {
               switch (value) {
                 case 'mute':

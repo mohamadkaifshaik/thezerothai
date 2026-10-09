@@ -114,8 +114,8 @@ class _ComposerViewState extends State<_ComposerView> {
                   onPressed: state.canSubmit ? cubit.submit : null,
                   child: state.isSubmitting
                       ? const SizedBox(
-                          width: 20,
-                          height: 20,
+                          width: AppIconSize.md,
+                          height: AppIconSize.md,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('Post'),
@@ -142,9 +142,22 @@ class _ComposerViewState extends State<_ComposerView> {
                       inputFormatters: [
                         LengthLimitingTextInputFormatter(kComposerInputCap),
                       ],
-                      decoration: const InputDecoration(
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontSize: 18,
+                      ),
+                      decoration: InputDecoration(
                         hintText: "What's happening?",
+                        hintStyle: Theme.of(context).textTheme.bodyLarge
+                            ?.copyWith(
+                              fontSize: 18,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                        filled: false,
                         border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
                       ),
                       onChanged: cubit.textChanged,
                     ),

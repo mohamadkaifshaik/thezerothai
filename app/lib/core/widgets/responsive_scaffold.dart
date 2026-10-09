@@ -49,17 +49,26 @@ class ResponsiveScaffold extends StatelessWidget {
           return Scaffold(
             body: SafeArea(child: body),
             floatingActionButton: floatingActionButton,
-            bottomNavigationBar: NavigationBar(
-              selectedIndex: selectedIndex,
-              onDestinationSelected: onDestinationSelected,
-              destinations: [
-                for (final d in destinations)
-                  NavigationDestination(
-                    icon: Icon(d.icon),
-                    selectedIcon: Icon(d.selectedIcon),
-                    label: d.label,
+            bottomNavigationBar: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
                   ),
-              ],
+                ),
+              ),
+              child: NavigationBar(
+                selectedIndex: selectedIndex,
+                onDestinationSelected: onDestinationSelected,
+                destinations: [
+                  for (final d in destinations)
+                    NavigationDestination(
+                      icon: Icon(d.icon),
+                      selectedIcon: Icon(d.selectedIcon),
+                      label: d.label,
+                    ),
+                ],
+              ),
             ),
           );
         }

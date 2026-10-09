@@ -11,7 +11,7 @@ app/lib/
   features/<feature>/
     data/        <feature>_repository.dart  (connect-dart client + local cache)
     domain/      models (freezed), use-cases if logic is non-trivial
-    presentation/ <feature>_screen.dart, widgets/, <feature>_controller.dart (@bloc AsyncNotifier)
+    presentation/ <feature>_screen.dart, widgets/, bloc/ (<feature>_bloc.dart, _event.dart, _state.dart)
 app/test/features/<feature>/...   app/integration_test/...
 ```
 
@@ -52,7 +52,10 @@ class TimelineBloc extends Bloc<TimelineEvent, TimelineState> {
 }
 ```
 
-- Screens are `ConsumerWidget`, handle `AsyncValue` loading/error/data with shared `AsyncView` widget.
+- State management is **BLoC only** (`flutter_bloc`). No Riverpod, `ConsumerWidget`, `AsyncNotifier` or providers.
+- Screens provide their bloc with `BlocProvider` (blocs come from the existing DI/repository wiring, not created in `build` repeatedly) and render with `BlocBuilder` (UI only), `BlocListener` (side effects: snackbars, navigation) or `BlocConsumer` (both). Use `buildWhen`/`listenWhen`/`BlocSelector` to limit rebuilds.
+- Handle loading/error/data from freezed bloc states with the existing shared state-view widget (check `docs/ui-catalog.md`).
+- Widgets never call repositories or mutate state directly: user interactions dispatch events via `context.read<XBloc>().add(...)`; blocs call repositories and emit states.
 - Responsive: `LayoutBuilder` breakpoints — mobile (<600) bottom nav, tablet (600–1200) nav rail, desktop (>1200) 3-column like X web.
 - Platform: adaptive widgets where it matters (dialogs, pickers), `kIsWeb` guarded features.
 - Every screen: widget test (loading/error/data), semantics, dark mode golden.
