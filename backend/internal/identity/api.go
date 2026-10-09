@@ -2,10 +2,10 @@
 // Service (consumed by server.go, the Connect handler) and Counters (consumed by other modules through
 // this interface only — ADR-0002: "modules depend on each other's api.go interfaces only").
 //
-// Phase 0 scope (this bootstrap): CreateProfile, CheckHandleAvailability, GetMe, GetProfile,
-// UpdateProfile, ChangeHandle. DeleteAccount/RequestAccountExport/GetAccountExport are stubbed
-// Unimplemented in server.go — their resumable delete/export jobs need graph, posts, engagement,
-// media and notifications to exist first (ADR-0003 "Deletes & privacy"); tracked for Phase 1.
+// Scope: CreateProfile, CheckHandleAvailability, GetMe, GetProfile, UpdateProfile, ChangeHandle, plus the account
+// lifecycle (P8, ADR-0011): DeleteAccount, RequestAccountExport and GetAccountExport behind
+// FEATURE_ACCOUNT_LIFECYCLE, served by AccountLifecycle (lifecycle*.go) with the deletion orchestrator and export
+// composer that other modules join through StepEraser / ExportSection.
 package identity
 
 import (
@@ -46,6 +46,10 @@ type Profile struct {
 	SnapshotVersion     int64
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	// DeletionRequestedAt and DeletionJob are the account-deletion job state (ADR-0011): zero/nil for every live
+	// account, set together by DeleteAccount. Never serialized to clients or exports.
+	DeletionRequestedAt time.Time
+	DeletionJob         *DeletionJob
 }
 
 // ProfileTarget is the GetProfile oneof: exactly one of UserID/Handle is set.
@@ -117,8 +121,10 @@ type Repo interface {
 	ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error)
 	// CreateProfile runs the signup transaction (ADR-0003): read users/{uid}+handles/{h}; on first call,
 	// create users, handles, and (via graphInit) graph. A replay (users/{uid} already exists) returns the
-	// existing profile and performs no writes.
-	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time) (profile Profile, replay bool, err error)
+	// existing profile and performs no writes. authorize (nil = none) runs only on the not-found path, inside the
+	// transaction after the users/{uid} read and before any other read or write (ADR-0011 amendment M2: the
+	// Auth-user check); its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
+	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (profile Profile, replay bool, err error)
 	// UpdateProfile reads users/{uid}, applies mutate, writes the result back. Returns the new Profile.
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)
 	// ChangeHandle runs the rename transaction (ADR-0003): reads users/{uid} + handles/{new} (worst case 2

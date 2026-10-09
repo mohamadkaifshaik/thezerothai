@@ -32,6 +32,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -123,6 +124,12 @@ type chainEnv struct {
 // newChain boots Build against the running emulators with FEATURE_POSTS on (mutate may change anything).
 func newChain(t *testing.T, mutate func(*config.Config)) *chainEnv {
 	t.Helper()
+	return newChainWith(t, mutate, nil)
+}
+
+// newChainWith is newChain with an optional ID-token verifier override (nil = the real one).
+func newChainWith(t *testing.T, mutate func(*config.Config), verifier authn.IDTokenVerifier) *chainEnv {
+	t.Helper()
 	skipIfNoEmulators(t)
 	cfg, err := config.Load()
 	if err != nil {
@@ -133,7 +140,7 @@ func newChain(t *testing.T, mutate func(*config.Config)) *chainEnv {
 		mutate(&cfg)
 	}
 	logs := &logBuf{}
-	handler, fsClient, err := Build(context.Background(), cfg, slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	handler, fsClient, err := build(context.Background(), cfg, slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo})), verifier)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

@@ -56,6 +56,11 @@ type userDoc struct {
 	SnapshotVersion     int64     `firestore:"snapshotVersion"`
 	CreatedAt           time.Time `firestore:"createdAt"`
 	UpdatedAt           time.Time `firestore:"updatedAt"`
+	// Account-deletion job state (ADR-0011): set once by DeleteAccount, absent for every live account. Pointers
+	// with omitempty, so a normal profile write never stores them; Profile carries them so a whole-doc rewrite
+	// (UpdateProfile) cannot drop them.
+	DeletionRequestedAt *time.Time      `firestore:"deletionRequestedAt,omitempty"`
+	DeletionJob         *deletionJobDoc `firestore:"deletionJob,omitempty"`
 }
 
 func (d userDoc) toProfile(uid string) Profile {
@@ -78,6 +83,8 @@ func (d userDoc) toProfile(uid string) Profile {
 		SnapshotVersion:     d.SnapshotVersion,
 		CreatedAt:           d.CreatedAt,
 		UpdatedAt:           d.UpdatedAt,
+		DeletionRequestedAt: derefTime(d.DeletionRequestedAt),
+		DeletionJob:         d.DeletionJob.toDomain(),
 	}
 }
 
@@ -100,6 +107,8 @@ func profileToDoc(p Profile) userDoc {
 		SnapshotVersion:     p.SnapshotVersion,
 		CreatedAt:           p.CreatedAt,
 		UpdatedAt:           p.UpdatedAt,
+		DeletionRequestedAt: ptrTime(p.DeletionRequestedAt),
+		DeletionJob:         deletionJobToDoc(p.DeletionJob),
 	}
 }
 
@@ -219,11 +228,11 @@ func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []strin
 }
 
 // CreateProfile: worst case reads 2 (users, handles), writes 3 (users, handles, graph); a replay
-// (users/{uid} already exists) is reads 1, writes 0 (ADR-0003, proto comment).
-func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time) (Profile, bool, error) {
+// (users/{uid} already exists) is reads 1, writes 0 (ADR-0003, proto comment). authorize adds no Firestore ops.
+func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (Profile, bool, error) {
 	var result Profile
 	replay := false
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 
 		userSnap, err := tx.Get(r.userRef(uid))
@@ -239,6 +248,12 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 			return nil
 		case status.Code(err) != codes.NotFound:
 			return fmt.Errorf("identity: get user %s: %w", uid, err)
+		}
+
+		if authorize != nil {
+			if aerr := authorize(ctx); aerr != nil {
+				return aerr
+			}
 		}
 
 		handleSnap, herr := tx.Get(r.handleRef(handleLower))
@@ -291,7 +306,7 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 // UpdateProfile: 1 read, 1 write.
 func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error) {
 	var result Profile
-	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
 		counter.AddReads(1)
@@ -328,7 +343,7 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 // (service.go) cached earlier, which could be stale relative to a change another Cloud Run instance just
 // committed.
 func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHandleLower string, now time.Time, cooldown time.Duration) (profile Profile, invalidateOldHandleLower string, err error) {
-	err = r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 
 		userSnap, err := tx.Get(r.userRef(uid))

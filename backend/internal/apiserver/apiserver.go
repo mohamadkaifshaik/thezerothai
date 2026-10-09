@@ -17,6 +17,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
+	firebase "firebase.google.com/go/v4"
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
@@ -36,6 +37,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpublish"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpush"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -73,14 +76,23 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 // bucket/instance as the one ratelimit.Interceptor uses below) that rejects by IP before any of that
 // verification work runs at all.
 func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handler, *firestore.Client, error) {
+	return build(ctx, cfg, log, nil)
+}
+
+// build is Build with an optional ID-token verifier override. Only integration tests pass one (the Auth emulator's
+// verifier checks revoked/disabled users on every call, which production does not); Build always passes nil.
+func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierOverride authn.IDTokenVerifier) (http.Handler, *firestore.Client, error) {
 	fsClient, err := fsclient.New(ctx, cfg.ProjectID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("firestore client: %w", err)
 	}
 
-	idVerifier, err := authn.NewIDTokenVerifier(ctx, cfg.ProjectID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("id token verifier: %w", err)
+	idVerifier := idVerifierOverride
+	if idVerifier == nil {
+		idVerifier, err = authn.NewIDTokenVerifier(ctx, cfg.ProjectID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("id token verifier: %w", err)
+		}
 	}
 	appCheckVerifier, err := authn.NewAppCheckVerifier(ctx, cfg.ProjectID)
 	if err != nil {
@@ -121,16 +133,24 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		NewAccountBlocksPerDay:  int64(cfg.Quota.NewAccountBlocksPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
 	})
+	// The Firebase Auth admin client is built once, here, and handed only to identity (IAM control C2): the account
+	// lifecycle and the M2 sign-up check (CreateProfile refuses a token whose Auth user was deleted or disabled).
+	fbApp, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: cfg.ProjectID})
+	if err != nil {
+		return nil, nil, fmt.Errorf("firebase app: %w", err)
+	}
+	authAdminClient, err := fbApp.Auth(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("firebase auth admin client: %w", err)
+	}
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
+		identity.WithSignupAuth(authAdminClient, log),
 	)
 	// identitySvc's concrete type also implements identity.Directory (GetProfiles/Forget); asserted here
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
-
-	identityServer := identity.NewServer(identitySvc, identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags))
-	graphServer := graph.NewServer(graphSvc)
 
 	// posts and timeline (ADR-0010, T5): both services are registered behind FEATURE_POSTS. Their RPC bodies land
 	// in T8/T9/T12/T13; until then every RPC is Unimplemented once the flag is on. timeline gets only the
@@ -161,6 +181,33 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	})
 
+	// --- account lifecycle (ADR-0011, P8): DeleteAccount / RequestAccountExport / GetAccountExport and the job
+	// handlers. The Firebase Auth admin client (built above) is handed only to identity (IAM control C2); the
+	// publisher and the exports bucket client are lazy, so nothing here does I/O before ListenAndServe.
+	jobsPublisher, err := pubsubpublish.New(cfg.ProjectID, cfg.JobsTopic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("jobs publisher: %w", err)
+	}
+	exportStore, err := objstore.New(cfg.ExportBucket)
+	if err != nil {
+		return nil, nil, fmt.Errorf("export store: %w", err)
+	}
+	lifecycle, err := identity.NewLifecycle(identity.LifecycleDeps{
+		Repo: identityRepo, Cache: identityCache, Publisher: jobsPublisher, Auth: authAdminClient, Objects: exportStore,
+		Log: log, ProjectID: cfg.ProjectID, ExportsPerDay: int64(cfg.Quota.ExportsPerDay),
+		ExportRetention: cfg.ExportRetention, ExportURLTTL: cfg.ExportURLTTL,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("account lifecycle: %w", err)
+	}
+	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo); err != nil {
+		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
+	}
+	identityServer := identity.NewServer(identitySvc,
+		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),
+		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
+	graphServer := graph.NewServer(graphSvc)
+
 	// engagement, media, notifications, search, moderation, admin are not implemented in this bootstrap; their
 	// Connect servers are not registered.
 
@@ -190,7 +237,7 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
 		ratelimit.Interceptor(RateLimitConfig(cfg)),
 		degraded.Interceptor(cfg.Degraded, degraded.ProcedureSet{} /* no media procedures registered yet */),
-		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt),
+		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt, authn.AllowRestricted(RestrictedAllowedProcedures()...)),
 		mw.ErrorMapping(log),
 	)
 
@@ -218,12 +265,15 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
 	// when cfg.Env == "local" — where no real Pub/Sub push subscription exists yet to forge a call from.
-	internalHandler := http.Handler(pubsubpush.PlaceholderHandler())
+	protectInternal := func(h http.Handler) http.Handler { return h }
 	if cfg.InternalOIDCAudience != "" {
-		verifier := pubsubpush.NewVerifier(cfg.InternalOIDCAudience, cfg.InternalOIDCAllowedEmails...)
-		internalHandler = verifier.Middleware(internalHandler)
+		protectInternal = pubsubpush.NewVerifier(cfg.InternalOIDCAudience, cfg.InternalOIDCAllowedEmails...).Middleware
 	}
-	mux.Handle("/internal/", internalHandler)
+	mux.Handle("/internal/", protectInternal(pubsubpush.PlaceholderHandler()))
+	// ADR-0011: the shared jobs topic's push endpoint and the daily-maintenance backstop. Never behind the
+	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
+	mux.Handle("/internal/pubsub/jobs", protectInternal(lifecycle.JobsHandler()))
+	mux.Handle("/internal/cron/daily-maintenance", protectInternal(lifecycle.CronHandler()))
 
 	// M1 (docs/reviews/security-audit-v0.1.0.md): a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
 	// /internal/* and every module's Connect handler — as plain net/http middleware, so an unauthenticated

@@ -7,6 +7,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -36,6 +37,27 @@ type Server struct {
 	svc            Service
 	allowAnonymous bool
 	flags          FlagChecker
+	lifecycle      AccountLifecycle
+	reauthMaxAge   time.Duration
+	now            func() time.Time
+}
+
+// WithLifecycle wires the account-lifecycle service behind DeleteAccount, RequestAccountExport and
+// GetAccountExport. Without it (nil), a caller the flag is on for gets Unimplemented.
+func WithLifecycle(l AccountLifecycle) ServerOption {
+	return func(s *Server) { s.lifecycle = l }
+}
+
+// WithReauthMaxAge sets how recent the caller's sign-in (the ID token's auth_time) must be for DeleteAccount:
+// config.AccountDeleteReauthMaxAge, ACCOUNT_DELETE_REAUTH_MAX_AGE. It is deliberately not defaulted here: left
+// zero, authn.RequireRecentSignIn rejects every token, so a wiring mistake fails closed.
+func WithReauthMaxAge(d time.Duration) ServerOption {
+	return func(s *Server) { s.reauthMaxAge = d }
+}
+
+// WithClock replaces time.Now for the recent-sign-in check (tests).
+func WithClock(now func() time.Time) ServerOption {
+	return func(s *Server) { s.now = now }
 }
 
 // WithFlagChecker wires the account_lifecycle flag check. Without it (nil) the flag is off for everyone.
@@ -54,7 +76,7 @@ func WithAllowAnonymous(allow bool) ServerOption {
 
 // NewServer builds the Connect handler. Use with identityv1connect.NewIdentityServiceHandler.
 func NewServer(svc Service, opts ...ServerOption) *Server {
-	s := &Server{svc: svc}
+	s := &Server{svc: svc, now: time.Now}
 	for _, o := range opts {
 		o(s)
 	}
@@ -72,6 +94,9 @@ func callerUID(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
+// CreateProfile: worst case Firestore reads 2, writes 3; replay reads 1, writes 0 and no Auth call. One Firebase Auth
+// users.get of the token's own uid, only on a real sign-up (ADR-0011 amendment M2: a deleted or disabled Auth user is
+// refused with PERMISSION_DENIED, an Auth outage with UNAVAILABLE; nothing is written).
 func (s *Server) CreateProfile(ctx context.Context, req *connect.Request[identityv1.CreateProfileRequest]) (*connect.Response[identityv1.CreateProfileResponse], error) {
 	uid, err := callerUID(ctx)
 	if err != nil {
@@ -158,48 +183,99 @@ func (s *Server) ChangeHandle(ctx context.Context, req *connect.Request[identity
 	return connect.NewResponse(&identityv1.ChangeHandleResponse{Profile: toProtoProfile(profile)}), nil
 }
 
-// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE (P8 T4). Flag
-// off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access (0 reads). Flag on:
-// Unimplemented until T5/T9 land the real bodies. The three stay in the charge-only set and account_ops_daily
-// (apiserver/ratelimit_config.go), so a rejected call still counts against the daily cap.
+// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE (P8, ADR-0011).
+// Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access (0 reads). They stay
+// in the charge-only set and account_ops_daily (apiserver/ratelimit_config.go), so a rejected call still counts
+// against the daily cap. The job handlers behind them are never gated (Q9).
 
-// guardAccountLifecycle returns the flag rejection, or nil when the flag is on for the caller.
-func (s *Server) guardAccountLifecycle(ctx context.Context) error {
+// guardAccountLifecycle returns the flag rejection (and the caller uid), or nil when the flag is on for the caller.
+func (s *Server) guardAccountLifecycle(ctx context.Context) (string, error) {
 	uid, err := callerUID(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if s.flags == nil {
-		return flags.Guard(ctx, nil, uid, AccountLifecycleFlag)
+		return uid, flags.Guard(ctx, nil, uid, AccountLifecycleFlag)
 	}
-	return flags.Guard(ctx, s.flags.Enabled, uid, AccountLifecycleFlag)
+	return uid, flags.Guard(ctx, s.flags.Enabled, uid, AccountLifecycleFlag)
 }
 
-func (s *Server) DeleteAccount(ctx context.Context, _ *connect.Request[identityv1.DeleteAccountRequest]) (*connect.Response[identityv1.DeleteAccountResponse], error) {
-	if err := s.guardAccountLifecycle(ctx); err != nil {
+func (s *Server) DeleteAccount(ctx context.Context, req *connect.Request[identityv1.DeleteAccountRequest]) (*connect.Response[identityv1.DeleteAccountResponse], error) {
+	uid, err := s.guardAccountLifecycle(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	if s.lifecycle == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	}
+	// Destructive and irreversible: the token's own sign-in must be recent (also on a replay). The uid is the
+	// token's; DeleteAccountRequest has no uid field and must never get one (ADR-0011 IAM control C1).
+	if err := authn.RequireRecentSignIn(ctx, s.reauthMaxAge, s.now()); err != nil {
+		return nil, err
+	}
+	at, err := s.lifecycle.DeleteAccount(ctx, uid, req.Msg.GetIdempotencyKey())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&identityv1.DeleteAccountResponse{DeletionRequestedAt: timestamppb.New(at)}), nil
 }
 
-func (s *Server) RequestAccountExport(ctx context.Context, _ *connect.Request[identityv1.RequestAccountExportRequest]) (*connect.Response[identityv1.RequestAccountExportResponse], error) {
-	if err := s.guardAccountLifecycle(ctx); err != nil {
+func (s *Server) RequestAccountExport(ctx context.Context, req *connect.Request[identityv1.RequestAccountExportRequest]) (*connect.Response[identityv1.RequestAccountExportResponse], error) {
+	uid, err := s.guardAccountLifecycle(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	if s.lifecycle == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	}
+	view, err := s.lifecycle.RequestAccountExport(ctx, uid, req.Msg.GetIdempotencyKey())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&identityv1.RequestAccountExportResponse{ExportId: view.ID, Status: toProtoExportStatus(view.Status)}), nil
 }
 
-func (s *Server) GetAccountExport(ctx context.Context, _ *connect.Request[identityv1.GetAccountExportRequest]) (*connect.Response[identityv1.GetAccountExportResponse], error) {
-	if err := s.guardAccountLifecycle(ctx); err != nil {
+func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[identityv1.GetAccountExportRequest]) (*connect.Response[identityv1.GetAccountExportResponse], error) {
+	uid, err := s.guardAccountLifecycle(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	if s.lifecycle == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	}
+	view, err := s.lifecycle.GetAccountExport(ctx, uid, req.Msg.GetExportId())
+	if err != nil {
+		return nil, err
+	}
+	resp := &identityv1.GetAccountExportResponse{
+		ExportId:    view.ID,
+		Status:      toProtoExportStatus(view.Status),
+		DownloadUrl: view.DownloadURL,
+		ExpiresAt:   timestamppb.New(view.ExpiresAt),
+	}
+	if !view.URLExpiresAt.IsZero() {
+		resp.DownloadUrlExpiresAt = timestamppb.New(view.URLExpiresAt)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func toProtoExportStatus(s ExportStatus) identityv1.ExportStatus {
+	switch s {
+	case ExportPending:
+		return identityv1.ExportStatus_EXPORT_STATUS_PENDING
+	case ExportReady:
+		return identityv1.ExportStatus_EXPORT_STATUS_READY
+	case ExportFailed:
+		return identityv1.ExportStatus_EXPORT_STATUS_FAILED
+	default:
+		return identityv1.ExportStatus_EXPORT_STATUS_UNSPECIFIED
+	}
 }
 
 // errUnimplementedPhase1's message is deliberately generic (L10, 2026-09-27 security audit): it is sent
 // verbatim to the client by connect.NewError, so the module roadmap must not appear in it. The real reason is
-// that the resumable delete/export jobs (ADR-0003 "Deletes & privacy") are not built yet; it stays in source
-// comments, not on the wire.
+// that no lifecycle service is wired (apiserver.Build always wires one); it stays in source comments, not on the
+// wire.
 var errUnimplementedPhase1 = errors.New("not available yet")
 
 func toProtoStatus(s AccountStatus) identityv1.AccountStatus {

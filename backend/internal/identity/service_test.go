@@ -77,13 +77,18 @@ func (f *fakeRepo) ResolveHandles(ctx context.Context, handleLowers []string) (m
 	return out, nil
 }
 
-func (f *fakeRepo) CreateProfile(_ context.Context, uid, handle, handleLower, displayName string, now time.Time) (Profile, bool, error) {
+func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (Profile, bool, error) {
 	f.createCalls++
 	if f.createErr != nil {
 		return Profile{}, false, f.createErr
 	}
 	if existing, ok := f.profiles[uid]; ok {
 		return existing, true, nil
+	}
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			return Profile{}, false, err
+		}
 	}
 	if _, taken := f.handles[handleLower]; taken {
 		return Profile{}, false, ErrHandleTaken
@@ -374,7 +379,7 @@ func (f *fakeBlockChecker) IsBlockedBy(_ context.Context, viewerUID, targetUID s
 // TestGetProfile_BlockedByTarget_NotFound (ADR-0008 D9): byte-identical NOT_FOUND to a missing profile.
 func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{"uid-a": {"uid-b": true}}}
@@ -398,7 +403,7 @@ func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
 // blocked, so they can unblock" — IsBlockedBy is asked "did the TARGET block the VIEWER", never the reverse.
 func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	// uid-b never blocked uid-a; only uid-a -> uid-b's block would live in graph.blocked, which this
@@ -417,7 +422,7 @@ func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
 
 func TestGetProfile_NilBlockChecker_NoOp(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc := newTestService(repo) // no WithBlockChecker
@@ -428,7 +433,7 @@ func TestGetProfile_NilBlockChecker_NoOp(t *testing.T) {
 
 func TestGetProfile_OwnProfile_SkipsBlockCheck(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-a", "Alice", "alice", "Alice", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-a", "Alice", "alice", "Alice", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{"uid-a": {"uid-a": true}}}
@@ -448,7 +453,7 @@ func (f *fakeFeatureFlags) EnabledFeatures(string) []string { return f.enabled }
 
 func TestGetMe_EnabledFeatures(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithFeatureFlags(&fakeFeatureFlags{enabled: []string{"graph"}})).(*service)
@@ -463,7 +468,7 @@ func TestGetMe_EnabledFeatures(t *testing.T) {
 
 func TestGetMe_NilFeatureFlags_NoOp(t *testing.T) {
 	repo := newFakeRepo()
-	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(context.Background(), "uid-1", "Alice", "alice", "Alice", time.Now(), nil); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc := newTestService(repo)
@@ -489,7 +494,7 @@ func TestGetProfiles_CacheFirstThenBatch(t *testing.T) {
 	}
 	// uid-c exists in the repo but was never fetched through svc, so it's a cache miss; uid-ghost doesn't
 	// exist at all and must be silently dropped. Seeded directly on the repo (bypassing handle validation).
-	if _, _, err := repo.CreateProfile(ctx, "uid-c", "handlec", "handlec", "Name", time.Now()); err != nil {
+	if _, _, err := repo.CreateProfile(ctx, "uid-c", "handlec", "handlec", "Name", time.Now(), nil); err != nil {
 		t.Fatalf("seed uid-c: %v", err)
 	}
 
