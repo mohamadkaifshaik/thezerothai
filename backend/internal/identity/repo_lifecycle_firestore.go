@@ -152,11 +152,9 @@ func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) 
 	var out ExportDoc
 	replay := false
 	qs := quota.New(r.client)
-	// The transaction counts its writes as it queues them; a commit that rolls back (AlreadyExists, below) wrote
-	// nothing, so its ops go to a scratch counter and only the reads, plus the writes of a successful commit, are
-	// folded into the request's counter.
-	scratchCtx, scratch := budget.WithCounter(ctx)
-	err := r.client.RunTransaction(scratchCtx, func(ctx context.Context, tx *firestore.Transaction) error {
+	// store.RunTransaction counts each attempt in its own scratch counter and folds the writes in only when the
+	// commit succeeds: a commit that rolls back (AlreadyExists, below) wrote nothing.
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 		rec, err := qs.Get(ctx, tx, p.UID)
 		if err != nil {
@@ -189,11 +187,6 @@ func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) 
 		out, replay = doc.toDomain(p.ID, time.Time{}), false
 		return nil
 	})
-	real := budget.FromContext(ctx)
-	real.AddReads(scratch.Reads())
-	if err == nil {
-		real.AddWrites(scratch.Writes())
-	}
 	if status.Code(err) == codes.AlreadyExists {
 		// A replay with quota left (for example the next IST day): the commit rolled back, nothing was written.
 		doc, gerr := r.GetExport(ctx, p.ID)
