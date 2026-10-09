@@ -86,6 +86,7 @@
     { "collectionGroup": "users", "fieldPath": "displayName", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "avatarUrl", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "avatarThumbUrl", "indexes": [] },
+    { "collectionGroup": "users", "fieldPath": "deletionJob.checkpoint", "indexes": [] },
 
     { "collectionGroup": "graph", "fieldPath": "following", "indexes": [] },
     { "collectionGroup": "graph", "fieldPath": "blocked", "indexes": [] },

@@ -304,6 +304,12 @@ sign-up (no profile yet). Replays for an existing profile make no Auth call.
   then). A client replay inside 2 minutes of the request does not publish again.
 - `FAILED` export: the object is deleted and the document says so; the user can request again after the daily cap resets.
   An export for a user who is `DELETING` or gone becomes `FAILED` with no object.
+- **Export fails with `too_large`** (ERROR `jobs/account_export_too_large` in Error Reporting, delivery outcome
+  `failed:too_large`): composing did not finish in 22 s, so the export is `FAILED` and not retried (a retry would re-read
+  everything again, up to 10 times). The log line has `sections` and `bytes` reached. Nothing is wrong with the system;
+  the account is simply large. Do not re-publish it. If the user needs their data, do the manual export in section 3a
+  (it has no time limit). If it recurs for ordinary accounts, raise it as a follow-up: the fix is a bigger compose budget
+  in a Cloud Run Job or a per-section cap, which needs an ADR.
 - Never copy an export object out of the bucket by hand; if you must inspect, read metadata only.
 
 ### Rollout and rollback

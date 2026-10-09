@@ -155,15 +155,15 @@ P = 300, O = 100, I = 100, B = Bb = M = 0, E = 1.
 ### Per-RPC and per-job budget
 | RPC / job | reads cold / warm / planning | writes | deletes | calls/DAU/day | reads/DAU | writes/DAU | deletes/DAU |
 |---|---|---|---|---|---|---|---|
-| DeleteAccount (sync) | 2 / 1 / 2 (interceptor + fresh `users` read in the txn; ADR-0010 table row "DeleteAccount / …": 2 each) | 1 (`users.status`, `updatedAt`) **+1 if the ADR adds a separate job doc (OPEN)** | 0 | 0.001 (cost-model row 35) | 0.002 | 0.001–0.002 | 0 |
+| DeleteAccount (sync) | 2 / 1 / 2 (interceptor + fresh `users` read in the txn; ADR-0010 table row "DeleteAccount / …": 2 each) | 1 (`users`: status, `deletionRequestedAt`, `deletionJob`; no separate job doc, ADR-0011) | 0 | 0.001 (cost-model row 35) | 0.002 | 0.001–0.002 | 0 |
 | ↳ replay (already DELETING, Q2) | 2 / 1 | 0 | 0 | — | — | — | — |
-| `account-delete` job, general formula (normal path) | P + O + I + 2·⌈(max(B,Bb)+1)/500⌉ + 2 (finish queries) + ≤ 3 (empty last pages) + 1 (start gate) + 4 (identity) + E + **job-state reads (OPEN, ≤ 1 per invocation)** | O + 2I + B + Bb + **checkpoint writes (OPEN, ≤ 1 per invocation)** | P + O + I + 1 (graph doc) + 3 (users, handles, quotas) + E (+ `private/*` docs, 0 at Stage 0) | 0.001 | see the reference row | | |
+| `account-delete` job, general formula (normal path) | P + O + I + 2·⌈(max(B,Bb)+1)/500⌉ + 2 (finish queries) + ≤ 3 (empty last pages) + 1 (start gate) + 3 (identity: 2 + max(E, 1)) + E + job-state read (1 per delivery, +1 per save conflict retry, ≤ 3) | O + 2I + B + Bb + checkpoint writes (≤ 1 per non-final slice) | P + O + I + 1 (graph doc) + 3 (users, handles, quotas) + E (+ `private/*` docs, 0 at Stage 0) | 0.001 | see the reference row | | |
 | ↳ worst path (a counterpart was already purged: the precondition fallback) | + up to 2O + 3I + B + Bb (re-query + `GetProfiles` + counterpart `graph` `GetAll`; `graph/purge.go:116-131,199-230,253`) | same | same | — | — | — | — |
-| ↳ **reference account** | **≈ 509** (posts 300 + graph 204 + identity 4 + gate 1) + job-state | **≈ 300** + checkpoints | **≈ 505** | 0.001 | **0.51** | **0.30** | **0.51** |
+| ↳ **reference account** | **≈ 512** (posts 300 + graph 204 + identity 3 + gate 1 + job-state 1 + users_doc 1 + slice overhead) | **≈ 300** + checkpoints | **≈ 505** | 0.001 | **0.51** | **0.30** | **0.51** |
 | RequestAccountExport | 2 / 1 / 2 (interceptor + `quotas`; proto 1/1 + interceptor) | 2 (`exports` doc + `quotas`) | 0 (+1 TTL delete after 7 d) | 0.001 (**assumption**: cost-model row 36 says "~0") | 0.002 | 0.002 | 0.001 |
 | ↳ replay (same key) | 3 (+1 `exports` read after `AlreadyExists`) | 0 | 0 | — | — | — | — |
-| `account-export` job, general formula | 1 (`users`) + 1 (`exports`) + (P or 1) + (O or 1) + (I or 1) + 1 (`graph`) + distinct(O ∪ I ∪ B ∪ M) handle reads (`graph/export.go:30-32`, `posts/purge.go:107-108`) + job-state (OPEN) | 1 (`exports.status`) + checkpoints (OPEN) | 0 | 0.001 | | | |
-| ↳ **reference account** | **≈ 703** | **1** | 0 | 0.001 | **0.70** | 0.001 | 0 |
+| `account-export` job, general formula | 1 (`users`) + 1 (`exports`) + (P or 1) + (O or 1) + (I or 1) + 1 (`graph`) + distinct(O ∪ I ∪ B ∪ M) handle reads (`graph/export.go:30-32`, `posts/purge.go:107-108`) | 2 (lease claim, then `exports.status`; L-4) | 0 | 0.001 | | | |
+| ↳ **reference account** | **≈ 703** | **2** | 0 | 0.001 | **0.70** | 0.001 | 0 |
 | GetAccountExport | 2 / 1 / 1 (interceptor + `exports`, read fresh) | 0 | 0 | 0.003 (≈ 3 polls per export; capped by `account_ops_daily`) | 0.003 | 0 | 0 |
 | **Slice total** | | | | **≈ 0.005 req** + job invocations | **≈ 1.22** | **≈ 0.31** | **≈ 0.51** |
 

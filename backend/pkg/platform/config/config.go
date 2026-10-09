@@ -255,7 +255,7 @@ type Config struct {
 	// ExportURLTTL is EXPORT_URL_TTL (default 15m, in (0, 1h]): the lifetime of the signed GET URL minted per
 	// GetAccountExport call.
 	ExportURLTTL time.Duration
-	// ExportRetention is EXPORT_RETENTION (default 168h = 7 d, in (0, 30d]): exports/{id}.expireAt = createdAt + this.
+	// ExportRetention is EXPORT_RETENTION (default 168h = 7 d, in (0, 7d]): exports/{id}.expireAt = createdAt + this.
 	// The bucket's age = 7 lifecycle rule is Terraform's; this value only drives the Firestore TTL field and the
 	// NOT_FOUND-after-expiry rule (ADR-0011 Q6), so it must not exceed what the bucket keeps.
 	ExportRetention time.Duration
@@ -271,8 +271,10 @@ type Config struct {
 // Bounds of the export settings (ADR-0011 D-B): a signed URL is a bearer credential, and the retention
 // promised to users is 7 days.
 const (
-	MaxExportURLTTL    = time.Hour
-	MaxExportRetention = 30 * 24 * time.Hour
+	MaxExportURLTTL = time.Hour
+	// MaxExportRetention matches the exports bucket lifecycle rule (age = 7 d, infra media-buckets): a longer
+	// retention would promise a READY export that the bucket has already deleted.
+	MaxExportRetention = 7 * 24 * time.Hour
 )
 
 // MaxAccountDeleteReauthMaxAge is the upper bound of ACCOUNT_DELETE_REAUTH_MAX_AGE (P8 T4).
