@@ -136,6 +136,23 @@ locals {
   ]
 }
 
+// Account lifecycle slice (P8, ADR-0011). Names and defaults mirror backend/pkg/platform/config/config.go; caps are
+// code, so a change here needs a cost note in the PR. FEATURE_ACCOUNT_LIFECYCLE is set explicitly in both envs
+// (dev on, prod off) and rolled out via var.feature_account_lifecycle*. EXPORT_RETENTION must equal the exports
+// bucket lifecycle age (7 days) in modules/media-buckets.
+locals {
+  account_lifecycle_env_vars = [
+    { name = "FEATURE_ACCOUNT_LIFECYCLE", value = var.feature_account_lifecycle },
+    { name = "FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST", value = var.feature_account_lifecycle_allowlist },
+    { name = "FEATURE_ACCOUNT_LIFECYCLE_PERCENT", value = tostring(var.feature_account_lifecycle_percent) },
+    { name = "EXPORT_BUCKET", value = module.media_buckets.exports_bucket_name },
+    { name = "EXPORT_URL_TTL", value = "15m" },
+    { name = "EXPORT_RETENTION", value = "168h" },
+    { name = "ACCOUNT_DELETE_REAUTH_MAX_AGE", value = "5m" },
+    { name = "JOBS_TOPIC", value = "jobs" },
+  ]
+}
+
 module "cloud_run_api" {
   source                            = "../../modules/cloud-run-api"
   project_id                        = var.project_id
@@ -161,6 +178,7 @@ module "cloud_run_api" {
     ],
     local.graph_env_vars,
     local.posts_env_vars,
+    local.account_lifecycle_env_vars,
   )
 
   depends_on = [module.project_services, module.secrets]
@@ -180,6 +198,7 @@ module "pubsub" {
   source                            = "../../modules/pubsub"
   project_id                        = var.project_id
   push_base_url                     = local.api_url
+  runtime_service_account_email     = module.iam.runtime_service_account_email
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
   pubsub_service_agent_email        = google_project_service_identity.pubsub.email
   labels                            = merge(local.labels, { module = "pubsub" })
@@ -208,6 +227,9 @@ module "monitoring" {
   env            = local.env
   founder_emails = var.founder_emails
   api_hostname   = replace(module.cloud_run_api.url, "https://", "")
+
+  # ADR-0011 C4 alert is prod only (~$0.40/month); dev relies on log inspection. The log-based metric still exists.
+  enable_auth_admin_alert = false
 
   depends_on = [module.cloud_run_api]
 }

@@ -1,6 +1,6 @@
 // Topics + OIDC push subscriptions to the api service's `/internal/*` async
 // handlers. Every topic gets a DLQ so a poison message can't retry forever
-// and burn through the free quota; max 5 delivery attempts before DLQ.
+// and burn through the free quota; max 5 delivery attempts (per-topic override, e.g. jobs = 10) before DLQ.
 
 resource "google_pubsub_topic" "topics" {
   for_each = var.topics
@@ -57,13 +57,13 @@ resource "google_pubsub_subscription" "push" {
   }
 
   retry_policy {
-    minimum_backoff = "10s"
+    minimum_backoff = each.value.minimum_backoff
     maximum_backoff = "600s"
   }
 
   dead_letter_policy {
     dead_letter_topic     = google_pubsub_topic.dlq[each.key].id
-    max_delivery_attempts = 5
+    max_delivery_attempts = each.value.max_delivery_attempts
   }
 
   expiration_policy {
@@ -83,4 +83,13 @@ resource "google_pubsub_subscription_iam_member" "dlq_ack" {
   subscription = google_pubsub_subscription.push[each.key].name
   role         = "roles/pubsub.subscriber"
   member       = "serviceAccount:${var.pubsub_service_agent_email}"
+}
+
+resource "google_pubsub_topic_iam_member" "runtime_publisher" {
+  for_each = var.runtime_publisher_topics
+
+  project = var.project_id
+  topic   = google_pubsub_topic.topics[each.key].name
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${var.runtime_service_account_email}"
 }

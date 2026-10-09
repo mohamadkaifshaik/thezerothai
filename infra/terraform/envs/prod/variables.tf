@@ -159,3 +159,31 @@ variable "feature_posts_percent" {
     error_message = "feature_posts_percent must be an integer 0-100."
   }
 }
+
+variable "feature_account_lifecycle" {
+  description = "FEATURE_ACCOUNT_LIFECYCLE rollout mode for account deletion and export (ADR-0011): off | allowlist | percent | on."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_account_lifecycle)
+    error_message = "feature_account_lifecycle must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_account_lifecycle_allowlist" {
+  description = "FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_account_lifecycle_percent" {
+  description = "FEATURE_ACCOUNT_LIFECYCLE_PERCENT: 0-100, only meaningful when feature_account_lifecycle = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_account_lifecycle_percent >= 0 && var.feature_account_lifecycle_percent <= 100 && floor(var.feature_account_lifecycle_percent) == var.feature_account_lifecycle_percent
+    error_message = "feature_account_lifecycle_percent must be an integer 0-100."
+  }
+}
