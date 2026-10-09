@@ -788,7 +788,13 @@ Order:
 - **Budget.** Not applicable.
 
 ### T21 — Cost report + cost-model rows 35–36  [owner: sre-performance] [size: S] [depends: T16, T17] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Done (partial measurement), 2026-10-09 (branch `docs/p8-t21-cost-report`). Report: `docs/reviews/cost-report-account-lifecycle.md`;
+  cost-model rows 35-36 replaced. All figures are derived from the code and ADR-0011, not emulator-measured (T16/T17 not
+  yet re-run for budgets). Acceptance: slice share at 300 DAU is 0.7% reads / 0.5% writes / 0.8% deletes at the ADR rate
+  and 3.9% / 1.5% / 2.5% at 1 deletion + 2 exports per day; crossover restated (released scope about 258 DAU, whole product
+  about 216). Carried as named risks: R1 export single-invocation ceiling unmeasured (dev drill T22), R2 uncapped I and P,
+  R3 retry amplification, R4 existing alert policies about $2.1-2.4/month not in the cost model, R5 unverified prices,
+  R6 emulator `BUDGET` run for the reference account.
 - **Description.**
   - Replace cost-model rows 35–36 with the measured values and the ADR's job-state numbers.
   - Measure the time per invocation and find the account size at which the export needs more than one invocation

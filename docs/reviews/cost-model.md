@@ -2,6 +2,7 @@
 Owner: sre-performance (maintains actuals weekly). Seeded by: architect, 2026-09-26, from ADR-0002…0007 and the protos.
 Updated 2026-09-30 (T21): Graph rows re-based on `docs/reviews/loadtest-graph.md` (T18) and the T16a/T16b `budgettest` ceilings; see `cost-report-v0.2.0.md` §Graph.
 Updated 2026-10-06 (posts-and-timeline T25): Post/Timeline rows re-based on emulator measurements; see `cost-report-posts-timeline.md`. Whole product 191 to 230.0 reads/DAU (released scope 192.9; ADR-0010 forecast 182.6).
+Updated 2026-10-09 (P8 T21): rows 35-36 replaced from `cost-report-account-lifecycle.md` (derived from code, not yet measured). Whole-product totals in row 69 and §3-§5 are not yet rewritten: delta +1.1 reads, +0.3 writes, +0.0 deletes per DAU (231.1 reads/DAU; free read quota at about 216 DAU); regenerate at the next weekly update. New fixed line: ADR-0011 C4 alert about $0.39/month, prod only.
 Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same worst/typical numbers; change both together.
 
 ## 1. Assumptions (replace with measured values after the first 100 users)
@@ -32,8 +33,8 @@ Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same w
 | IdentityService.CheckHandleAvailability | 1 / 1 | 0 | 0 | 15 | 0.15 | 0.15 | 0 | 0 |
 | IdentityService.UpdateProfile (+snapshot job ≤ 100 posts) | 2 + 100 / 12.5 avg | 1 + 100 / 12.5 avg | 0 | 40 (+job) | 0.02 | 0.25 | 0.25 | 0 |
 | IdentityService.ChangeHandle | 2 / 2 | 2 / 2 (+job) | 1 | 60 | ~0 | ~0 | ~0 | ~0 |
-| IdentityService.DeleteAccount (+job) | 1 + O(owned docs) | 1 | O(owned docs) | 30 (+job) | ~0.001 | ~0.1 | ~0 | ~0.5 |
-| IdentityService.RequestAccountExport / GetAccountExport | 1 + O(owned docs) / 1 | 2 / 0 | 0 | 30 (+job) | ~0 | ~0 | ~0 | 0 |
+| IdentityService.DeleteAccount (+job; reference account P 300, O = I = 100, derived, `cost-report-account-lifecycle.md`) | 2 + job (P+O+I+...) / **513** (2 RPC + 2 gated + 509 work) | 1 + 300 / **301** | **505** | 30 (+ job about 10 vCPU-s) | 0.001 | 0.51 | 0.30 | 0.51 |
+| IdentityService.RequestAccountExport / GetAccountExport (+job; reference account, derived) | 2 / 1 + job 703 + 3 polls = **708** | 2 + 2 (job: lease claim, status) = **4** | 1 (TTL, 7 d) | 30 (+ job about 20 vCPU-s) | 0.001 | 0.71 | 0.004 | 0.001 |
 | GraphService.Follow (created; ADR-0008 A2: 4 cold / 2 warm) | 4 / **4 measured** (3.96–3.98 mean, T18) | 5 / 5 | 0 | 60 (server p95 6–17 ms on emulator) | 0.5 | 2.0 | 2.5 | 0 |
 | GraphService.Unfollow (own 0 reads; the 1 read is the caller's status-interceptor profile read after Follow's `Forget`) | 0 own / **1 logged** | 3 / 3 | 1 / 1 | 40 | 0.1 | 0.1 | 0.3 | 0.1 |
 | GraphService.GetRelationships (≤ 50 ids) | 1 / 0.5 planning (0.11 measured warm pool) | 0 | 0 | 10 | 3 | 1.5 | 0 | 0 |
