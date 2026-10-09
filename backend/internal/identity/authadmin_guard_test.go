@@ -25,9 +25,6 @@ const (
 	firebaseSDK   = "firebase.google.com/go/v4"
 )
 
-// authAdminAllowedPkgs may use every Auth admin method; everyone else is limited to token verification.
-var authAdminAllowedPkgs = []string{backendModule + "/internal/identity", backendModule + "/cmd/opsctl"}
-
 // authClientBuilderFiles (paths relative to backend/) are the only files that may build an Auth client with
 // (*firebase.App).Auth: the token verifier (VerifyIDToken only, enforced by the first rule), apiserver.Build (which
 // hands the client to identity alone) and the founder's opsctl.
@@ -36,11 +33,6 @@ var authClientBuilderFiles = []string{"pkg/platform/authn/firebase.go", "interna
 // authAdminReceivers are the SDK types whose methods manage users, provider configs and links. Their embedded
 // *baseClient is where most methods are declared, so promoted calls resolve to it.
 var authAdminReceivers = []string{"Client", "TenantClient", "baseClient", "TenantManager"}
-
-func inAllowedPkg(pkgPath string) bool {
-	pkgPath = strings.TrimSuffix(pkgPath, "_test") // external test package
-	return slices.ContainsFunc(authAdminAllowedPkgs, func(p string) bool { return pkgPath == p || strings.HasPrefix(pkgPath, p+"/") })
-}
 
 func recvName(fn *types.Func) (string, bool) {
 	sig, ok := fn.Type().(*types.Signature)
@@ -58,14 +50,39 @@ func recvName(fn *types.Func) (string, bool) {
 	return named.Obj().Name(), true
 }
 
-// guardedAuthMethod reports whether obj is an Auth admin method outside the verify-only set.
+// guardedAuthMethod reports whether obj is an Auth admin method outside the verify-only set: a method of the SDK's
+// admin types, or of identity.AuthClient, the exported interface over four of them (a call through the interface
+// does the same thing as a call on the SDK client and must not skip the wrapper either; M3).
 func guardedAuthMethod(obj types.Object) bool {
 	fn, ok := obj.(*types.Func)
-	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != authSDKPath || strings.HasPrefix(fn.Name(), "Verify") {
+	if !ok || fn.Pkg() == nil {
 		return false
 	}
 	name, ok := recvName(fn)
-	return ok && slices.Contains(authAdminReceivers, name)
+	switch {
+	case !ok:
+		return false
+	case fn.Pkg().Path() == backendModule+"/internal/identity":
+		return name == "AuthClient"
+	case fn.Pkg().Path() == authSDKPath && !strings.HasPrefix(fn.Name(), "Verify"):
+		return slices.Contains(authAdminReceivers, name)
+	}
+	return false
+}
+
+// mayUseAuthAdmin reports whether the file (relative to backend/) in package pkgPath may call a guarded method:
+// cmd/opsctl, and inside internal/identity only the authAdmin wrapper (authadmin.go, which enforces C1 and writes the
+// C3 audit line) and tests. Any other identity file, server.go included, could otherwise delete an Auth user
+// without either control.
+func mayUseAuthAdmin(pkgPath, rel string) bool {
+	pkgPath = strings.TrimSuffix(pkgPath, "_test")
+	switch {
+	case pkgPath == backendModule+"/cmd/opsctl" || strings.HasPrefix(pkgPath, backendModule+"/cmd/opsctl/"):
+		return true
+	case pkgPath == backendModule+"/internal/identity":
+		return rel == "internal/identity/authadmin.go" || strings.HasSuffix(rel, "_test.go")
+	}
+	return false
 }
 
 // isAppAuth reports whether obj is (*firebase.App).Auth.
@@ -85,7 +102,7 @@ type authGuardResult struct {
 }
 
 // authAdminViolations flags, in every loaded package, each use (call, method value, promoted call) of a guarded
-// Auth admin method outside internal/identity and cmd/opsctl, and each use of (*firebase.App).Auth outside the
+// Auth admin method (or of identity.AuthClient) outside identity's authadmin.go and cmd/opsctl, and each use of (*firebase.App).Auth outside the
 // allowed builder files. root is the absolute backend/ directory, used to print relative paths.
 func authAdminViolations(pkgs []*packages.Package, root string) authGuardResult {
 	var res authGuardResult
@@ -107,12 +124,12 @@ func authAdminViolations(pkgs []*packages.Package, root string) authGuardResult 
 			rel = filepath.ToSlash(rel)
 			where := rel + ":" + strconv.Itoa(pos.Line)
 			switch {
-			case guarded && inAllowedPkg(pkg.PkgPath):
+			case guarded && mayUseAuthAdmin(pkg.PkgPath, rel):
 				res.allowedUses++
 			case guarded:
 				if k := where + id.Name; !seen[k] {
 					seen[k] = true
-					res.violations = append(res.violations, where+": uses the Firebase Admin Auth method "+id.Name+" outside internal/identity and cmd/opsctl (ADR-0011 C2)")
+					res.violations = append(res.violations, where+": uses the Firebase Admin Auth method "+id.Name+" outside internal/identity/authadmin.go and cmd/opsctl (ADR-0011 C2)")
 				}
 			case builder && !slices.ContainsFunc(authClientBuilderFiles, func(p string) bool { return strings.HasPrefix(rel, p) }):
 				if k := where + id.Name; !seen[k] {
@@ -210,8 +227,15 @@ func TestAuthAdminConfinement_ClosedHoles(t *testing.T) {
 		// a second file in apiserver building a client: only apiserver.go may.
 		"internal/apiserver/zz_builder.go": "package apiserver\nimport (\n\t\"context\"\n\tfirebase \"firebase.google.com/go/v4\"\n)\n" +
 			"func zzBuild(ctx context.Context, app *firebase.App) { _, _ = app.Auth(ctx) }\n",
-		// allowed: identity may call everything, and anyone may verify tokens.
-		"internal/identity/zz_ok.go": "package identity\nimport (\n\t\"context\"\n\tfbauth \"firebase.google.com/go/v4/auth\"\n)\n" +
+		// a call through identity.AuthClient from another package (the interface is exported for apiserver).
+		"internal/sneaky/d.go": "package sneaky\nimport (\n\t\"context\"\n\t\"github.com/dzeroth/dzeroth/backend/internal/identity\"\n)\n" +
+			"func E(ctx context.Context, c identity.AuthClient) error { return c.DeleteUser(ctx, \"u\") }\n",
+		// inside identity but outside authadmin.go: through the SDK client and through the AuthClient interface.
+		"internal/identity/zz_server.go": "package identity\nimport (\n\t\"context\"\n\tfbauth \"firebase.google.com/go/v4/auth\"\n)\n" +
+			"func zzSDK(ctx context.Context, c *fbauth.Client) error { return c.DeleteUser(ctx, \"u\") }\n" +
+			"func zzIface(ctx context.Context, c AuthClient) error { return c.RevokeRefreshTokens(ctx, \"u\") }\n",
+		// allowed: a test file in identity may call everything, and anyone may verify tokens.
+		"internal/identity/zz_ok_test.go": "package identity\nimport (\n\t\"context\"\n\tfbauth \"firebase.google.com/go/v4/auth\"\n)\n" +
 			"func zzOK(ctx context.Context, c *fbauth.Client) error { _, _ = c.VerifyIDToken(ctx, \"t\"); return c.DeleteUser(ctx, \"u\") }\n",
 	}
 	overlay := map[string][]byte{}
@@ -228,6 +252,8 @@ func TestAuthAdminConfinement_ClosedHoles(t *testing.T) {
 		"internal/sneaky/a.go":             2, // the client builder and the DeleteUser call
 		"internal/sneaky/b.go":             1,
 		"internal/sneaky/c.go":             2, // promoted and TenantClient
+		"internal/sneaky/d.go":             1, // through identity.AuthClient
+		"internal/identity/zz_server.go":   2, // SDK client and AuthClient inside identity, outside authadmin.go
 		"pkg/platform/authn/zz_evil.go":    1,
 		"internal/apiserver/zz_builder.go": 1,
 	}
@@ -237,6 +263,6 @@ func TestAuthAdminConfinement_ClosedHoles(t *testing.T) {
 		}
 	}
 	if len(byFile) != len(want) {
-		t.Errorf("violations in unexpected files (identity and the verifier's real code must stay clean): %v", res.violations)
+		t.Errorf("violations in unexpected files (identity's real files and the verifier's real code must stay clean): %v", res.violations)
 	}
 }
