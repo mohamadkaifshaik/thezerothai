@@ -162,8 +162,9 @@ type ObjectStore interface {
 
 // AuthClient is the four-method slice of the Firebase Admin Auth client identity needs (ADR-0011 IAM control C2).
 // *fbauth.Client implements it. It is built in apiserver.Build and handed only to identity's constructor; the
-// unexported authAdmin wrapper is the only caller, and a CI test forbids every other package (except cmd/opsctl)
-// from calling these methods.
+// unexported authAdmin wrapper (authadmin.go) is the only caller, and a CI test forbids every other file (except
+// cmd/opsctl and tests), including other files of this package, from calling these methods on the interface or on
+// the SDK client (M3).
 type AuthClient interface {
 	GetUser(ctx context.Context, uid string) (*fbauth.UserRecord, error)
 	UpdateUser(ctx context.Context, uid string, user *fbauth.UserToUpdate) (*fbauth.UserRecord, error)

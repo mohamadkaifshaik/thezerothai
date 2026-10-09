@@ -445,6 +445,28 @@ Auth is already the source of truth for the uid's existence and disabled state, 
 covers the SUSPENDED/disabled case with no extra state. Residual: while Auth is down, new sign-ups return UNAVAILABLE
 (existing users are unaffected).
 
+## Amendment 2026-10-09 (T19 code-review fixes): export timeout, delete replay throttle, C2 interface guard
+Follows `code-review-account-lifecycle` (B1, M1-M3, Minors 2-4). No new resource, no proto field change, **cost: none or
+lower**.
+- **M1. An export that outgrows its compose budget is a permanent failure.** The bucket Put runs under a 22 s context
+  (was the whole 25 s delivery), which leaves 5 s of the 27 s handler budget for the status write. A
+  `DeadlineExceeded` from composing (while the handler context is alive) sets the export `FAILED` (`too_large`), deletes
+  the object, and logs ERROR `jobs/account_export_too_large` (Error Reporting). It is not retried: before, Pub/Sub
+  redelivered it up to 10 times, each re-reading everything reached in 25 s. Runbook "Export fails with too_large". The
+  uncapped P and I of one account remain a known limit; a section-level cap is a later ADR if a real account hits it.
+- **M2. A DeleteAccount replay re-publishes only a stalled job.** It publishes the current seq when
+  `now - deletionJob.progressAt >= 2 min`, else not (the profile it already read carries `progressAt`: 0 extra
+  operations). A live job moves `progressAt` every ~25 s, so replay storms no longer start duplicate slices.
+- **M3. C2 covers `identity.AuthClient` and identity's own files.** The CI guard now flags any use of an Auth admin method
+  through `identity.AuthClient` or the SDK client outside `internal/identity/authadmin.go` (and `cmd/opsctl`, and
+  tests), so `server.go` or any other identity file cannot delete or disable a user without C1 and the C3 audit line.
+- **Minor 2.** `EXPORT_RETENTION` is capped at 7 d (`MaxExportRetention`), matching the exports bucket lifecycle rule,
+  so a READY export can never outlive its object.
+- **Minor 3.** The deletion work context never uses the last 5 s of the handler deadline (`saveReserve`).
+- **Rule 4 deviation, recorded.** `DeleteAccount` validates `idempotency_key` but does not store it. The state
+  transition ACTIVE to DELETING is one-way and is itself the idempotency record: a call with any key while DELETING is a
+  replay (0 writes). The proto comment is unchanged to keep generated code stable; this note is the record.
+
 ## Amendment 2026-10-08 (L-4, L-6): export lease, ordered backstop scans
 Closes the two Low findings of `docs/reviews/security-review-account-lifecycle.md`. No new resource and no change to the
 proto or to Q1-Q10. **Cost: none** (the new composite indexes store a few bytes per `DELETING` user and `PENDING`

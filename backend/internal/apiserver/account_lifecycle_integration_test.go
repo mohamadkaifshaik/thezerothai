@@ -328,8 +328,8 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 
 	// --- jobs: gated first, erased after the gate ---
 	msgs = e.pull(t)
-	if len(msgs) != 2 || msgs[0]["kind"] != "account_delete" || msgs[0]["uid"] != a.uid || msgs[0]["seq"] != float64(0) {
-		t.Fatalf("delete messages = %v, want two seq-0 messages (the request and its replay)", msgs)
+	if len(msgs) != 1 || msgs[0]["kind"] != "account_delete" || msgs[0]["uid"] != a.uid || msgs[0]["seq"] != float64(0) {
+		t.Fatalf("delete messages = %v, want one seq-0 message (the replay inside 2 minutes does not publish, M2)", msgs)
 	}
 	if code := e.deliver(t, msgs[0]); code != http.StatusTooManyRequests {
 		t.Fatalf("delivery inside the start gate = %d, want 429", code)
@@ -346,8 +346,8 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	if code := e.deliver(t, msgs[0]); code != http.StatusNoContent {
 		t.Fatalf("delivery after the gate = %d, want 204", code)
 	}
-	if code := e.deliver(t, msgs[1]); code != http.StatusNoContent {
-		t.Fatalf("redelivery of the replay's message = %d, want 204", code)
+	if code := e.deliver(t, msgs[0]); code != http.StatusNoContent {
+		t.Fatalf("redelivery of the finished job's message = %d, want 204", code)
 	}
 	if rest := e.pull(t); len(rest) != 0 {
 		t.Errorf("a finished job published a continuation: %v", rest)
