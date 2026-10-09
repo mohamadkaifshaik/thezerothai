@@ -142,7 +142,7 @@ func TestLoad_AccountExportSettings(t *testing.T) {
 		{name: "ttl over 1h", env: map[string]string{"EXPORT_URL_TTL": "61m"}, wantErr: "EXPORT_URL_TTL must be > 0"},
 		{name: "ttl unparsable", env: map[string]string{"EXPORT_URL_TTL": "soon"}, wantErr: "EXPORT_URL_TTL"},
 		{name: "retention negative", env: map[string]string{"EXPORT_RETENTION": "-1h"}, wantErr: "EXPORT_RETENTION must be > 0"},
-		{name: "retention over 30d", env: map[string]string{"EXPORT_RETENTION": "721h"}, wantErr: "EXPORT_RETENTION must be > 0"},
+		{name: "retention over 7d", env: map[string]string{"EXPORT_RETENTION": "169h"}, wantErr: "EXPORT_RETENTION must be > 0"},
 		{name: "retention unparsable", env: map[string]string{"EXPORT_RETENTION": "x"}, wantErr: "EXPORT_RETENTION"},
 	}
 	for _, tc := range tests {

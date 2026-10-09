@@ -49,7 +49,8 @@ const (
 	// backstopPublishers bounds concurrent re-publishes.
 	backstopPublishers = 8
 	// handlerBudget bounds a whole delivery (read + work + save + publish) inside Pub/Sub's 30 s ack deadline and
-	// Cloud Run's 30 s request timeout: work gets workBudget+stepGrace (25 s) of it, the save and publish the rest.
+	// Cloud Run's 30 s request timeout: work gets at most workBudget+stepGrace (25 s) and never the last saveReserve
+	// (5 s) of the handler deadline, which the save and publish keep.
 	handlerBudget = 27 * time.Second
 	// defaultRetryBackoff is the first full-jitter ceiling between retries of one failing step (doubled per retry).
 	defaultRetryBackoff = 200 * time.Millisecond
@@ -326,7 +327,13 @@ func (l *Lifecycle) work(ctx context.Context, p Profile, t deletionTarget, job D
 		}
 	}
 	started := l.now()
-	wctx, cancel := context.WithTimeout(ctx, l.workBudget+stepGrace)
+	limit := l.workBudget + stepGrace
+	if dl, ok := ctx.Deadline(); ok {
+		if room := time.Until(dl) - saveReserve; room > 0 && room < limit {
+			limit = room
+		}
+	}
+	wctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	cp := job.Checkpoint
 	failures := 0
@@ -368,7 +375,7 @@ func (l *Lifecycle) work(ctx context.Context, p Profile, t deletionTarget, job D
 
 // identityStep erases what identity itself owns (ADR-0011 Q1 step 5): the user's exports (objects first, then
 // docs), users/{uid}/private/*, handles/{handleLower} (only when it is theirs) and quotas/{uid}. users/{uid} is a
-// later step. Idempotent; a page that comes back full asks for another call. Reads 3 + max(E, 1), deletes 2 + E.
+// later step. Idempotent; a page that comes back full asks for another call. Reads 2 + max(E, 1), deletes 2 + E.
 func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) ([]byte, bool, error) {
 	exports, err := l.repo.ListExports(ctx, p.UserID, identityExportsPage)
 	if err != nil {
@@ -489,6 +496,12 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 		for _, e := range pending {
 			if now.Sub(e.CreatedAt) >= exportFailAfter {
 				g.Go(func() error {
+					// An export that sat PENDING may still have an object (the READY write failed after the Put).
+					if l.objects != nil && e.ObjectPath != "" {
+						if err := l.objects.Delete(ctx, e.ObjectPath); err != nil {
+							return logger.ScrubErr(fmt.Errorf("identity: backstop delete export object: %w", err), e.UID)
+						}
+					}
 					switch err := l.repo.SetExportStatus(ctx, e.ID, ExportFailed, e.UpdateTime); {
 					case err == nil:
 						failed.Add(1)
@@ -539,9 +552,10 @@ func (l *Lifecycle) CronHandler() http.Handler {
 		attrs := append([]any{
 			"account_job", "backstop", "deletions_republished", res.DeletionsRepublished,
 			"exports_republished", res.ExportsRepublished, "exports_failed", res.ExportsFailed,
-			"fs_reads", counter.Reads(), "fs_writes", counter.Writes(),
+			"fs_reads", counter.Reads(), "fs_writes", counter.Writes(), "fs_deletes", counter.Deletes(),
 		}, logger.TraceAttrs(ctx)...)
 		if err != nil {
+			attrs = append(attrs, "outcome", "error")
 			mw.ReportError(ctx, l.log.With(attrs...), "cron/daily-maintenance", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
