@@ -811,7 +811,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T22 — Runbooks: in-app first, manual fallback, new failure modes  [owner: production-deployer] [size: S] [depends: T12] [blocked: T1 accepted]
-- **Status:** Partly done (2026-10-08): `docs/runbooks/account-deletion.md` section 6 covers the in-app flow, the C4 alert, stuck jobs, sign-up failures and exports. Still to do: the client-facing wording once T12 lands, and a drill record on dev.
+- **Status:** Done except the timed drill (2026-10-10): `docs/runbooks/account-deletion.md` section 6 covers the in-app flow, the C4 alert, stuck jobs, sign-up failures and exports; section 7 has the client-facing wording; section 8 records the 2026-10-09 dev drill. T12 (`opsctl delete-account`/`export-account`) is NOT built, so email requests use the manual sections 1 to 5 and the runbook says so. Still open: a timed dev drill with a cloud residue check (acceptance: under 10 min active, 0 residue).
 - **Description.**
   - Rewrite `docs/runbooks/account-deletion.md`:
     - in-app is the primary path;
@@ -830,7 +830,7 @@ Order:
 - **Budget.** Drill ≈ tens of ops on dev.
 
 ### T23 — Dev deploy + drill  [owner: production-deployer] [size: S] [depends: T3a, T3b, T18, T22] [blocked: T1 accepted]
-- **Status:** Open (T1 is Accepted; unblocked).
+- **Status:** Partly done (2026-10-10): dev Terraform applied and deployed (final image `0e714b317110`), `live-auth-check` passed all 6 steps on 2026-10-09 (runbook section 8). Not done: the T18 `candidate` remote smoke, one real signed-URL download, and a timed drill with a cloud residue check.
 - **Description.**
   - Apply the dev Terraform and deploy to `dzeroth-dev` with the flag `on`.
   - Run the T18 smoke, one real signed-URL download, and one in-app deletion by a throwaway account.

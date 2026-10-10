@@ -2,8 +2,10 @@
 
 **Why this exists:** requests to **privacy@dzeroth.com** are handled by hand, within **30 days**, as the privacy policy
 promises. This closes security audit finding M5 for the web launch. The in-app flow (`DeleteAccount` /
-`RequestAccountExport`, ADR-0011, P8) is built and on dev behind `FEATURE_ACCOUNT_LIFECYCLE`; **section 6** is its
-operations guide. Sections 1 to 5 stay valid as the manual fallback (and for accounts the in-app flow cannot reach).
+`RequestAccountExport`, ADR-0011, P8) is built behind `FEATURE_ACCOUNT_LIFECYCLE` (dev: allowlist; prod: off until the
+release ramp); **section 6** is its operations guide and the **primary** path once the flag is on. Sections 1 to 5 stay
+valid as the manual fallback and are the **only** path for email requests today: `opsctl delete-account` /
+`export-account` (plan T12) are not built, so do not look for them. Section 7 is how to answer an email request.
 
 Run it from Git Bash with the founder's gcloud login. Examples use prod; use `dzeroth-dev` for dev accounts.
 ```bash
@@ -318,3 +320,35 @@ Before the prod flag leaves `off`: the privacy policy rights section is reworded
 items for prod are closed (see `docs/reviews/security-review-account-lifecycle.md`), and `production-reviewer` says GO.
 Rollback of a bad deploy is the usual Cloud Run traffic shift to the previous revision (the code is backward
 compatible with in-flight `deletionJob` documents as long as step names are unchanged).
+
+## 7. Answering a request that arrives by email (client-facing wording)
+1. Verify the sender (section 1). Then check whether the in-app flow is available to them: it is only visible when the
+   flag is on for their account. While the prod flag is `off`, go straight to the manual path (sections 2 to 4).
+2. If the in-app flow is available, prefer it and reply with the steps below; handle by hand only if they cannot use the
+   app (no device, cannot sign in, account without a profile). Do not run both paths for the same account.
+3. Suggested reply text (edit to fit; do not promise timings the system does not measure):
+   - **Delete:** "Open Settings, then Delete account, and confirm. You will be asked to sign in again first (the sign-in
+     must be within the last 5 minutes). Deletion starts after a short safety wait of about 2 minutes and then runs in
+     the background; you are signed out straight away. Your posts, follows and profile are removed. Backups age out
+     within 14 days. Other people's posts that mention you keep your handle (they are their content), and entries in
+     other people's mute or block lists disappear the next time they open those lists."
+   - **Export:** "Open Settings, then Download my data. We prepare a file with your profile, posts and graph; the
+     download link is valid for 15 minutes, you can request one export per day, and the file is deleted after 7 days.
+     It never includes who has blocked you."
+   - If the app says the feature is unavailable, tell them it is not enabled for their account yet and that you will do
+     it by hand within 30 days.
+4. Record only the date, request type and a hashed uid in the founder's tracker (section 4).
+
+## 8. Drill records (P8, in-app path)
+| Field | Result |
+|---|---|
+| Date | 2026-10-09 |
+| Environment | dev (`dzeroth-dev`), Cloud Run revisions api-00093-k42 then api-00096-hsh (final backend image `0e714b317110`), flag `allowlist` with the throwaway uid `p8livecheck01` added temporarily and removed again via a saved Terraform plan |
+| What ran | `live-auth-check` (6 steps): admin-create the throwaway user, sign in, `CreateProfile`, `DeleteAccount`, poll until the job finished, replay `CreateProfile` with the old token and expect 403 (M2). All 6 passed |
+| Audit logs | `auth_admin_op` lines present for `get`, `disable_revoke`, `delete`, hashed uid only; no raw uid or export id found |
+| Observed, by design | repeated `disable_revoke` lines are the 120 s start gate nacking and being redelivered: idempotent, 0 Firestore operations, not counted by the C4 alert |
+| Not recorded / not done | wall-clock duration and active-work time; a Firestore residue sweep after the run (the emulator sweep T11 covers it, the cloud one was not run); a real signed-URL export download on dev; the `candidate` run of the T18 remote smoke; on-device client delete (Google, Apple, password, web) and Apple token revocation |
+
+Because the duration and the cloud residue sweep were not recorded, the T22/T23 acceptance ("under 10 min of active
+work, 0 residue") is **not** claimed from this drill. Repeat it once on dev when the on-device checks are done: time it,
+run the cloud residue check from section 3b's drill notes (including `quotas/{uid}`), and add a row here.
