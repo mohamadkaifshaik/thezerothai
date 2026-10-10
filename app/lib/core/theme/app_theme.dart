@@ -215,6 +215,9 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: colorScheme.surfaceContainerHighest,
+      // M3 defaults assume an inverse-surface snackbar; on this surface they fail WCAG AA (F4 M1).
+      actionTextColor: colorScheme.primary,
+      closeIconColor: colorScheme.onSurfaceVariant,
       contentTextStyle: textTheme.bodyMedium,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.md),
