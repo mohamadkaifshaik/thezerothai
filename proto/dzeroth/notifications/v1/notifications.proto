@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+// In-app notifications and push-device registration (ADR-0016, Phase 1 slice P6).
+// Owner module: backend/internal/notifications. Owns users/{uid}/notifications/{id}, users/{uid}/devices/{deviceId}
+// and the deviceTokens/{sha256(token)} reverse index. The unread badge is GetMeResponse.unread_notification_count
+// (identity); mark-seen writes users/{uid}.notificationsSeenAt through identity.
+//
+// Token contract for ListNotifications (same shape as the timelines, ADR-0010 D14; all tokens opaque):
+// - First open, no local cache: send neither token.
+// - Pull-to-refresh / app resume / push received: send since_token from the last response. Only notifications newer
+//   than it are read (cost-model lever 6.1). since_token trails the newest item by a short settle window, so a
+//   refresh may return items the client already has: always dedupe by notification id and replace the old row
+//   (a collapsed LIKE row is rewritten in place with a new created_at and actor_count).
+// - Infinite scroll: send page_token (= next_page_token of the previous page).
+// - Sending both tokens is INVALID_ARGUMENT.
+// - A refresh whose page was full returns gap_page_token: keep the cache, show a "show more" row between the new
+//   items and the cached ones, and fill it with page_token = gap_page_token (bounded below by the old since_token).
+// - Tokens are bound to the caller and expire after 30 days. An expired, foreign or tampered token =>
+//   INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop it and call
+//   with no token.
+package dzeroth.notifications.v1;
+
+import "dzeroth/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1;notificationsv1";
+
+service NotificationService {
+  // Newest-first notifications for the caller. Every RPC checks FEATURE_NOTIFICATIONS (FAILED_PRECONDITION +
+  // FEATURE_DISABLED when off, 0 reads).
+  // Firestore: reads 1 + page_size worst (21 at the default page; the seen_at profile is cached by the
+  // account-status interceptor), refresh with 0 new items 1 read, planning 21 cold / 5 refresh; writes 0.
+  // Rate limit: default per-minute bucket. Counted against the per-uid daily read budget.
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
+  // instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward.
+  // Firestore: reads 0, writes 1.
+  rpc MarkNotificationsSeen(MarkNotificationsSeenRequest) returns (MarkNotificationsSeenResponse);
+
+  // Registers (or refreshes) this installation's FCM token under users/{uid}/devices/{device_id}. A token that was
+  // registered by another account on the same device is removed from that account (privacy). At most 5 devices per
+  // user: registering a 6th evicts the least recently refreshed one. Call on sign-in, on token refresh and once per
+  // app start. Naturally idempotent by device_id.
+  // Rate limit: 50 Register/Unregister calls per uid per day (limit_name "notification_devices_daily").
+  // Firestore: reads worst 8 (device doc, token index, previous owner's device, device list <= 6), typical 2;
+  // writes worst 5, typical 2.
+  rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceResponse);
+
+  // Removes the device (call on sign-out, before the ID token is dropped). Unknown device_id is a no-op success.
+  // Firestore: reads 1, writes 0 or 2 (device doc + token index).
+  rpc UnregisterDevice(UnregisterDeviceRequest) returns (UnregisterDeviceResponse);
+}
+
+enum NotificationType {
+  NOTIFICATION_TYPE_UNSPECIFIED = 0;
+  // actor started following you.
+  NOTIFICATION_TYPE_FOLLOW = 1;
+  // actor mentioned you in post_id.
+  NOTIFICATION_TYPE_MENTION = 2;
+  // actor replied to your post; post_id is the reply.
+  NOTIFICATION_TYPE_REPLY = 3;
+  // actor(s) liked your post_id. Collapsed per post per hour: one row, actor_count grows.
+  NOTIFICATION_TYPE_LIKE = 4;
+  // actor reposted your post_id.
+  NOTIFICATION_TYPE_REPOST = 5;
+  // actor quoted your post; post_id is the quote post.
+  NOTIFICATION_TYPE_QUOTE = 6;
+}
+
+enum DevicePlatform {
+  DEVICE_PLATFORM_UNSPECIFIED = 0;
+  DEVICE_PLATFORM_IOS = 1;
+  DEVICE_PLATFORM_ANDROID = 2;
+}
+
+message Notification {
+  // Stable per logical notification (rewritten in place when a LIKE row collapses another like).
+  string id = 1;
+  NotificationType type = 2;
+  // The most recent actor, snapshotted when the notification was written (may be up to a profile refresh stale).
+  dzeroth.common.v1.AuthorSnapshot actor = 3;
+  // Distinct actors folded into this row (>= 1; only LIKE is > 1). Render "@actor and N-1 others".
+  int32 actor_count = 4;
+  // Subject post (empty for FOLLOW). Tapping opens /post/:id, or the actor's profile for FOLLOW.
+  string post_id = 5;
+  // Last activity; the sort key.
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListNotificationsRequest {
+  // 0 => 20; max 50 (clamped).
+  int32 page_size = 1;
+  string page_token = 2;
+  string since_token = 3;
+}
+
+message ListNotificationsResponse {
+  // Newest first.
+  repeated Notification notifications = 1;
+  // "" => no older notifications.
+  string next_page_token = 2;
+  // Persist with the cached items; send on the next refresh.
+  string since_token = 3;
+  // Non-empty => a refresh gap exists below the returned items (see token contract).
+  string gap_page_token = 4;
+  // The caller's notificationsSeenAt: rows with created_at > seen_at are unread. Unset when never marked seen.
+  google.protobuf.Timestamp seen_at = 5;
+}
+
+message MarkNotificationsSeenRequest {
+  string idempotency_key = 1;
+}
+
+message MarkNotificationsSeenResponse {
+  google.protobuf.Timestamp seen_at = 1;
+}
+
+message RegisterDeviceRequest {
+  string idempotency_key = 1;
+  // Client-generated installation id, 16-64 chars [A-Za-z0-9_-], stable for the installation.
+  string device_id = 2;
+  // FCM registration token, 1-4096 bytes, no whitespace. Never logged.
+  string fcm_token = 3;
+  DevicePlatform platform = 4;
+}
+
+message RegisterDeviceResponse {}
+
+message UnregisterDeviceRequest {
+  string idempotency_key = 1;
+  string device_id = 2;
+}
+
+message UnregisterDeviceResponse {}
