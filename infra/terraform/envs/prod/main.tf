@@ -249,6 +249,7 @@ module "monitoring" {
 
   # ADR-0011 C4 alert policy: ~$0.40/month, prod only.
   enable_auth_admin_alert = true # cost-approved: ADR-0011
+  enable_ops_alerts       = true # R4: prod keeps uptime, 5xx and Firestore-reads alerts (ADR-0007 amendment 2026-10-10)
 
   depends_on = [module.cloud_run_api]
 }

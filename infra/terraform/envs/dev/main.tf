@@ -231,6 +231,9 @@ module "monitoring" {
   # ADR-0011 C4 alert is prod only (~$0.40/month); dev relies on log inspection. The log-based metric still exists.
   enable_auth_admin_alert = false
 
+  # R4 (founder 2026-10-10, ADR-0007 amendment): ops alert policies are billable, so prod only. Dev relies on the dashboard.
+  enable_ops_alerts = false
+
   depends_on = [module.cloud_run_api]
 }
 
