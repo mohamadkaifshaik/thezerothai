@@ -27,3 +27,9 @@ variable "auth_admin_alert_per_hour" {
   type        = number
   default     = 5
 }
+
+variable "enable_ops_alerts" {
+  description = "Create the three ops alert policies (uptime, 5xx rate, Firestore reads). Billable under Cloud Monitoring alerting pricing (~$0.35 per metric reference per month), so prod only (ADR-0007 amendment 2026-10-10, R4). The dashboard and uptime check exist regardless."
+  type        = bool
+  default     = true
+}

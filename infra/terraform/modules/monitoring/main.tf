@@ -165,8 +165,26 @@ resource "google_monitoring_uptime_check_config" "healthz" {
 // Alert policies — kept to a small handful per the observability skill.
 // ---------------------------------------------------------------------------
 
+// The three ops alert policies became conditional (R4, founder decision 2026-10-10: prod only). These keep the
+// existing prod state addresses so the change is a no-op there.
+moved {
+  from = google_monitoring_alert_policy.uptime_failing
+  to   = google_monitoring_alert_policy.uptime_failing[0]
+}
+
+moved {
+  from = google_monitoring_alert_policy.run_5xx_rate
+  to   = google_monitoring_alert_policy.run_5xx_rate[0]
+}
+
+moved {
+  from = google_monitoring_alert_policy.firestore_reads_near_quota
+  to   = google_monitoring_alert_policy.firestore_reads_near_quota[0]
+}
+
 // 1. Uptime check fails for 5 minutes.
 resource "google_monitoring_alert_policy" "uptime_failing" {
+  count        = var.enable_ops_alerts ? 1 : 0
   project      = var.project_id
   display_name = "api /health uptime check failing (${var.env})"
   combiner     = "OR"
@@ -202,6 +220,7 @@ resource "google_monitoring_alert_policy" "uptime_failing" {
 // as "5% of requests"; revisit with an MQL ratio query if false
 // positives/negatives at low traffic become a problem.
 resource "google_monitoring_alert_policy" "run_5xx_rate" {
+  count        = var.enable_ops_alerts ? 1 : 0
   project      = var.project_id
   display_name = "api 5xx rate > 0.05 req/s for 10 min, absolute not % (${var.env})"
   combiner     = "OR"
@@ -232,6 +251,7 @@ resource "google_monitoring_alert_policy" "run_5xx_rate" {
 // 3. Firestore reads > 40k in a day — 80% of the 50k/day free quota, early
 // cost warning (billing budget is the hard cost backstop).
 resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
+  count        = var.enable_ops_alerts ? 1 : 0
   project      = var.project_id
   display_name = "Firestore reads > 40k/day, 80% of free quota (${var.env})"
   combiner     = "OR"
