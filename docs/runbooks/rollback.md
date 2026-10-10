@@ -85,14 +85,21 @@ Or use the Firebase console → Hosting → release history → "Rollback" on th
   neutralize a bad client release.
 
 ## Pub/Sub / Cloud Scheduler async handlers
-All push subscriptions have a DLQ (max 5 delivery attempts, `modules/pubsub`). If a handler is rolled back mid-flight,
-messages that failed against the bad revision sit in the DLQ topic (`<topic>-dlq`, 7-day retention) — replay them
-manually once the fix is deployed:
+The `jobs-push` subscription and Cloud Scheduler call the main `api` service URL, so deliveries follow the Cloud Run
+traffic split. Two consequences:
 
-```bash
-gcloud pubsub subscriptions pull <topic>-dlq-sub --auto-ack --limit=100 --project=<project>
-# or re-publish from the DLQ topic back to the original topic via a small one-off script.
-```
+- **v0.1.0 acks every push with 202.** Its `/internal/*` handler does not know the P8 jobs. If you roll back to a
+  v0.1.0 revision while any account is `DELETING` or any export is `PENDING`, those deliveries are silently acked and
+  dropped (they never reach the DLQ) and the daily backstop does nothing, because v0.1.0 has no backstop code.
+- **Order for any rollback once a lifecycle flag has been on:** (1) set `FEATURE_ACCOUNT_LIFECYCLE=off` and shift traffic
+  to that revision (see `account-deletion.md` section 6, step 4), (2) check no account is `DELETING` and no export is
+  `PENDING` (Firestore console, `users` and `exports`), (3) only then roll back, (4) after new code serves again, run
+  `gcloud scheduler jobs run daily-maintenance --project <project> --location asia-south1` to resume stuck work.
+  Never enable `FEATURE_ACCOUNT_LIFECYCLE` while a v0.1.0 revision holds any traffic.
+
+For a rollback between two P8-aware revisions, messages that failed repeatedly end in the DLQ topic `jobs-dlq`. That
+topic has **no pull subscription** (nothing to `pull`); the backstop (`/internal/cron/daily-maintenance`) rebuilds the
+work from Firestore state, so nothing needs replaying by hand. See `account-deletion.md` section 6, "A deletion is stuck".
 
 ## After any rollback
 - Confirm `/healthz` and the uptime check are green, and Error Reporting is quiet for the restored revision.

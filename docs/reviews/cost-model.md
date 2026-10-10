@@ -177,7 +177,15 @@ line; levers are in `docs/runbooks/abuse-spike.md` (T26). The bound is a hard st
 | 1,000 | $3.87 | $0.79 | $0.45 | $0 | $7.50 | **≈ $12.61** |
 | 3,000 | $15.60 | $6.62 | $6.30 | $0.16 | $13.50 (cap hit) | **≈ $42.18** |
 Plus prod Firestore weekly backups (ADR-0007): storage-priced, cents/month at < 1 GiB.
-Nothing in this table is a fixed fee; every line falls back to $0 with traffic. With paid SafeSearch the $5 budget
+Fixed monitoring line (decision 2026-10-10, R4; the only fixed lines in this table, not DAU-dependent):
+prod keeps 4 alert policies (uptime, 5xx rate, Firestore reads, C4 Auth mutations); dev keeps none of the 3 older ones
+(gated off in Terraform). Upper bound at the published $0.35 per metric reference per month plus $0.50 per million points
+returned: about **$1.05 to $1.20/month** for prod's 3 older policies, plus **about $0.39/month** for C4 (ADR-0011),
+so **about $1.45 to $1.60/month** in total. Uptime-check executions are inside the 1M free executions per project.
+Unconfirmed: a search summary says alerting is not charged before 2027-09-01 and that uptime/billing/quota-metric
+policies are free; the primary pricing page could not be read in this session, so the figures above stay as the
+conservative bound. Re-check on the pricing page before each stage change.
+Nothing else in this table is a fixed fee; every other line falls back to $0 with traffic. With paid SafeSearch the $5 budget
 alert (ADR-0007) fires at ≈ 520 DAU (was ≈ 550) — consider raising the budget amount then (config change, not an ADR).
 
 ## 6. Levers, cheapest first (use before any Stage 2 ADR)
