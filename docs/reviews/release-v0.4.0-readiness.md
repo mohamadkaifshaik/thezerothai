@@ -18,8 +18,8 @@ that were never smoke-tested: **never route traffic to them.**
 |---|---|---|---|---|
 | F1 | High | BLOCKER | Live prod has `FEATURE_GRAPH=allowlist` (2 uids), which the candidate inherits | **Accepted by founder (option a)**; verified, section 3 |
 | F2 | High | BLOCKER | Stale `VERDICT: GO` in `release-v0.2.0-readiness.md` (set by instruction, never released) passes the promote gate if tagged `v0.2.0` | **Fixed in this PR** (line now `SUPERSEDED`); tag `v0.4.0` |
-| F3 | Med | BLOCKER | P8 code review still `REQUEST CHANGES`; #107 never re-approved | Re-review launched; addendum pending |
-| F4 | Med | BLOCKER | #110 (modern UI, 18 files) merged unreviewed | Review launched; result pending |
+| F3 | Med | BLOCKER | P8 code review still `REQUEST CHANGES`; #107 never re-approved | **APPROVE** (addendum appended to `code-review-account-lifecycle.md`); 4 Minor + 2 Nit follow-ups, none blocking |
+| F4 | Med | BLOCKER | #110 (modern UI, 18 files) merged unreviewed | **REQUEST CHANGES** (`code-review-modern-ui-110.md`): M1 snackbar action/close contrast is live and must be fixed before web at 100% (3-line theme fix + test); M2 `PostMedia` full-image fallback before the media flag; no blocker |
 | F5 | Med | BLOCKER | Ungated client-side account delete (L-5) goes live on web at 100%; web path never verified | **OPEN, founder to verify** on `dzeroth-dev.web.app` (unverified password account; profile-less Google account): Auth user gone, signed out, local DB wiped |
 | F6 | Med | BLOCKER (record) | R4: older alert policies are a fixed monitoring cost with no recorded decision | **Decided (ii) prod only**; recorded in `cost-model.md` §5 and ADR-0007 amendment; dev gating in Terraform is a separate PR |
 | F7 | Med | PRE-FLAG | v0.1.0 acks every `/internal/*` push with 202; rollback to it with `DELETING`/`PENDING` work silently drops it; `rollback.md` was wrong | **Fixed in this PR** (`rollback.md`). Never enable the lifecycle flag while `api-00003-tiw` holds traffic |
