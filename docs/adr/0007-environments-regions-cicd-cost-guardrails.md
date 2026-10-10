@@ -88,3 +88,13 @@ database location cannot be changed after creation (migration = export/import at
 - frontend-developer: base URL per platform/env (`/api` on web, `run.app` on mobile); banner for degraded mode.
 - tester: CI emulator suite; smoke script used against dev and the `candidate` tag, asserting `fs_reads` per RPC ≤ budget.
 - sre-performance: own `docs/reviews/cost-model.md` actuals weekly.
+
+## Amendment 2026-10-10 - alert policies are a recorded fixed cost, prod only (R4)
+- The "<= 3 alert policies" in Cost guardrails are billable under Cloud Monitoring alerting pricing ($0.35 per metric
+  reference per month, $0.50 per million points returned), so they are a fixed monthly cost, not free. They predate the
+  `cost-guard` hook and had no ADR naming the cost.
+- Founder decision 2026-10-10: **keep all three in prod** (uptime, 5xx rate, Firestore reads), **disable them in dev**
+  through Terraform. Upper bound for prod's three: about $1.05 to $1.20/month; plus C4 (ADR-0011) about $0.39/month.
+  The milestone that justifies it: prod serves real users and these are the only pages that wake the founder.
+- `cost-model.md` section 5 carries the line. Source of the prices and the open question on charge start date are
+  recorded there.

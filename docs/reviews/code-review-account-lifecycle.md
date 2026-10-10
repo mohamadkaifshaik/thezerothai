@@ -57,3 +57,47 @@ At 300 DAU: ~1.22 R, 0.31 W, 0.51 D per DAU, under 1% of each free quota. Tail r
 ## Files for the fix PR
 
 repo_lifecycle_firestore.go (B1); lifecycle_export.go (M1); lifecycle.go (M2, Minor 1, 4); authadmin_guard_test.go + lifecycle_types.go (M3); lifecycle_jobs.go (Minor 1, 3, Nits 2, 5); apiserver/account_lifecycle_integration_test.go (M2); config.go + media-buckets/main.tf (Minor 2); docs/code-map.md; plan doc.
+
+---
+
+## Addendum 2026-10-10: re-review of fix PR #107 (28f32fa), on origin/main 28dcafc
+
+Reviewer: code-reviewer (read-only). Ran the identity, config and store unit tests (pass, including
+`TestAuthAdminConfinement_ClosedHoles`, `TestExportComposeTimeout`, `TestBackstopFailedExportDeletesObject`,
+`TestDeleteAccount`). Emulator integration tests were not re-run; #107's CI ran `make ci` and `make test-int`, both green.
+
+| # | Status | Evidence |
+|---|---|---|
+| B1 | Fixed | `repo_lifecycle_firestore.go:157` uses `store.RunTransaction`; scratch counter removed; AlreadyExists branch kept; no raw `client.RunTransaction` outside `store/txn.go`. Tests: `repo_lifecycle_integration_test.go:219`, `store/txn_test.go` |
+| M1 | Fixed | `lifecycle_export.go:25,130,140-146`: compose deadline becomes `failExport(..., "too_large")`, ERROR `jobs/account_export_too_large`, ack. Test: `lifecycle_fixes_test.go:25` |
+| M2 | Fixed | `lifecycle.go:41,295`: replay publishes only when `now - progressAt >= 2m`, 0 extra Firestore ops. Tests: `lifecycle_delete_test.go`, chain test |
+| M3 | Fixed | `authadmin_guard_test.go:56,77,82` covers `identity.AuthClient` methods and non-`authadmin.go` identity files; ClosedHoles cases at `:236,:239` |
+| Minor 1 | Mostly fixed | See N-1 |
+| Minor 2 | Fixed | `config.go:277` caps `MaxExportRetention` at 7 d; test `config_test.go:145` |
+| Minor 3 | Fixed, untested | `lifecycle.go:37`, `lifecycle_jobs.go:332`; see N-3 |
+| Minor 4, 5 | Fixed | ADR-0011 amendment; `code-map.md:87-88` |
+| Nit 2 | Fixed, with a new ordering race | See N-2 |
+| Nit 3, 5 | Fixed | `firestore.indexes.json:89`; `lifecycle_jobs.go:555,558` |
+
+Regression checks passed: no new Firestore reads or writes on any path; replay idempotency unchanged; the C2 guard is
+stricter than before; CLAUDE.md rules 5, 6, 8, 10, 11 hold; no proto or resource change.
+
+New findings (none blocks; fold into one small follow-up PR):
+- **N-2 (Minor).** `Backstop()` deletes the export object before the status write that is guarded by the doc's
+  `UpdateTime` (`lifecycle_jobs.go:501-505`). If a delivery is composing that export at the same moment, the result can
+  be a READY export whose signed URL returns 404 (rare: a PENDING export at least 24 h old inside one compose window, but
+  the delete is irreversible). Fix: write FAILED first with the precondition and delete the object only on success;
+  extend `TestBackstopFailedExportDeletesObject` with a conflict case.
+- **N-3 (Minor).** Minor 3 has no test; when `room <= 0` (`lifecycle_jobs.go:332`) the limit stays 25 s instead of
+  returning early.
+- **N-4 (Minor).** `deleteRepublishAfter` (2 m) equals the 120 s start gate and gated deliveries do not move
+  `progressAt`, so a replay after 2 m during backoff can publish a duplicate seq-0 (seq dedupe keeps it correct;
+  `account_ops_daily` bounds it). Measure from `max(progressAt, deletionRequestedAt + startGate)` or document it.
+- **N-1 (Minor).** `lifecycle.go:263-264` budget comment is wrong (a replay is 1 read in the service); assert
+  `fs_reads <= 2` on the replay line in the chain test.
+- **N-5 (Nit).** The C2 guard can still be dodged on purpose with a locally declared interface inside identity; accept
+  as a review responsibility or also flag `DeleteUser`/`UpdateUser`/`RevokeRefreshTokens` calls on interface values.
+- **N-6 (Nit).** Identity transactions drop the attempt count from `store.RunTransaction`, so `txn_attempts` is not
+  logged.
+
+VERDICT: APPROVE
