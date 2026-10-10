@@ -103,13 +103,28 @@ Firestore < 10k reads/day; write `docs/reviews/release-v0.4.0-postrelease.md`.
   S3, S4, sec-L7/L9, opsctl hardening, App Check decision (`release-v0.2.0-readiness.md` section 7).
 
 ## 7. Risks to accept (founder sign-off)
+Founder delegated product decisions to the lead on 2026-10-10 ("if you need decisions from me you have authorization to
+choose what is best for this product"). Items marked *delegated* below were accepted by the lead under that delegation
+and can be reversed by the founder at any time.
+
 | Risk | Status |
 |---|---|
-| F1(a) graph allowlist (2 smoke accounts) at release | Accepted 2026-10-10 |
-| F6 R4 monitoring fixed cost, prod only | Accepted 2026-10-10 |
-| F13 Error Reporting API disabled | Open |
-| F15 HashUID unkeyed | Open |
-| F18 first tag run of re-pinned workflows | Open |
-| L-5 ungated web client delete (accepted 2026-10-08; restated, goes live in prod) | Accepted; web path verified on dev by the founder 2026-10-10 (details not itemised) |
+| F1(a) graph allowlist (2 smoke accounts) at release | Accepted by founder 2026-10-10 |
+| F6 R4 monitoring fixed cost, prod only | Accepted by founder 2026-10-10 |
+| L-5 ungated web client delete (restated, goes live in prod) | Accepted 2026-10-08; web path founder-verified on dev 2026-10-10 (details not itemised) |
+| F4 M2 `PostMedia` full-image fallback | Dormant (backend returns no media); fix is in the P4 slice; **must land before `FEATURE_MEDIA` is on** |
+| F14 v0.4.0 is **web-only**; `release-prod` AAB/IPA artifacts are not distributed; version `1.0.0+1`, no Crashlytics/forced upgrade is acceptable for web | Accepted (*delegated*) 2026-10-10. Re-open before any store submission |
+| F15 HashUID unkeyed truncated SHA-256 in logs | Accepted (*delegated*) 2026-10-10. Follow-up: HMAC pepper ($0), record in privacy notes |
+| F18 first tag run of the re-pinned release/promote workflows | Accepted (*delegated*) 2026-10-10. Mitigation: `release-prod` only stages with no traffic; watch the run |
+| F13 Error Reporting API disabled in prod | Accepted (*delegated*) 2026-10-10 for this release: 0 ERROR/5xx entries since 2026-10-08, Logs Explorer `severity>=ERROR` is the substitute. Enabling it is free but is a prod change: pending a quick founder OK |
+| R-2 / R-P1 (graph privacy residue, #37) | Smoke accounts only; R-2 target 2026-10-31; no real user allowlisted |
+
+### F4 record (#110)
+`code-review-modern-ui-110.md` M1 (snackbar contrast) fixed in #114 (`81594fe`): `app_theme_test.dart` passes
+(action 4.5:1, icon 3:1, both themes), PR CI run 38054560861 green. M2 deferred until `kPostsSubFeatureMedia`/`FEATURE_MEDIA`;
+the P4 slice carries the fix. Minors m1-m4 and nits are a post-release follow-up.
+
+### Release notes (F21)
+`docs/releases/v0.4.0.md`.
 
 VERDICT: NO-GO
