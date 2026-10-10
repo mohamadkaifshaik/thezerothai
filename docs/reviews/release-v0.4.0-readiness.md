@@ -20,8 +20,8 @@ that were never smoke-tested: **never route traffic to them.**
 | F2 | High | BLOCKER | Stale `VERDICT: GO` in `release-v0.2.0-readiness.md` (set by instruction, never released) passes the promote gate if tagged `v0.2.0` | **Fixed in this PR** (line now `SUPERSEDED`); tag `v0.4.0` |
 | F3 | Med | BLOCKER | P8 code review still `REQUEST CHANGES`; #107 never re-approved | **APPROVE** (addendum appended to `code-review-account-lifecycle.md`); 4 Minor + 2 Nit follow-ups, none blocking |
 | F4 | Med | BLOCKER | #110 (modern UI, 18 files) merged unreviewed | **REQUEST CHANGES** (`code-review-modern-ui-110.md`): M1 snackbar action/close contrast is live and must be fixed before web at 100% (3-line theme fix + test); M2 `PostMedia` full-image fallback before the media flag; no blocker |
-| F5 | Med | BLOCKER | Ungated client-side account delete (L-5) goes live on web at 100%; web path never verified | **OPEN, founder to verify** on `dzeroth-dev.web.app` (unverified password account; profile-less Google account): Auth user gone, signed out, local DB wiped |
-| F6 | Med | BLOCKER (record) | R4: older alert policies are a fixed monitoring cost with no recorded decision | **Decided (ii) prod only**; recorded in `cost-model.md` §5 and ADR-0007 amendment; dev gating in Terraform is a separate PR |
+| F5 | Med | BLOCKER | Ungated client-side account delete (L-5) goes live on web at 100%; web path never verified | **Verified by founder 2026-10-10** on `dzeroth-dev.web.app`: reported "working fine". Which account types were exercised and the Auth/local-DB observations were not itemised in chat; the founder may add detail here |
+| F6 | Med | BLOCKER (record) | R4: older alert policies are a fixed monitoring cost with no recorded decision | **Closed.** Decided (ii) prod only; recorded in `cost-model.md` §5 and ADR-0007 amendment; #113 merged; **dev applied 2026-10-10** (3 policies destroyed, post-apply plan clean); read-only prod plan = 0 add/0 change/0 destroy (state moves only) |
 | F7 | Med | PRE-FLAG | v0.1.0 acks every `/internal/*` push with 202; rollback to it with `DELETING`/`PENDING` work silently drops it; `rollback.md` was wrong | **Fixed in this PR** (`rollback.md`). Never enable the lifecycle flag while `api-00003-tiw` holds traffic |
 | F8 | Low | BLOCKER (procedural) | CI has not run on the final commit (PRs only; #110's head tree is identical to `07752c4`, run passed) | Open: `gh workflow run CI --ref main` after the verdict commit |
 | F9 | Low | BLOCKER (one command) | A2 pre-check `check-t26` not run | **Done 2026-10-10: PASS**, section 4 |
@@ -46,7 +46,7 @@ that were never smoke-tested: **never route traffic to them.**
 - **Execution boundaries:** read-only checks on prod are allowed, no prod change without explicit approval; the release
   stays blocked until the gates are satisfied and the production-reviewer issues `VERDICT: GO`; percentage rollout stays
   blocked until T26/T27/T28/S3/S4 are complete.
-- F5 remains outstanding and must be done before readiness sign-off.
+- F5 (web client-delete check) was completed by the founder on 2026-10-10 (see section 2).
 
 ## 4. Lead verifications (read-only, 2026-10-10)
 - **F1 precondition (allowlist are the smoke accounts):** live service template has `FEATURE_GRAPH=allowlist`,
@@ -110,6 +110,6 @@ Firestore < 10k reads/day; write `docs/reviews/release-v0.4.0-postrelease.md`.
 | F13 Error Reporting API disabled | Open |
 | F15 HashUID unkeyed | Open |
 | F18 first tag run of re-pinned workflows | Open |
-| L-5 ungated web client delete (accepted 2026-10-08; restated, goes live in prod) | Pending F5 verification |
+| L-5 ungated web client delete (accepted 2026-10-08; restated, goes live in prod) | Accepted; web path verified on dev by the founder 2026-10-10 (details not itemised) |
 
 VERDICT: NO-GO
