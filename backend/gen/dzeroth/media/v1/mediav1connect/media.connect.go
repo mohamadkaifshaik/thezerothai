@@ -55,10 +55,13 @@ type MediaServiceClient interface {
 	// Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
-	// (magic bytes) -> SafeSearch on the full image if the monthly Vision counter < 950 -> copy full+thumb to the
-	// public bucket -> READY; or REJECTED (objects deleted). Counter exhausted => READY_UNSCREENED (policy knob,
-	// ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
-	// GCS per image: 2 Class A (copies) + 3 Class B (attrs, ranged read, Vision fetch); deletes are free.
+	// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
+	// (default 10,000, ADR-0005 amendment; the full image, plus the thumbnail when VISION_SCREEN_THUMB is on, the
+	// default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Counter exhausted =>
+	// READY_UNSCREENED for accounts older than 7 days and REJECTED for newer ones, or REJECTED for everyone when
+	// VISION_EXHAUSTED_POLICY=reject (ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
+	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
+	// thumbnail) + 1-2 Vision fetches; deletes are free.
 	// Firestore: reads 5/2 (media docs + Vision counter, cached 60 s), writes 5/2.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
@@ -115,10 +118,13 @@ type MediaServiceHandler interface {
 	// Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
-	// (magic bytes) -> SafeSearch on the full image if the monthly Vision counter < 950 -> copy full+thumb to the
-	// public bucket -> READY; or REJECTED (objects deleted). Counter exhausted => READY_UNSCREENED (policy knob,
-	// ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
-	// GCS per image: 2 Class A (copies) + 3 Class B (attrs, ranged read, Vision fetch); deletes are free.
+	// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
+	// (default 10,000, ADR-0005 amendment; the full image, plus the thumbnail when VISION_SCREEN_THUMB is on, the
+	// default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Counter exhausted =>
+	// READY_UNSCREENED for accounts older than 7 days and REJECTED for newer ones, or REJECTED for everyone when
+	// VISION_EXHAUSTED_POLICY=reject (ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
+	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
+	// thumbnail) + 1-2 Vision fetches; deletes are free.
 	// Firestore: reads 5/2 (media docs + Vision counter, cached 60 s), writes 5/2.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
