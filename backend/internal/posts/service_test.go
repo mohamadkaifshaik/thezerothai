@@ -42,6 +42,14 @@ type fakeRepo struct {
 	deleteCalls int
 	deleteErr   error
 	deleteRace  bool // the post vanishes between the read and the batch (a concurrent delete won)
+
+	// Replies model (P3).
+	parentGone        bool // the parent is deleted between the visibility check and the commit
+	conversationCalls int
+	conversationErr   error
+	lastAfter         *Position
+	replyCountCalls   int
+	replyCountErr     error
 }
 
 func newFakeRepo(ps ...*Post) *fakeRepo {

@@ -164,6 +164,7 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   195.5 reads/DAU = 58.7k/day, **117% of the free quota at 300 DAU**; the crossover is ≈ 256 DAU. That is ≈ $0.16/month
   over at 300 DAU (upper-bound price, `cost-model.md` §7), inside D1. The P3 ADR re-bases its own rows with the same
   convention: cold ceilings include the interceptor read.
+- **Status.** Backend done behind `FEATURE_REPLIES` (PR for `feat/p3-replies`); Flutter open. Plan: `docs/plans/replies-and-threads.md`.
 - **Done when.** Thread order is chronological. Replies from blocked or muted authors are dropped. Budget assertions
   pass. A delete of the parent renders a tombstone.
 

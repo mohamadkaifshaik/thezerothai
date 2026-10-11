@@ -3,7 +3,8 @@
 // errors are mapped to Connect codes by pkg/platform/mw.ErrorMapping).
 //
 // T5 registers the service with every RPC behind the flag guard and otherwise Unimplemented; T8 (CreatePost)
-// and T9 (DeletePost, GetPost) replace the bodies, GetThread stays Unimplemented until the replies slice (P3).
+// and T9 (DeletePost, GetPost) replace the bodies; GetThread and the reply path of CreatePost (P3) sit behind
+// the extra FEATURE_REPLIES flag.
 package posts
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // FlagChecker is the minimal seam posts and timeline need from pkg/platform/flags.Registry (ADR-0002: depend
@@ -75,6 +77,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		MediaAltTexts:  m.GetMediaAltTexts(),
 		ReplyToPostID:  m.GetReplyToPostId(),
 		QuoteOfPostID:  m.GetQuoteOfPostId(),
+		RepliesEnabled: s.repliesEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
@@ -115,10 +118,48 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
 }
 
-// GetThread is behind the flag and Unimplemented until the replies slice (P3).
+// RepliesFlagName is the wire name of FEATURE_REPLIES (P3). It is independent of FEATURE_POSTS but needs it:
+// every RPC still passes GuardFeature first.
+const RepliesFlagName = "replies"
+
+// repliesEnabled is the FEATURE_REPLIES decision for uid (off when no checker is wired).
+func (s *Server) repliesEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, RepliesFlagName)
+}
+
+// GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
 func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.GetThreadRequest]) (*connect.Response[postsv1.GetThreadResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
 	}
-	return s.UnimplementedPostServiceHandler.GetThread(ctx, req)
+	uid, _ := authn.UIDFromContext(ctx)
+	if !s.repliesEnabled(uid) {
+		logger.SetRequestField(ctx, "feature_disabled", true)
+		logger.SetRequestField(ctx, "outcome", "rejected:feature_disabled")
+		return nil, featureDisabled("replies")
+	}
+	ctx, cancel := context.WithTimeout(ctx, readDeadline)
+	defer cancel()
+	t, err := s.svc.GetThread(ctx, uid, ThreadInput{
+		PostID: req.Msg.GetPostId(), PageSize: req.Msg.GetPageSize(), PageToken: req.Msg.GetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := &postsv1.GetThreadResponse{
+		Focal:             &postsv1.PostView{Post: ToProto(t.Focal)},
+		ParentUnavailable: t.ParentUnavailable,
+		RootUnavailable:   t.RootUnavailable,
+		NextPageToken:     t.NextPageToken,
+	}
+	if t.Parent != nil {
+		out.Parent = &postsv1.PostView{Post: ToProto(t.Parent)}
+	}
+	if t.Root != nil {
+		out.Root = &postsv1.PostView{Post: ToProto(t.Root)}
+	}
+	for _, p := range t.Replies {
+		out.Replies = append(out.Replies, &postsv1.PostView{Post: ToProto(p)})
+	}
+	return connect.NewResponse(out), nil
 }

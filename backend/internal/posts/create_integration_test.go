@@ -58,7 +58,7 @@ func newCreateInstance(t *testing.T, client *firestore.Client, window time.Durat
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
-	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, NewAccountWindow: window})
+	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, NewAccountWindow: window, BlocksPerDay: 100, NewAccountBlocksPerDay: 100})
 	identitySvc := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour)
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 

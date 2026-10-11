@@ -102,6 +102,8 @@ type exportedPost struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Hashtags  []string  `json:"hashtags"`
 	Mentions  []string  `json:"mentions"`
+	// ReplyToPostID is set for replies (P3); the parent's author is not exported (not the user's data).
+	ReplyToPostID string `json:"replyToPostId,omitempty"`
 }
 
 // ExportUser implements Exporter: it streams {"userId": ..., "posts": [...]} to w, newest first, in pages of
@@ -132,7 +134,7 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 			if err := s.DataTo(&d); err != nil {
 				return fmt.Errorf("posts: export decode post %s: %w", s.Ref.ID, err)
 			}
-			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions))}
+			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID}
 			if ep.Hashtags == nil {
 				ep.Hashtags = []string{}
 			}
