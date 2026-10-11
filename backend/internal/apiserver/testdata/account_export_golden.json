@@ -37,6 +37,11 @@
     ],
     "userId": "<uid:A>"
   },
+  "notifications": {
+    "devices": [],
+    "notifications": [],
+    "userId": "<uid:A>"
+  },
   "posts": {
     "posts": [
       {

@@ -5,6 +5,7 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -38,6 +39,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	checkHandleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CheckHandleCallsPerDay)
 	// ADR-0010 D5 A6: limit_name "account_ops_daily", shared by DeleteAccount, RequestAccountExport, GetAccountExport.
 	accountOpsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.AccountOpsCallsPerDay)
+
+	// ADR-0017 D9: RegisterDevice and UnregisterDevice share one per-uid daily call cap, limit_name
+	// "notification_devices_daily" (each call is a transaction of up to 8 reads and 5 writes). The other three
+	// notification RPCs use the 60/min default bucket and the read budget.
+	notificationDevicesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationDevicesCallsPerDay)
 
 	// ADR-0010 T4: home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
 	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts are bounded per day by quota.Posts (100, 20 for
@@ -80,6 +86,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: checkHandleDailyCap},
+
+			notificationsv1connect.NotificationServiceRegisterDeviceProcedure:   {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
+			notificationsv1connect.NotificationServiceUnregisterDeviceProcedure: {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
 
 			// A6: ONE shared call cap for the three charge-only account operations (their only bound).
 			identityv1connect.IdentityServiceDeleteAccountProcedure:        {Name: "account_ops_daily", Cap: accountOpsDailyCap},
