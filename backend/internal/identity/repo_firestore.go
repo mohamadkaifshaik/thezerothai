@@ -369,6 +369,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 			// Case-only rename (e.g. "alice" -> "Alice"): the uniqueness key (handleLower) is unchanged,
 			// so handles/{} and the cooldown are not touched — only the display form and updatedAt change.
 			d.Handle = newHandle
+			d.SnapshotVersion++ // the handle's case is part of the author snapshot posts carry (P2)
 			d.UpdatedAt = now
 			b := store.NewFirestoreTxBatch(tx, counter)
 			b.Set(r.userRef(uid), d)
@@ -409,6 +410,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 		d.Handle = newHandle
 		d.HandleLower = newHandleLower
 		d.HandleChangedAt = now
+		d.SnapshotVersion++ // posts carry the handle in their author snapshot (P2)
 		d.UpdatedAt = now
 
 		b := store.NewFirestoreTxBatch(tx, counter)

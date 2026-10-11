@@ -28,6 +28,9 @@ type JobMessage struct {
 	Seq int64  `json:"seq"`
 	// ExportID is set for account_export.
 	ExportID string `json:"exportId,omitempty"`
+	// SnapshotVersion is set for profile_snapshot_refresh (P2): the users.snapshotVersion the edit produced. It
+	// is informational: the job always rewrites the profile's current version.
+	SnapshotVersion int64 `json:"snapshotVersion,omitempty"`
 }
 
 // DeletionJob is the deletion state on users/{uid}.deletionJob (ADR-0011): Seq dedupes deliveries, Step is the
