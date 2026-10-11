@@ -100,7 +100,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -174,6 +174,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
 		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
+		CursorKey:             cfg.CursorHMACKey,
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
 	postsServer := posts.NewServer(postsSvc, featureFlags)
 	timelineServer := timeline.NewServer(timeline.Deps{

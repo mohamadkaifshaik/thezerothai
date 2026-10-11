@@ -43,7 +43,8 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | Like | 0–1 | 3 (like doc, post counter, userLikes) + 1 notification |
 | Home timeline (ADR-0004, ADR-0010) | ceiling 2 + C + 2·page (269 at F = 5,000, page 50; 2 = interceptor + graph; +1 `userLikes` from P5), C = ceil((F+1)/30). Refresh planning 4 + new posts (graph expired: refreshes are ≥ 60 s apart); older page / cold open planning 30 (F = 60, page 20, k = 14) | 0 |
 | Profile timeline (ADR-0010 D16) | 3 + page cold (53 at page 50: interceptor + target `users` + caller `graph` + `Limit(page)`), 0 warm (Posts-tab first page = author-recent cache), planning 11; `since` with 0 new = 4 cold | 0 |
-| Post detail + 20 replies | 1 + ≤ 20 | 0 |
+| Create reply (P3, FEATURE_REPLIES) | 15 cold / 3 warm (root-post reads + parent 1 + its author 1 + caller graph 1) | 5 (idempotency, post, `users.postsCount`, quotas, parent `replyCount`); replay 0; parent gone 0 |
+| GetThread (P3) | ≤ 38 cold at page 30 (interceptor 1, focal 1+author 1, caller graph 1, parent/root 2, ≤ 2 authors, conversation query ≤ page; default page 10 = 14), 1..30 warm | 0 |
 | Notifications page | ≤ 20 | 1 (reset unread) |
 
 ## Indexes (`firebase/firestore.indexes.json`)

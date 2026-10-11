@@ -245,6 +245,11 @@ type Config struct {
 	// every environment.
 	FeatureAccountLifecycle flags.Spec
 
+	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
+	// GetThread. FEATURE_REPLIES[_ALLOWLIST|_PERCENT], default off in every environment. It is independent of
+	// FEATURE_POSTS but needs it (the posts guard runs first).
+	FeatureReplies flags.Spec
+
 	// AccountDeleteReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (default 5m, must be in (0, 10m]): how recent the
 	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
 	AccountDeleteReauthMaxAge time.Duration
@@ -557,6 +562,11 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// P3: replies are off everywhere until the founder ramps them (flag-rollout skill).
+	featureReplies, err := flags.LoadSpec("REPLIES", "replies", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -622,6 +632,7 @@ func Load() (Config, error) {
 		FeaturePosts:              featurePosts,
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
+		FeatureReplies:            featureReplies,
 		AccountDeleteReauthMaxAge: reauthMaxAge,
 		ExportBucket:              getenv("EXPORT_BUCKET", projectID+"-exports"),
 		ExportURLTTL:              exportURLTTL,

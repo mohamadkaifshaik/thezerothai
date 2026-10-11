@@ -882,15 +882,20 @@ func (x *GetThreadRequest) GetPageToken() string {
 type GetThreadResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Focal *PostView              `protobuf:"bytes,1,opt,name=focal,proto3" json:"focal,omitempty"`
-	// Unset when the focal post is a root, or the parent is unavailable.
+	// Unset when the focal post is a root, or the parent is unavailable (see parent_unavailable).
 	Parent *PostView `protobuf:"bytes,2,opt,name=parent,proto3" json:"parent,omitempty"`
 	// Unset when the focal post is the root.
 	Root *PostView `protobuf:"bytes,3,opt,name=root,proto3" json:"root,omitempty"`
 	// Conversation posts in chronological order (excluding focal/parent/root).
 	Replies       []*PostView `protobuf:"bytes,4,rep,name=replies,proto3" json:"replies,omitempty"`
 	NextPageToken string      `protobuf:"bytes,5,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// True when the focal post is a reply whose parent no longer exists or cannot be shown to the caller
+	// (deleted, author suspended/blocking, not public). Render a tombstone. Additive in P3.
+	ParentUnavailable bool `protobuf:"varint,6,opt,name=parent_unavailable,json=parentUnavailable,proto3" json:"parent_unavailable,omitempty"`
+	// Same for the conversation root when the focal post is a reply.
+	RootUnavailable bool `protobuf:"varint,7,opt,name=root_unavailable,json=rootUnavailable,proto3" json:"root_unavailable,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetThreadResponse) Reset() {
@@ -956,6 +961,20 @@ func (x *GetThreadResponse) GetNextPageToken() string {
 		return x.NextPageToken
 	}
 	return ""
+}
+
+func (x *GetThreadResponse) GetParentUnavailable() bool {
+	if x != nil {
+		return x.ParentUnavailable
+	}
+	return false
+}
+
+func (x *GetThreadResponse) GetRootUnavailable() bool {
+	if x != nil {
+		return x.RootUnavailable
+	}
+	return false
 }
 
 var File_dzeroth_posts_v1_posts_proto protoreflect.FileDescriptor
@@ -1024,13 +1043,15 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\apost_id\x18\x01 \x01(\tR\x06postId\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tR\tpageToken\"\x87\x02\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"\xe1\x02\n" +
 	"\x11GetThreadResponse\x120\n" +
 	"\x05focal\x18\x01 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x05focal\x122\n" +
 	"\x06parent\x18\x02 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x06parent\x12.\n" +
 	"\x04root\x18\x03 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x04root\x124\n" +
 	"\areplies\x18\x04 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\areplies\x12&\n" +
-	"\x0fnext_page_token\x18\x05 \x01(\tR\rnextPageToken*y\n" +
+	"\x0fnext_page_token\x18\x05 \x01(\tR\rnextPageToken\x12-\n" +
+	"\x12parent_unavailable\x18\x06 \x01(\bR\x11parentUnavailable\x12)\n" +
+	"\x10root_unavailable\x18\a \x01(\bR\x0frootUnavailable*y\n" +
 	"\bPostKind\x12\x19\n" +
 	"\x15POST_KIND_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0ePOST_KIND_POST\x10\x01\x12\x13\n" +

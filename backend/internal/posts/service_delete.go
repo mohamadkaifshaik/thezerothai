@@ -84,6 +84,7 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 		return nil
 	}
 	s.directory.Forget(uid) // users.postsCount changed by a blind increment (ADR-0008 B2)
+	s.releaseParent(ctx, p)
 	s.events.Deleted(ctx, postID, uid)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDeleted)
 	return nil
@@ -105,9 +106,25 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 	if err := validatePostID(postID); err != nil {
 		return nil, err
 	}
-	p, err := s.Get(ctx, postID)
+	p, err := s.viewable(ctx, callerUID, postID)
 	if errors.Is(err, ErrNotFound) {
 		return nil, s.notFound(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	logger.SetRequestField(ctx, fieldOutcome, outcomeFound)
+	return p, nil
+}
+
+// viewable is the GetPost visibility rule set shared by GetPost, GetThread's focal post and CreatePost's reply
+// parent (ADR-0010 D6): it returns the post, or ErrNotFound for a missing, deleted, hidden, blocked-author or
+// non-ACTIVE-author post (callers map that to the one NOT_FOUND answer), or a redacted internal error. It sets
+// no request-log fields. A caller who blocked or muted the author still gets the post.
+func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post, error) {
+	p, err := s.Get(ctx, postID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("posts: get: load post: %w", err), callerUID)
@@ -119,7 +136,7 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 	}
 	// GetProfiles omits SUSPENDED, DELETING and missing authors alike.
 	if _, ok := profiles[p.AuthorID]; !ok {
-		return nil, s.notFound(ctx)
+		return nil, ErrNotFound
 	}
 
 	if p.AuthorID != callerUID {
@@ -128,7 +145,7 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID, p.AuthorID)
 		}
 		if snap.BlockedBy[p.AuthorID] {
-			return nil, s.notFound(ctx)
+			return nil, ErrNotFound
 		}
 		if snap.BlockedByOverflow {
 			// The caller's blockedBy stopped growing at its cap, so also ask the author's own graph.
@@ -137,16 +154,14 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 				return nil, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID, p.AuthorID)
 			}
 			if as.Blocked[callerUID] {
-				return nil, s.notFound(ctx)
+				return nil, ErrNotFound
 			}
 		}
 		// Follower-only posts need an accepted follow; P1 writes only public posts, so this fails closed.
 		if p.Visibility != VisibilityPublic && !snap.Following[p.AuthorID] {
-			return nil, s.notFound(ctx)
+			return nil, ErrNotFound
 		}
 	}
-	// A caller who blocked or muted the author still gets the post (the client shows the banner).
-	logger.SetRequestField(ctx, fieldOutcome, outcomeFound)
 	return p, nil
 }
 

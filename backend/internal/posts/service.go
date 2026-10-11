@@ -33,6 +33,8 @@ type Deps struct {
 	PostsPerDay           int64
 	NewAccountPostsPerDay int64
 	NewAccountWindow      time.Duration
+	// CursorKey seals GetThread page tokens (config.CursorHMACKey). Required only for GetThread.
+	CursorKey []byte
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -44,6 +46,7 @@ type service struct {
 	directory identity.Directory
 	graph     graph.Reader
 	now       func() time.Time
+	cursorKey []byte
 
 	postsPerDay           int64
 	newAccountPostsPerDay int64
@@ -65,7 +68,7 @@ func WithAllowAnonymous(allow bool) Option {
 func New(d Deps, opts ...Option) Service {
 	s := &service{
 		repo: d.Repo, cache: d.Cache, events: d.Events, now: d.Now,
-		directory: d.Directory, graph: d.Graph,
+		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
 	}
 	for _, o := range opts {
