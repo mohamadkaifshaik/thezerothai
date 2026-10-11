@@ -152,6 +152,8 @@ type QuotaConfig struct {
 	FollowsPerDay int
 	MediaPerDay   int
 	ExportsPerDay int
+	// SnapshotEditsPerDay caps the profile edits that rewrite the author snapshot on posts (P2, ADR-0003: 5/day).
+	SnapshotEditsPerDay int
 
 	// Lower quotas for accounts younger than NewAccountWindow.
 	NewAccountPostsPerDay   int
@@ -249,9 +251,19 @@ type Config struct {
 	// every environment.
 	FeatureAccountLifecycle flags.Spec
 
+	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
+	// GetThread. FEATURE_REPLIES[_ALLOWLIST|_PERCENT], default off in every environment. It is independent of
+	// FEATURE_POSTS but needs it (the posts guard runs first).
+	FeatureReplies flags.Spec
+
 	// AccountDeleteReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (default 5m, must be in (0, 10m]): how recent the
 	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
 	AccountDeleteReauthMaxAge time.Duration
+
+	// FeatureProfileSnapshot is the P2 server flag (wire name `profile_snapshot`) gating the
+	// profile-snapshot-refresh job and the snapshot-edit quota. FEATURE_PROFILE_SNAPSHOT[_ALLOWLIST|_PERCENT],
+	// default off in every environment (UpdateProfile/ChangeHandle themselves are not gated).
+	FeatureProfileSnapshot flags.Spec
 
 	// ExportBucket is EXPORT_BUCKET, the private account-export bucket (ADR-0011 D-B). Default `<project>-exports`,
 	// the name Terraform gives it.
@@ -517,6 +529,9 @@ func Load() (Config, error) {
 	if q.ExportsPerDay, err = getInt("QUOTA_EXPORTS_PER_DAY", 1); err != nil {
 		return Config{}, err
 	}
+	if q.SnapshotEditsPerDay, err = getInt("QUOTA_SNAPSHOT_EDITS_PER_DAY", 5); err != nil {
+		return Config{}, err
+	}
 	if q.NewAccountPostsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", 20); err != nil {
 		return Config{}, err
 	}
@@ -595,6 +610,15 @@ func Load() (Config, error) {
 	case notifDelivery == "inline" && env != "local":
 		return Config{}, fmt.Errorf("config: NOTIFICATIONS_DELIVERY=inline is only allowed in env local (got %q)", env)
 	}
+	featureProfileSnapshot, err := flags.LoadSpec("PROFILE_SNAPSHOT", "profile_snapshot", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	// P3: replies are off everywhere until the founder ramps them (flag-rollout skill).
+	featureReplies, err := flags.LoadSpec("REPLIES", "replies", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -660,6 +684,8 @@ func Load() (Config, error) {
 		FeaturePosts:              featurePosts,
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
+		FeatureProfileSnapshot:    featureProfileSnapshot,
+		FeatureReplies:            featureReplies,
 		AccountDeleteReauthMaxAge: reauthMaxAge,
 		ExportBucket:              getenv("EXPORT_BUCKET", projectID+"-exports"),
 		ExportURLTTL:              exportURLTTL,
