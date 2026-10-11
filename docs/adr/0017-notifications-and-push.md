@@ -128,3 +128,26 @@ on post delete.
   (`roles/firebasecloudmessaging.admin` is NOT needed: the Admin SDK uses the default service account's FCM API
   access; confirm on dev), the new Firestore index override. No prod apply.
 - security-auditor: token handling, push payload, handler OIDC, cross-user token transfer.
+
+## Amendment 2026-10-11 (implementation, P6 backend PR)
+- **Delivery mode.** `NOTIFICATIONS_DELIVERY` = `pubsub` (publish on `NOTIFICATIONS_TOPIC`, Pub/Sub pushes back to
+  `/internal/pubsub/notifications-fanout`; default everywhere except local) or `inline` (in-process, at most 8 goroutines,
+  FCM replaced by a log line). `inline` is refused by `config.Load` outside `ENV=local`: it runs after the response, which
+  Cloud Run throttles. Local dev and the emulator suite have no push subscription, which is why it exists.
+- **FCM addressing.** Registration tokens (what `firebase_messaging.getToken()` returns) are sent with
+  `messaging.Message.Token`. The Admin SDK marks `Token` deprecated in favour of `Fid` (the Firebase installation id), which
+  is a different identifier; switching needs a client change and a new ADR. Staticcheck SA1019 is suppressed on that line.
+- **Account lifecycle cost.** The registered `notifications` step costs 3 reads per deleted account when the account has
+  nothing to erase (devices, own rows, rows naming the user: an empty query bills 1 read), plus one read and one delete
+  per document. The export gains a `notifications` section: 2 reads when empty. The reference-account budgets in
+  `backend/internal/apiserver/account_lifecycle_*_integration_test.go` move from 509 to 512 reads (delete job; ADR-0011
+  formula 510 to 513 plus D) and from 703 to 705 reads (export job). At 300 DAU and roughly 1 deletion per day this is
+  immaterial; the reference numbers in ADR-0011 are otherwise unchanged.
+- **Wiring.** graph gains `Deps.Events` (the `FollowEvents` implementation, nil = no-op); `Build` injects an adapter
+  that calls `Emitter.Emit`. posts' `Events` is a mention adapter. Rate limits: the four RPCs use the 60/min default
+  bucket and the read budget; RegisterDevice and UnregisterDevice share the per-uid `notification_devices_daily` cap
+  (default 50/day, `NOTIFICATION_DEVICES_CALLS_PER_DAY`).
+- **Status.** The flag stays off everywhere. Terraform: variables `feature_notifications*` (default `off`) and the env
+  vars are declared in both environments, and `notifications-fanout` joins `runtime_publisher_topics` (an IAM binding on
+  an existing topic, no new resource, no fixed cost). Nothing was applied.
+
