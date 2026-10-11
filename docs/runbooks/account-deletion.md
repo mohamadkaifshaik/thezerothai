@@ -159,8 +159,13 @@ against a cloud project.
   keeps `mentions[] = {userId, handle}` for it (Firestore array-of-maps is not queryable by member without a
   `mentionIds` field, which P1 does not write, ADR-0010). Decision: these are kept as third-party content, the same
   stance as other people's replies and quotes; the purge neither finds nor edits them, and the deleted uid and
-  handle stay readable there. Scrubbing them is deferred to a follow-up ADR (P6, when `mentionIds` and mention
-  notifications land). Do not hand-edit other users' posts. Tell the requester about this residue in the reply.
+  handle stay readable there. Scrubbing them is deferred to a follow-up ADR (P6 shipped mention notifications but
+  still does not write `mentionIds`, ADR-0017). Do not hand-edit other users' posts. Tell the requester about this
+  residue in the reply.
+- **Notifications and devices (P6, ADR-0017):** the `notifications` step removes the user's devices and their
+  `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
+  `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when
+  the account has none.
 - **Media:** posts carry no media yet (P1 is text-only), so there are no objects to delete. When media ships, also delete
   `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
   Phase 1 module lands.

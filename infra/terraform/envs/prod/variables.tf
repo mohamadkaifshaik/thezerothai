@@ -187,3 +187,31 @@ variable "feature_account_lifecycle_percent" {
     error_message = "feature_account_lifecycle_percent must be an integer 0-100."
   }
 }
+
+variable "feature_notifications" {
+  description = "FEATURE_NOTIFICATIONS rollout mode for in-app notifications and FCM push (ADR-0017): off | allowlist | percent | on."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_notifications)
+    error_message = "feature_notifications must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_notifications_allowlist" {
+  description = "FEATURE_NOTIFICATIONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_notifications_percent" {
+  description = "FEATURE_NOTIFICATIONS_PERCENT: 0-100, only meaningful when feature_notifications = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_notifications_percent >= 0 && var.feature_notifications_percent <= 100 && floor(var.feature_notifications_percent) == var.feature_notifications_percent
+    error_message = "feature_notifications_percent must be an integer 0-100."
+  }
+}

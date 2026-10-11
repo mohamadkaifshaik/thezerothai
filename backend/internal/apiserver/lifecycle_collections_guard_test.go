@@ -23,6 +23,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -69,6 +70,11 @@ var lifecycleCollections = []collectionRow{
 	{Name: "graph", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
 	{Name: "follows", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
 	{Name: "posts", Disposition: erasedByStep, Step: "posts", Section: "posts", Owner: "posts", Cite: "ADR-0011 Q1 step 2, ADR-0010 purge"},
+	// P6 (ADR-0017 D10): one step erases the user's devices and token index, their own notifications and the rows other
+	// users hold about them (collection-group array-contains on actorIds).
+	{Name: "notifications", Sub: true, Disposition: erasedByStep, Step: "notifications", Section: "notifications", Owner: "notifications", Cite: "ADR-0017 D10, ADR-0011 Q1"},
+	{Name: "devices", Sub: true, Disposition: erasedByStep, Step: "notifications", ExportNote: "FCM tokens are never exported; platform and timestamps are in the notifications section", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
+	{Name: "deviceTokens", Disposition: erasedByStep, Step: "notifications", ExportNote: "reverse index sha256(token) -> uid; the token itself is never exported", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
 
 	// Declared in ADR-0003, no code yet.
 	{Name: "followRequests", Disposition: pendingEraser, Owner: "graph (private accounts, later ADR)", Cite: "ADR-0003 data model"},
@@ -78,9 +84,6 @@ var lifecycleCollections = []collectionRow{
 	{Name: "media", Disposition: pendingEraser, Owner: "media (P4)", Cite: "ADR-0003, ADR-0005, ADR-0011 Q1"},
 	{Name: "reports", Disposition: pendingEraser, Owner: "moderation (P7)", Cite: "ADR-0003 data model, ADR-0011 Q1 (reporterId)"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
-	// notifications is declared by identity (the unread count reads it) but nothing creates documents until P6 ships
-	// the notifications slice and its Eraser.
-	{Name: "notifications", Sub: true, Disposition: pendingEraser, Owner: "notifications (P6)", Cite: "ADR-0003 data model users/{uid}/notifications, ADR-0011 Q1"},
 }
 
 // gcsPrefixRow is one GCS object namespace.
@@ -196,9 +199,7 @@ func rowFor(name string) (collectionRow, bool) {
 
 // readOnlyToday lists pendingEraser collections the code already names but never writes (so there is nothing to erase
 // yet). Adding to it needs the same review as an allowlist entry.
-var readOnlyToday = map[string]bool{
-	"notifications": true, // identity.UnreadNotificationCount only counts; the P6 slice creates documents.
-}
+var readOnlyToday = map[string]bool{}
 
 // coverageProblems checks refs and the table against the registered step and section names. It is a function so the
 // mutation tests below can prove the guard fails on each kind of gap.
@@ -251,7 +252,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil)); err != nil {
+	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil), notifications.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

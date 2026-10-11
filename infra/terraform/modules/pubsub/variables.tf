@@ -58,7 +58,7 @@ variable "runtime_service_account_email" {
 }
 
 variable "runtime_publisher_topics" {
-  description = "Topic names (keys of var.topics) the api actually publishes to. Code publishes only to `jobs` (JOBS_TOPIC); media-processing and notifications-fanout have no publisher yet, so add them here when one lands."
+  description = "Topic names (keys of var.topics) the api actually publishes to. Code publishes to `jobs` (JOBS_TOPIC) and `notifications-fanout` (NOTIFICATIONS_TOPIC, ADR-0017); media-processing has no publisher yet, so add it here when one lands."
   type        = set(string)
-  default     = ["jobs"]
+  default     = ["jobs", "notifications-fanout"]
 }

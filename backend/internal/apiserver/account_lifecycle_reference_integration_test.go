@@ -22,14 +22,17 @@ import (
 const (
 	refPosts, refFollowing, refFollowers = 300, 100, 100
 	// ADR-0011 budget table, reference row, as constants of the formula.
-	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */
-	refDeleteWrites    = refFollowing + 2*refFollowers
-	refDeleteDeletes   = refPosts + refFollowing + refFollowers + 1 + 3 + 1
-	// Plan T16 acceptance criterion: <= 509 R + job state, <= 300 W + checkpoints, <= 505 D.
-	planDeleteReads = 509
+	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ +
+		3 /* notifications step (ADR-0017 D10): devices, own rows, rows naming the user; an empty query bills 1 read each */
+	refDeleteWrites  = refFollowing + 2*refFollowers
+	refDeleteDeletes = refPosts + refFollowing + refFollowers + 1 + 3 + 1
+	// Plan T16 acceptance criterion: <= 509 R + job state, <= 300 W + checkpoints, <= 505 D; +3 R for the P6
+	// notifications step (ADR-0017 D10: once per deleted account, 0 deletes for an account that never had a device).
+	planDeleteReads = 509 + 3
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703 (+ the lease claim and
-	// status writes of the L-4 amendment).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers
+	// status writes of the L-4 amendment), + 2 for the P6 notifications section (ADR-0017 D10: the devices query and one
+	// notifications page; an empty query bills 1 read).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 2
 	refExportWrites = 2
 )
 

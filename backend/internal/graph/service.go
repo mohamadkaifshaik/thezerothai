@@ -83,6 +83,9 @@ type Deps struct {
 	// NO_SIDE_EFFECTS, so the degraded interceptor lets them through; ReadOnly makes the T27 lazy clean-up
 	// skip its one write so that mode stays write-free.
 	ReadOnly bool
+	// Events receives the post-commit FollowEvents.Followed hook (ADR-0008 D11; apiserver wires the P6 notifications
+	// adapter). Nil keeps the no-op.
+	Events FollowEvents
 
 	FollowsPerDay           int64
 	NewAccountFollowsPerDay int64
@@ -108,6 +111,7 @@ type service struct {
 	directory identity.Directory
 	now       func() time.Time
 	readOnly  bool
+	events    FollowEvents
 
 	followsPerDay           int64
 	newAccountFollowsPerDay int64
@@ -118,7 +122,8 @@ type service struct {
 
 // New builds the graph Service. Call SetDirectory once identity.Directory is available.
 func New(d Deps) *service {
-	return &service{
+	s := &service{
+		events:                  d.Events,
 		repo:                    d.Repo,
 		cache:                   d.Cache,
 		flags:                   d.Flags,
@@ -131,6 +136,10 @@ func New(d Deps) *service {
 		newAccountBlocksPerDay:  d.NewAccountBlocksPerDay,
 		newAccountWindow:        d.NewAccountWindow,
 	}
+	if s.events == nil {
+		s.events = s // the no-op Followed below
+	}
+	return s
 }
 
 // SetDirectory wires identity.Directory after construction (see service's doc comment).
@@ -181,7 +190,7 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 	return targetSnap.isBlocked(viewerUID), nil
 }
 
-// Followed implements FollowEvents: a no-op until the notifications plan (ADR-0008 D11).
+// Followed implements FollowEvents as the default no-op; Deps.Events replaces it (ADR-0008 D11, ADR-0017 D2).
 func (s *service) Followed(context.Context, string, string, time.Time) {}
 
 // isNewAccount reports whether p was created within s.newAccountWindow of now (ADR-0008 D7 new-account quotas).

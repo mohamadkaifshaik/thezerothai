@@ -22,7 +22,9 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | `likes/{postId}_{uid}` | postId, uid, createdAt | like (`Create`; AlreadyExists = no-op) | |
 | `userLikes/{uid}` | recent[] (last 1,000 liked postIds) | like/unlike | 1 read tells the client which timeline posts are liked |
 | `reposts/{postId}_{uid}` | same pattern as likes | | |
-| `users/{uid}/notifications/{id}` | type, actor snapshot, postId, createdAt, expireAt (TTL 90 d) | like/reply/follow/mention | TTL deletes are billed (cheap) |
+| `users/{uid}/notifications/{id}` [notifications, ADR-0017] | type, actor{userId,handle,displayName,avatarUrl,verified}, actorIds[] (collapsed likes), postId, createdAt (the fan-out handler's commit time), expireAt (= createdAt + 90 d, TTL). Id is deterministic per logical event: `follow_{actor}`, `mention_{postId}`, `reply_{postId}`, `quote_{postId}`, `repost_{postId}_{actor}`, `like_{postId}_{yyyymmddhh UTC}` | the Pub/Sub fan-out handler (`Create`; AlreadyExists = redelivery, no second push); a collapsed like `Update`s actorIds/actor/createdAt | TTL deletes are billed (cheap). `actorIds` has a COLLECTION_GROUP array-contains index so the Eraser can find rows naming a deleted user |
+| `users/{uid}/devices/{deviceId}` [notifications] | token (FCM; never in logs, exports or responses), platform, createdAt, updatedAt; <= 5 per user, the least recently updated is evicted | RegisterDevice (txn; 0 writes when unchanged within 24 h), FCM UNREGISTERED prune | `token` exempt from indexing |
+| `deviceTokens/{sha256(token)}` [notifications] | uid, deviceId, updatedAt | with the device doc | reverse index: a token registered by a second account on the same handset is removed from the first |
 | `media/{mediaId}` | ownerId, status (PENDING/READY/REJECTED), objectPath, thumbPath, bytes, contentType, createdAt, expireAt (TTL 2 d while PENDING) | upload init / finalize | |
 | `reports/{id}` | reporterId, targetType, targetId, reason, status | report | |
 | `exports/{hash(uid,key)}` [identity] | uid, status (PENDING/READY/FAILED), objectPath (in `<proj>-exports`), createdAt, expireAt (TTL 7 d), leaseUntil (optional, L-4: the claiming delivery's 35 s lease; status stays PENDING) | RequestAccountExport (`Create`, AlreadyExists = replay; a replay re-publishes only when createdAt is 2+ min old); export job claims (`leaseUntil`, precondition), then sets READY/FAILED (precondition) | doc = export job state (ADR-0011). GetAccountExport enforces `now ≥ expireAt` → NOT_FOUND itself. Deleted with the account (identity step) |
@@ -40,11 +42,17 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | Create post (root, ADR-0010) | 14 cold / 2 warm, planning 2.5 (caller `users` via interceptor + author `graph` only if mentions + ≤ 10 `handles` in one `GetAll` + `idempotency` + `quotas`, the last two fresh in the txn); replay 14 cold / 1 warm | 4 (idempotency, post, `users.postsCount`, quotas) + 1 eventual TTL delete; replay 0. Mention notifications arrive with P6 |
 | Delete post (ADR-0010 D4) | 2 cold / 0 warm, planning 1 (interceptor + post) | 1 (`postsCount` −1) + 1 delete (`Exists` precondition); not owner / unknown / already deleted = success, 0 writes |
 | Get post (ADR-0010) | 4 cold / 0 warm, planning 1 (interceptor + post + author `users` + caller `graph`; +1 if caller `blockedByOverflow`; +1 `userLikes` from P5) | 0 |
-| Like | 0–1 | 3 (like doc, post counter, userLikes) + 1 notification |
+| Like | 0–1 | 3 (like doc, post counter, userLikes); the notification is `Emitter.Emit` (0 Firestore, one Pub/Sub publish) |
 | Home timeline (ADR-0004, ADR-0010) | ceiling 2 + C + 2·page (269 at F = 5,000, page 50; 2 = interceptor + graph; +1 `userLikes` from P5), C = ceil((F+1)/30). Refresh planning 4 + new posts (graph expired: refreshes are ≥ 60 s apart); older page / cold open planning 30 (F = 60, page 20, k = 14) | 0 |
 | Profile timeline (ADR-0010 D16) | 3 + page cold (53 at page 50: interceptor + target `users` + caller `graph` + `Limit(page)`), 0 warm (Posts-tab first page = author-recent cache), planning 11; `since` with 0 new = 4 cold | 0 |
 | Post detail + 20 replies | 1 + ≤ 20 | 0 |
-| Notifications page | ≤ 20 | 1 (reset unread) |
+| ListNotifications (ADR-0017) | cold / older page: 1 + page (≤ 21 at 20; ≤ 51 at 50); `since` refresh: 1 + new (an empty query bills 1) | 0 |
+| MarkNotificationsSeen | 0 | 1 (`users.notificationsSeenAt`, field update) |
+| RegisterDevice | 8 worst / 2 typical (device, token index, previous owner's device, list of ≤ 5) | 2 typical, 0 when fresh within 24 h; worst 2 writes + 3 deletes |
+| UnregisterDevice | 2 (1 for an unknown device) | 0 + 2 deletes |
+| Notification fan-out, per recipient (Pub/Sub push) | users batch (cached) + graph snapshot (cached 60 s) + devices ≤ 5; a redelivery or a collapsed like costs 1 read | 1 (`Create`); a collapsed like +1 (`Update`) |
+| Account deletion, notifications step (ADR-0017 D10) | 3 when empty, else one per document | one delete per document |
+| Account export, notifications section | 2 when empty, else one per row | 0 |
 
 ## Indexes (`firebase/firestore.indexes.json`)
 - posts: `authorId ASC, isReply ASC, createdAt DESC` (home `in` chunks + profile Posts tab, `isReply == false`)
@@ -53,6 +61,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 - posts: `hashtags ARRAY_CONTAINS, createdAt DESC` (hashtag pages)
 - follows: `followeeId ASC, createdAt DESC`; `followerId ASC, createdAt DESC`
 - users: `status ASC, deletionJob.progressAt ASC`; exports: `status ASC, createdAt ASC` (account-lifecycle backstop: ordered cursor scans of stuck jobs, ADR-0011 amendment 2026-10-08)
+- notifications: single-field `actorIds` `array-contains` at COLLECTION_GROUP scope only (fieldOverride; the Eraser's "rows that name the deleted user" query, ADR-0017 D10)
 - users: single-field on `handleLower` (default) for prefix search
 - Exempt large text fields from indexing (`posts.text`, `users.bio`) — saves storage and write cost.
 
