@@ -520,3 +520,19 @@ func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string,
 	}
 	return out.Count, nil
 }
+
+// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at (P6, ADR-0017 D8): 0 reads, 1 write. identity
+// owns the field, so the notifications module reaches it through this method (notifications.SeenStore) instead of
+// writing users/* itself. A field-level Update never clobbers a concurrent profile edit; a missing profile is
+// ErrNotFound.
+func (r *FirestoreRepo) MarkNotificationsSeen(ctx context.Context, uid string, at time.Time) error {
+	_, err := r.userRef(uid).Update(ctx, []firestore.Update{{Path: "notificationsSeenAt", Value: at}})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return ErrNotFound
+		}
+		return fmt.Errorf("identity: mark notifications seen for %s: %w", uid, err)
+	}
+	budget.FromContext(ctx).AddWrites(1)
+	return nil
+}
