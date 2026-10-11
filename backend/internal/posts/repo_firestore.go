@@ -42,6 +42,12 @@ type Repo interface {
 	// precondition on the post. deleted=false (and 0 writes) when the post is already gone (a concurrent delete
 	// won). Reads 0; writes 1 + deletes 1 only when deleted.
 	DeleteOwn(ctx context.Context, id, authorID string) (deleted bool, err error)
+	// Conversation is Q-T (repo_thread.go): the posts of one conversation, oldest first, strictly after `after`
+	// (nil = from the start), at most limit. Reads: len(result), minimum 1.
+	Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error)
+	// AddReplyCount applies FieldValue.Increment(delta) to a parent's replyCount. A parent that is gone is not an
+	// error. Used by DeletePost for a reply (the create path does it inside the CreatePost transaction).
+	AddReplyCount(ctx context.Context, parentID string, delta int64) error
 }
 
 // FirestoreRepo implements Repo against the shared Firestore client.

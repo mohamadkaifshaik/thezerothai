@@ -6,12 +6,20 @@ import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 
 /// A post's attached images (0-4), rounded and bordered. One image keeps its
 /// own aspect ratio (clamped to 4:5 .. 16:9 so a tall image cannot take over
-/// the feed); two or more fill a fixed 16:9 grid. Lists use `thumbUrl`, decoded
-/// at display size; the full image is for the detail view only.
+/// the feed); two or more fill a fixed 16:9 grid.
+///
+/// Lists use `thumbUrl` only and decode it at display size. A ref with no
+/// `thumbUrl` shows a placeholder and never falls back to the full image:
+/// that would pull 1600 px originals into a feed (GCS egress and Class B
+/// operations, review #110 M2). The detail view passes [useFullImage] to show
+/// `url` instead.
 class PostMedia extends StatelessWidget {
-  const PostMedia({super.key, required this.media});
+  const PostMedia({super.key, required this.media, this.useFullImage = false});
 
   final List<common.MediaRef> media;
+
+  /// Show the full-size `url` (detail view). Lists leave this false.
+  final bool useFullImage;
 
   static const _minAspect = 4 / 5;
   static const _maxAspect = 16 / 9;
@@ -44,7 +52,8 @@ class PostMedia extends StatelessWidget {
   }
 
   Widget _layout(List<common.MediaRef> items) {
-    Widget tile(common.MediaRef m) => _MediaTile(media: m);
+    Widget tile(common.MediaRef m) =>
+        _MediaTile(media: m, useFullImage: useFullImage);
     switch (items.length) {
       case 1:
         return tile(items[0]);
@@ -101,14 +110,19 @@ class PostMedia extends StatelessWidget {
 }
 
 class _MediaTile extends StatelessWidget {
-  const _MediaTile({required this.media});
+  const _MediaTile({required this.media, required this.useFullImage});
 
   final common.MediaRef media;
+  final bool useFullImage;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final url = media.thumbUrl.isNotEmpty ? media.thumbUrl : media.url;
+    // Lists never fall back to the full image (M2); the detail view prefers it
+    // and may use the thumbnail while `url` is missing.
+    final url = useFullImage
+        ? (media.url.isNotEmpty ? media.url : media.thumbUrl)
+        : media.thumbUrl;
     final placeholder = ColoredBox(color: colors.surfaceContainerHigh);
     return Semantics(
       image: true,

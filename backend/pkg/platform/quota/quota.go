@@ -37,6 +37,9 @@ const (
 	// Reports counts ReportContent calls that wrote a report (ADR-0016). A repeat report is a no-op and is not
 	// charged.
 	Reports Kind = "reports"
+	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
+	// avatar), P2 / ADR-0003: 5 per day.
+	SnapshotEdits Kind = "snapshotEdits"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -69,6 +72,8 @@ type Record struct {
 	Blocks int64 `firestore:"blocks"`
 	// Reports counts ReportContent writes (ADR-0016). Absent in older docs, so it decodes as 0.
 	Reports int64 `firestore:"reports"`
+	// SnapshotEdits counts snapshot-affecting profile edits (P2).
+	SnapshotEdits int64 `firestore:"snapshotEdits"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -85,6 +90,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Blocks
 	case Reports:
 		return r.Reports
+	case SnapshotEdits:
+		return r.SnapshotEdits
 	default:
 		return 0
 	}
@@ -104,6 +111,8 @@ func (r *Record) increment(k Kind) {
 		r.Blocks++
 	case Reports:
 		r.Reports++
+	case SnapshotEdits:
+		r.SnapshotEdits++
 	}
 }
 
