@@ -153,6 +153,21 @@ locals {
   ]
 }
 
+// Notifications slice (P6, ADR-0017). FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
+// out via var.feature_notifications*. No new resource: the topic, push subscription and DLQ already exist in
+// modules/pubsub and the runtime SA's publish binding is in runtime_publisher_topics. The device-call cap mirrors
+// config.go (NOTIFICATION_DEVICES_CALLS_PER_DAY, default 50); caps are code, so a change needs a cost note.
+locals {
+  notifications_env_vars = [
+    { name = "FEATURE_NOTIFICATIONS", value = var.feature_notifications },
+    { name = "FEATURE_NOTIFICATIONS_ALLOWLIST", value = var.feature_notifications_allowlist },
+    { name = "FEATURE_NOTIFICATIONS_PERCENT", value = tostring(var.feature_notifications_percent) },
+    { name = "NOTIFICATIONS_TOPIC", value = "notifications-fanout" },
+    { name = "NOTIFICATIONS_DELIVERY", value = "pubsub" },
+    { name = "NOTIFICATION_DEVICES_CALLS_PER_DAY", value = "50" },
+  ]
+}
+
 module "cloud_run_api" {
   source                            = "../../modules/cloud-run-api"
   project_id                        = var.project_id
@@ -179,6 +194,7 @@ module "cloud_run_api" {
     local.graph_env_vars,
     local.posts_env_vars,
     local.account_lifecycle_env_vars,
+    local.notifications_env_vars,
   )
 
   depends_on = [module.project_services, module.secrets]
