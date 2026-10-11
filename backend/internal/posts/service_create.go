@@ -37,7 +37,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	}()
 
 	// 1. Sub-features first, before any other validation or read (D2). Order: replies, quotes, media.
-	if in.ReplyToPostID != "" {
+	if in.ReplyToPostID != "" && !in.RepliesEnabled {
 		return nil, featureDisabled("replies")
 	}
 	if in.QuoteOfPostID != "" {
@@ -69,6 +69,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if !ok {
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
 	}
+	var parent *Post
+	if in.ReplyToPostID != "" {
+		if parent, err = s.replyParent(ctx, uid, in.ReplyToPostID); err != nil {
+			return nil, err
+		}
+	}
 	mentions, err := s.resolveMentions(ctx, uid, parsed.Mentions)
 	if err != nil {
 		return nil, err
@@ -85,10 +91,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if hashtags == nil {
 		hashtags = []string{}
 	}
-	res, err := s.repo.Create(ctx, CreateParams{
+	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text),
+		RequestHash: requestHash(parsed.Text, in.ReplyToPostID),
 		QuotaLimit:  limit,
 		Draft: Post{
 			AuthorID: uid,
@@ -100,9 +106,17 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 			Hashtags: hashtags, Mentions: mentions,
 			Visibility: VisibilityPublic, SnapshotVersion: author.SnapshotVersion,
 		},
-	})
+	}
+	if parent != nil {
+		applyReply(&params, parent)
+	}
+	res, err := s.repo.Create(ctx, params)
 	noteTxnAttempts(ctx, res.Attempts)
 	if err != nil {
+		if errors.Is(err, ErrParentGone) {
+			logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
+			return nil, postNotFound()
+		}
 		if errors.Is(err, ErrIdempotencyKeyReused) {
 			return nil, apierr.New(connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED,
 				"this idempotency_key was already used for a different request")
@@ -127,7 +141,13 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	// 4. After commit: instance caches from the written data, then the (no-op) hook. Never inside the txn.
 	post := res.Post
 	s.cache.SetPost(post)
-	s.cache.PrependOwn(post)
+	if post.IsReply {
+		// Replies are not root posts: they stay out of the author-recent entry (the Posts tab and Home feed
+		// cache). The parent's cached copy has a stale replyCount.
+		s.cache.DeletePost(post.ReplyToID)
+	} else {
+		s.cache.PrependOwn(post)
+	}
 	s.directory.Forget(uid) // users.postsCount changed by a blind increment (ADR-0008 B2)
 	s.events.Created(ctx, post)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeCreated)
@@ -173,8 +193,8 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 
 // requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text and the
 // four slice-2+ fields (always empty while they are rejected), in a fixed order (D18).
-func requestHash(normalisedText string) string {
-	return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q", normalisedText, "", "", "", ""))
+func requestHash(normalisedText, replyTo string) string {
+	return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q", normalisedText, "", "", replyTo, ""))
 }
 
 // featureDisabled is FEATURE_DISABLED with metadata["feature"] (ADR-0010 D2).
