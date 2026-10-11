@@ -34,6 +34,20 @@ const (
 	VisibilityFollowers Visibility = "FOLLOWERS"
 )
 
+// Moderation is a post's moderation state (ADR-0016 D3). The Firestore doc stores the upper-case name, absent
+// when the post is visible. A hidden post is dropped by every read path and consumer.
+type Moderation string
+
+const (
+	// ModerationNone is the zero value: the post is visible.
+	ModerationNone Moderation = ""
+	// ModerationTakenDown: a moderator removed this post (opsctl takedown-post). Reversible with restore-post.
+	ModerationTakenDown Moderation = "TAKEN_DOWN"
+	// ModerationSuspendedAuthor: hidden because its author is suspended (opsctl suspend-user, ADR-0010 D10).
+	// unsuspend-user restores exactly these.
+	ModerationSuspendedAuthor Moderation = "SUSPENDED_AUTHOR"
+)
+
 // AuthorSnapshot is the author's denormalised profile copy stored in the post (ADR-0003: refreshed lazily by a
 // job when a profile changes, P2), so rendering a post never joins to users/*.
 type AuthorSnapshot struct {
@@ -76,9 +90,19 @@ type Post struct {
 	QuoteCount      int64
 	Visibility      Visibility
 	SnapshotVersion int64
+	// Moderation is the moderation state (ADR-0016). Readers return hidden posts WITH this field set: every
+	// consumer must drop them (Visible), exactly like it drops blocked authors.
+	Moderation Moderation
 	// CreatedAt is the Snowflake's millisecond timestamp (ADR-0010 D18), so (CreatedAt, ID) order equals id order.
 	CreatedAt time.Time
 }
+
+// Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
+func (p *Post) Hidden() bool { return p.Moderation != ModerationNone }
+
+// Visible is !Hidden. Every consumer of Reader results (timelines, thread views, notifications, counts) must
+// drop posts for which it is false.
+func (p *Post) Visible() bool { return p.Moderation == ModerationNone }
 
 // Position is a (createdAt, postId) point in the createdAt-descending order every post query uses.
 type Position struct {
@@ -101,8 +125,9 @@ type Window struct {
 // Posts returned are shared and immutable.
 //
 // A Reader applies NO visibility or relationship filtering: it returns every matching post, including those by
-// blocked, muting, suspended or deleting authors. Callers must filter per ADR-0010 D6 (block, mute and author
-// status via graph.Reader and identity.Directory) before returning anything to a client.
+// blocked, muting, suspended or deleting authors, and posts a moderator hid (Post.Hidden, ADR-0016). Callers
+// must filter per ADR-0010 D6 (block, mute and author status via graph.Reader and identity.Directory) and drop
+// every post with !Visible() before returning anything to a client.
 type Reader interface {
 	// Get returns one post, or ErrNotFound. Cache hit: 0 reads; miss: 1 read.
 	Get(ctx context.Context, id string) (*Post, error)
@@ -214,4 +239,38 @@ type Eraser interface {
 // Exporter writes one user's posts as the manual data export (ADR-0003 "Deletes & privacy"). Implemented in T10.
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
+}
+
+// ModerationCheckpoint resumes Moderator.HideAuthor across calls. The zero value starts from the newest post.
+type ModerationCheckpoint struct {
+	// Changed counts posts updated so far across calls.
+	Changed int
+	// After is the oldest position already processed (HideAuthor pages newest to oldest). Nil at the start.
+	After *Position
+}
+
+// ModerationResult is what Moderator.Takedown and Restore found.
+type ModerationResult struct {
+	AuthorID string
+	// Before and After are the moderation state before and after the call.
+	Before, After Moderation
+}
+
+// Moderator is the moderator-action seam used by opsctl (ADR-0016 D4). It never runs in the API process, so
+// it does not touch the instance caches: serving instances converge within CACHE_TTL (60 s).
+type Moderator interface {
+	// Takedown sets TAKEN_DOWN on one post (ErrNotFound when it does not exist). A post already hidden by a
+	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). Reads 1, writes 1
+	// (0 when already TAKEN_DOWN).
+	Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
+	// Restore clears TAKEN_DOWN (ErrNotFound when missing). A SUSPENDED_AUTHOR post is left unchanged: only
+	// unsuspend-user restores those. Reads 1, writes 1 (0 when not TAKEN_DOWN).
+	Restore(ctx context.Context, postID string) (ModerationResult, error)
+	// HideAuthor sets SUSPENDED_AUTHOR on every post of uid whose moderation is empty, one page of up to 500 per
+	// call, newest first. Resumable and idempotent: re-running from the zero checkpoint is safe. Reads one per
+	// post paged (minimum 1), writes one per post changed.
+	HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (next ModerationCheckpoint, done bool, err error)
+	// RestoreAuthor clears SUSPENDED_AUTHOR on uid's posts (TAKEN_DOWN posts are untouched), one page of up to 500
+	// per call. Cleared documents leave the query, so it is self-resuming.
+	RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint) (next ModerationCheckpoint, done bool, err error)
 }
