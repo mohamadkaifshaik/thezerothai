@@ -11,38 +11,37 @@
 package moderationv1connect
 
 import (
-	connect "connectrpc.com/connect/v2"
+	connect "connectrpc.com/connect"
 	context "context"
+	errors "errors"
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1"
-	sync "sync"
+	http "net/http"
+	strings "strings"
 )
+
+// This is a compile-time assertion to ensure that this generated file and the connect package are
+// compatible. If you get a compiler error that this constant is not defined, this code was
+// generated with a version of connect newer than the one compiled into your binary. You can fix the
+// problem by either regenerating this code with an older version of connect or updating the connect
+// version compiled into your binary.
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ModerationServiceName is the fully-qualified name of the ModerationService service.
 	ModerationServiceName = "dzeroth.moderation.v1.ModerationService"
 )
 
-// These constants are the procedure names of the RPCs defined in this package. They're exposed at
-// runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the fully-qualified names of the RPCs defined in this package. They're
+// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// ModerationServiceReportContentProcedure is the procedure name of the ModerationService's
+	// ModerationServiceReportContentProcedure is the fully-qualified name of the ModerationService's
 	// ReportContent RPC.
 	ModerationServiceReportContentProcedure = "/dzeroth.moderation.v1.ModerationService/ReportContent"
-)
-
-var (
-	moderationServiceReportContentSpec = sync.OnceValue(func() connect.Spec {
-		return connect.Spec{
-			StreamType: connect.StreamTypeUnary,
-			Schema:     v1.File_dzeroth_moderation_v1_moderation_proto.Services().ByName("ModerationService").Methods().ByName("ReportContent"),
-			Procedure:  ModerationServiceReportContentProcedure,
-		}
-	})
 )
 
 // ModerationServiceClient is a client for the dzeroth.moderation.v1.ModerationService service.
@@ -63,13 +62,37 @@ type ModerationServiceClient interface {
 	// Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
 	// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. Writes 2 (report
 	// create, quotas); replay 0. No async work. Nothing here loops over documents.
-	ReportContent(context.Context, *v1.ReportContentRequest) (*v1.ReportContentResponse, error)
+	ReportContent(context.Context, *connect.Request[v1.ReportContentRequest]) (*connect.Response[v1.ReportContentResponse], error)
 }
 
 // NewModerationServiceClient constructs a client for the dzeroth.moderation.v1.ModerationService
-// service. Multiple service clients may share a single connect.Client.
-func NewModerationServiceClient(client *connect.Client) ModerationServiceClient {
-	return &moderationServiceClient{client: client}
+// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
+// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
+// the connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewModerationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ModerationServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	moderationServiceMethods := v1.File_dzeroth_moderation_v1_moderation_proto.Services().ByName("ModerationService").Methods()
+	return &moderationServiceClient{
+		reportContent: connect.NewClient[v1.ReportContentRequest, v1.ReportContentResponse](
+			httpClient,
+			baseURL+ModerationServiceReportContentProcedure,
+			connect.WithSchema(moderationServiceMethods.ByName("ReportContent")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// moderationServiceClient implements ModerationServiceClient.
+type moderationServiceClient struct {
+	reportContent *connect.Client[v1.ReportContentRequest, v1.ReportContentResponse]
+}
+
+// ReportContent calls dzeroth.moderation.v1.ModerationService.ReportContent.
+func (c *moderationServiceClient) ReportContent(ctx context.Context, req *connect.Request[v1.ReportContentRequest]) (*connect.Response[v1.ReportContentResponse], error) {
+	return c.reportContent.CallUnary(ctx, req)
 }
 
 // ModerationServiceHandler is an implementation of the dzeroth.moderation.v1.ModerationService
@@ -91,47 +114,35 @@ type ModerationServiceHandler interface {
 	// Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
 	// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. Writes 2 (report
 	// create, quotas); replay 0. No async work. Nothing here loops over documents.
-	ReportContent(context.Context, *v1.ReportContentRequest) (*v1.ReportContentResponse, error)
+	ReportContent(context.Context, *connect.Request[v1.ReportContentRequest]) (*connect.Response[v1.ReportContentResponse], error)
 }
 
-// RegisterModerationServiceHandler registers svc as the dzeroth.moderation.v1.ModerationService
-// implementation on server.
-func RegisterModerationServiceHandler(server *connect.Server, svc ModerationServiceHandler) {
-	adapter := moderationServiceHandler{svc: svc}
-	server.Register(
-		connect.Method{Spec: moderationServiceReportContentSpec(), Handler: adapter.reportContent},
+// NewModerationServiceHandler builds an HTTP handler from the service implementation. It returns
+// the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewModerationServiceHandler(svc ModerationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	moderationServiceMethods := v1.File_dzeroth_moderation_v1_moderation_proto.Services().ByName("ModerationService").Methods()
+	moderationServiceReportContentHandler := connect.NewUnaryHandler(
+		ModerationServiceReportContentProcedure,
+		svc.ReportContent,
+		connect.WithSchema(moderationServiceMethods.ByName("ReportContent")),
+		connect.WithHandlerOptions(opts...),
 	)
+	return "/dzeroth.moderation.v1.ModerationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case ModerationServiceReportContentProcedure:
+			moderationServiceReportContentHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedModerationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedModerationServiceHandler struct{}
 
-func (UnimplementedModerationServiceHandler) ReportContent(context.Context, *v1.ReportContentRequest) (*v1.ReportContentResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, "dzeroth.moderation.v1.ModerationService.ReportContent is not implemented")
-}
-
-type moderationServiceClient struct {
-	client *connect.Client
-}
-
-func (c *moderationServiceClient) ReportContent(ctx context.Context, req *v1.ReportContentRequest) (*v1.ReportContentResponse, error) {
-	var res v1.ReportContentResponse
-	if err := c.client.CallUnary(ctx, moderationServiceReportContentSpec(), req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-type moderationServiceHandler struct{ svc ModerationServiceHandler }
-
-func (h moderationServiceHandler) reportContent(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
-	var req v1.ReportContentRequest
-	if err := stream.Receive(&req); err != nil {
-		return err
-	}
-	res, err := h.svc.ReportContent(ctx, &req)
-	if err != nil {
-		return err
-	}
-	return stream.Send(res)
+func (UnimplementedModerationServiceHandler) ReportContent(context.Context, *connect.Request[v1.ReportContentRequest]) (*connect.Response[v1.ReportContentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.moderation.v1.ModerationService.ReportContent is not implemented"))
 }
