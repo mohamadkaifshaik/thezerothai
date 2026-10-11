@@ -19,6 +19,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
@@ -48,6 +49,10 @@ type backends struct {
 	}
 	postsExporter posts.Exporter
 	profile       func(ctx context.Context, uid string) (identity.Profile, error)
+	// moderation (ADR-0016 T6): report list/show/resolve, post takedown, and the account status change.
+	reports   moderation.Ops
+	moderator posts.Moderator
+	accounts  accountStatusSetter
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
@@ -70,6 +75,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
 	postsRepo := posts.NewFirestoreRepo(client)
+	moderationRepo := moderation.NewFirestoreRepo(client, nil)
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
 		_ = client.Close()
@@ -83,6 +89,9 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		postsPlanner:  postsRepo,
 		postsExporter: postsRepo,
 		profile:       identityRepo.GetProfile,
+		reports:       moderationRepo,
+		moderator:     postsRepo,
+		accounts:      identityRepo,
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
 		close:         func() { _ = client.Close() },
@@ -95,7 +104,7 @@ const usage = `usage:
   opsctl purge-posts  --project P --uid U [--dry-run] [--skip-start-gate]   (run before purge-graph)
   opsctl export-posts --project P --uid U [--out FILE]
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
-`
+` + modUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -111,21 +120,41 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts: print counts, write nothing")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
+	var ma modArgs
+	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
+	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
+	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user: also resolve this report id")
+	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
+	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION, DISMISSED, TAKEDOWN or SUSPENDED")
+	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user: resolution note")
+	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 200)")
 
 	switch cmd {
-	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26":
+	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
+		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
 	}
+	// `opsctl reports <list|show|resolve> [flags]`: the sub-command is the first positional argument.
+	sub := ""
+	if cmd == "reports" && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		sub, rest = rest[0], rest[1:]
+	}
 	if err := fs.Parse(rest); err != nil {
+		return 2
+	}
+	ma.dryRun = *dryRun
+	if cmd == "reports" && sub == "" {
+		fmt.Fprintf(errOut, "reports needs a sub-command: list, show or resolve\n%s", usage)
 		return 2
 	}
 	if *project == "" {
 		fmt.Fprintf(errOut, "--project is required (there is no default project)\n%s", usage)
 		return 2
 	}
-	needUID := cmd != "check-t26" // check-t26 scans every Auth user and prints counts only
+	// check-t26 scans every Auth user; the report and post moderation commands address a report or post id.
+	needUID := cmd != "check-t26" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -155,6 +184,16 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = purgePosts(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	case "export-posts":
 		err = exportPosts(ctx, b, *uid, *outFile, out)
+	case "reports":
+		err = reportsCommand(ctx, b, sub, ma, out, now)
+	case "takedown-post":
+		err = takedownPost(ctx, b, ma, out, now)
+	case "restore-post":
+		err = restorePost(ctx, b, ma, out)
+	case "suspend-user":
+		err = suspendUser(ctx, b, *uid, ma, out, now)
+	case "unsuspend-user":
+		err = unsuspendUser(ctx, b, *uid, out, now)
 	default:
 		err = export(ctx, b, *uid, *outFile, out)
 	}
@@ -206,7 +245,15 @@ func purge(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, 
 func purgeLoop[C any](ctx context.Context, out io.Writer, cp C,
 	step func(context.Context, C) (C, bool, error), describe func(C) string,
 ) error {
-	ctx, counter := budget.WithCounter(ctx)
+	ctx, _ = budget.WithCounter(ctx)
+	return driveLoop(ctx, out, cp, step, describe, "purged")
+}
+
+// driveLoop is purgeLoop on the counter already in ctx, with the label of the final cost line ("purged", "hidden"...).
+func driveLoop[C any](ctx context.Context, out io.Writer, cp C,
+	step func(context.Context, C) (C, bool, error), describe func(C) string, label string,
+) error {
+	counter := budget.FromContext(ctx)
 	failures := 0
 	for calls := 1; calls <= maxPurgeCalls; calls++ {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -223,7 +270,7 @@ func purgeLoop[C any](ctx context.Context, out io.Writer, cp C,
 		failures = 0
 		fmt.Fprintf(out, "call %d: %s -> %s done=%v\n", calls, describe(cp), describe(next), done)
 		if done {
-			fmt.Fprintf(out, "purged: reads=%d writes=%d deletes=%d\n", counter.Reads(), counter.Writes(), counter.Deletes())
+			fmt.Fprintf(out, "%s: reads=%d writes=%d deletes=%d\n", label, counter.Reads(), counter.Writes(), counter.Deletes())
 			return nil
 		}
 		cp = next
