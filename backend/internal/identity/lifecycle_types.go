@@ -148,6 +148,16 @@ const (
 	AfterIdentity
 )
 
+// JobHandler handles one message of a job kind registered with Lifecycle.RegisterJobHandler (P4: `post_delete`).
+// The shared `jobs` topic and its push endpoint are identity's (ADR-0011 D-A); other modules' kinds ride on them
+// instead of getting a topic of their own. Handle runs one delivery: a nil error acknowledges (outcome is the log
+// value, for example "done" or "duplicate"), a non-nil error nacks and Pub/Sub redelivers. It must be idempotent
+// (a message is delivered at least once) and must never act on the message's word alone. Like the deletion
+// orchestrator, a registered handler is never gated by a feature flag or DEGRADED_MODE.
+type JobHandler interface {
+	Handle(ctx context.Context, data []byte) (outcome string, err error)
+}
+
 // JobPublisher publishes one message to the shared `jobs` topic. *pubsubpublish.Publisher implements it.
 type JobPublisher interface {
 	Publish(ctx context.Context, data []byte) error

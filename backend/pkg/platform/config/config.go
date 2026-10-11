@@ -266,6 +266,42 @@ type Config struct {
 	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
 	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
 	AuthEmulator bool
+
+	// FeatureMedia is the P4 server flag (wire name `media`) gating MediaService, CreatePost media_ids and the
+	// avatar path of UpdateProfile. FEATURE_MEDIA[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureMedia flags.Spec
+	// MediaUploadBucket is MEDIA_UPLOAD_BUCKET (private, 2-day lifecycle) and MediaBucket is MEDIA_BUCKET
+	// (public-read); defaults `<project>-media-upload` and `<project>-media`, the names Terraform gives them.
+	MediaUploadBucket string
+	MediaBucket       string
+	// MediaPublicBaseURL is MEDIA_PUBLIC_BASE_URL: the URL prefix public objects are served from (no trailing
+	// slash). Default https://storage.googleapis.com/<MediaBucket>; local dev points it at the Storage emulator.
+	MediaPublicBaseURL string
+	// VisionMonthlyCap is VISION_MONTHLY_CAP (default 10,000): the most SafeSearch units one calendar month may
+	// consume (ADR-0005). At the cap, VisionExhaustedPolicy applies. 0 disables screening spend entirely (every
+	// upload takes the exhausted path).
+	VisionMonthlyCap int
+	// VisionExhaustedPolicy is VISION_EXHAUSTED_POLICY (ADR-0005): what an upload becomes once the cap is hit.
+	VisionExhaustedPolicy VisionExhaustedPolicy
+	// VisionScreenThumb is VISION_SCREEN_THUMB (default true): screen the thumbnail too, so the small image shown
+	// in lists is moderated as well as the full image (2 units per image instead of 1). Set false to follow
+	// ADR-0005's one-unit wording literally.
+	VisionScreenThumb bool
+}
+
+// VisionExhaustedPolicy is what happens to an upload once VISION_MONTHLY_CAP is spent (ADR-0005).
+type VisionExhaustedPolicy string
+
+const (
+	// VisionPolicyEstablished (default): accounts older than 7 days publish as READY_UNSCREENED (queued for
+	// report-driven review); newer accounts are REJECTED until the 1st of the month.
+	VisionPolicyEstablished VisionExhaustedPolicy = "unscreened_established"
+	// VisionPolicyReject: every upload is REJECTED once the cap is spent (strictest; no unscreened bytes at all).
+	VisionPolicyReject VisionExhaustedPolicy = "reject"
+)
+
+func (p VisionExhaustedPolicy) valid() bool {
+	return p == VisionPolicyEstablished || p == VisionPolicyReject
 }
 
 // Bounds of the export settings (ADR-0011 D-B): a signed URL is a bearer credential, and the retention
@@ -557,6 +593,33 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// P4: media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard (ADR-0005), so
+	// a negative value or an unknown policy name fails startup instead of silently changing what is published.
+	featureMedia, err := flags.LoadSpec("MEDIA", "media", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	visionCap, err := getInt("VISION_MONTHLY_CAP", 10000)
+	if err != nil {
+		return Config{}, err
+	}
+	if visionCap < 0 {
+		return Config{}, fmt.Errorf("config: VISION_MONTHLY_CAP must be >= 0 (got %d)", visionCap)
+	}
+	visionPolicy := VisionExhaustedPolicy(getenv("VISION_EXHAUSTED_POLICY", string(VisionPolicyEstablished)))
+	if !visionPolicy.valid() {
+		return Config{}, fmt.Errorf("config: invalid VISION_EXHAUSTED_POLICY %q (want unscreened_established|reject)", visionPolicy)
+	}
+	visionScreenThumb := true
+	switch v := strings.ToLower(getenv("VISION_SCREEN_THUMB", "true")); v {
+	case "true", "1":
+	case "false", "0":
+		visionScreenThumb = false
+	default:
+		return Config{}, fmt.Errorf("config: invalid VISION_SCREEN_THUMB %q (want true|false)", v)
+	}
+	mediaBucket := getenv("MEDIA_BUCKET", projectID+"-media")
+
 	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -627,6 +690,13 @@ func Load() (Config, error) {
 		ExportURLTTL:              exportURLTTL,
 		ExportRetention:           exportRetention,
 		JobsTopic:                 getenv("JOBS_TOPIC", "jobs"),
+		FeatureMedia:              featureMedia,
+		MediaUploadBucket:         getenv("MEDIA_UPLOAD_BUCKET", projectID+"-media-upload"),
+		MediaBucket:               mediaBucket,
+		MediaPublicBaseURL:        strings.TrimRight(getenv("MEDIA_PUBLIC_BASE_URL", "https://storage.googleapis.com/"+mediaBucket), "/"),
+		VisionMonthlyCap:          visionCap,
+		VisionExhaustedPolicy:     visionPolicy,
+		VisionScreenThumb:         visionScreenThumb,
 	}, nil
 }
 
