@@ -2,7 +2,7 @@
 //
 // Source: dzeroth/notifications/v1/notifications.proto
 
-// In-app notifications and push-device registration (ADR-0016, Phase 1 slice P6).
+// In-app notifications and push-device registration (ADR-0017, Phase 1 slice P6).
 // Owner module: backend/internal/notifications. Owns users/{uid}/notifications/{id}, users/{uid}/devices/{deviceId}
 // and the deviceTokens/{sha256(token)} reverse index. The unread badge is GetMeResponse.unread_notification_count
 // (identity); mark-seen writes users/{uid}.notificationsSeenAt through identity.
@@ -23,69 +23,46 @@
 package notificationsv1connect
 
 import (
-	connect "connectrpc.com/connect/v2"
+	connect "connectrpc.com/connect"
 	context "context"
+	errors "errors"
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1"
-	sync "sync"
+	http "net/http"
+	strings "strings"
 )
+
+// This is a compile-time assertion to ensure that this generated file and the connect package are
+// compatible. If you get a compiler error that this constant is not defined, this code was
+// generated with a version of connect newer than the one compiled into your binary. You can fix the
+// problem by either regenerating this code with an older version of connect or updating the connect
+// version compiled into your binary.
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// NotificationServiceName is the fully-qualified name of the NotificationService service.
 	NotificationServiceName = "dzeroth.notifications.v1.NotificationService"
 )
 
-// These constants are the procedure names of the RPCs defined in this package. They're exposed at
-// runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the fully-qualified names of the RPCs defined in this package. They're
+// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// NotificationServiceListNotificationsProcedure is the procedure name of the NotificationService's
-	// ListNotifications RPC.
+	// NotificationServiceListNotificationsProcedure is the fully-qualified name of the
+	// NotificationService's ListNotifications RPC.
 	NotificationServiceListNotificationsProcedure = "/dzeroth.notifications.v1.NotificationService/ListNotifications"
-	// NotificationServiceMarkNotificationsSeenProcedure is the procedure name of the
+	// NotificationServiceMarkNotificationsSeenProcedure is the fully-qualified name of the
 	// NotificationService's MarkNotificationsSeen RPC.
 	NotificationServiceMarkNotificationsSeenProcedure = "/dzeroth.notifications.v1.NotificationService/MarkNotificationsSeen"
-	// NotificationServiceRegisterDeviceProcedure is the procedure name of the NotificationService's
-	// RegisterDevice RPC.
+	// NotificationServiceRegisterDeviceProcedure is the fully-qualified name of the
+	// NotificationService's RegisterDevice RPC.
 	NotificationServiceRegisterDeviceProcedure = "/dzeroth.notifications.v1.NotificationService/RegisterDevice"
-	// NotificationServiceUnregisterDeviceProcedure is the procedure name of the NotificationService's
-	// UnregisterDevice RPC.
+	// NotificationServiceUnregisterDeviceProcedure is the fully-qualified name of the
+	// NotificationService's UnregisterDevice RPC.
 	NotificationServiceUnregisterDeviceProcedure = "/dzeroth.notifications.v1.NotificationService/UnregisterDevice"
-)
-
-var (
-	notificationServiceListNotificationsSpec = sync.OnceValue(func() connect.Spec {
-		return connect.Spec{
-			StreamType:       connect.StreamTypeUnary,
-			Schema:           v1.File_dzeroth_notifications_v1_notifications_proto.Services().ByName("NotificationService").Methods().ByName("ListNotifications"),
-			Procedure:        NotificationServiceListNotificationsProcedure,
-			IdempotencyLevel: connect.IdempotencyNoSideEffects,
-		}
-	})
-	notificationServiceMarkNotificationsSeenSpec = sync.OnceValue(func() connect.Spec {
-		return connect.Spec{
-			StreamType: connect.StreamTypeUnary,
-			Schema:     v1.File_dzeroth_notifications_v1_notifications_proto.Services().ByName("NotificationService").Methods().ByName("MarkNotificationsSeen"),
-			Procedure:  NotificationServiceMarkNotificationsSeenProcedure,
-		}
-	})
-	notificationServiceRegisterDeviceSpec = sync.OnceValue(func() connect.Spec {
-		return connect.Spec{
-			StreamType: connect.StreamTypeUnary,
-			Schema:     v1.File_dzeroth_notifications_v1_notifications_proto.Services().ByName("NotificationService").Methods().ByName("RegisterDevice"),
-			Procedure:  NotificationServiceRegisterDeviceProcedure,
-		}
-	})
-	notificationServiceUnregisterDeviceSpec = sync.OnceValue(func() connect.Spec {
-		return connect.Spec{
-			StreamType: connect.StreamTypeUnary,
-			Schema:     v1.File_dzeroth_notifications_v1_notifications_proto.Services().ByName("NotificationService").Methods().ByName("UnregisterDevice"),
-			Procedure:  NotificationServiceUnregisterDeviceProcedure,
-		}
-	})
 )
 
 // NotificationServiceClient is a client for the dzeroth.notifications.v1.NotificationService
@@ -96,11 +73,11 @@ type NotificationServiceClient interface {
 	// Firestore: reads 1 + page_size worst (21 at the default page; the seen_at profile is cached by the
 	// account-status interceptor), refresh with 0 new items 1 read, planning 21 cold / 5 refresh; writes 0.
 	// Rate limit: default per-minute bucket. Counted against the per-uid daily read budget.
-	ListNotifications(context.Context, *v1.ListNotificationsRequest) (*v1.ListNotificationsResponse, error)
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
 	// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward.
 	// Firestore: reads 0, writes 1.
-	MarkNotificationsSeen(context.Context, *v1.MarkNotificationsSeenRequest) (*v1.MarkNotificationsSeenResponse, error)
+	MarkNotificationsSeen(context.Context, *connect.Request[v1.MarkNotificationsSeenRequest]) (*connect.Response[v1.MarkNotificationsSeenResponse], error)
 	// Registers (or refreshes) this installation's FCM token under users/{uid}/devices/{device_id}. A token that was
 	// registered by another account on the same device is removed from that account (privacy). At most 5 devices per
 	// user: registering a 6th evicts the least recently refreshed one. Call on sign-in, on token refresh and once per
@@ -108,17 +85,78 @@ type NotificationServiceClient interface {
 	// Rate limit: 50 Register/Unregister calls per uid per day (limit_name "notification_devices_daily").
 	// Firestore: reads worst 8 (device doc, token index, previous owner's device, device list <= 6), typical 2;
 	// writes worst 5, typical 2.
-	RegisterDevice(context.Context, *v1.RegisterDeviceRequest) (*v1.RegisterDeviceResponse, error)
+	RegisterDevice(context.Context, *connect.Request[v1.RegisterDeviceRequest]) (*connect.Response[v1.RegisterDeviceResponse], error)
 	// Removes the device (call on sign-out, before the ID token is dropped). Unknown device_id is a no-op success.
 	// Firestore: reads 1, writes 0 or 2 (device doc + token index).
-	UnregisterDevice(context.Context, *v1.UnregisterDeviceRequest) (*v1.UnregisterDeviceResponse, error)
+	UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error)
 }
 
 // NewNotificationServiceClient constructs a client for the
-// dzeroth.notifications.v1.NotificationService service. Multiple service clients may share a single
-// connect.Client.
-func NewNotificationServiceClient(client *connect.Client) NotificationServiceClient {
-	return &notificationServiceClient{client: client}
+// dzeroth.notifications.v1.NotificationService service. By default, it uses the Connect protocol
+// with the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed requests. To
+// use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or connect.WithGRPCWeb()
+// options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewNotificationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) NotificationServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	notificationServiceMethods := v1.File_dzeroth_notifications_v1_notifications_proto.Services().ByName("NotificationService").Methods()
+	return &notificationServiceClient{
+		listNotifications: connect.NewClient[v1.ListNotificationsRequest, v1.ListNotificationsResponse](
+			httpClient,
+			baseURL+NotificationServiceListNotificationsProcedure,
+			connect.WithSchema(notificationServiceMethods.ByName("ListNotifications")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		markNotificationsSeen: connect.NewClient[v1.MarkNotificationsSeenRequest, v1.MarkNotificationsSeenResponse](
+			httpClient,
+			baseURL+NotificationServiceMarkNotificationsSeenProcedure,
+			connect.WithSchema(notificationServiceMethods.ByName("MarkNotificationsSeen")),
+			connect.WithClientOptions(opts...),
+		),
+		registerDevice: connect.NewClient[v1.RegisterDeviceRequest, v1.RegisterDeviceResponse](
+			httpClient,
+			baseURL+NotificationServiceRegisterDeviceProcedure,
+			connect.WithSchema(notificationServiceMethods.ByName("RegisterDevice")),
+			connect.WithClientOptions(opts...),
+		),
+		unregisterDevice: connect.NewClient[v1.UnregisterDeviceRequest, v1.UnregisterDeviceResponse](
+			httpClient,
+			baseURL+NotificationServiceUnregisterDeviceProcedure,
+			connect.WithSchema(notificationServiceMethods.ByName("UnregisterDevice")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// notificationServiceClient implements NotificationServiceClient.
+type notificationServiceClient struct {
+	listNotifications     *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
+	markNotificationsSeen *connect.Client[v1.MarkNotificationsSeenRequest, v1.MarkNotificationsSeenResponse]
+	registerDevice        *connect.Client[v1.RegisterDeviceRequest, v1.RegisterDeviceResponse]
+	unregisterDevice      *connect.Client[v1.UnregisterDeviceRequest, v1.UnregisterDeviceResponse]
+}
+
+// ListNotifications calls dzeroth.notifications.v1.NotificationService.ListNotifications.
+func (c *notificationServiceClient) ListNotifications(ctx context.Context, req *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return c.listNotifications.CallUnary(ctx, req)
+}
+
+// MarkNotificationsSeen calls dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen.
+func (c *notificationServiceClient) MarkNotificationsSeen(ctx context.Context, req *connect.Request[v1.MarkNotificationsSeenRequest]) (*connect.Response[v1.MarkNotificationsSeenResponse], error) {
+	return c.markNotificationsSeen.CallUnary(ctx, req)
+}
+
+// RegisterDevice calls dzeroth.notifications.v1.NotificationService.RegisterDevice.
+func (c *notificationServiceClient) RegisterDevice(ctx context.Context, req *connect.Request[v1.RegisterDeviceRequest]) (*connect.Response[v1.RegisterDeviceResponse], error) {
+	return c.registerDevice.CallUnary(ctx, req)
+}
+
+// UnregisterDevice calls dzeroth.notifications.v1.NotificationService.UnregisterDevice.
+func (c *notificationServiceClient) UnregisterDevice(ctx context.Context, req *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error) {
+	return c.unregisterDevice.CallUnary(ctx, req)
 }
 
 // NotificationServiceHandler is an implementation of the
@@ -129,11 +167,11 @@ type NotificationServiceHandler interface {
 	// Firestore: reads 1 + page_size worst (21 at the default page; the seen_at profile is cached by the
 	// account-status interceptor), refresh with 0 new items 1 read, planning 21 cold / 5 refresh; writes 0.
 	// Rate limit: default per-minute bucket. Counted against the per-uid daily read budget.
-	ListNotifications(context.Context, *v1.ListNotificationsRequest) (*v1.ListNotificationsResponse, error)
+	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
 	// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward.
 	// Firestore: reads 0, writes 1.
-	MarkNotificationsSeen(context.Context, *v1.MarkNotificationsSeenRequest) (*v1.MarkNotificationsSeenResponse, error)
+	MarkNotificationsSeen(context.Context, *connect.Request[v1.MarkNotificationsSeenRequest]) (*connect.Response[v1.MarkNotificationsSeenResponse], error)
 	// Registers (or refreshes) this installation's FCM token under users/{uid}/devices/{device_id}. A token that was
 	// registered by another account on the same device is removed from that account (privacy). At most 5 devices per
 	// user: registering a 6th evicts the least recently refreshed one. Call on sign-in, on token refresh and once per
@@ -141,125 +179,75 @@ type NotificationServiceHandler interface {
 	// Rate limit: 50 Register/Unregister calls per uid per day (limit_name "notification_devices_daily").
 	// Firestore: reads worst 8 (device doc, token index, previous owner's device, device list <= 6), typical 2;
 	// writes worst 5, typical 2.
-	RegisterDevice(context.Context, *v1.RegisterDeviceRequest) (*v1.RegisterDeviceResponse, error)
+	RegisterDevice(context.Context, *connect.Request[v1.RegisterDeviceRequest]) (*connect.Response[v1.RegisterDeviceResponse], error)
 	// Removes the device (call on sign-out, before the ID token is dropped). Unknown device_id is a no-op success.
 	// Firestore: reads 1, writes 0 or 2 (device doc + token index).
-	UnregisterDevice(context.Context, *v1.UnregisterDeviceRequest) (*v1.UnregisterDeviceResponse, error)
+	UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error)
 }
 
-// RegisterNotificationServiceHandler registers svc as the
-// dzeroth.notifications.v1.NotificationService implementation on server.
-func RegisterNotificationServiceHandler(server *connect.Server, svc NotificationServiceHandler) {
-	adapter := notificationServiceHandler{svc: svc}
-	server.Register(
-		connect.Method{Spec: notificationServiceListNotificationsSpec(), Handler: adapter.listNotifications},
-		connect.Method{Spec: notificationServiceMarkNotificationsSeenSpec(), Handler: adapter.markNotificationsSeen},
-		connect.Method{Spec: notificationServiceRegisterDeviceSpec(), Handler: adapter.registerDevice},
-		connect.Method{Spec: notificationServiceUnregisterDeviceSpec(), Handler: adapter.unregisterDevice},
+// NewNotificationServiceHandler builds an HTTP handler from the service implementation. It returns
+// the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewNotificationServiceHandler(svc NotificationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	notificationServiceMethods := v1.File_dzeroth_notifications_v1_notifications_proto.Services().ByName("NotificationService").Methods()
+	notificationServiceListNotificationsHandler := connect.NewUnaryHandler(
+		NotificationServiceListNotificationsProcedure,
+		svc.ListNotifications,
+		connect.WithSchema(notificationServiceMethods.ByName("ListNotifications")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
 	)
+	notificationServiceMarkNotificationsSeenHandler := connect.NewUnaryHandler(
+		NotificationServiceMarkNotificationsSeenProcedure,
+		svc.MarkNotificationsSeen,
+		connect.WithSchema(notificationServiceMethods.ByName("MarkNotificationsSeen")),
+		connect.WithHandlerOptions(opts...),
+	)
+	notificationServiceRegisterDeviceHandler := connect.NewUnaryHandler(
+		NotificationServiceRegisterDeviceProcedure,
+		svc.RegisterDevice,
+		connect.WithSchema(notificationServiceMethods.ByName("RegisterDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	notificationServiceUnregisterDeviceHandler := connect.NewUnaryHandler(
+		NotificationServiceUnregisterDeviceProcedure,
+		svc.UnregisterDevice,
+		connect.WithSchema(notificationServiceMethods.ByName("UnregisterDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/dzeroth.notifications.v1.NotificationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case NotificationServiceListNotificationsProcedure:
+			notificationServiceListNotificationsHandler.ServeHTTP(w, r)
+		case NotificationServiceMarkNotificationsSeenProcedure:
+			notificationServiceMarkNotificationsSeenHandler.ServeHTTP(w, r)
+		case NotificationServiceRegisterDeviceProcedure:
+			notificationServiceRegisterDeviceHandler.ServeHTTP(w, r)
+		case NotificationServiceUnregisterDeviceProcedure:
+			notificationServiceUnregisterDeviceHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedNotificationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedNotificationServiceHandler struct{}
 
-func (UnimplementedNotificationServiceHandler) ListNotifications(context.Context, *v1.ListNotificationsRequest) (*v1.ListNotificationsResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, "dzeroth.notifications.v1.NotificationService.ListNotifications is not implemented")
+func (UnimplementedNotificationServiceHandler) ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.ListNotifications is not implemented"))
 }
 
-func (UnimplementedNotificationServiceHandler) MarkNotificationsSeen(context.Context, *v1.MarkNotificationsSeenRequest) (*v1.MarkNotificationsSeenResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, "dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen is not implemented")
+func (UnimplementedNotificationServiceHandler) MarkNotificationsSeen(context.Context, *connect.Request[v1.MarkNotificationsSeenRequest]) (*connect.Response[v1.MarkNotificationsSeenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen is not implemented"))
 }
 
-func (UnimplementedNotificationServiceHandler) RegisterDevice(context.Context, *v1.RegisterDeviceRequest) (*v1.RegisterDeviceResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, "dzeroth.notifications.v1.NotificationService.RegisterDevice is not implemented")
+func (UnimplementedNotificationServiceHandler) RegisterDevice(context.Context, *connect.Request[v1.RegisterDeviceRequest]) (*connect.Response[v1.RegisterDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.RegisterDevice is not implemented"))
 }
 
-func (UnimplementedNotificationServiceHandler) UnregisterDevice(context.Context, *v1.UnregisterDeviceRequest) (*v1.UnregisterDeviceResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, "dzeroth.notifications.v1.NotificationService.UnregisterDevice is not implemented")
-}
-
-type notificationServiceClient struct {
-	client *connect.Client
-}
-
-func (c *notificationServiceClient) ListNotifications(ctx context.Context, req *v1.ListNotificationsRequest) (*v1.ListNotificationsResponse, error) {
-	var res v1.ListNotificationsResponse
-	if err := c.client.CallUnary(ctx, notificationServiceListNotificationsSpec(), req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-func (c *notificationServiceClient) MarkNotificationsSeen(ctx context.Context, req *v1.MarkNotificationsSeenRequest) (*v1.MarkNotificationsSeenResponse, error) {
-	var res v1.MarkNotificationsSeenResponse
-	if err := c.client.CallUnary(ctx, notificationServiceMarkNotificationsSeenSpec(), req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-func (c *notificationServiceClient) RegisterDevice(ctx context.Context, req *v1.RegisterDeviceRequest) (*v1.RegisterDeviceResponse, error) {
-	var res v1.RegisterDeviceResponse
-	if err := c.client.CallUnary(ctx, notificationServiceRegisterDeviceSpec(), req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-func (c *notificationServiceClient) UnregisterDevice(ctx context.Context, req *v1.UnregisterDeviceRequest) (*v1.UnregisterDeviceResponse, error) {
-	var res v1.UnregisterDeviceResponse
-	if err := c.client.CallUnary(ctx, notificationServiceUnregisterDeviceSpec(), req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-type notificationServiceHandler struct{ svc NotificationServiceHandler }
-
-func (h notificationServiceHandler) listNotifications(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
-	var req v1.ListNotificationsRequest
-	if err := stream.Receive(&req); err != nil {
-		return err
-	}
-	res, err := h.svc.ListNotifications(ctx, &req)
-	if err != nil {
-		return err
-	}
-	return stream.Send(res)
-}
-
-func (h notificationServiceHandler) markNotificationsSeen(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
-	var req v1.MarkNotificationsSeenRequest
-	if err := stream.Receive(&req); err != nil {
-		return err
-	}
-	res, err := h.svc.MarkNotificationsSeen(ctx, &req)
-	if err != nil {
-		return err
-	}
-	return stream.Send(res)
-}
-
-func (h notificationServiceHandler) registerDevice(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
-	var req v1.RegisterDeviceRequest
-	if err := stream.Receive(&req); err != nil {
-		return err
-	}
-	res, err := h.svc.RegisterDevice(ctx, &req)
-	if err != nil {
-		return err
-	}
-	return stream.Send(res)
-}
-
-func (h notificationServiceHandler) unregisterDevice(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
-	var req v1.UnregisterDeviceRequest
-	if err := stream.Receive(&req); err != nil {
-		return err
-	}
-	res, err := h.svc.UnregisterDevice(ctx, &req)
-	if err != nil {
-		return err
-	}
-	return stream.Send(res)
+func (UnimplementedNotificationServiceHandler) UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.UnregisterDevice is not implemented"))
 }

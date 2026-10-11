@@ -6,14 +6,14 @@ FollowEvents), ADR-0003, ADR-0008 (D6, D11), ADR-0010, ADR-0011 (Q1, Q10), `back
 `backend/pkg/platform/{pubsubpush,pubsubpublish,cursor,flags,budget,store}`, `infra/terraform/modules/pubsub`,
 `free-tier-budget`, `flag-rollout`, `reuse-first` skills.
 
-New contracts: `proto/dzeroth/notifications/v1/notifications.proto` and **ADR-0016 (Proposed)**.
+New contracts: `proto/dzeroth/notifications/v1/notifications.proto` and **ADR-0017 (Proposed)**.
 
 ## Decisions (delegated 2026-10-10)
 The founder delegated product decisions to the lead; these were pre-made and are recorded here.
 1. **FCM tokens** live in `users/{uid}/devices/{deviceId}`, never in the public `users` doc; max 5 per user (a sixth
-   evicts the least recently updated); pruned on FCM `UNREGISTERED`. (ADR-0016 D1.)
+   evicts the least recently updated); pruned on FCM `UNREGISTERED`. (ADR-0017 D1.)
 2. **Reverse index** `deviceTokens/{sha256(token)}` so a handset shared by two accounts only pushes to the current one
-   (architect addition, ADR-0016 D1).
+   (architect addition, ADR-0017 D1).
 3. **Event sources behind one interface**, `notifications.Emitter`; follows and mentions are wired now, replies (P3)
    and likes/reposts/quotes (P5) call `Emit` when they land.
 4. **Likes collapse** per post per UTC hour (lever 6.4); one push per collapsed row.
@@ -34,7 +34,7 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 
 | # | Ticket | Owner | Status |
 |---|---|---|---|
-| T1 | ADR-0016 + `notifications.v1` proto + this plan | architect | In review (PR 1) |
+| T1 | ADR-0017 + `notifications.v1` proto + this plan | architect | In review (PR 1) |
 | T2 | Module: types, `Emitter`, Firestore repo (notifications, devices, token index), ids, cursor tokens | backend | In review (PR 2) |
 | T3 | Fan-out push handler `/internal/pubsub/notifications-fanout`: decode, suppress, create, push, prune, DLQ semantics | backend | In review (PR 2) |
 | T4 | ListNotifications (`since`/gap tokens) + MarkNotificationsSeen (identity method + cache evict) | backend | In review (PR 2) |

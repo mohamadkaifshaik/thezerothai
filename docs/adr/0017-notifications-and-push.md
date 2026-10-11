@@ -1,9 +1,9 @@
-# 0016. Notifications: in-app list, FCM push and the device-token model
+# 0017. Notifications: in-app list, FCM push and the device-token model
 Status: Proposed
 Date: 2026-10-10
 Deciders: lead (founder delegated product decisions 2026-10-10); founder accepts the ADR (CLAUDE.md)
 
-> Numbering: 0012-0015 were left free for the slices running in parallel (P2-P5). Renumber on merge if a gap is unwanted.
+> Numbering: first drafted as 0016; renumbered to 0017 because P7's ADR-0016 (reports, PR 116) was opened first. 0012-0015 stay free for the slices running in parallel (P2-P5).
 
 ## Context
 Phase 1 slice P6 (`docs/plans/phase1.md`, `docs/plans/notifications.md`). Users must learn about follows, mentions,
