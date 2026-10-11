@@ -121,7 +121,7 @@ jobs:
         # firebase-tools major version below plus firebase.json (the emulators it starts); restore-keys
         # falls back to any cache for this OS/version if firebase.json changes so a config tweak doesn't
         # cost a full re-download.
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/firebase/emulators
           key: firebase-emulators-${{ runner.os }}-v15-${{ hashFiles('firebase.json') }}
