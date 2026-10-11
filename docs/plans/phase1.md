@@ -168,6 +168,10 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   pass. A delete of the parent renders a tombstone.
 
 ### P4 — Images (signed uploads, SafeSearch with cap, avatars) + post-delete job  [size: M/L] [owners: architect (ADR-0005 follow-ups, proto comment fix, topic) → backend ‖ frontend → tester → security-auditor → deployer]
+- **Status (2026-10-11).** Backend implemented behind `FEATURE_MEDIA` (default off) in `docs/plans/media-uploads.md`:
+  T1-T5 and T10 in one PR (`feat/p4-media-backend`), review #110 M2 (T6) in a second PR. Still open: Flutter
+  composer/avatar editor (T7), dev smoke on real GCS (T8), Terraform env vars and Vision API (T9). P5 reuses the
+  `post_delete` job: interface in the plan.
 - **Goal.** Up to 4 images per post, and a profile avatar, all moderated before they become public.
 - **Scope.**
   - The `internal/media` module: CreateUpload and FinalizeUpload (the proto exists).
