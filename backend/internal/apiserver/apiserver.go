@@ -21,10 +21,12 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -100,7 +102,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -144,14 +146,28 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, fmt.Errorf("firebase auth admin client: %w", err)
 	}
 	// P2: the shared jobs publisher is also the profile-snapshot-refresh trigger (lazy: no I/O until first use).
+	// --- media (ADR-0005, P4): built before identity and posts, which consume its library (avatar resolution, post
+	// attachment) and job publisher. The jobs publisher is lazy (no I/O before ListenAndServe) and is also the
+	// account lifecycle's. The identity directory media needs is bound after identity is built.
+	postsRepo := posts.NewFirestoreRepo(fsClient)
+	snowflakeNode, err := snowflake.NewNode()
+	if err != nil {
+		return nil, nil, fmt.Errorf("snowflake node: %w", err)
+	}
 	jobsPublisher, err := pubsubpublish.New(cfg.ProjectID, cfg.JobsTopic)
 	if err != nil {
 		return nil, nil, fmt.Errorf("jobs publisher: %w", err)
+	}
+	lateDirectory := &lateAccountDirectory{}
+	mediaMod, err := wireMedia(cfg, log, fsClient, featureFlags, lateDirectory, postsRepo, snowflakeNode, jobsPublisher)
+	if err != nil {
+		return nil, nil, err
 	}
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
 		identity.WithSignupAuth(authAdminClient, log),
+		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
 			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
 			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
@@ -160,24 +176,22 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// identitySvc's concrete type also implements identity.Directory (GetProfiles/Forget); asserted here
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
+	lateDirectory.d = identitySvc.(identity.Directory)
 
 	// posts and timeline (ADR-0010, T5): both services are registered behind FEATURE_POSTS. Their RPC bodies land
 	// in T8/T9/T12/T13; until then every RPC is Unimplemented once the flag is on. timeline gets only the
 	// posts.Reader and graph.Reader seams (ADR-0004 handoff: it never queries `posts` or `graph` itself).
-	postsRepo := posts.NewFirestoreRepo(fsClient)
 	postsCache := posts.NewCache(cfg.CacheTTL, cfg.CachePostsEntries, cfg.CacheAuthorRecentEntries)
-	snowflakeNode, err := snowflake.NewNode()
-	if err != nil {
-		return nil, nil, fmt.Errorf("snowflake node: %w", err)
-	}
 	postsRepo.SetWriters(posts.WriteDeps{
 		Idempotency: idempotency.New(fsClient),
 		Quotas:      quota.New(fsClient),
 		Counters:    identityRepo,
 		IDs:         snowflakeNode,
+		Media:       postsMediaAttacher{lib: mediaMod.library},
 	})
 	postsSvc := posts.New(posts.Deps{
 		Repo: postsRepo, Cache: postsCache, Events: posts.NopEvents{},
+		Jobs:                  mediaMod.jobs,
 		Directory:             identitySvc.(identity.Directory),
 		Graph:                 graphSvc,
 		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
@@ -207,16 +221,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle: %w", err)
 	}
-	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo); err != nil {
+	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger); err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
+	}
+	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, mediaMod.jobs); err != nil {
+		return nil, nil, fmt.Errorf("media job handler: %w", err)
 	}
 	identityServer := identity.NewServer(identitySvc,
 		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// engagement, media, notifications, search, moderation, admin are not implemented in this bootstrap; their
-	// Connect servers are not registered.
+	// engagement, notifications, search, moderation, admin are not implemented yet; their Connect servers are not
+	// registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -243,7 +260,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// only against the Auth emulator.
 		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
 		ratelimit.Interceptor(RateLimitConfig(cfg)),
-		degraded.Interceptor(cfg.Degraded, degraded.ProcedureSet{} /* no media procedures registered yet */),
+		degraded.Interceptor(cfg.Degraded, mediaProcedures()),
 		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt, authn.AllowRestricted(RestrictedAllowedProcedures()...)),
 		mw.ErrorMapping(log),
 	)
@@ -268,6 +285,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(timelinePath, timelineHandler)
+
+	mediaPath, mediaHandler := mediav1connect.NewMediaServiceHandler(mediaMod.server, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(mediaPath, mediaHandler)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
