@@ -102,7 +102,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureMedia)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -145,6 +145,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("firebase auth admin client: %w", err)
 	}
+	// P2: the shared jobs publisher is also the profile-snapshot-refresh trigger (lazy: no I/O until first use).
 	// --- media (ADR-0005, P4): built before identity and posts, which consume its library (avatar resolution, post
 	// attachment) and job publisher. The jobs publisher is lazy (no I/O before ListenAndServe) and is also the
 	// account lifecycle's. The identity directory media needs is bound after identity is built.
@@ -167,6 +168,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithBlockChecker(graphSvc),
 		identity.WithSignupAuth(authAdminClient, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
+		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
+			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
+			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
+		}),
 	)
 	// identitySvc's concrete type also implements identity.Directory (GetProfiles/Forget); asserted here
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
@@ -192,6 +197,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
 		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
+		CursorKey:             cfg.CursorHMACKey,
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
 	postsServer := posts.NewServer(postsSvc, featureFlags)
 	timelineServer := timeline.NewServer(timeline.Deps{
@@ -210,6 +216,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Repo: identityRepo, Cache: identityCache, Publisher: jobsPublisher, Auth: authAdminClient, Objects: exportStore,
 		Log: log, ProjectID: cfg.ProjectID, ExportsPerDay: int64(cfg.Quota.ExportsPerDay),
 		ExportRetention: cfg.ExportRetention, ExportURLTTL: cfg.ExportURLTTL,
+		Snapshots: profileSnapshotWriter{postsRepo}, Flags: featureFlags,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle: %w", err)

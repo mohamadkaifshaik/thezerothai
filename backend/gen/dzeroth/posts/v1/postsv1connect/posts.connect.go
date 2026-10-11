@@ -53,9 +53,15 @@ type PostServiceClient interface {
 	// <= 10 mentions (resolved via handles/*, cached), <= 10 hashtags (extracted server-side).
 	// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
 	// accounts younger than 24 h).
-	// Root posts only until the replies and engagement slices ship (ADR-0010 D2): a non-empty reply_to_post_id,
-	// quote_of_post_id, or media_ids / media_alt_texts while FEATURE_MEDIA is off for the caller => FAILED_PRECONDITION +
-	// FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" | "media" (first match in that order), 0 reads.
+	// Not available yet (ADR-0010 D2): a non-empty quote_of_post_id, or media_ids / media_alt_texts while FEATURE_MEDIA
+	// is off for the caller => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" |
+	// "media" (first match in that order), 0 reads.
+	// Replies (P3, plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
+	// FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
+	// rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
+	// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
+	// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
+	// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
 	// Media (P4, FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
 	// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
 	// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
@@ -106,10 +112,18 @@ type PostServiceClient interface {
 	// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 (userLikes) once engagement ships. Writes 0.
 	GetPost(context.Context, *connect.Request[v1.GetPostRequest]) (*connect.Response[v1.GetPostResponse], error)
 	// Post detail: the focal post, its parent and conversation root, and a page of the conversation in
-	// chronological order (posts where conversationId == root, createdAt ASC). Blocked/muted/invisible
-	// replies are dropped after the read (page may be short; follow next_page_token).
-	// Returns UNIMPLEMENTED until the replies slice (P3); its ADR restates this budget.
-	// Firestore: reads 56/10 (focal+parent+root 3, graphs 2, userLikes 1, page <= 50), writes 0.
+	// chronological order (posts where conversationId == root, createdAt ASC, the root itself skipped).
+	// Behind FEATURE_REPLIES (and FEATURE_POSTS); FEATURE_DISABLED with metadata["feature"] = "replies" if off.
+	// NOT_FOUND "post not found" (the GetPost rules) if the focal post is missing, deleted, hidden, or its author
+	// blocks the caller. A parent/root that is deleted, suspended, hidden or blocks the caller is not an error:
+	// it is returned unset with parent_unavailable / root_unavailable = true so the client renders a tombstone.
+	// Replies by authors the caller blocks or mutes (and by authors who block the caller) are dropped after the
+	// read, so a page may be short; follow next_page_token while it is non-empty.
+	// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
+	// the caller and the focal post.
+	// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
+	// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
+	// (one conversation query, minimum 1); writes 0.
 	GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error)
 }
 
@@ -187,9 +201,15 @@ type PostServiceHandler interface {
 	// <= 10 mentions (resolved via handles/*, cached), <= 10 hashtags (extracted server-side).
 	// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
 	// accounts younger than 24 h).
-	// Root posts only until the replies and engagement slices ship (ADR-0010 D2): a non-empty reply_to_post_id,
-	// quote_of_post_id, or media_ids / media_alt_texts while FEATURE_MEDIA is off for the caller => FAILED_PRECONDITION +
-	// FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" | "media" (first match in that order), 0 reads.
+	// Not available yet (ADR-0010 D2): a non-empty quote_of_post_id, or media_ids / media_alt_texts while FEATURE_MEDIA
+	// is off for the caller => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" |
+	// "media" (first match in that order), 0 reads.
+	// Replies (P3, plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
+	// FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
+	// rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
+	// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
+	// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
+	// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
 	// Media (P4, FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
 	// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
 	// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
@@ -240,10 +260,18 @@ type PostServiceHandler interface {
 	// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 (userLikes) once engagement ships. Writes 0.
 	GetPost(context.Context, *connect.Request[v1.GetPostRequest]) (*connect.Response[v1.GetPostResponse], error)
 	// Post detail: the focal post, its parent and conversation root, and a page of the conversation in
-	// chronological order (posts where conversationId == root, createdAt ASC). Blocked/muted/invisible
-	// replies are dropped after the read (page may be short; follow next_page_token).
-	// Returns UNIMPLEMENTED until the replies slice (P3); its ADR restates this budget.
-	// Firestore: reads 56/10 (focal+parent+root 3, graphs 2, userLikes 1, page <= 50), writes 0.
+	// chronological order (posts where conversationId == root, createdAt ASC, the root itself skipped).
+	// Behind FEATURE_REPLIES (and FEATURE_POSTS); FEATURE_DISABLED with metadata["feature"] = "replies" if off.
+	// NOT_FOUND "post not found" (the GetPost rules) if the focal post is missing, deleted, hidden, or its author
+	// blocks the caller. A parent/root that is deleted, suspended, hidden or blocks the caller is not an error:
+	// it is returned unset with parent_unavailable / root_unavailable = true so the client renders a tombstone.
+	// Replies by authors the caller blocks or mutes (and by authors who block the caller) are dropped after the
+	// read, so a page may be short; follow next_page_token while it is non-empty.
+	// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
+	// the caller and the focal post.
+	// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
+	// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
+	// (one conversation query, minimum 1); writes 0.
 	GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error)
 }
 

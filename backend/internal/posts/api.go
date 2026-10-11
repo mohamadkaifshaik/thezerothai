@@ -170,6 +170,10 @@ type Service interface {
 	// Firestore: reads post 1 + author users 1 + caller graph 1 cold (+1 author graph if the caller's blockedBy
 	// overflowed), 0 warm; writes 0.
 	GetForViewer(ctx context.Context, callerUID, postID string) (*Post, error)
+	// GetThread returns a post with its parent, conversation root and a page of the conversation (P3, plan
+	// replies-and-threads.md). Same visibility rules as GetForViewer for the focal post; an unavailable
+	// parent/root is flagged, not an error. Reads: see ThreadBudget in service_thread.go; writes 0.
+	GetThread(ctx context.Context, callerUID string, in ThreadInput) (*Thread, error)
 }
 
 // CreateInput is the CreatePost request at the domain layer (server.go converts from the proto). Slice-2+
@@ -184,6 +188,9 @@ type CreateInput struct {
 	// MediaEnabled is FEATURE_MEDIA for the caller (set by server.go from the flag registry). When false, media
 	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before P4.
 	MediaEnabled bool
+	// RepliesEnabled is the FEATURE_REPLIES decision for the caller, made by server.go (never from the request).
+	// A non-empty ReplyToPostID with it false is FEATURE_DISABLED (metadata feature=replies).
+	RepliesEnabled bool
 }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST

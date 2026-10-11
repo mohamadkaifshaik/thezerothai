@@ -134,10 +134,10 @@ func TestCreate_MediaIdempotency(t *testing.T) {
 // TestRequestHash_TextOnlyUnchanged pins the pre-P4 format, so idempotency records written before P4 still match.
 func TestRequestHash_TextOnlyUnchanged(t *testing.T) {
 	want := idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q", "hello", "", "", "", ""))
-	if got := requestHash("hello", nil, nil); got != want {
+	if got := requestHash("hello", "", nil, nil); got != want {
 		t.Fatalf("text-only hash changed: %s != %s", got, want)
 	}
-	if requestHash("hello", []string{mid1}, nil) == want || requestHash("hello", []string{mid1}, []string{"a"}) == requestHash("hello", []string{mid1}, []string{"b"}) {
+	if requestHash("hello", "", []string{mid1}, nil) == want || requestHash("hello", "", []string{mid1}, []string{"a"}) == requestHash("hello", "", []string{mid1}, []string{"b"}) {
 		t.Fatal("media ids and alt texts must change the hash")
 	}
 }

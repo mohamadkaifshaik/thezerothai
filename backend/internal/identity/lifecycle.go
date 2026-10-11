@@ -101,6 +101,11 @@ type LifecycleDeps struct {
 	ExportBudget time.Duration
 	// RetryBackoff is the first jitter ceiling between retries of a failing step (doubled per retry); zero means 200 ms.
 	RetryBackoff time.Duration
+	// Snapshots and Flags (P2) enable the profile_snapshot_refresh job kind: Snapshots rewrites the author
+	// snapshot on posts, Flags answers FEATURE_PROFILE_SNAPSHOT. Either nil means every such message is acked
+	// without work.
+	Snapshots SnapshotWriter
+	Flags     FlagChecker
 }
 
 // Lifecycle implements AccountLifecycle and the job handlers.
@@ -122,6 +127,9 @@ type Lifecycle struct {
 	exportBudget time.Duration
 	// retryBackoff is the first jitter ceiling between retries of one failing step.
 	retryBackoff time.Duration
+	// snapshots and flags serve the profile_snapshot_refresh job (P2); see LifecycleDeps.
+	snapshots SnapshotWriter
+	flags     FlagChecker
 
 	mu          sync.Mutex
 	erasers     []StepEraser
@@ -144,6 +152,7 @@ func NewLifecycle(d LifecycleDeps) (*Lifecycle, error) {
 		repo: d.Repo, cache: d.Cache, pub: d.Publisher, objects: d.Objects, log: d.Log, projectID: d.ProjectID, now: d.Now,
 		perDay: d.ExportsPerDay, retention: d.ExportRetention, urlTTL: d.ExportURLTTL,
 		workBudget: d.WorkBudget, startGate: d.StartGate, retryBackoff: d.RetryBackoff,
+		snapshots: d.Snapshots, flags: d.Flags,
 	}
 	if l.log == nil {
 		l.log = slog.Default()
@@ -223,7 +232,7 @@ func (l *Lifecycle) RegisterJobHandler(kind string, h JobHandler) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	switch {
-	case kind == "" || kind == JobKindAccountDelete || kind == JobKindAccountExport:
+	case kind == "" || kind == JobKindAccountDelete || kind == JobKindAccountExport || kind == JobKindProfileSnapshot:
 		return fmt.Errorf("identity: job kind %q is empty or reserved", kind)
 	case h == nil:
 		return fmt.Errorf("identity: job kind %q has no handler", kind)
