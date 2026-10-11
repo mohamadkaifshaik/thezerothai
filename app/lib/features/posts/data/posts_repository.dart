@@ -99,6 +99,36 @@ class PostsRepository {
     }
   }
 
+  /// One conversation page (`GetThread`, FEATURE_REPLIES): the focal post,
+  /// its parent/root context (or tombstone flags) and a page of replies.
+  /// Pass the previous response's `next_page_token` for the next page.
+  ///
+  /// With the `replies` sub-feature off no RPC is sent
+  /// ([FeatureDisabledException], `feature: replies`). NOT_FOUND is the focal
+  /// post itself being missing or hidden: pruned from every feed, rethrown.
+  Future<pb.GetThreadResponse> getThread(
+    String postId, {
+    String pageToken = '',
+    int pageSize = 0,
+  }) async {
+    try {
+      return await _gate.run(
+        () => _apiClient.posts.getThread(
+          pb.GetThreadRequest(
+            postId: postId,
+            pageToken: pageToken,
+            pageSize: pageSize,
+          ),
+        ),
+        requires: const [kPostsSubFeatureReplies],
+      );
+    } on NotFoundException {
+      await _store.removePost(postId);
+      _removed.add(postId);
+      rethrow;
+    }
+  }
+
   /// Deletes the caller's post. The server answers success for an unknown
   /// or foreign id too (ADR-0010 D4), so success always means "it is gone":
   /// the post leaves every cached feed.

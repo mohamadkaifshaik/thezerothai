@@ -142,17 +142,16 @@ class _ComposerViewState extends State<_ComposerView> {
                       inputFormatters: [
                         LengthLimitingTextInputFormatter(kComposerInputCap),
                       ],
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontSize: 18,
-                      ),
+                      style: Theme.of(context).textTheme.bodyLarge
+                          ?.copyWith(fontSize: 18),
                       decoration: InputDecoration(
                         hintText: "What's happening?",
                         hintStyle: Theme.of(context).textTheme.bodyLarge
                             ?.copyWith(
                               fontSize: 18,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                             ),
                         filled: false,
                         border: InputBorder.none,
@@ -172,7 +171,7 @@ class _ComposerViewState extends State<_ComposerView> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _LinesHint(problem: state.draft.problem),
+                      DraftProblemHint(problem: state.draft.problem),
                       CharacterCounter(draft: state.draft),
                     ],
                   ),
@@ -187,8 +186,8 @@ class _ComposerViewState extends State<_ComposerView> {
 }
 
 /// Explains why Post is disabled when it is not just "nothing typed yet".
-class _LinesHint extends StatelessWidget {
-  const _LinesHint({required this.problem});
+class DraftProblemHint extends StatelessWidget {
+  const DraftProblemHint({super.key, required this.problem});
 
   final PostDraftProblem? problem;
 
@@ -204,9 +203,8 @@ class _LinesHint extends StatelessWidget {
     return Expanded(
       child: Text(
         message,
-        style: Theme.of(
-          context,
-        ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.error),
       ),
     );
   }
@@ -233,7 +231,9 @@ class CharacterCounter extends StatelessWidget {
       child: Text(
         '$remaining',
         style: theme.textTheme.labelLarge?.copyWith(
-          color: over ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
+          color: over
+              ? theme.colorScheme.error
+              : theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );

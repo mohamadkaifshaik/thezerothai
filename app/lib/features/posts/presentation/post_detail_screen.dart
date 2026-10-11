@@ -14,6 +14,7 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
 import '../domain/posts_feature_flag.dart';
 import 'bloc/post_detail_cubit.dart';
+import 'thread_screen.dart';
 
 /// `/post/:id` (T18): one post via `GetPost`. A missing, deleted or hidden
 /// post shows "This post isn't available" with no retry; a post of an author
@@ -33,6 +34,16 @@ class PostDetailScreen extends StatelessWidget {
         ),
       );
     }
+    // FEATURE_REPLIES on: the conversation (GetThread). Off: the plain post
+    // (GetPost) with zero thread RPCs; a server FEATURE_DISABLED degrades to
+    // the same plain view.
+    if (isFeatureEnabled(context, kPostsSubFeatureReplies)) {
+      return ThreadScreen(postId: postId, fallbackBuilder: _plainPost);
+    }
+    return _plainPost(context);
+  }
+
+  Widget _plainPost(BuildContext context) {
     return BlocProvider<PostDetailCubit>(
       key: ValueKey('post-detail-$postId'),
       create: (context) => PostDetailCubit(
@@ -87,7 +98,7 @@ class _PostDetailViewState extends State<_PostDetailView> {
           child: switch (state.status) {
             PostDetailStatus.loading || PostDetailStatus.deleted =>
               const Center(child: CircularProgressIndicator()),
-            PostDetailStatus.notFound => _Unavailable(
+            PostDetailStatus.notFound => PostUnavailableView(
               onHome: () => context.go(AppRouter.homePath),
             ),
             PostDetailStatus.error => AppErrorView(
@@ -198,8 +209,8 @@ class _BlockedPostBanner extends StatelessWidget {
 
 /// The final NOT_FOUND state: nothing to retry, and the same words for
 /// missing, deleted and hidden (ADR-0010 D6).
-class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.onHome});
+class PostUnavailableView extends StatelessWidget {
+  const PostUnavailableView({super.key, required this.onHome});
 
   final VoidCallback onHome;
 

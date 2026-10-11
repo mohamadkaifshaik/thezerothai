@@ -131,6 +131,72 @@ void main() {
     expect(cachedIds(await store.read(const FeedKey.home())), [postId(5)]);
   });
 
+  group('getThread (FEATURE_REPLIES)', () {
+    const getThread = '/dzeroth.posts.v1.PostService/GetThread';
+
+    test(
+      'sends the post id, token and page size and returns the page',
+      () async {
+        answer = (_) => pb.GetThreadResponse(
+          focal: postView(1),
+          parentUnavailable: true,
+          nextPageToken: 'n2',
+        );
+
+        final r = await repo.getThread(
+          postId(1),
+          pageToken: 'n1',
+          pageSize: 10,
+        );
+
+        final sent = requests.single as pb.GetThreadRequest;
+        expect(sent.postId, postId(1));
+        expect(sent.pageToken, 'n1');
+        expect(sent.pageSize, 10);
+        expect(transport.calledProcedures, [getThread]);
+        expect(r.parentUnavailable, isTrue);
+        expect(r.nextPageToken, 'n2');
+      },
+    );
+
+    test(
+      'FEATURE_DISABLED hides only replies and sends nothing after',
+      () async {
+        answer = (_) => serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          metadata: {'feature': 'replies'},
+        );
+        await expectLater(
+          repo.getThread(postId(1)),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(gate.subFeatureEnabled(kPostsSubFeatureReplies), isFalse);
+        expect(gate.postsEnabled, isTrue);
+
+        requests.clear();
+        await expectLater(
+          repo.getThread(postId(1)),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(requests, isEmpty);
+      },
+    );
+
+    test('NOT_FOUND prunes the focal post from cached feeds', () async {
+      await seed(const FeedKey.home(), [1, 2]);
+      answer = (_) =>
+          connect.ConnectException(connect.Code.notFound, 'post not found');
+
+      await expectLater(
+        repo.getThread(postId(1)),
+        throwsA(isA<NotFoundException>()),
+      );
+
+      expect(cachedIds(await store.read(const FeedKey.home())), [postId(2)]);
+    });
+  });
+
   test('deletePost removes the post from every cached feed', () async {
     await seed(const FeedKey.home(), [5, 4]);
     await seed(FeedKey.user('u1'), [5, 3]);

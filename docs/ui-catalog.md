@@ -77,7 +77,13 @@
 | timelineNoticeMessage | app/lib/features/timeline/presentation/timeline_error_messages.dart | friendly banner text for a failed refresh over cached posts |
 | TimelineRepository.sinceRefresh / rateLimitedFor | app/lib/features/timeline/data/timeline_repository.dart | monotonic refresh stamp (60 s throttle across screen re-creation) and the RATE_LIMITED hold timeline calls must respect |
 | PostsRepository.removedPosts | app/lib/features/posts/data/posts_repository.dart | stream of post ids that left every cached feed (delete / NOT_FOUND); mounted feeds drop them |
-| PostDetailScreen / PostDetailCubit | app/lib/features/posts/presentation/post_detail_screen.dart | `/post/:id`: GetPost, "This post isn't available", blocked-author banner, delete |
+| PostDetailScreen / PostDetailCubit | app/lib/features/posts/presentation/post_detail_screen.dart | `/post/:id`: GetPost, "This post isn't available", blocked-author banner, delete; with the `replies` flag on it hands over to `ThreadScreen` |
+| PostUnavailableView | app/lib/features/posts/presentation/post_detail_screen.dart | the final NOT_FOUND state ("This post isn't available" + Go to Home), shared by the post and thread screens |
+| ThreadScreen / ThreadCubit / ThreadState | app/lib/features/posts/presentation/thread_screen.dart + bloc/thread_cubit.dart | `/post/:id` when FEATURE_REPLIES is on (P3 T7): GetThread focal + parent/root (tombstones for `parent_unavailable`/`root_unavailable`) + paged replies, inline reply composer, optimistic "Sending…" row, pull-to-refresh, no polling; server FEATURE_DISABLED degrades to the plain post via `fallbackBuilder` |
+| ComposerCubit(replyToPostId) / ComposerState.created | app/lib/features/posts/presentation/bloc/composer_cubit.dart | a reply intent: same D9 rules and one idempotency key per text; no Home pending item (`pending`/`author` optional for replies); `created` carries the server's PostView |
+| DraftProblemHint | app/lib/features/posts/presentation/composer_screen.dart | "at most 10 lines" / "unsupported characters" hint under any post/reply field |
+| replyErrorMessage | app/lib/features/posts/presentation/post_error_messages.dart | friendly snackbar text for a failed reply (parent gone, replies off, else `createPostErrorMessage`) |
+| PostsRepository.getThread | app/lib/features/posts/data/posts_repository.dart | `GetThread` through the gate (`requires: replies`); NOT_FOUND prunes the focal post from cached feeds |
 | AppRouter.postPath | app/lib/core/router/app_router.dart | the `/post/:id` deep link |
 | HomeScreen | app/lib/features/home/presentation/home_screen.dart | Home timeline (`TimelineFeedView` + `TimelineCubit`); placeholder with the posts flag off |
 | ProfileHeader.showPostsCount / ProfileCubit.postDeleted | app/lib/features/profile/ | "N Posts" in the header and its local decrement after a delete |
