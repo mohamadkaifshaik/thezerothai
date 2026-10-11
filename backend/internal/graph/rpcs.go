@@ -58,7 +58,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
-		s.Followed(ctx, callerUID, targetUID, now)
+		s.events.Followed(ctx, callerUID, targetUID, now)
 	}
 	return rel, nil
 }

@@ -201,3 +201,51 @@ func TestUnfollow_Noop_SkipsForget(t *testing.T) {
 		t.Error("expected a no-op unfollow to skip cache invalidation")
 	}
 }
+
+type recordingFollowEvents struct {
+	calls []struct{ follower, followee string }
+}
+
+func (r *recordingFollowEvents) Followed(_ context.Context, follower, followee string, _ time.Time) {
+	r.calls = append(r.calls, struct{ follower, followee string }{follower, followee})
+}
+
+// TestFollow_EventsHook (ADR-0017 D2): a created edge reports Followed exactly once; replays and no-ops never do.
+func TestFollow_EventsHook(t *testing.T) {
+	tests := []struct {
+		name    string
+		outcome MutationOutcome
+		want    int
+	}{
+		{"created", OutcomeCreated, 1},
+		{"replay", OutcomeReplay, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newFakeRepo()
+			repo.followOutcome = tt.outcome
+			dir := &fakeDirectory{profiles: map[string]identity.Profile{
+				"uid-1": activeProfile("uid-1", time.Now()), "uid-2": activeProfile("uid-2", time.Now()),
+			}}
+			ev := &recordingFollowEvents{}
+			svc := newTestServiceWithDirectory(repo, dir, Deps{Events: ev})
+			if _, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2"); err != nil {
+				t.Fatal(err)
+			}
+			if len(ev.calls) != tt.want || (tt.want == 1 && ev.calls[0].follower != "uid-1" || tt.want == 1 && ev.calls[0].followee != "uid-2") {
+				t.Errorf("Followed calls = %+v, want %d", ev.calls, tt.want)
+			}
+		})
+	}
+	t.Run("nil Events keeps the no-op", func(t *testing.T) {
+		repo := newFakeRepo()
+		repo.followOutcome = OutcomeCreated
+		dir := &fakeDirectory{profiles: map[string]identity.Profile{
+			"uid-1": activeProfile("uid-1", time.Now()), "uid-2": activeProfile("uid-2", time.Now()),
+		}}
+		svc := newTestServiceWithDirectory(repo, dir, Deps{})
+		if _, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2"); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
