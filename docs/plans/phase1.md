@@ -135,6 +135,7 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   - Dev is deployed and prod runs behind `FEATURE_POSTS=allowlist`.
 
 ### P2 — Profile gaps  [size: S] [owners: architect (snapshot job + topic) → backend ‖ frontend → tester]
+> **Status 2026-10-11:** backend (snapshot job, flag `FEATURE_PROFILE_SNAPSHOT`) in `feat/p2-profile-edit`; Flutter screens open. See `docs/plans/profile-edit-snapshot.md`.
 - **Goal.** Users can edit their profile and rename themselves without leaving stale identity on their posts.
 - **Scope.**
   - Flutter: Edit profile (display name, bio) and Change handle screens. Both RPCs exist; there is no UI (Grep = 0 hits).

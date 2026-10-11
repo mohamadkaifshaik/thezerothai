@@ -28,6 +28,8 @@ type service struct {
 	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
 	// wires it, so production never runs without it.
 	signup *authAdmin
+	// snap is the P2 profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
+	snap *profileSnapshots
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -264,10 +266,32 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
+	// P2 (ADR-0003): a display-name edit rewrites the author snapshot on the user's posts, limited to
+	// SnapshotEditsPerDay a day. The comparison uses the cached profile (0 reads: the interceptor warmed it); a
+	// stale cache can only over-count an edit. Reserved before the write: 1 read, 1 write on quotas/{uid}.
+	// Only while FEATURE_PROFILE_SNAPSHOT is on for the caller.
+	refresh := s.snapshotsOn(uid)
+	if refresh && params.DisplayName != nil {
+		cur, err := s.getProfileCached(ctx, uid)
+		if err != nil {
+			return Profile{}, err
+		}
+		if normalizeDisplayName(*params.DisplayName) != cur.DisplayName {
+			if err := s.reserveSnapshotEdit(ctx, uid); err != nil {
+				return Profile{}, err
+			}
+		}
+	}
+
 	now := s.now().UTC()
+	snapshotChanged := false
 	profile, err := s.repo.UpdateProfile(ctx, uid, func(p *Profile) {
 		if params.DisplayName != nil {
-			p.DisplayName = normalizeDisplayName(*params.DisplayName)
+			if name := normalizeDisplayName(*params.DisplayName); name != p.DisplayName {
+				p.DisplayName = name
+				p.SnapshotVersion++
+				snapshotChanged = true
+			}
 		}
 		if params.Bio != nil {
 			p.Bio = strings.TrimSpace(*params.Bio)
@@ -288,8 +312,10 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		return Profile{}, logger.RedactErr(fmt.Errorf("identity: update profile: %w", err), uid)
 	}
 	s.cache.SetProfile(profile)
-	// TODO(Phase 1): if DisplayName/AvatarURL changed, publish `profile-snapshot-refresh`; if IsPrivate
-	// changed, publish the visibility job (ADR-0003). Both require the posts module to exist.
+	if refresh && snapshotChanged {
+		s.enqueueSnapshotRefresh(ctx, uid, profile.SnapshotVersion)
+	}
+	// TODO(Phase 2): if IsPrivate changed, publish the visibility job (ADR-0003); private accounts are deferred.
 	return profile, nil
 }
 
@@ -307,6 +333,10 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 		return Profile{}, apierr.Validation("new_handle", "handle must be 3-15 characters: letters, numbers, underscore, and not reserved").WithMeta("reason", reason)
 	}
 	newLower := strings.ToLower(newHandle)
+	// P2: whether this rename changed the snapshot is decided by the version the repo's transaction writes; the
+	// version known before the call (cache, 0 reads) is the baseline. No cached baseline means "assume changed":
+	// the job is replay-safe and a no-op write is rare.
+	before, haveBefore := s.cache.GetProfile(uid)
 
 	profile, oldHandleLower, err := s.repo.ChangeHandle(ctx, uid, newHandle, newLower, s.now().UTC(), s.handleChangeCooldown)
 	if err != nil {
@@ -331,7 +361,10 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	if oldHandleLower != "" {
 		s.cache.InvalidateHandle(oldHandleLower)
 	}
-	// TODO(Phase 1): publish `profile-snapshot-refresh` (ADR-0003).
+	// Handle changes are bounded by the 7-day cooldown, so they do not spend the daily snapshot-edit quota.
+	if s.snapshotsOn(uid) && (!haveBefore || before.SnapshotVersion != profile.SnapshotVersion) {
+		s.enqueueSnapshotRefresh(ctx, uid, profile.SnapshotVersion)
+	}
 	return profile, nil
 }
 

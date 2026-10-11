@@ -34,6 +34,9 @@ const (
 	// Blocks counts both Block and Mute calls (ADR-0008 D7): they share one daily counter. Unblock/Unmute
 	// are never quota-gated.
 	Blocks Kind = "blocks"
+	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
+	// avatar), P2 / ADR-0003: 5 per day.
+	SnapshotEdits Kind = "snapshotEdits"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -64,6 +67,8 @@ type Record struct {
 	Exports int64  `firestore:"exports"`
 	// Blocks counts Block + Mute calls (ADR-0008 D7).
 	Blocks int64 `firestore:"blocks"`
+	// SnapshotEdits counts snapshot-affecting profile edits (P2).
+	SnapshotEdits int64 `firestore:"snapshotEdits"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -78,6 +83,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Exports
 	case Blocks:
 		return r.Blocks
+	case SnapshotEdits:
+		return r.SnapshotEdits
 	default:
 		return 0
 	}
@@ -95,6 +102,8 @@ func (r *Record) increment(k Kind) {
 		r.Exports++
 	case Blocks:
 		r.Blocks++
+	case SnapshotEdits:
+		r.SnapshotEdits++
 	}
 }
 
