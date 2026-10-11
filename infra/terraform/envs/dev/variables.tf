@@ -190,3 +190,31 @@ variable "feature_account_lifecycle_percent" {
     error_message = "feature_account_lifecycle_percent must be an integer 0-100."
   }
 }
+
+variable "feature_reports" {
+  description = "FEATURE_REPORTS rollout mode for ReportContent (ADR-0016): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_reports)
+    error_message = "feature_reports must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_reports_allowlist" {
+  description = "FEATURE_REPORTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_reports_percent" {
+  description = "FEATURE_REPORTS_PERCENT: 0-100, only meaningful when feature_reports = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_reports_percent >= 0 && var.feature_reports_percent <= 100 && floor(var.feature_reports_percent) == var.feature_reports_percent
+    error_message = "feature_reports_percent must be an integer 0-100."
+  }
+}

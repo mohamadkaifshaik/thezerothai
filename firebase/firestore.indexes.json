@@ -72,6 +72,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -101,6 +109,9 @@
 
     { "collectionGroup": "idempotency", "fieldPath": "result", "indexes": [] },
 
-    { "collectionGroup": "notifications", "fieldPath": "actor", "indexes": [] }
+    { "collectionGroup": "notifications", "fieldPath": "actor", "indexes": [] },
+
+    { "collectionGroup": "reports", "fieldPath": "evidence", "indexes": [] },
+    { "collectionGroup": "reports", "fieldPath": "note", "indexes": [] }
   ]
 }

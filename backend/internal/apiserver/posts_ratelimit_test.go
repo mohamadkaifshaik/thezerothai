@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -30,6 +31,7 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 		{"user timeline 30/min", timelinev1connect.TimelineServiceGetUserTimelineProcedure, 30},
 		{"create post 10/min", postsv1connect.PostServiceCreatePostProcedure, 10},
 		{"delete post 20/min", postsv1connect.PostServiceDeletePostProcedure, 20},
+		{"report content 5/min (ADR-0016)", moderationv1connect.ModerationServiceReportContentProcedure, 5},
 		{"get post 60/min (default bucket)", postsv1connect.PostServiceGetPostProcedure, 60},
 	}
 	cfg := defaultRateLimitCfg()

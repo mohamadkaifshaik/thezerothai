@@ -153,6 +153,18 @@ locals {
   ]
 }
 
+// Reports and moderation (P7, ADR-0016). FEATURE_REPORTS is off in both envs until the founder ramps it
+// (var.feature_reports*); no code path or apply turns it on. Quotas mirror backend/pkg/platform/config/config.go.
+locals {
+  reports_env_vars = [
+    { name = "FEATURE_REPORTS", value = var.feature_reports },
+    { name = "FEATURE_REPORTS_ALLOWLIST", value = var.feature_reports_allowlist },
+    { name = "FEATURE_REPORTS_PERCENT", value = tostring(var.feature_reports_percent) },
+    { name = "QUOTA_REPORTS_PER_DAY", value = "20" },
+    { name = "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", value = "5" },
+  ]
+}
+
 module "cloud_run_api" {
   source                            = "../../modules/cloud-run-api"
   project_id                        = var.project_id
@@ -179,6 +191,7 @@ module "cloud_run_api" {
     local.graph_env_vars,
     local.posts_env_vars,
     local.account_lifecycle_env_vars,
+    local.reports_env_vars,
   )
 
   depends_on = [module.project_services, module.secrets]

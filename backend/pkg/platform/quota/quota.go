@@ -34,6 +34,9 @@ const (
 	// Blocks counts both Block and Mute calls (ADR-0008 D7): they share one daily counter. Unblock/Unmute
 	// are never quota-gated.
 	Blocks Kind = "blocks"
+	// Reports counts ReportContent calls that wrote a report (ADR-0016). A repeat report is a no-op and is not
+	// charged.
+	Reports Kind = "reports"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -64,6 +67,8 @@ type Record struct {
 	Exports int64  `firestore:"exports"`
 	// Blocks counts Block + Mute calls (ADR-0008 D7).
 	Blocks int64 `firestore:"blocks"`
+	// Reports counts ReportContent writes (ADR-0016). Absent in older docs, so it decodes as 0.
+	Reports int64 `firestore:"reports"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -78,6 +83,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Exports
 	case Blocks:
 		return r.Blocks
+	case Reports:
+		return r.Reports
 	default:
 		return 0
 	}
@@ -95,6 +102,8 @@ func (r *Record) increment(k Kind) {
 		r.Exports++
 	case Blocks:
 		r.Blocks++
+	case Reports:
+		r.Reports++
 	}
 }
 

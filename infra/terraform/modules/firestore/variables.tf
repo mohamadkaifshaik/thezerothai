@@ -37,6 +37,11 @@ variable "ttl_fields" {
       collection = "exports"
       field      = "expireAt"
     }
+    # ADR-0016 D2: set when a report is resolved (resolvedAt + 90 days); absent while OPEN, so open reports never expire.
+    reports_expire_at = {
+      collection = "reports"
+      field      = "expireAt"
+    }
   }
 }
 

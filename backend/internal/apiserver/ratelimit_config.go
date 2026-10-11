@@ -5,6 +5,7 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -46,6 +47,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlUserTimeline := ratelimit.NewLimiter(cfg.RateLimit.UserTimelinePerMinute, idleBucketTTL)
 	rlPostCreate := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	rlPostDelete := ratelimit.NewLimiter(cfg.RateLimit.PostDeletePerMinute, idleBucketTTL)
+	// ADR-0016: ReportContent 5/min per user; the daily bound is the reports quota (20, 5 for new accounts).
+	rlReport := ratelimit.NewLimiter(cfg.RateLimit.ReportPerMinute, idleBucketTTL)
 
 	return ratelimit.Config{
 		Default: rlDefault,
@@ -54,6 +57,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			timelinev1connect.TimelineServiceGetUserTimelineProcedure:         rlUserTimeline,
 			postsv1connect.PostServiceCreatePostProcedure:                     rlPostCreate,
 			postsv1connect.PostServiceDeletePostProcedure:                     rlPostDelete,
+			moderationv1connect.ModerationServiceReportContentProcedure:       rlReport,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
 			graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,
