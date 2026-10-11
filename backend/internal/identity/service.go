@@ -25,6 +25,7 @@ type service struct {
 	now                  func() time.Time
 	blockChecker         BlockChecker
 	features             FeatureFlags
+	avatars              AvatarResolver
 	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
 	// wires it, so production never runs without it.
 	signup *authAdmin
@@ -39,6 +40,11 @@ type Option func(*service)
 // disables the check, matching the Phase 0 bootstrap's behavior.
 func WithBlockChecker(bc BlockChecker) Option {
 	return func(s *service) { s.blockChecker = bc }
+}
+
+// WithAvatarResolver wires UpdateProfile.avatar_media_id (P4). Nil keeps non-empty values rejected.
+func WithAvatarResolver(r AvatarResolver) Option {
+	return func(s *service) { s.avatars = r }
 }
 
 // WithFeatureFlags wires GetMe.enabled_features (ADR-0008 D6). Nil (the default) reports no flags.
@@ -242,9 +248,9 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	return profile, nil
 }
 
-// UpdateProfile: reads 1, writes 1 in Phase 0 (avatar_media_id verification needs the media module,
-// which doesn't exist yet — a non-empty value is rejected with ERROR_REASON_MEDIA_NOT_READY rather than
-// silently accepted; documented Phase 0 limitation vs. the proto's "reads 2/1" once media lands).
+// UpdateProfile: reads 1, writes 1; with a non-empty avatar_media_id reads 2 (the media doc, resolved before the
+// transaction) and the avatar URLs are copied into the profile. A media id that is not a READY, caller-owned
+// AVATAR is ERROR_REASON_MEDIA_NOT_READY.
 func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdateProfileParams) (Profile, error) {
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -255,8 +261,20 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if params.Bio != nil && bioIssue(*params.Bio) {
 		return Profile{}, apierr.Validation("bio", "bio must be at most 160 characters")
 	}
+	var avatar *AvatarRef
 	if params.AvatarMediaID != nil && *params.AvatarMediaID != "" {
-		return Profile{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY, "avatar uploads are not available yet")
+		notReady := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY, "avatar is not ready; upload it again")
+		if s.avatars == nil {
+			return Profile{}, notReady
+		}
+		ref, err := s.avatars.ResolveAvatar(ctx, uid, *params.AvatarMediaID)
+		switch {
+		case errors.Is(err, ErrAvatarNotReady):
+			return Profile{}, notReady
+		case err != nil:
+			return Profile{}, logger.RedactErr(fmt.Errorf("identity: resolve avatar: %w", err), uid)
+		}
+		avatar = &ref
 	}
 	// ADR-0008 D1 (L9): private accounts are deferred. is_private=false stays accepted (already the only
 	// value profiles can hold); is_private=true is rejected before any read, 0 writes.
@@ -271,6 +289,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		if params.Bio != nil {
 			p.Bio = strings.TrimSpace(*params.Bio)
+		}
+		if avatar != nil {
+			p.AvatarURL, p.AvatarThumbURL = avatar.URL, avatar.ThumbURL
 		}
 		if params.AvatarMediaID != nil && *params.AvatarMediaID == "" {
 			p.AvatarURL = ""

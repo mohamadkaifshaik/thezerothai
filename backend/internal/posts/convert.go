@@ -8,7 +8,7 @@ import (
 )
 
 // ToProto converts a Post to its wire shape. Exported for the timeline module, which returns the same PostView.
-// Media and embedded posts are not modelled in P1 and stay unset.
+// Embedded posts are not modelled yet and stay unset. Every MediaRef carries thumb_url (lists render it).
 func ToProto(p *Post) *postsv1.Post {
 	out := &postsv1.Post{
 		PostId: p.ID,
@@ -31,6 +31,12 @@ func ToProto(p *Post) *postsv1.Post {
 	}
 	for _, m := range p.Mentions {
 		out.Mentions = append(out.Mentions, &postsv1.Mention{UserId: m.UserID, Handle: m.Handle})
+	}
+	for _, m := range p.Media {
+		out.Media = append(out.Media, &commonv1.MediaRef{
+			MediaId: m.ID, Url: m.URL, ThumbUrl: m.ThumbURL, Width: int32(m.Width), Height: int32(m.Height), //nolint:gosec // validated <= 4096 at CreateUpload
+			Blurhash: m.Blurhash, AltText: m.AltText,
+		})
 	}
 	return out
 }

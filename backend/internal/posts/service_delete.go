@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 
 	"connectrpc.com/connect"
@@ -43,7 +44,9 @@ func postNotFound() error {
 // Delete implements Service (ADR-0010 D4, plan T9).
 //
 // Firestore, worst case: reads 1 (the post; 0 when cached; the interceptor's profile read is extra), writes 1
-// (users.postsCount -1) + 1 delete (Exists precondition). Every other case, including another user's post, an
+// (users.postsCount -1) + 1 delete (Exists precondition) and, for a post with images, one Pub/Sub publish of the
+// post_delete job (the objects and media/* docs are removed there: len(media) reads + 1 post read, len(media)
+// deletes, asynchronously). Every other case, including another user's post, an
 // unknown id and an already-deleted one, is success with 1 read at most and 0 writes.
 func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string) (err error) {
 	logger.SetRequestField(ctx, fieldOp, "delete")
@@ -85,8 +88,28 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 	}
 	s.directory.Forget(uid) // users.postsCount changed by a blind increment (ADR-0008 B2)
 	s.events.Deleted(ctx, postID, uid)
+	s.publishPostDelete(ctx, uid, p)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDeleted)
 	return nil
+}
+
+// publishPostDelete hands a deleted post's images to the post_delete job (after the commit, never inside it). A failure
+// is logged for Error Reporting and does not fail the delete: the post is gone and the objects are removed by the
+// account purge at the latest. One Pub/Sub publish, no Firestore access.
+func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
+	if s.jobs == nil || len(p.Media) == 0 {
+		return
+	}
+	ids := make([]string, len(p.Media))
+	for i, m := range p.Media {
+		ids[i] = m.ID
+	}
+	if err := s.jobs.PostDeleted(ctx, uid, p.ID, ids); err != nil {
+		logger.SetRequestField(ctx, fieldMediaJob, "publish_failed")
+		slog.ErrorContext(ctx, "post_delete_job_publish_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, uid))}, logger.TraceAttrs(ctx)...)...)
+		return
+	}
+	logger.SetRequestField(ctx, fieldMediaJob, "published")
 }
 
 // GetForViewer implements Service (ADR-0010 D6 GetPost column, plan T9).

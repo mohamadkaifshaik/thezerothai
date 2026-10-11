@@ -10,6 +10,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -74,8 +75,8 @@ type UpdateProfileParams struct {
 	DisplayName    *string
 	Bio            *string
 	// AvatarMediaID: "" removes the avatar; non-empty must reference a READY, caller-owned AVATAR media
-	// item. The media module does not exist yet in Phase 0, so a non-empty value is rejected with
-	// ERROR_REASON_MEDIA_NOT_READY until that integration lands (documented Phase 0 limitation).
+	// item (WithAvatarResolver, P4). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
+	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
 	IsPrivate     *bool
 }
@@ -201,4 +202,21 @@ const MaxResolveHandles = 10
 // this interface only ever appends one Create() to the batch it's given.
 type GraphInitializer interface {
 	InitGraph(b store.Batch, uid string, now time.Time)
+}
+
+// AvatarRef is a published avatar: the full image and the 96 px thumbnail (Profile.AvatarURL and
+// AvatarThumbURL).
+type AvatarRef struct {
+	URL      string
+	ThumbURL string
+}
+
+// ErrAvatarNotReady is returned by an AvatarResolver for a media id that is missing, not the caller's, not an
+// AVATAR, not READY, or when FEATURE_MEDIA is off for the caller (one answer, no oracle).
+var ErrAvatarNotReady = errors.New("identity: avatar media not ready")
+
+// AvatarResolver is the consumer-side seam to the media module (ADR-0002); apiserver adapts media.Library and
+// the FEATURE_MEDIA check. 1 Firestore read.
+type AvatarResolver interface {
+	ResolveAvatar(ctx context.Context, uid, mediaID string) (AvatarRef, error)
 }
