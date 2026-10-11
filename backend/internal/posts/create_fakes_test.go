@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"connectrpc.com/connect"
@@ -33,6 +34,11 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 		return CreateResult{ReplayID: rec.postID, Attempts: 1}, nil
 	}
 	c.AddReads(1)
+	if p.ParentID != "" {
+		if _, ok := r.docs[p.ParentID]; !ok || r.parentGone {
+			return CreateResult{Attempts: 1}, ErrParentGone
+		}
+	}
 	if r.createErr != nil {
 		return CreateResult{Attempts: 1}, r.createErr
 	}
@@ -43,12 +49,19 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 	r.nextID++
 	id := fmt.Sprintf("%019d", r.nextID)
 	post := p.Draft
-	post.ID, post.ConversationID = id, id
+	post.ID = id
+	if post.ConversationID == "" {
+		post.ConversationID = id
+	}
 	post.CreatedAt = time.UnixMilli(1_700_000_000_000 + r.nextID).UTC()
 	r.docs[id] = &post
 	r.idem[p.IdemKey] = fakeIdem{hash: p.RequestHash, postID: id}
 	r.postsCount++
 	c.AddWrites(4)
+	if p.ParentID != "" {
+		r.docs[p.ParentID].ReplyCount++
+		c.AddWrites(1)
+	}
 	r.lastCreate = p
 	return CreateResult{Post: &post, Attempts: 1}, nil
 }
@@ -70,6 +83,46 @@ func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string) (bool, er
 	c.AddWrites(1)
 	c.AddDeletes(1)
 	return true, nil
+}
+
+// Conversation implements Repo for unit tests: the conversation's posts in id order strictly after `after`,
+// at most limit, charged like a query (one read per result, minimum 1).
+func (r *fakeRepo) Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error) {
+	r.conversationCalls++
+	r.lastAfter, r.lastLimit = after, limit
+	var ids []string
+	for id, p := range r.docs {
+		if p.ConversationID == conversationID && (after == nil || id > after.ID) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	out := make([]*Post, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, r.docs[id])
+	}
+	n := int64(len(out))
+	if n == 0 {
+		n = 1
+	}
+	budget.FromContext(ctx).AddReads(n)
+	return out, r.conversationErr
+}
+
+// AddReplyCount implements Repo for unit tests: 1 write when the parent exists.
+func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
+	r.replyCountCalls++
+	if r.replyCountErr != nil {
+		return r.replyCountErr
+	}
+	if p, ok := r.docs[parentID]; ok {
+		p.ReplyCount += delta
+		budget.FromContext(ctx).AddWrites(1)
+	}
+	return nil
 }
 
 type fakeIdem struct{ hash, postID string }

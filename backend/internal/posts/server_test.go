@@ -84,7 +84,7 @@ func TestGuardFeature_LogsTheRejection(t *testing.T) {
 	}
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; on => GetThread is still Unimplemented (until P3).
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; GetThread (P3) reaches the service when on.
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"CreatePost": func(s *Server, ctx context.Context) error {
@@ -124,8 +124,9 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 		}
 		t.Run(name+" flag on", func(t *testing.T) {
 			err := call(NewServer(svc, &fakeFlags{on: true}), callerCtx("u1"))
-			if connect.CodeOf(err) != connect.CodeUnimplemented {
-				t.Fatalf("err = %v, want UNIMPLEMENTED", err)
+			var ae *apierr.Error
+			if !errors.As(err, &ae) || ae.Code != connect.CodeInvalidArgument { // empty post_id: past the guards, rejected by the service
+				t.Fatalf("err = %v, want VALIDATION from the service", err)
 			}
 		})
 	}
