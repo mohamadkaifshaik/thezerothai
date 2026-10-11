@@ -14,6 +14,7 @@ import (
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -159,7 +160,7 @@ type stubRepo struct{ identity.LifecycleRepo }
 type stubPub struct{ identity.JobPublisher }
 type stubAuth struct{ identity.AuthClient }
 
-// TestRegisterLifecycleModules: posts, graph and their export sections register once, before the identity step.
+// TestRegisterLifecycleModules: posts, graph, media and their export sections register once, before the identity step.
 func TestRegisterLifecycleModules(t *testing.T) {
 	l, err := identity.NewLifecycle(identity.LifecycleDeps{
 		Repo: stubRepo{}, Cache: identity.NewCache(time.Minute), Publisher: stubPub{}, Auth: stubAuth{},
@@ -168,18 +169,18 @@ func TestRegisterLifecycleModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil)); err != nil {
+	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil), media.NewPurger(nil, nil, "")); err != nil {
 		t.Fatalf("registerLifecycleModules: %v", err)
 	}
 	// The step names are persisted in users/{uid}.deletionJob.step and the section names are keys of the export file:
 	// changing either strands in-flight deletions or breaks exports already handed out, so they are pinned here.
-	if got, want := l.StepNames(), []string{"auth_disable", "posts", "graph", "identity", "auth_delete", "users_doc"}; !slices.Equal(got, want) {
+	if got, want := l.StepNames(), []string{"auth_disable", "posts", "graph", "media", "identity", "auth_delete", "users_doc"}; !slices.Equal(got, want) {
 		t.Errorf("deletion steps = %v, want %v", got, want)
 	}
-	if got, want := l.ExportSectionNames(), []string{"graph", "posts"}; !slices.Equal(got, want) {
+	if got, want := l.ExportSectionNames(), []string{"graph", "posts", "media"}; !slices.Equal(got, want) {
 		t.Errorf("export sections = %v, want %v", got, want)
 	}
-	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil)); err == nil {
+	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil), media.NewPurger(nil, nil, "")); err == nil {
 		t.Error("registering the same modules twice was accepted")
 	}
 }
