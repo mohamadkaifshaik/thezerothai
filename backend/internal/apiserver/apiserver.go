@@ -100,7 +100,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureProfileSnapshot)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -143,10 +143,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("firebase auth admin client: %w", err)
 	}
+	// P2: the shared jobs publisher is also the profile-snapshot-refresh trigger (lazy: no I/O until first use).
+	jobsPublisher, err := pubsubpublish.New(cfg.ProjectID, cfg.JobsTopic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("jobs publisher: %w", err)
+	}
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
 		identity.WithSignupAuth(authAdminClient, log),
+		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
+			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
+			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
+		}),
 	)
 	// identitySvc's concrete type also implements identity.Directory (GetProfiles/Forget); asserted here
 	// since identity.Service itself only exposes the Connect-handler-facing RPC methods.
@@ -184,10 +193,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// --- account lifecycle (ADR-0011, P8): DeleteAccount / RequestAccountExport / GetAccountExport and the job
 	// handlers. The Firebase Auth admin client (built above) is handed only to identity (IAM control C2); the
 	// publisher and the exports bucket client are lazy, so nothing here does I/O before ListenAndServe.
-	jobsPublisher, err := pubsubpublish.New(cfg.ProjectID, cfg.JobsTopic)
-	if err != nil {
-		return nil, nil, fmt.Errorf("jobs publisher: %w", err)
-	}
 	exportStore, err := objstore.New(cfg.ExportBucket)
 	if err != nil {
 		return nil, nil, fmt.Errorf("export store: %w", err)
@@ -196,6 +201,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Repo: identityRepo, Cache: identityCache, Publisher: jobsPublisher, Auth: authAdminClient, Objects: exportStore,
 		Log: log, ProjectID: cfg.ProjectID, ExportsPerDay: int64(cfg.Quota.ExportsPerDay),
 		ExportRetention: cfg.ExportRetention, ExportURLTTL: cfg.ExportURLTTL,
+		Snapshots: profileSnapshotWriter{postsRepo}, Flags: featureFlags,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle: %w", err)

@@ -148,6 +148,8 @@ type QuotaConfig struct {
 	FollowsPerDay int
 	MediaPerDay   int
 	ExportsPerDay int
+	// SnapshotEditsPerDay caps the profile edits that rewrite the author snapshot on posts (P2, ADR-0003: 5/day).
+	SnapshotEditsPerDay int
 
 	// Lower quotas for accounts younger than NewAccountWindow.
 	NewAccountPostsPerDay   int
@@ -248,6 +250,11 @@ type Config struct {
 	// AccountDeleteReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (default 5m, must be in (0, 10m]): how recent the
 	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
 	AccountDeleteReauthMaxAge time.Duration
+
+	// FeatureProfileSnapshot is the P2 server flag (wire name `profile_snapshot`) gating the
+	// profile-snapshot-refresh job and the snapshot-edit quota. FEATURE_PROFILE_SNAPSHOT[_ALLOWLIST|_PERCENT],
+	// default off in every environment (UpdateProfile/ChangeHandle themselves are not gated).
+	FeatureProfileSnapshot flags.Spec
 
 	// ExportBucket is EXPORT_BUCKET, the private account-export bucket (ADR-0011 D-B). Default `<project>-exports`,
 	// the name Terraform gives it.
@@ -494,6 +501,9 @@ func Load() (Config, error) {
 	if q.ExportsPerDay, err = getInt("QUOTA_EXPORTS_PER_DAY", 1); err != nil {
 		return Config{}, err
 	}
+	if q.SnapshotEditsPerDay, err = getInt("QUOTA_SNAPSHOT_EDITS_PER_DAY", 5); err != nil {
+		return Config{}, err
+	}
 	if q.NewAccountPostsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", 20); err != nil {
 		return Config{}, err
 	}
@@ -554,6 +564,10 @@ func Load() (Config, error) {
 	// P8 T4: off everywhere until the founder turns it on; the reauth window is bounded so a typo cannot
 	// quietly disable the recent-sign-in check.
 	featureAccountLifecycle, err := flags.LoadSpec("ACCOUNT_LIFECYCLE", "account_lifecycle", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureProfileSnapshot, err := flags.LoadSpec("PROFILE_SNAPSHOT", "profile_snapshot", flags.Off)
 	if err != nil {
 		return Config{}, err
 	}
@@ -622,6 +636,7 @@ func Load() (Config, error) {
 		FeaturePosts:              featurePosts,
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
+		FeatureProfileSnapshot:    featureProfileSnapshot,
 		AccountDeleteReauthMaxAge: reauthMaxAge,
 		ExportBucket:              getenv("EXPORT_BUCKET", projectID+"-exports"),
 		ExportURLTTL:              exportURLTTL,

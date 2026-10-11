@@ -132,6 +132,7 @@ func (f *fakeRepo) ChangeHandle(_ context.Context, uid, newHandle, newHandleLowe
 			return p, "", nil // true no-op
 		}
 		p.Handle = newHandle
+		p.SnapshotVersion++
 		p.UpdatedAt = now
 		f.profiles[uid] = p
 		return p, "", nil // case-only rename
@@ -152,6 +153,7 @@ func (f *fakeRepo) ChangeHandle(_ context.Context, uid, newHandle, newHandleLowe
 	p.Handle = newHandle
 	p.HandleLower = newHandleLower
 	p.HandleChangedAt = now
+	p.SnapshotVersion++
 	p.UpdatedAt = now
 	f.profiles[uid] = p
 	f.handles[newHandleLower] = uid

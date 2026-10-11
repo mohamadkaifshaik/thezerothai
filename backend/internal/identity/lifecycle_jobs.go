@@ -71,6 +71,8 @@ type jobResult struct {
 	stepCalls, deletedDocs, deletedObjects int
 	sections                               int
 	bytes                                  int64
+	// updated is the number of posts a profile_snapshot_refresh rewrote (P2).
+	updated int
 }
 
 // jobStats is what the steps of one delivery add up, reported on its log line.
@@ -148,6 +150,13 @@ func (l *Lifecycle) dispatch(ctx context.Context, d pubsubpush.Delivery) jobResu
 			return ack(res, "dropped:invalid_message")
 		}
 		return l.runExport(ctx, msg, res)
+	case JobKindProfileSnapshot:
+		res := jobResult{job: "profile_snapshot"}
+		if !ValidUserID(msg.UID) {
+			return ack(res, "dropped:invalid_message")
+		}
+		res.uid = msg.UID
+		return l.runProfileSnapshot(ctx, msg, res)
 	default:
 		return ack(jobResult{job: "unknown"}, "dropped:unknown_kind")
 	}
@@ -168,6 +177,8 @@ func (l *Lifecycle) logDelivery(ctx context.Context, res jobResult, d pubsubpush
 		attrs = append(attrs, "step_calls", res.stepCalls, "deleted_docs", res.deletedDocs, "deleted_objects", res.deletedObjects)
 	case "export":
 		attrs = append(attrs, "sections", res.sections, "bytes", res.bytes)
+	case "profile_snapshot":
+		attrs = append(attrs, "updated_posts", res.updated)
 	}
 	switch {
 	case res.err != nil && d.Attempt >= maxDeliveryAttempts:
