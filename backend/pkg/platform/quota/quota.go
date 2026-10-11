@@ -83,18 +83,18 @@ func (r Record) valueFor(k Kind) int64 {
 	}
 }
 
-func (r *Record) increment(k Kind) {
+func (r *Record) increment(k Kind, n int64) {
 	switch k {
 	case Posts:
-		r.Posts++
+		r.Posts += n
 	case Follows:
-		r.Follows++
+		r.Follows += n
 	case Uploads:
-		r.Uploads++
+		r.Uploads += n
 	case Exports:
-		r.Exports++
+		r.Exports += n
 	case Blocks:
-		r.Blocks++
+		r.Blocks += n
 	}
 }
 
@@ -137,14 +137,21 @@ func (s *Store) Get(ctx context.Context, tx *firestore.Transaction, uid string) 
 // (same atomic unit of work as the caller's entity write). rec must be the value returned by Get for the
 // same uid in the same transaction.
 func CheckAndReserve(b store.Batch, ref *firestore.DocumentRef, rec Record, kind Kind, limit int64) error {
-	if rec.valueFor(kind) >= limit {
+	return CheckAndReserveN(b, ref, rec, kind, limit, 1)
+}
+
+// CheckAndReserveN is CheckAndReserve for a call that consumes n units at once (CreateUpload reserves one
+// `uploads` unit per image, up to 4). It is rejected when the n units would not all fit under limit, so a
+// 4-image call at 18/20 fails as a whole instead of half-reserving.
+func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kind Kind, limit, n int64) error {
+	if rec.valueFor(kind)+n > limit {
 		return apierr.New(
 			connect.CodeResourceExhausted,
 			commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
 			"daily limit reached, please try again tomorrow",
 		).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(time.Now()))
 	}
-	rec.increment(kind)
+	rec.increment(kind, n)
 	b.Set(ref, rec)
 	return nil
 }

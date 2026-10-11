@@ -75,11 +75,20 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		MediaAltTexts:  m.GetMediaAltTexts(),
 		ReplyToPostID:  m.GetReplyToPostId(),
 		QuoteOfPostID:  m.GetQuoteOfPostId(),
+		MediaEnabled:   s.mediaEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&postsv1.CreatePostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
+}
+
+// mediaFlagName is the wire name of FEATURE_MEDIA (media.FlagName; posts does not import media).
+const mediaFlagName = "media"
+
+// mediaEnabled reports FEATURE_MEDIA for uid; a nil checker means off (fail closed).
+func (s *Server) mediaEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, mediaFlagName)
 }
 
 // readDeadline bounds DeletePost and GetPost (<= 10 s, go-service skill).

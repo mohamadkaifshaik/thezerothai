@@ -23,6 +23,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -75,7 +76,7 @@ var lifecycleCollections = []collectionRow{
 	{Name: "likes", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
 	{Name: "reposts", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
 	{Name: "userLikes", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
-	{Name: "media", Disposition: pendingEraser, Owner: "media (P4)", Cite: "ADR-0003, ADR-0005, ADR-0011 Q1"},
+	{Name: "media", Disposition: erasedByStep, Step: "media", Section: "media", Owner: "media", Cite: "ADR-0005, ADR-0011 Q1 (P4 media Eraser: objects first, then documents)"},
 	{Name: "reports", Disposition: pendingEraser, Owner: "moderation (P7)", Cite: "ADR-0003 data model, ADR-0011 Q1 (reporterId)"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// notifications is declared by identity (the unread count reads it) but nothing creates documents until P6 ships
@@ -92,7 +93,8 @@ type gcsPrefixRow struct {
 
 var lifecycleGCSPrefixes = []gcsPrefixRow{
 	{Bucket: "exports (private)", Prefix: "<exportId>.json", Disposition: erasedByStep, Step: "identity", Cite: "ADR-0011 Q1 step 5 (objects deleted before the exports docs); 7-day lifecycle rule as backstop"},
-	{Bucket: "media (public-read)", Prefix: "media/{ownerId}/...", Disposition: pendingEraser, Cite: "ADR-0005, ADR-0011 Q1 (P4 registers the media Eraser)"},
+	{Bucket: "media (public-read)", Prefix: "m/<mediaId>[_t].<ext>", Disposition: erasedByStep, Step: "media", Cite: "ADR-0005, ADR-0011 Q1 (the media Eraser deletes by owner; the post_delete job deletes per post)"},
+	{Bucket: "media-upload (private, 2-day lifecycle)", Prefix: "u/<uid>/<mediaId>[_t].<ext>", Disposition: erasedByStep, Step: "media", Cite: "ADR-0005 (the media Eraser deletes any leftover; the bucket lifecycle rule is the backstop)"},
 }
 
 // residueAllowance is one thing a post-deletion sweep may still find that mentions the deleted uid. Everything else
@@ -251,7 +253,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil)); err != nil {
+	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil), media.NewPurger(nil, nil, "")); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
@@ -294,7 +296,7 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 		{"new collection constant without a row", append(slices.Clone(real), collectionRef{"bookmarks", "bookmarksCollection at x.go:1"}), lifecycleCollections, `"bookmarks"`},
 		{"row names an unregistered step", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "likes2", Disposition: erasedByStep, Step: "engagement", ExportNote: "n", Owner: "o", Cite: "c"}), `step "engagement" is not registered`},
 		{"row names an unregistered section", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "x", Disposition: erasedByStep, Step: "graph", Section: "likes", Owner: "o", Cite: "c"}), `export section "likes" is not registered`},
-		{"pending row for a collection the code writes", []collectionRef{{"media", "mediaCollection at m.go:1"}}, lifecycleCollections, `still pendingEraser`},
+		{"pending row for a collection the code writes", []collectionRef{{"likes", "likesCollection at m.go:1"}}, lifecycleCollections, `still pendingEraser`},
 		{"row without a citation", nil, []collectionRow{{Name: "x", Disposition: notPersonal, Owner: "o"}}, `no Owner/Cite`},
 		{"row without a disposition", nil, []collectionRow{{Name: "x", Owner: "o", Cite: "c"}}, `no disposition`},
 	}

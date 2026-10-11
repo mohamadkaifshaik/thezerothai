@@ -20,11 +20,16 @@ const FlagName = "posts"
 // emitted by mw.Logging. posts_op and outcome are set by the RPCs (T8/T9); the Reader sets only the cache field.
 const fieldCacheHit = "posts_cache_hit"
 
+// fieldMediaJob records what DeletePost did about the post_delete job: published | publish_failed (absent: no images).
+const fieldMediaJob = "post_delete_job"
+
 // Deps is everything New needs.
 type Deps struct {
 	Repo   Repo
 	Cache  *Cache
 	Events PostEvents
+	// Jobs publishes the post_delete job for a deleted post that carried images (P4). Nil disables it.
+	Jobs PostDeleteJobs
 	// Directory and Graph are only needed by Create (author profile, handle resolution, block filtering). They
 	// are the other modules' api.go interfaces (ADR-0002); a Reader-only service may leave them nil.
 	Directory identity.Directory
@@ -41,6 +46,7 @@ type service struct {
 	repo      Repo
 	cache     *Cache
 	events    PostEvents
+	jobs      PostDeleteJobs
 	directory identity.Directory
 	graph     graph.Reader
 	now       func() time.Time
@@ -64,7 +70,7 @@ func WithAllowAnonymous(allow bool) Option {
 // New builds the posts service. A nil Events defaults to the no-op hook.
 func New(d Deps, opts ...Option) Service {
 	s := &service{
-		repo: d.Repo, cache: d.Cache, events: d.Events, now: d.Now,
+		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, now: d.Now,
 		directory: d.Directory, graph: d.Graph,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
 	}

@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 
@@ -27,6 +30,9 @@ import (
 //	        the transaction)  => 13 cold / 2 warm, planning 2.5. The documented ceiling stays 14: the author graph
 //	        is no longer read (M2, D7 amendment), so the proto, ADR and plan numbers are conservative upper bounds.
 //	writes: idempotency doc, post, users.postsCount, quotas = 4, plus 1 eventual TTL delete
+//	with media (P4, FEATURE_MEDIA): + len(media_ids) reads (one GetAll of media/*, inside the transaction, so
+//	        up to 4 more: 17 cold / 6 warm ceiling, planning 2.5 + n) and + len(media_ids) writes (media/{id}.postId,
+//	        so up to 8); a replay re-reads no media
 //	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
@@ -43,13 +49,22 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if in.QuoteOfPostID != "" {
 		return nil, featureDisabled("quotes")
 	}
-	if len(in.MediaIDs) > 0 || len(in.MediaAltTexts) > 0 {
+	hasMedia := len(in.MediaIDs) > 0 || len(in.MediaAltTexts) > 0
+	if hasMedia && !in.MediaEnabled {
 		return nil, featureDisabled("media")
 	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
-	parsed, err := text.Parse(in.Text)
+	if err := validateMedia(in.MediaIDs, in.MediaAltTexts); err != nil {
+		return nil, err
+	}
+	// An image-only post is allowed: empty text is valid exactly when at least one image is attached.
+	parse := text.Parse
+	if len(in.MediaIDs) > 0 {
+		parse = text.ParseOptional
+	}
+	parsed, err := parse(in.Text)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +103,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	res, err := s.repo.Create(ctx, CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text),
+		RequestHash: requestHash(parsed.Text, in.MediaIDs, in.MediaAltTexts),
 		QuotaLimit:  limit,
+		MediaIDs:    in.MediaIDs,
+		MediaAlts:   in.MediaAltTexts,
 		Draft: Post{
 			AuthorID: uid,
 			Author: AuthorSnapshot{
@@ -103,6 +120,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	})
 	noteTxnAttempts(ctx, res.Attempts)
 	if err != nil {
+		if errors.Is(err, ErrMediaNotReady) {
+			return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
+				"one of the images is not ready; upload it again")
+		}
 		if errors.Is(err, ErrIdempotencyKeyReused) {
 			return nil, apierr.New(connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED,
 				"this idempotency_key was already used for a different request")
@@ -171,10 +192,47 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 	return !p.CreatedAt.IsZero() && now.Sub(p.CreatedAt) < s.newAccountWindow
 }
 
-// requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text and the
-// four slice-2+ fields (always empty while they are rejected), in a fixed order (D18).
-func requestHash(normalisedText string) string {
-	return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q", normalisedText, "", "", "", ""))
+// requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text, the
+// media ids and alt texts in request order and the two slice-2+ fields (always empty while they are rejected), in
+// a fixed order (D18). A text-only request hashes exactly as it did before P4.
+func requestHash(normalisedText string, mediaIDs, alts []string) string {
+	return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
+		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), "", ""))
+}
+
+// maxAltTextRunes bounds one alt text (CreatePost proto: <= 1,000 chars).
+const maxAltTextRunes = 1000
+
+// validateMedia checks the shape of media_ids and media_alt_texts before any read: at most 4 distinct 19-digit
+// ids and alt texts that are empty or parallel to the ids, valid UTF-8, no control characters, <= 1,000 code points.
+func validateMedia(ids, alts []string) error {
+	if len(ids) > MaxMedia {
+		return apierr.Validation("media_ids", "at most 4 images per post")
+	}
+	if len(alts) > 0 && len(alts) != len(ids) {
+		return apierr.Validation("media_alt_texts", "media_alt_texts must be empty or parallel to media_ids")
+	}
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if !postIDPattern.MatchString(id) {
+			return apierr.Validation("media_ids", "media_ids must be 19-digit media ids")
+		}
+		if _, dup := seen[id]; dup {
+			return apierr.Validation("media_ids", "media_ids must not repeat")
+		}
+		seen[id] = struct{}{}
+	}
+	for _, a := range alts {
+		if !utf8.ValidString(a) || utf8.RuneCountInString(a) > maxAltTextRunes {
+			return apierr.Validation("media_alt_texts", "each alt text must be at most 1,000 characters")
+		}
+		for _, r := range a {
+			if unicode.IsControl(r) {
+				return apierr.Validation("media_alt_texts", "alt text must not contain control characters")
+			}
+		}
+	}
+	return nil
 }
 
 // featureDisabled is FEATURE_DISABLED with metadata["feature"] (ADR-0010 D2).

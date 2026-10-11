@@ -149,7 +149,18 @@ func (l *Lifecycle) dispatch(ctx context.Context, d pubsubpush.Delivery) jobResu
 		}
 		return l.runExport(ctx, msg, res)
 	default:
-		return ack(jobResult{job: "unknown"}, "dropped:unknown_kind")
+		// A kind another module registered (P4 `post_delete`). The handler decides ack or nack; its errors go
+		// through retry() like every other job error, so uids and ids are scrubbed once, here.
+		h, ok := l.jobHandler(msg.Kind)
+		if !ok {
+			return ack(jobResult{job: "unknown"}, "dropped:unknown_kind")
+		}
+		res := jobResult{job: msg.Kind}
+		outcome, err := h.Handle(ctx, d.Data)
+		if err != nil {
+			return retry(res, "error", err)
+		}
+		return ack(res, outcome)
 	}
 }
 

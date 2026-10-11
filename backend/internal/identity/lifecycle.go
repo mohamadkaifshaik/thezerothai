@@ -123,10 +123,11 @@ type Lifecycle struct {
 	// retryBackoff is the first jitter ceiling between retries of one failing step.
 	retryBackoff time.Duration
 
-	mu       sync.Mutex
-	erasers  []StepEraser
-	sections []ExportSection
-	sealed   bool
+	mu          sync.Mutex
+	erasers     []StepEraser
+	sections    []ExportSection
+	jobHandlers map[string]JobHandler
+	sealed      bool
 }
 
 var _ AccountLifecycle = (*Lifecycle)(nil)
@@ -213,6 +214,39 @@ func (l *Lifecycle) RegisterExportSection(s ExportSection) error {
 	}
 	l.sections = append(l.sections, s)
 	return nil
+}
+
+// RegisterJobHandler routes jobs-topic messages whose `kind` is kind to h (P4: the media module's `post_delete`).
+// The built-in account kinds cannot be overridden; a duplicate kind, an empty kind or a registration after the
+// first job ran is a startup error.
+func (l *Lifecycle) RegisterJobHandler(kind string, h JobHandler) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch {
+	case kind == "" || kind == JobKindAccountDelete || kind == JobKindAccountExport:
+		return fmt.Errorf("identity: job kind %q is empty or reserved", kind)
+	case h == nil:
+		return fmt.Errorf("identity: job kind %q has no handler", kind)
+	case l.sealed:
+		return fmt.Errorf("identity: job kind %q registered after the first job ran", kind)
+	}
+	if _, dup := l.jobHandlers[kind]; dup {
+		return fmt.Errorf("identity: job kind %q registered twice", kind)
+	}
+	if l.jobHandlers == nil {
+		l.jobHandlers = map[string]JobHandler{}
+	}
+	l.jobHandlers[kind] = h
+	return nil
+}
+
+// jobHandler returns the handler registered for kind and seals the registries (like registered).
+func (l *Lifecycle) jobHandler(kind string) (JobHandler, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sealed = true
+	h, ok := l.jobHandlers[kind]
+	return h, ok
 }
 
 // registered returns copies of the registries and seals them: from the first job on they are read-only.

@@ -133,3 +133,44 @@ func TestUntilNextDay(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckAndReserveN: n units are reserved together, or the whole call is rejected with nothing written.
+func TestCheckAndReserveN(t *testing.T) {
+	tests := []struct {
+		name     string
+		have     int64
+		n        int64
+		limit    int64
+		wantErr  bool
+		wantUsed int64
+	}{
+		{"fits exactly", 16, 4, 20, false, 20},
+		{"one unit over rejects the whole call", 17, 4, 20, true, 17},
+		{"empty day", 0, 4, 20, false, 4},
+		{"single unit equals CheckAndReserve", 19, 1, 20, false, 20},
+		{"already at the limit", 20, 1, 20, true, 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
+			b := &fakeBatch{}
+			err := CheckAndReserveN(b, ref, Record{Day: Today(), Uploads: tt.have}, Uploads, tt.limit, tt.n)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if len(b.sets) != 0 {
+					t.Fatalf("a rejected call wrote %d docs", len(b.sets))
+				}
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Metadata["quota"] != "uploads" {
+					t.Fatalf("err = %v, want QUOTA_EXCEEDED for uploads", err)
+				}
+				return
+			}
+			if len(b.sets) != 1 || b.sets[0].(Record).Uploads != tt.wantUsed {
+				t.Fatalf("sets = %+v, want Uploads %d", b.sets, tt.wantUsed)
+			}
+		})
+	}
+}

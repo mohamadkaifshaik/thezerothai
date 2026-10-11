@@ -3,7 +3,9 @@
 // One transaction, bounded by createTxTimeout (5 s):
 //
 //	reads : idempotency/{hash} (1), then, only on a first attempt, quotas/{uid} (1)
+//	        media/* (only with images: + len(media_ids) GetAll reads)
 //	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}  (4)
+//	        (+ one media/{id}.postId update per image, <= 4)
 //
 // A replay reads only the idempotency doc and writes nothing. The post id (and so createdAt, the Snowflake's
 // millisecond) is drawn inside every attempt, so a retried attempt never commits a stale timestamp, which the
@@ -50,7 +52,11 @@ type CreateParams struct {
 	IdemKey     string // idempotency.Key(uid, "CreatePost", key)
 	RequestHash string
 	QuotaLimit  int64
-	Draft       Post
+	// MediaIDs are the images to attach (validated, deduplicated, <= 4) and MediaAlts their alt texts (empty or
+	// parallel). With MediaIDs the transaction adds len(MediaIDs) reads and as many media-doc updates.
+	MediaIDs  []string
+	MediaAlts []string
+	Draft     Post
 }
 
 // CreateResult is the outcome of Repo.Create. Exactly one of Post (a new post, already committed) and ReplayID
@@ -67,6 +73,8 @@ type WriteDeps struct {
 	Quotas      *quota.Store
 	Counters    identity.Counters
 	IDs         IDGenerator
+	// Media loads and claims a post's images inside the CreatePost transaction (P4). Nil rejects media ids.
+	Media MediaAttacher
 }
 
 // SetWriters supplies the CreatePost collaborators (a setter, like graph.FirestoreRepo.SetCounters, so the read
@@ -128,6 +136,18 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{}, fmt.Errorf("posts: quota lookup: %w", err)
 	}
 
+	// Images are read before the first write (a Firestore transaction rule): one GetAll of len(ids) reads.
+	var claim MediaClaim
+	if len(p.MediaIDs) > 0 {
+		if r.w.Media == nil {
+			return CreateResult{}, ErrMediaNotReady
+		}
+		claim, err = r.w.Media.LoadForPost(ctx, tx, p.AuthorID, p.MediaIDs)
+		if err != nil {
+			return CreateResult{}, err
+		}
+	}
+
 	// Drawn inside the attempt: createdAt is the Snowflake ms of THIS attempt (D13, D18).
 	id := r.w.IDs.Generate()
 	createdAt, err := snowflake.Time(id)
@@ -141,12 +161,18 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 	post := p.Draft
 	post.ID, post.ConversationID, post.CreatedAt = id, id, createdAt
+	if claim != nil {
+		post.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)
+	}
 
 	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
 	if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit); err != nil {
 		return CreateResult{}, err
 	}
 	b.Create(r.ref(id), toDoc(&post))
+	if claim != nil {
+		claim.Attach(b, id)
+	}
 	r.w.Counters.AddPostsCount(b, p.AuthorID, 1)
 	r.w.Idempotency.Put(b, p.IdemKey, idempotency.Record{
 		UID: p.AuthorID, RPC: createRPC, RequestHash: p.RequestHash,
@@ -157,4 +183,16 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{}, err
 	}
 	return CreateResult{Post: &post}, nil
+}
+
+// mediaWithAlts copies refs and sets each AltText from the parallel alts slice (empty means none).
+func mediaWithAlts(refs []MediaRef, alts []string) []MediaRef {
+	out := make([]MediaRef, len(refs))
+	copy(out, refs)
+	for i := range out {
+		if i < len(alts) {
+			out[i].AltText = alts[i]
+		}
+	}
+	return out
 }
