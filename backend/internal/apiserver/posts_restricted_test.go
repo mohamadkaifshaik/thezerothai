@@ -28,6 +28,8 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	moderationv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
@@ -119,6 +121,8 @@ type chainEnv struct {
 	identity identityv1connect.IdentityServiceClient
 	posts    postsv1connect.PostServiceClient
 	timeline timelinev1connect.TimelineServiceClient
+	// moderation is the ADR-0016 ReportContent client.
+	moderation moderationv1connect.ModerationServiceClient
 }
 
 // newChain boots Build against the running emulators with FEATURE_POSTS on (mutate may change anything).
@@ -148,9 +152,10 @@ func newChainWith(t *testing.T, mutate func(*config.Config), verifier authn.IDTo
 	t.Cleanup(func() { srv.Close(); _ = fsClient.Close() })
 	return &chainEnv{
 		url: srv.URL, fs: fsClient, logs: logs,
-		identity: identityv1connect.NewIdentityServiceClient(srv.Client(), srv.URL),
-		posts:    postsv1connect.NewPostServiceClient(srv.Client(), srv.URL),
-		timeline: timelinev1connect.NewTimelineServiceClient(srv.Client(), srv.URL),
+		identity:   identityv1connect.NewIdentityServiceClient(srv.Client(), srv.URL),
+		posts:      postsv1connect.NewPostServiceClient(srv.Client(), srv.URL),
+		timeline:   timelinev1connect.NewTimelineServiceClient(srv.Client(), srv.URL),
+		moderation: moderationv1connect.NewModerationServiceClient(srv.Client(), srv.URL),
 	}
 }
 
@@ -225,6 +230,12 @@ func TestPosts_SuspendedAndDeletingCallers_AreRestrictedOnEveryRPC(t *testing.T)
 				}},
 				{timelinev1connect.TimelineServiceGetHomeTimelineProcedure, func() error {
 					_, err := env.timeline.GetHomeTimeline(ctx, authed(idToken, &timelinev1.GetHomeTimelineRequest{}))
+					return err
+				}},
+				{moderationv1connect.ModerationServiceReportContentProcedure, func() error {
+					_, err := env.moderation.ReportContent(ctx, authed(idToken, &moderationv1.ReportContentRequest{
+						IdempotencyKey: "restricted-report-key-0001", TargetType: moderationv1.ReportTargetType_REPORT_TARGET_TYPE_POST,
+						TargetId: "0000000000000000001", Reason: moderationv1.ReportReason_REPORT_REASON_SPAM}))
 					return err
 				}},
 				{timelinev1connect.TimelineServiceGetUserTimelineProcedure, func() error {

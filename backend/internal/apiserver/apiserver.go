@@ -21,10 +21,12 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -100,7 +102,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReports)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -203,13 +205,27 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo); err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
 	}
+	// moderation (ADR-0016, P7): ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
+	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
+	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
+	if err := registerModerationLifecycle(lifecycle, moderationRepo); err != nil {
+		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
+	}
+	moderationSvc := moderation.New(moderation.Deps{
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: identitySvc.(identity.Directory),
+		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
+		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
+		NewAccountWindow:        cfg.Quota.NewAccountWindow,
+		AllowAnonymous:          cfg.AuthEmulator,
+	})
+	moderationServer := moderation.NewServer(moderationSvc, featureFlags)
 	identityServer := identity.NewServer(identitySvc,
 		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// engagement, media, notifications, search, moderation, admin are not implemented in this bootstrap; their
-	// Connect servers are not registered.
+	// engagement, media, notifications, search, admin are not implemented in this bootstrap; their Connect servers
+	// are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -261,6 +277,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(timelinePath, timelineHandler)
+
+	moderationPath, moderationHandler := moderationv1connect.NewModerationServiceHandler(moderationServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(moderationPath, moderationHandler)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here

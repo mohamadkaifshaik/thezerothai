@@ -23,6 +23,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -76,7 +77,7 @@ var lifecycleCollections = []collectionRow{
 	{Name: "reposts", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
 	{Name: "userLikes", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
 	{Name: "media", Disposition: pendingEraser, Owner: "media (P4)", Cite: "ADR-0003, ADR-0005, ADR-0011 Q1"},
-	{Name: "reports", Disposition: pendingEraser, Owner: "moderation (P7)", Cite: "ADR-0003 data model, ADR-0011 Q1 (reporterId)"},
+	{Name: "reports", Disposition: erasedByStep, Step: "reports", Section: "reports", Owner: "moderation (P7)", Cite: "ADR-0016 D5 (reporterId cleared; reports about the user kept until resolved + 90 d), ADR-0011 Q1"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// notifications is declared by identity (the unread count reads it) but nothing creates documents until P6 ships
 	// the notifications slice and its Eraser.
@@ -111,6 +112,8 @@ var residueAllowlist = []residueAllowance{
 	{Collection: "graph", Field: "blocked", Cite: "ADR-0011 Q10 (b): other users' blocked[] (lazy clean-up, ADR-0008 T27)"},
 	{Collection: "posts", Field: "mentionIds", Cite: "ADR-0011 Q10 (c): mentions in others' posts (runbook 3b, P6 ADR)"},
 	{Collection: "posts", Field: "mentions", Cite: "ADR-0011 Q10 (c): mentions in others' posts (runbook 3b, P6 ADR)"},
+	{Collection: "reports", Field: "targetOwnerId", Cite: "ADR-0016 D5: reports about the account are kept as safety evidence until resolved + 90 d (TTL)"},
+	{Collection: "reports", Field: "targetId", Cite: "ADR-0016 D5: an ACCOUNT report's target id is the uid; kept until resolved + 90 d (TTL)"},
 }
 
 // allowed reports whether a hit for the deleted uid in collection/field is on the Q10 allowlist.
@@ -254,6 +257,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -353,7 +359,8 @@ func TestLifecycleCollections_AllowlistIsCited(t *testing.T) {
 	if _, ok := rowFor("bookmarks"); ok {
 		t.Error("rowFor(bookmarks) found a row")
 	}
-	if got, want := len(residueAllowlist), 5; got != want {
+	// 5 (ADR-0011 Q10) + 2 reports entries (ADR-0016 D5: reports about the account are kept until resolved + 90 d).
+	if got, want := len(residueAllowlist), 7; got != want {
 		t.Errorf("residue allowlist has %d entries, want %d: a new entry needs an ADR amendment and a privacy-policy update (Q10)", got, want)
 	}
 }
