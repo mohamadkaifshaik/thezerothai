@@ -3,7 +3,9 @@
 package objstore
 
 import (
+	"bytes"
 	"context"
+	"crypto/md5"
 	"errors"
 	"fmt"
 	"io"
@@ -82,5 +84,66 @@ func TestPutDelete_Integration(t *testing.T) {
 	}
 	if _, ok := readObject(t, s, "a.json"); ok {
 		t.Error("object survived Delete")
+	}
+}
+
+// TestMediaOps_Integration covers the media pipeline's reads and the cross-bucket copy against the Storage
+// emulator: attributes (size, content type, MD5), a ranged head read, a copy that sets the public Cache-Control,
+// and the not-found paths.
+func TestMediaOps_Integration(t *testing.T) {
+	if os.Getenv("STORAGE_EMULATOR_HOST") == "" {
+		t.Skip("STORAGE_EMULATOR_HOST not set; run via the emulator suite")
+	}
+	ctx := context.Background()
+	suffix := rand.Int63()
+	up, err := New(fmt.Sprintf("demo-upload-%d", suffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := New(fmt.Sprintf("demo-public-%d", suffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "\xff\xd8\xff\xe0" + string(make([]byte, 600))
+	if err := up.Put(ctx, "u/x/1.jpg", "image/jpeg", func(w io.Writer) error { _, err := io.WriteString(w, body); return err }); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := up.Attrs(ctx, "u/x/1.jpg")
+	if err != nil {
+		t.Fatalf("Attrs: %v", err)
+	}
+	sum := md5.Sum([]byte(body))
+	if a.Size != int64(len(body)) || a.ContentType != "image/jpeg" || !bytes.Equal(a.MD5, sum[:]) {
+		t.Fatalf("attrs = %+v", a)
+	}
+	if _, err := up.Attrs(ctx, "u/x/missing.jpg"); !errors.Is(err, ErrObjectNotFound) {
+		t.Fatalf("Attrs of a missing object: %v", err)
+	}
+
+	head, err := up.ReadHead(ctx, "u/x/1.jpg", 512)
+	if err != nil || len(head) != 512 || head[0] != 0xff || head[1] != 0xd8 {
+		t.Fatalf("ReadHead = %d bytes, %v", len(head), err)
+	}
+	if _, err := up.ReadHead(ctx, "u/x/missing.jpg", 512); !errors.Is(err, ErrObjectNotFound) {
+		t.Fatalf("ReadHead of a missing object: %v", err)
+	}
+
+	if err := up.CopyTo(ctx, "u/x/1.jpg", pub, "m/1.jpg", "image/jpeg", "public, max-age=31536000, immutable"); err != nil {
+		t.Fatalf("CopyTo: %v", err)
+	}
+	pa, err := pub.Attrs(ctx, "m/1.jpg")
+	if err != nil || pa.Size != int64(len(body)) || pa.ContentType != "image/jpeg" {
+		t.Fatalf("published attrs = %+v, %v", pa, err)
+	}
+	if got, ok := readObject(t, pub, "m/1.jpg"); !ok || got != body {
+		t.Fatal("published bytes differ from the upload")
+	}
+	// A repeated copy replaces the destination harmlessly; a missing source is ErrObjectNotFound.
+	if err := up.CopyTo(ctx, "u/x/1.jpg", pub, "m/1.jpg", "image/jpeg", "public"); err != nil {
+		t.Fatalf("second CopyTo: %v", err)
+	}
+	if err := up.CopyTo(ctx, "u/x/missing.jpg", pub, "m/2.jpg", "image/jpeg", "public"); !errors.Is(err, ErrObjectNotFound) {
+		t.Fatalf("CopyTo of a missing source: %v", err)
 	}
 }
