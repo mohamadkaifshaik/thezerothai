@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -782,5 +783,46 @@ void main() {
       expect(changed, isEmpty);
       expect(find.textContaining('Muted'), findsNothing);
     });
+  });
+
+  testWidgets('image-only post renders the image and no empty text line', (
+    tester,
+  ) async {
+    final view = _view(text: '');
+    view.post.media.add(
+      common.MediaRef(
+        url: 'https://m.test/full.webp',
+        thumbUrl: 'https://m.test/thumb.webp',
+        width: 4,
+        height: 3,
+      ),
+    );
+    await tester.pumpWidget(wrap(PostCard(view: view, now: _now)));
+
+    expect(find.byType(PostRichText), findsNothing);
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage),
+    );
+    expect(image.imageUrl, 'https://m.test/thumb.webp');
+  });
+
+  testWidgets('showFullImages swaps in the full image (detail view)', (
+    tester,
+  ) async {
+    final view = _view();
+    view.post.media.add(
+      common.MediaRef(
+        url: 'https://m.test/full.webp',
+        thumbUrl: 'https://m.test/thumb.webp',
+      ),
+    );
+    await tester.pumpWidget(
+      wrap(PostCard(view: view, now: _now, showFullImages: true)),
+    );
+
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage),
+    );
+    expect(image.imageUrl, 'https://m.test/full.webp');
   });
 }

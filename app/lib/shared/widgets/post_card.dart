@@ -63,9 +63,14 @@ class PostCard extends StatelessWidget {
     this.onHashtagTap,
     this.onRelationshipChanged,
     this.actions,
+    this.showFullImages = false,
   });
 
   final pb.PostView view;
+
+  /// Show full-size images instead of thumbnails: the detail view only. Every
+  /// list keeps the default (thumbnails, review #110 M2).
+  final bool showFullImages;
 
   /// Engagement callbacks. Null (the default) hides the action bar, which
   /// stays hidden until engagement ships (P5). When set, the bar dispatches
@@ -219,20 +224,23 @@ class PostCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                PostRichText(
-                  text: _post.text,
-                  mentions: _post.mentions,
-                  style: theme.textTheme.bodyLarge,
-                  onOpenLink: (uri) => _openLink(context, uri),
-                  onOpenMention: (userId, handle) =>
-                      _openProfile(context, userId),
-                  onHashtagTap:
-                      onHashtagTap ??
-                      () => _showMessage(context, 'Hashtags are coming soon.'),
-                ),
+                // An image-only post has empty text: no empty line above the images.
+                if (_post.text.isNotEmpty)
+                  PostRichText(
+                    text: _post.text,
+                    mentions: _post.mentions,
+                    style: theme.textTheme.bodyLarge,
+                    onOpenLink: (uri) => _openLink(context, uri),
+                    onOpenMention: (userId, handle) =>
+                        _openProfile(context, userId),
+                    onHashtagTap:
+                        onHashtagTap ??
+                        () =>
+                            _showMessage(context, 'Hashtags are coming soon.'),
+                  ),
                 if (_post.media.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.sm),
-                  PostMedia(media: _post.media),
+                  PostMedia(media: _post.media, useFullImage: showFullImages),
                 ],
                 if (actions != null) ...[
                   const SizedBox(height: AppSpacing.sm),

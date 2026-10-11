@@ -150,6 +150,7 @@ class _ReadyPost extends StatelessWidget {
                     )
                   : PostCard(
                       view: view,
+                      showFullImages: true,
                       viewerUserId: viewerUserId,
                       graphActionsEnabled: graphEnabled,
                       onDelete: (_) =>

@@ -1,6 +1,7 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post_action_bar.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/shared/widgets/post_media.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -132,6 +133,52 @@ void main() {
     testWidgets('empty list renders nothing', (tester) async {
       await tester.pumpWidget(_host(const PostMedia(media: [])));
       expect(find.byType(AspectRatio), findsNothing);
+    });
+
+    List<String?> shownUrls(WidgetTester tester) => [
+      for (final w in tester.widgetList<CachedNetworkImage>(
+        find.byType(CachedNetworkImage),
+      ))
+        w.imageUrl,
+    ];
+
+    final full = common.MediaRef(
+      url: 'https://m.test/full.webp',
+      thumbUrl: 'https://m.test/thumb.webp',
+      width: 4,
+      height: 3,
+    );
+
+    testWidgets('lists show the thumbnail, never the full image', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_host(PostMedia(media: [full, full])));
+      expect(shownUrls(tester), everyElement('https://m.test/thumb.webp'));
+      expect(shownUrls(tester), hasLength(2));
+    });
+
+    testWidgets('review #110 M2: a list tile with no thumbnail is a '
+        'placeholder, not the full image', (tester) async {
+      final noThumb = common.MediaRef(url: 'https://m.test/full.webp');
+      await tester.pumpWidget(_host(PostMedia(media: [noThumb])));
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      expect(find.byType(AspectRatio), findsOneWidget);
+    });
+
+    testWidgets('the detail view shows the full image', (tester) async {
+      await tester.pumpWidget(
+        _host(PostMedia(media: [full], useFullImage: true)),
+      );
+      expect(shownUrls(tester), ['https://m.test/full.webp']);
+    });
+
+    testWidgets('the detail view falls back to the thumbnail when url is '
+        'missing', (tester) async {
+      final onlyThumb = common.MediaRef(thumbUrl: 'https://m.test/t.webp');
+      await tester.pumpWidget(
+        _host(PostMedia(media: [onlyThumb], useFullImage: true)),
+      );
+      expect(shownUrls(tester), ['https://m.test/t.webp']);
     });
   });
 }
