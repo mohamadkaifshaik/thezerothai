@@ -155,3 +155,17 @@ copied; GCS object retention is the media slice's). Evidence `mediaIds` is empty
 - Infra: `FEATURE_REPORTS` env var in Terraform (default off, no apply), TTL field `reports.expireAt` added to
   the firestore module's `ttl_fields`, index in `firebase/firestore.indexes.json`.
 - Founder: privacy-policy line (D5), accept this ADR, set the flag allowlist when ready.
+
+## Implementation notes (P7 backend PR)
+Recorded so the contract and the code agree; none of them changes D1-D6.
+- **Rate limit.** `ReportContent` has its own 5/min per-user bucket (`RATE_LIMIT_REPORT_PER_MIN`, default 5); the daily
+  bound is the `reports` quota (`QUOTA_REPORTS_PER_DAY` 20, `QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY` 5).
+- **Exports and deletion budget.** The `reports` export section costs one read per filed report (minimum 1, the empty
+  page), so ADR-0011's reference export row moves from about 703 to about 704 reads; the `reports` Eraser step costs one
+  read for the empty page on the reference account (delete job 509 to 510, inside the formula's `+ D` slack).
+  Both are asserted in `account_lifecycle_reference_integration_test.go`.
+- **Residue allowlist.** `reports.targetOwnerId` and `reports.targetId` are the two new T11 entries (5 to 7). The
+  privacy policy line is a founder action and a gate for turning `FEATURE_REPORTS` on.
+- **Infra.** Env vars `FEATURE_REPORTS*` (default off), the two quota vars, and one Firestore TTL policy on
+  `reports.expireAt` in the firestore module's `ttl_fields`. TTL policies and the one composite index are $0.
+

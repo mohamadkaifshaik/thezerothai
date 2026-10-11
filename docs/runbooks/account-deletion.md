@@ -161,6 +161,11 @@ against a cloud project.
   stance as other people's replies and quotes; the purge neither finds nor edits them, and the deleted uid and
   handle stay readable there. Scrubbing them is deferred to a follow-up ADR (P6, when `mentionIds` and mention
   notifications land). Do not hand-edit other users' posts. Tell the requester about this residue in the reply.
+- **Reports (P7, ADR-0016 D5):** reports the user **filed** are anonymised by the `reports` step (`reporterId` is
+  cleared; the report stays as safety evidence about third-party content). Reports **about** the user (and the
+  `evidence` copy of their post text) are kept until resolved + 90 days, then Firestore TTL deletes them; this is the
+  residue allowlist entries `reports.targetOwnerId` / `reports.targetId`. Do not hand-delete them. Tell the
+  requester in the reply; the privacy policy carries the same sentence.
 - **Media:** posts carry no media yet (P1 is text-only), so there are no objects to delete. When media ships, also delete
   `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
   Phase 1 module lands.

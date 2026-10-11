@@ -38,14 +38,14 @@ Storage: ~1 KB/report. **$0** at Stage 0: at 300 DAU about 6 reports/day against
 | # | Ticket | Owner | PR | Status |
 |---|---|---|---|---|
 | T1 | `moderation.v1` proto, ADR-0016, this plan, generated code | architect | proto+ADR | Done (this PR) |
-| T2 | `FEATURE_REPORTS` flag, `reports` quota kind + `QUOTA_REPORTS_PER_DAY`, Terraform var (default off), TTL field, index | backend | backend | Todo |
-| T3 | `internal/moderation`: ReportContent service, repo, server, wiring | backend | backend | Todo |
-| T4 | posts: `moderation` field, `Hidden()`, GetPost + timeline filters, `Moderator` (hide/restore, HideAuthor/RestoreAuthor) | backend | backend | Todo |
-| T5 | identity: `SetAccountStatus` (ACTIVE <-> SUSPENDED) | backend | backend | Todo |
-| T6 | opsctl: `reports list/show/resolve`, `takedown-post`, `restore-post`, `suspend-user`, `unsuspend-user` | backend | backend | Todo |
-| T7 | reports Eraser + export section, T11 guard rows, residue allowlist, `account-deletion.md` retained-data lists | backend | backend | Todo |
-| T8 | Go unit + emulator integration tests with budget assertions | tester | backend | Todo |
-| T9 | `docs/runbooks/moderation.md` (SLA, procedures, cost) | backend | backend | Todo |
+| T2 | `FEATURE_REPORTS` flag, `reports` quota kind + `QUOTA_REPORTS_PER_DAY`, Terraform var (default off), TTL field, index | backend | backend | Done (backend PR) |
+| T3 | `internal/moderation`: ReportContent service, repo, server, wiring | backend | backend | Done (backend PR) |
+| T4 | posts: `moderation` field, `Hidden()`, GetPost + timeline filters, `Moderator` (hide/restore, HideAuthor/RestoreAuthor) | backend | backend | Done (backend PR) |
+| T5 | identity: `SetAccountStatus` (ACTIVE <-> SUSPENDED) | backend | backend | Done (backend PR) |
+| T6 | opsctl: `reports list/show/resolve`, `takedown-post`, `restore-post`, `suspend-user`, `unsuspend-user` | backend | backend | Done (backend PR) |
+| T7 | reports Eraser + export section, T11 guard rows, residue allowlist, `account-deletion.md` retained-data lists | backend | backend | Done (backend PR; privacy.html line is a founder action) |
+| T8 | Go unit + emulator integration tests with budget assertions | tester | backend | Done (backend PR) |
+| T9 | `docs/runbooks/moderation.md` (SLA, procedures, cost) | backend | backend | Done (backend PR) |
 | T10 | Flutter: report sheet, PostCard overflow Report/Block, profile menu Report, widget tests | frontend | client | Todo |
 | T11 | Docs: ui-catalog, code-map, phase1 status, cost-model line | docs | docs | Todo |
 | T12 | Follow-up (after P4 merges): copy `Post` media ids into `evidence.mediaIds`; P3/P5/P6 consumers drop `Hidden()` posts | backend | later | Blocked on P4 |
