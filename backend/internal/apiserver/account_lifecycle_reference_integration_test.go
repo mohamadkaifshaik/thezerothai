@@ -21,9 +21,9 @@ import (
 
 const (
 	refPosts, refFollowing, refFollowers = 300, 100, 100
-	// ADR-0011 budget table, reference row, as constants of the formula.
-	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ +
-		1 /* P7 reports step: one read for the empty page of reports the account filed (ADR-0016 D5) */
+	// ADR-0011 budget table, reference row, as constants of the formula; the last term is the P7 reports step (one
+	// read for the empty page of reports the account filed, ADR-0016 D5).
+	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ + 1
 	refDeleteWrites    = refFollowing + 2*refFollowers
 	refDeleteDeletes   = refPosts + refFollowing + refFollowers + 1 + 3 + 1
 	// Plan T16 acceptance criterion: <= 509 R + job state, <= 300 W + checkpoints, <= 505 D. The two later steps
