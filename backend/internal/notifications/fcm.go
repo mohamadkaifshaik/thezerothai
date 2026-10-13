@@ -8,6 +8,7 @@ import (
 	"time"
 
 	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/errorutils"
 	"firebase.google.com/go/v4/messaging"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -36,25 +37,83 @@ func pushText(t Type) (title, body string) {
 	return "Notification", "You have a new notification"
 }
 
+// fcmClass maps one FCM error condition to the code logged for it and whether the device is pruned.
+type fcmClass struct {
+	code  string
+	prune bool
+	match func(error) bool
+}
+
+// fcmClasses is the classification table, first match wins. Only a token FCM says is dead is pruned
+// (ADR-0017 D6): UNREGISTERED and SENDER_ID_MISMATCH. INVALID_ARGUMENT is deliberately NOT pruned: it can mean a
+// payload or project misconfiguration of ours, and pruning on it would silently delete every user's device.
+var fcmClasses = []fcmClass{
+	{"UNREGISTERED", true, messaging.IsUnregistered},
+	{"SENDER_ID_MISMATCH", true, messaging.IsSenderIDMismatch},
+	{"INVALID_ARGUMENT", false, messaging.IsInvalidArgument},
+	{"QUOTA_EXCEEDED", false, messaging.IsQuotaExceeded},
+	{"THIRD_PARTY_AUTH_ERROR", false, messaging.IsThirdPartyAuthError},
+	{"PERMISSION_DENIED", false, errorutils.IsPermissionDenied},
+	{"UNAUTHENTICATED", false, errorutils.IsUnauthenticated},
+	{"UNAVAILABLE", false, messaging.IsUnavailable},
+	{"INTERNAL", false, messaging.IsInternal},
+}
+
+// classifySendError returns the redacted code of an FCM send error ("UNKNOWN" when no class matches) and whether
+// the device must be pruned. It is pure over the table so tests can inject predicates (the SDK's error type has no
+// public constructor). The code is a fixed string: never err.Error(), which can echo the token.
+func classifySendError(err error, classes []fcmClass) (code string, prune bool) {
+	for _, c := range classes {
+		if c.match(err) {
+			return c.code, c.prune
+		}
+	}
+	return "UNKNOWN", false
+}
+
+// PushError is a failed send that does not prune the device; Code is the redacted FCM error code.
+type PushError struct{ Code string }
+
+// Error implements error. It carries only the fixed code.
+func (e *PushError) Error() string { return "notifications: fcm send failed: " + e.Code }
+
 // FCMSender sends through Firebase Cloud Messaging with the Admin SDK (HTTP v1). The messaging client is created on
-// first use so process start does no I/O.
+// first use so process start does no I/O; a failed creation is retried on the next send (never cached).
 type FCMSender struct {
-	app    *firebase.App
-	once   sync.Once
-	client *messaging.Client
-	err    error
+	newClient func(ctx context.Context) (*messaging.Client, error)
+	mu        sync.Mutex
+	client    *messaging.Client
+	classes   []fcmClass
+}
+
+// messagingClient returns the cached client, creating it on first success. An error is returned, not stored, so a
+// transient failure does not disable push for the life of the instance.
+func (s *FCMSender) messagingClient(ctx context.Context) (*messaging.Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		return s.client, nil
+	}
+	c, err := s.newClient(context.WithoutCancel(ctx))
+	if err != nil {
+		return nil, err
+	}
+	s.client = c
+	return c, nil
 }
 
 // NewFCMSender builds the sender from the process's Firebase app.
-func NewFCMSender(app *firebase.App) *FCMSender { return &FCMSender{app: app} }
+func NewFCMSender(app *firebase.App) *FCMSender {
+	return &FCMSender{newClient: app.Messaging, classes: fcmClasses}
+}
 
 var _ PushSender = (*FCMSender)(nil)
 
 // Send implements PushSender. It returns ErrTokenUnregistered when FCM says the registration is dead.
 func (s *FCMSender) Send(ctx context.Context, token string, p Push) error {
-	s.once.Do(func() { s.client, s.err = s.app.Messaging(context.WithoutCancel(ctx)) })
-	if s.err != nil {
-		return fmt.Errorf("notifications: fcm client: %w", s.err)
+	client, err := s.messagingClient(ctx)
+	if err != nil {
+		return fmt.Errorf("notifications: fcm client: %w", err)
 	}
 	title, body := pushText(p.Type)
 	ttl := fcmTTL
@@ -72,11 +131,12 @@ func (s *FCMSender) Send(ctx context.Context, token string, p Push) error {
 			Headers: map[string]string{"apns-priority": "5", "apns-collapse-id": truncate(p.NotificationID, 64)},
 		},
 	}
-	if _, err := s.client.Send(ctx, msg); err != nil {
-		if messaging.IsUnregistered(err) || messaging.IsSenderIDMismatch(err) || messaging.IsInvalidArgument(err) {
-			return ErrTokenUnregistered
+	if _, err := client.Send(ctx, msg); err != nil {
+		code, prune := classifySendError(err, s.classes)
+		if prune {
+			return fmt.Errorf("%w: %s", ErrTokenUnregistered, code)
 		}
-		return fmt.Errorf("notifications: fcm send: %w", err)
+		return &PushError{Code: code}
 	}
 	return nil
 }

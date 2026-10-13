@@ -78,6 +78,27 @@ resource "google_project_iam_member" "runtime_account_lifecycle_auth" {
   member  = "serviceAccount:${google_service_account.runtime.email}"
 }
 
+// Push notifications (ADR-0017 D6): FCM HTTP v1 send needs exactly one permission, cloudmessaging.messages.create.
+// roles/firebasecloudmessaging.admin is rejected (it also manages campaigns/composer data), and the default Cloud
+// Run runtime has no FCM access without a grant (review P6 M3). The API fcm.googleapis.com is enabled in the
+// project-services module. Emergency stop: remove this binding (every push fails with PERMISSION_DENIED, rows
+// keep being written).
+resource "google_project_iam_custom_role" "fcm_send" {
+  project     = var.project_id
+  role_id     = "fcmSend"
+  title       = "FCM send (ADR-0017)"
+  description = "Send a message through Firebase Cloud Messaging. Nothing else."
+  permissions = [
+    "cloudmessaging.messages.create",
+  ]
+}
+
+resource "google_project_iam_member" "runtime_fcm_send" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.fcm_send.id
+  member  = "serviceAccount:${google_service_account.runtime.email}"
+}
+
 // ---------------------------------------------------------------------------
 // Pub/Sub push service account — the OIDC identity Pub/Sub uses to call
 // `/internal/*` push endpoints on the api service. Deliberately has no other

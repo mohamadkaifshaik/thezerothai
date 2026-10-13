@@ -23,6 +23,7 @@ variable "services" {
     "firebasehosting.googleapis.com",
     "firebaseappcheck.googleapis.com",
     "identitytoolkit.googleapis.com",
+    "fcm.googleapis.com", # FCM HTTP v1 send for push notifications (ADR-0017)
     "billingbudgets.googleapis.com",
     "monitoring.googleapis.com",
     "logging.googleapis.com",
