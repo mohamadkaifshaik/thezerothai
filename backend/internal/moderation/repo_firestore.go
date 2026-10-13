@@ -84,6 +84,9 @@ type Repo interface {
 	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. Reads 2 (report,
 	// quotas; 1 on a repeat), writes 2.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
+	// IsOpen reports whether report id exists and is OPEN (1 read, 0 writes). The service uses it to answer a
+	// replay from a reporter whose quota is spent with AlreadyReported instead of QUOTA_EXCEEDED (rule 4).
+	IsOpen(ctx context.Context, id string) (bool, error)
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -198,6 +201,25 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		return CreateResult{Attempts: attempts}, err
 	}
 	return res, nil
+}
+
+// IsOpen implements Repo.
+func (r *FirestoreRepo) IsOpen(ctx context.Context, id string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, txTimeout)
+	defer cancel()
+	snap, err := r.ref(id).Get(ctx)
+	budget.FromContext(ctx).AddReads(1)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("moderation: get report: %w", err)
+	}
+	var d reportDoc
+	if err := snap.DataTo(&d); err != nil {
+		return false, fmt.Errorf("moderation: decode report: %w", err)
+	}
+	return Status(d.Status) == StatusOpen, nil
 }
 
 // reopenUpdates turns a RESOLVED report back into the OPEN report rep describes. The reporter, target and owner
@@ -326,7 +348,7 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 // the query, so a crash or a concurrent run converges. Reads: one per report returned (1 for an empty page).
 func (r *FirestoreRepo) PurgeReporter(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := r.client.Collection(reportsCollection).Where("reporterId", "==", uid).
-		Select().Limit(opsPage).Documents(ctx).GetAll()
+		Select("status").Limit(opsPage).Documents(ctx).GetAll()
 	reads := int64(len(docs))
 	if reads == 0 {
 		reads = 1
@@ -340,7 +362,14 @@ func (r *FirestoreRepo) PurgeReporter(ctx context.Context, uid string, cp Checkp
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, s := range docs {
-		b.Update(s.Ref, []firestore.Update{{Path: "reporterId", Value: ""}})
+		updates := []firestore.Update{{Path: "reporterId", Value: ""}}
+		// A resolved report is retained only as safety evidence about the target; the deleted reporter's
+		// free-text note is not needed for that, so it goes with the identity. An OPEN report keeps its note
+		// (the moderator still has to read it).
+		if st, err := s.DataAt("status"); err == nil && st == string(StatusResolved) {
+			updates = append(updates, firestore.Update{Path: "note", Value: ""})
+		}
+		b.Update(s.Ref, updates)
 	}
 	if err := b.Commit(ctx); err != nil {
 		return cp, false, fmt.Errorf("moderation: purge %s: %w", logger.HashUID(uid), err)

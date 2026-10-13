@@ -97,7 +97,9 @@ func moderationUpdates(next Moderation, now time.Time) []firestore.Update {
 // posts that are still visible. Reads: one per post in the page (1 for an empty page); writes: one per change.
 // Each update carries the LastUpdateTime of the snapshot it was decided from, so a post that changed between the
 // read and the commit (a concurrent takedown, an author delete) fails the batch instead of being overwritten; the
-// caller re-runs the page.
+// caller re-runs the page. opsctl's driveLoop retries a failed call up to maxConsecutiveErrors (5) times without
+// backoff, which is enough at Stage 0; once P5 likes put a counter increment on every popular post, a hot post can
+// fail a whole page repeatedly and the loop will need jittered backoff (ADR-0016 notes).
 func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (ModerationCheckpoint, bool, error) {
 	q := r.authorQuery(uid)
 	if !cp.Since.IsZero() {
@@ -117,6 +119,9 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	}
 	if len(docs) == 0 {
 		return cp, true, nil
+	}
+	if r.moderationReadHook != nil {
+		r.moderationReadHook()
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	changed := 0
@@ -166,6 +171,9 @@ func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp Modera
 	}
 	if len(docs) == 0 {
 		return cp, true, nil
+	}
+	if r.moderationReadHook != nil {
+		r.moderationReadHook()
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, s := range docs {

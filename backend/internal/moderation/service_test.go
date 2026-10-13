@@ -25,11 +25,18 @@ const (
 	author   = "uid-author"
 )
 
+func (f *fakeRepo) IsOpen(_ context.Context, _ string) (bool, error) {
+	f.lookups++
+	return f.openExisting, nil
+}
+
 type fakeRepo struct {
-	calls    []CreateParams
-	existing bool
-	reopened bool
-	err      error
+	lookups      int
+	openExisting bool
+	calls        []CreateParams
+	existing     bool
+	reopened     bool
+	err          error
 }
 
 func (f *fakeRepo) Create(_ context.Context, p CreateParams) (CreateResult, error) {
@@ -249,8 +256,23 @@ func TestReport_ExhaustedQuotaIsRememberedUntilMidnight(t *testing.T) {
 		f.repo.err = nil // would succeed if asked
 		_, err = svc.Report(gctx(), reporter, okInput())
 		wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-		if f.posts.n != postReads || len(f.repo.calls) != calls {
-			t.Errorf("remembered rejection did work: post reads %d->%d, transactions %d->%d", postReads, f.posts.n, calls, len(f.repo.calls))
+		if f.posts.n != postReads || len(f.repo.calls) != calls || f.repo.lookups != 1 {
+			t.Errorf("remembered rejection: post reads %d->%d, transactions %d->%d, lookups %d (want 1)", postReads, f.posts.n, calls, len(f.repo.calls), f.repo.lookups)
+		}
+	})
+	t.Run("a replay of an open report is AlreadyReported, not QUOTA_EXCEEDED", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.repo.err = exceeded
+		svc := f.svc()
+		_, _ = svc.Report(gctx(), reporter, okInput())
+		f.repo.openExisting = true
+		res, err := svc.Report(gctx(), reporter, okInput())
+		if err != nil || !res.AlreadyReported || res.ReportID != ReportID(reporter, TargetPost, okPostID) {
+			t.Fatalf("res=%+v err=%v", res, err)
+		}
+		if len(f.repo.calls) != 1 {
+			t.Errorf("transactions = %d, want 1 (the replay must not open one)", len(f.repo.calls))
 		}
 	})
 	t.Run("next IST day asks again", func(t *testing.T) {

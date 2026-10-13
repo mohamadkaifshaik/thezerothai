@@ -243,6 +243,12 @@ func TestEraserAndExport_ReporterOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// One of them is resolved before the account goes: its note is cleared with the reporter id.
+	resolvedID := ReportID("u-gone", TargetPost, pidN(20))
+	if _, err := repo.Resolve(context.Background(), resolvedID, ResolutionNoAction, "fine", now); err != nil {
+		t.Fatal(err)
+	}
+
 	var buf bytes.Buffer
 	if err := repo.ExportUser(context.Background(), "u-gone", &buf); err != nil {
 		t.Fatal(err)
@@ -280,6 +286,13 @@ func TestEraserAndExport_ReporterOnly(t *testing.T) {
 		got, err := repo.Get(context.Background(), ReportID("u-gone", TargetPost, pidN(20+i)))
 		if err != nil || got.ReporterID != "" || got.Evidence == nil {
 			t.Fatalf("anonymised report = %+v err=%v", got, err)
+		}
+		wantNote := "n"
+		if got.ID == resolvedID {
+			wantNote = ""
+		}
+		if got.Note != wantNote {
+			t.Errorf("report %d note = %q, want %q", i, got.Note, wantNote)
 		}
 	}
 	kept, err := repo.Get(context.Background(), about.ID)

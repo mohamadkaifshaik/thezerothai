@@ -57,6 +57,9 @@ type FirestoreRepo struct {
 	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
 	// error makes the SDK retry the transaction. Never set outside tests.
 	attemptHook func(attempt int, id string) error
+	// moderationReadHook is a test seam: HideAuthor/RestoreAuthor call it between reading a page and committing
+	// its batch, so a test can change a post in that window. Never set outside tests.
+	moderationReadHook func()
 	// Test seams for DeleteOwn's retry loop (store.RetryConfig); nil means real commit and jittered wait.
 	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
 	backoff     func(ctx context.Context, ceiling time.Duration) error

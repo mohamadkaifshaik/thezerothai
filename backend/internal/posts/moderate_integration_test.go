@@ -202,3 +202,50 @@ func TestModerator_HideAuthorSince(t *testing.T) {
 		t.Errorf("late post moderation = %q", got)
 	}
 }
+
+// TestModerator_BatchFailsWhenAPostChangedAfterTheRead: a post a moderator took down between HideAuthor's read and
+// its commit must not be overwritten with SUSPENDED_AUTHOR. The LastUpdateTime precondition fails the whole batch
+// (nothing is written, TAKEN_DOWN survives) and the re-run, which re-reads, succeeds. Same for RestoreAuthor.
+func TestModerator_BatchFailsWhenAPostChangedAfterTheRead(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	base := int64(1_700_000_000_000)
+	seedPost(t, client, pid(1), "u-bad", false, base+1000)
+	seedPost(t, client, pid(2), "u-bad", false, base+2000)
+	now := time.Unix(1_800_000_100, 0)
+
+	repo.moderationReadHook = func() {
+		repo.moderationReadHook = nil
+		if _, err := repo.Takedown(context.Background(), pid(1), now); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, _, err := repo.HideAuthor(context.Background(), "u-bad", ModerationCheckpoint{}, now); err == nil {
+		t.Fatal("HideAuthor committed over a post changed after its read")
+	}
+	if got := storedModeration(t, repo, pid(1)); got != ModerationTakenDown {
+		t.Errorf("post 1 = %q, want TAKEN_DOWN to survive", got)
+	}
+	if got := storedModeration(t, repo, pid(2)); got != ModerationNone {
+		t.Errorf("post 2 = %q: the failed batch must write nothing", got)
+	}
+	// The re-run re-reads and finishes: only post 2 is changed, post 1 stays taken down.
+	next, done, err := repo.HideAuthor(context.Background(), "u-bad", ModerationCheckpoint{}, now)
+	if err != nil || !done || next.Changed != 1 {
+		t.Fatalf("re-run: next=%+v done=%v err=%v", next, done, err)
+	}
+
+	// RestoreAuthor: a post re-taken-down between its read and commit is not cleared.
+	repo.moderationReadHook = func() {
+		repo.moderationReadHook = nil
+		if _, err := repo.Takedown(context.Background(), pid(2), now); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, _, err := repo.RestoreAuthor(context.Background(), "u-bad", ModerationCheckpoint{}); err == nil {
+		t.Fatal("RestoreAuthor committed over a post changed after its read")
+	}
+	if got := storedModeration(t, repo, pid(2)); got != ModerationTakenDown {
+		t.Errorf("post 2 after failed restore = %q, want TAKEN_DOWN", got)
+	}
+}

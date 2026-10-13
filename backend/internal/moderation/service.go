@@ -126,12 +126,21 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	}
 	logger.SetRequestField(ctx, fieldTargetType, string(in.TargetType))
 	logger.SetRequestField(ctx, fieldReason, string(in.Reason))
-	// A uid already known to be out of quota is answered before any profile, post or transaction read. A repeat
-	// of a report it already filed gets the quota error too (not AlreadyReported) until midnight: acceptable, and
-	// the price of 0 reads.
+	// A uid already known to be out of quota skips the profile, post and transaction reads. The report id needs no
+	// read, so one point read tells a replay of a report that is already OPEN (AlreadyReported, rule 4: it was
+	// written and needs no quota) from a genuinely new or reopened report, which is QUOTA_EXCEEDED. 1 read.
 	if e, ok := s.exhausted.Get(uid); ok {
 		now := s.d.Now()
 		if now.Before(e.until) && (e.windowEnds.IsZero() || now.Before(e.windowEnds)) {
+			id := ReportID(uid, in.TargetType, in.TargetID)
+			open, err := s.d.Repo.IsOpen(ctx, id)
+			if err != nil {
+				return ReportResult{}, logger.RedactErr(fmt.Errorf("moderation: report replay lookup: %w", err), uid)
+			}
+			if open {
+				logger.SetRequestField(ctx, fieldOutcome, "duplicate")
+				return ReportResult{ReportID: id, AlreadyReported: true}, nil
+			}
 			return ReportResult{}, quota.ExceededError(quota.Reports, now)
 		}
 		s.exhausted.Delete(uid)
