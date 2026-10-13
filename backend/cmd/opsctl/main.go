@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -64,7 +65,11 @@ type backends struct {
 type opener func(ctx context.Context, project string) (*backends, error)
 
 func main() {
-	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr, openFirestore, time.Now))
+	// Ctrl-C cancels the context so a long suspend-user wait ends with the re-run hint instead of a hard kill.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	code := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, openFirestore, time.Now)
+	stop()
+	os.Exit(code)
 }
 
 func openFirestore(ctx context.Context, project string) (*backends, error) {
@@ -119,7 +124,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts: print counts, write nothing")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, suspend-user: print counts, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	var ma modArgs
@@ -127,7 +132,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
 	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
-	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION, DISMISSED, TAKEDOWN or SUSPENDED")
+	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
 	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user: resolution note")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 
@@ -147,6 +152,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	ma.dryRun = *dryRun
+	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
+	// moderator asked for a preview.
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "suspend-user" {
+		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
 	if cmd == "reports" && sub == "" {
 		fmt.Fprintf(errOut, "reports needs a sub-command: list, show or resolve\n%s", usage)
 		return 2

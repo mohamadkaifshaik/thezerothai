@@ -191,6 +191,11 @@ func TestModeration_UsageAndValidation(t *testing.T) {
 		{"takedown bad post", []string{"takedown-post", "--project", "dzeroth-dev", "--post", "a/b"}, "19-digit post id"},
 		{"takedown bad report", []string{"takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--report", "zz"}, "32-character report id"},
 		{"suspend without uid", []string{"suspend-user", "--project", "dzeroth-dev"}, "--uid is required"},
+		{"takedown-post rejects --dry-run", []string{"takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--dry-run"}, "--dry-run is not supported by takedown-post"},
+		{"restore-post rejects --dry-run", []string{"restore-post", "--project", "dzeroth-dev", "--post", testPostID, "--dry-run"}, "--dry-run is not supported by restore-post"},
+		{"unsuspend-user rejects --dry-run", []string{"unsuspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run"}, "--dry-run is not supported by unsuspend-user"},
+		{"reports resolve rejects --dry-run", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "DISMISSED", "--dry-run"}, "--dry-run is not supported by reports"},
+		{"restore-post rejects --report", []string{"restore-post", "--project", "dzeroth-dev", "--post", testPostID, "--report", testReportID}, "--report is not supported by restore-post"},
 		{"takedown without project", []string{"takedown-post", "--post", testPostID}, "--project is required"},
 	}
 	for _, tt := range tests {
@@ -201,7 +206,7 @@ func TestModeration_UsageAndValidation(t *testing.T) {
 			if code == 0 || !strings.Contains(stderr, tt.want) {
 				t.Fatalf("code=%d stderr=%q, want it to contain %q", code, stderr, tt.want)
 			}
-			if len(f.mod.takedowns)+len(f.acc.calls) != 0 {
+			if len(f.mod.takedowns)+len(f.mod.restores)+len(f.acc.calls)+len(f.ops.resolved)+f.mod.hideCalls+f.mod.restCall != 0 {
 				t.Error("a rejected command must not write")
 			}
 		})

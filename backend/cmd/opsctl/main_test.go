@@ -352,7 +352,7 @@ func TestPostsCommands_RequireProjectAndUID(t *testing.T) {
 		if code, _, stderr := do(t, fb, "", cmd, "--project", "dzeroth-dev"); code != 2 || !strings.Contains(stderr, "--uid is required") {
 			t.Errorf("%s without --uid: code=%d stderr=%q", cmd, code, stderr)
 		}
-		if code, _, _ := do(t, fb, "", cmd, "--project", "dzeroth-prod", "--uid", "u1", "--dry-run"); code != 1 || fb.opened != 0 {
+		if code, _, _ := do(t, fb, "", cmd, "--project", "dzeroth-prod", "--uid", "u1"); code != 1 || fb.opened != 0 {
 			t.Errorf("%s on prod without confirmation: code=%d opened=%d", cmd, code, fb.opened)
 		}
 	}

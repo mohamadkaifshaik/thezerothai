@@ -57,7 +57,7 @@ const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED]
                           (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)
   opsctl takedown-post    --project P --post POSTID [--report REPORT] [--note TEXT]
   opsctl restore-post     --project P --post POSTID
-  opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (also hides every post of the user)
+  opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (hides every post, waits ~75 s, settle pass)
   opsctl unsuspend-user   --project P --uid U                                (restores only suspension-hidden posts)
 `
 
@@ -209,8 +209,8 @@ func restorePost(ctx context.Context, b *backends, a modArgs, out io.Writer) err
 	if !postIDRe.MatchString(a.post) {
 		return errors.New("--post must be a 19-digit post id")
 	}
-	if a.report != "" && !reportIDRe.MatchString(a.report) {
-		return errors.New("--report must be a 32-character report id")
+	if a.report != "" {
+		return errors.New("--report is not supported by restore-post (a restore does not resolve a report)")
 	}
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -248,11 +248,13 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "dry-run: status=%s posts=%d -> would set SUSPENDED and hide up to %d post(s): reads~%d writes~%d (nothing written)\n",
-			statusName(p.Status), plan.Posts, plan.Posts, plan.Posts+1, plan.Posts+1)
+		fmt.Fprintf(out, "dry-run: status=%s posts=%d -> would set SUSPENDED and hide up to %d post(s), wait %s, then run the settle pass\n"+
+			"  reads~%d writes~%d (+1 read per 500 posts for the final empty page, + the posts of the last few minutes for the settle pass;\n"+
+			"  with --report: reads~%d writes~%d) (nothing written)\n",
+			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, plan.Posts+1, plan.Posts+4, plan.Posts+2)
 		return nil
 	}
-	ctx, _ = budget.WithCounter(ctx)
+	ctx, counter := budget.WithCounter(ctx)
 	if a.report != "" {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		err := checkReport(cctx, b, a.report, "", "", uid, out)
@@ -292,6 +294,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 	if err := b.wait(ctx, settleWait); err != nil {
 		return fmt.Errorf("settle wait: %w (re-run suspend-user to finish)", err)
 	}
+	// suspendedAt (and so since) comes from this machine's clock: the skew allowance assumes it is NTP-synced.
 	since := suspendedAt.Add(-suspendSkew)
 	if err := driveLoop(ctx, out, posts.ModerationCheckpoint{Since: since},
 		func(ctx context.Context, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
@@ -305,6 +308,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return err
 		}
 	}
+	fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes())
 	return nil
 }
 
