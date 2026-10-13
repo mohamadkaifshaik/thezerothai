@@ -150,3 +150,43 @@ func TestStore_NoCredentials(t *testing.T) {
 		}
 	}
 }
+
+// TestSignedPutURL_RealV4Signature: a PUT link is signed offline from a key, carries the content-type, MD5 and
+// length-range as signed headers (so GCS rejects altered bytes) and expires with the TTL.
+func TestSignedPutURL_RealV4Signature(t *testing.T) {
+	useServiceAccountKey(t)
+	s, err := New("demo-dzeroth-media-upload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, headers, err := s.SignedPutURL(context.Background(), "u/uid-1/123.webp", "image/webp", "1B2M2Y8AsgTpgAmY7PhCfg==", 2<<20, 10*time.Minute, time.Now())
+	if err != nil {
+		t.Fatalf("SignedPutURL: %v", err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Host != "storage.googleapis.com" || u.Path != "/demo-dzeroth-media-upload/u/uid-1/123.webp" {
+		t.Errorf("URL = %s", raw)
+	}
+	q := u.Query()
+	signed := strings.Split(q.Get("X-Goog-SignedHeaders"), ";")
+	for _, h := range []string{"content-md5", "content-type", "host", "x-goog-content-length-range"} {
+		found := false
+		for _, s := range signed {
+			if s == h {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("signed headers %v lack %s", signed, h)
+		}
+	}
+	if exp := q.Get("X-Goog-Expires"); exp != "600" && exp != "599" {
+		t.Errorf("X-Goog-Expires = %q, want 600", exp)
+	}
+	if headers["x-goog-content-length-range"] != "0,2097152" {
+		t.Errorf("headers = %v", headers)
+	}
+}

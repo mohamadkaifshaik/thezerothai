@@ -46,3 +46,15 @@ func TestPostDoc_RoundTrip(t *testing.T) {
 		t.Fatalf("nil slices should be stored as empty arrays: %+v", empty)
 	}
 }
+
+func TestPostDoc_MediaRoundTrip(t *testing.T) {
+	p := post("0000000000000000301", "uid-a")
+	p.Media = []MediaRef{{ID: "0000000000000000201", URL: "https://m/1.webp", ThumbURL: "https://m/1_t.webp", Width: 4, Height: 3, Blurhash: "LEHV6n", AltText: "dog"}}
+	got := toDoc(p).toPost(p.ID)
+	if len(got.Media) != 1 || got.Media[0] != p.Media[0] {
+		t.Fatalf("media = %+v", got.Media)
+	}
+	if len(toDoc(post("0000000000000000302", "uid-a")).Media) != 0 {
+		t.Fatal("a post without images must store no media field")
+	}
+}
