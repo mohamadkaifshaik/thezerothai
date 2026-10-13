@@ -41,11 +41,12 @@ confirmation. Nothing here touches Firebase Auth.
 | `reports show` | 1 | 0 |
 | `reports resolve` | 1 | 1 (0 if already resolved) |
 | `takedown-post` / `restore-post` | 1 (+2 with `--report`: target check, resolve) | 1 (+1) |
-| `suspend-user` | P + 3 (P = the user's posts; +the settle pass, which reads only the last ~3 minutes of posts) | P + 1 |
+| `suspend-user` | P + 2, or P + 4 with `--report` (+1 per 500 posts for the last empty page, + the posts of the last ~3 minutes re-read by the settle pass) | P + 1, or P + 2 with `--report` |
 | `unsuspend-user` | P_hidden + 2 | P_hidden + 1 |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 5,000 writes (25% of the daily write quota): run it
-off-peak and use `--dry-run` to see the number first. It is resumable and idempotent: if it stops half way, run the
+off-peak and use `--dry-run` to see the number first (`suspend-user` is the only moderator command with a dry run; the
+others reject `--dry-run`). It is resumable and idempotent: if it stops half way, run the
 same command again (it accepts an already SUSPENDED account for exactly that reason; hidden posts are skipped at 0
 writes).
 

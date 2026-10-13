@@ -118,7 +118,7 @@ reads/writes. Flags marked (W) write.
 - `--report R` on `takedown-post` / `suspend-user` is checked against the target first (1 read, before any write):
   the report must be about that post (takedown) or about that user or one of their posts (suspend), else the command
   refuses with nothing written. An already RESOLVED report only prints a warning; the action still applies.
-- `takedown-post --post P [--report R] [--dry-run]` (W): `moderation = TAKEN_DOWN`; with `--report`, resolves it as
+- `takedown-post --post P [--report R]` (W; no dry run): `moderation = TAKEN_DOWN`; with `--report`, resolves it as
   TAKEDOWN. `restore-post --post P` (W) clears `TAKEN_DOWN` only.
 - `suspend-user --uid U [--report R] [--dry-run]` (W): one transaction sets `users/{uid}.status =
   SUSPENDED` through a new identity repo method (`SetAccountStatus`, status + updatedAt only, from ACTIVE only), then
@@ -211,8 +211,19 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
 - **Exports and deletion budget.** The `reports` export section costs one read per filed report (minimum 1, the empty
   page). With P4's own `media` export section the reference export row is **705** reads (703 + 1 media + 1 reports,
   was 704 before P4 merged); the `reports` Eraser step costs one read for the empty page on the reference account.
-  Delete job: the account-deletion plan's T16 acceptance criterion (`docs/plans/account-deletion-export.md`, 509 reads + job state) becomes 511, which needs sign-off from that plan's owner (+1 P4 media step, +1 P7 reports step, each one read for an empty page); measured on the reference account: 511 reads in one delivery, against 511 + D (the ADR-0011 formula's per-delivery job-state allowance). Asserted in `account_lifecycle_reference_integration_test.go`.
+  Delete job: the account-deletion plan's T16 criterion (`docs/plans/account-deletion-export.md`, 509 reads + job
+  state) gains +1 for the `reports` step's empty page, so the P7 assertion is 509 + 1 = 510 + D. P4's media step read
+  was already absorbed by main's 509 + D. The 511 reads seen on the reference account in one delivery (510 + D=1) were
+  observed once on the emulator (the test logs a `BUDGET` line with `-v`); this amendment is the P8 plan owner's to
+  sign off.
   Both are asserted in `account_lifecycle_reference_integration_test.go`.
+- **Re-report and replay.** A report resolved earlier is reopened by a new filing (D2). A reporter whose quota is
+  spent is remembered per instance until IST midnight; a call then costs one point read of the report: an OPEN report
+  is answered `already_reported` (the replay needed no quota), anything else is QUOTA_EXCEEDED.
+- **Dry run.** Only `purge-graph`, `purge-posts` and `suspend-user` have a dry run. `takedown-post`, `restore-post`,
+  `unsuspend-user` and `reports ...` reject `--dry-run` with exit 2 (accepting and ignoring it would write).
+- **Deleted reporters' notes.** The Eraser also clears `note` on RESOLVED reports it anonymises (open ones keep it
+  until a moderator has read it).
 - **Residue allowlist.** `reports.targetOwnerId` and `reports.targetId` are the two new T11 entries (5 to 7). The
   privacy policy line is a founder action and a gate for turning `FEATURE_REPORTS` on.
 - **Infra.** Env vars `FEATURE_REPORTS*` (default off), the two quota vars, and one Firestore TTL policy on

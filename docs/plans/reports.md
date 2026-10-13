@@ -29,7 +29,7 @@ reports, take a post down and suspend a user, with suspended content leaving eve
 | GetPost / timelines with filter | +0 | 0 | filter on documents already read |
 | `opsctl reports list` | 1 per report shown (<= 50, FIFO) | 0 | |
 | `opsctl takedown-post` | 1-2 (+1 `--report` check) | 1-2 | post, report |
-| `opsctl suspend-user` | P + 2 (+ the settle pass: posts of the last ~3 min, min 1) | P + 2 | P = the user's posts, once, batches of 500; waits ~75 s for instance caches, then one settle pass |
+| `opsctl suspend-user` | P + 2, P + 4 with `--report` (+ the settle pass: posts of the last ~3 min) | P + 1, P + 2 with `--report` | P = the user's posts, once, batches of 500; waits ~75 s for instance caches, then one settle pass |
 | ReportContent re-report after RESOLVED | 2 | 2 | reopens the report, charged like a new one |
 | ReportContent over quota (warm, remembered) | 0 | 0 | instance cache until IST midnight |
 | Reports Eraser (reporter) | R + 1 | R | R = reports filed by the account (<= 20/day) |

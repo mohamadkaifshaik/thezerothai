@@ -719,6 +719,9 @@ Order:
   - Given every crash point, then the final state is identical and the counters are exact.
   - Given the sweep, then 0 references outside the allowlist.
   - Given the reference account, then measured ops are ≤ 509 R + job state, ≤ 300 W + checkpoints, ≤ 505 D.
+  - **Amendment (P7, 2026-10-14, pending sign-off by this plan's owner):** the `reports` step (ADR-0016 D5) reads one
+    empty page on the reference account, so with P7 the criterion is ≤ 510 R + job state. P4's `media` step read is
+    already inside 509 + D. Asserted in `account_lifecycle_reference_integration_test.go` (`planDeleteReads`).
   - Given `make test-int`, then the coverage of the new package is ≥ 70%.
 - **Test notes.** Reuse the graph and posts fixtures; no second seeding helper.
 - **Observability.** —
