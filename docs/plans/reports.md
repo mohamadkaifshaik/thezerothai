@@ -27,9 +27,11 @@ reports, take a post down and suspend a user, with suspended content leaving eve
 | ReportContent warm / planning | 2 / 3 | 2 | |
 | ReportContent duplicate | <= 6 | 0 | report doc exists; no quota charge |
 | GetPost / timelines with filter | +0 | 0 | filter on documents already read |
-| `opsctl reports list` | 1 per report shown (<= 50) | 0 | |
-| `opsctl takedown-post` | 1-2 | 1-2 | post, report |
-| `opsctl suspend-user` | P + 1 | P + 2 | P = the user's posts, once, batches of 500 |
+| `opsctl reports list` | 1 per report shown (<= 50, FIFO) | 0 | |
+| `opsctl takedown-post` | 1-2 (+1 `--report` check) | 1-2 | post, report |
+| `opsctl suspend-user` | P + 2 (+ the settle pass: posts of the last ~3 min, min 1) | P + 2 | P = the user's posts, once, batches of 500; waits ~75 s for instance caches, then one settle pass |
+| ReportContent re-report after RESOLVED | 2 | 2 | reopens the report, charged like a new one |
+| ReportContent over quota (warm, remembered) | 0 | 0 | instance cache until IST midnight |
 | Reports Eraser (reporter) | R + 1 | R | R = reports filed by the account (<= 20/day) |
 
 Storage: ~1 KB/report. **$0** at Stage 0: at 300 DAU about 6 reports/day against 20k writes/day free.
@@ -48,8 +50,10 @@ Storage: ~1 KB/report. **$0** at Stage 0: at 300 DAU about 6 reports/day against
 | T9 | `docs/runbooks/moderation.md` (SLA, procedures, cost) | backend | backend | Done (backend PR) |
 | T10 | Flutter: report sheet, PostCard overflow Report/Block, profile menu Report, widget tests | frontend | client | Todo |
 | T11 | Docs: ui-catalog, code-map, phase1 status, cost-model line | docs | docs | Todo |
-| T12 | Follow-up (after P4 merges): copy `Post` media ids into `evidence.mediaIds`; P3/P5/P6 consumers drop `Hidden()` posts | backend | later | Blocked on P4 |
+| T12 | Copy `Post` media ids into `evidence.mediaIds` (done after P4 merged, 0 reads); P5/P6 consumers drop `Hidden()` posts (P5/P6 own that) | backend | backend | Done (media ids); consumers: with P5/P6 |
 | T13 | Security-auditor review of report abuse, oracle checks, opsctl | security | review | Todo |
+| T14 | `opsctl takedown-post --purge-media`: delete (or make private) the post's `evidence.mediaIds` objects and mark the `media/*` docs, with a dry run and the evidence kept as ids only. Today the runbook step "Media on takedown" does it by hand; P4's `post_delete` job destroys image evidence when the author deletes the post, so a report about an image post should be resolved before the author can delete it | backend | later | Todo (not built; ADR-0016 D6) |
+| T15 | Founder decision: D10 client bound (server-only vs additive `removed_ids` on the timeline `since` response), ADR-0016 "Open founder decision" | founder + architect | decision | Open |
 
 ## Acceptance criteria
 1. `ReportContent` validates, enforces the quota, dedupes, copies evidence and writes `reports/{id}` within one

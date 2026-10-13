@@ -19,13 +19,13 @@ console at Stage 0.
 ```bash
 cd backend
 P=dzeroth-prod   # prod prompts for the project id before running
-go run ./cmd/opsctl reports list --project $P                    # OPEN, oldest first (default 20, max 200)
+go run ./cmd/opsctl reports list --project $P                    # OPEN, oldest first (default 20, max 50)
 go run ./cmd/opsctl reports show --project $P --id <reportId>     # reporter, target, reason, note, evidence
 ```
 Decide one of:
 | Outcome | Command | Effect |
 |---|---|---|
-| Nothing wrong | `reports resolve --id R --resolution NO_ACTION` (or `DISMISSED` for abusive/duplicate reports) | report RESOLVED, evidence TTL-deleted 90 days later |
+| Nothing wrong | `reports resolve --id R --resolution NO_ACTION` (or `DISMISSED` for abusive/duplicate reports; these are the only two resolutions `resolve` accepts) | report RESOLVED, evidence TTL-deleted 90 days later |
 | Remove one post | `takedown-post --post POSTID --report R` | post hidden from GetPost (NOT_FOUND for everyone, the author included), profile timeline and Home within 60 s; report resolved TAKEDOWN |
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); report resolved SUSPENDED |
@@ -37,11 +37,11 @@ confirmation. Nothing here touches Firebase Auth.
 ## 3. Cost of the commands (free quota: 50k reads, 20k writes per day)
 | Command | Reads | Writes |
 |---|---|---|
-| `reports list` | one per report shown (<= 200) | 0 |
+| `reports list` | one per report shown (<= 50) | 0 |
 | `reports show` | 1 | 0 |
 | `reports resolve` | 1 | 1 (0 if already resolved) |
-| `takedown-post` / `restore-post` | 1 (+1 with `--report`) | 1 (+1) |
-| `suspend-user` | P + 2 (P = the user's posts) | P + 1 |
+| `takedown-post` / `restore-post` | 1 (+2 with `--report`: target check, resolve) | 1 (+1) |
+| `suspend-user` | P + 3 (P = the user's posts; +the settle pass, which reads only the last ~3 minutes of posts) | P + 1 |
 | `unsuspend-user` | P_hidden + 2 | P_hidden + 1 |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 5,000 writes (25% of the daily write quota): run it
@@ -49,10 +49,29 @@ off-peak and use `--dry-run` to see the number first. It is resumable and idempo
 same command again (it accepts an already SUSPENDED account for exactly that reason; hidden posts are skipped at 0
 writes).
 
+`suspend-user` takes about 75 seconds longer than the paging itself: after the posts are hidden it waits out the
+60 s instance cache (+15 s margin) and runs one settle pass over posts created since just before the suspension, so a
+post a warm instance accepted during that window is hidden too. Do not interrupt it; if it stops, re-run it.
+`--report` is checked against the target before anything is written: a report about another post or user is refused,
+an already RESOLVED report only warns.
+
+## 3a. Media on takedown (manual until `--purge-media` exists)
+`takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the
+post's `media[]` ids; also `media` docs with `ownerId` = the author) the objects are **still public** in the media
+bucket and reachable by anyone holding the URL. For illegal or abusive imagery:
+1. Note the media ids from the report evidence (`evidence.mediaIds`) before anything else; they are all that survives.
+2. Delete the objects, or make them private, in the media bucket: `gs://$P-media/m/<mediaId>*` (public object and
+   thumb). `gcloud storage rm "gs://$P-media/m/<mediaId>*"` is the deletion; if the content must be preserved for
+   law enforcement, copy it to a restricted bucket first or use `gcloud storage objects update ... --predefined-acl=private`.
+3. Record what was done in the report resolution note.
+Note: P4's `post_delete` job removes the objects when the **author** deletes the post or their account, so image
+evidence is destroyed at that point; resolve image reports before the author can react, and rely on the ids plus the
+text copy in the report. Ticket T14 in `docs/plans/reports.md` tracks `takedown-post --purge-media`.
+
 ## 4. Failure modes
 - **Suspended user still sees the app / their posts still show.** Instances cache the profile and posts for
   `CACHE_TTL` (60 s). Wait a minute. If posts of a suspended user still appear after that, re-run `suspend-user` (a post
-  created during the cache window is picked up by the re-run).
+  created during the cache window is normally hidden by the command's own settle pass; the re-run is the backstop).
 - **`suspend-user` says the account is DELETING.** Refused on purpose: a moderator action never overrides an account
   deletion. Let the deletion finish (`docs/runbooks/account-deletion.md`).
 - **`reports list` fails with "The query requires an index".** The `(status, createdAt)` composite index on `reports` is
