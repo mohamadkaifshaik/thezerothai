@@ -6,10 +6,10 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/character_counter.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
-import '../domain/post_text_rules.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
@@ -168,7 +168,7 @@ class _ComposerViewState extends State<_ComposerView> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       DraftProblemHint(problem: state.draft.problem),
-                      CharacterCounter(draft: state.draft),
+                      CharacterCounter(remaining: state.draft.remaining),
                     ],
                   ),
                 ),
@@ -177,34 +177,6 @@ class _ComposerViewState extends State<_ComposerView> {
           ),
         );
       },
-    );
-  }
-}
-
-/// Remaining code points: `280` minus the count after NFC; negative past the
-/// limit (281 shows `-1`).
-class CharacterCounter extends StatelessWidget {
-  const CharacterCounter({super.key, required this.draft});
-
-  final PostDraft draft;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final remaining = draft.remaining;
-    final over = remaining < 0;
-    final label = over
-        ? 'Characters over the limit: ${-remaining}'
-        : 'Characters remaining: $remaining';
-    return Semantics(
-      label: label,
-      excludeSemantics: true,
-      child: Text(
-        '$remaining',
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: over ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
     );
   }
 }

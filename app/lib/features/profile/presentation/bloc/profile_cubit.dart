@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../graph/data/graph_repository.dart';
 import '../../../onboarding/data/identity_repository.dart';
 import 'profile_state.dart';
@@ -93,6 +94,14 @@ class ProfileCubit extends Cubit<ProfileState> {
         profile: profile.copyWith((p) => p.postsCount = remaining),
       ),
     );
+  }
+
+  /// The viewer's own profile was edited (Edit profile, which returns the
+  /// server's profile): show it without a `GetProfile` (0 reads). Ignored
+  /// unless it is the profile this cubit shows.
+  void profileUpdated(identity.Profile updated) {
+    if (state.profile?.userId != updated.userId) return;
+    emit(state.copyWith(profile: updated));
   }
 
   /// Reflects a relationship change (e.g. after Block/Unblock/Mute) without

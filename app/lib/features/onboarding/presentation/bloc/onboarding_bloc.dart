@@ -4,51 +4,9 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../data/identity_repository.dart';
+import '../../domain/handle_rules.dart';
 import 'onboarding_event.dart';
 import 'onboarding_state.dart';
-
-/// Mirrors `handleRe` in `backend/internal/identity/validate.go`
-/// (`^[A-Za-z0-9_]{3,15}$`); the client lowercases before validating, so the
-/// charset only needs to cover lowercase here. The server is always the
-/// source of truth (`CheckHandleAvailability`/`CreateProfile` validate
-/// again) — this is just fast client-side feedback.
-final _handlePattern = RegExp(r'^[a-z0-9_]{3,15}$');
-
-/// Mirrors `reservedHandles` in `backend/internal/identity/validate.go`, kept
-/// in sync manually (small, rarely-changed list) so the common case of a
-/// reserved handle gets an instant message instead of a round trip.
-const _reservedHandles = {
-  'admin',
-  'administrator',
-  'api',
-  'www',
-  'root',
-  'dzeroth',
-  'support',
-  'help',
-  'about',
-  'settings',
-  'null',
-  'undefined',
-  'moderator',
-  'official',
-};
-
-const _handleFormatMessage =
-    '3-15 characters: lowercase letters, numbers, underscore.';
-const _handleReservedMessage = 'That handle is reserved.';
-const _handleTakenMessage = 'That handle is taken.';
-
-/// Maps the machine-readable `reason` from `CheckHandleAvailabilityResponse`
-/// (see `identity.proto`: "invalid_format", "reserved", or "" when merely
-/// taken) to user-facing text — never show the raw code in the UI.
-String _handleUnavailableMessage(String reason) {
-  return switch (reason) {
-    'invalid_format' => _handleFormatMessage,
-    'reserved' => _handleReservedMessage,
-    _ => _handleTakenMessage,
-  };
-}
 
 EventTransformer<E> _debounceRestartable<E>(Duration duration) {
   return (events, mapper) => events.debounce(duration).switchMap(mapper);
@@ -69,12 +27,18 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     on<OnboardingRefreshRequested>(_onUserRefreshRequested);
     on<OnboardingHandleChanged>(
       _onHandleChanged,
-      transformer: _debounceRestartable(const Duration(milliseconds: 300)),
+      transformer: _debounceRestartable(kHandleCheckDebounce),
     );
     on<OnboardingDisplayNameChanged>((event, emit) {
       emit(state.copyWith(displayName: event.displayName));
     });
     on<OnboardingProfileSubmitted>(_onProfileSubmitted);
+    // Edit profile / change handle (P2): the server's updated profile replaces
+    // the one in state so every screen that reads it sees the new name.
+    on<OnboardingProfileUpdated>((event, emit) {
+      if (event.profile.userId != state.profile?.userId) return;
+      emit(state.copyWith(profile: event.profile));
+    });
     on<OnboardingEmailVerificationDismissed>((event, emit) {
       emit(
         state.copyWith(status: OnboardingStatus.profileRequired, error: null),
@@ -177,22 +141,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
       return;
     }
-    if (!_handlePattern.hasMatch(handle)) {
+    final issue = localHandleIssue(handle);
+    if (issue != null) {
       emit(
         state.copyWith(
           handle: handle,
           handleCheckStatus: HandleCheckStatus.unavailable,
-          handleCheckMessage: _handleFormatMessage,
-        ),
-      );
-      return;
-    }
-    if (_reservedHandles.contains(handle)) {
-      emit(
-        state.copyWith(
-          handle: handle,
-          handleCheckStatus: HandleCheckStatus.unavailable,
-          handleCheckMessage: _handleReservedMessage,
+          handleCheckMessage: issue,
         ),
       );
       return;
@@ -211,14 +166,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         handle,
       );
       if (stale() || state.handle != handle) return; // or a newer keystroke
+      final check = handleCheckFromAnswer(response);
       emit(
         state.copyWith(
-          handleCheckStatus: response.available
-              ? HandleCheckStatus.available
-              : HandleCheckStatus.unavailable,
-          handleCheckMessage: response.available
-              ? ''
-              : _handleUnavailableMessage(response.reason),
+          handleCheckStatus: check.status,
+          handleCheckMessage: check.message,
         ),
       );
     } on EmailNotVerifiedException catch (e) {
@@ -233,24 +185,15 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           error: e,
         ),
       );
-    } on RateLimitedException {
-      // N1: a rate-limited probe says nothing about the handle. Treat it as
-      // unknown and let the user submit; CreateProfile validates again.
-      if (stale() || state.handle != handle) return;
-      emit(
-        state.copyWith(
-          handleCheckStatus: HandleCheckStatus.unknown,
-          handleCheckMessage:
-              "Couldn't check this handle right now. We'll confirm it when "
-              'you continue.',
-        ),
-      );
     } on AppException catch (e) {
+      // N1: a rate-limited (or otherwise failed) probe says nothing about the
+      // handle. `unknown` keeps submit enabled; CreateProfile validates again.
       if (stale() || state.handle != handle) return;
+      final check = handleCheckFromError(e, saveVerb: 'continue');
       emit(
         state.copyWith(
-          handleCheckStatus: HandleCheckStatus.unavailable,
-          handleCheckMessage: e.message,
+          handleCheckStatus: check.status,
+          handleCheckMessage: check.message,
         ),
       );
     }

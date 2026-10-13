@@ -48,7 +48,11 @@ AppException mapConnectError(Object error) {
       case common.ErrorReason.ERROR_REASON_HANDLE_TAKEN:
         return HandleTakenException(message);
       case common.ErrorReason.ERROR_REASON_LIMIT_REACHED:
-        return LimitReachedException(message);
+        return LimitReachedException(
+          message,
+          quota: detail.metadata['quota'],
+          retryAfter: retryAfter,
+        );
       case common.ErrorReason.ERROR_REASON_MEDIA_NOT_READY:
         return MediaNotReadyException(message);
       case common.ErrorReason.ERROR_REASON_IDEMPOTENCY_KEY_REUSED:

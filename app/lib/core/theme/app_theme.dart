@@ -12,6 +12,9 @@ abstract final class AppSpacing {
 
   /// Minimum interactive target size for accessibility (48dp rule).
   static const double minTapTarget = 48;
+
+  /// Minimum width of a short filled action button (an app-bar "Save").
+  static const double minButtonWidth = 72;
 }
 
 /// Icon sizes (dp). Visuals sit inside a 48dp tap target.

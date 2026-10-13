@@ -2,6 +2,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../domain/handle_rules.dart' show HandleCheckStatus;
 
 part 'onboarding_state.freezed.dart';
 
@@ -24,10 +25,6 @@ enum OnboardingStatus {
   ready,
   error,
 }
-
-/// [unknown]: the availability check was rate limited (ADR-0010 D5 A8 / N1).
-/// Submit stays enabled; `CreateProfile` validates the handle again.
-enum HandleCheckStatus { idle, checking, available, unavailable, unknown }
 
 @freezed
 abstract class OnboardingState with _$OnboardingState {

@@ -94,9 +94,14 @@ final class HandleTakenException extends AppException {
   const HandleTakenException(super.message);
 }
 
-/// A fixed cap was reached (e.g. following 5,000 accounts).
+/// A fixed cap was reached (e.g. following 5,000 accounts) or a cooldown is
+/// running (`ChangeHandle`: [quota] `handle_change`, [retryAfter] = time left).
 final class LimitReachedException extends AppException {
-  const LimitReachedException(super.message);
+  const LimitReachedException(super.message, {this.quota, this.retryAfter});
+
+  /// The server's `metadata["quota"]`, when it names the limit.
+  final String? quota;
+  final Duration? retryAfter;
 }
 
 /// Referenced media is not READY or not owned by the caller.
