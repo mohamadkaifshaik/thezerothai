@@ -13,6 +13,7 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/blocked_post_gate.dart';
+import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/pending_post_row.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
@@ -639,7 +640,7 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       DraftProblemHint(problem: state.draft.problem),
-                      CharacterCounter(draft: state.draft),
+                      CharacterCounter(remaining: state.draft.remaining),
                     ],
                   ),
               ],

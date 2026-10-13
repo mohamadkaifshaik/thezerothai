@@ -6,6 +6,7 @@ import '../../account/presentation/widgets/delete_account_link.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
+import '../domain/handle_rules.dart' show HandleCheckStatus;
 import 'bloc/onboarding_bloc.dart';
 import 'bloc/onboarding_event.dart';
 import 'bloc/onboarding_state.dart';

@@ -5,6 +5,8 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
+import 'package:dzeroth/features/onboarding/domain/handle_rules.dart'
+    show HandleCheckStatus;
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -31,6 +33,89 @@ void main() {
     identityRepository = MockIdentityRepository();
     when(() => identityRepository.cachedOwnProfile(any()))
         .thenAnswer((_) async => null);
+  });
+
+  group('OnboardingProfileUpdated (P2 edit profile / change handle)', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      "swaps in the caller's updated profile and ignores another user's",
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'me', handle: 'old'),
+        enabledFeatures: const {'profile_snapshot'},
+      ),
+      act: (bloc) {
+        bloc.add(
+          OnboardingProfileUpdated(
+            identity.Profile(userId: 'me', handle: 'new', displayName: 'New'),
+          ),
+        );
+        bloc.add(
+          OnboardingProfileUpdated(
+            identity.Profile(userId: 'someone-else', handle: 'x'),
+          ),
+        );
+      },
+      verify: (bloc) {
+        expect(bloc.state.profile!.handle, 'new');
+        expect(bloc.state.profile!.displayName, 'New');
+        expect(bloc.state.enabledFeatures, {'profile_snapshot'});
+      },
+    );
+  });
+
+  group('OnboardingProfileUpdated without a profile', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'is ignored after sign-out (no profile in state)',
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(),
+      act: (bloc) => bloc.add(
+        OnboardingProfileUpdated(
+          identity.Profile(userId: 'me', handle: 'late', displayName: 'Late'),
+        ),
+      ),
+      expect: () => <OnboardingState>[],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'is ignored when an edit response lands after sign-out',
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'me', handle: 'kaif'),
+      ),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserSignedOut());
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(
+          OnboardingProfileUpdated(
+            identity.Profile(userId: 'me', handle: 'late'),
+          ),
+        );
+      },
+      verify: (bloc) {
+        expect(bloc.state.profile, isNull);
+        expect(bloc.state.status, OnboardingStatus.unknown);
+      },
+    );
+  });
+
+  group('handle check failures share one policy', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a generic probe error is unknown with friendly text (never e.message) '
+      'and keeps submit possible',
+      setUp: () {
+        when(() => identityRepository.checkHandleAvailability('kaif'))
+            .thenThrow(const UnknownApiException('raw server text'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingHandleChanged('kaif')),
+      wait: const Duration(milliseconds: 350),
+      verify: (bloc) {
+        expect(bloc.state.handleCheckStatus, HandleCheckStatus.unknown);
+        expect(bloc.state.handleCheckMessage, isNot(contains('raw server')));
+      },
+    );
   });
 
   group('OnboardingBloc sign-out races', () {

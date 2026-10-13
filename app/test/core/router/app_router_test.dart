@@ -12,7 +12,11 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
+import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
+import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +29,8 @@ class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 class MockAccountRepository extends Mock implements AccountRepository {}
 
 class MockAuthRepository extends Mock implements AuthRepository {}
+
+class MockIdentityRepository extends Mock implements IdentityRepository {}
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -223,6 +229,45 @@ void main() {
 
     expect(path, AppRouter.exportDataPath);
     expect(find.byType(DataExportScreen), findsOneWidget);
+  });
+
+  testWidgets('/settings/profile and /settings/handle redirect to settings '
+      'with the profile_snapshot flag off', (tester) async {
+    for (final target in const [
+      AppRouter.editProfilePath,
+      AppRouter.changeHandlePath,
+    ]) {
+      final path = await openUserRoute(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: const OnboardingState(status: OnboardingStatus.ready),
+        path: target,
+      );
+      expect(path, AppRouter.settingsPath, reason: target);
+    }
+  });
+
+  testWidgets('/settings/handle is reachable with the profile_snapshot flag '
+      'on', (tester) async {
+    final path = await openUserRoute(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+        enabledFeatures: const {kFeatureProfileSnapshot},
+      ),
+      path: AppRouter.changeHandlePath,
+      repositories: [
+        RepositoryProvider<IdentityRepository>.value(
+          value: MockIdentityRepository(),
+        ),
+        RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+      ],
+    );
+
+    expect(path, AppRouter.changeHandlePath);
+    expect(find.byType(ChangeHandleScreen), findsOneWidget);
   });
 
   testWidgets('/post/:id redirects a signed-out visitor to sign-in', (

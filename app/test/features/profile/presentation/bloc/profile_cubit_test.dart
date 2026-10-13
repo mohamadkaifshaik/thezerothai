@@ -213,4 +213,49 @@ void main() {
           .having((s) => s.relationship, 'relationship', isNull),
     ],
   );
+
+  blocTest<ProfileCubit, ProfileState>(
+    'profileUpdated shows the edited profile without another GetProfile, and '
+    "ignores someone else's",
+    build: () {
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(
+          userId: 'viewer-uid',
+          handle: 'kaif',
+          displayName: 'Old',
+        ),
+      );
+      return buildCubit(graphEnabled: false, ownUserId: 'viewer-uid');
+    },
+    act: (cubit) async {
+      await cubit.load();
+      cubit.profileUpdated(
+        identity.Profile(
+          userId: 'viewer-uid',
+          handle: 'kaif',
+          displayName: 'New',
+          bio: 'new bio',
+        ),
+      );
+      cubit.profileUpdated(
+        identity.Profile(userId: 'someone-else', displayName: 'Nope'),
+      );
+    },
+    verify: (cubit) {
+      expect(cubit.state.status, ProfileStatus.ready);
+      expect(cubit.state.profile!.displayName, 'New');
+      expect(cubit.state.profile!.bio, 'new bio');
+      expect(cubit.state.isOwnProfile, isTrue);
+      verify(() => identityRepository.getProfile(handle: 'kaif')).called(1);
+    },
+  );
+
+  blocTest<ProfileCubit, ProfileState>(
+    'profileUpdated before the profile loaded does nothing',
+    build: () => buildCubit(graphEnabled: false, ownUserId: 'viewer-uid'),
+    act: (cubit) => cubit.profileUpdated(
+      identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+    ),
+    expect: () => <ProfileState>[],
+  );
 }

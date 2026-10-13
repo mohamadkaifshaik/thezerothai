@@ -7,6 +7,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -110,6 +111,33 @@ void main() {
     expect(find.text('Muted accounts'), findsNothing);
     expect(find.textContaining('Private account'), findsNothing);
   });
+
+  testWidgets(
+    '"Edit profile"/"Change handle" follow the profile_snapshot flag',
+    (tester) async {
+      whenListen(
+        authBloc,
+        Stream<AuthState>.empty(),
+        initialState: const AuthState(),
+      );
+
+      await tester.pumpWidget(wrap());
+      expect(find.text('Edit profile'), findsNothing);
+      expect(find.text('Change handle'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: const OnboardingState(
+          enabledFeatures: {kFeatureProfileSnapshot},
+        ),
+      );
+      await tester.pumpWidget(wrap());
+      expect(find.text('Edit profile'), findsOneWidget);
+      expect(find.text('Change handle'), findsOneWidget);
+    },
+  );
 
   testWidgets('"Download my data" follows the account_lifecycle flag', (
     tester,
