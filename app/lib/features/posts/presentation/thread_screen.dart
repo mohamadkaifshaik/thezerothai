@@ -10,16 +10,27 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/app_empty_view.dart';
+import '../../../shared/widgets/blocked_post_gate.dart';
+import '../../../shared/widgets/pending_post_row.dart';
 import '../../../shared/widgets/post_card.dart';
+import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../timeline/presentation/timeline_feed_view.dart'
+    show kPrefetchFraction;
 import '../data/posts_repository.dart';
+import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/thread_cubit.dart';
 import 'composer_screen.dart';
-import 'post_detail_screen.dart';
 import 'post_error_messages.dart';
+import 'widgets/draft_problem_hint.dart';
+import 'widgets/post_unavailable_view.dart';
+
+/// Width of the reply button: wide enough that "Reply" and the sending
+/// spinner do not make the field jump.
+const double _kReplyButtonWidth = AppSpacing.xxl + AppSpacing.lg;
 
 /// `/post/:id` with FEATURE_REPLIES on: the post, its parent/root context
 /// (or "This post is unavailable" tombstones), its replies and an inline
@@ -56,7 +67,7 @@ class ThreadScreen extends StatelessWidget {
           )..load(),
         ),
         BlocProvider<ComposerCubit>(
-          create: (context) => ComposerCubit(
+          create: (context) => ComposerCubit.reply(
             postsRepository: context.read<PostsRepository>(),
             replyToPostId: postId,
           ),
@@ -90,7 +101,25 @@ class _ThreadView extends StatelessWidget {
               before.status != ThreadStatus.deleted,
           listener: (context, state) => _leave(context),
         ),
+        BlocListener<ThreadCubit, ThreadState>(
+          listenWhen: (before, after) =>
+              after.refreshError != null &&
+              after.refreshError != before.refreshError,
+          listener: (context, state) {
+            final error = state.refreshError!;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(content: Text(threadRefreshErrorMessage(error))),
+              );
+            context.read<ThreadCubit>().refreshErrorShown();
+          },
+        ),
         BlocListener<ComposerCubit, ComposerState>(
+          listenWhen: (before, after) =>
+              (after.status == ComposerStatus.posted &&
+                  before.status != ComposerStatus.posted) ||
+              (after.error != null && after.error != before.error),
           listener: (context, state) {
             final thread = context.read<ThreadCubit>();
             final created = state.created;
@@ -102,6 +131,10 @@ class _ThreadView extends StatelessWidget {
             if (error == null) return;
             if (error is FeatureDisabledException) {
               thread.repliesBecameUnavailable();
+            }
+            if (error is NotFoundException) {
+              // The post vanished under us: reload to the unavailable view.
+              thread.load();
             }
             ScaffoldMessenger.of(context)
               ..hideCurrentSnackBar()
@@ -126,7 +159,10 @@ class _ThreadView extends StatelessWidget {
                   ),
                   child: switch (state.status) {
                     ThreadStatus.loading ||
-                    ThreadStatus.deleted => const _ThreadSkeleton(),
+                    ThreadStatus.deleted => const PostListSkeleton(
+                      rows: 3,
+                      semanticsLabel: 'Loading conversation',
+                    ),
                     ThreadStatus.notFound => PostUnavailableView(
                       onHome: () => context.go(AppRouter.homePath),
                     ),
@@ -141,61 +177,6 @@ class _ThreadView extends StatelessWidget {
             ),
           );
         },
-      ),
-    );
-  }
-}
-
-/// Placeholder rows in the shape of a post while the first page loads.
-class _ThreadSkeleton extends StatelessWidget {
-  const _ThreadSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.surfaceContainerHighest;
-    Widget bar(double widthFactor, double height) => FractionallySizedBox(
-      widthFactor: widthFactor,
-      alignment: AlignmentDirectional.centerStart,
-      child: Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-    );
-    return Semantics(
-      label: 'Loading conversation',
-      liveRegion: true,
-      excludeSemantics: true,
-      child: Column(
-        children: [
-          for (var i = 0; i < 3; i++)
-            Padding(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    radius: AppSpacing.md + 4,
-                    backgroundColor: color,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        bar(0.4, AppSpacing.md),
-                        const SizedBox(height: AppSpacing.sm),
-                        bar(1, AppSpacing.md),
-                        const SizedBox(height: AppSpacing.sm),
-                        bar(0.7, AppSpacing.md),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -263,7 +244,14 @@ class _ThreadList extends StatelessWidget {
 
         return NotificationListener<ScrollNotification>(
           onNotification: (n) {
-            if (n.metrics.extentAfter < 400) cubit.loadMore();
+            // Only this list's own scrolling (not nested scrollables, e.g. a
+            // text field), prefetching like the feed does.
+            if (n.depth == 0 &&
+                n.metrics.maxScrollExtent > 0 &&
+                n.metrics.pixels >=
+                    kPrefetchFraction * n.metrics.maxScrollExtent) {
+              cubit.loadMore();
+            }
             return false;
           },
           child: RefreshIndicator(
@@ -280,13 +268,18 @@ class _ThreadList extends StatelessWidget {
                     children: [
                       if (focal.post.replyToHandle.isNotEmpty)
                         _ReplyingTo(handle: focal.post.replyToHandle),
-                      PostCard(
-                        view: focal,
-                        showFullImages: true,
-                        viewerUserId: viewerUserId,
-                        graphActionsEnabled: graphEnabled,
-                        onDelete: cubit.deletePost,
-                        onRelationshipChanged: onRelationship,
+                      BlockedPostGate(
+                        authorId: focal.post.author.userId,
+                        handle: focal.post.author.handle,
+                        graphEnabled: graphEnabled,
+                        child: PostCard(
+                          view: focal,
+                          showFullImages: true,
+                          viewerUserId: viewerUserId,
+                          graphActionsEnabled: graphEnabled,
+                          onDelete: cubit.deletePost,
+                          onRelationshipChanged: onRelationship,
+                        ),
                       ),
                       const Divider(height: 1),
                     ],
@@ -356,12 +349,17 @@ class _ContextPost extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        InkWell(
-          onTap: () => context.push(AppRouter.postPath(view.post.postId)),
-          child: PostCard(
-            view: view,
-            viewerUserId: viewerUserId,
-            graphActionsEnabled: graphEnabled,
+        BlockedPostGate(
+          authorId: view.post.author.userId,
+          handle: view.post.author.handle,
+          graphEnabled: graphEnabled,
+          child: InkWell(
+            onTap: () => context.push(AppRouter.postPath(view.post.postId)),
+            child: PostCard(
+              view: view,
+              viewerUserId: viewerUserId,
+              graphActionsEnabled: graphEnabled,
+            ),
           ),
         ),
         const Divider(height: 1),
@@ -484,7 +482,7 @@ class _Footer extends StatelessWidget {
               style: TextButton.styleFrom(
                 minimumSize: const Size(0, AppSpacing.minTapTarget),
               ),
-              onPressed: cubit.loadMore,
+              onPressed: cubit.retryLoadMore,
               child: const Text('Retry'),
             ),
           ],
@@ -502,26 +500,10 @@ class _Footer extends StatelessWidget {
         ),
       );
     } else if (empty) {
-      page = Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          children: [
-            Icon(
-              Icons.chat_bubble_outline,
-              size: AppIconSize.lg,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text('No replies yet', style: theme.textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Start the conversation below.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
+      page = const AppEmptyView(
+        icon: Icons.chat_bubble_outline,
+        title: 'No replies yet',
+        subtitle: 'Start the conversation below.',
       );
     } else {
       page = const SizedBox.shrink();
@@ -531,68 +513,22 @@ class _Footer extends StatelessWidget {
         BlocBuilder<ComposerCubit, ComposerState>(
           buildWhen: (a, b) => a.isSubmitting != b.isSubmitting,
           builder: (context, composer) => composer.isSubmitting
-              ? _PendingReply(text: composer.draft.text)
+              ? Column(
+                  children: [
+                    PendingPostRow(
+                      text: composer.draft.text,
+                      author: viewerAuthorSnapshot(
+                        context.read<OnboardingBloc>().state.profile,
+                      ),
+                      semanticsLabel: 'Sending your reply',
+                    ),
+                    const Divider(height: 1),
+                  ],
+                )
               : const SizedBox.shrink(),
         ),
         page,
       ],
-    );
-  }
-}
-
-/// The optimistic row for a reply being sent (rolled back by simply
-/// disappearing when it fails; the text stays in the composer).
-class _PendingReply extends StatelessWidget {
-  const _PendingReply({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Semantics(
-      label: 'Sending your reply: $text',
-      liveRegion: true,
-      excludeSemantics: true,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(
-                  width: AppSpacing.minTapTarget,
-                  child: Center(child: AppAvatar(url: '')),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        text,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: muted,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        'Sending…',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-        ],
-      ),
     );
   }
 }
@@ -675,14 +611,23 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                     const SizedBox(width: AppSpacing.sm),
                     FilledButton(
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size(72, AppSpacing.minTapTarget),
+                        minimumSize: const Size(
+                          _kReplyButtonWidth,
+                          AppSpacing.minTapTarget,
+                        ),
                       ),
                       onPressed: state.canSubmit ? cubit.submit : null,
                       child: state.isSubmitting
-                          ? const SizedBox(
-                              width: AppIconSize.md,
-                              height: AppIconSize.md,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                          ? Semantics(
+                              label: 'Sending reply',
+                              liveRegion: true,
+                              child: const SizedBox(
+                                width: AppIconSize.md,
+                                height: AppIconSize.md,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
                             )
                           : const Text('Reply'),
                     ),

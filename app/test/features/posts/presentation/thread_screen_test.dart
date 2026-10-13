@@ -10,6 +10,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:flutter/material.dart';
@@ -48,9 +49,13 @@ void main() {
   late MockPostsRepository posts;
   late MockGraphRepository graphRepository;
   late MockOnboardingBloc onboardingBloc;
+  late StreamController<String> removed;
 
   setUp(() {
+    removed = StreamController<String>.broadcast();
+    addTearDown(removed.close);
     posts = MockPostsRepository();
+    when(() => posts.removedPosts).thenAnswer((_) => removed.stream);
     graphRepository = MockGraphRepository();
     onboardingBloc = MockOnboardingBloc();
     when(() => graphRepository.cached(any())).thenReturn(null);
@@ -369,7 +374,7 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
       await tester.pump();
       // In flight: the optimistic row.
-      expect(find.text('Sending…'), findsOneWidget);
+      expect(find.text('Posting...'), findsOneWidget);
 
       done.complete(
         replyView(
@@ -382,7 +387,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Sending…'), findsNothing);
+      expect(find.text('Posting...'), findsNothing);
       expect(find.text('my reply'), findsOneWidget); // the real reply row
       expect(
         tester.widget<TextField>(find.byType(TextField)).controller!.text,
@@ -410,7 +415,7 @@ void main() {
         find.text("The post you're replying to isn't available any more."),
         findsOneWidget,
       );
-      expect(find.text('Sending…'), findsNothing);
+      expect(find.text('Posting...'), findsNothing);
       expect(find.text('my reply'), findsOneWidget); // still in the field
       expect(replyButton(tester).onPressed, isNotNull);
     });
@@ -481,5 +486,147 @@ void main() {
       tester.getSize(find.text('wide')).width,
       lessThanOrEqualTo(AppBreakpoints.mobile),
     );
+  });
+
+  testWidgets('a blocked focal author sits behind a "Show post" banner', (
+    tester,
+  ) async {
+    stubThread(
+      (_) async => pb.GetThreadResponse(focal: postView(1, text: 'hidden')),
+    );
+    when(() => graphRepository.cached('u1'))
+        .thenReturn(graph.Relationship(userId: 'u1', blocking: true));
+
+    await open(tester, features: const {'posts', 'replies', 'graph'});
+
+    expect(find.text('You blocked @hu1 ·'), findsOneWidget);
+    expect(find.text('hidden'), findsNothing);
+
+    await tester.tap(find.text('Show post'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('hidden'), findsOneWidget);
+  });
+
+  testWidgets('a blocked parent is gated too', (tester) async {
+    stubThread(
+      (_) async => pb.GetThreadResponse(
+        focal: replyView(1, parent: 5, conversation: 5, text: 'my reply'),
+        parent: pb.PostView(
+          post: pb.Post(
+            postId: postId(5),
+            text: 'parent words',
+            author: common.AuthorSnapshot(userId: 'bad', handle: 'bad'),
+          ),
+        ),
+      ),
+    );
+    when(() => graphRepository.cached('bad'))
+        .thenReturn(graph.Relationship(userId: 'bad', blocking: true));
+
+    await open(tester, features: const {'posts', 'replies', 'graph'});
+
+    expect(find.text('You blocked @bad ·'), findsOneWidget);
+    expect(find.text('parent words'), findsNothing);
+    expect(find.text('my reply'), findsOneWidget);
+  });
+
+  testWidgets('a post removed elsewhere leaves the replies', (tester) async {
+    stubThread(
+      (_) async => pb.GetThreadResponse(
+        focal: postView(1),
+        replies: [
+          replyView(2, parent: 1, conversation: 1),
+          replyView(3, parent: 1, conversation: 1),
+        ],
+      ),
+    );
+    await open(tester);
+    expect(find.text('reply 2'), findsOneWidget);
+
+    removed.add(postId(2));
+    await tester.pumpAndSettle();
+
+    expect(find.text('reply 2'), findsNothing);
+    expect(find.text('reply 3'), findsOneWidget);
+  });
+
+  testWidgets('a removed parent becomes a tombstone', (tester) async {
+    stubThread(
+      (_) async => pb.GetThreadResponse(
+        focal: replyView(1, parent: 5, conversation: 5, text: 'focal reply'),
+        parent: postView(5, text: 'the parent'),
+      ),
+    );
+    await open(tester);
+    expect(find.text('the parent'), findsOneWidget);
+
+    removed.add(postId(5));
+    await tester.pumpAndSettle();
+
+    expect(find.text('the parent'), findsNothing);
+    expect(find.text('This post is unavailable'), findsOneWidget);
+  });
+
+  testWidgets('a failed pull-to-refresh keeps the thread and says so', (
+    tester,
+  ) async {
+    var fail = false;
+    stubThread((_) async {
+      if (fail) throw const NetworkException('offline');
+      return pb.GetThreadResponse(focal: postView(1, text: 'kept'));
+    });
+    await open(tester);
+
+    fail = true;
+    await tester.fling(find.text('kept'), const Offset(0, 400), 1000);
+    await tester.pumpAndSettle();
+
+    expect(find.text('kept'), findsOneWidget);
+    expect(
+      find.text('No connection. Showing the conversation as it was.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a failed page is not retried by scrolling', (tester) async {
+    var pageCalls = 0;
+    stubThread((token) async {
+      if (token.isEmpty) {
+        return pb.GetThreadResponse(
+          focal: postView(1),
+          replies: [
+            for (var n = 2; n < 14; n++)
+              replyView(n, parent: 1, conversation: 1),
+          ],
+          nextPageToken: 'n1',
+        );
+      }
+      pageCalls++;
+      throw const NetworkException('offline');
+    });
+    await open(tester);
+
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, -3000),
+      3000,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text("Couldn't load more replies."), findsOneWidget);
+    expect(pageCalls, 1);
+
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 300),
+      1000,
+    );
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, -3000),
+      3000,
+    );
+    await tester.pumpAndSettle();
+    expect(pageCalls, 1);
   });
 }

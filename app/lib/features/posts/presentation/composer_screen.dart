@@ -6,14 +6,15 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
 import '../domain/post_text_rules.dart';
+import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
+import 'widgets/draft_problem_hint.dart';
 
 /// Upper bound on what the field accepts. It is far above the 280 limit so
 /// the counter can go negative (the user sees how much to cut), while a huge
@@ -33,13 +34,7 @@ class ComposerScreen extends StatelessWidget {
       create: (context) => ComposerCubit(
         postsRepository: context.read<PostsRepository>(),
         pending: context.read<PendingPostsCubit>(),
-        author: common.AuthorSnapshot(
-          userId: profile?.userId ?? '',
-          handle: profile?.handle ?? '',
-          displayName: profile?.displayName ?? '',
-          avatarUrl: profile?.avatarThumbUrl ?? '',
-          verified: profile?.verified ?? false,
-        ),
+        author: viewerAuthorSnapshot(profile),
       ),
       child: const _ComposerView(),
     );
@@ -142,16 +137,17 @@ class _ComposerViewState extends State<_ComposerView> {
                       inputFormatters: [
                         LengthLimitingTextInputFormatter(kComposerInputCap),
                       ],
-                      style: Theme.of(context).textTheme.bodyLarge
-                          ?.copyWith(fontSize: 18),
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontSize: 18,
+                      ),
                       decoration: InputDecoration(
                         hintText: "What's happening?",
                         hintStyle: Theme.of(context).textTheme.bodyLarge
                             ?.copyWith(
                               fontSize: 18,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                             ),
                         filled: false,
                         border: InputBorder.none,
@@ -185,31 +181,6 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 }
 
-/// Explains why Post is disabled when it is not just "nothing typed yet".
-class DraftProblemHint extends StatelessWidget {
-  const DraftProblemHint({super.key, required this.problem});
-
-  final PostDraftProblem? problem;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = switch (problem) {
-      PostDraftProblem.tooManyLines => 'Posts can have at most 10 lines.',
-      PostDraftProblem.forbiddenCharacter =>
-        'Remove the unsupported characters.',
-      _ => null,
-    };
-    if (message == null) return const SizedBox.shrink();
-    return Expanded(
-      child: Text(
-        message,
-        style: Theme.of(context).textTheme.bodySmall
-            ?.copyWith(color: Theme.of(context).colorScheme.error),
-      ),
-    );
-  }
-}
-
 /// Remaining code points: `280` minus the count after NFC; negative past the
 /// limit (281 shows `-1`).
 class CharacterCounter extends StatelessWidget {
@@ -231,9 +202,7 @@ class CharacterCounter extends StatelessWidget {
       child: Text(
         '$remaining',
         style: theme.textTheme.labelLarge?.copyWith(
-          color: over
-              ? theme.colorScheme.error
-              : theme.colorScheme.onSurfaceVariant,
+          color: over ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );
