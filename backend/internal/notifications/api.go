@@ -35,6 +35,9 @@ const (
 	SettleWindow = 5 * time.Second
 	// RefreshTokenTTL is how long a persisted since/gap token is accepted (same as the timelines, ADR-0010 D14).
 	RefreshTokenTTL = 30 * 24 * time.Hour
+	// MaxActorIDs bounds Notification.ActorIDs on a collapsed like row (the last N distinct actors, ADR-0017 D4):
+	// a viral post must not grow one document toward Firestore's 1 MiB or its 1 write/s sustained limit.
+	MaxActorIDs = 50
 	// MaxFCMTokenBytes bounds a registration token (real ones are ~160-200 bytes).
 	MaxFCMTokenBytes = 4096
 )
@@ -102,11 +105,13 @@ type Actor struct {
 type Notification struct {
 	ID   string
 	Type Type
-	// Actor is the most recent actor; ActorIDs are all distinct actors folded into the row (>= 1).
-	Actor     Actor
-	ActorIDs  []string
-	PostID    string
-	CreatedAt time.Time
+	// Actor is the most recent actor; ActorIDs are the last MaxActorIDs distinct actors folded into the row (>= 1).
+	Actor    Actor
+	ActorIDs []string
+	// ActorCount is every distinct actor folded in (>= len(ActorIDs); 0 on rows written before the field).
+	ActorCount int
+	PostID     string
+	CreatedAt  time.Time
 }
 
 // Device is one users/{uid}/devices/{deviceId} row.

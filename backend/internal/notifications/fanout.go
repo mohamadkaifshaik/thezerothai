@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -44,7 +46,7 @@ func validateEvent(e Event) string {
 		return "invalid_actor"
 	case len(e.RecipientIDs) == 0 || len(e.RecipientIDs) > MaxRecipientsPerEvent:
 		return "invalid_recipients"
-	case e.Type.needsPost() && !validPostID(e.PostID):
+	case e.Type.needsPost() && !ids.ValidPostID(e.PostID):
 		return "invalid_post"
 	}
 	for _, r := range e.RecipientIDs {
@@ -55,16 +57,13 @@ func validateEvent(e Event) string {
 	return ""
 }
 
-func validPostID(id string) bool {
-	if len(id) != 19 {
-		return false
+// actorFromProfile is the denormalized actor snapshot stored on a row: the thumbnail avatar when there is one.
+func actorFromProfile(p identity.Profile) Actor {
+	a := Actor{UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, AvatarURL: p.AvatarThumbURL, Verified: p.Verified}
+	if a.AvatarURL == "" {
+		a.AvatarURL = p.AvatarURL
 	}
-	for _, c := range id {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return a
 }
 
 // notificationID is the deterministic row id (ADR-0017 D1): the natural key that makes redelivery a no-op.
@@ -120,9 +119,17 @@ type Outcome struct {
 // Deliver processes one event idempotently (ADR-0017 D3). A non-nil error means "retry": at least one recipient hit
 // a transient failure; the recipients that succeeded are unaffected by the redelivery (natural keys).
 //
-// Budget per recipient: users batch for actor+recipients (cached: 0-11 reads, one GetAll), graph snapshot of the
-// recipient (cached 60 s: 0-1 read), 1 write for the row (a duplicate costs 1 read), devices <= 5 reads, a like
-// folded into an existing row +1 write.
+// Budget: the actor and recipients are evicted from the profile cache first so the ACTIVE check is fresh (see
+// below), then one GetAll: 1 + R reads (R <= 10 recipients; typically 2). Per recipient: graph snapshot (cached
+// 60 s: 0-1 read, +1 when the recipient's blockedBy overflowed and the actor's graph is read), 1 write for the row
+// (a duplicate costs 1 read), devices <= 5 reads; a like folded into an existing row costs 1 read and 1 write (0
+// writes when that actor is already in the row: a redelivery is write-free).
+//
+// Right to delete (ADR-0017 D10): the fresh status read narrows the race with an account purge from "the profile
+// cache TTL plus any redelivery delay" to the milliseconds between that read and the Create. It cannot be zero
+// without a transaction across users/{uid} and the row, so a row written in that window outlives the purge
+// until its 90-day TTL; the purge cannot find it by uid afterwards (the account-lifecycle backstop keys on
+// users/{uid}, deleted last).
 func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 	var out Outcome
 	if reason := validateEvent(e); reason != "" {
@@ -149,6 +156,9 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		return out, nil
 	}
 
+	// A purge starts by flipping the account to DELETING, and a cached ACTIVE profile (60 s, longer across Pub/Sub
+	// redeliveries) would let this delivery write into a subtree the purge has already swept. Evict, then read.
+	f.d.Directory.Forget(append([]string{e.ActorID}, recipients...)...)
 	profiles, err := f.d.Directory.GetProfiles(ctx, append([]string{e.ActorID}, recipients...))
 	if err != nil {
 		return out, fmt.Errorf("notifications: load profiles: %w", err)
@@ -158,18 +168,20 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		out.Dropped++ // the actor is gone, suspended or being deleted: nothing to say
 		return out, nil
 	}
-	actor := Actor{UserID: ap.UserID, Handle: ap.Handle, DisplayName: ap.DisplayName, AvatarURL: ap.AvatarThumbURL, Verified: ap.Verified}
-	if actor.AvatarURL == "" {
-		actor.AvatarURL = ap.AvatarURL
-	}
+	actor := actorFromProfile(ap)
 
-	now := f.d.Now().UTC().Truncate(time.Microsecond)
 	// The collapse bucket comes from the event time, so a redelivery that crosses an hour boundary still folds into
-	// the same row; createdAt is the commit time (D3).
+	// the same row; createdAt is the commit time (D3), taken per recipient immediately before its write so that
+	// slow work for an earlier recipient can never stamp a row older than its commit and slip behind a since token.
 	bucketAt := e.At
 	if bucketAt.IsZero() {
-		bucketAt = now
+		bucketAt = f.d.Now()
 	}
+	type pending struct {
+		uid string
+		p   Push
+	}
+	var toPush []pending
 	var errs []error
 	for _, r := range recipients {
 		if _, ok := profiles[r]; !ok {
@@ -181,13 +193,25 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			errs = append(errs, fmt.Errorf("snapshot: %w", err))
 			continue
 		}
-		if snap.Blocked[e.ActorID] || snap.Muted[e.ActorID] || snap.BlockedBy[e.ActorID] {
+		suppressed := snap.Blocked[e.ActorID] || snap.Muted[e.ActorID]
+		if !suppressed {
+			// graph.IsBlockedBy semantics: trust the recipient's blockedBy unless it overflowed its cap, then
+			// also read the actor's own blocked list.
+			blocked, err := f.blockedBy(ctx, r, e.ActorID, snap)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("block check: %w", err))
+				continue
+			}
+			suppressed = blocked
+		}
+		if suppressed {
 			out.Suppressed++
 			continue
 		}
+		now := f.d.Now().UTC().Truncate(time.Microsecond)
 		n := Notification{
 			ID: notificationID(e.Type, e.ActorID, e.PostID, bucketAt), Type: e.Type, Actor: actor,
-			ActorIDs: []string{e.ActorID}, PostID: e.PostID, CreatedAt: now,
+			ActorIDs: []string{e.ActorID}, ActorCount: 1, PostID: e.PostID, CreatedAt: now,
 		}
 		created, err := f.d.Repo.Create(ctx, r, n)
 		if err != nil {
@@ -204,11 +228,32 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			continue // no second push: the call that created the row owns the push
 		}
 		out.Created++
-		pushed, pruned := f.push(ctx, r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID})
+		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID}})
+	}
+	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
+	// recipient's commit past the 5 s since-token settle window.
+	for _, pd := range toPush {
+		pushed, pruned := f.push(ctx, pd.uid, pd.p)
 		out.Pushed += pushed
 		out.Pruned += pruned
 	}
 	return out, errors.Join(errs...)
+}
+
+// blockedBy reports whether actor has blocked recipient. The recipient's snapshot (already fetched) answers
+// unless its blockedBy set overflowed, in which case the actor's own graph is consulted (+1 read, cached).
+func (f *Fanout) blockedBy(ctx context.Context, recipient, actor string, snap graph.Snapshot) (bool, error) {
+	if snap.BlockedBy[actor] {
+		return true, nil
+	}
+	if !snap.BlockedByOverflow {
+		return false, nil
+	}
+	as, err := f.d.Social.Snapshot(ctx, actor)
+	if err != nil {
+		return false, err
+	}
+	return as.Blocked[recipient], nil
 }
 
 // push sends to every registered device of uid. Delivery is at most once and best effort: the row is the source of
@@ -234,7 +279,13 @@ func (f *Fanout) push(ctx context.Context, uid string, p Push) (pushed, pruned i
 				pruned++
 			}
 		default:
-			f.d.Log.WarnContext(ctx, "notification_push_failed", "uid_hash", logger.HashUID(uid), "platform", string(d.Platform), "type", string(p.Type))
+			code := "UNKNOWN"
+			var pe *PushError
+			if errors.As(err, &pe) {
+				code = pe.Code
+			}
+			// A fixed FCM code only (never err.Error(), which may echo the token). The device is kept.
+			f.d.Log.WarnContext(ctx, "notification_push_failed", "uid_hash", logger.HashUID(uid), "platform", string(d.Platform), "type", string(p.Type), "fcm_code", code)
 		}
 	}
 	return pushed, pruned

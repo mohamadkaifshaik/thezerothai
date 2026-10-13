@@ -186,7 +186,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// --- notifications (P6, ADR-0017): rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
 	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
-	notifRepo := notifications.NewFirestoreRepo(fsClient)
+	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
 	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
 	if cfg.NotificationsDelivery == "pubsub" {
 		pushSender = notifications.NewFCMSender(fbApp)
@@ -206,7 +206,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		notifSlot.em = notifications.NewPubSubEmitter(notifPublisher, featureFlags, log)
 	}
 	notifService := notifications.NewService(notifications.Deps{
-		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Seen: identityRepo, CursorKey: cfg.CursorHMACKey,
+		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, CursorKey: cfg.CursorHMACKey,
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags)
 

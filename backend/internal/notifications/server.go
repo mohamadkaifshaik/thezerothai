@@ -151,7 +151,7 @@ func typeToProto(t Type) notificationsv1.NotificationType {
 
 // ToProto maps a domain Notification to its wire form.
 func ToProto(n Notification) *notificationsv1.Notification {
-	count := len(n.ActorIDs)
+	count := max(n.ActorCount, len(n.ActorIDs))
 	if count < 1 {
 		count = 1
 	}

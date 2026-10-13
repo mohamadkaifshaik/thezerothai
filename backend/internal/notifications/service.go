@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
@@ -56,6 +57,9 @@ type Service interface {
 type Deps struct {
 	Repo      Repo
 	Directory Directory
+	// Social is the caller's cached graph context: List hides rows whose actor the caller blocks or mutes, or who
+	// blocks the caller, as of read time (a block after the fan-out check must take effect). Required.
+	Social    Social
 	Seen      SeenStore
 	CursorKey []byte
 	// TokenTTL is the lifetime of a persisted since/gap token (RefreshTokenTTL when zero).
@@ -93,8 +97,14 @@ func clampPageSize(n int32) int {
 	return int(n)
 }
 
-// List: reads 1 + rows returned worst (21 at the default page); a refresh with nothing new reads 1; the seen_at
-// profile is the account-status interceptor's cached entry (0 reads on a hit, +1 on a cold instance). Writes 0.
+// List: reads rows returned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph snapshot
+// (cached 60 s: 0 on a hit, +1 cold; the blockedBy overflow is not consulted here, see visible); a refresh with
+// nothing new reads 1 (+ the graph). The seen_at profile is the account-status interceptor's cached entry (0 reads
+// on a hit, +1 on a cold instance). Writes 0.
+//
+// Filtering runs after the page query, so a page may come back shorter than page_size, or empty, while more rows
+// exist: the tokens are computed from the raw rows (what was scanned), never the filtered ones, and the client
+// keeps paging while next_page_token is set. There is deliberately no refill loop: reads stay bounded.
 func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResult, error) {
 	if in.PageToken != "" && in.SinceToken != "" {
 		return ListResult{}, apierr.Validation("page_token", "send either page_token or since_token, not both")
@@ -129,7 +139,24 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 	if err != nil {
 		return ListResult{}, logger.RedactErr(err, uid)
 	}
-	res := ListResult{Notifications: rows}
+	// rows is the raw page: full, oldest and the since token below come from it, not from the filtered slice.
+	var shown []Notification
+	if len(rows) > 0 {
+		snap, err := s.d.Social.Snapshot(ctx, uid)
+		if err != nil {
+			return ListResult{}, logger.RedactErr(fmt.Errorf("notifications: caller graph: %w", err), uid)
+		}
+		shown = make([]Notification, 0, len(rows))
+		for _, n := range rows {
+			if v, ok := visible(n, snap); ok {
+				shown = append(shown, v)
+			}
+		}
+	}
+	res := ListResult{Notifications: shown}
+	if shown == nil {
+		res.Notifications = []Notification{}
+	}
 	full := len(rows) == limit
 	oldest := cursor.Cursor{}
 	if len(rows) > 0 {
@@ -154,10 +181,36 @@ func (s *service) List(ctx context.Context, uid string, in ListInput) (ListResul
 		res.SinceToken = s.sinceToken(uid, rows, nil, now)
 	}
 
-	if profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid}); err == nil {
+	profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid})
+	if err != nil {
+		// seen_at is a nicety (unread styling); the page itself is good. Log so a failing directory is visible.
+		slog.WarnContext(ctx, "notifications_list_seen_at_unavailable", "uid_hash", logger.HashUID(uid), "err", logger.RedactErr(err, uid))
+	} else {
 		res.SeenAt = profiles[uid].NotificationsSeenAt
 	}
 	return res, nil
+}
+
+// visible applies the caller's social context at read time. A row is hidden when its displayed (most recent)
+// actor is blocked or muted by the caller, or blocks the caller: the same set the timelines and thread replies
+// use. For a collapsed row the other actors that are suppressed are subtracted from the count. The blockedBy
+// overflow flag is not consulted: it would cost one graph read per distinct actor on every page; the fan-out
+// check (which does consult it) and this filter together cover the realistic cases.
+func visible(n Notification, snap graph.Snapshot) (Notification, bool) {
+	hidden := func(id string) bool { return snap.Blocked[id] || snap.Muted[id] || snap.BlockedBy[id] }
+	if hidden(n.Actor.UserID) {
+		return n, false
+	}
+	suppressed := 0
+	for _, id := range n.ActorIDs {
+		if hidden(id) {
+			suppressed++
+		}
+	}
+	if suppressed > 0 {
+		n.ActorCount = max(max(n.ActorCount, len(n.ActorIDs))-suppressed, 1)
+	}
+	return n, true
 }
 
 // sinceToken returns the token for the next refresh: the newest returned row trailing by SettleWindow, the old
@@ -175,12 +228,25 @@ func (s *service) sinceToken(uid string, rows []Notification, prev *cursor.Curso
 	return cursor.EncodeAt(s.d.CursorKey, sinceBinding(uid), c, now)
 }
 
-// MarkSeen: 0 reads, 1 write.
+// MarkSeenMinInterval is how recent a cached notificationsSeenAt must be for MarkSeen to be a no-op: a client
+// that marks seen on every tab focus must not turn each focus into a write.
+const MarkSeenMinInterval = 10 * time.Second
+
+// MarkSeen: 0 reads (the profile is the account-status interceptor's cached entry; +1 on a cold instance), 1
+// write, 0 writes when the cached seen_at is younger than MarkSeenMinInterval (the cached value is returned and
+// nothing is evicted). The per-uid daily call cap is limit_name "notification_seen_daily" (apiserver).
 func (s *service) MarkSeen(ctx context.Context, uid, idempotencyKey string) (time.Time, error) {
 	if !idempotency.KeyFormatValid(idempotencyKey) {
 		return time.Time{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
-	at := s.d.Now().UTC().Truncate(time.Microsecond)
+	now := s.d.Now().UTC()
+	if profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid}); err == nil {
+		// A seenAt slightly in the future (another instance's clock) is fresh too: now.Sub is negative.
+		if seen := profiles[uid].NotificationsSeenAt; !seen.IsZero() && now.Sub(seen) < MarkSeenMinInterval {
+			return seen, nil
+		}
+	}
+	at := now.Truncate(time.Microsecond)
 	if err := s.d.Seen.MarkNotificationsSeen(ctx, uid, at); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
 			return time.Time{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "profile required")

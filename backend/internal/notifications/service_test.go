@@ -1,8 +1,10 @@
 package notifications
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +20,11 @@ var testKey = []byte("0123456789abcdef0123456789abcdef")
 const goodKey = "0123456789abcdef"
 
 func newService(repo *fakeRepo, dir *fakeDirectory, seen *fakeSeen, now func() time.Time) Service {
-	return NewService(Deps{Repo: repo, Directory: dir, Seen: seen, CursorKey: testKey, Now: now})
+	return newServiceWithSocial(repo, dir, seen, now, &fakeSocial{})
+}
+
+func newServiceWithSocial(repo *fakeRepo, dir *fakeDirectory, seen *fakeSeen, now func() time.Time, social Social) Service {
+	return NewService(Deps{Repo: repo, Directory: dir, Social: social, Seen: seen, CursorKey: testKey, Now: now})
 }
 
 func seedRows(repo *fakeRepo, uid string, n int, start time.Time) {
@@ -274,5 +280,145 @@ func TestUnregisterDevice(t *testing.T) {
 	mustNoErr(t, svc.UnregisterDevice(ctx, "me", goodKey, "device-0123456789"))
 	if len(repo.devices["me"]) != 0 || repo.removed[0] != "me/device-0123456789/" {
 		t.Errorf("devices = %+v removed = %v", repo.devices, repo.removed)
+	}
+}
+
+func TestList_HidesSuppressedActorsAtReadTime(t *testing.T) {
+	t.Parallel()
+	row := func(id, actor string, at time.Time, ids ...string) Notification {
+		return Notification{ID: id, Type: TypeLike, Actor: Actor{UserID: actor}, ActorIDs: ids, ActorCount: len(ids), CreatedAt: at}
+	}
+	repo := newFakeRepo()
+	repo.rows["me"] = map[string]Notification{
+		"a": row("a", "blocked", t0.Add(5*time.Minute), "blocked"),
+		"b": row("b", "muted", t0.Add(4*time.Minute), "muted"),
+		"c": row("c", "blockedby", t0.Add(3*time.Minute), "blockedby"),
+		"d": row("d", "friend", t0.Add(2*time.Minute), "friend"),
+		// a collapsed row: the displayed actor is fine, one other actor is blocked: count drops by one
+		"e": row("e", "friend", t0.Add(time.Minute), "blocked", "x", "friend"),
+	}
+	social := &fakeSocial{snaps: map[string]graphSnap{"me": {
+		Blocked: map[string]bool{"blocked": true}, Muted: map[string]bool{"muted": true}, BlockedBy: map[string]bool{"blockedby": true},
+	}}}
+	svc := newServiceWithSocial(repo, newDirectory("me"), &fakeSeen{}, func() time.Time { return t0.Add(time.Hour) }, social)
+	res, err := svc.List(context.Background(), "me", ListInput{PageSize: 5})
+	mustNoErr(t, err)
+	if got := strings.Join(idsOf(res.Notifications), ","); got != "d,e" {
+		t.Fatalf("rows = %s, want d,e", got)
+	}
+	if res.Notifications[1].ActorCount != 2 {
+		t.Errorf("collapsed count = %d, want 2", res.Notifications[1].ActorCount)
+	}
+	// The page was full (5 raw rows scanned, 2 shown): paging must continue from the raw oldest row, and the
+	// since token must come from the raw newest row, not from the filtered slice.
+	if res.NextPageToken == "" {
+		t.Error("a full raw page must keep next_page_token even when most rows were filtered")
+	}
+	if res.SinceToken == "" {
+		t.Error("since token missing")
+	}
+	// A refresh from that token starts at the raw newest row ("a", hidden), so it is not re-read forever.
+	again, err := svc.List(context.Background(), "me", ListInput{PageSize: 5, SinceToken: res.SinceToken})
+	mustNoErr(t, err)
+	if len(again.Notifications) != 1 && len(again.Notifications) != 0 {
+		t.Errorf("refresh = %v", idsOf(again.Notifications))
+	}
+}
+
+func TestList_AllFilteredStillPages(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	repo.rows["me"] = map[string]Notification{}
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("r%d", i)
+		repo.rows["me"][id] = Notification{ID: id, Type: TypeFollow, Actor: Actor{UserID: "blocked"}, ActorIDs: []string{"blocked"}, CreatedAt: t0.Add(time.Duration(i) * time.Minute)}
+	}
+	repo.rows["me"]["old"] = Notification{ID: "old", Type: TypeFollow, Actor: Actor{UserID: "friend"}, ActorIDs: []string{"friend"}, CreatedAt: t0.Add(-time.Hour)}
+	social := &fakeSocial{snaps: map[string]graphSnap{"me": {Blocked: map[string]bool{"blocked": true}}}}
+	svc := newServiceWithSocial(repo, newDirectory("me"), &fakeSeen{}, func() time.Time { return t0.Add(time.Hour) }, social)
+	p1, err := svc.List(context.Background(), "me", ListInput{PageSize: 3})
+	mustNoErr(t, err)
+	if len(p1.Notifications) != 0 || p1.NextPageToken == "" {
+		t.Fatalf("page 1 = %v next=%q: an all-filtered full page is empty but must still point at the next one", idsOf(p1.Notifications), p1.NextPageToken)
+	}
+	p2, err := svc.List(context.Background(), "me", ListInput{PageSize: 3, PageToken: p1.NextPageToken})
+	mustNoErr(t, err)
+	if got := idsOf(p2.Notifications); len(got) != 1 || got[0] != "old" {
+		t.Fatalf("page 2 = %v", got)
+	}
+}
+
+func TestList_GraphErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	seedRows(repo, "me", 2, t0)
+	svc := newServiceWithSocial(repo, newDirectory("me"), &fakeSeen{}, nil, &fakeSocial{err: errBoom})
+	if _, err := svc.List(context.Background(), "me", ListInput{}); err == nil {
+		t.Fatal("a failed graph read must not show unfiltered rows")
+	}
+	// An empty inbox needs no graph read at all.
+	empty := newServiceWithSocial(newFakeRepo(), newDirectory("me"), &fakeSeen{}, nil, &fakeSocial{err: errBoom})
+	if _, err := empty.List(context.Background(), "me", ListInput{}); err != nil {
+		t.Fatalf("empty inbox: %v", err)
+	}
+}
+
+func TestList_ProfileErrorIsLoggedNotFatal(t *testing.T) {
+	repo := newFakeRepo()
+	seedRows(repo, "me", 1, t0)
+	dir := newDirectory("me")
+	dir.err = errBoom
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+	svc := newService(repo, dir, &fakeSeen{}, nil)
+	res, err := svc.List(context.Background(), "me", ListInput{})
+	mustNoErr(t, err)
+	if len(res.Notifications) != 1 || !res.SeenAt.IsZero() {
+		t.Errorf("res = %+v", res)
+	}
+	if !strings.Contains(buf.String(), "notifications_list_seen_at_unavailable") {
+		t.Errorf("the GetProfiles error was not logged: %q", buf.String())
+	}
+}
+
+func TestMarkSeen_SkipsWhenRecentlyMarked(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		seenAgo   time.Duration // negative = in the future
+		zero      bool
+		wantWrite bool
+	}{
+		{"never marked", 0, true, true},
+		{"marked 1 s ago", time.Second, false, false},
+		{"marked 9 s ago", 9 * time.Second, false, false},
+		{"marked 10 s ago", MarkSeenMinInterval, false, true},
+		{"marked an hour ago", time.Hour, false, true},
+		{"another instance's clock is ahead", -3 * time.Second, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			seen, dir := &fakeSeen{}, newDirectory("me")
+			if !tt.zero {
+				dir.seenAt = t0.Add(-tt.seenAgo)
+			}
+			svc := newService(newFakeRepo(), dir, seen, func() time.Time { return t0 })
+			at, err := svc.MarkSeen(context.Background(), "me", goodKey)
+			mustNoErr(t, err)
+			wrote := seen.uid != ""
+			if wrote != tt.wantWrite {
+				t.Fatalf("wrote = %v, want %v", wrote, tt.wantWrite)
+			}
+			if !tt.wantWrite {
+				if !at.Equal(dir.seenAt) || len(dir.forgotten) != 0 {
+					t.Errorf("skip must return the cached seen_at and evict nothing: at=%v forgotten=%v", at, dir.forgotten)
+				}
+			} else if !at.Equal(t0) || len(dir.forgotten) != 1 {
+				t.Errorf("at = %v forgotten = %v", at, dir.forgotten)
+			}
+		})
 	}
 }

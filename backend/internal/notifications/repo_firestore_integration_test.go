@@ -118,15 +118,48 @@ func TestIntegration_AddActorFoldsAndMovesCreatedAt(t *testing.T) {
 	mustNoErr(t, err)
 	ctx, c := counted()
 	mustNoErr(t, repo.AddActor(ctx, "bob", "like_x", Actor{UserID: "carol", Handle: "h_carol"}, t0.Add(time.Minute)))
-	budgettest.Assert(t, "AddActor", c, budgettest.Budget{Writes: 1})
-	mustNoErr(t, repo.AddActor(context.Background(), "bob", "like_x", Actor{UserID: "carol", Handle: "h_carol"}, t0.Add(2*time.Minute)))
+	budgettest.Assert(t, "AddActor", c, budgettest.Budget{Reads: 1, Writes: 1})
+	// The same actor again (a redelivery) is write-free: 1 read, 0 writes, createdAt untouched.
+	ctx, c = counted()
+	mustNoErr(t, repo.AddActor(ctx, "bob", "like_x", Actor{UserID: "carol", Handle: "h_carol"}, t0.Add(2*time.Minute)))
+	budgettest.Assert(t, "AddActor replay", c, budgettest.Budget{Reads: 1})
 	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 5})
 	mustNoErr(t, err)
-	if len(rows) != 1 || len(rows[0].ActorIDs) != 2 || rows[0].Actor.UserID != "carol" || !rows[0].CreatedAt.Equal(t0.Add(2*time.Minute)) {
+	if len(rows) != 1 || len(rows[0].ActorIDs) != 2 || rows[0].ActorCount != 2 || rows[0].Actor.UserID != "carol" || !rows[0].CreatedAt.Equal(t0.Add(time.Minute)) {
 		t.Fatalf("rows = %+v", rows)
 	}
 	// A row that expired in between is not an error.
 	mustNoErr(t, repo.AddActor(context.Background(), "bob", "gone", Actor{UserID: "carol"}, t0))
+}
+
+// TestIntegration_AddActorCapsTheHotDoc: a viral post's collapsed row keeps the last MaxActorIDs actors and a
+// running count (ADR-0017 D4 amendment), so the document does not grow without bound.
+func TestIntegration_AddActorCapsTheHotDoc(t *testing.T) {
+	repo := NewFirestoreRepo(newTestClient(t))
+	_, err := repo.Create(context.Background(), "bob", row("like_hot", TypeLike, "a000", t0))
+	mustNoErr(t, err)
+	total := MaxActorIDs + 10
+	for i := 1; i < total; i++ {
+		u := fmt.Sprintf("a%03d", i)
+		ctx, c := counted()
+		mustNoErr(t, repo.AddActor(ctx, "bob", "like_hot", Actor{UserID: u, Handle: "h_" + u}, t0.Add(time.Duration(i)*time.Second)))
+		budgettest.Assert(t, "AddActor "+u, c, budgettest.Budget{Reads: 1, Writes: 1})
+	}
+	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 5})
+	mustNoErr(t, err)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	r := rows[0]
+	if len(r.ActorIDs) != MaxActorIDs || r.ActorCount != total {
+		t.Fatalf("actorIds = %d (want %d), actorCount = %d (want %d)", len(r.ActorIDs), MaxActorIDs, r.ActorCount, total)
+	}
+	if want := fmt.Sprintf("a%03d", total-1); r.ActorIDs[len(r.ActorIDs)-1] != want || r.Actor.UserID != want {
+		t.Errorf("newest actor = %q / %q, want %q", r.ActorIDs[len(r.ActorIDs)-1], r.Actor.UserID, want)
+	}
+	if r.ActorIDs[0] != fmt.Sprintf("a%03d", total-MaxActorIDs) {
+		t.Errorf("oldest kept actor = %q", r.ActorIDs[0])
+	}
 }
 
 func TestIntegration_ListOrderBoundsAndBudget(t *testing.T) {
@@ -232,7 +265,7 @@ func TestIntegration_RegisterDevice_CapEvictsLeastRecentlyUpdated(t *testing.T) 
 	// device-0 refreshes: it is now the most recently updated, so device-1 is the one evicted.
 	register(t, repo, "alice", "device-000000000000", "tok-0", t0.Add(30*time.Hour))
 	c := register(t, repo, "alice", "device-new000000000", "tok-new", t0.Add(31*time.Hour))
-	budgettest.Assert(t, "RegisterDevice sixth", c, budgettest.Budget{Reads: 8, Writes: 2, Deletes: 3})
+	budgettest.Assert(t, "RegisterDevice sixth", c, budgettest.Budget{Reads: 9, Writes: 2, Deletes: 3})
 	if n := countDocs(t, client, "users/alice/devices"); n != MaxDevicesPerUser {
 		t.Fatalf("devices after the sixth = %d, want %d", n, MaxDevicesPerUser)
 	}
@@ -243,6 +276,28 @@ func TestIntegration_RegisterDevice_CapEvictsLeastRecentlyUpdated(t *testing.T) 
 		if !docExists(t, client, "users/alice/devices/"+id) {
 			t.Errorf("%s was evicted", id)
 		}
+	}
+}
+
+// TestIntegration_RegisterDevice_EvictionKeepsATokenIndexAnotherAccountOwns: the evicted device's index entry is
+// deleted only when it still names that device.
+func TestIntegration_RegisterDevice_EvictionKeepsATokenIndexAnotherAccountOwns(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	for i := 0; i < MaxDevicesPerUser; i++ {
+		register(t, repo, "alice", fmt.Sprintf("device-%012d", i), fmt.Sprintf("tok-%d", i), t0.Add(time.Duration(i)*time.Minute))
+	}
+	// device-0 is the eviction candidate; its token index now belongs to bob's device.
+	_, err := client.Doc("deviceTokens/"+TokenKey("tok-0")).Set(context.Background(), map[string]any{"uid": "bob", "deviceId": "device-bbbbbbbbbbbb", "updatedAt": t0})
+	mustNoErr(t, err)
+	register(t, repo, "alice", "device-new000000000", "tok-new", t0.Add(time.Hour))
+	if docExists(t, client, "users/alice/devices/device-000000000000") {
+		t.Fatal("the least recently updated device must still be evicted")
+	}
+	snap, err := client.Doc("deviceTokens/" + TokenKey("tok-0")).Get(context.Background())
+	mustNoErr(t, err)
+	if uid, _ := snap.DataAt("uid"); uid != "bob" {
+		t.Errorf("bob's token index was deleted or rewritten by alice's eviction (uid = %v)", uid)
 	}
 }
 
@@ -307,7 +362,7 @@ func TestIntegration_RemoveDevice_DoesNotDeleteAnotherOwnersIndex(t *testing.T) 
 
 func TestIntegration_PurgeUserIsResumableAndLeavesOthersAlone(t *testing.T) {
 	client := newTestClient(t)
-	repo := NewFirestoreRepo(client)
+	repo := NewFirestoreRepo(client).WithDirectory(newDirectory("dave"))
 	ctx := context.Background()
 	register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-a1", t0)
 	register(t, repo, "alice", "device-aaaaaaaaaaab", "tok-a2", t0)
@@ -334,15 +389,23 @@ func TestIntegration_PurgeUserIsResumableAndLeavesOthersAlone(t *testing.T) {
 		pctx, c := counted()
 		cp, done, err = repo.PurgeUser(pctx, "alice", cp)
 		mustNoErr(t, err)
-		budgettest.Assert(t, fmt.Sprintf("PurgeUser step %d", steps), c, budgettest.Budget{Reads: 600, Writes: 0, Deletes: 600})
+		budgettest.Assert(t, fmt.Sprintf("PurgeUser step %d", steps), c, budgettest.Budget{Reads: 600, Writes: 1, Deletes: 600})
 	}
 	if countDocs(t, client, "users/alice/devices") != 0 || countDocs(t, client, "users/alice/notifications") != 0 {
 		t.Error("alice's own data remains")
 	}
-	for _, p := range []string{"deviceTokens/" + TokenKey("tok-a1"), "deviceTokens/" + TokenKey("tok-a2"), "users/bob/notifications/follow_alice", "users/carol/notifications/like_x"} {
+	for _, p := range []string{"deviceTokens/" + TokenKey("tok-a1"), "deviceTokens/" + TokenKey("tok-a2"), "users/bob/notifications/follow_alice"} {
 		if docExists(t, client, p) {
 			t.Errorf("%s survived the purge", p)
 		}
+	}
+	// carol's collapsed like row also named dave: alice is removed from it and the row is repointed at dave.
+	like, err := client.Doc("users/carol/notifications/like_x").Get(ctx)
+	mustNoErr(t, err)
+	var ld notificationDoc
+	mustNoErr(t, like.DataTo(&ld))
+	if len(ld.ActorIDs) != 1 || ld.ActorIDs[0] != "dave" || ld.Actor.UserID != "dave" || ld.Actor.Handle != "h_dave" || ld.ActorCount != 1 {
+		t.Errorf("carol's like row after the purge = %+v", ld)
 	}
 	for _, p := range []string{"deviceTokens/" + TokenKey("tok-b"), "users/bob/devices/device-bbbbbbbbbbbb", "users/bob/notifications/follow_dave"} {
 		if !docExists(t, client, p) {
@@ -352,6 +415,7 @@ func TestIntegration_PurgeUserIsResumableAndLeavesOthersAlone(t *testing.T) {
 	if cp.Deleted != 2+3+2 {
 		t.Errorf("deleted = %d, want 7", cp.Deleted)
 	}
+	// A second purge must have nothing left to do (alice is in no actorIds, so the step-2 query is empty).
 	// Running it again is a clean no-op.
 	_, done, err := repo.PurgeUser(ctx, "alice", Checkpoint{})
 	mustNoErr(t, err)
@@ -440,9 +504,15 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 	}
 	before := len(rig.sender.sent)
 	lc, o = like("carol")
-	budgettest.Assert(t, "fan-out collapsed like", lc, budgettest.Budget{Reads: 1, Writes: 1})
+	budgettest.Assert(t, "fan-out collapsed like", lc, budgettest.Budget{Reads: 2, Writes: 1})
 	if o.Duplicate != 1 || len(rig.sender.sent) != before {
 		t.Fatalf("collapsed like = %+v, pushes %d -> %d", o, before, len(rig.sender.sent))
+	}
+	// Redelivering carol's like writes nothing: 1 read for the failed Create, 1 for the fold's check.
+	lc, o = like("carol")
+	budgettest.Assert(t, "fan-out like redelivery", lc, budgettest.Budget{Reads: 2})
+	if lc.Writes() != 0 || o.Duplicate != 1 {
+		t.Errorf("like redelivery wrote %d docs, outcome %+v", lc.Writes(), o)
 	}
 	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 10})
 	mustNoErr(t, err)

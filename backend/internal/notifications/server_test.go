@@ -19,7 +19,7 @@ func authedCtx(uid string) context.Context {
 
 func newTestServer(fl FlagChecker) (*Server, *fakeRepo, *fakeSeen) {
 	repo, seen := newFakeRepo(), &fakeSeen{}
-	svc := NewService(Deps{Repo: repo, Directory: newDirectory("me"), Seen: seen, CursorKey: testKey, Now: func() time.Time { return t0 }})
+	svc := NewService(Deps{Repo: repo, Directory: newDirectory("me"), Social: &fakeSocial{}, Seen: seen, CursorKey: testKey, Now: func() time.Time { return t0 }})
 	return NewServer(svc, fl), repo, seen
 }
 
@@ -136,5 +136,26 @@ func TestLogSenderAndTruncate(t *testing.T) {
 	}
 	if truncate("abcdef", 3) != "abc" || truncate("ab", 3) != "ab" {
 		t.Error("truncate")
+	}
+}
+
+func TestToProto_ActorCountPrefersTheStoredCount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		n    Notification
+		want int32
+	}{
+		{"old row without the field", Notification{ActorIDs: []string{"a", "b"}}, 2},
+		{"collapsed row beyond the id cap", Notification{ActorIDs: make([]string, MaxActorIDs), ActorCount: 180}, 180},
+		{"empty", Notification{}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ToProto(tt.n).GetActorCount(); got != tt.want {
+				t.Errorf("actor_count = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }

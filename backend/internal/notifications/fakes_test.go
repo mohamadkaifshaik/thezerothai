@@ -25,6 +25,7 @@ type fakeRepo struct {
 	devErr    error
 	creates   int
 	addActors int
+	foldWrite int      // AddActor calls that changed the row
 	removed   []string // "uid/deviceID/onlyIfToken"
 	lastList  ListQuery
 }
@@ -58,13 +59,12 @@ func (f *fakeRepo) AddActor(_ context.Context, uid, id string, a Actor, at time.
 	if !ok {
 		return nil
 	}
-	have := false
-	for _, x := range n.ActorIDs {
-		have = have || x == a.UserID
+	ids, changed := foldActor(n.ActorIDs, a.UserID)
+	if !changed {
+		return nil
 	}
-	if !have {
-		n.ActorIDs = append(n.ActorIDs, a.UserID)
-	}
+	f.foldWrite++
+	n.ActorIDs, n.ActorCount = ids, max(n.ActorCount, len(n.ActorIDs))+1
 	n.Actor, n.CreatedAt = a, at
 	f.rows[uid][id] = n
 	return nil
@@ -195,11 +195,13 @@ func (d *fakeDirectory) Forget(uids ...string) { d.forgotten = append(d.forgotte
 type fakeSocial struct {
 	snaps map[string]graph.Snapshot
 	err   error
+	// failFor makes Snapshot fail for that one uid only.
+	failFor string
 }
 
 func (s *fakeSocial) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
-	if s.err != nil {
-		return graph.Snapshot{}, s.err
+	if s.err != nil || (s.failFor != "" && s.failFor == uid) {
+		return graph.Snapshot{}, errBoom
 	}
 	return s.snaps[uid], nil
 }
@@ -210,6 +212,10 @@ type fakeSender struct {
 	sent []sentPush
 	dead map[string]bool
 	fail map[string]bool
+	// coded maps a token to the FCM code its non-pruning failure carries.
+	coded map[string]string
+	// onSend runs before every send (ordering assertions).
+	onSend func()
 }
 
 type sentPush struct {
@@ -220,7 +226,12 @@ type sentPush struct {
 func (s *fakeSender) Send(_ context.Context, token string, p Push) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.onSend != nil {
+		s.onSend()
+	}
 	switch {
+	case s.coded[token] != "":
+		return &PushError{Code: s.coded[token]}
 	case s.dead[token]:
 		return ErrTokenUnregistered
 	case s.fail[token]:

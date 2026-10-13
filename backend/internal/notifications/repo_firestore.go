@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 const (
@@ -40,7 +41,9 @@ type Repo interface {
 	// Create writes the row if it does not exist. created=false means it already existed (a redelivery, or the
 	// next like of a collapsed row). Reads 0, writes 1 (a failed create is billed as 1 read).
 	Create(ctx context.Context, recipientUID string, n Notification) (created bool, err error)
-	// AddActor folds a further actor into a collapsed row and moves createdAt to at. A missing row is not an error.
+	// AddActor folds a further actor into a collapsed row (actorIds capped at the last MaxActorIDs, actorCount
+	// incremented) and moves createdAt to at; an actor already in the row writes nothing. A missing row is not an
+	// error. Reads 1, writes 0-1.
 	AddActor(ctx context.Context, recipientUID, id string, a Actor, at time.Time) error
 	// List runs the query described by q. Reads: rows returned, minimum 1.
 	List(ctx context.Context, uid string, q ListQuery) ([]Notification, error)
@@ -56,6 +59,15 @@ type Repo interface {
 // FirestoreRepo implements Repo, Eraser and Exporter against Firestore.
 type FirestoreRepo struct {
 	client *firestore.Client
+	// dir resolves the replacement display actor when a purge removes the displayed actor of a collapsed row. Nil
+	// (unit tests, opsctl) makes such rows be deleted instead.
+	dir Directory
+}
+
+// WithDirectory wires the identity seam used by Eraser step 2 and returns the repo.
+func (r *FirestoreRepo) WithDirectory(d Directory) *FirestoreRepo {
+	r.dir = d
+	return r
 }
 
 // NewFirestoreRepo builds the repo. A nil client is allowed for wiring-only tests (no method may be called).
@@ -83,12 +95,15 @@ type actorDoc struct {
 }
 
 type notificationDoc struct {
-	Type      string    `firestore:"type"`
-	Actor     actorDoc  `firestore:"actor"`
-	ActorIDs  []string  `firestore:"actorIds"`
-	PostID    string    `firestore:"postId,omitempty"`
-	CreatedAt time.Time `firestore:"createdAt"`
-	ExpireAt  time.Time `firestore:"expireAt"`
+	Type     string   `firestore:"type"`
+	Actor    actorDoc `firestore:"actor"`
+	ActorIDs []string `firestore:"actorIds"`
+	// ActorCount is the distinct actors folded in so far; ActorIDs keeps only the last MaxActorIDs of them (the
+	// hot-doc bound, ADR-0017 D4). Rows written before the field existed read 0 and fall back to len(ActorIDs).
+	ActorCount int       `firestore:"actorCount"`
+	PostID     string    `firestore:"postId,omitempty"`
+	CreatedAt  time.Time `firestore:"createdAt"`
+	ExpireAt   time.Time `firestore:"expireAt"`
 }
 
 type deviceDoc struct {
@@ -106,7 +121,7 @@ type tokenIndexDoc struct {
 
 func (d notificationDoc) toNotification(id string) Notification {
 	return Notification{
-		ID: id, Type: Type(d.Type), PostID: d.PostID, CreatedAt: d.CreatedAt.UTC(), ActorIDs: d.ActorIDs,
+		ID: id, Type: Type(d.Type), PostID: d.PostID, CreatedAt: d.CreatedAt.UTC(), ActorIDs: d.ActorIDs, ActorCount: d.ActorCount,
 		Actor: Actor{UserID: d.Actor.UserID, Handle: d.Actor.Handle, DisplayName: d.Actor.DisplayName,
 			AvatarURL: d.Actor.AvatarURL, Verified: d.Actor.Verified},
 	}
@@ -128,18 +143,11 @@ func (r *FirestoreRepo) tokenRef(token string) *firestore.DocumentRef {
 	return r.client.Collection(deviceTokensCollection).Doc(TokenKey(token))
 }
 
-func readsFor(n int) int64 {
-	if n == 0 {
-		return 1
-	}
-	return int64(n)
-}
-
 // Create implements Repo.
 func (r *FirestoreRepo) Create(ctx context.Context, recipientUID string, n Notification) (bool, error) {
 	doc := notificationDoc{
-		Type: string(n.Type), Actor: toActorDoc(n.Actor), ActorIDs: n.ActorIDs, PostID: n.PostID,
-		CreatedAt: n.CreatedAt, ExpireAt: n.CreatedAt.Add(TTL),
+		Type: string(n.Type), Actor: toActorDoc(n.Actor), ActorIDs: n.ActorIDs, ActorCount: max(n.ActorCount, len(n.ActorIDs)),
+		PostID: n.PostID, CreatedAt: n.CreatedAt, ExpireAt: n.CreatedAt.Add(TTL),
 	}
 	_, err := r.notifications(recipientUID).Doc(n.ID).Create(ctx, doc)
 	if err != nil {
@@ -153,21 +161,59 @@ func (r *FirestoreRepo) Create(ctx context.Context, recipientUID string, n Notif
 	return true, nil
 }
 
-// AddActor implements Repo.
+// foldActor returns ids with actorID as the newest entry, trimmed to the last MaxActorIDs, and whether anything
+// changed (false when actorID is already present: a redelivery or a repeat like).
+func foldActor(ids []string, actorID string) ([]string, bool) {
+	for _, id := range ids {
+		if id == actorID {
+			return ids, false
+		}
+	}
+	out := append(append(make([]string, 0, len(ids)+1), ids...), actorID)
+	if len(out) > MaxActorIDs {
+		out = out[len(out)-MaxActorIDs:]
+	}
+	return out, true
+}
+
+// AddActor implements Repo: one transaction, 1 read always, 1 write only when the actor is new to the row.
+// actorIds is capped at the last MaxActorIDs (hot-doc bound, ADR-0017 D4) and actorCount keeps counting through
+// firestore.Increment. A missing row is not an error (expired or erased between the failed create and this call).
 func (r *FirestoreRepo) AddActor(ctx context.Context, recipientUID, id string, a Actor, at time.Time) error {
-	_, err := r.notifications(recipientUID).Doc(id).Update(ctx, []firestore.Update{
-		{Path: "actorIds", Value: firestore.ArrayUnion(a.UserID)},
-		{Path: "actor", Value: toActorDoc(a)},
-		{Path: "createdAt", Value: at},
-		{Path: "expireAt", Value: at.Add(TTL)},
+	ref := r.notifications(recipientUID).Doc(id)
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		counter := budget.FromContext(ctx)
+		snap, err := tx.Get(ref)
+		counter.AddReads(1)
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return nil
+			}
+			return fmt.Errorf("read row: %w", err)
+		}
+		var cur notificationDoc
+		if err := snap.DataTo(&cur); err != nil {
+			return fmt.Errorf("decode row: %w", err)
+		}
+		ids, changed := foldActor(cur.ActorIDs, a.UserID)
+		if !changed {
+			return nil // already folded in: redelivery is write-free
+		}
+		if err := tx.Update(ref, []firestore.Update{
+			{Path: "actorIds", Value: ids},
+			{Path: "actorCount", Value: firestore.Increment(1)},
+			{Path: "actor", Value: toActorDoc(a)},
+			{Path: "createdAt", Value: at},
+			{Path: "expireAt", Value: at.Add(TTL)},
+		}); err != nil {
+			return err
+		}
+		counter.AddWrites(1)
+		return nil
 	})
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return nil // expired or erased between the failed create and this update
-		}
 		return fmt.Errorf("notifications: fold actor into %s for %s: %w", id, logger.HashUID(recipientUID), err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }
 
@@ -181,7 +227,7 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string, q ListQuery) ([]No
 		query = query.EndBefore(q.After.CreatedAt, r.notifications(uid).Doc(q.After.DocID))
 	}
 	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddReads(readsFor(len(docs)))
+	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("notifications: list for %s: %w", logger.HashUID(uid), err)
 	}
@@ -199,7 +245,7 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string, q ListQuery) ([]No
 // Devices implements Repo.
 func (r *FirestoreRepo) Devices(ctx context.Context, uid string, limit int) ([]Device, error) {
 	docs, err := r.devices(uid).Limit(limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddReads(readsFor(len(docs)))
+	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("notifications: devices for %s: %w", logger.HashUID(uid), err)
 	}
@@ -227,8 +273,10 @@ func (r *FirestoreRepo) Devices(ctx context.Context, uid string, limit int) ([]D
 func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device, now time.Time) error {
 	devRef := r.devices(uid).Doc(d.ID)
 	idxRef := r.tokenRef(d.Token)
-	counter := budget.FromContext(ctx)
-	return r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		// The body's ctx carries the per-attempt scratch counter: store.RunTransaction folds reads always and
+		// writes/deletes only for the attempt that commits (an aborted attempt wrote nothing).
+		counter := budget.FromContext(ctx)
 		var reads, writes, deletes int64
 		defer func() {
 			counter.AddReads(reads)
@@ -292,9 +340,10 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 		}
 
 		var evict *firestore.DocumentSnapshot
+		var evictIdx *firestore.DocumentRef // set only when the index still names the evicted device
 		if !exists {
 			docs, err := tx.Documents(r.devices(uid).OrderBy("updatedAt", firestore.Asc).Limit(MaxDevicesPerUser)).GetAll()
-			reads += readsFor(len(docs))
+			reads += int64(max(len(docs), 1))
 			if err != nil {
 				return fmt.Errorf("notifications: list devices: %w", err)
 			}
@@ -307,6 +356,28 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 					if takeOver == nil || s.Ref.ID != takeOver.ID {
 						evict = s
 						break
+					}
+				}
+			}
+			// The evicted device's index entry is deleted only when it still names that device: a token another
+			// account took over is theirs now (one more read, before any write).
+			if evict != nil {
+				var ed deviceDoc
+				if err := evict.DataTo(&ed); err == nil && ed.Token != "" && ed.Token != d.Token {
+					ref := r.tokenRef(ed.Token)
+					snap, err := tx.Get(ref)
+					reads++
+					switch {
+					case err == nil:
+						var eidx tokenIndexDoc
+						if derr := snap.DataTo(&eidx); derr != nil {
+							return fmt.Errorf("notifications: decode evicted token index: %w", derr)
+						}
+						if eidx.UID == uid && eidx.DeviceID == evict.Ref.ID {
+							evictIdx = ref
+						}
+					case status.Code(err) != codes.NotFound:
+						return fmt.Errorf("notifications: read evicted token index: %w", err)
 					}
 				}
 			}
@@ -336,14 +407,13 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 			}
 			deletes++
 		}
-		if evict != nil {
-			var ed deviceDoc
-			if err := evict.DataTo(&ed); err == nil && ed.Token != "" {
-				if err := tx.Delete(r.tokenRef(ed.Token)); err != nil {
-					return err
-				}
-				deletes++
+		if evictIdx != nil {
+			if err := tx.Delete(evictIdx); err != nil {
+				return err
 			}
+			deletes++
+		}
+		if evict != nil {
 			if err := tx.Delete(evict.Ref); err != nil {
 				return err
 			}
@@ -351,13 +421,14 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 		}
 		return nil
 	})
+	return err
 }
 
 // RemoveDevice implements Repo. Reads 2 (device, index), writes 0 or 1-2 (deletes).
 func (r *FirestoreRepo) RemoveDevice(ctx context.Context, uid, deviceID, onlyIfToken string) error {
 	devRef := r.devices(uid).Doc(deviceID)
-	counter := budget.FromContext(ctx)
-	return r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(devRef)
 		counter.AddReads(1)
 		if err != nil {
@@ -399,4 +470,5 @@ func (r *FirestoreRepo) RemoveDevice(ctx context.Context, uid, deviceID, onlyIfT
 		}
 		return nil
 	})
+	return err
 }

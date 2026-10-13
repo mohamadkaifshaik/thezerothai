@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -182,13 +183,13 @@ func TestDeliver_LikesCollapsePerPostPerHour(t *testing.T) {
 	if out := like("alice", t0); out.Created != 1 || out.Pushed != 1 {
 		t.Fatalf("first like outcome = %+v", out)
 	}
-	for _, a := range []string{"carol", "dave", "carol"} { // the repeat by carol is idempotent (ArrayUnion)
+	for _, a := range []string{"carol", "dave", "carol"} { // the repeat by carol is write-free
 		if out := like(a, t0.Add(time.Minute)); out.Created != 0 || out.Duplicate != 1 || out.Pushed != 0 {
 			t.Fatalf("collapsed like by %s outcome = %+v", a, out)
 		}
 	}
 	row := r.repo.rows["bob"]["like_"+postA+"_2026101012"]
-	if len(row.ActorIDs) != 3 || row.Actor.UserID != "carol" {
+	if len(row.ActorIDs) != 3 || row.Actor.UserID != "dave" || row.ActorCount != 3 {
 		t.Fatalf("row = %+v", row)
 	}
 	if len(r.sender.sent) != 1 {
@@ -357,4 +358,136 @@ func TestHandler_BodyIsBounded(t *testing.T) {
 	if len(r.repo.rows) != 0 {
 		t.Errorf("rows = %v", r.repo.rows)
 	}
+}
+
+func TestDeliver_PushErrorKeepsTheDeviceAndLogsOnlyTheCode(t *testing.T) {
+	r := newRig(t, nil)
+	r.addDevice("bob", "d1", "tok-secret-1")
+	r.sender.coded = map[string]string{"tok-secret-1": "INVALID_ARGUMENT"}
+	out, err := r.f.Deliver(context.Background(), Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0})
+	mustNoErr(t, err)
+	if out.Pruned != 0 || len(r.repo.removed) != 0 || len(r.repo.devices["bob"]) != 1 {
+		t.Fatalf("INVALID_ARGUMENT must keep the device: out=%+v removed=%v", out, r.repo.removed)
+	}
+	logs := r.logs.String()
+	if !strings.Contains(logs, "notification_push_failed") || !strings.Contains(logs, `"fcm_code":"INVALID_ARGUMENT"`) {
+		t.Errorf("the redacted FCM code was not logged: %s", logs)
+	}
+	if strings.Contains(logs, "tok-secret") {
+		t.Errorf("a token reached the logs: %s", logs)
+	}
+}
+
+func TestDeliver_BlockCheckHonorsBlockedByOverflow(t *testing.T) {
+	tests := []struct {
+		name     string
+		snaps    map[string]graphSnap
+		wantRows int
+	}{
+		{"no overflow: the recipient's blockedBy is complete", map[string]graphSnap{"bob": {}, "alice": {Blocked: map[string]bool{"bob": true}}}, 1},
+		{"overflow: the actor's own blocked list decides", map[string]graphSnap{"bob": {BlockedByOverflow: true}, "alice": {Blocked: map[string]bool{"bob": true}}}, 0},
+		{"overflow but the actor does not block", map[string]graphSnap{"bob": {BlockedByOverflow: true}, "alice": {}}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRig(t, nil)
+			r.social.snaps = tt.snaps
+			out, err := r.f.Deliver(context.Background(), Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0})
+			mustNoErr(t, err)
+			if got := len(r.repo.rows["bob"]); got != tt.wantRows {
+				t.Errorf("rows = %d, want %d (%+v)", got, tt.wantRows, out)
+			}
+		})
+	}
+	t.Run("a failed actor graph read retries", func(t *testing.T) {
+		r := newRig(t, nil)
+		r.social.snaps = map[string]graphSnap{"bob": {BlockedByOverflow: true}}
+		r.social.failFor = "alice"
+		if _, err := r.f.Deliver(context.Background(), Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}); err == nil {
+			t.Fatal("want a retryable error: never write a possibly blocked row")
+		}
+	})
+}
+
+func TestDeliver_RowsAreCommittedBeforeAnyPushWithPerRecipientTime(t *testing.T) {
+	r := newRig(t, nil)
+	r.dir = newDirectory("alice", "bob", "carol")
+	r.f.d.Directory = r.dir
+	r.addDevice("bob", "d1", "tok-bob")
+	r.addDevice("carol", "d2", "tok-carol")
+	clock := t0
+	r.f.d.Now = func() time.Time { clock = clock.Add(2 * time.Second); return clock }
+	var rowsAtFirstPush = -1
+	r.sender.onSend = func() {
+		if rowsAtFirstPush < 0 {
+			rowsAtFirstPush = len(r.repo.rows["bob"]) + len(r.repo.rows["carol"])
+		}
+	}
+	_, err := r.f.Deliver(context.Background(), Event{Type: TypeMention, ActorID: "alice", RecipientIDs: []string{"bob", "carol"}, PostID: postA})
+	mustNoErr(t, err)
+	if rowsAtFirstPush != 2 {
+		t.Errorf("rows committed at the first push = %d, want 2 (all rows before any push)", rowsAtFirstPush)
+	}
+	bob, carol := r.repo.rows["bob"]["mention_"+postA], r.repo.rows["carol"]["mention_"+postA]
+	if !carol.CreatedAt.After(bob.CreatedAt) {
+		t.Errorf("createdAt must be taken per recipient: bob %v carol %v", bob.CreatedAt, carol.CreatedAt)
+	}
+}
+
+func TestDeliver_FreshStatusReadAndWriteFreeLikeRedelivery(t *testing.T) {
+	r := newRig(t, nil)
+	ev := Event{Type: TypeLike, ActorID: "alice", RecipientIDs: []string{"bob"}, PostID: postA, At: t0}
+	_, err := r.f.Deliver(context.Background(), ev)
+	mustNoErr(t, err)
+	if want := "alice,bob"; strings.Join(r.dir.forgotten, ",") != want {
+		t.Errorf("forgotten = %v, want the actor and recipients evicted for a fresh ACTIVE check", r.dir.forgotten)
+	}
+	// A second like by carol folds in (1 write); a redelivery of carol's like writes nothing.
+	r.dir = newDirectory("alice", "bob", "carol")
+	r.f.d.Directory = r.dir
+	carol := Event{Type: TypeLike, ActorID: "carol", RecipientIDs: []string{"bob"}, PostID: postA, At: t0}
+	for i := 0; i < 3; i++ {
+		if _, err := r.f.Deliver(context.Background(), carol); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.repo.foldWrite != 1 {
+		t.Errorf("fold writes = %d, want 1 (redelivery must be write-free)", r.repo.foldWrite)
+	}
+	row := r.repo.rows["bob"]["like_"+postA+"_2026101012"]
+	if len(row.ActorIDs) != 2 || row.ActorCount != 2 {
+		t.Errorf("row = %+v", row)
+	}
+}
+
+func TestFoldActor(t *testing.T) {
+	t.Parallel()
+	t.Run("already present is a no-op", func(t *testing.T) {
+		t.Parallel()
+		ids, changed := foldActor([]string{"a", "b"}, "a")
+		if changed || len(ids) != 2 {
+			t.Errorf("ids = %v changed = %v", ids, changed)
+		}
+	})
+	t.Run("appends", func(t *testing.T) {
+		t.Parallel()
+		ids, changed := foldActor([]string{"a"}, "b")
+		if !changed || strings.Join(ids, ",") != "a,b" {
+			t.Errorf("ids = %v", ids)
+		}
+	})
+	t.Run("is capped at the last MaxActorIDs", func(t *testing.T) {
+		t.Parallel()
+		var cur []string
+		for i := 0; i < MaxActorIDs; i++ {
+			cur = append(cur, fmt.Sprintf("u%03d", i))
+		}
+		ids, changed := foldActor(cur, "newest")
+		if !changed || len(ids) != MaxActorIDs || ids[0] != "u001" || ids[len(ids)-1] != "newest" {
+			t.Errorf("len %d first %s last %s", len(ids), ids[0], ids[len(ids)-1])
+		}
+		if len(cur) != MaxActorIDs || cur[0] != "u000" {
+			t.Error("the input slice must not be modified")
+		}
+	})
 }
