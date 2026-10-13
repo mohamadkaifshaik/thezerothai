@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
@@ -57,7 +58,7 @@ type Thread struct {
 // (viewable). Every refusal is the one NOT_FOUND "post not found" answer, so the response reveals neither a
 // deleted parent nor a block. Reads: parent 1 + its author 1 + caller graph 1 cold, 0 warm.
 func (s *service) replyParent(ctx context.Context, uid, parentID string) (*Post, error) {
-	if !postIDPattern.MatchString(parentID) {
+	if !ids.ValidPostID(parentID) {
 		return nil, apierr.Validation("reply_to_post_id", "reply_to_post_id must be a 19-digit post id")
 	}
 	p, err := s.viewable(ctx, uid, parentID)

@@ -217,19 +217,7 @@ func (e *accountSmokeEnv) runJobs(t *testing.T) {
 
 func (e *accountSmokeEnv) eventually(t *testing.T, what string, timeout time.Duration, cond func() (bool, string)) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var last string
-	for {
-		ok, msg := cond()
-		if ok {
-			return
-		}
-		last = msg
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: not true within %v (last: %s)", what, timeout, last)
-		}
-		time.Sleep(2 * time.Second)
-	}
+	eventually(t, what, timeout, 2*time.Second, cond)
 }
 
 func TestE2E_AccountLifecycleSmoke(t *testing.T) {

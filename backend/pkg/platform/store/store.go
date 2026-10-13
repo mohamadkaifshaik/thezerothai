@@ -21,7 +21,7 @@ import (
 type Batch interface {
 	Set(ref *firestore.DocumentRef, data interface{}, opts ...firestore.SetOption) Batch
 	Create(ref *firestore.DocumentRef, data interface{}) Batch
-	Update(ref *firestore.DocumentRef, updates []firestore.Update) Batch
+	Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch
 	// Delete's variadic preconditions (added for ADR-0008 T7/D10) let a caller require firestore.Exists so
 	// a whole atomic batch/transaction fails (0 writes) instead of silently deleting nothing when the
 	// document is already gone — Unfollow's blind-batch replay safety and the purge cascade's
@@ -53,17 +53,8 @@ func (b *FirestoreBatch) Create(ref *firestore.DocumentRef, data interface{}) Ba
 	return b
 }
 
-func (b *FirestoreBatch) Update(ref *firestore.DocumentRef, updates []firestore.Update) Batch {
-	b.wb.Update(ref, updates)
-	b.counter.AddWrites(1)
-	return b
-}
-
-// UpdateIf is Update with a precondition (typically firestore.LastUpdateTime of the snapshot the caller read), so
-// a read-modify-write across many documents fails the whole batch (0 writes) when any document changed since it
-// was read. It is on the concrete type only: Batch (and its fakes) is unchanged.
-func (b *FirestoreBatch) UpdateIf(ref *firestore.DocumentRef, updates []firestore.Update, pre firestore.Precondition) *FirestoreBatch {
-	b.wb.Update(ref, updates, pre)
+func (b *FirestoreBatch) Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch {
+	b.wb.Update(ref, updates, preconditions...)
 	b.counter.AddWrites(1)
 	return b
 }
@@ -123,8 +114,8 @@ func (b *FirestoreTxBatch) Create(ref *firestore.DocumentRef, data interface{}) 
 	return b
 }
 
-func (b *FirestoreTxBatch) Update(ref *firestore.DocumentRef, updates []firestore.Update) Batch {
-	b.noteErr(b.tx.Update(ref, updates))
+func (b *FirestoreTxBatch) Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch {
+	b.noteErr(b.tx.Update(ref, updates, preconditions...))
 	b.counter.AddWrites(1)
 	return b
 }

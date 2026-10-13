@@ -28,7 +28,9 @@ func (f *fakeBatch) Create(_ *firestore.DocumentRef, data interface{}) store.Bat
 	f.creates = append(f.creates, data)
 	return f
 }
-func (f *fakeBatch) Update(_ *firestore.DocumentRef, _ []firestore.Update) store.Batch { return f }
+func (f *fakeBatch) Update(_ *firestore.DocumentRef, _ []firestore.Update, _ ...firestore.Precondition) store.Batch {
+	return f
+}
 func (f *fakeBatch) Delete(_ *firestore.DocumentRef, _ ...firestore.Precondition) store.Batch {
 	return f
 }

@@ -19,3 +19,17 @@ func ValidUID(uid string) bool {
 // UIDMessage is the user-facing validation text for a bad user_id, shared by every graph RPC so the wording
 // lives in one place (graph code review N2).
 const UIDMessage = "user_id must be 1-128 characters of [A-Za-z0-9-]"
+
+// ValidPostID reports whether id is a post id: the 19-digit zero-padded Snowflake decimal (ADR-0010 D18).
+// Pure; never touches Firestore.
+func ValidPostID(id string) bool {
+	if len(id) != 19 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		if id[i] < '0' || id[i] > '9' {
+			return false
+		}
+	}
+	return true
+}

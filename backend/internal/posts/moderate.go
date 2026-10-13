@@ -135,7 +135,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 		if d.Moderation != "" {
 			continue // already hidden (TAKEN_DOWN stays TAKEN_DOWN; SUSPENDED_AUTHOR is a re-run)
 		}
-		b.UpdateIf(s.Ref, moderationUpdates(ModerationSuspendedAuthor, now), firestore.LastUpdateTime(s.UpdateTime))
+		b.Update(s.Ref, moderationUpdates(ModerationSuspendedAuthor, now), firestore.LastUpdateTime(s.UpdateTime))
 		changed++
 	}
 	if changed > 0 {
@@ -178,7 +178,7 @@ func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp Modera
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, s := range docs {
 		// Select() keeps UpdateTime, so a post a moderator took down meanwhile fails the batch (and is re-read).
-		b.UpdateIf(s.Ref, moderationUpdates(ModerationNone, time.Time{}), firestore.LastUpdateTime(s.UpdateTime))
+		b.Update(s.Ref, moderationUpdates(ModerationNone, time.Time{}), firestore.LastUpdateTime(s.UpdateTime))
 	}
 	if err := b.Commit(ctx); err != nil {
 		return cp, false, fmt.Errorf("posts: restore %s: %w", logger.HashUID(uid), err)

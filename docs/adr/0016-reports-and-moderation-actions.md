@@ -209,14 +209,13 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
 - **Rate limit.** `ReportContent` has its own 5/min per-user bucket (`RATE_LIMIT_REPORT_PER_MIN`, default 5); the daily
   bound is the `reports` quota (`QUOTA_REPORTS_PER_DAY` 20, `QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY` 5).
 - **Exports and deletion budget.** The `reports` export section costs one read per filed report (minimum 1, the empty
-  page). With P4's own `media` export section the reference export row is **705** reads (703 + 1 media + 1 reports,
-  was 704 before P4 merged); the `reports` Eraser step costs one read for the empty page on the reference account.
+  page). On the reference account the export row is **707** reads: 703 + 1 P4 `media` section + 2 P6
+  `notifications` section + 1 P7 `reports` section (it was 704 before P4, 705 with P4 and P7). The `reports` Eraser
+  step costs one read for the empty page.
   Delete job: the account-deletion plan's T16 criterion (`docs/plans/account-deletion-export.md`, 509 reads + job
-  state) gains +1 for the `reports` step's empty page, so the P7 assertion is 509 + 1 = 510 + D. P4's media step read
-  was already absorbed by main's 509 + D. The 511 reads seen on the reference account in one delivery (510 + D=1) were
-  observed once on the emulator (the test logs a `BUDGET` line with `-v`); this amendment is the P8 plan owner's to
-  sign off.
-  Both are asserted in `account_lifecycle_reference_integration_test.go`.
+  state) gains +1 for the `reports` step's empty page and +3 for P6's `notifications` step (ADR-0017 D10), so the
+  assertion is 509 + 3 + 1 = 513 + D. P4's media step read was already absorbed by main's 509 + D. The amendment is
+  the P8 plan owner's to sign off. Both are asserted in `account_lifecycle_reference_integration_test.go`.
 - **Re-report and replay.** A report resolved earlier is reopened by a new filing (D2). A reporter whose quota is
   spent is remembered per instance until IST midnight; a call then costs one point read of the report: an OPEN report
   is answered `already_reported` (the replay needed no quota), anything else is QUOTA_EXCEEDED.

@@ -40,6 +40,11 @@
   "media": {
     "media": []
   },
+  "notifications": {
+    "devices": [],
+    "notifications": [],
+    "userId": "<uid:A>"
+  },
   "posts": {
     "posts": [
       {

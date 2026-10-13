@@ -142,6 +142,15 @@ type RateLimitConfig struct {
 	// GetAccountExport (ADR-0010 D5 A6; a ratelimit.DailyCap, limit_name "account_ops_daily"), env
 	// ACCOUNT_OPS_CALLS_PER_DAY, default 20. Those calls are charge-only on the read budget, so this is their bound.
 	AccountOpsCallsPerDay int64
+	// NotificationDevicesCallsPerDay is the per-uid daily call cap shared by RegisterDevice and UnregisterDevice
+	// (ADR-0017 D9; a ratelimit.DailyCap, limit_name "notification_devices_daily"), env
+	// NOTIFICATION_DEVICES_CALLS_PER_DAY, default 50. Each call is at most 8 reads and 5 writes.
+	NotificationDevicesCallsPerDay int64
+	// NotificationSeenCallsPerDay is the per-uid daily call cap of MarkNotificationsSeen (a ratelimit.DailyCap,
+	// limit_name "notification_seen_daily"), env NOTIFICATION_SEEN_CALLS_PER_DAY, default 200. A call inside the
+	// 10 s no-op window writes nothing; otherwise 1 write, so the worst case is 200 writes per uid per day (1% of
+	// the 20k/day free quota for one uid; the per-minute bucket and the account read budget bound the rest).
+	NotificationSeenCallsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -282,6 +291,19 @@ type Config struct {
 	ExportRetention time.Duration
 	// JobsTopic is JOBS_TOPIC, the shared Pub/Sub topic account deletion and export jobs self-chain on (default "jobs").
 	JobsTopic string
+
+	// FeatureNotifications is the P6 server flag (wire name `notifications`, ADR-0017 D7) gating the
+	// NotificationService RPCs, the event producers and the fan-out handler.
+	// FEATURE_NOTIFICATIONS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureNotifications flags.Spec
+	// NotificationsTopic is NOTIFICATIONS_TOPIC, the Pub/Sub topic producers publish notification events on
+	// (default "notifications-fanout", the topic the pubsub Terraform module already owns).
+	NotificationsTopic string
+	// NotificationsDelivery is NOTIFICATIONS_DELIVERY: "pubsub" (publish to NotificationsTopic; Pub/Sub pushes back to
+	// /internal/pubsub/notifications-fanout) or "inline" (deliver in-process on a bounded goroutine, FCM replaced by
+	// a log line; local dev and emulator tests only, where no push subscription exists). Default inline when
+	// ENV=local, pubsub otherwise; inline is refused outside local (it would run after the response).
+	NotificationsDelivery string
 
 	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
 	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
@@ -521,6 +543,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.AccountOpsCallsPerDay = int64(accountOpsCalls)
+	notifDeviceCalls, err := getInt("NOTIFICATION_DEVICES_CALLS_PER_DAY", 50)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.NotificationDevicesCallsPerDay = int64(notifDeviceCalls)
+	notifSeenCalls, err := getInt("NOTIFICATION_SEEN_CALLS_PER_DAY", 200)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.NotificationSeenCallsPerDay = int64(notifSeenCalls)
 	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
 	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
 	for name, v := range map[string]int{
@@ -528,6 +560,8 @@ func Load() (Config, error) {
 		"READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY": readBudgetIP,
 		"CHECK_HANDLE_CALLS_PER_DAY":            checkHandleCalls,
 		"ACCOUNT_OPS_CALLS_PER_DAY":             accountOpsCalls,
+		"NOTIFICATION_DEVICES_CALLS_PER_DAY":    notifDeviceCalls,
+		"NOTIFICATION_SEEN_CALLS_PER_DAY":       notifSeenCalls,
 	} {
 		if v <= 0 {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
@@ -624,6 +658,21 @@ func Load() (Config, error) {
 	featureAccountLifecycle, err := flags.LoadSpec("ACCOUNT_LIFECYCLE", "account_lifecycle", flags.Off)
 	if err != nil {
 		return Config{}, err
+	}
+	featureNotifications, err := flags.LoadSpec("NOTIFICATIONS", "notifications", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	notifDeliveryDefault := "pubsub"
+	if env == "local" {
+		notifDeliveryDefault = "inline"
+	}
+	notifDelivery := getenv("NOTIFICATIONS_DELIVERY", notifDeliveryDefault)
+	switch {
+	case notifDelivery != "pubsub" && notifDelivery != "inline":
+		return Config{}, fmt.Errorf("config: NOTIFICATIONS_DELIVERY must be pubsub or inline (got %q)", notifDelivery)
+	case notifDelivery == "inline" && env != "local":
+		return Config{}, fmt.Errorf("config: NOTIFICATIONS_DELIVERY=inline is only allowed in env local (got %q)", env)
 	}
 	// P4: media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard (ADR-0005), so
 	// a negative value or an unknown policy name fails startup instead of silently changing what is published.
@@ -738,6 +787,9 @@ func Load() (Config, error) {
 		ExportURLTTL:              exportURLTTL,
 		ExportRetention:           exportRetention,
 		JobsTopic:                 getenv("JOBS_TOPIC", "jobs"),
+		FeatureNotifications:      featureNotifications,
+		NotificationsTopic:        getenv("NOTIFICATIONS_TOPIC", "notifications-fanout"),
+		NotificationsDelivery:     notifDelivery,
 		FeatureMedia:              featureMedia,
 		MediaUploadBucket:         getenv("MEDIA_UPLOAD_BUCKET", projectID+"-media-upload"),
 		MediaBucket:               mediaBucket,

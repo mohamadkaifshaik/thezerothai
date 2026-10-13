@@ -21,22 +21,25 @@ import (
 
 const (
 	refPosts, refFollowing, refFollowers = 300, 100, 100
-	// ADR-0011 budget table, reference row, as constants of the formula; the last term is the P7 reports step (one
-	// read for the empty page of reports the account filed, ADR-0016 D5). The formula bound is looser than the plan
-	// criterion below, which is the binding assertion.
-	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ + 1
-	refDeleteWrites    = refFollowing + 2*refFollowers
-	refDeleteDeletes   = refPosts + refFollowing + refFollowers + 1 + 3 + 1
-	// Plan T16 acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D.
-	// The P4 media step's empty-page read was already absorbed by 509 + D on main; the P7 reports step (ADR-0016
-	// D5) reads one more empty page, so the criterion is 509 + 1 = 510 R + job state (amendment pending sign-off
-	// by the account-deletion plan owner, see docs/plans/account-deletion-export.md T16).
-	planDeleteReads = 509 + 1
+	// ADR-0011 budget table, reference row, as constants of the formula. Steps added after ADR-0011, each one read
+	// per empty query on the reference account: P6 notifications +3 (devices, own rows, rows naming the user;
+	// ADR-0017 D10) and P7 reports +1 (reports the account filed, ADR-0016 D5). P4's media step is inside 509 + D.
+	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ +
+		3 /* P6 notifications step */ +
+		1 /* P7 reports step */
+	refDeleteWrites  = refFollowing + 2*refFollowers
+	refDeleteDeletes = refPosts + refFollowing + refFollowers + 1 + 3 + 1
+	// Plan T16 acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D;
+	// +3 R for the P6 notifications step (ADR-0017 D10) and +1 R for the P7 reports step (ADR-0016 D5): 513 R +
+	// job state. The P4 media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
+	// the account-deletion plan owner (docs/plans/account-deletion-export.md T16).
+	planDeleteReads = 509 + 3 + 1
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
-	// section (one read even when the account has no images; ceil(M/100) pages otherwise) + 1 for the P7 reports
-	// section (ADR-0016 D5: one read per page of reports the account filed, minimum 1 for the empty page; the
-	// reference account filed none) = 705 (+ the lease claim and status writes of the L-4 amendment).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 1
+	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6
+	// notifications section (ADR-0017 D10: the devices query and one notifications page; an empty query bills 1
+	// read), + 1 for the P7 reports section (ADR-0016 D5: one read per page of reports the account filed, minimum 1
+	// for the empty page) = 707 (+ the lease claim and status writes of the L-4 amendment).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1
 	refExportWrites = 2
 )
 

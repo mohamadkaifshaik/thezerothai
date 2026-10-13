@@ -52,7 +52,8 @@ const (
 	NotificationType_NOTIFICATION_TYPE_MENTION NotificationType = 2
 	// actor replied to your post; post_id is the reply.
 	NotificationType_NOTIFICATION_TYPE_REPLY NotificationType = 3
-	// actor(s) liked your post_id. Collapsed per post per hour: one row, actor_count grows.
+	// actor(s) liked your post_id. Collapsed per post per hour: one row, actor_count grows (the row remembers the
+	// last 50 distinct actors; actor_count keeps counting beyond that).
 	NotificationType_NOTIFICATION_TYPE_LIKE NotificationType = 4
 	// actor reposted your post_id.
 	NotificationType_NOTIFICATION_TYPE_REPOST NotificationType = 5

@@ -31,7 +31,8 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType NOTIFICATION_TYPE_REPLY =
       NotificationType._(3, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_REPLY');
 
-  /// actor(s) liked your post_id. Collapsed per post per hour: one row, actor_count grows.
+  /// actor(s) liked your post_id. Collapsed per post per hour: one row, actor_count grows (the row remembers the
+  /// last 50 distinct actors; actor_count keeps counting beyond that).
   static const NotificationType NOTIFICATION_TYPE_LIKE =
       NotificationType._(4, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_LIKE');
 
