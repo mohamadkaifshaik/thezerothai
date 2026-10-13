@@ -1,5 +1,6 @@
 import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/format/coarse_wait.dart';
 import '../../onboarding/domain/handle_rules.dart';
 
 /// Friendly, typed text for a failed UpdateProfile (never the raw server
@@ -12,8 +13,12 @@ String updateProfileErrorMessage(AppException error) {
       'Your bio can be at most 160 characters.',
     ValidationException() =>
       "Those changes can't be saved. Check them and try again.",
-    QuotaExceededException() =>
-      "You've changed your name too many times today. Try again tomorrow.",
+    // The server counts the name change, not the bio: undoing the name edit
+    // leaves a bio-only save, which the quota does not cover.
+    QuotaExceededException(:final retryAfter) =>
+      "You've changed your name too many times today. Undo the name change to "
+          'save your bio now, or try again '
+          '${retryAfter == null ? 'tomorrow' : 'in ${coarseWait(retryAfter)}'}.',
     final RateLimitedException e => rateLimitedMessage(e),
     DegradedModeException() =>
       'dZeroth is in a limited mode right now, so profile changes are '
@@ -31,21 +36,6 @@ String updateProfileErrorMessage(AppException error) {
   };
 }
 
-/// "5 days", "1 day", "3 hours", "20 minutes": the coarse wait shown for the
-/// handle cooldown. Rounds up so the user is never told "0 days".
-String coarseWait(Duration wait) {
-  if (wait.inDays >= 1) {
-    final days = (wait.inHours / 24).ceil();
-    return days == 1 ? '1 day' : '$days days';
-  }
-  if (wait.inHours >= 1) {
-    final hours = (wait.inMinutes / 60).ceil();
-    return hours == 1 ? '1 hour' : '$hours hours';
-  }
-  final minutes = wait.inMinutes < 1 ? 1 : wait.inMinutes;
-  return minutes == 1 ? '1 minute' : '$minutes minutes';
-}
-
 /// Friendly text for a failed ChangeHandle. The 7-day cooldown says when the
 /// handle can be changed again; a taken handle repeats the live-check wording.
 String changeHandleErrorMessage(AppException error) {
@@ -58,8 +48,9 @@ String changeHandleErrorMessage(AppException error) {
     HandleTakenException() => kHandleTakenMessage,
     ValidationException() => kHandleFormatMessage,
     final RateLimitedException e => rateLimitedMessage(e),
-    QuotaExceededException() =>
-      "You've hit today's limit for this action. It resets tomorrow.",
+    QuotaExceededException(:final retryAfter) =>
+      "You've hit today's limit for this action. It resets "
+          '${retryAfter == null ? 'tomorrow' : 'in about ${coarseWait(retryAfter)}'}.',
     DegradedModeException() =>
       'dZeroth is in a limited mode right now, so profile changes are '
           'paused. Please try again shortly.',

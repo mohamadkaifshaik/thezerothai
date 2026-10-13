@@ -92,7 +92,7 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('resets in about 5 hours'), findsOneWidget);
+    expect(find.textContaining('resets in about 6 hours'), findsOneWidget);
     expect(find.textContaining('moment'), findsNothing);
     expect(find.text('Retry'), findsNothing);
   });
