@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
-import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart'
+import 'package:dzeroth/features/onboarding/domain/handle_rules.dart'
     show HandleCheckStatus;
 import 'package:dzeroth/features/profile/presentation/bloc/change_handle_cubit.dart';
 import 'package:dzeroth/features/profile/presentation/bloc/edit_profile_cubit.dart';
@@ -26,9 +26,15 @@ void main() {
 
   group('EditProfileCubit', () {
     late EditProfileCubit cubit;
+    late List<Object> reported;
 
     setUp(() {
-      cubit = EditProfileCubit(identityRepository: repo, initial: profile());
+      reported = [];
+      cubit = EditProfileCubit(
+        identityRepository: repo,
+        initial: profile(),
+        onUnexpectedError: (error, _) => reported.add(error),
+      );
     });
 
     tearDown(() => cubit.close());
@@ -137,6 +143,35 @@ void main() {
       },
     );
 
+    test('an unexpected error is reported and shown as a generic failure', () async {
+      stubUpdate(() async => throw StateError('boom'));
+      cubit.displayNameChanged('New');
+
+      await cubit.save();
+
+      expect(reported.single, isA<StateError>());
+      expect(cubit.state.error, isA<UnknownApiException>());
+      expect(cubit.state.status, EditProfileStatus.editing);
+    });
+
+    test('an UnknownApiException from the server is reported too', () async {
+      stubUpdate(() async => throw const UnknownApiException('weird'));
+      cubit.displayNameChanged('New');
+
+      await cubit.save();
+
+      expect(reported.single, isA<UnknownApiException>());
+    });
+
+    test('expected failures are not reported', () async {
+      stubUpdate(() async => throw const NetworkException('offline'));
+      cubit.displayNameChanged('New');
+
+      await cubit.save();
+
+      expect(reported, isEmpty);
+    });
+
     test('a different edit gets its own key', () async {
       stubUpdate(() async => throw const NetworkException('offline'));
       cubit.displayNameChanged('One');
@@ -157,12 +192,18 @@ void main() {
 
   group('ChangeHandleCubit', () {
     late ChangeHandleCubit cubit;
+    late DateTime now;
+    late List<Object> reported;
 
     setUp(() {
+      now = DateTime(2026, 10, 14, 12);
+      reported = [];
       cubit = ChangeHandleCubit(
         identityRepository: repo,
         currentHandle: 'Kaif',
         debounce: Duration.zero,
+        clock: () => now,
+        onUnexpectedError: (error, _) => reported.add(error),
       );
     });
 
@@ -171,13 +212,33 @@ void main() {
     void stubCheck(
       Future<identity.CheckHandleAvailabilityResponse> Function(String) a,
     ) {
-      when(() => repo.checkHandleAvailability(any()))
-          .thenAnswer((i) => a(i.positionalArguments.single as String));
+      when(
+        () => repo.checkHandleAvailability(any()),
+      ).thenAnswer((i) => a(i.positionalArguments.single as String));
     }
 
-    Future<void> typed(String value) async {
+    void stubAvailable() => stubCheck(
+      (_) async => identity.CheckHandleAvailabilityResponse(available: true),
+    );
+
+    void stubChange(Future<identity.Profile> Function() answer) {
+      when(
+        () => repo.changeHandle(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          newHandle: any(named: 'newHandle'),
+        ),
+      ).thenAnswer((_) => answer());
+    }
+
+    /// Types [value] and waits for the answer to that exact handle (local
+    /// rules answer at once, a probe after the debounce).
+    Future<void> typed(String value) {
+      final handle = value.trim().toLowerCase().replaceFirst(RegExp('^@'), '');
+      final settled = cubit.stream.firstWhere(
+        (s) => s.handle == handle && s.checkStatus != HandleCheckStatus.checking,
+      );
       cubit.handleChanged(value);
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      return settled;
     }
 
     test('local rules answer without a request', () async {
@@ -197,15 +258,8 @@ void main() {
     });
 
     test('an available handle can be saved; the profile is reported', () async {
-      stubCheck(
-        (_) async => identity.CheckHandleAvailabilityResponse(available: true),
-      );
-      when(
-        () => repo.changeHandle(
-          idempotencyKey: any(named: 'idempotencyKey'),
-          newHandle: any(named: 'newHandle'),
-        ),
-      ).thenAnswer((_) async => profile(handle: 'new_one'));
+      stubAvailable();
+      stubChange(() async => profile(handle: 'new_one'));
 
       await typed('New_One');
       expect(cubit.state.checkStatus, HandleCheckStatus.available);
@@ -243,15 +297,60 @@ void main() {
       expect(cubit.state.canSave, isTrue);
     });
 
+    test('a generic probe failure is unknown and never shows its message', () async {
+      stubCheck((_) async => throw const UnknownApiException('db is on fire'));
+      await typed('new_one');
+      expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
+      expect(cubit.state.checkMessage, isNot(contains('fire')));
+      expect(cubit.state.canSave, isTrue);
+    });
+
+    test('after a rate-limited probe, probing stops until retryAfter', () async {
+      stubCheck(
+        (_) async => throw const RateLimitedException(
+          'slow down',
+          retryAfter: Duration(seconds: 30),
+        ),
+      );
+      await typed('first_one');
+      verify(() => repo.checkHandleAvailability('first_one')).called(1);
+
+      await typed('second_one');
+      expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
+      expect(cubit.state.canSave, isTrue);
+      verifyNever(() => repo.checkHandleAvailability('second_one'));
+
+      // Local rules still answer, and the probe resumes after the wait.
+      await typed('ab');
+      expect(cubit.state.checkStatus, HandleCheckStatus.unavailable);
+      now = now.add(const Duration(seconds: 31));
+      stubAvailable();
+      await typed('third_one');
+      expect(cubit.state.checkStatus, HandleCheckStatus.available);
+    });
+
+    test('a rate limit without retryAfter stops probing for the screen', () async {
+      stubCheck((_) async => throw const RateLimitedException('slow down'));
+      await typed('first_one');
+      now = now.add(const Duration(days: 2));
+      await typed('second_one');
+      verifyNever(() => repo.checkHandleAvailability('second_one'));
+    });
+
     test('only the newest keystroke is checked and shown', () async {
       final first = Completer<identity.CheckHandleAvailabilityResponse>();
+      final firstAsked = Completer<void>();
       stubCheck((h) {
-        if (h == 'first_one') return first.future;
+        if (h == 'first_one') {
+          firstAsked.complete();
+          return first.future;
+        }
         return Future.value(
           identity.CheckHandleAvailabilityResponse(available: true),
         );
       });
-      await typed('first_one');
+      cubit.handleChanged('first_one');
+      await firstAsked.future;
       await typed('second_one');
       expect(cubit.state.handle, 'second_one');
       expect(cubit.state.checkStatus, HandleCheckStatus.available);
@@ -259,22 +358,15 @@ void main() {
       first.complete(
         identity.CheckHandleAvailabilityResponse(available: false),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await pumpEventQueue();
       expect(cubit.state.handle, 'second_one');
       expect(cubit.state.checkStatus, HandleCheckStatus.available);
     });
 
-    test('the cooldown error carries the time left', () async {
-      stubCheck(
-        (_) async => identity.CheckHandleAvailabilityResponse(available: true),
-      );
-      when(
-        () => repo.changeHandle(
-          idempotencyKey: any(named: 'idempotencyKey'),
-          newHandle: any(named: 'newHandle'),
-        ),
-      ).thenAnswer(
-        (_) async => throw const LimitReachedException(
+    test('the cooldown error carries the time left and locks Save', () async {
+      stubAvailable();
+      stubChange(
+        () async => throw const LimitReachedException(
           'once every 7 days',
           quota: 'handle_change',
           retryAfter: Duration(days: 3),
@@ -287,18 +379,59 @@ void main() {
       expect(cubit.state.status, ChangeHandleStatus.editing);
       final error = cubit.state.error as LimitReachedException;
       expect(error.retryAfter, const Duration(days: 3));
+      expect(cubit.state.cooldownUntil, now.add(const Duration(days: 3)));
+      expect(cubit.cooldownLeft, const Duration(days: 3));
+      expect(cubit.state.canSave, isFalse);
+
+      // Still locked after another edit; free once the wait passed.
+      await typed('other_one');
+      expect(cubit.state.checkStatus, HandleCheckStatus.available);
+      expect(cubit.state.canSave, isFalse);
+      now = now.add(const Duration(days: 3, minutes: 1));
+      await typed('third_one');
+      expect(cubit.state.cooldownUntil, isNull);
+      expect(cubit.state.canSave, isTrue);
+    });
+
+    test('a cooldown answer without retryAfter locks for 7 days', () async {
+      stubAvailable();
+      stubChange(
+        () async => throw const LimitReachedException(
+          'once every 7 days',
+          quota: 'handle_change',
+        ),
+      );
+      await typed('new_one');
+      await cubit.save();
+      expect(cubit.cooldownLeft, kHandleCooldown);
+    });
+
+    test('a daily quota answer locks Save until retryAfter', () async {
+      stubAvailable();
+      stubChange(
+        () async => throw const QuotaExceededException(
+          'daily limit',
+          retryAfter: Duration(hours: 5),
+        ),
+      );
+      await typed('new_one');
+      await cubit.save();
+      expect(cubit.cooldownLeft, const Duration(hours: 5));
+      expect(cubit.state.canSave, isFalse);
+    });
+
+    test('other failures do not lock Save', () async {
+      stubAvailable();
+      stubChange(() async => throw const NetworkException('offline'));
+      await typed('new_one');
+      await cubit.save();
+      expect(cubit.state.cooldownUntil, isNull);
+      expect(cubit.state.canSave, isTrue);
     });
 
     test('taken between check and save marks the field', () async {
-      stubCheck(
-        (_) async => identity.CheckHandleAvailabilityResponse(available: true),
-      );
-      when(
-        () => repo.changeHandle(
-          idempotencyKey: any(named: 'idempotencyKey'),
-          newHandle: any(named: 'newHandle'),
-        ),
-      ).thenAnswer((_) async => throw const HandleTakenException('taken'));
+      stubAvailable();
+      stubChange(() async => throw const HandleTakenException('taken'));
       await typed('new_one');
 
       await cubit.save();
@@ -306,6 +439,37 @@ void main() {
       expect(cubit.state.checkStatus, HandleCheckStatus.unavailable);
       expect(cubit.state.error, isNull);
       expect(cubit.state.canSave, isFalse);
+    });
+
+    test('an unexpected error is reported and shown as a generic failure', () async {
+      stubAvailable();
+      stubChange(() async => throw StateError('boom'));
+      await typed('new_one');
+
+      await cubit.save();
+
+      expect(reported.single, isA<StateError>());
+      expect(cubit.state.error, isA<UnknownApiException>());
+      expect(cubit.state.status, ChangeHandleStatus.editing);
+    });
+
+    test('an UnknownApiException from the server is reported too', () async {
+      stubAvailable();
+      stubChange(() async => throw const UnknownApiException('weird'));
+      await typed('new_one');
+
+      await cubit.save();
+
+      expect(reported.single, isA<UnknownApiException>());
+      expect(cubit.state.error, isA<UnknownApiException>());
+    });
+
+    test('an unexpected probe error is reported and leaves Save possible', () async {
+      stubCheck((_) async => throw StateError('boom'));
+      await typed('new_one');
+
+      expect(reported.single, isA<StateError>());
+      expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
     });
   });
 }

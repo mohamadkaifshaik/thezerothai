@@ -106,4 +106,38 @@ void main() {
       );
     },
   );
+
+  group('a sign-out during the RPC drops the cache write', () {
+    test('updateProfile', () async {
+      answer = (_) {
+        db.sessionEpoch.end();
+        return identity.UpdateProfileResponse(profile: profile(name: 'Late'));
+      };
+
+      final result = await repo.updateProfile(
+        idempotencyKey: 'key-1234567890abcdef',
+        displayName: 'Late',
+      );
+
+      // The caller still gets the server's answer; the next user's cache
+      // never sees it.
+      expect(result.displayName, 'Late');
+      expect(await repo.cachedOwnProfile('me'), isNull);
+    });
+
+    test('changeHandle', () async {
+      answer = (_) {
+        db.sessionEpoch.end();
+        return identity.ChangeHandleResponse(profile: profile(handle: 'late'));
+      };
+
+      final result = await repo.changeHandle(
+        idempotencyKey: 'key-1234567890abcdef',
+        newHandle: 'late',
+      );
+
+      expect(result.handle, 'late');
+      expect(await repo.cachedOwnProfile('me'), isNull);
+    });
+  });
 }

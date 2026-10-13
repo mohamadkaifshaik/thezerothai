@@ -67,9 +67,11 @@ class EditProfileCubit extends Cubit<EditProfileState> {
     required IdentityRepository identityRepository,
     required identity.Profile initial,
     Uuid? uuid,
+    void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _repository = identityRepository,
        _initial = initial,
        _uuid = uuid ?? const Uuid(),
+       _onUnexpectedError = onUnexpectedError,
        super(
          EditProfileState(displayName: initial.displayName, bio: initial.bio),
        );
@@ -77,6 +79,7 @@ class EditProfileCubit extends Cubit<EditProfileState> {
   final IdentityRepository _repository;
   final identity.Profile _initial;
   final Uuid _uuid;
+  final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Map<String, String> _keys = {};
 
   String get _trimmedName => state.displayName.trim();
@@ -136,10 +139,12 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       _keys.remove(intent);
       if (isClosed) return;
       emit(state.copyWith(status: EditProfileStatus.saved, saved: profile));
-    } on AppException catch (e) {
+    } on AppException catch (e, stack) {
+      if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
       if (isClosed) return;
       emit(state.copyWith(status: EditProfileStatus.editing, error: e));
-    } catch (_) {
+    } catch (error, stack) {
+      _onUnexpectedError?.call(error, stack);
       if (isClosed) return;
       emit(
         state.copyWith(

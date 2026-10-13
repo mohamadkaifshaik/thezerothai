@@ -27,7 +27,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     on<OnboardingRefreshRequested>(_onUserRefreshRequested);
     on<OnboardingHandleChanged>(
       _onHandleChanged,
-      transformer: _debounceRestartable(const Duration(milliseconds: 300)),
+      transformer: _debounceRestartable(kHandleCheckDebounce),
     );
     on<OnboardingDisplayNameChanged>((event, emit) {
       emit(state.copyWith(displayName: event.displayName));
@@ -141,22 +141,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
       return;
     }
-    if (!kHandlePattern.hasMatch(handle)) {
+    final issue = localHandleIssue(handle);
+    if (issue != null) {
       emit(
         state.copyWith(
           handle: handle,
           handleCheckStatus: HandleCheckStatus.unavailable,
-          handleCheckMessage: kHandleFormatMessage,
-        ),
-      );
-      return;
-    }
-    if (kReservedHandles.contains(handle)) {
-      emit(
-        state.copyWith(
-          handle: handle,
-          handleCheckStatus: HandleCheckStatus.unavailable,
-          handleCheckMessage: kHandleReservedMessage,
+          handleCheckMessage: issue,
         ),
       );
       return;
@@ -175,14 +166,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         handle,
       );
       if (stale() || state.handle != handle) return; // or a newer keystroke
+      final check = handleCheckFromAnswer(response);
       emit(
         state.copyWith(
-          handleCheckStatus: response.available
-              ? HandleCheckStatus.available
-              : HandleCheckStatus.unavailable,
-          handleCheckMessage: response.available
-              ? ''
-              : handleUnavailableMessage(response.reason),
+          handleCheckStatus: check.status,
+          handleCheckMessage: check.message,
         ),
       );
     } on EmailNotVerifiedException catch (e) {
@@ -197,24 +185,15 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           error: e,
         ),
       );
-    } on RateLimitedException {
-      // N1: a rate-limited probe says nothing about the handle. Treat it as
-      // unknown and let the user submit; CreateProfile validates again.
-      if (stale() || state.handle != handle) return;
-      emit(
-        state.copyWith(
-          handleCheckStatus: HandleCheckStatus.unknown,
-          handleCheckMessage:
-              "Couldn't check this handle right now. We'll confirm it when "
-              'you continue.',
-        ),
-      );
     } on AppException catch (e) {
+      // N1: a rate-limited (or otherwise failed) probe says nothing about the
+      // handle. `unknown` keeps submit enabled; CreateProfile validates again.
       if (stale() || state.handle != handle) return;
+      final check = handleCheckFromError(e, saveVerb: 'continue');
       emit(
         state.copyWith(
-          handleCheckStatus: HandleCheckStatus.unavailable,
-          handleCheckMessage: e.message,
+          handleCheckStatus: check.status,
+          handleCheckMessage: check.message,
         ),
       );
     }
