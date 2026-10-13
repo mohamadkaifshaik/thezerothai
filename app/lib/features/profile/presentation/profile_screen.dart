@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../graph/data/graph_repository.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../onboarding/data/identity_repository.dart';
@@ -15,6 +18,7 @@ import '../../timeline/data/timeline_repository.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
+import '../domain/profile_edit_feature_flag.dart';
 import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
 import 'widgets/profile_header.dart';
@@ -121,6 +125,16 @@ class _ReadyProfile extends StatelessWidget {
   }
 }
 
+/// Opens Edit profile; a saved edit pops with the server's profile, which the
+/// header shows directly (no GetProfile re-read).
+Future<void> _editProfile(BuildContext context) async {
+  final cubit = context.read<ProfileCubit>();
+  final saved = await context.push<identity.Profile>(
+    AppRouter.editProfilePath,
+  );
+  if (saved != null && !cubit.isClosed) cubit.profileUpdated(saved);
+}
+
 ProfileHeader _header(
   BuildContext context,
   ProfileState state, {
@@ -134,6 +148,10 @@ ProfileHeader _header(
     showPostsCount: showPostsCount,
     onRelationshipChanged: (relationship) =>
         context.read<ProfileCubit>().relationshipChanged(relationship),
+    onEditProfile:
+        state.isOwnProfile && isFeatureEnabled(context, kFeatureProfileSnapshot)
+        ? () => _editProfile(context)
+        : null,
   );
 }
 

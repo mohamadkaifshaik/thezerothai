@@ -17,7 +17,7 @@ func newClockedCache(ttl time.Duration) (*Cache, *fakeClock) {
 	return c, clk
 }
 
-func ids(ps []*Post) []string {
+func postIDs(ps []*Post) []string {
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = p.ID
@@ -133,15 +133,15 @@ func TestCache_PrependOwn(t *testing.T) {
 		clk.t = loaded.Add(10 * time.Second)
 		c.PrependOwn(p3)
 		got, _ := c.AuthorRecent("a")
-		if !equalStrings(ids(got.Posts), []string{p3.ID, p2.ID}) || !got.LoadedAt.Equal(loaded) || !got.Truncated {
-			t.Fatalf("got ids=%v loadedAt=%v truncated=%v", ids(got.Posts), got.LoadedAt, got.Truncated)
+		if !equalStrings(postIDs(got.Posts), []string{p3.ID, p2.ID}) || !got.LoadedAt.Equal(loaded) || !got.Truncated {
+			t.Fatalf("got ids=%v loadedAt=%v truncated=%v", postIDs(got.Posts), got.LoadedAt, got.Truncated)
 		}
 	})
 	t.Run("a replayed post is not duplicated", func(t *testing.T) {
 		c.PrependOwn(p3)
 		got, _ := c.AuthorRecent("a")
-		if !equalStrings(ids(got.Posts), []string{p3.ID, p2.ID}) {
-			t.Fatalf("ids = %v", ids(got.Posts))
+		if !equalStrings(postIDs(got.Posts), []string{p3.ID, p2.ID}) {
+			t.Fatalf("ids = %v", postIDs(got.Posts))
 		}
 	})
 	t.Run("replies never enter author-recent", func(t *testing.T) {
@@ -150,7 +150,7 @@ func TestCache_PrependOwn(t *testing.T) {
 		c.PrependOwn(r)
 		got, _ := c.AuthorRecent("a")
 		if len(got.Posts) != 2 {
-			t.Fatalf("a reply entered the entry: %v", ids(got.Posts))
+			t.Fatalf("a reply entered the entry: %v", postIDs(got.Posts))
 		}
 	})
 	t.Run("a full entry drops its oldest and becomes truncated", func(t *testing.T) {
@@ -179,7 +179,7 @@ func TestCache_RemoveOwn(t *testing.T) {
 		t.Fatal("post not evicted from the posts cache")
 	}
 	got, ok := c.AuthorRecent("a")
-	if !ok || !equalStrings(ids(got.Posts), []string{p2.ID}) || !got.Truncated || !got.LoadedAt.Equal(clk.t) {
+	if !ok || !equalStrings(postIDs(got.Posts), []string{p2.ID}) || !got.Truncated || !got.LoadedAt.Equal(clk.t) {
 		t.Fatalf("entry after delete = %+v ok=%v", got, ok)
 	}
 	// No entry for the author, or an unknown post: nothing to do, and nothing created.
@@ -189,7 +189,7 @@ func TestCache_RemoveOwn(t *testing.T) {
 	}
 	c.RemoveOwn("a", "0000000000000000999")
 	if got, _ := c.AuthorRecent("a"); len(got.Posts) != 1 {
-		t.Fatalf("removing an unknown post changed the entry: %v", ids(got.Posts))
+		t.Fatalf("removing an unknown post changed the entry: %v", postIDs(got.Posts))
 	}
 }
 

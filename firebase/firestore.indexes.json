@@ -101,6 +101,13 @@
 
     { "collectionGroup": "idempotency", "fieldPath": "result", "indexes": [] },
 
-    { "collectionGroup": "notifications", "fieldPath": "actor", "indexes": [] }
+    { "collectionGroup": "notifications", "fieldPath": "actor", "indexes": [] },
+    {
+      "collectionGroup": "notifications",
+      "fieldPath": "actorIds",
+      "indexes": [{ "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }]
+    },
+
+    { "collectionGroup": "devices", "fieldPath": "token", "indexes": [] }
   ]
 }

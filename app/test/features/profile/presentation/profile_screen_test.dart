@@ -4,6 +4,7 @@ import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -11,6 +12,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockIdentityRepository extends Mock implements IdentityRepository {}
@@ -88,6 +90,120 @@ void main() {
     expect(find.text('Follow'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     verifyNever(() => graphRepository.relationshipFor(any()));
+  });
+
+  testWidgets('own profile: "Edit profile" only with the profile_snapshot '
+      'flag on', (tester) async {
+    Future<void> openOwn(Set<String> features) async {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          enabledFeatures: features,
+          profile: identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+        ),
+      );
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+      );
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+    }
+
+    await openOwn(const {});
+    expect(find.text('Edit profile'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await openOwn({kFeatureProfileSnapshot});
+    expect(find.text('Edit profile'), findsOneWidget);
+  });
+
+  testWidgets(
+    'a saved edit shows the returned profile without another GetProfile',
+    (tester) async {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          enabledFeatures: const {kFeatureProfileSnapshot},
+          profile: identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+        ),
+      );
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(
+          userId: 'viewer-uid',
+          handle: 'kaif',
+          displayName: 'Old name',
+        ),
+      );
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => const ProfileScreen(handle: 'kaif'),
+          ),
+          GoRoute(
+            path: '/settings/profile',
+            builder: (context, state) => Scaffold(
+              body: TextButton(
+                onPressed: () => context.pop(
+                  identity.Profile(
+                    userId: 'viewer-uid',
+                    handle: 'kaif',
+                    displayName: 'New name',
+                  ),
+                ),
+                child: const Text('finish edit'),
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<IdentityRepository>.value(
+              value: identityRepository,
+            ),
+            RepositoryProvider<GraphRepository>.value(value: graphRepository),
+          ],
+          child: BlocProvider<OnboardingBloc>.value(
+            value: onboardingBloc,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Old name'), findsOneWidget);
+
+      await tester.tap(find.text('Edit profile'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('finish edit'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('New name'), findsOneWidget);
+      expect(find.text('Old name'), findsNothing);
+      verify(() => identityRepository.getProfile(handle: 'kaif')).called(1);
+    },
+  );
+
+  testWidgets('other profile: never shows "Edit profile"', (tester) async {
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        enabledFeatures: {kFeatureProfileSnapshot},
+        profile: identity.Profile(userId: 'viewer-uid', handle: 'viewer'),
+      ),
+    );
+    when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+      (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+    );
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit profile'), findsNothing);
   });
 
   testWidgets('other profile with the flag on: shows Follow', (tester) async {

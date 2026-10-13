@@ -69,6 +69,24 @@ void main() {
       expect(quota.retryAfter, const Duration(hours: 1));
     });
 
+    test('maps LIMIT_REACHED with the quota name and the cooldown left', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+          message: 'you can only change your handle once every 7 days',
+          metadata: {'quota': 'handle_change'}.entries,
+          retryAfter: pb_duration.Duration(seconds: Int64(3 * 86400)),
+        ),
+      );
+
+      final result = mapConnectError(error) as LimitReachedException;
+
+      expect(result.quota, 'handle_change');
+      expect(result.retryAfter, const Duration(days: 3));
+    });
+
     test('maps RATE_LIMITED carrying limit and retryAfter', () {
       final error = _withDetail(
         connect.Code.resourceExhausted,

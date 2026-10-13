@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../shared/format/coarse_wait.dart';
 import '../network/app_exception.dart';
 import '../theme/app_theme.dart';
 
@@ -11,11 +12,8 @@ String rateLimitedMessage(RateLimitedException error) {
     if (wait == null || wait.inMinutes < 1) {
       return "You've reached today's limit for this. It resets later today.";
     }
-    final text = wait.inHours >= 1
-        ? 'in about ${wait.inHours} ${wait.inHours == 1 ? 'hour' : 'hours'}'
-        : 'in about ${wait.inMinutes} '
-              '${wait.inMinutes == 1 ? 'minute' : 'minutes'}';
-    return "You've reached today's limit for this. It resets $text.";
+    return "You've reached today's limit for this. It resets in about "
+        '${coarseWait(wait)}.';
   }
   return "You're doing that a bit too fast. Give it a moment and try again.";
 }

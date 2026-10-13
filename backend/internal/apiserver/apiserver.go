@@ -22,11 +22,13 @@ import (
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
+	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -102,7 +104,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -123,7 +125,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	identityCache := identity.NewCache(cfg.CacheTTL)
 	graphCache := graph.NewCache(cfg.CacheTTL)
 
+	// P6 (ADR-0017 D2): graph reports created follow edges through this slot; Build binds the notifications emitter
+	// into it below, once identity (the fan-out's Directory) exists.
+	notifSlot := &emitterSlot{}
 	graphSvc := graph.New(graph.Deps{
+		Events:                  followNotifier{slot: notifSlot},
 		Repo:                    graphRepo,
 		Cache:                   graphCache,
 		Flags:                   featureFlags,
@@ -178,6 +184,32 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 	lateDirectory.d = identitySvc.(identity.Directory)
 
+	// --- notifications (P6, ADR-0017): rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
+	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
+	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
+	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
+	if cfg.NotificationsDelivery == "pubsub" {
+		pushSender = notifications.NewFCMSender(fbApp)
+	}
+	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
+		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
+		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
+	})
+	switch cfg.NotificationsDelivery {
+	case "inline":
+		notifSlot.em = notifications.NewInlineEmitter(notifFanout, featureFlags, log)
+	default:
+		notifPublisher, perr := pubsubpublish.New(cfg.ProjectID, cfg.NotificationsTopic)
+		if perr != nil {
+			return nil, nil, fmt.Errorf("notifications publisher: %w", perr)
+		}
+		notifSlot.em = notifications.NewPubSubEmitter(notifPublisher, featureFlags, log)
+	}
+	notifService := notifications.NewService(notifications.Deps{
+		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, CursorKey: cfg.CursorHMACKey,
+	})
+	notifServer := notifications.NewServer(notifService, featureFlags)
+
 	// posts and timeline (ADR-0010, T5): both services are registered behind FEATURE_POSTS. Their RPC bodies land
 	// in T8/T9/T12/T13; until then every RPC is Unimplemented once the flag is on. timeline gets only the
 	// posts.Reader and graph.Reader seams (ADR-0004 handoff: it never queries `posts` or `graph` itself).
@@ -190,7 +222,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Media:       postsMediaAttacher{lib: mediaMod.library},
 	})
 	postsSvc := posts.New(posts.Deps{
-		Repo: postsRepo, Cache: postsCache, Events: posts.NopEvents{},
+		Repo: postsRepo, Cache: postsCache, Events: postNotifier{slot: notifSlot},
 		Jobs:                  mediaMod.jobs,
 		Directory:             identitySvc.(identity.Directory),
 		Graph:                 graphSvc,
@@ -221,7 +253,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle: %w", err)
 	}
-	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger); err != nil {
+	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger, notifRepo); err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
 	}
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, mediaMod.jobs); err != nil {
@@ -232,8 +264,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// engagement, notifications, search, moderation, admin are not implemented yet; their Connect servers are not
-	// registered.
+	// engagement, search, moderation, admin are not implemented yet; their Connect servers are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -286,6 +317,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(timelinePath, timelineHandler)
 
+	notifPath, notifHandler := notificationsv1connect.NewNotificationServiceHandler(notifServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(notifPath, notifHandler)
 	mediaPath, mediaHandler := mediav1connect.NewMediaServiceHandler(mediaMod.server, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(mediaPath, mediaHandler)
 
@@ -301,6 +334,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	mux.Handle("/internal/pubsub/jobs", protectInternal(lifecycle.JobsHandler()))
 	mux.Handle("/internal/cron/daily-maintenance", protectInternal(lifecycle.CronHandler()))
+	// ADR-0017 D3: the notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
+	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
+	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
+	mux.Handle("/internal/pubsub/notifications-fanout", protectInternal(notifFanout.Handler()))
 
 	// M1 (docs/reviews/security-audit-v0.1.0.md): a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
 	// /internal/* and every module's Connect handler — as plain net/http middleware, so an unauthenticated

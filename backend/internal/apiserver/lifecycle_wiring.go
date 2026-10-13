@@ -12,6 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -56,6 +57,12 @@ func mediaEraserStep(p *media.Purger) identity.StepEraser {
 	return eraserStep[media.Checkpoint]{name: "media", purge: p.PurgeUser}
 }
 
+// notificationsEraserStep is the notifications step (step "notifications", ADR-0017 D10): devices and their token
+// index, the user's own rows, and rows in other users' lists that name the user. It runs after graph, before identity.
+func notificationsEraserStep(e notifications.Eraser) identity.StepEraser {
+	return eraserStep[notifications.Checkpoint]{name: "notifications", purge: e.PurgeUser}
+}
+
 // graphExporter is the one method of graph's repo the export section needs.
 type graphExporter interface {
 	ExportUser(ctx context.Context, uid string) (graph.Export, error)
@@ -86,16 +93,26 @@ func (s postsSection) WriteSection(ctx context.Context, uid string, w io.Writer)
 	return s.x.ExportUser(ctx, uid, w)
 }
 
+// notificationsSection is the export's `notifications` section: notifications.Exporter streams one JSON value to w
+// (rows and device platforms, never tokens).
+type notificationsSection struct{ x notifications.Exporter }
+
+func (notificationsSection) Name() string { return "notifications" }
+
+func (s notificationsSection) WriteSection(ctx context.Context, uid string, w io.Writer) error {
+	return s.x.ExportUser(ctx, uid, w)
+}
+
 // registerLifecycleModules registers every module's Eraser and export section on l, in the ADR-0011 Q1 order.
-// Later slices (engagement P5, notifications P6, reports P7) add their lines here, before the identity
-// step, which Lifecycle always runs last.
-func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, mediaPurger *media.Purger) error {
-	for _, e := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), mediaEraserStep(mediaPurger)} {
+// Later slices (engagement P5, reports P7) add their lines here, before the identity step, which Lifecycle
+// always runs last.
+func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, mediaPurger *media.Purger, notifRepo *notifications.FirestoreRepo) error {
+	for _, e := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), mediaEraserStep(mediaPurger), notificationsEraserStep(notifRepo)} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, e); err != nil {
 			return err
 		}
 	}
-	for _, s := range []identity.ExportSection{graphSection{graphRepo}, postsSection{postsRepo}, mediaPurger} {
+	for _, s := range []identity.ExportSection{graphSection{graphRepo}, postsSection{postsRepo}, mediaPurger, notificationsSection{notifRepo}} {
 		if err := l.RegisterExportSection(s); err != nil {
 			return err
 		}

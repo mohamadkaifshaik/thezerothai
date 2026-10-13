@@ -28,8 +28,8 @@ func TestStoreAuthorRecent_DoesNotOverwriteNewerOwnWrites(t *testing.T) {
 		clk.t = t0.Add(2 * time.Second)
 		c.StoreAuthorRecent("a", []*Post{p2, p1}, false, t0) // the stale query result lacks p3
 		got, ok := c.AuthorRecent("a")
-		if !ok || !equalStrings(ids(got.Posts), []string{p3.ID, p2.ID, p1.ID}) || !got.LoadedAt.Equal(t0) {
-			t.Fatalf("entry = %v ok=%v, want [3 2 1] with loadedAt t0", ids(got.Posts), ok)
+		if !ok || !equalStrings(postIDs(got.Posts), []string{p3.ID, p2.ID, p1.ID}) || !got.LoadedAt.Equal(t0) {
+			t.Fatalf("entry = %v ok=%v, want [3 2 1] with loadedAt t0", postIDs(got.Posts), ok)
 		}
 	})
 	t.Run("own DeletePost after the query started is not resurrected", func(t *testing.T) {
@@ -40,8 +40,8 @@ func TestStoreAuthorRecent_DoesNotOverwriteNewerOwnWrites(t *testing.T) {
 		clk.t = t0.Add(2 * time.Second)
 		c.StoreAuthorRecent("a", []*Post{p3, p2, p1}, false, t0) // the stale result still has p2
 		got, _ := c.AuthorRecent("a")
-		if !equalStrings(ids(got.Posts), []string{p3.ID, p1.ID}) {
-			t.Fatalf("entry = %v, want [3 1]", ids(got.Posts))
+		if !equalStrings(postIDs(got.Posts), []string{p3.ID, p1.ID}) {
+			t.Fatalf("entry = %v, want [3 1]", postIDs(got.Posts))
 		}
 	})
 	t.Run("interleaved prepend and remove replay in order", func(t *testing.T) {
@@ -54,8 +54,8 @@ func TestStoreAuthorRecent_DoesNotOverwriteNewerOwnWrites(t *testing.T) {
 		clk.t = t0.Add(3 * time.Second)
 		c.StoreAuthorRecent("a", []*Post{p2, p1}, false, t0)
 		got, _ := c.AuthorRecent("a")
-		if !equalStrings(ids(got.Posts), []string{p2.ID, p1.ID}) {
-			t.Fatalf("entry = %v, want [2 1]", ids(got.Posts))
+		if !equalStrings(postIDs(got.Posts), []string{p2.ID, p1.ID}) {
+			t.Fatalf("entry = %v, want [2 1]", postIDs(got.Posts))
 		}
 	})
 	t.Run("own writes older than the query start are already in its data", func(t *testing.T) {
@@ -65,8 +65,8 @@ func TestStoreAuthorRecent_DoesNotOverwriteNewerOwnWrites(t *testing.T) {
 		t0 := clk.t // the query started after the delete
 		c.StoreAuthorRecent("a", []*Post{p1}, false, t0)
 		got, _ := c.AuthorRecent("a")
-		if !equalStrings(ids(got.Posts), []string{p1.ID}) {
-			t.Fatalf("entry = %v, want [1]", ids(got.Posts))
+		if !equalStrings(postIDs(got.Posts), []string{p1.ID}) {
+			t.Fatalf("entry = %v, want [1]", postIDs(got.Posts))
 		}
 		// And a read that started after the delete may cache the post again (e.g. it was re-created elsewhere).
 		c.SetPostRead(p2, t0)

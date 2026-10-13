@@ -5,18 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
-
-// postIDPattern is the post id shape (19-digit zero-padded Snowflake decimal, ADR-0010 D18).
-var postIDPattern = regexp.MustCompile(`^[0-9]{19}$`)
 
 // outcomes of DeletePost (posts_op=delete) and GetPost (posts_op=get).
 const (
@@ -29,7 +26,7 @@ const (
 )
 
 func validatePostID(id string) error {
-	if !postIDPattern.MatchString(id) {
+	if !ids.ValidPostID(id) {
 		return apierr.Validation("post_id", "post_id must be a 19-digit post id")
 	}
 	return nil
