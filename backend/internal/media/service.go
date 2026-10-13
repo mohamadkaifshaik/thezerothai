@@ -385,6 +385,9 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	// 1. Verify what the signed URL already enforced (defence in depth) and the magic bytes.
 	reason, err := s.verify(ctx, d)
+	if errors.Is(err, errUploadMissing) {
+		return s.uploadMissing(ctx, uid, d)
+	}
 	if err != nil {
 		return Result{}, 0, err
 	}
@@ -433,9 +436,17 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	ext := extension(d.ContentType)
 	pub, pubThumb := publicObject(d.ID, ext), publicThumbObject(d.ID, ext)
 	if err := s.Objects.Publish(ctx, d.UploadPath, pub, d.ContentType); err != nil {
+		if errors.Is(err, objstore.ErrObjectNotFound) {
+			r, _, rerr := s.uploadMissing(ctx, uid, d)
+			return r, spent, rerr
+		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish full: %w", err), uid)
 	}
 	if err := s.Objects.Publish(ctx, d.ThumbUploadPath, pubThumb, d.ContentType); err != nil {
+		if errors.Is(err, objstore.ErrObjectNotFound) {
+			r, _, rerr := s.uploadMissing(ctx, uid, d)
+			return r, spent, rerr
+		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish thumb: %w", err), uid)
 	}
 	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{Status: status, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash})
@@ -449,6 +460,26 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	out := *d
 	out.Status, out.PublicPath, out.ThumbPath, out.Blurhash = string(status), pub, pubThumb, blurhash
 	return s.resultOf(&out), spent, nil
+}
+
+// errUploadMissing is verify's signal that a private upload object is not there.
+var errUploadMissing = errors.New("media: upload object missing")
+
+// uploadMissing answers a finalize that found a private upload object gone. Two causes look identical from the
+// bucket: the client has not finished uploading, or a concurrent FinalizeUpload (a client retry) already published
+// the image and deleted the private copies after this call loaded the document as PENDING. The document tells them
+// apart (1 read, only on this path): a resolved document is the idempotent answer, a still-PENDING one is genuinely
+// not uploaded yet.
+func (s *service) uploadMissing(ctx context.Context, uid string, d *Doc) (Result, int64, error) {
+	r, _, err := s.reload(ctx, uid, d.ID, 0)
+	if err != nil {
+		return Result{}, 0, err
+	}
+	if r.Status != StatusPending {
+		return r, 0, nil
+	}
+	return Result{}, 0, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
+		"the upload is not complete yet").WithMeta("media_id", d.ID)
 }
 
 // reload returns the document another concurrent FinalizeUpload resolved first (1 read).
@@ -479,8 +510,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		a, err := s.Objects.UploadAttrs(ctx, o.object)
 		switch {
 		case errors.Is(err, objstore.ErrObjectNotFound):
-			return "", apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
-				"the upload is not complete yet").WithMeta("media_id", d.ID)
+			return "", errUploadMissing
 		case err != nil:
 			return "", fmt.Errorf("media: object attrs: %w", err)
 		}
@@ -496,8 +526,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		head, err := s.Objects.UploadHead(ctx, o.object, 512)
 		switch {
 		case errors.Is(err, objstore.ErrObjectNotFound):
-			return "", apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
-				"the upload is not complete yet").WithMeta("media_id", d.ID)
+			return "", errUploadMissing
 		case err != nil:
 			return "", fmt.Errorf("media: object head: %w", err)
 		}

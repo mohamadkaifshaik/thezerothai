@@ -634,3 +634,31 @@ var (
 	_ Moderator = (*fakeModerator)(nil)
 	_           = objstore.ErrObjectNotFound
 )
+
+// A concurrent FinalizeUpload (a client retry) can publish the image and delete the private upload objects after
+// this call loaded the document as PENDING. The loser must converge on the winner's READY result, not report
+// "the upload is not complete yet". The stale snapshot is replayed deterministically after the winner finished.
+func TestFinalize_LostRaceConvergesOnTheWinnersResult(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "a")
+	stale := *e.repo.docs[tg.MediaID] // what the loser loaded before the winner resolved
+	if stale.Status != string(StatusPending) {
+		t.Fatalf("setup: status = %q", stale.Status)
+	}
+	first, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+	if err != nil || first[0].Status != StatusReady {
+		t.Fatalf("winner = %+v, %v", first, err)
+	}
+	if len(e.obj.upload) != 0 {
+		t.Fatalf("setup: the winner must have deleted the private objects, have %d", len(e.obj.upload))
+	}
+	publishes, calls := e.obj.publishes, len(e.mod.calls)
+
+	got, spent, err := e.svc.(*service).finalizeOne(context.Background(), uidA, &stale, "")
+	if err != nil || got.Status != StatusReady || got.Ref == nil || *got.Ref != *first[0].Ref || spent != 0 {
+		t.Fatalf("loser = %+v spent=%d err=%v, want the winner's READY ref", got, spent, err)
+	}
+	if e.obj.publishes != publishes || len(e.mod.calls) != calls {
+		t.Fatal("the loser must not publish or screen again")
+	}
+}
