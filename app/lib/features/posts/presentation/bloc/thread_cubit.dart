@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
@@ -36,6 +38,7 @@ class ThreadState {
     this.loadingMore = false,
     this.loadMoreError,
     this.error,
+    this.refreshError,
     this.hiddenAuthors = const {},
     this.repliesDisabled = false,
   });
@@ -62,6 +65,10 @@ class ThreadState {
   /// Set with [ThreadStatus.error].
   final AppException? error;
 
+  /// The last failed pull-to-refresh over visible content (a one-shot
+  /// snackbar; [ThreadCubit.refreshErrorShown] clears it).
+  final AppException? refreshError;
+
   /// Authors the viewer blocked or muted from a reply's menu: hidden at once.
   final Set<String> hiddenAuthors;
 
@@ -86,15 +93,20 @@ class ThreadState {
     bool? loadingMore,
     AppException? loadMoreError,
     bool clearLoadMoreError = false,
+    AppException? refreshError,
+    bool clearRefreshError = false,
     Set<String>? hiddenAuthors,
     bool? repliesDisabled,
+    bool dropParent = false,
+    bool dropRoot = false,
   }) => ThreadState(
     status: status ?? this.status,
     focal: focal,
-    parent: parent,
-    root: root,
-    parentUnavailable: parentUnavailable,
-    rootUnavailable: rootUnavailable,
+    // A removed context post becomes a tombstone.
+    parent: dropParent ? null : parent,
+    root: dropRoot ? null : root,
+    parentUnavailable: parentUnavailable || dropParent,
+    rootUnavailable: rootUnavailable || dropRoot,
     replies: replies ?? this.replies,
     nextPageToken: nextPageToken ?? this.nextPageToken,
     loadingMore: loadingMore ?? this.loadingMore,
@@ -102,6 +114,9 @@ class ThreadState {
         ? null
         : (loadMoreError ?? this.loadMoreError),
     error: error,
+    refreshError: clearRefreshError
+        ? null
+        : (refreshError ?? this.refreshError),
     hiddenAuthors: hiddenAuthors ?? this.hiddenAuthors,
     repliesDisabled: repliesDisabled ?? this.repliesDisabled,
   );
@@ -116,25 +131,58 @@ class ThreadState {
 ///   degrade to the plain post view instead of an error.
 /// - A page may come back short or empty while a token is still present
 ///   (blocked/muted authors are dropped server-side): "more" keeps following
-///   the token. A rejected token restarts the thread once.
+///   the token. A rejected token restarts the thread once (until a page
+///   succeeds again).
+/// - A failed page stops automatic paging: only [retryLoadMore] (the inline
+///   Retry) tries again, and nothing is sent while a RATE_LIMITED answer's
+///   `retry_after` is running.
+/// - Posts that leave every cached feed ([PostsRepository.removedPosts]) are
+///   dropped from the replies; a removed parent/root becomes a tombstone.
 class ThreadCubit extends Cubit<ThreadState> {
   ThreadCubit({
     required PostsRepository postsRepository,
     required String postId,
     Uuid? uuid,
+    Duration Function()? elapsed,
   }) : _repository = postsRepository,
        _postId = postId,
        _uuid = uuid ?? const Uuid(),
-       super(const ThreadState());
+       _elapsedOverride = elapsed,
+       super(const ThreadState()) {
+    _removedSub = _repository.removedPosts.listen(_onRemoved);
+  }
 
   final PostsRepository _repository;
   final String _postId;
   final Uuid _uuid;
   final Map<String, String> _deleteKeys = {};
+  late final StreamSubscription<String> _removedSub;
+
+  /// Monotonic time for the RATE_LIMITED hold (never wall-clock).
+  final Duration Function()? _elapsedOverride;
+  final Stopwatch _stopwatch = Stopwatch()..start();
+  Duration _elapsed() => _elapsedOverride?.call() ?? _stopwatch.elapsed;
+
+  /// Bumped whenever the whole thread is replaced; a page request that
+  /// started before it must not write its (stale) token or replies.
+  int _generation = 0;
+
+  /// True once a rejected page token restarted the thread; cleared by the
+  /// next successful page.
+  bool _restarted = false;
+  Duration? _rateLimitedUntil;
+  RateLimitedException? _rateLimit;
 
   /// First page. Shows the loading state (use [refresh] to keep content).
   Future<void> load() async {
-    emit(const ThreadState());
+    _generation++;
+    // The viewer's local choices survive a reload.
+    emit(
+      ThreadState(
+        hiddenAuthors: state.hiddenAuthors,
+        repliesDisabled: state.repliesDisabled,
+      ),
+    );
     await _fetchFirst(keepOnError: false);
   }
 
@@ -149,6 +197,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     try {
       final response = await _repository.getThread(_postId);
       if (isClosed) return;
+      _generation++;
       emit(_fromResponse(response));
     } on NotFoundException {
       if (isClosed) return;
@@ -161,8 +210,20 @@ class ThreadCubit extends Cubit<ThreadState> {
       if (isClosed) return;
       emit(const ThreadState(status: ThreadStatus.disabled));
     } on AppException catch (e) {
-      if (isClosed || keepOnError) return;
+      if (isClosed) return;
+      if (keepOnError) {
+        // The old thread stays; the screen says why nothing changed.
+        emit(state.copyWith(refreshError: e));
+        return;
+      }
       emit(ThreadState(status: ThreadStatus.error, error: e));
+    }
+  }
+
+  /// Marks a failed refresh as shown.
+  void refreshErrorShown() {
+    if (state.refreshError != null) {
+      emit(state.copyWith(clearRefreshError: true));
     }
   }
 
@@ -182,21 +243,50 @@ class ThreadCubit extends Cubit<ThreadState> {
           if (p.post.postId != focalPost.postId) p,
       ],
       nextPageToken: r.nextPageToken,
+      hiddenAuthors: state.hiddenAuthors,
+      repliesDisabled: state.repliesDisabled,
     );
   }
 
-  /// Next page of replies; guarded against concurrent loads.
+  /// Next page of replies (scroll near the end / "Show more replies").
+  /// No-op while loading, when exhausted, and after a failed page until
+  /// [retryLoadMore]: scrolling must not retry a failing request.
   Future<void> loadMore() async {
+    if (state.loadMoreError != null) return;
+    await _loadPage();
+  }
+
+  /// The user tapped Retry under a failed page.
+  Future<void> retryLoadMore() async {
+    if (state.loadMoreError == null) return;
+    _restarted = false;
+    await _loadPage();
+  }
+
+  Future<void> _loadPage() async {
     final s = state;
-    if (s.status != ThreadStatus.ready || s.loadingMore || !s.hasMore) return;
+    if (isClosed ||
+        s.status != ThreadStatus.ready ||
+        s.loadingMore ||
+        !s.hasMore) {
+      return;
+    }
+    final limited = _rateLimitedFor();
+    if (limited != null) {
+      // Nothing is sent before retry_after; the footer shows why.
+      emit(s.copyWith(loadMoreError: limited));
+      return;
+    }
+    final generation = _generation;
     emit(s.copyWith(loadingMore: true, clearLoadMoreError: true));
     try {
       final response = await _repository.getThread(
         _postId,
         pageToken: s.nextPageToken,
       );
-      if (isClosed) return;
+      if (isClosed || generation != _generation) return;
       final seen = {for (final r in state.replies) r.post.postId};
+      _restarted = false;
       emit(
         state.copyWith(
           replies: [
@@ -210,20 +300,83 @@ class ThreadCubit extends Cubit<ThreadState> {
           loadingMore: false,
         ),
       );
-    } on ValidationException {
+    } on ValidationException catch (e) {
+      if (isClosed || generation != _generation) return;
+      if (_restarted) {
+        // The restart's own token was rejected too: stop, offer Retry.
+        emit(state.copyWith(loadingMore: false, loadMoreError: e));
+        return;
+      }
       // Token expired or rejected: one cold restart, not a dead end.
-      if (isClosed) return;
+      _restarted = true;
       await load();
     } on NotFoundException {
-      if (isClosed) return;
+      if (isClosed || generation != _generation) return;
       emit(const ThreadState(status: ThreadStatus.notFound));
     } on FeatureDisabledException {
-      if (isClosed) return;
+      if (isClosed || generation != _generation) return;
       emit(const ThreadState(status: ThreadStatus.disabled));
     } on AppException catch (e) {
-      if (isClosed) return;
+      if (isClosed || generation != _generation) return;
+      if (e is RateLimitedException && !e.isInflightHold) {
+        _rateLimit = e;
+        _rateLimitedUntil =
+            _elapsed() +
+            (e.retryAfter ??
+                (e.isDaily
+                    ? const Duration(minutes: 5)
+                    : const Duration(seconds: 30)));
+      }
       emit(state.copyWith(loadingMore: false, loadMoreError: e));
     }
+  }
+
+  /// The RATE_LIMITED answer pages are still held back for, with the time
+  /// left; null when nothing is held back.
+  RateLimitedException? _rateLimitedFor() {
+    final until = _rateLimitedUntil;
+    final original = _rateLimit;
+    if (until == null || original == null) return null;
+    final left = until - _elapsed();
+    if (left <= Duration.zero) {
+      _rateLimitedUntil = null;
+      _rateLimit = null;
+      return null;
+    }
+    return RateLimitedException(
+      original.message,
+      retryAfter: left,
+      limitName: original.limitName,
+    );
+  }
+
+  void _onRemoved(String postId) {
+    final s = state;
+    if (isClosed || s.status != ThreadStatus.ready || postId == _postId) {
+      return;
+    }
+    final inReplies = s.replies.any((r) => r.post.postId == postId);
+    final parentGone = s.parent?.post.postId == postId;
+    final rootGone = s.root?.post.postId == postId;
+    if (!inReplies && !parentGone && !rootGone) return;
+    emit(
+      s.copyWith(
+        replies: inReplies
+            ? [
+                for (final r in s.replies)
+                  if (r.post.postId != postId) r,
+              ]
+            : null,
+        dropParent: parentGone,
+        dropRoot: rootGone,
+      ),
+    );
+  }
+
+  @override
+  Future<void> close() async {
+    await _removedSub.cancel();
+    return super.close();
   }
 
   /// The viewer's own reply was created: show it at the end at once (a later

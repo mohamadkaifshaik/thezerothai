@@ -40,11 +40,12 @@ class ComposerState {
     AppException? error,
     pb.PostView? created,
     bool clearError = false,
+    bool clearCreated = false,
   }) => ComposerState(
     draft: draft ?? this.draft,
     status: status ?? this.status,
     error: clearError ? null : (error ?? this.error),
-    created: created ?? this.created,
+    created: clearCreated ? null : (created ?? this.created),
   );
 }
 
@@ -65,25 +66,34 @@ class ComposerState {
 const _maxRememberedKeys = 8;
 
 class ComposerCubit extends Cubit<ComposerState> {
-  /// With [replyToPostId] set the cubit sends a reply (P3 thread screen):
-  /// replies never appear on Home, so [pending] and [author] are not needed
-  /// (and not used); a top-level post still needs both.
+  /// A top-level post: the optimistic item goes through [pending] with the
+  /// viewer's [author] snapshot.
   ComposerCubit({
     required PostsRepository postsRepository,
-    PendingPostsCubit? pending,
-    common.AuthorSnapshot? author,
-    this.replyToPostId = '',
+    required PendingPostsCubit pending,
+    required common.AuthorSnapshot author,
     Uuid? uuid,
     DateTime Function()? clock,
-  }) : assert(
-         replyToPostId != '' || (pending != null && author != null),
-         'a top-level post needs pending and author',
-       ),
+  }) : replyToPostId = '',
        _repository = postsRepository,
        _pending = pending,
        _author = author,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
+       super(ComposerState(draft: analyzePostDraft('')));
+
+  /// A reply to [replyToPostId] (P3 thread screen). Replies never appear on
+  /// Home, so there is no optimistic item here: the thread screen shows its
+  /// own pending row while [ComposerState.isSubmitting].
+  ComposerCubit.reply({
+    required PostsRepository postsRepository,
+    required this.replyToPostId,
+    Uuid? uuid,
+  }) : _repository = postsRepository,
+       _pending = null,
+       _author = null,
+       _uuid = uuid ?? const Uuid(),
+       _clock = DateTime.now,
        super(ComposerState(draft: analyzePostDraft('')));
 
   /// The post being replied to; empty for a top-level post.
@@ -122,7 +132,7 @@ class ComposerCubit extends Cubit<ComposerState> {
 
     final pending = _pending;
     final author = _author;
-    if (replyToPostId.isEmpty && pending != null && author != null) {
+    if (pending != null && author != null) {
       pending.add(
         PendingPost(
           localId: key,
@@ -132,15 +142,19 @@ class ComposerCubit extends Cubit<ComposerState> {
         ),
       );
     }
-    emit(state.copyWith(status: ComposerStatus.submitting, clearError: true));
+    emit(
+      state.copyWith(
+        status: ComposerStatus.submitting,
+        clearError: true,
+        clearCreated: true,
+      ),
+    );
     try {
-      final created = replyToPostId.isEmpty
-          ? await _repository.createPost(idempotencyKey: key, text: text)
-          : await _repository.createPost(
-              idempotencyKey: key,
-              text: text,
-              replyToPostId: replyToPostId,
-            );
+      final created = await _repository.createPost(
+        idempotencyKey: key,
+        text: text,
+        replyToPostId: replyToPostId,
+      );
       _keys.remove(text);
       _keyText = null;
       pending?.remove(key);

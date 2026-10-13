@@ -39,6 +39,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).thenAnswer((_) => answer());
   }
@@ -70,6 +71,7 @@ void main() {
         () => repo.createPost(
           idempotencyKey: any(named: 'idempotencyKey'),
           text: 'hello',
+          replyToPostId: any(named: 'replyToPostId'),
         ),
       ).called(1);
     },
@@ -77,7 +79,7 @@ void main() {
 
   test('a reply goes to replyToPostId, skips Home pending, and exposes the '
       'created view', () async {
-    final reply = ComposerCubit(
+    final reply = ComposerCubit.reply(
       postsRepository: repo,
       replyToPostId: postId(7),
     );
@@ -96,6 +98,10 @@ void main() {
     expect(reply.state.status, ComposerStatus.posted);
     expect(reply.state.created!.post.postId, postId(9));
     expect(pending.state, isEmpty);
+
+    // A new intent starts without the previous reply's view.
+    reply.textChanged('again');
+    expect(reply.state.created, isNull);
   });
 
   test(
@@ -135,6 +141,7 @@ void main() {
         () => repo.createPost(
           idempotencyKey: captureAny(named: 'idempotencyKey'),
           text: 'hello',
+          replyToPostId: any(named: 'replyToPostId'),
         ),
       ).captured;
       expect(keys, hasLength(2));
@@ -156,6 +163,7 @@ void main() {
         () => repo.createPost(
           idempotencyKey: captureAny(named: 'idempotencyKey'),
           text: any(named: 'text'),
+          replyToPostId: any(named: 'replyToPostId'),
         ),
       ).captured;
       expect(keys, hasLength(2));
@@ -176,6 +184,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: captureAny(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).captured;
     expect(keys, hasLength(3));
@@ -202,6 +211,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).called(1);
   });
@@ -213,6 +223,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     );
     expect(pending.state, isEmpty);

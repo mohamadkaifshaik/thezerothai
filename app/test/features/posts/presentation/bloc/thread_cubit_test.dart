@@ -30,13 +30,25 @@ pb.GetThreadResponse thread({
 void main() {
   late MockPostsRepository repo;
   late ThreadCubit cubit;
+  late StreamController<String> removed;
+  late Duration now;
 
   setUp(() {
+    now = Duration.zero;
+    removed = StreamController<String>.broadcast();
     repo = MockPostsRepository();
-    cubit = ThreadCubit(postsRepository: repo, postId: postId(1));
+    when(() => repo.removedPosts).thenAnswer((_) => removed.stream);
+    cubit = ThreadCubit(
+      postsRepository: repo,
+      postId: postId(1),
+      elapsed: () => now,
+    );
   });
 
-  tearDown(() => cubit.close());
+  tearDown(() async {
+    await cubit.close();
+    await removed.close();
+  });
 
   void stub(Future<pb.GetThreadResponse> Function(String token) answer) {
     when(
@@ -137,8 +149,18 @@ void main() {
     expect(cubit.state.replies, hasLength(1));
     expect(cubit.state.loadingMore, isFalse);
 
-    fail = false;
+    // Scrolling must not retry a failing page; only Retry does.
     await cubit.loadMore();
+    verify(
+      () => repo.getThread(
+        postId(1),
+        pageToken: 'n1',
+        pageSize: any(named: 'pageSize'),
+      ),
+    ).called(1);
+
+    fail = false;
+    await cubit.retryLoadMore();
     expect(cubit.state.loadMoreError, isNull);
     expect(cubit.state.replies, hasLength(2));
   });
@@ -161,6 +183,133 @@ void main() {
     expect(cubit.state.status, ThreadStatus.ready);
     expect(cubit.state.replies, hasLength(1));
     expect(cubit.state.hasMore, isFalse);
+  });
+
+  test('a token rejected again after the restart stops with a retry', () async {
+    var restarts = 0;
+    stub((token) async {
+      if (token == 'old') {
+        restarts++;
+        throw const ValidationException('page_token');
+      }
+      return thread(replies: [2], next: 'old');
+    });
+    await cubit.load();
+
+    await cubit.loadMore(); // rejected -> one restart -> 'old' again
+    expect(cubit.state.status, ThreadStatus.ready);
+    await cubit.loadMore(); // rejected again: capped
+    expect(cubit.state.loadMoreError, isA<ValidationException>());
+    expect(restarts, 2);
+
+    await cubit.loadMore(); // no automatic retry
+    expect(restarts, 2);
+  });
+
+  test('a RATE_LIMITED page holds further pages until retry_after', () async {
+    var calls = 0;
+    stub((token) async {
+      if (token.isEmpty) return thread(replies: [2], next: 'n1');
+      calls++;
+      if (calls == 1) {
+        throw const RateLimitedException(
+          'slow down',
+          retryAfter: Duration(seconds: 30),
+        );
+      }
+      return thread(replies: [3]);
+    });
+    await cubit.load();
+    await cubit.loadMore();
+    expect(cubit.state.loadMoreError, isA<RateLimitedException>());
+
+    now = const Duration(seconds: 10);
+    await cubit.retryLoadMore();
+    expect(calls, 1); // nothing sent
+    final held = cubit.state.loadMoreError! as RateLimitedException;
+    expect(held.retryAfter, const Duration(seconds: 20));
+
+    now = const Duration(seconds: 31);
+    await cubit.retryLoadMore();
+    expect(calls, 2);
+    expect(cubit.state.replies, hasLength(2));
+    expect(cubit.state.loadMoreError, isNull);
+  });
+
+  test('a stale page cannot overwrite a refreshed thread', () async {
+    final page = Completer<pb.GetThreadResponse>();
+    var firsts = 0;
+    stub((token) {
+      if (token.isEmpty) {
+        firsts++;
+        return Future.value(
+          firsts == 1
+              ? thread(replies: [2], next: 'n1')
+              : thread(replies: [2, 4], next: 'fresh'),
+        );
+      }
+      return page.future;
+    });
+    await cubit.load();
+
+    final more = cubit.loadMore();
+    await cubit.refresh();
+    page.complete(thread(replies: [3], next: 'stale'));
+    await more;
+
+    expect(cubit.state.nextPageToken, 'fresh');
+    expect(cubit.state.replies.map((r) => r.post.postId), [
+      postId(2),
+      postId(4),
+    ]);
+    expect(cubit.state.loadingMore, isFalse);
+  });
+
+  test('refresh keeps hidden authors and a disabled composer', () async {
+    stub((_) async => thread(replies: [2]));
+    await cubit.load();
+    cubit.setAuthorHidden('u1', hidden: true);
+    cubit.repliesBecameUnavailable();
+
+    await cubit.refresh();
+
+    expect(cubit.state.hiddenAuthors, {'u1'});
+    expect(cubit.state.repliesDisabled, isTrue);
+  });
+
+  test('a removed post leaves the replies; a removed parent is a '
+      'tombstone', () async {
+    stub(
+      (_) async =>
+          thread(replies: [2, 3], parent: postView(5), root: postView(6)),
+    );
+    await cubit.load();
+
+    removed.add(postId(2));
+    await Future<void>.delayed(Duration.zero);
+    expect(cubit.state.replies.map((r) => r.post.postId), [postId(3)]);
+
+    removed.add(postId(5));
+    await Future<void>.delayed(Duration.zero);
+    expect(cubit.state.parent, isNull);
+    expect(cubit.state.parentUnavailable, isTrue);
+    expect(cubit.state.root, isNotNull);
+    expect(cubit.state.rootUnavailable, isFalse);
+
+    removed.add(postId(6));
+    await Future<void>.delayed(Duration.zero);
+    expect(cubit.state.rootUnavailable, isTrue);
+
+    // The focal post itself is handled by delete/NOT_FOUND, not here.
+    removed.add(postId(1));
+    await Future<void>.delayed(Duration.zero);
+    expect(cubit.state.status, ThreadStatus.ready);
+  });
+
+  test('close cancels the removed-posts subscription', () async {
+    expect(removed.hasListener, isTrue);
+    await cubit.close();
+    expect(removed.hasListener, isFalse);
   });
 
   test('NOT_FOUND is final; FEATURE_DISABLED degrades; others retry', () async {
@@ -190,6 +339,10 @@ void main() {
 
     expect(cubit.state.status, ThreadStatus.ready);
     expect(cubit.state.replies, hasLength(1));
+    expect(cubit.state.refreshError, isA<NetworkException>());
+
+    cubit.refreshErrorShown();
+    expect(cubit.state.refreshError, isNull);
   });
 
   test('replyPosted appends once; blocked authors are hidden', () async {
