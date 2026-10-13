@@ -29,10 +29,11 @@ const (
 	// Plan T16 acceptance criterion: <= 509 R + job state, <= 300 W + checkpoints, <= 505 D; +3 R for the P6
 	// notifications step (ADR-0017 D10: once per deleted account, 0 deletes for an account that never had a device).
 	planDeleteReads = 509 + 3
-	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703 (+ the lease claim and
-	// status writes of the L-4 amendment), + 2 for the P6 notifications section (ADR-0017 D10: the devices query and one
-	// notifications page; an empty query bills 1 read).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 2
+	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
+	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6
+	// notifications section (ADR-0017 D10: the devices query and one notifications page; an empty query bills 1 read)
+	// = 706 (+ the lease claim and status writes of the L-4 amendment).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2
 	refExportWrites = 2
 )
 

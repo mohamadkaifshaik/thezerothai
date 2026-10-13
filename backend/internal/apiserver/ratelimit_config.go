@@ -5,6 +5,7 @@ import (
 
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
@@ -53,6 +54,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlPostCreate := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	rlPostDelete := ratelimit.NewLimiter(cfg.RateLimit.PostDeletePerMinute, idleBucketTTL)
 
+	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
+	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
+	// and Vision spend by VISION_MONTHLY_CAP.
+	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
+
 	return ratelimit.Config{
 		Default: rlDefault,
 		PerProcedure: map[string]*ratelimit.Limiter{
@@ -60,6 +66,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			timelinev1connect.TimelineServiceGetUserTimelineProcedure:         rlUserTimeline,
 			postsv1connect.PostServiceCreatePostProcedure:                     rlPostCreate,
 			postsv1connect.PostServiceDeletePostProcedure:                     rlPostDelete,
+			mediav1connect.MediaServiceCreateUploadProcedure:                  rlMedia,
+			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMedia,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
 			graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,

@@ -166,9 +166,12 @@ against a cloud project.
   `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
   `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when
   the account has none.
-- **Media:** posts carry no media yet (P1 is text-only), so there are no objects to delete. When media ships, also delete
-  `gs://$P-media/m/<mediaId>*` for the user's media, and extend this list (and ADR-0003's delete path) as each
-  Phase 1 module lands.
+- **Media (P4):** the in-app purge has a `media` step (after posts and graph, before identity) that deletes every
+  image the user owns, public objects first, then any private upload leftovers, then the `media/*` documents, 100 per
+  page (reads: 1 minimum + 1 per document). For a manual purge of a user with media, delete `gs://$P-media/m/<mediaId>*`
+  for each `media` document with `ownerId == uid` (Limit 100) and then the documents. Avatars the user replaced earlier are
+  included (they are only removed with the account, `docs/plans/media-uploads.md` D10). Extend this list (and
+  ADR-0003's delete path) as each Phase 1 module lands.
 - **Backups:** prod weekly Firestore backups keep data for up to **14 days**, and deleted data ages out with them.
   Say so in the reply. Logs hold only a hashed uid.
 

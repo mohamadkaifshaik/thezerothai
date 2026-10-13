@@ -43,6 +43,8 @@ func TestPostNotifier(t *testing.T) {
 	}{
 		{"no mentions", &posts.Post{ID: "1000000000000000001", AuthorID: "alice"}, nil},
 		{"nil post", nil, nil},
+		{"not public", &posts.Post{ID: "1000000000000000001", AuthorID: "alice", Visibility: posts.VisibilityFollowers,
+			Mentions: []posts.Mention{{UserID: "bob", Handle: "bob"}}}, nil},
 		{"two mentions", &posts.Post{ID: "1000000000000000001", AuthorID: "alice", CreatedAt: at,
 			Mentions: []posts.Mention{{UserID: "bob", Handle: "bob"}, {UserID: "carol", Handle: "carol"}}}, []string{"bob", "carol"}},
 	}

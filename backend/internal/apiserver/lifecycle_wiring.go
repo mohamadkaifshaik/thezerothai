@@ -11,6 +11,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
@@ -49,6 +50,11 @@ func postsEraserStep(e posts.Eraser) identity.StepEraser {
 // graphEraserStep is the graph step (step "graph").
 func graphEraserStep(e graph.Eraser) identity.StepEraser {
 	return eraserStep[graph.Checkpoint]{name: "graph", purge: e.PurgeUser}
+}
+
+// mediaEraserStep is the media step (step "media", P4): it runs after posts and graph and before identity.
+func mediaEraserStep(p *media.Purger) identity.StepEraser {
+	return eraserStep[media.Checkpoint]{name: "media", purge: p.PurgeUser}
 }
 
 // notificationsEraserStep is the notifications step (step "notifications", ADR-0017 D10): devices and their token
@@ -98,15 +104,15 @@ func (s notificationsSection) WriteSection(ctx context.Context, uid string, w io
 }
 
 // registerLifecycleModules registers every module's Eraser and export section on l, in the ADR-0011 Q1 order.
-// Later slices (media P4, engagement P5, reports P7) add their lines here, before the identity step, which
-// Lifecycle always runs last.
-func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, notifRepo *notifications.FirestoreRepo) error {
-	for _, e := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), notificationsEraserStep(notifRepo)} {
+// Later slices (engagement P5, reports P7) add their lines here, before the identity step, which Lifecycle
+// always runs last.
+func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, mediaPurger *media.Purger, notifRepo *notifications.FirestoreRepo) error {
+	for _, e := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), mediaEraserStep(mediaPurger), notificationsEraserStep(notifRepo)} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, e); err != nil {
 			return err
 		}
 	}
-	for _, s := range []identity.ExportSection{graphSection{graphRepo}, postsSection{postsRepo}, notificationsSection{notifRepo}} {
+	for _, s := range []identity.ExportSection{graphSection{graphRepo}, postsSection{postsRepo}, mediaPurger, notificationsSection{notifRepo}} {
 		if err := l.RegisterExportSection(s); err != nil {
 			return err
 		}

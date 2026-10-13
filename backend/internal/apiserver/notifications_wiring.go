@@ -46,6 +46,9 @@ func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
 	if post == nil || len(post.Mentions) == 0 {
 		return
 	}
+	if post.Visibility != "" && post.Visibility != posts.VisibilityPublic {
+		return // never announce a post that is not publicly visible (moderation hold, followers-only)
+	}
 	recipients := make([]string, 0, len(post.Mentions))
 	for _, m := range post.Mentions {
 		recipients = append(recipients, m.UserID)
