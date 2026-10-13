@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../core/network/api_client.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
+import '../core/network/rate_limit_hold.dart';
 import '../core/storage/app_database.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -96,15 +97,20 @@ Future<void> bootstrap() async {
   // until the next GetMe changes the flag set.
   final postsGate = buildPostsGate(onboardingBloc);
   final timelineStore = TimelineStore(database);
+  // One RATE_LIMITED hold for every read repository (ADR-0010 D5: the daily
+  // read budget is per uid across RPCs); the timeline clears it on sign-out.
+  final rateLimitHold = RateLimitHold();
   final postsRepository = PostsRepository(
     apiClient: apiClient,
     store: timelineStore,
     gate: postsGate,
+    rateLimitHold: rateLimitHold,
   );
   final timelineRepository = TimelineRepository(
     apiClient: apiClient,
     store: timelineStore,
     gate: postsGate,
+    rateLimitHold: rateLimitHold,
   );
 
   // Bridge: OnboardingBloc reacts to sign-in/sign-out, but never talks to

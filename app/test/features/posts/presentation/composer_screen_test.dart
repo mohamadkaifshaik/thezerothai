@@ -61,6 +61,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).thenAnswer((_) async => await answer());
   }
@@ -157,6 +158,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: 'hello world',
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).called(1);
     expect(pending.state, isEmpty);

@@ -10,9 +10,12 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/pending_posts_section.dart';
 import '../../../shared/widgets/post_card.dart';
+import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import 'bloc/timeline_cubit.dart';
 import 'bloc/timeline_state.dart';
@@ -24,9 +27,6 @@ import 'widgets/timeline_gap_row.dart';
 /// ("5m", no RPC) and asks the cubit for a throttled refresh, which sends at
 /// most one request per `kAutoRefreshInterval`. Stopped while backgrounded.
 const kFeedTickInterval = Duration(seconds: 30);
-
-/// Fraction of the scroll extent after which the next page is prefetched.
-const kPrefetchFraction = 0.7;
 
 /// The scrolling body of a cached feed (T17 Home, T18 profile Posts tab):
 /// pull-to-refresh, "N new posts" pill, non-blocking notice, optimistic
@@ -239,9 +239,10 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
       if (state.status == TimelineStatus.error && state.error != null) {
         child = AppErrorView(error: state.error!, onRetry: cubit.refresh);
       } else if (state.status == TimelineStatus.loading || state.refreshing) {
-        child = const _FeedSkeleton();
+        child = const PostListSkeleton();
       } else {
-        child = _EmptyView(
+        child = AppEmptyView(
+          icon: Icons.dynamic_feed_outlined,
           title: widget.emptyTitle,
           subtitle: widget.emptySubtitle,
         );
@@ -347,115 +348,6 @@ class _NoticeBanner extends StatelessWidget {
           timelineNoticeMessage(error),
           style: Theme.of(context).textTheme.bodyMedium
               ?.copyWith(color: colors.onSurface),
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyView extends StatelessWidget {
-  const _EmptyView({required this.title, this.subtitle});
-
-  final String title;
-  final String? subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.xxl,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.dynamic_feed_outlined,
-            size: AppSpacing.xxl,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            title,
-            style: theme.textTheme.titleLarge,
-            textAlign: TextAlign.center,
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              subtitle!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Placeholder rows shaped like posts, shown while the first page loads.
-/// Static (no shimmer): cheap, and respects reduced motion.
-class _FeedSkeleton extends StatelessWidget {
-  const _FeedSkeleton();
-
-  static const _rows = 5;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    Widget bar(double widthFactor) => FractionallySizedBox(
-      alignment: AlignmentDirectional.centerStart,
-      widthFactor: widthFactor,
-      child: Container(
-        height: AppSpacing.md,
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-    );
-    return Semantics(
-      liveRegion: true,
-      label: 'Loading posts',
-      child: ExcludeSemantics(
-        child: Column(
-          children: [
-            for (var i = 0; i < _rows; i++) ...[
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: AppSpacing.xxl - AppSpacing.sm,
-                      height: AppSpacing.xxl - AppSpacing.sm,
-                      decoration: BoxDecoration(
-                        color: colors.surfaceContainerHigh,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          bar(0.4),
-                          const SizedBox(height: AppSpacing.sm),
-                          bar(1),
-                          const SizedBox(height: AppSpacing.sm),
-                          bar(0.7),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(),
-            ],
-          ],
         ),
       ),
     );
