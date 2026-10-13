@@ -662,3 +662,166 @@ func TestFinalize_LostRaceConvergesOnTheWinnersResult(t *testing.T) {
 		t.Fatal("the loser must not publish or screen again")
 	}
 }
+
+// winnerResolves models a concurrent FinalizeUpload that finishes while this call is mid-flight: it resolves the
+// document (READY with a published path, or REJECTED) and deletes the private objects, exactly like the real
+// winner. It must run on the test goroutine (the repo lock is not taken, so it is also safe inside resolveFn).
+func (e *env) winnerResolves(id string, status Status) {
+	d := e.repo.docs[id]
+	d.Status = string(status)
+	if status == StatusReady {
+		ext := extension(d.ContentType)
+		d.PublicPath, d.ThumbPath = publicObject(id, ext), publicThumbObject(id, ext)
+		e.obj.public[d.PublicPath], e.obj.public[d.ThumbPath] = d.ContentType, d.ContentType
+	} else {
+		d.RejectionReason = reasonPolicy
+	}
+	d.UpdateTime = d.UpdateTime.Add(time.Second)
+	e.obj.mu.Lock()
+	delete(e.obj.upload, d.UploadPath)
+	delete(e.obj.upload, d.ThumbUploadPath)
+	e.obj.mu.Unlock()
+}
+
+func (e *env) finalizeStale(t *testing.T, id string) (Result, int64, error) {
+	t.Helper()
+	stale := *e.repo.docs[id]
+	return e.svc.(*service).finalizeOne(context.Background(), uidA, &stale, "")
+}
+
+// B1: the winner finishes while the loser's SafeSearch is in flight; the failed fetch of the deleted private
+// object must not surface as "image checks are temporarily unavailable" for a READY image.
+func TestFinalize_LostRaceDuringScreeningConvergesOnReady(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "a")
+	e.mod.onCall = func() error {
+		e.winnerResolves(tg.MediaID, StatusReady)
+		return errors.New("vision: gs object not found")
+	}
+	got, spent, err := e.finalizeStale(t, tg.MediaID)
+	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 0 {
+		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and no units", got, spent, err)
+	}
+}
+
+func TestFinalize_ScreeningFailureWhileStillPendingStaysUnavailable(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "a")
+	e.mod.err = errors.New("vision down")
+	_, _, err := e.finalizeStale(t, tg.MediaID)
+	_ = wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+}
+
+// The two Publish branches: the private object disappears between verify and the copy.
+func TestFinalize_LostRaceDuringPublishConvergesAndCarriesSpent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		on   func(tg UploadTarget) string
+	}{
+		{"full", func(tg UploadTarget) string { return uploadObject(uidA, tg.MediaID, "jpg") }},
+		{"thumb", func(tg UploadTarget) string { return uploadThumbObject(uidA, tg.MediaID, "jpg") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t, envOpts{})
+			tg := e.upload(t, uidA, PurposePost, "a")
+			e.obj.publishOn = tc.on(tg)
+			e.obj.publishHook = func() { e.winnerResolves(tg.MediaID, StatusReady) }
+			got, spent, err := e.finalizeStale(t, tg.MediaID)
+			if err != nil || got.Status != StatusReady || got.Ref == nil {
+				t.Fatalf("got %+v err=%v, want the winner's READY result", got, err)
+			}
+			if spent != 1 {
+				t.Fatalf("spent = %d: Vision units already paid by this call must still be counted", spent)
+			}
+			if _, ok := e.obj.public[publicObject(tg.MediaID, "jpg")]; !ok {
+				t.Fatal("a READY winner owns the public objects; they must be kept")
+			}
+		})
+	}
+}
+
+// A REJECTED winner: this call's public copy of the full image would stay public-read forever (a REJECTED doc has
+// no public path for purge to remove), so it is deleted.
+func TestFinalize_LostRaceToRejectedWinnerDropsThePublicCopy(t *testing.T) {
+	pub := func(id string) string { return publicObject(id, "jpg") }
+	t.Run("thumb copy missing", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		tg := e.upload(t, uidA, PurposePost, "a")
+		e.obj.publishOn = uploadThumbObject(uidA, tg.MediaID, "jpg")
+		e.obj.publishHook = func() { e.winnerResolves(tg.MediaID, StatusRejected) }
+		got, spent, err := e.finalizeStale(t, tg.MediaID)
+		if err != nil || got.Status != StatusRejected || got.Ref != nil || spent != 1 {
+			t.Fatalf("got %+v spent=%d err=%v", got, spent, err)
+		}
+		if _, ok := e.obj.public[pub(tg.MediaID)]; ok {
+			t.Fatal("the full-image copy of a REJECTED image must be removed from the public bucket")
+		}
+	})
+	t.Run("resolve conflict", func(t *testing.T) {
+		e := newEnv(t, envOpts{})
+		tg := e.upload(t, uidA, PurposePost, "a")
+		e.repo.resolveFn = func(id string) error { e.winnerResolves(id, StatusRejected); return nil }
+		got, _, err := e.finalizeStale(t, tg.MediaID)
+		if err != nil || got.Status != StatusRejected {
+			t.Fatalf("got %+v err=%v", got, err)
+		}
+		if len(e.obj.public) != 0 {
+			t.Fatalf("public objects left behind: %v", e.obj.public)
+		}
+	})
+}
+
+// After verify saw the objects, a missing source with a still-PENDING doc is not a lost race: it must be an
+// internal error (Error Reporting), not a client-retryable MEDIA_NOT_READY.
+func TestFinalize_PublishSourceMissingWhilePendingIsInternal(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "a")
+	e.obj.publishHook = func() {
+		e.obj.mu.Lock()
+		delete(e.obj.upload, uploadObject(uidA, tg.MediaID, "jpg"))
+		e.obj.mu.Unlock()
+	}
+	_, _, err := e.finalizeStale(t, tg.MediaID)
+	var ae *apierr.Error
+	if err == nil || errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY {
+		t.Fatalf("err = %v, want an internal error", err)
+	}
+}
+
+// reject resolves BEFORE deleting: a failed or lost Resolve must leave the private objects for the retry/winner.
+func TestFinalize_RejectDoesNotDeleteUploadsUnlessItResolved(t *testing.T) {
+	setup := func(t *testing.T) (*env, UploadTarget) {
+		e := newEnv(t, envOpts{})
+		tg := e.upload(t, uidA, PurposePost, "a")
+		e.mod.by[uploadObject(uidA, tg.MediaID, "jpg")] = SafeSearch{Adult: LikelihoodVeryLikely}
+		return e, tg
+	}
+	t.Run("resolve fails", func(t *testing.T) {
+		e, tg := setup(t)
+		e.repo.resolveFn = func(string) error { return errors.New("firestore down") }
+		if _, _, err := e.finalizeStale(t, tg.MediaID); err == nil {
+			t.Fatal("want the resolve error")
+		}
+		if len(e.obj.upload) != 2 {
+			t.Fatalf("uploads = %d, want both kept so a retry still finds them", len(e.obj.upload))
+		}
+	})
+	t.Run("lost the resolve", func(t *testing.T) {
+		e, tg := setup(t)
+		e.repo.resolveFn = func(id string) error { e.winnerResolves(id, StatusReady); return nil }
+		got, _, err := e.finalizeStale(t, tg.MediaID)
+		if err != nil || got.Status != StatusReady {
+			t.Fatalf("got %+v err=%v", got, err)
+		}
+		if _, ok := e.obj.public[publicObject(tg.MediaID, "jpg")]; !ok {
+			t.Fatal("the winner's public objects must be untouched")
+		}
+	})
+	t.Run("resolved then deleted", func(t *testing.T) {
+		e, tg := setup(t)
+		got, _, err := e.finalizeStale(t, tg.MediaID)
+		if err != nil || got.Status != StatusRejected || len(e.obj.upload) != 0 {
+			t.Fatalf("got %+v err=%v uploads=%d", got, err, len(e.obj.upload))
+		}
+	})
+}

@@ -159,6 +159,10 @@ type fakeObjects struct {
 	attrsErr   error
 	publishErr error
 	deletePub  error
+	// publishHook, when set, runs once at the start of the next Publish whose source is `publishOn` (a mid-call
+	// hook modelling a concurrent finalize); it is cleared before it runs.
+	publishHook func()
+	publishOn   string
 }
 
 type fakeObject struct {
@@ -210,6 +214,12 @@ func (o *fakeObjects) UploadHead(_ context.Context, object string, n int64) ([]b
 
 func (o *fakeObjects) Publish(_ context.Context, uploadObject, publicObject, contentType string) error {
 	o.mu.Lock()
+	if hook := o.publishHook; hook != nil && (o.publishOn == "" || o.publishOn == uploadObject) {
+		o.publishHook = nil
+		o.mu.Unlock()
+		hook()
+		o.mu.Lock()
+	}
 	defer o.mu.Unlock()
 	if o.publishErr != nil {
 		return o.publishErr
@@ -258,12 +268,21 @@ type fakeModerator struct {
 	calls []string
 	by    map[string]SafeSearch
 	err   error
+	// onCall, when set, runs once inside the next SafeSearch (a concurrent finalize resolving the doc and deleting
+	// the private objects while Vision is in flight); a non-nil result is returned as the call's error.
+	onCall func() error
 }
 
 func (m *fakeModerator) SafeSearch(_ context.Context, object string) (SafeSearch, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, object)
+	if hook := m.onCall; hook != nil {
+		m.onCall = nil
+		if err := hook(); err != nil {
+			return SafeSearch{}, err
+		}
+	}
 	if m.err != nil {
 		return SafeSearch{}, m.err
 	}
