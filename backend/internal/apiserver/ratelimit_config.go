@@ -45,6 +45,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// "notification_devices_daily" (each call is a transaction of up to 8 reads and 5 writes). The other three
 	// notification RPCs use the 60/min default bucket and the read budget.
 	notificationDevicesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationDevicesCallsPerDay)
+	// MarkNotificationsSeen has its own cap, limit_name "notification_seen_daily": it is called on every tab focus,
+	// so sharing the 50/day devices cap would lock device registration out. 200 writes/uid/day worst case.
+	notificationSeenDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationSeenCallsPerDay)
 
 	// ADR-0010 T4: home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
 	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts are bounded per day by quota.Posts (100, 20 for
@@ -95,8 +98,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: checkHandleDailyCap},
 
-			notificationsv1connect.NotificationServiceRegisterDeviceProcedure:   {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
-			notificationsv1connect.NotificationServiceUnregisterDeviceProcedure: {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
+			notificationsv1connect.NotificationServiceRegisterDeviceProcedure:        {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
+			notificationsv1connect.NotificationServiceUnregisterDeviceProcedure:      {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
+			notificationsv1connect.NotificationServiceMarkNotificationsSeenProcedure: {Name: "notification_seen_daily", Cap: notificationSeenDailyCap},
 
 			// A6: ONE shared call cap for the three charge-only account operations (their only bound).
 			identityv1connect.IdentityServiceDeleteAccountProcedure:        {Name: "account_ops_daily", Cap: accountOpsDailyCap},

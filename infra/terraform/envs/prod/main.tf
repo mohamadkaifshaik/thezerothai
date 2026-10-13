@@ -180,6 +180,7 @@ locals {
     { name = "NOTIFICATIONS_TOPIC", value = "notifications-fanout" },
     { name = "NOTIFICATIONS_DELIVERY", value = "pubsub" },
     { name = "NOTIFICATION_DEVICES_CALLS_PER_DAY", value = "50" },
+    { name = "NOTIFICATION_SEEN_CALLS_PER_DAY", value = "200" },
   ]
 }
 

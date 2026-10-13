@@ -144,6 +144,11 @@ type RateLimitConfig struct {
 	// (ADR-0017 D9; a ratelimit.DailyCap, limit_name "notification_devices_daily"), env
 	// NOTIFICATION_DEVICES_CALLS_PER_DAY, default 50. Each call is at most 8 reads and 5 writes.
 	NotificationDevicesCallsPerDay int64
+	// NotificationSeenCallsPerDay is the per-uid daily call cap of MarkNotificationsSeen (a ratelimit.DailyCap,
+	// limit_name "notification_seen_daily"), env NOTIFICATION_SEEN_CALLS_PER_DAY, default 200. A call inside the
+	// 10 s no-op window writes nothing; otherwise 1 write, so the worst case is 200 writes per uid per day (1% of
+	// the 20k/day free quota for one uid; the per-minute bucket and the account read budget bound the rest).
+	NotificationSeenCallsPerDay int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -533,6 +538,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.NotificationDevicesCallsPerDay = int64(notifDeviceCalls)
+	notifSeenCalls, err := getInt("NOTIFICATION_SEEN_CALLS_PER_DAY", 200)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.NotificationSeenCallsPerDay = int64(notifSeenCalls)
 	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
 	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
 	for name, v := range map[string]int{
@@ -541,6 +551,7 @@ func Load() (Config, error) {
 		"CHECK_HANDLE_CALLS_PER_DAY":            checkHandleCalls,
 		"ACCOUNT_OPS_CALLS_PER_DAY":             accountOpsCalls,
 		"NOTIFICATION_DEVICES_CALLS_PER_DAY":    notifDeviceCalls,
+		"NOTIFICATION_SEEN_CALLS_PER_DAY":       notifSeenCalls,
 	} {
 		if v <= 0 {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)

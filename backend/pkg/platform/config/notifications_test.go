@@ -75,6 +75,17 @@ func TestLoad_Notifications(t *testing.T) {
 			t.Fatal("a zero cap must be a startup error")
 		}
 	})
+	t.Run("the seen cap defaults to 200 and must be positive", func(t *testing.T) {
+		clearEnv(t)
+		cfg, err := Load()
+		if err != nil || cfg.RateLimit.NotificationSeenCallsPerDay != 200 {
+			t.Fatalf("cap = %d, err = %v", cfg.RateLimit.NotificationSeenCallsPerDay, err)
+		}
+		t.Setenv("NOTIFICATION_SEEN_CALLS_PER_DAY", "0")
+		if _, err := Load(); err == nil {
+			t.Fatal("a zero cap must be a startup error")
+		}
+	})
 	t.Run("rollout modes parse", func(t *testing.T) {
 		clearEnv(t)
 		t.Setenv("FEATURE_NOTIFICATIONS", "percent")

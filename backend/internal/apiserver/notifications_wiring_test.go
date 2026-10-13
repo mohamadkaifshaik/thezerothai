@@ -95,3 +95,14 @@ func TestNotificationsFlagNameMatchesModule(t *testing.T) {
 		t.Errorf("FEATURE_NOTIFICATIONS default = %q, want off", cfg.FeatureNotifications.Mode)
 	}
 }
+
+// TestNotificationSeenHasItsOwnDailyCap: MarkNotificationsSeen is called on every tab focus; it must not share
+// (and exhaust) the 50/day device-registration cap.
+func TestNotificationSeenHasItsOwnDailyCap(t *testing.T) {
+	rl := RateLimitConfig(defaultRateLimitCfg())
+	seen := rl.DailyCaps[notificationsv1connect.NotificationServiceMarkNotificationsSeenProcedure]
+	reg := rl.DailyCaps[notificationsv1connect.NotificationServiceRegisterDeviceProcedure]
+	if seen.Cap == nil || seen.Name != "notification_seen_daily" || seen.Cap == reg.Cap {
+		t.Fatalf("daily caps = %+v / %+v, want a separate cap named notification_seen_daily", seen, reg)
+	}
+}
