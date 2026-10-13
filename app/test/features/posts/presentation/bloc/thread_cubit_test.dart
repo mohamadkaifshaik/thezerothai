@@ -31,18 +31,12 @@ void main() {
   late MockPostsRepository repo;
   late ThreadCubit cubit;
   late StreamController<String> removed;
-  late Duration now;
 
   setUp(() {
-    now = Duration.zero;
     removed = StreamController<String>.broadcast();
     repo = MockPostsRepository();
     when(() => repo.removedPosts).thenAnswer((_) => removed.stream);
-    cubit = ThreadCubit(
-      postsRepository: repo,
-      postId: postId(1),
-      elapsed: () => now,
-    );
+    cubit = ThreadCubit(postsRepository: repo, postId: postId(1));
   });
 
   tearDown(() async {
@@ -206,34 +200,57 @@ void main() {
     expect(restarts, 2);
   });
 
-  test('a RATE_LIMITED page holds further pages until retry_after', () async {
-    var calls = 0;
+  test('a held RATE_LIMITED answer shows inline and Retry sends again once '
+      'the repository lets it through', () async {
+    var held = true;
     stub((token) async {
       if (token.isEmpty) return thread(replies: [2], next: 'n1');
-      calls++;
-      if (calls == 1) {
+      if (held) {
         throw const RateLimitedException(
           'slow down',
           retryAfter: Duration(seconds: 30),
+          limitName: 'read_budget_daily',
         );
       }
       return thread(replies: [3]);
     });
     await cubit.load();
+
     await cubit.loadMore();
     expect(cubit.state.loadMoreError, isA<RateLimitedException>());
+    await cubit.loadMore(); // scrolling does not retry
+    verify(
+      () => repo.getThread(
+        postId(1),
+        pageToken: 'n1',
+        pageSize: any(named: 'pageSize'),
+      ),
+    ).called(1);
 
-    now = const Duration(seconds: 10);
+    held = false;
     await cubit.retryLoadMore();
-    expect(calls, 1); // nothing sent
-    final held = cubit.state.loadMoreError! as RateLimitedException;
-    expect(held.retryAfter, const Duration(seconds: 20));
-
-    now = const Duration(seconds: 31);
-    await cubit.retryLoadMore();
-    expect(calls, 2);
     expect(cubit.state.replies, hasLength(2));
     expect(cubit.state.loadMoreError, isNull);
+  });
+
+  test('a reply added locally keeps the server position when its page '
+      'arrives', () async {
+    stub(
+      (token) async => token.isEmpty
+          ? thread(replies: [2], next: 'n1')
+          : thread(replies: [3, 9, 4]),
+    );
+    await cubit.load();
+
+    cubit.replyPosted(postView(9, authorId: 'me'));
+    await cubit.loadMore();
+
+    expect(cubit.state.replies.map((r) => r.post.postId), [
+      postId(2),
+      postId(3),
+      postId(9),
+      postId(4),
+    ]);
   });
 
   test('a stale page cannot overwrite a refreshed thread', () async {

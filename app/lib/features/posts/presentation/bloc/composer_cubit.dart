@@ -89,11 +89,12 @@ class ComposerCubit extends Cubit<ComposerState> {
     required PostsRepository postsRepository,
     required this.replyToPostId,
     Uuid? uuid,
+    DateTime Function()? clock,
   }) : _repository = postsRepository,
        _pending = null,
        _author = null,
        _uuid = uuid ?? const Uuid(),
-       _clock = DateTime.now,
+       _clock = clock ?? DateTime.now,
        super(ComposerState(draft: analyzePostDraft('')));
 
   /// The post being replied to; empty for a top-level post.

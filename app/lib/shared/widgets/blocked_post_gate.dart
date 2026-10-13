@@ -39,6 +39,8 @@ class _BlockedPostGateState extends State<BlockedPostGate> {
         widget.graphEnabled &&
         (context.read<GraphRepository>().cached(widget.authorId)?.blocking ??
             false);
+    // Unblocking forgets "Show post": a later re-block hides it again.
+    if (!blocked) _revealed = false;
     if (!blocked || _revealed) return widget.child;
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.md),

@@ -134,8 +134,8 @@ class ThreadState {
 ///   the token. A rejected token restarts the thread once (until a page
 ///   succeeds again).
 /// - A failed page stops automatic paging: only [retryLoadMore] (the inline
-///   Retry) tries again, and nothing is sent while a RATE_LIMITED answer's
-///   `retry_after` is running.
+///   Retry) tries again. While a RATE_LIMITED hold runs, the repository
+///   answers with it without sending (shared `RateLimitHold`).
 /// - Posts that leave every cached feed ([PostsRepository.removedPosts]) are
 ///   dropped from the replies; a removed parent/root becomes a tombstone.
 class ThreadCubit extends Cubit<ThreadState> {
@@ -143,11 +143,9 @@ class ThreadCubit extends Cubit<ThreadState> {
     required PostsRepository postsRepository,
     required String postId,
     Uuid? uuid,
-    Duration Function()? elapsed,
   }) : _repository = postsRepository,
        _postId = postId,
        _uuid = uuid ?? const Uuid(),
-       _elapsedOverride = elapsed,
        super(const ThreadState()) {
     _removedSub = _repository.removedPosts.listen(_onRemoved);
   }
@@ -158,10 +156,9 @@ class ThreadCubit extends Cubit<ThreadState> {
   final Map<String, String> _deleteKeys = {};
   late final StreamSubscription<String> _removedSub;
 
-  /// Monotonic time for the RATE_LIMITED hold (never wall-clock).
-  final Duration Function()? _elapsedOverride;
-  final Stopwatch _stopwatch = Stopwatch()..start();
-  Duration _elapsed() => _elapsedOverride?.call() ?? _stopwatch.elapsed;
+  /// The viewer's own replies appended locally ([replyPosted]) and not yet
+  /// seen in a fetched page: the server's position wins when one arrives.
+  final Set<String> _localReplies = {};
 
   /// Bumped whenever the whole thread is replaced; a page request that
   /// started before it must not write its (stale) token or replies.
@@ -170,8 +167,6 @@ class ThreadCubit extends Cubit<ThreadState> {
   /// True once a rejected page token restarted the thread; cleared by the
   /// next successful page.
   bool _restarted = false;
-  Duration? _rateLimitedUntil;
-  RateLimitedException? _rateLimit;
 
   /// First page. Shows the loading state (use [refresh] to keep content).
   Future<void> load() async {
@@ -198,6 +193,7 @@ class ThreadCubit extends Cubit<ThreadState> {
       final response = await _repository.getThread(_postId);
       if (isClosed) return;
       _generation++;
+      _localReplies.clear();
       emit(_fromResponse(response));
     } on NotFoundException {
       if (isClosed) return;
@@ -271,12 +267,6 @@ class ThreadCubit extends Cubit<ThreadState> {
         !s.hasMore) {
       return;
     }
-    final limited = _rateLimitedFor();
-    if (limited != null) {
-      // Nothing is sent before retry_after; the footer shows why.
-      emit(s.copyWith(loadMoreError: limited));
-      return;
-    }
     final generation = _generation;
     emit(s.copyWith(loadingMore: true, clearLoadMoreError: true));
     try {
@@ -285,12 +275,21 @@ class ThreadCubit extends Cubit<ThreadState> {
         pageToken: s.nextPageToken,
       );
       if (isClosed || generation != _generation) return;
-      final seen = {for (final r in state.replies) r.post.postId};
+      // A reply the viewer added locally that the server now sends keeps
+      // the server's position (replies are chronological).
+      final pageIds = {for (final p in response.replies) p.post.postId};
+      final local = _localReplies.intersection(pageIds);
+      _localReplies.removeAll(local);
+      final base = [
+        for (final r in state.replies)
+          if (!local.contains(r.post.postId)) r,
+      ];
+      final seen = {for (final r in base) r.post.postId};
       _restarted = false;
       emit(
         state.copyWith(
           replies: [
-            ...state.replies,
+            ...base,
             for (final p in response.replies)
               if (seen.add(p.post.postId) &&
                   p.post.postId != s.focal?.post.postId)
@@ -318,36 +317,8 @@ class ThreadCubit extends Cubit<ThreadState> {
       emit(const ThreadState(status: ThreadStatus.disabled));
     } on AppException catch (e) {
       if (isClosed || generation != _generation) return;
-      if (e is RateLimitedException && !e.isInflightHold) {
-        _rateLimit = e;
-        _rateLimitedUntil =
-            _elapsed() +
-            (e.retryAfter ??
-                (e.isDaily
-                    ? const Duration(minutes: 5)
-                    : const Duration(seconds: 30)));
-      }
       emit(state.copyWith(loadingMore: false, loadMoreError: e));
     }
-  }
-
-  /// The RATE_LIMITED answer pages are still held back for, with the time
-  /// left; null when nothing is held back.
-  RateLimitedException? _rateLimitedFor() {
-    final until = _rateLimitedUntil;
-    final original = _rateLimit;
-    if (until == null || original == null) return null;
-    final left = until - _elapsed();
-    if (left <= Duration.zero) {
-      _rateLimitedUntil = null;
-      _rateLimit = null;
-      return null;
-    }
-    return RateLimitedException(
-      original.message,
-      retryAfter: left,
-      limitName: original.limitName,
-    );
   }
 
   void _onRemoved(String postId) {
@@ -384,6 +355,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   void replyPosted(pb.PostView reply) {
     if (state.status != ThreadStatus.ready) return;
     if (state.replies.any((r) => r.post.postId == reply.post.postId)) return;
+    _localReplies.add(reply.post.postId);
     emit(state.copyWith(replies: [...state.replies, reply]));
   }
 

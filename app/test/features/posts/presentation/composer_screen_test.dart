@@ -122,9 +122,7 @@ void main() {
     );
   });
 
-  testWidgets('decomposed input counts after NFC (0 remaining)', (
-    tester,
-  ) async {
+  testWidgets('decomposed input counts after NFC (0 remaining)', (tester) async {
     await open(tester);
     await tester.enterText(find.byType(TextField), 'e\u0301' * 280);
     await tester.pump();
@@ -204,10 +202,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Verify your email'), findsOneWidget);
-    expect(
-      find.text('Please verify your email address to post.'),
-      findsOneWidget,
-    );
+    expect(find.text('Please verify your email address to post.'), findsOneWidget);
 
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();

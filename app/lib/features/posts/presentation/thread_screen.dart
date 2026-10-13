@@ -8,6 +8,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/app_empty_view.dart';
@@ -17,8 +18,6 @@ import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
-import '../../timeline/presentation/timeline_feed_view.dart'
-    show kPrefetchFraction;
 import '../data/posts_repository.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
@@ -520,7 +519,9 @@ class _Footer extends StatelessWidget {
                       author: viewerAuthorSnapshot(
                         context.read<OnboardingBloc>().state.profile,
                       ),
-                      semanticsLabel: 'Sending your reply',
+                      // The spinner on the button is the one live
+                      // announcement ("Sending reply").
+                      semanticsLabel: null,
                     ),
                     const Divider(height: 1),
                   ],

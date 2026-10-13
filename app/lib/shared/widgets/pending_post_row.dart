@@ -27,47 +27,48 @@ class PendingPostRow extends StatelessWidget {
   final common.AuthorSnapshot? author;
   final DateTime? createdAt;
   final DateTime? now;
-  final String semanticsLabel;
+  /// Announced for the row; null leaves the card's own text and the
+  /// "Posting..." line to speak for it.
+  final String? semanticsLabel;
 
   @override
   Widget build(BuildContext context) {
     final snapshot = author ?? common.AuthorSnapshot();
     final created = createdAt;
-    return Semantics(
-      label: semanticsLabel,
-      child: Opacity(
-        opacity: 0.6,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            PostCard(
-              view: pb.PostView(
-                post: pb.Post(
-                  postId: '',
-                  text: text,
-                  author: snapshot,
-                  createdAt: created == null
-                      ? null
-                      : Timestamp.fromDateTime(created.toUtc()),
-                ),
-              ),
-              viewerUserId: snapshot.userId,
-              graphActionsEnabled: false,
-              now: now,
-            ),
-            Padding(
-              padding: const EdgeInsets.only(
-                left: AppSpacing.md,
-                bottom: AppSpacing.sm,
-              ),
-              child: Text(
-                'Posting...',
-                style: Theme.of(context).textTheme.labelSmall,
+    final row = Opacity(
+      opacity: 0.6,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PostCard(
+            view: pb.PostView(
+              post: pb.Post(
+                postId: '',
+                text: text,
+                author: snapshot,
+                createdAt: created == null
+                    ? null
+                    : Timestamp.fromDateTime(created.toUtc()),
               ),
             ),
-          ],
-        ),
+            viewerUserId: snapshot.userId,
+            graphActionsEnabled: false,
+            now: now,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(
+              left: AppSpacing.md,
+              bottom: AppSpacing.sm,
+            ),
+            child: Text(
+              'Posting...',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+        ],
       ),
     );
+    final label = semanticsLabel;
+    return label == null ? row : Semantics(label: label, child: row);
   }
 }
