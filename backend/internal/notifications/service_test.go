@@ -320,8 +320,10 @@ func TestList_HidesSuppressedActorsAtReadTime(t *testing.T) {
 	// A refresh from that token starts at the raw newest row ("a", hidden), so it is not re-read forever.
 	again, err := svc.List(context.Background(), "me", ListInput{PageSize: 5, SinceToken: res.SinceToken})
 	mustNoErr(t, err)
-	if len(again.Notifications) != 1 && len(again.Notifications) != 0 {
-		t.Errorf("refresh = %v", idsOf(again.Notifications))
+	// The since token trails the raw newest row ("a", hidden) by the settle window; "a" is the only row at or
+	// after it, and it is filtered, so the refresh shows nothing.
+	if len(again.Notifications) != 0 {
+		t.Errorf("refresh = %v, want no visible rows", idsOf(again.Notifications))
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
@@ -475,7 +476,8 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 	if out.Created != 1 || out.Pushed != 2 {
 		t.Fatalf("outcome = %+v", out)
 	}
-	budgettest.Assert(t, "fan-out follow", c, budgettest.Budget{Reads: 2, Writes: 1})
+	// 2 fresh profile reads (actor, recipient) + 2 device rows.
+	budgettest.Assert(t, "fan-out follow", c, budgettest.Budget{Reads: 4, Writes: 1})
 
 	ctx, c = counted()
 	out, err = rig.f.Deliver(ctx, ev)
@@ -483,7 +485,7 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 	if out.Duplicate != 1 || out.Pushed != 0 || len(rig.sender.sent) != 2 {
 		t.Fatalf("redelivery outcome = %+v, pushes = %d", out, len(rig.sender.sent))
 	}
-	budgettest.Assert(t, "fan-out redelivery", c, budgettest.Budget{Reads: 1})
+	budgettest.Assert(t, "fan-out redelivery", c, budgettest.Budget{Reads: 3})
 	if c.Writes() != 0 {
 		t.Errorf("redelivery wrote %d docs", c.Writes())
 	}
@@ -498,19 +500,20 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 		return lc, o
 	}
 	lc, o := like("alice")
-	budgettest.Assert(t, "fan-out first like", lc, budgettest.Budget{Reads: 2, Writes: 1})
+	budgettest.Assert(t, "fan-out first like", lc, budgettest.Budget{Reads: 4, Writes: 1})
 	if o.Created != 1 {
 		t.Fatalf("first like = %+v", o)
 	}
 	before := len(rig.sender.sent)
 	lc, o = like("carol")
-	budgettest.Assert(t, "fan-out collapsed like", lc, budgettest.Budget{Reads: 2, Writes: 1})
+	// 2 fresh profile reads + failed Create + fold check.
+	budgettest.Assert(t, "fan-out collapsed like", lc, budgettest.Budget{Reads: 4, Writes: 1})
 	if o.Duplicate != 1 || len(rig.sender.sent) != before {
 		t.Fatalf("collapsed like = %+v, pushes %d -> %d", o, before, len(rig.sender.sent))
 	}
-	// Redelivering carol's like writes nothing: 1 read for the failed Create, 1 for the fold's check.
+	// Redelivering carol's like writes nothing: 2 fresh profile reads, 1 for the failed Create, 1 for the fold.
 	lc, o = like("carol")
-	budgettest.Assert(t, "fan-out like redelivery", lc, budgettest.Budget{Reads: 2})
+	budgettest.Assert(t, "fan-out like redelivery", lc, budgettest.Budget{Reads: 4})
 	if lc.Writes() != 0 || o.Duplicate != 1 {
 		t.Errorf("like redelivery wrote %d docs, outcome %+v", lc.Writes(), o)
 	}
@@ -520,5 +523,61 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 		if n.Type == TypeLike && len(n.ActorIDs) != 2 {
 			t.Errorf("like row actors = %v", n.ActorIDs)
 		}
+	}
+}
+
+// racingDirectory runs hook once on the first GetProfiles, which purge step 2 calls between its query and its
+// batch commit: a deterministic "concurrent write after the query".
+type racingDirectory struct {
+	*fakeDirectory
+	hook func()
+}
+
+func (d *racingDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	if d.hook != nil {
+		h := d.hook
+		d.hook = nil
+		h()
+	}
+	return d.fakeDirectory.GetProfiles(ctx, uids)
+}
+
+// TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold: a like folded in between the purge's query and its
+// commit must not be overwritten by the stale snapshot (precondition on the update time); the batch fails and a
+// retry applies cleanly.
+func TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	plain := NewFirestoreRepo(client)
+	_, err := plain.Create(ctx, "carol", row("like_x", TypeLike, "dave", t0))
+	mustNoErr(t, err)
+	mustNoErr(t, plain.AddActor(ctx, "carol", "like_x", Actor{UserID: "alice", Handle: "h_alice"}, t0.Add(time.Second)))
+
+	dir := &racingDirectory{fakeDirectory: newDirectory("dave", "erin")}
+	dir.hook = func() {
+		mustNoErr(t, plain.AddActor(ctx, "carol", "like_x", Actor{UserID: "erin", Handle: "h_erin"}, t0.Add(2*time.Second)))
+	}
+	repo := NewFirestoreRepo(client).WithDirectory(dir)
+	if _, _, err := repo.PurgeUser(ctx, "alice", Checkpoint{Step: 2}); err == nil {
+		t.Fatal("the stale batch must fail on the update-time precondition")
+	}
+	snap, err := client.Doc("users/carol/notifications/like_x").Get(ctx)
+	mustNoErr(t, err)
+	var d notificationDoc
+	mustNoErr(t, snap.DataTo(&d))
+	if len(d.ActorIDs) != 3 || d.Actor.UserID != "erin" || d.ActorCount != 3 {
+		t.Fatalf("the concurrent fold was clobbered: %+v", d)
+	}
+	// The retry sees fresh data: alice is removed, erin stays the displayed actor.
+	_, done, err := repo.PurgeUser(ctx, "alice", Checkpoint{Step: 2})
+	mustNoErr(t, err)
+	if !done {
+		t.Error("retry must finish")
+	}
+	snap, err = client.Doc("users/carol/notifications/like_x").Get(ctx)
+	mustNoErr(t, err)
+	mustNoErr(t, snap.DataTo(&d))
+	if strings.Join(d.ActorIDs, ",") != "dave,erin" || d.Actor.UserID != "erin" || d.ActorCount != 2 {
+		t.Errorf("row after retry = %+v", d)
 	}
 }

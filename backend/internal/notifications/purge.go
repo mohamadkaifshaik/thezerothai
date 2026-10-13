@@ -89,12 +89,12 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 		return cp, false, fmt.Errorf("notifications: purge %s step 2: query: %w", logger.HashUID(uid), err)
 	}
 	type fold struct {
-		ref    *firestore.DocumentRef
+		snap   *firestore.DocumentSnapshot
 		doc    notificationDoc
 		remain []string
 	}
 	var folds []fold
-	var deletes []*firestore.DocumentRef
+	var deletes []*firestore.DocumentSnapshot
 	for _, s := range docs {
 		var d notificationDoc
 		if err := s.DataTo(&d); err != nil {
@@ -107,10 +107,10 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 			}
 		}
 		if len(remain) == 0 {
-			deletes = append(deletes, s.Ref)
+			deletes = append(deletes, s)
 			continue
 		}
-		folds = append(folds, fold{ref: s.Ref, doc: d, remain: remain})
+		folds = append(folds, fold{snap: s, doc: d, remain: remain})
 	}
 	// One lookup for the replacement display actors of the whole page (cache first).
 	var profiles map[string]identity.Profile
@@ -132,8 +132,11 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 		}
 	}
 	b := store.NewFirestoreBatch(r.client, counter)
-	for _, ref := range deletes {
-		b.Delete(ref)
+	// Every write is conditioned on the update time the query saw: a concurrent AddActor (a like folding in)
+	// makes the batch fail with FailedPrecondition instead of being clobbered, and this self-resuming step
+	// retries from a fresh query.
+	for _, d := range deletes {
+		b.Delete(d.Ref, firestore.LastUpdateTime(d.UpdateTime))
 	}
 	for _, f := range folds {
 		ups := []firestore.Update{{Path: "actorIds", Value: firestore.ArrayRemove(uid)}}
@@ -145,12 +148,12 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 		if f.doc.Actor.UserID == uid {
 			p, ok := profiles[f.remain[len(f.remain)-1]]
 			if !ok {
-				b.Delete(f.ref) // the newest remaining actor is gone too (or no Directory): no one to show
+				b.Delete(f.snap.Ref, firestore.LastUpdateTime(f.snap.UpdateTime)) // the newest remaining actor is gone too (or no Directory): no one to show
 				continue
 			}
 			ups = append(ups, firestore.Update{Path: "actor", Value: toActorDoc(actorFromProfile(p))})
 		}
-		b.Update(f.ref, ups)
+		b.Update(f.snap.Ref, ups, firestore.LastUpdateTime(f.snap.UpdateTime))
 	}
 	if len(docs) > 0 {
 		if err := b.Commit(ctx); err != nil {

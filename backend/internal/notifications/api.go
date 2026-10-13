@@ -165,7 +165,7 @@ type Social = graph.Reader
 type Checkpoint struct {
 	// Step: 0 devices, 1 the user's own notifications, 2 notifications other users hold about this user.
 	Step int
-	// Deleted counts documents removed so far.
+	// Deleted counts documents processed so far: deleted, or (purge step 2) repointed/unfolded in place.
 	Deleted int
 }
 

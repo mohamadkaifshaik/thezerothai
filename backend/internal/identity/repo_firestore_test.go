@@ -26,7 +26,7 @@ func (f *fakeCountersBatch) Set(*firestore.DocumentRef, interface{}, ...firestor
 	return f
 }
 func (f *fakeCountersBatch) Create(*firestore.DocumentRef, interface{}) store.Batch { return f }
-func (f *fakeCountersBatch) Update(ref *firestore.DocumentRef, u []firestore.Update) store.Batch {
+func (f *fakeCountersBatch) Update(ref *firestore.DocumentRef, u []firestore.Update, _ ...firestore.Precondition) store.Batch {
 	f.updates = append(f.updates, struct {
 		ref *firestore.DocumentRef
 		u   []firestore.Update

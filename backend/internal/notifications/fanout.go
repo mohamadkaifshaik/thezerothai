@@ -182,6 +182,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		p   Push
 	}
 	var toPush []pending
+	var createdFor []string
 	var errs []error
 	for _, r := range recipients {
 		if _, ok := profiles[r]; !ok {
@@ -228,7 +229,13 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			continue // no second push: the call that created the row owns the push
 		}
 		out.Created++
+		createdFor = append(createdFor, r)
 		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID}})
+	}
+	// The fresh status read above re-cached each recipient's profile with the unread count as of before this
+	// Create; evict again (no reads) so their next GetMe counts the new row instead of serving the old badge.
+	if len(createdFor) > 0 {
+		f.d.Directory.Forget(createdFor...)
 	}
 	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
 	// recipient's commit past the 5 s since-token settle window.
