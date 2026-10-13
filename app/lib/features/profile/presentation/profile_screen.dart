@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/feature_flags/feature_flags.dart';
@@ -15,6 +17,7 @@ import '../../timeline/data/timeline_repository.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
+import '../domain/profile_edit_feature_flag.dart';
 import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
 import 'widgets/profile_header.dart';
@@ -121,6 +124,14 @@ class _ReadyProfile extends StatelessWidget {
   }
 }
 
+/// Opens Edit profile; a saved edit (it pops with `true`) reloads this
+/// profile so the header shows the new name and bio.
+Future<void> _editProfile(BuildContext context) async {
+  final cubit = context.read<ProfileCubit>();
+  final saved = await context.push<bool>(AppRouter.editProfilePath);
+  if (saved == true && !cubit.isClosed) await cubit.load();
+}
+
 ProfileHeader _header(
   BuildContext context,
   ProfileState state, {
@@ -134,6 +145,10 @@ ProfileHeader _header(
     showPostsCount: showPostsCount,
     onRelationshipChanged: (relationship) =>
         context.read<ProfileCubit>().relationshipChanged(relationship),
+    onEditProfile:
+        state.isOwnProfile && isFeatureEnabled(context, kFeatureProfileSnapshot)
+        ? () => _editProfile(context)
+        : null,
   );
 }
 

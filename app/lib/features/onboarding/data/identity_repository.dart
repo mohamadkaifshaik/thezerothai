@@ -84,6 +84,49 @@ class IdentityRepository {
     });
   }
 
+  /// Partial update of the caller's own profile (P2): only the non-null
+  /// fields are sent and changed. Avatar and privacy are deliberately not
+  /// exposed (the server rejects them until P4 / private accounts).
+  /// [idempotencyKey] must be reused when retrying the same edit. Updates
+  /// the local profile cache with the server's copy.
+  Future<identity.Profile> updateProfile({
+    required String idempotencyKey,
+    String? displayName,
+    String? bio,
+  }) {
+    return guardApiCall(() async {
+      final epoch = _database.sessionEpoch.value;
+      final request = identity.UpdateProfileRequest(
+        idempotencyKey: idempotencyKey,
+      );
+      if (displayName != null) request.displayName = displayName;
+      if (bio != null) request.bio = bio;
+      final response = await _apiClient.identity.updateProfile(request);
+      await _cacheProfile(response.profile, epoch);
+      return response.profile;
+    });
+  }
+
+  /// Renames the caller (7-day cooldown on the server). Throws
+  /// [HandleTakenException] / [LimitReachedException] (`retryAfter` = time
+  /// left of the cooldown) via [guardApiCall]. Updates the profile cache.
+  Future<identity.Profile> changeHandle({
+    required String idempotencyKey,
+    required String newHandle,
+  }) {
+    return guardApiCall(() async {
+      final epoch = _database.sessionEpoch.value;
+      final response = await _apiClient.identity.changeHandle(
+        identity.ChangeHandleRequest(
+          idempotencyKey: idempotencyKey,
+          newHandle: newHandle,
+        ),
+      );
+      await _cacheProfile(response.profile, epoch);
+      return response.profile;
+    });
+  }
+
   /// Converts a cached row back into the generated [identity.Profile] type,
   /// so callers can render cache and network results the same way.
   identity.Profile profileFromCache(CachedProfile cached) {

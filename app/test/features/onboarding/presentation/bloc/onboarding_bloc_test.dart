@@ -33,6 +33,35 @@ void main() {
         .thenAnswer((_) async => null);
   });
 
+  group('OnboardingProfileUpdated (P2 edit profile / change handle)', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      "swaps in the caller's updated profile and ignores another user's",
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'me', handle: 'old'),
+        enabledFeatures: const {'profile_snapshot'},
+      ),
+      act: (bloc) {
+        bloc.add(
+          OnboardingProfileUpdated(
+            identity.Profile(userId: 'me', handle: 'new', displayName: 'New'),
+          ),
+        );
+        bloc.add(
+          OnboardingProfileUpdated(
+            identity.Profile(userId: 'someone-else', handle: 'x'),
+          ),
+        );
+      },
+      verify: (bloc) {
+        expect(bloc.state.profile!.handle, 'new');
+        expect(bloc.state.profile!.displayName, 'New');
+        expect(bloc.state.enabledFeatures, {'profile_snapshot'});
+      },
+    );
+  });
+
   group('OnboardingBloc sign-out races', () {
     blocTest<OnboardingBloc, OnboardingState>(
       'a refresh requested after sign-out sends no GetMe and emits nothing',

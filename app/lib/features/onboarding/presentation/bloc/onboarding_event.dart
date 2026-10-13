@@ -1,3 +1,4 @@
+import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../auth/domain/app_user.dart';
 
 sealed class OnboardingEvent {
@@ -30,6 +31,13 @@ final class OnboardingHandleChanged extends OnboardingEvent {
 final class OnboardingDisplayNameChanged extends OnboardingEvent {
   const OnboardingDisplayNameChanged(this.displayName);
   final String displayName;
+}
+
+/// The caller's own profile was edited (UpdateProfile / ChangeHandle
+/// succeeded): swap in the server's copy. Ignored for any other user id.
+final class OnboardingProfileUpdated extends OnboardingEvent {
+  const OnboardingProfileUpdated(this.profile);
+  final identity.Profile profile;
 }
 
 final class OnboardingProfileSubmitted extends OnboardingEvent {

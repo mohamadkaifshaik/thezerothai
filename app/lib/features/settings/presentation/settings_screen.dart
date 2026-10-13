@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../profile/domain/profile_edit_feature_flag.dart';
 
 /// Phase 0 settings: account info + sign out. Notification, privacy and
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
@@ -33,6 +35,21 @@ class SettingsScreen extends StatelessWidget {
               subtitle: Text(user!.email!),
             ),
           const Divider(height: 1),
+          if (isFeatureEnabled(context, kFeatureProfileSnapshot)) ...[
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Edit profile'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(AppRouter.editProfilePath),
+            ),
+            ListTile(
+              leading: const Icon(Icons.alternate_email),
+              title: const Text('Change handle'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(AppRouter.changeHandlePath),
+            ),
+            const Divider(height: 1),
+          ],
           if (graphEnabled) ...[
             ListTile(
               leading: const Icon(Icons.block_outlined),

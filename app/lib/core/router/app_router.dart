@@ -18,6 +18,9 @@ import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
 import '../../features/posts/presentation/composer_screen.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
+import '../../features/profile/domain/profile_edit_feature_flag.dart';
+import '../../features/profile/presentation/change_handle_screen.dart';
+import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/splash_screen.dart';
@@ -55,6 +58,9 @@ class AppRouter {
   // Final page after DeleteAccount: reachable signed out.
   static const accountDeletedPath = '/account-deleted';
   static const exportDataPath = '/settings/export';
+  // P2-T5: Edit profile and Change handle, behind the `profile_snapshot` flag.
+  static const editProfilePath = '/settings/profile';
+  static const changeHandlePath = '/settings/handle';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// Profile by user id: what post cards and mentions use, since handles can
@@ -171,6 +177,16 @@ class AppRouter {
                 const AuthGate(child: MutedAccountsScreen()),
           ),
           GoRoute(
+            path: editProfilePath,
+            builder: (context, state) =>
+                const AuthGate(child: EditProfileScreen()),
+          ),
+          GoRoute(
+            path: changeHandlePath,
+            builder: (context, state) =>
+                const AuthGate(child: ChangeHandleScreen()),
+          ),
+          GoRoute(
             path: deleteAccountPath,
             builder: (context, state) =>
                 const AuthGate(child: DeleteAccountScreen()),
@@ -213,7 +229,9 @@ class AppRouter {
         if (loc == onboardingPath) return homePath;
         // Only meaningful without a profile; Settings has the real entry.
         if (loc == onboardingDeletePath) return settingsPath;
-        return _graphFlagRedirect(loc) ?? _accountFlagRedirect(loc);
+        return _graphFlagRedirect(loc) ??
+            _accountFlagRedirect(loc) ??
+            _profileEditFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
       case OnboardingStatus.error:
@@ -239,6 +257,19 @@ class AppRouter {
       return null;
     }
     return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
+  }
+
+  static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');
+
+  /// Edit profile / Change handle redirect to Settings when the
+  /// `profile_snapshot` flag is off for this caller.
+  String? _profileEditFlagRedirect(String loc) {
+    if (_onboardingBloc.state.enabledFeatures.contains(
+      kFeatureProfileSnapshot,
+    )) {
+      return null;
+    }
+    return _profileEditRoutes.hasMatch(loc) ? settingsPath : null;
   }
 
   static final _followersOrFollowing = RegExp(

@@ -4,6 +4,7 @@ import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -88,6 +89,51 @@ void main() {
     expect(find.text('Follow'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     verifyNever(() => graphRepository.relationshipFor(any()));
+  });
+
+  testWidgets('own profile: "Edit profile" only with the profile_snapshot '
+      'flag on', (tester) async {
+    Future<void> openOwn(Set<String> features) async {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          enabledFeatures: features,
+          profile: identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+        ),
+      );
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+      );
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+    }
+
+    await openOwn(const {});
+    expect(find.text('Edit profile'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await openOwn({kFeatureProfileSnapshot});
+    expect(find.text('Edit profile'), findsOneWidget);
+  });
+
+  testWidgets('other profile: never shows "Edit profile"', (tester) async {
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        enabledFeatures: {kFeatureProfileSnapshot},
+        profile: identity.Profile(userId: 'viewer-uid', handle: 'viewer'),
+      ),
+    );
+    when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+      (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+    );
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit profile'), findsNothing);
   });
 
   testWidgets('other profile with the flag on: shows Follow', (tester) async {

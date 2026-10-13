@@ -31,10 +31,15 @@ class ProfileHeader extends StatelessWidget {
     this.relationship,
     this.onRelationshipChanged,
     this.showPostsCount = false,
+    this.onEditProfile,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// Shows an "Edit profile" button on the viewer's own profile (P2-T5, only
+  /// given when the `profile_snapshot` flag is on). Null hides it.
+  final VoidCallback? onEditProfile;
   final bool graphEnabled;
 
   /// The viewer's relationship to [profile], if known. Null for the
@@ -57,6 +62,7 @@ class ProfileHeader extends StatelessWidget {
         profile: profile,
         showActions: false,
         showPostsCount: showPostsCount,
+        onEditProfile: isOwnProfile ? onEditProfile : null,
       );
     }
     return BlocProvider(
@@ -92,11 +98,13 @@ class _ProfileHeaderBody extends StatelessWidget {
     required this.profile,
     required this.showActions,
     required this.showPostsCount,
+    this.onEditProfile,
   });
 
   final identity.Profile profile;
   final bool showActions;
   final bool showPostsCount;
+  final VoidCallback? onEditProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +120,10 @@ class _ProfileHeaderBody extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(url: profile.avatarUrl, radius: AppSpacing.xl + AppSpacing.sm),
+              AppAvatar(
+                url: profile.avatarUrl,
+                radius: AppSpacing.xl + AppSpacing.sm,
+              ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -141,6 +152,15 @@ class _ProfileHeaderBody extends StatelessWidget {
                 ),
               ] else if (showActions) ...[
                 const _OverflowMenu(),
+              ] else if (onEditProfile != null) ...[
+                const SizedBox(width: AppSpacing.sm),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, AppSpacing.minTapTarget),
+                  ),
+                  onPressed: onEditProfile,
+                  child: const Text('Edit profile'),
+                ),
               ],
             ],
           ),
@@ -214,9 +234,8 @@ class _PostsCount extends StatelessWidget {
             children: [
               TextSpan(
                 text: '$count ',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               TextSpan(text: label, style: _mutedLabel(context)),
             ],
@@ -228,10 +247,9 @@ class _PostsCount extends StatelessWidget {
 }
 
 /// Count labels ("Posts", "Followers") read secondary to the bold number.
-TextStyle? _mutedLabel(BuildContext context) => Theme.of(context)
-    .textTheme
-    .bodyMedium
-    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+TextStyle? _mutedLabel(BuildContext context) =>
+    Theme.of(context).textTheme.bodyMedium
+        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
 
 class _CountLink extends StatelessWidget {
   const _CountLink({
