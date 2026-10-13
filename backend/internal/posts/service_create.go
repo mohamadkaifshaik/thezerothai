@@ -18,6 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -225,16 +226,16 @@ const maxAltTextRunes = 1000
 
 // validateMedia checks the shape of media_ids and media_alt_texts before any read: at most 4 distinct 19-digit
 // ids and alt texts that are empty or parallel to the ids, valid UTF-8, no control characters, <= 1,000 code points.
-func validateMedia(ids, alts []string) error {
-	if len(ids) > MaxMedia {
+func validateMedia(mediaIDs, alts []string) error {
+	if len(mediaIDs) > MaxMedia {
 		return apierr.Validation("media_ids", "at most 4 images per post")
 	}
-	if len(alts) > 0 && len(alts) != len(ids) {
+	if len(alts) > 0 && len(alts) != len(mediaIDs) {
 		return apierr.Validation("media_alt_texts", "media_alt_texts must be empty or parallel to media_ids")
 	}
-	seen := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		if !postIDPattern.MatchString(id) {
+	seen := make(map[string]struct{}, len(mediaIDs))
+	for _, id := range mediaIDs {
+		if !ids.ValidPostID(id) {
 			return apierr.Validation("media_ids", "media_ids must be 19-digit media ids")
 		}
 		if _, dup := seen[id]; dup {

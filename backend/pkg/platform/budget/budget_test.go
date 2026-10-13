@@ -53,3 +53,22 @@ func TestCounter_ConcurrentAdds(t *testing.T) {
 		t.Fatalf("Reads() = %d, want 100", c.Reads())
 	}
 }
+
+func TestAddQueryReadsBillsAtLeastOne(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		n    int
+		want int64
+	}{{"empty query", 0, 1}, {"one", 1, 1}, {"many", 20, 20}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var c Counter
+			c.AddQueryReads(tt.n)
+			if got := c.Reads(); got != tt.want {
+				t.Errorf("Reads = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

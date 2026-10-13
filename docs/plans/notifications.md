@@ -34,8 +34,8 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 
 | # | Ticket | Owner | Status |
 |---|---|---|---|
-| T1 | ADR-0017 + `notifications.v1` proto + this plan | architect | In review (PR 1) |
-| T2 | Module: types, `Emitter`, Firestore repo (notifications, devices, token index), ids, cursor tokens | backend | In review (PR 2) |
+| T1 | ADR-0017 + `notifications.v1` proto + this plan | architect | In review (PR 118; renumbered from ADR-0016) |
+| T2 | Module: types, `Emitter`, Firestore repo (notifications, devices, token index), ids, cursor tokens | backend | In review (PR 2, backend) |
 | T3 | Fan-out push handler `/internal/pubsub/notifications-fanout`: decode, suppress, create, push, prune, DLQ semantics | backend | In review (PR 2) |
 | T4 | ListNotifications (`since`/gap tokens) + MarkNotificationsSeen (identity method + cache evict) | backend | In review (PR 2) |
 | T5 | RegisterDevice/UnregisterDevice (cap 5, cross-user token transfer, daily call cap) | backend | In review (PR 2) |
@@ -43,10 +43,10 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 | T7 | Wiring: config, flag, rate limits, `FollowEvents` + `PostEvents` adapters, Terraform variable | backend | In review (PR 2) |
 | T8 | Tests: unit, emulator integration with budget assertions, suppression matrix, idempotency, DLQ semantics | tester | In review (PR 2) |
 | T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | In review (PR 3) |
-| T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices) |
+| T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices; the seam, `notifications.Event` types and the id scheme are ready) |
 | T11 | Security review (token handling, payload, handler auth) | security-auditor | Open |
 | T12 | **Manual:** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase) |
-| T13 | Terraform: `api_publish_topics` += `notifications-fanout`, `FEATURE_NOTIFICATIONS*` env on the api service (dev only) | deployer | Open (needs plan-then-OK) |
+| T13 | Terraform: `runtime_publisher_topics` += `notifications-fanout`, `FEATURE_NOTIFICATIONS*` env on the api service | backend (declared) / deployer (apply) | Declared in PR 2, not applied (needs plan-then-OK) |
 
 ### Acceptance criteria
 - ListNotifications returns newest first; `since_token` refresh reads only newer rows; an expired/foreign token is
@@ -63,28 +63,50 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 ## Budget (reads/writes per request; Stage 0 targets)
 | RPC / path | Reads worst / typical | Writes worst / typical | Notes |
 |---|---|---|---|
-| ListNotifications, cold or older page (20) | 1 + 20 / 21 | 0 | `seen_at` profile comes from the account-status cache |
+| ListNotifications, cold or older page (20) | 20 + graph snapshot (0-1) / 21 | 0 | `seen_at` profile comes from the account-status cache; rows hidden by block/mute are still read |
 | ListNotifications, `since` refresh | 1 + new / 1-5 | 0 | lever 6.1 (the 5 is the planning mean) |
-| MarkNotificationsSeen | 0 / 0 | 1 / 1 | + 1 profile read next GetMe (cache evicted) |
-| RegisterDevice | 8 / 2 | 5 / 2 | worst: device doc, token index, previous owner's device, list of 6 |
+| MarkNotificationsSeen | 0 / 0 | 1 / 1 (0 within 10 s of the last mark) | + 1 profile read next GetMe (cache evicted) |
+| RegisterDevice | 9 / 2 | 5 / 2 | worst: device doc, token index, previous owner's device, device list of 5, evicted device's index |
 | UnregisterDevice | 1 / 1 | 2 / 2 | device + index |
-| Fan-out, one recipient (follow/mention) | 2 / 1.3 | 1 / 1 | users batch (actor, recipient, cached), devices <= 5 |
-| Fan-out, collapsed like (not first) | 1 / 1 | 1 / 1 | `Create` AlreadyExists billed as a read, then `Update` |
+| Fan-out, one recipient (follow/mention) | 1 + R + 5 devices / 4 | 1 / 1 | actor and recipients are evicted and re-read for a fresh ACTIVE check (1 + R, R <= 10, uncached by design), recipient graph (cached), devices <= 5 |
+| Fan-out, collapsed like (not first) | (1 + R) + 2 / 4 | 1 / 1 (0 on redelivery) | fresh status reads, failed `Create` (1 read), fold transaction (1 read, 1 write only when the actor is new) |
 | Producer publish | 0 | 0 | one Pub/Sub publish, outside the request transaction |
 | TTL | | | deletes, 6 per DAU, free |
 
 Per DAU (cost-model rows): 2 ListNotifications (1 cold 21 + 1 refresh 5) + mark seen + 6 delivered notifications
-(follow, mention, reply, likes collapsed): about **11.3 reads, 7.4 writes, 6 TTL deletes**.
+(follow, mention, reply, likes collapsed): about **11.3 reads, 7.4 writes, 6 TTL deletes** before the fresh-status
+fix. Each delivery now also re-reads its actor and recipient (about 2 reads, uncached by design, ADR-0017 Consequences),
+so the honest figure is about **23 reads/DAU** (11.3 + 6 x 2), 7.4 writes, 6 deletes.
 
 ## Cost line
 - FCM: **$0**. Pub/Sub: about 0.7 MB/day at 300 DAU vs 10 GiB/month free, **$0**. No new GCP resource.
-- Firestore at 300 DAU: reads 3.4k/day (7% of free), writes 2.2k/day (11%), deletes 1.8k/day (9%).
+- Firestore at 300 DAU: reads about 6.9k/day (about 14% of free; 3.4k before the fresh-status reads), writes 2.2k/day (11%), deletes 1.8k/day (9%).
 - Whole-product reads stay at the ADR-0010 model (~215 reads/DAU, ~$0.26/month over free at 300 DAU) with lever 6.1
-  applied; notifications' own contribution is the 11.3 reads above (the model had 191 total before corrections).
+  applied; notifications' own contribution is about 23 reads (the model had 191 total before corrections), so the whole product is about 227 reads/DAU.
 - Scale-up trigger: reads > 40k/day or Pub/Sub dead-letter depth > 0 for 1 h (alert exists in the pubsub module).
 
 ## Verification record
-Filled in when each PR lands (measured counters from the emulator integration suite).
+Emulator integration suite (`make test-int` equivalent, 2026-10-11), measured counters from the budget assertions:
+
+| Path | Reads | Writes | Deletes | Test |
+|---|---|---|---|---|
+| Create (new row) | 0 | 1 | 0 | `TestIntegration_CreateIsIdempotentAndBudgeted` |
+| Create replay (AlreadyExists) | 1 | 0 | 0 | same |
+| AddActor (collapsed like; replay 1 / 0 writes) | 1 | 1 | 0 | `TestIntegration_AddActorFoldsAndMovesCreatedAt` |
+| List page of 2 / older 3 / since 2 / empty | 2 / 3 / 2 / 1 | 0 | 0 | `TestIntegration_ListOrderBoundsAndBudget` |
+| RegisterDevice new / fresh / refresh / token rotation | <= 3 / <= 2 / <= 2 / <= 2 | <= 2 / 0 / <= 2 / <= 2 | 0 / 0 / 0 / <= 1 | `..._RegisterDevice_BudgetsRefreshAndTokenRotation` |
+| RegisterDevice sixth device (eviction) | <= 9 | <= 2 | <= 3 | `..._CapEvictsLeastRecentlyUpdated` |
+| RegisterDevice token taken from another account | <= 8 | <= 2 | <= 3 | `..._TokenMovesToTheNewAccount` |
+| RemoveDevice / stale token / unknown | <= 2 / <= 1 / <= 1 | 0 | <= 2 / 0 / 0 | `TestIntegration_RemoveDevice` |
+| Fan-out follow, 2 devices / redelivery | <= 4 / <= 3 | <= 1 / 0 | 0 | `TestIntegration_FanoutBudgetsAndIdempotency` (includes the 2 fresh profile reads) |
+| Fan-out first like / collapsed like / like redelivery | <= 4 / <= 4 / <= 4 | <= 1 / <= 1 / 0 | 0 | same |
+| Account delete, notifications step (empty account) | 3 | 0 | 0 | `TestAccountLifecycle_ReferenceAccountBudgets` (job total 512 reads, was 509) |
+| Account export, notifications section (empty) | 2 | 0 | 0 | same (job total 705 reads, was 703) |
+
+Each cell is the asserted ceiling (`budgettest.Assert`), not a single measurement. End to end
+(`backend/e2e/notifications_smoke_test.go`): flag off is FEATURE_DISABLED on every RPC; B follows A, A's list gets
+`follow_<B>`, the GetMe badge goes 1 -> 0 after MarkNotificationsSeen, a foreign cursor is INVALID_ARGUMENT, device
+register/unregister are idempotent.
 
 ## Open risks
 - On-device push (T12) cannot be verified from CI; iOS needs the APNs auth key uploaded to the Firebase project.

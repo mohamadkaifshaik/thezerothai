@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -21,8 +20,6 @@ import (
 
 // JobKindPostDelete is the JobMessage.Kind of this job.
 const JobKindPostDelete = "post_delete"
-
-var postIDPattern = regexp.MustCompile(`^[0-9]{19}$`)
 
 // PostDeleteMessage is the payload of a post_delete job.
 type PostDeleteMessage struct {
@@ -77,7 +74,7 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return "dropped:malformed_message", nil
 	}
-	if !ids.ValidUID(m.UID) || !postIDPattern.MatchString(m.PostID) || len(m.MediaIDs) == 0 || len(m.MediaIDs) > MaxPerPost {
+	if !ids.ValidUID(m.UID) || !ids.ValidPostID(m.PostID) || len(m.MediaIDs) == 0 || len(m.MediaIDs) > MaxPerPost {
 		return "dropped:invalid_message", nil
 	}
 	seen := make(map[string]struct{}, len(m.MediaIDs))
