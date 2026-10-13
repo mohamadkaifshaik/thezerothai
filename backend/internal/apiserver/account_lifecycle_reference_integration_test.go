@@ -22,11 +22,14 @@ import (
 const (
 	refPosts, refFollowing, refFollowers = 300, 100, 100
 	// ADR-0011 budget table, reference row, as constants of the formula.
-	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */
+	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ +
+		1 /* P7 reports step: one read for the empty page of reports the account filed (ADR-0016 D5) */
 	refDeleteWrites    = refFollowing + 2*refFollowers
 	refDeleteDeletes   = refPosts + refFollowing + refFollowers + 1 + 3 + 1
-	// Plan T16 acceptance criterion: <= 509 R + job state, <= 300 W + checkpoints, <= 505 D.
-	planDeleteReads = 509
+	// Plan T16 acceptance criterion: <= 509 R + job state, <= 300 W + checkpoints, <= 505 D. The two later steps
+	// each read one empty page on the reference account: the P4 media step (media/* where ownerId == uid) and the
+	// P7 reports step (ADR-0016 D5), so the criterion is 509 + 1 + 1 = 511 R + job state.
+	planDeleteReads = 509 + 1 + 1
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
 	// section (one read even when the account has no images; ceil(M/100) pages otherwise) + 1 for the P7 reports
 	// section (ADR-0016 D5: one read per page of reports the account filed, minimum 1 for the empty page; the
@@ -140,7 +143,7 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 		t.Errorf("delete job reads = %.0f, over %d + D(%d) from the ADR-0011 formula", reads, refDeleteReadsBase, deleteLines)
 	}
 	if reads > float64(planDeleteReads+deleteLines) {
-		t.Errorf("delete job reads = %.0f, over the plan T16 criterion 509 + job state (D=%d)", reads, deleteLines)
+		t.Errorf("delete job reads = %.0f, over the plan T16 criterion %d (509 + P4 media + P7 reports) + job state (D=%d)", reads, planDeleteReads, deleteLines)
 	}
 	if writes > float64(refDeleteWrites+progressed) {
 		t.Errorf("delete job writes = %.0f, over %d + %d checkpoints", writes, refDeleteWrites, progressed)
