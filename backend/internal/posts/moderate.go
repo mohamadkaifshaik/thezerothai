@@ -95,8 +95,14 @@ func moderationUpdates(next Moderation, now time.Time) []firestore.Update {
 
 // HideAuthor implements Moderator. One call: one query page (<= opsPage posts) and one batch of updates for the
 // posts that are still visible. Reads: one per post in the page (1 for an empty page); writes: one per change.
+// Each update carries the LastUpdateTime of the snapshot it was decided from, so a post that changed between the
+// read and the commit (a concurrent takedown, an author delete) fails the batch instead of being overwritten; the
+// caller re-runs the page.
 func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (ModerationCheckpoint, bool, error) {
 	q := r.authorQuery(uid)
+	if !cp.Since.IsZero() {
+		q = q.Where("createdAt", ">=", cp.Since.UTC())
+	}
 	if cp.After != nil {
 		q = q.StartAfter(cp.After.CreatedAt, r.ref(cp.After.ID))
 	}
@@ -124,7 +130,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 		if d.Moderation != "" {
 			continue // already hidden (TAKEN_DOWN stays TAKEN_DOWN; SUSPENDED_AUTHOR is a re-run)
 		}
-		b.Update(s.Ref, moderationUpdates(ModerationSuspendedAuthor, now))
+		b.UpdateIf(s.Ref, moderationUpdates(ModerationSuspendedAuthor, now), firestore.LastUpdateTime(s.UpdateTime))
 		changed++
 	}
 	if changed > 0 {
@@ -163,7 +169,8 @@ func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp Modera
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, s := range docs {
-		b.Update(s.Ref, moderationUpdates(ModerationNone, time.Time{}))
+		// Select() keeps UpdateTime, so a post a moderator took down meanwhile fails the batch (and is re-read).
+		b.UpdateIf(s.Ref, moderationUpdates(ModerationNone, time.Time{}), firestore.LastUpdateTime(s.UpdateTime))
 	}
 	if err := b.Commit(ctx); err != nil {
 		return cp, false, fmt.Errorf("posts: restore %s: %w", logger.HashUID(uid), err)

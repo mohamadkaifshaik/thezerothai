@@ -304,6 +304,10 @@ type ModerationCheckpoint struct {
 	Changed int
 	// After is the oldest position already processed (HideAuthor pages newest to oldest). Nil at the start.
 	After *Position
+	// Since, when non-zero, restricts HideAuthor to posts with createdAt >= Since (the same Q-E index, a range
+	// on its first order field). opsctl suspend-user uses it for the settle pass that catches posts created on
+	// instances whose cached account status was still ACTIVE when the first pass read their page.
+	Since time.Time
 }
 
 // ModerationResult is what Moderator.Takedown and Restore found.

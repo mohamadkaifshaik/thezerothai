@@ -174,3 +174,31 @@ func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 		t.Fatalf("after restore: post=%v err=%v", got, err)
 	}
 }
+
+// TestModerator_HideAuthorSince: the settle pass (ADR-0016 D4) pages only posts with createdAt >= Since, so a post
+// created after the first pass read its page is hidden at the cost of the recent window, not the whole history.
+func TestModerator_HideAuthorSince(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	base := int64(1_700_000_000_000)
+	for i := 1; i <= 3; i++ {
+		seedPost(t, client, pid(i), "u-bad", false, base+int64(i)*1000)
+	}
+	now := time.Unix(1_800_000_100, 0)
+	if _, done, err := repo.HideAuthor(context.Background(), "u-bad", ModerationCheckpoint{}, now); err != nil || !done {
+		t.Fatalf("first pass: done=%v err=%v", done, err)
+	}
+	// A post an instance with a stale ACTIVE cache accepted after the first pass read its page.
+	seedPost(t, client, pid(4), "u-bad", false, base+4000)
+
+	ctx, c := budget.WithCounter(context.Background())
+	since := time.UnixMilli(base + 3500).UTC()
+	next, done, err := repo.HideAuthor(ctx, "u-bad", ModerationCheckpoint{Since: since}, now)
+	if err != nil || !done || next.Changed != 1 {
+		t.Fatalf("settle pass: next=%+v done=%v err=%v", next, done, err)
+	}
+	budgettest.Assert(t, "HideAuthor since", c, budgettest.Budget{Reads: 1, Writes: 1})
+	if got := storedModeration(t, repo, pid(4)); got != ModerationSuspendedAuthor {
+		t.Errorf("late post moderation = %q", got)
+	}
+}

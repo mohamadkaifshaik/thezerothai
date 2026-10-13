@@ -59,6 +59,15 @@ func (b *FirestoreBatch) Update(ref *firestore.DocumentRef, updates []firestore.
 	return b
 }
 
+// UpdateIf is Update with a precondition (typically firestore.LastUpdateTime of the snapshot the caller read), so
+// a read-modify-write across many documents fails the whole batch (0 writes) when any document changed since it
+// was read. It is on the concrete type only: Batch (and its fakes) is unchanged.
+func (b *FirestoreBatch) UpdateIf(ref *firestore.DocumentRef, updates []firestore.Update, pre firestore.Precondition) *FirestoreBatch {
+	b.wb.Update(ref, updates, pre)
+	b.counter.AddWrites(1)
+	return b
+}
+
 func (b *FirestoreBatch) Delete(ref *firestore.DocumentRef, preconditions ...firestore.Precondition) Batch {
 	b.wb.Delete(ref, preconditions...)
 	b.counter.AddDeletes(1)
