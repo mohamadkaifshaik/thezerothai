@@ -151,6 +151,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	if err := fs.Parse(rest); err != nil {
 		return 2
 	}
+	// flag.Parse stops at the first non-flag argument. Without this check an unquoted multi-word --note would
+	// swallow every flag after it (--dry-run, --report) and the command would run as if they were absent.
+	if fs.NArg() > 0 {
+		fmt.Fprintf(errOut, "unexpected argument %q (quote --note values)\n%s", fs.Arg(0), usage)
+		return 2
+	}
 	ma.dryRun = *dryRun
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
@@ -212,6 +218,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	if err != nil {
 		fmt.Fprintf(errOut, "%s: %v\n", cmd, err)
+		var ue *usageError
+		if errors.As(err, &ue) {
+			return 2
+		}
 		return 1
 	}
 	return 0

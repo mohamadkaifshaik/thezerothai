@@ -397,3 +397,29 @@ type allOn struct{}
 func (allOn) Enabled(string, string) bool { return true }
 
 func pidN(n int) string { return fmt.Sprintf("%019d", n) }
+
+// IsOpen backs the exhausted-quota replay answer: OPEN -> true, RESOLVED -> false, missing -> false, 1 read each.
+func TestRepo_IsOpen(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	now := time.Now()
+	r := sampleReport("u-rep", TargetPost, pidN(31), "u-bob", now)
+	if _, err := repo.Create(context.Background(), CreateParams{Report: r, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(name, id string, want bool) {
+		t.Helper()
+		ctx, c := counted()
+		got, err := repo.IsOpen(ctx, id)
+		if err != nil || got != want {
+			t.Fatalf("%s: IsOpen = %v, %v; want %v", name, got, err, want)
+		}
+		budgettest.Assert(t, "IsOpen "+name, c, budgettest.Budget{Reads: 1})
+	}
+	check("open", r.ID, true)
+	if _, err := repo.Resolve(context.Background(), r.ID, ResolutionDismissed, "", now); err != nil {
+		t.Fatal(err)
+	}
+	check("resolved", r.ID, false)
+	check("missing", ReportID("u-rep", TargetPost, pidN(32)), false)
+}

@@ -239,7 +239,7 @@ func TestReport_ReopenedIsNotAlreadyReported(t *testing.T) {
 	}
 }
 
-// Once a uid is found out of quota, further calls until the IST midnight cost 0 reads and 0 transactions; the
+// Once a uid is found out of quota, further calls until the IST midnight cost one read (the replay lookup) and 0 transactions; the
 // limit lifting (new-account window over, day rollover) makes the instance ask again.
 func TestReport_ExhaustedQuotaIsRememberedUntilMidnight(t *testing.T) {
 	t.Parallel()

@@ -58,7 +58,7 @@ type Deps struct {
 type service struct {
 	d Deps
 	// exhausted remembers, per instance, the uids whose reports quota was found spent, so a client that keeps
-	// retrying an over-quota report costs 0 Firestore reads until the IST day rolls over (ADR-0016 D2).
+	// retrying an over-quota report costs 1 Firestore read (the replay lookup) until the IST day rolls over (ADR-0016 D2).
 	exhausted *cache.LRU[string, exhaustion]
 }
 

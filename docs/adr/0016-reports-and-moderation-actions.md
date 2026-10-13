@@ -210,7 +210,7 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
   bound is the `reports` quota (`QUOTA_REPORTS_PER_DAY` 20, `QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY` 5).
 - **Exports and deletion budget.** The `reports` export section costs one read per filed report (minimum 1, the empty
   page). On the reference account the export row is **707** reads: 703 + 1 P4 `media` section + 2 P6
-  `notifications` section + 1 P7 `reports` section (it was 704 before P4, 705 with P4 and P7). The `reports` Eraser
+  `notifications` section + 1 P7 `reports` section (it was 703 before P4, 705 with P4 and P7). The `reports` Eraser
   step costs one read for the empty page.
   Delete job: the account-deletion plan's T16 criterion (`docs/plans/account-deletion-export.md`, 509 reads + job
   state) gains +1 for the `reports` step's empty page and +3 for P6's `notifications` step (ADR-0017 D10), so the

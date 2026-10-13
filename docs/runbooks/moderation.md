@@ -31,7 +31,7 @@ Decide one of:
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
 
-Every command prints `cost: reads=... writes=...`. Prod project ids (`*-prod`) ask for the project id as a typed
+Every writing command ends with a `cost: reads=... writes=...` line (the `hidden:`/`settle pass:`/`restored:` lines before it are running totals). Prod project ids (`*-prod`) ask for the project id as a typed
 confirmation. Nothing here touches Firebase Auth.
 
 ## 3. Cost of the commands (free quota: 50k reads, 20k writes per day)
@@ -40,8 +40,9 @@ confirmation. Nothing here touches Firebase Auth.
 | `reports list` | one per report shown (<= 50) | 0 |
 | `reports show` | 1 | 0 |
 | `reports resolve` | 1 | 1 (0 if already resolved) |
-| `takedown-post` / `restore-post` | 1 (+2 with `--report`: target check, resolve) | 1 (+1) |
-| `suspend-user` | P + 2, or P + 4 with `--report` (+1 per 500 posts for the last empty page, + the posts of the last ~3 minutes re-read by the settle pass) | P + 1, or P + 2 with `--report` |
+| `takedown-post` | 1 (+2 with `--report`: target check, resolve) | 1 (+1) |
+| `restore-post` | 1 (rejects `--report`) | 1 |
+| `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 500, + the posts of the last ~3 minutes re-read by the settle pass) | P + 1, or P + 2 with `--report` |
 | `unsuspend-user` | P_hidden + 2 | P_hidden + 1 |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 5,000 writes (25% of the daily write quota): run it

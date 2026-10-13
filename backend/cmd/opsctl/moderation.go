@@ -34,6 +34,13 @@ const (
 	suspendSkew = 2 * time.Minute
 )
 
+// usageError marks a command-line mistake (exit code 2, like the flag errors) as opposed to a runtime failure.
+type usageError struct{ msg string }
+
+func (e *usageError) Error() string { return e.msg }
+
+func usageErr(msg string) error { return &usageError{msg: msg} }
+
 // accountStatusSetter is identity.FirestoreRepo's moderation write (the existing identity module, never Auth).
 type accountStatusSetter interface {
 	SetAccountStatus(ctx context.Context, uid string, from, to identity.AccountStatus, now time.Time) (bool, error)
@@ -74,7 +81,7 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 			st = moderation.StatusOpen
 		}
 		if st != moderation.StatusOpen && st != moderation.StatusResolved {
-			return fmt.Errorf("--status must be OPEN or RESOLVED")
+			return usageErr("--status must be OPEN or RESOLVED")
 		}
 		rs, err := b.reports.List(cctx, st, a.limit)
 		if err != nil {
@@ -87,7 +94,7 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 		return nil
 	case "show":
 		if !reportIDRe.MatchString(a.id) {
-			return errors.New("--id must be a 32-character report id")
+			return usageErr("--id must be a 32-character report id")
 		}
 		r, err := b.reports.Get(cctx, a.id)
 		if err != nil {
@@ -97,11 +104,11 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 		return nil
 	case "resolve":
 		if !reportIDRe.MatchString(a.id) {
-			return errors.New("--id must be a 32-character report id")
+			return usageErr("--id must be a 32-character report id")
 		}
 		res := moderation.Resolution(strings.ToUpper(a.resolution))
 		if res != moderation.ResolutionNoAction && res != moderation.ResolutionDismissed {
-			return errors.New("--resolution must be NO_ACTION or DISMISSED (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)")
+			return usageErr("--resolution must be NO_ACTION or DISMISSED (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)")
 		}
 		r, err := b.reports.Resolve(cctx, a.id, res, a.note, now())
 		if err != nil {
@@ -177,10 +184,10 @@ func checkReport(ctx context.Context, b *backends, id string, wantType moderatio
 // takedownPost is takedown-post: the post is hidden from every read path within CACHE_TTL (60 s).
 func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, now func() time.Time) error {
 	if !postIDRe.MatchString(a.post) {
-		return errors.New("--post must be a 19-digit post id")
+		return usageErr("--post must be a 19-digit post id")
 	}
 	if a.report != "" && !reportIDRe.MatchString(a.report) {
-		return errors.New("--report must be a 32-character report id")
+		return usageErr("--report must be a 32-character report id")
 	}
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -207,10 +214,10 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 // restorePost is restore-post: it clears TAKEN_DOWN only.
 func restorePost(ctx context.Context, b *backends, a modArgs, out io.Writer) error {
 	if !postIDRe.MatchString(a.post) {
-		return errors.New("--post must be a 19-digit post id")
+		return usageErr("--post must be a 19-digit post id")
 	}
 	if a.report != "" {
-		return errors.New("--report is not supported by restore-post (a restore does not resolve a report)")
+		return usageErr("--report is not supported by restore-post (a restore does not resolve a report)")
 	}
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -249,7 +256,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return err
 		}
 		fmt.Fprintf(out, "dry-run: status=%s posts=%d -> would set SUSPENDED and hide up to %d post(s), wait %s, then run the settle pass\n"+
-			"  reads~%d writes~%d (+1 read per 500 posts for the final empty page, + the posts of the last few minutes for the settle pass;\n"+
+			"  reads~%d writes~%d (+1 read only when P is a multiple of 500, + the posts of the last few minutes for the settle pass;\n"+
 			"  with --report: reads~%d writes~%d) (nothing written)\n",
 			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, plan.Posts+1, plan.Posts+4, plan.Posts+2)
 		return nil
@@ -314,7 +321,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 
 // unsuspendUser is unsuspend-user: ACTIVE again, then restore only the posts the suspension hid.
 func unsuspendUser(ctx context.Context, b *backends, uid string, out io.Writer, now func() time.Time) error {
-	ctx, _ = budget.WithCounter(ctx)
+	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	changed, err := b.accounts.SetAccountStatus(cctx, uid, identity.AccountStatusSuspended, identity.AccountStatusActive, now())
 	cancel()
@@ -338,6 +345,7 @@ func unsuspendUser(ctx context.Context, b *backends, uid string, out io.Writer, 
 		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("restored=%d", cp.Changed) }, "restored"); err != nil {
 		return fmt.Errorf("%w (re-run unsuspend-user to resume)", err)
 	}
+	fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes())
 	return nil
 }
 

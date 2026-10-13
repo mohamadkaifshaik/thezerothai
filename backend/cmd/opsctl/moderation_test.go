@@ -195,6 +195,9 @@ func TestModeration_UsageAndValidation(t *testing.T) {
 		{"restore-post rejects --dry-run", []string{"restore-post", "--project", "dzeroth-dev", "--post", testPostID, "--dry-run"}, "--dry-run is not supported by restore-post"},
 		{"unsuspend-user rejects --dry-run", []string{"unsuspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run"}, "--dry-run is not supported by unsuspend-user"},
 		{"reports resolve rejects --dry-run", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "DISMISSED", "--dry-run"}, "--dry-run is not supported by reports"},
+		{"unquoted multi-word note must not swallow --dry-run", []string{"suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--note", "spam", "account", "--dry-run"}, "unexpected argument"},
+		{"unquoted note must not swallow --resolution flags", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "DISMISSED", "--note", "two", "words", "--dry-run"}, "unexpected argument"},
+		{"unquoted note must not swallow --report", []string{"takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--note", "bad", "post", "--report", testReportID}, "unexpected argument"},
 		{"restore-post rejects --report", []string{"restore-post", "--project", "dzeroth-dev", "--post", testPostID, "--report", testReportID}, "--report is not supported by restore-post"},
 		{"takedown without project", []string{"takedown-post", "--post", testPostID}, "--project is required"},
 	}
@@ -203,8 +206,9 @@ func TestModeration_UsageAndValidation(t *testing.T) {
 			t.Parallel()
 			f := newModFixture()
 			code, _, stderr := f.run("", tt.args...)
-			if code == 0 || !strings.Contains(stderr, tt.want) {
-				t.Fatalf("code=%d stderr=%q, want it to contain %q", code, stderr, tt.want)
+			wantCode := 2
+			if code != wantCode || !strings.Contains(stderr, tt.want) {
+				t.Fatalf("code=%d stderr=%q, want code %d containing %q", code, stderr, wantCode, tt.want)
 			}
 			if len(f.mod.takedowns)+len(f.mod.restores)+len(f.acc.calls)+len(f.ops.resolved)+f.mod.hideCalls+f.mod.restCall != 0 {
 				t.Error("a rejected command must not write")
