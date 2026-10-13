@@ -69,8 +69,8 @@ func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
 
 var _ Repo = (*FirestoreRepo)(nil)
 
-// postDoc is the posts/{postId} shape (ADR-0003); counters start at 0. Media, embedded and mentionIds are not
-// written in this slice (ADR-0010 D2, D12).
+// postDoc is the posts/{postId} shape (ADR-0003); counters start at 0. Embedded and mentionIds are not
+// written yet (ADR-0010 D2, D12); media is written from P4 (empty unless the post has images).
 type postDoc struct {
 	AuthorID        string       `firestore:"authorId"`
 	Author          authorDoc    `firestore:"author"`
@@ -84,6 +84,7 @@ type postDoc struct {
 	RepostOfID      string       `firestore:"repostOfId,omitempty"`
 	Hashtags        []string     `firestore:"hashtags"`
 	Mentions        []mentionDoc `firestore:"mentions"`
+	Media           []mediaDoc   `firestore:"media,omitempty"`
 	LikeCount       int64        `firestore:"likeCount"`
 	RepostCount     int64        `firestore:"repostCount"`
 	ReplyCount      int64        `firestore:"replyCount"`
@@ -109,6 +110,17 @@ type mentionDoc struct {
 	Handle string `firestore:"handle"`
 }
 
+// mediaDoc is one stored image (data model: url/thumbUrl/width/height/blurhash copied from media/{id}).
+type mediaDoc struct {
+	MediaID  string `firestore:"mediaId"`
+	URL      string `firestore:"url"`
+	ThumbURL string `firestore:"thumbUrl"`
+	Width    int    `firestore:"width"`
+	Height   int    `firestore:"height"`
+	Blurhash string `firestore:"blurhash,omitempty"`
+	AltText  string `firestore:"altText,omitempty"`
+}
+
 // toDoc converts a domain Post to its stored shape (used by writers, T8, and by integration-test seeding).
 func toDoc(p *Post) postDoc {
 	d := postDoc{
@@ -132,6 +144,12 @@ func toDoc(p *Post) postDoc {
 	for _, m := range p.Mentions {
 		d.Mentions = append(d.Mentions, mentionDoc(m))
 	}
+	if len(p.Media) > 0 {
+		d.Media = make([]mediaDoc, 0, len(p.Media))
+	}
+	for _, m := range p.Media {
+		d.Media = append(d.Media, mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText})
+	}
 	return d
 }
 
@@ -154,6 +172,12 @@ func (d postDoc) toPost(id string) *Post {
 		p.Mentions = make([]Mention, len(d.Mentions))
 		for i, m := range d.Mentions {
 			p.Mentions[i] = Mention(m)
+		}
+	}
+	if len(d.Media) > 0 {
+		p.Media = make([]MediaRef, len(d.Media))
+		for i, m := range d.Media {
+			p.Media[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText}
 		}
 	}
 	return p

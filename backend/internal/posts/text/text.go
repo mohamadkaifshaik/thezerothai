@@ -49,6 +49,15 @@ func Parse(raw string) (Parsed, error) {
 	return Parsed{Text: t, Mentions: m, MentionsInURL: inURL, Hashtags: Hashtags(t)}, nil
 }
 
+// ParseOptional is Parse for a post that carries images: text with no visible content is valid and yields the
+// zero Parsed (an image-only post). Anything else (control characters, over-long text) is Parse unchanged.
+func ParseOptional(raw string) (Parsed, error) {
+	if utf8.ValidString(raw) && !hasVisible(raw) {
+		return Parsed{}, nil
+	}
+	return Parse(raw)
+}
+
 // Normalize applies ADR-0010 D9 (with D21 G2 and G4) in order: UTF-8 check; CRLF, CR, U+2028 and U+2029 to LF
 // and tab to one space; NFC; trim of whitespace and the invisible set; non-empty (visible content); control and
 // bidi-control rejection; at most 280 code points; at most 10 lines.
