@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/app/session_wiring.dart'
+    show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -36,8 +38,10 @@ void main() {
 
   late MockIdentityRepository repo;
   late MockOnboardingBloc onboardingBloc;
+  late List<Object> reported;
 
   setUp(() {
+    reported = [];
     repo = MockIdentityRepository();
     onboardingBloc = MockOnboardingBloc();
     when(() => onboardingBloc.add(any())).thenReturn(null);
@@ -82,8 +86,13 @@ void main() {
       ],
     );
     await tester.pumpWidget(
-      RepositoryProvider<IdentityRepository>.value(
-        value: repo,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<IdentityRepository>.value(value: repo),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (error, _) => reported.add(error),
+          ),
+        ],
         child: BlocProvider<OnboardingBloc>.value(
           value: onboardingBloc,
           child: MaterialApp.router(
@@ -209,13 +218,96 @@ void main() {
 
       expect(
         find.text(
-          "You've changed your name too many times today. Try again tomorrow.",
+          "You've changed your name too many times today. Undo the name "
+          'change to save your bio now, or try again tomorrow.',
         ),
         findsOneWidget,
       );
       // Still editable, text kept.
       expect(find.text('Kaif S'), findsOneWidget);
       expect(save(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('the quota message uses retryAfter', (tester) async {
+      stubUpdate(
+        () async => throw const QuotaExceededException(
+          'quota',
+          quota: 'snapshot_edits',
+          retryAfter: Duration(hours: 5, minutes: 20),
+        ),
+      );
+      await open(tester, '/settings/profile');
+
+      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('or try again in 6 hours.'), findsOneWidget);
+    });
+
+    testWidgets('counters are announced as characters remaining, and an unexpected '
+        'error is reported', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      stubUpdate(() async => throw StateError('boom'));
+      await open(tester, '/settings/profile');
+
+      String label(String fieldText) => tester
+          .getSemantics(find.widgetWithText(TextField, fieldText))
+          .label;
+      expect(label('Kaif'), contains('Characters remaining: 46'));
+      expect(label('hello there'), contains('Characters remaining: 149'));
+      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'a' * 51);
+      await tester.pump();
+      expect(label('a' * 51), contains('Characters over the limit: 1'));
+
+      await tester.enterText(find.widgetWithText(TextField, 'a' * 51), 'Kaif S');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(reported.single, isA<StateError>());
+      expect(
+        find.text("Couldn't save your changes. Please try again."),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('the saving spinner has a semantics label', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final done = Completer<identity.Profile>();
+      stubUpdate(() => done.future);
+      await open(tester, '/settings/profile');
+
+      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+
+      expect(find.bySemanticsLabel('Saving'), findsOneWidget);
+      done.complete(_profile(name: 'Kaif S'));
+      await tester.pumpAndSettle();
+      semantics.dispose();
+    });
+
+    testWidgets('without a profile it explains instead of showing a blank '
+        'page', (tester) async {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: const OnboardingState(),
+      );
+      await open(tester, '/settings/profile');
+
+      expect(find.text('Edit profile'), findsOneWidget);
+      expect(
+        find.text("Your profile isn't available right now."),
+        findsOneWidget,
+      );
+      expect(find.byType(TextField), findsNothing);
     });
 
     testWidgets('FEATURE_DISABLED degrades: friendly text and a flag refresh', (
@@ -417,6 +509,67 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Current handle: @kaif'), findsOneWidget);
+      // Save stays off until the cooldown passes, with the time left inline.
+      expect(
+        find.text('You can change your handle again in 5 days.'),
+        findsOneWidget,
+      );
+      expect(change(tester).onPressed, isNull);
+      await type(tester, 'other_one');
+      expect(change(tester).onPressed, isNull);
+    });
+
+    testWidgets('an unexpected error while saving is reported', (
+      tester,
+    ) async {
+      stubCheck(true);
+      when(
+        () => repo.changeHandle(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          newHandle: any(named: 'newHandle'),
+        ),
+      ).thenAnswer((_) async => throw StateError('boom'));
+      await open(tester, '/settings/handle');
+      await type(tester, 'new_one');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
+      await tester.pumpAndSettle();
+
+      expect(reported.single, isA<StateError>());
+      expect(
+        find.text("Couldn't change your handle. Please try again."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the availability text is a live region', (tester) async {
+      final semantics = tester.ensureSemantics();
+      stubCheck(false);
+      await open(tester, '/settings/handle');
+      await type(tester, 'taken_one');
+
+      final node = tester.getSemantics(find.text('That handle is taken.'));
+      expect(node.flagsCollection.isLiveRegion, isTrue);
+      semantics.dispose();
+    });
+
+    testWidgets('without a profile it explains instead of a "@" handle', (
+      tester,
+    ) async {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: const OnboardingState(),
+      );
+      await open(tester, '/settings/handle');
+
+      expect(
+        find.text("Your profile isn't available right now."),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Current handle'), findsNothing);
     });
 
     testWidgets('FEATURE_DISABLED degrades: friendly text and a flag refresh', (

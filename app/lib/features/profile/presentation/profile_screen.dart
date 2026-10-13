@@ -7,6 +7,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../graph/data/graph_repository.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../onboarding/data/identity_repository.dart';
@@ -124,12 +125,14 @@ class _ReadyProfile extends StatelessWidget {
   }
 }
 
-/// Opens Edit profile; a saved edit (it pops with `true`) reloads this
-/// profile so the header shows the new name and bio.
+/// Opens Edit profile; a saved edit pops with the server's profile, which the
+/// header shows directly (no GetProfile re-read).
 Future<void> _editProfile(BuildContext context) async {
   final cubit = context.read<ProfileCubit>();
-  final saved = await context.push<bool>(AppRouter.editProfilePath);
-  if (saved == true && !cubit.isClosed) await cubit.load();
+  final saved = await context.push<identity.Profile>(
+    AppRouter.editProfilePath,
+  );
+  if (saved != null && !cubit.isClosed) cubit.profileUpdated(saved);
 }
 
 ProfileHeader _header(

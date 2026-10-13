@@ -2,17 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/format/coarse_wait.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/domain/handle_rules.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
-import '../../onboarding/presentation/bloc/onboarding_state.dart'
-    show HandleCheckStatus;
 import 'bloc/change_handle_cubit.dart';
 import 'profile_edit_error_messages.dart';
+import 'widgets/profile_edit_unavailable.dart';
 
 /// Settings -> Change handle (`/settings/handle`, only reachable with the
 /// `profile_snapshot` flag on). Live availability check, a confirmation that
@@ -23,11 +24,16 @@ class ChangeHandleScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final handle = context.read<OnboardingBloc>().state.profile?.handle ?? '';
+    final handle = context.read<OnboardingBloc>().state.profile?.handle;
+    if (handle == null) {
+      // Router redirects keep profile-less callers out; belt and braces.
+      return const ProfileEditUnavailable(title: 'Change handle');
+    }
     return BlocProvider<ChangeHandleCubit>(
       create: (context) => ChangeHandleCubit(
         identityRepository: context.read<IdentityRepository>(),
         currentHandle: handle,
+        onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       ),
       child: _ChangeHandleView(currentHandle: handle),
     );
@@ -104,9 +110,17 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
       listener: _onState,
       builder: (context, state) {
         final unavailable = state.checkStatus == HandleCheckStatus.unavailable;
+        final cooldown = cubit.cooldownLeft;
         final helper = state.checkMessage.isEmpty
             ? kHandleFormatMessage
             : state.checkMessage;
+        // One live-region note under the field: the cooldown, else why the
+        // handle can't be used, else the format hint. Screen readers announce
+        // it as the availability answer arrives.
+        final note = cooldown != null
+            ? 'You can change your handle again in ${coarseWait(cooldown)}.'
+            : helper;
+        final isProblem = cooldown != null || unavailable;
         return Scaffold(
           appBar: AppBar(title: const Text('Change handle')),
           body: SafeArea(
@@ -140,9 +154,11 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
                       decoration: InputDecoration(
                         labelText: 'New handle',
                         prefixText: '@',
-                        helperText: unavailable ? null : helper,
+                        helper: isProblem ? null : _FieldNote(text: note),
                         helperMaxLines: 2,
-                        errorText: unavailable ? helper : null,
+                        error: isProblem
+                            ? _FieldNote(text: note, isError: true)
+                            : null,
                         errorMaxLines: 2,
                         suffixIcon: _StatusIcon(status: state.checkStatus),
                       ),
@@ -165,7 +181,10 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
                           ? const SizedBox(
                               width: AppIconSize.md,
                               height: AppIconSize.md,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                semanticsLabel: 'Saving',
+                              ),
                             )
                           : const Text('Change handle'),
                     ),
@@ -176,6 +195,31 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
           ),
         );
       },
+    );
+  }
+}
+
+/// The helper / error line under the handle field, a live region so the
+/// availability answer is announced without moving focus.
+class _FieldNote extends StatelessWidget {
+  const _FieldNote({required this.text, this.isError = false});
+
+  final String text;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: isError
+              ? theme.colorScheme.error
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
     );
   }
 }

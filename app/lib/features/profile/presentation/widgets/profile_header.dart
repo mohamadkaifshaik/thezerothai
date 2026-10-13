@@ -120,10 +120,7 @@ class _ProfileHeaderBody extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(
-                url: profile.avatarUrl,
-                radius: AppSpacing.xl + AppSpacing.sm,
-              ),
+              AppAvatar(url: profile.avatarUrl, radius: AppSpacing.xl + AppSpacing.sm),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -234,8 +231,9 @@ class _PostsCount extends StatelessWidget {
             children: [
               TextSpan(
                 text: '$count ',
-                style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               TextSpan(text: label, style: _mutedLabel(context)),
             ],
@@ -247,9 +245,10 @@ class _PostsCount extends StatelessWidget {
 }
 
 /// Count labels ("Posts", "Followers") read secondary to the bold number.
-TextStyle? _mutedLabel(BuildContext context) =>
-    Theme.of(context).textTheme.bodyMedium
-        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+TextStyle? _mutedLabel(BuildContext context) => Theme.of(context)
+    .textTheme
+    .bodyMedium
+    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
 
 class _CountLink extends StatelessWidget {
   const _CountLink({

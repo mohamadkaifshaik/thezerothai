@@ -12,6 +12,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockIdentityRepository extends Mock implements IdentityRepository {}
@@ -116,6 +117,75 @@ void main() {
     await openOwn({kFeatureProfileSnapshot});
     expect(find.text('Edit profile'), findsOneWidget);
   });
+
+  testWidgets(
+    'a saved edit shows the returned profile without another GetProfile',
+    (tester) async {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          enabledFeatures: const {kFeatureProfileSnapshot},
+          profile: identity.Profile(userId: 'viewer-uid', handle: 'kaif'),
+        ),
+      );
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(
+          userId: 'viewer-uid',
+          handle: 'kaif',
+          displayName: 'Old name',
+        ),
+      );
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => const ProfileScreen(handle: 'kaif'),
+          ),
+          GoRoute(
+            path: '/settings/profile',
+            builder: (context, state) => Scaffold(
+              body: TextButton(
+                onPressed: () => context.pop(
+                  identity.Profile(
+                    userId: 'viewer-uid',
+                    handle: 'kaif',
+                    displayName: 'New name',
+                  ),
+                ),
+                child: const Text('finish edit'),
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<IdentityRepository>.value(
+              value: identityRepository,
+            ),
+            RepositoryProvider<GraphRepository>.value(value: graphRepository),
+          ],
+          child: BlocProvider<OnboardingBloc>.value(
+            value: onboardingBloc,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Old name'), findsOneWidget);
+
+      await tester.tap(find.text('Edit profile'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('finish edit'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('New name'), findsOneWidget);
+      expect(find.text('Old name'), findsNothing);
+      verify(() => identityRepository.getProfile(handle: 'kaif')).called(1);
+    },
+  );
 
   testWidgets('other profile: never shows "Edit profile"', (tester) async {
     whenListen(

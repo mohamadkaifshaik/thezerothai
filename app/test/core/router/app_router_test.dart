@@ -262,6 +262,7 @@ void main() {
         RepositoryProvider<IdentityRepository>.value(
           value: MockIdentityRepository(),
         ),
+        RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
       ],
     );
 

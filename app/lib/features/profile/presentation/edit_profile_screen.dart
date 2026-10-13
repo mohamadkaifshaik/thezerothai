@@ -2,20 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/character_counter.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import 'bloc/edit_profile_cubit.dart';
 import 'profile_edit_error_messages.dart';
+import 'widgets/profile_edit_unavailable.dart';
 
 /// Settings -> Edit profile (`/settings/profile`, only reachable with the
 /// `profile_snapshot` flag on): display name and bio. The avatar is shown but
 /// not editable (the server rejects avatar changes until P4). Saves only the
-/// changed fields; pops with `true` so the caller can refresh.
+/// changed fields and pops with the server's [identity.Profile] so the caller
+/// can show it without another read.
 class EditProfileScreen extends StatelessWidget {
   const EditProfileScreen({super.key});
 
@@ -24,15 +29,13 @@ class EditProfileScreen extends StatelessWidget {
     final profile = context.read<OnboardingBloc>().state.profile;
     if (profile == null) {
       // Router redirects keep profile-less callers out; belt and braces.
-      return Scaffold(
-        appBar: AppBar(title: const Text('Edit profile')),
-        body: const SizedBox.shrink(),
-      );
+      return const ProfileEditUnavailable(title: 'Edit profile');
     }
     return BlocProvider<EditProfileCubit>(
       create: (context) => EditProfileCubit(
         identityRepository: context.read<IdentityRepository>(),
         initial: profile,
+        onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       ),
       child: _EditProfileView(avatarUrl: profile.avatarThumbUrl),
     );
@@ -67,7 +70,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
     super.dispose();
   }
 
-  void _leave(BuildContext context, {bool saved = false}) {
+  void _leave(BuildContext context, {identity.Profile? saved}) {
     if (context.canPop()) {
       context.pop(saved);
     } else {
@@ -100,7 +103,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
     final saved = state.saved;
     if (state.status == EditProfileStatus.saved && saved != null) {
       context.read<OnboardingBloc>().add(OnboardingProfileUpdated(saved));
-      _leave(context, saved: true);
+      _leave(context, saved: saved);
       return;
     }
     final error = state.error;
@@ -119,7 +122,6 @@ class _EditProfileViewState extends State<_EditProfileView> {
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<EditProfileCubit>();
-    final theme = Theme.of(context);
     return BlocConsumer<EditProfileCubit, EditProfileState>(
       listener: _onState,
       builder: (context, state) {
@@ -141,14 +143,20 @@ class _EditProfileViewState extends State<_EditProfileView> {
                   padding: const EdgeInsets.only(right: AppSpacing.sm),
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      minimumSize: const Size(72, AppSpacing.minTapTarget),
+                      minimumSize: const Size(
+                        AppSpacing.minButtonWidth,
+                        AppSpacing.minTapTarget,
+                      ),
                     ),
                     onPressed: cubit.canSave ? cubit.save : null,
                     child: state.isSaving
                         ? const SizedBox(
                             width: AppIconSize.md,
                             height: AppIconSize.md,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              semanticsLabel: 'Saving',
+                            ),
                           )
                         : const Text('Save'),
                   ),
@@ -188,11 +196,8 @@ class _EditProfileViewState extends State<_EditProfileView> {
                               'Also updates on your recent posts shortly. '
                               'Name changes are limited each day.',
                           helperMaxLines: 3,
-                          counterText: '${state.displayNameRemaining}',
-                          counterStyle: theme.textTheme.bodySmall?.copyWith(
-                            color: nameOver
-                                ? theme.colorScheme.error
-                                : theme.colorScheme.onSurfaceVariant,
+                          counter: CharacterCounter(
+                            remaining: state.displayNameRemaining,
                           ),
                           errorText: nameOver
                               ? 'At most $kMaxDisplayNameLength characters.'
@@ -213,11 +218,8 @@ class _EditProfileViewState extends State<_EditProfileView> {
                         decoration: InputDecoration(
                           labelText: 'Bio',
                           alignLabelWithHint: true,
-                          counterText: '${state.bioRemaining}',
-                          counterStyle: theme.textTheme.bodySmall?.copyWith(
-                            color: bioOver
-                                ? theme.colorScheme.error
-                                : theme.colorScheme.onSurfaceVariant,
+                          counter: CharacterCounter(
+                            remaining: state.bioRemaining,
                           ),
                           errorText: bioOver
                               ? 'At most $kMaxBioLength characters.'
