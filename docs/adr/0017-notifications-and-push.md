@@ -192,5 +192,13 @@ on post delete.
   when other actors remain, repointing the displayed `actor` at the newest remaining one (one `GetProfiles` per page of
   <= 500 rows); a row with no remaining actor, or whose replacement actor is gone, is deleted.
 - **Budgets.** RegisterDevice worst case reads 8 to 9 (the evicted device's index is read so another account's index is
-  never deleted); a collapsed like costs 2 reads and 1 write (Create attempt + fold check), 0 writes on redelivery.
+  never deleted); a collapsed like costs (1 + R) fresh profile reads + 2 reads (Create attempt + fold check) and 1 write, 0 writes on redelivery. Per DAU the notifications total is about 23 reads (was 11.3): about 7k reads/day at 300 DAU, 14% of the free quota.
+- **Accepted behaviors (round 2).** (a) The GetMe unread badge counts rows by `createdAt > notificationsSeenAt` and
+  does not apply the read-time filter, so it can exceed the visible rows after a block or mute; fixing it would add
+  reads. (b) A collapsed row is hidden entirely when its newest (displayed) actor is blocked or muted, even if other
+  actors are not; a later like shows it again. (c) Purge step 3 writes are conditioned on the update time seen by its
+  query, so a like folding in concurrently fails that batch and the self-resuming step retries; a document liked
+  continuously could delay the purge but never loses a fold. `Checkpoint.Deleted` counts documents processed
+  (deleted or unfolded in place). (d) The fan-out evicts each recipient again after their row commits so the unread
+  badge is recounted (no reads).
 

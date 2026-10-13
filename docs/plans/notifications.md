@@ -63,24 +63,26 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 ## Budget (reads/writes per request; Stage 0 targets)
 | RPC / path | Reads worst / typical | Writes worst / typical | Notes |
 |---|---|---|---|
-| ListNotifications, cold or older page (20) | 1 + 20 / 21 | 0 | `seen_at` profile comes from the account-status cache |
+| ListNotifications, cold or older page (20) | 20 + graph snapshot (0-1) / 21 | 0 | `seen_at` profile comes from the account-status cache; rows hidden by block/mute are still read |
 | ListNotifications, `since` refresh | 1 + new / 1-5 | 0 | lever 6.1 (the 5 is the planning mean) |
-| MarkNotificationsSeen | 0 / 0 | 1 / 1 | + 1 profile read next GetMe (cache evicted) |
-| RegisterDevice | 8 / 2 | 5 / 2 | worst: device doc, token index, previous owner's device, list of 6 |
+| MarkNotificationsSeen | 0 / 0 | 1 / 1 (0 within 10 s of the last mark) | + 1 profile read next GetMe (cache evicted) |
+| RegisterDevice | 9 / 2 | 5 / 2 | worst: device doc, token index, previous owner's device, device list of 5, evicted device's index |
 | UnregisterDevice | 1 / 1 | 2 / 2 | device + index |
-| Fan-out, one recipient (follow/mention) | 2 / 1.3 | 1 / 1 | users batch (actor, recipient, cached), devices <= 5 |
-| Fan-out, collapsed like (not first) | 1 / 1 | 1 / 1 | `Create` AlreadyExists billed as a read, then `Update` |
+| Fan-out, one recipient (follow/mention) | 1 + R + 5 devices / 4 | 1 / 1 | actor and recipients are evicted and re-read for a fresh ACTIVE check (1 + R, R <= 10, uncached by design), recipient graph (cached), devices <= 5 |
+| Fan-out, collapsed like (not first) | (1 + R) + 2 / 4 | 1 / 1 (0 on redelivery) | fresh status reads, failed `Create` (1 read), fold transaction (1 read, 1 write only when the actor is new) |
 | Producer publish | 0 | 0 | one Pub/Sub publish, outside the request transaction |
 | TTL | | | deletes, 6 per DAU, free |
 
 Per DAU (cost-model rows): 2 ListNotifications (1 cold 21 + 1 refresh 5) + mark seen + 6 delivered notifications
-(follow, mention, reply, likes collapsed): about **11.3 reads, 7.4 writes, 6 TTL deletes**.
+(follow, mention, reply, likes collapsed): about **11.3 reads, 7.4 writes, 6 TTL deletes** before the fresh-status
+fix. Each delivery now also re-reads its actor and recipient (about 2 reads, uncached by design, ADR-0017 Consequences),
+so the honest figure is about **23 reads/DAU** (11.3 + 6 x 2), 7.4 writes, 6 deletes.
 
 ## Cost line
 - FCM: **$0**. Pub/Sub: about 0.7 MB/day at 300 DAU vs 10 GiB/month free, **$0**. No new GCP resource.
-- Firestore at 300 DAU: reads 3.4k/day (7% of free), writes 2.2k/day (11%), deletes 1.8k/day (9%).
+- Firestore at 300 DAU: reads about 6.9k/day (about 14% of free; 3.4k before the fresh-status reads), writes 2.2k/day (11%), deletes 1.8k/day (9%).
 - Whole-product reads stay at the ADR-0010 model (~215 reads/DAU, ~$0.26/month over free at 300 DAU) with lever 6.1
-  applied; notifications' own contribution is the 11.3 reads above (the model had 191 total before corrections).
+  applied; notifications' own contribution is about 23 reads (the model had 191 total before corrections), so the whole product is about 227 reads/DAU.
 - Scale-up trigger: reads > 40k/day or Pub/Sub dead-letter depth > 0 for 1 h (alert exists in the pubsub module).
 
 ## Verification record
@@ -90,14 +92,14 @@ Emulator integration suite (`make test-int` equivalent, 2026-10-11), measured co
 |---|---|---|---|---|
 | Create (new row) | 0 | 1 | 0 | `TestIntegration_CreateIsIdempotentAndBudgeted` |
 | Create replay (AlreadyExists) | 1 | 0 | 0 | same |
-| AddActor (collapsed like) | 0 | 1 | 0 | `TestIntegration_AddActorFoldsAndMovesCreatedAt` |
+| AddActor (collapsed like; replay 1 / 0 writes) | 1 | 1 | 0 | `TestIntegration_AddActorFoldsAndMovesCreatedAt` |
 | List page of 2 / older 3 / since 2 / empty | 2 / 3 / 2 / 1 | 0 | 0 | `TestIntegration_ListOrderBoundsAndBudget` |
 | RegisterDevice new / fresh / refresh / token rotation | <= 3 / <= 2 / <= 2 / <= 2 | <= 2 / 0 / <= 2 / <= 2 | 0 / 0 / 0 / <= 1 | `..._RegisterDevice_BudgetsRefreshAndTokenRotation` |
-| RegisterDevice sixth device (eviction) | <= 8 | <= 2 | <= 3 | `..._CapEvictsLeastRecentlyUpdated` |
+| RegisterDevice sixth device (eviction) | <= 9 | <= 2 | <= 3 | `..._CapEvictsLeastRecentlyUpdated` |
 | RegisterDevice token taken from another account | <= 8 | <= 2 | <= 3 | `..._TokenMovesToTheNewAccount` |
 | RemoveDevice / stale token / unknown | <= 2 / <= 1 / <= 1 | 0 | <= 2 / 0 / 0 | `TestIntegration_RemoveDevice` |
-| Fan-out follow, 2 devices / redelivery | <= 2 / <= 1 | <= 1 / 0 | 0 | `TestIntegration_FanoutBudgetsAndIdempotency` |
-| Fan-out first like / collapsed like | <= 2 / <= 1 | <= 1 / <= 1 | 0 | same |
+| Fan-out follow, 2 devices / redelivery | <= 4 / <= 3 | <= 1 / 0 | 0 | `TestIntegration_FanoutBudgetsAndIdempotency` (includes the 2 fresh profile reads) |
+| Fan-out first like / collapsed like / like redelivery | <= 4 / <= 4 / <= 4 | <= 1 / <= 1 / 0 | 0 | same |
 | Account delete, notifications step (empty account) | 3 | 0 | 0 | `TestAccountLifecycle_ReferenceAccountBudgets` (job total 512 reads, was 509) |
 | Account export, notifications section (empty) | 2 | 0 | 0 | same (job total 705 reads, was 703) |
 
