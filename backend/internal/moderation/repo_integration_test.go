@@ -108,6 +108,62 @@ func TestRepo_CreateBudgetsDuplicateAndQuota(t *testing.T) {
 	}
 }
 
+// A reporter who files the same target again after a moderator RESOLVED it reopens the report (ADR-0016 D2): status
+// OPEN, new reason/note/evidence, no resolution fields and no expireAt (so the TTL cannot delete it under the
+// moderator), quota charged, and it is back in the OPEN list. 2 reads, 2 writes like a first report.
+func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	first := sampleReport("u-rep", TargetPost, pidN(7), "u-bob", t0)
+	if _, err := repo.Create(context.Background(), CreateParams{Report: first, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Resolve(context.Background(), first.ID, ResolutionNoAction, "fine", t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	again := sampleReport("u-rep", TargetPost, pidN(7), "u-bob", t0.Add(24*time.Hour))
+	again.Reason, again.Note = ReasonHate, "it is worse now"
+	again.Evidence.Text, again.Evidence.MediaIDs = "edited evidence", []string{"m1"}
+	ctx, c := counted()
+	res, err := repo.Create(ctx, CreateParams{Report: again, QuotaLimit: 5})
+	if err != nil || res.Existing || !res.Reopened {
+		t.Fatalf("re-report: res=%+v err=%v", res, err)
+	}
+	budgettest.Assert(t, "Create reopen", c, budgettest.Budget{Reads: 2, Writes: 2})
+	if got := quotaReports(t, client, "u-rep"); got != 2 {
+		t.Fatalf("quota reports = %d, want 2 (reopen is charged)", got)
+	}
+	got, err := repo.Get(context.Background(), first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusOpen || got.Reason != ReasonHate || got.Note != "it is worse now" || got.Resolution != "" ||
+		!got.ResolvedAt.IsZero() || !got.ExpireAt.IsZero() || got.ResolutionNote != "" || !got.CreatedAt.Equal(again.CreatedAt) {
+		t.Fatalf("reopened report = %+v", got)
+	}
+	if got.Evidence == nil || got.Evidence.Text != "edited evidence" || len(got.Evidence.MediaIDs) != 1 {
+		t.Fatalf("evidence = %+v", got.Evidence)
+	}
+	snap, _ := client.Collection("reports").Doc(first.ID).Get(context.Background())
+	if _, err := snap.DataAt("expireAt"); err == nil {
+		t.Fatal("a reopened report must not carry expireAt")
+	}
+	open, _ := repo.List(context.Background(), StatusOpen, 10)
+	if len(open) != 1 || open[0].ID != first.ID {
+		t.Fatalf("open list = %+v", open)
+	}
+
+	// A third filing while OPEN is the plain duplicate again: 1 read, no charge.
+	ctx, c = counted()
+	res, err = repo.Create(ctx, CreateParams{Report: again, QuotaLimit: 5})
+	if err != nil || !res.Existing || res.Reopened {
+		t.Fatalf("repeat while open: res=%+v err=%v", res, err)
+	}
+	budgettest.Assert(t, "Create repeat", c, budgettest.Budget{Reads: 1})
+}
+
 func TestOps_ListResolveAndRetention(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client, quota.New(client))

@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 type fakeRepo struct {
 	calls    []CreateParams
 	existing bool
+	reopened bool
 	err      error
 }
 
@@ -35,7 +37,7 @@ func (f *fakeRepo) Create(_ context.Context, p CreateParams) (CreateResult, erro
 	if f.err != nil {
 		return CreateResult{}, f.err
 	}
-	return CreateResult{Existing: f.existing, Attempts: 1}, nil
+	return CreateResult{Existing: f.existing, Reopened: f.reopened, Attempts: 1}, nil
 }
 
 type fakePosts struct {
@@ -193,6 +195,117 @@ func TestReport_PostCopiesEvidenceAndSurvivesNoteNormalisation(t *testing.T) {
 	}
 }
 
+func TestReport_EvidenceCarriesMediaIDs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		media []posts.MediaRef
+		want  []string
+	}{
+		{name: "text only", want: nil},
+		{name: "two images", media: []posts.MediaRef{{ID: "m1"}, {ID: "m2"}}, want: []string{"m1", "m2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture()
+			f.posts.post.Media = tt.media
+			if _, err := f.svc().Report(gctx(), reporter, okInput()); err != nil {
+				t.Fatal(err)
+			}
+			got := f.repo.calls[0].Report.Evidence.MediaIDs
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("MediaIDs = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A report reopened after RESOLVED is a new report to the caller (AlreadyReported false), not a dropped duplicate.
+func TestReport_ReopenedIsNotAlreadyReported(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.repo.reopened = true
+	res, err := f.svc().Report(gctx(), reporter, okInput())
+	if err != nil || res.AlreadyReported {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+// Once a uid is found out of quota, further calls until the IST midnight cost 0 reads and 0 transactions; the
+// limit lifting (new-account window over, day rollover) makes the instance ask again.
+func TestReport_ExhaustedQuotaIsRememberedUntilMidnight(t *testing.T) {
+	t.Parallel()
+	exceeded := quotaExceeded()
+	t.Run("same day answers from memory", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.repo.err = exceeded
+		svc := f.svc()
+		_, err := svc.Report(gctx(), reporter, okInput())
+		wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+		postReads, calls := f.posts.n, len(f.repo.calls)
+		f.now = f.now.Add(2 * time.Hour)
+		f.repo.err = nil // would succeed if asked
+		_, err = svc.Report(gctx(), reporter, okInput())
+		wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+		if f.posts.n != postReads || len(f.repo.calls) != calls {
+			t.Errorf("remembered rejection did work: post reads %d->%d, transactions %d->%d", postReads, f.posts.n, calls, len(f.repo.calls))
+		}
+	})
+	t.Run("next IST day asks again", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture() // 12:00 UTC = 17:30 IST
+		f.repo.err = exceeded
+		svc := f.svc()
+		_, _ = svc.Report(gctx(), reporter, okInput())
+		f.now = f.now.Add(7 * time.Hour) // 00:30 IST next day
+		f.repo.err = nil
+		if _, err := svc.Report(gctx(), reporter, okInput()); err != nil {
+			t.Fatalf("after midnight: %v", err)
+		}
+		if len(f.repo.calls) != 2 {
+			t.Errorf("transactions = %d, want 2", len(f.repo.calls))
+		}
+	})
+	t.Run("new-account window ending raises the limit", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.dir.profiles[reporter] = identity.Profile{UserID: reporter, CreatedAt: f.now.Add(-23*time.Hour - 50*time.Minute)} // window ends in 10 min
+		f.repo.err = exceeded
+		svc := f.svc()
+		_, _ = svc.Report(gctx(), reporter, okInput())
+		if got := f.repo.calls[0].QuotaLimit; got != 5 {
+			t.Fatalf("QuotaLimit = %d, want 5", got)
+		}
+		f.now = f.now.Add(11 * time.Minute) // window over, still the same IST day (17:41 IST)
+		f.repo.err = nil
+		if _, err := svc.Report(gctx(), reporter, okInput()); err != nil {
+			t.Fatalf("window over: %v", err)
+		}
+		if got := f.repo.calls[len(f.repo.calls)-1].QuotaLimit; got != 20 {
+			t.Errorf("QuotaLimit = %d, want 20", got)
+		}
+	})
+	t.Run("other users are unaffected", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.repo.err = exceeded
+		svc := f.svc()
+		_, _ = svc.Report(gctx(), reporter, okInput())
+		f.repo.err = nil
+		other := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-other", SignInProvider: authn.SignInProviderGoogle})
+		f.dir.profiles["uid-other"] = identity.Profile{UserID: "uid-other", CreatedAt: f.now.Add(-72 * time.Hour)}
+		if _, err := svc.Report(other, "uid-other", okInput()); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func quotaExceeded() error {
+	return quota.ExceededError(quota.Reports, time.Now())
+}
+
 func TestReport_AccountTarget(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -243,7 +356,7 @@ func TestReport_NewAccountGetsTheLowerQuota(t *testing.T) {
 
 func TestReport_RepoOutcomes(t *testing.T) {
 	t.Parallel()
-	quota := apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "daily limit")
+	exceeded := apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "daily limit")
 	tests := []struct {
 		name     string
 		existing bool
@@ -253,7 +366,8 @@ func TestReport_RepoOutcomes(t *testing.T) {
 	}{
 		{name: "created"},
 		{name: "duplicate is a no-op", existing: true, wantDup: true},
-		{name: "quota exceeded passes through", err: quota, wantCode: connect.CodeResourceExhausted},
+		{name: "reopened is a new report", existing: false},
+		{name: "quota exceeded passes through", err: exceeded, wantCode: connect.CodeResourceExhausted},
 		{name: "storage failure is internal", err: errors.New("boom"), wantCode: connect.CodeInternal},
 	}
 	for _, tt := range tests {

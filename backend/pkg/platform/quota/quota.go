@@ -163,13 +163,20 @@ func CheckAndReserve(b store.Batch, ref *firestore.DocumentRef, rec Record, kind
 // 4-image call at 18/20 fails as a whole instead of half-reserving.
 func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kind Kind, limit, n int64) error {
 	if rec.valueFor(kind)+n > limit {
-		return apierr.New(
-			connect.CodeResourceExhausted,
-			commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
-			"daily limit reached, please try again tomorrow",
-		).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(time.Now()))
+		return ExceededError(kind, time.Now())
 	}
 	rec.increment(kind, n)
 	b.Set(ref, rec)
 	return nil
+}
+
+// ExceededError is the RESOURCE_EXHAUSTED / QUOTA_EXCEEDED error for kind at instant now, retry-after the next IST
+// midnight. CheckAndReserveN returns it; a module that remembers "this uid is out of quota until midnight" in its
+// instance cache (moderation, ADR-0016) builds the identical error from it without a Firestore read.
+func ExceededError(kind Kind, now time.Time) *apierr.Error {
+	return apierr.New(
+		connect.CodeResourceExhausted,
+		commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
+		"daily limit reached, please try again tomorrow",
+	).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(now))
 }

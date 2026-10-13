@@ -73,14 +73,16 @@ const (
 	MaxNoteRunes = 500
 	// Retention is how long a resolved report is kept before the Firestore TTL deletes it (ADR-0016 D5).
 	Retention = 90 * 24 * time.Hour
-	// MaxListLimit is the largest page of Ops.List (an operator path; CLAUDE.md rule 5 governs RPCs).
-	MaxListLimit = 200
+	// MaxListLimit is the largest page of Ops.List (CLAUDE.md rule 5: every query Limit <= 50).
+	MaxListLimit = 50
 	// DefaultListLimit is the default page of Ops.List.
 	DefaultListLimit = 20
 )
 
 // Evidence is the copy of the reported post taken at report time, so a later author delete or edit does not
-// destroy it. MediaIDs stays empty until the media slice adds media to posts.Post (plan T12).
+// destroy it. MediaIDs are the ids of the post's images at report time (0 reads: they ride on the post the report
+// already read). Deleting the post deletes the objects (P4's post_delete job), so this keeps the ids only; see
+// docs/runbooks/moderation.md for what a takedown does and does not preserve.
 type Evidence struct {
 	Text          string
 	AuthorHandle  string
@@ -152,7 +154,7 @@ type Ops interface {
 	// Get returns one report (ErrNotFound when missing). Reads 1.
 	Get(ctx context.Context, id string) (Report, error)
 	// Resolve closes a report. Resolving an already RESOLVED report is a no-op that returns it unchanged
-	// (0 writes). Reads 1, writes 1.
+	// (0 writes). Reads 1, writes 1. A re-report after RESOLVED reopens the same document (Repo.Create).
 	Resolve(ctx context.Context, id string, res Resolution, note string, now time.Time) (Report, error)
 }
 

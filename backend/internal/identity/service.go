@@ -65,6 +65,11 @@ func WithSignupAuth(auth AuthClient, log *slog.Logger) Option {
 	}
 }
 
+// service implements both Service (the Connect handler's dependency) and Directory (batch profile lookups for
+// graph, posts, media and moderation); apiserver binds the latter from the same value, and this is the compile-time
+// proof that the binding cannot fail at startup.
+var _ Directory = (*service)(nil)
+
 // New builds the identity Service.
 func New(repo Repo, c *Cache, handleChangeCooldown time.Duration, opts ...Option) Service {
 	s := &service{repo: repo, cache: c, handleChangeCooldown: handleChangeCooldown, now: time.Now}

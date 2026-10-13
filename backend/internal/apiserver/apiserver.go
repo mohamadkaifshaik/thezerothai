@@ -233,7 +233,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
 	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: identitySvc.(identity.Directory),
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,

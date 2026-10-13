@@ -57,9 +57,11 @@ type CreateParams struct {
 	QuotaLimit int64
 }
 
-// CreateResult says whether the report already existed.
+// CreateResult says whether the report already existed (an OPEN one: a repeat, nothing written) or was reopened
+// (a RESOLVED one that the reporter filed again: re-opened and charged like a new report).
 type CreateResult struct {
 	Existing bool
+	Reopened bool
 	Attempts int
 }
 
@@ -76,8 +78,11 @@ func NewFirestoreRepo(client *firestore.Client, quotas *quota.Store) *FirestoreR
 
 // Repo is the storage seam service.go depends on; unit tests use an in-memory fake.
 type Repo interface {
-	// Create writes the report and charges the quota in one transaction, unless the report doc exists (a repeat:
-	// Existing=true, 0 writes, no charge). Reads 2 (report, quotas; 1 on a repeat), writes 2.
+	// Create writes the report and charges the quota in one transaction, unless the report doc exists and is OPEN
+	// (a repeat: Existing=true, 0 writes, no charge). A RESOLVED report is reopened in the same transaction
+	// (Reopened=true: status OPEN, reason/note/evidence/createdAt replaced, the resolution fields and expireAt
+	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. Reads 2 (report,
+	// quotas; 1 on a repeat), writes 2.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 }
 
@@ -155,12 +160,20 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 	attempts, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = CreateResult{}
 		counter := budget.FromContext(ctx)
-		_, err := tx.Get(r.ref(p.Report.ID))
+		snap, err := tx.Get(r.ref(p.Report.ID))
 		counter.AddReads(1)
+		reopen := false
 		switch {
 		case err == nil:
-			res.Existing = true
-			return nil
+			var cur reportDoc
+			if err := snap.DataTo(&cur); err != nil {
+				return fmt.Errorf("moderation: decode report: %w", err)
+			}
+			if Status(cur.Status) != StatusResolved {
+				res.Existing = true
+				return nil
+			}
+			reopen = true
 		case status.Code(err) != codes.NotFound:
 			return fmt.Errorf("moderation: get report: %w", err)
 		}
@@ -172,7 +185,12 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		if err := quota.CheckAndReserve(b, r.quotas.Ref(p.Report.ReporterID), qrec, quota.Reports, p.QuotaLimit); err != nil {
 			return err
 		}
-		b.Create(r.ref(p.Report.ID), toDoc(p.Report))
+		if reopen {
+			res.Reopened = true
+			b.Update(r.ref(p.Report.ID), reopenUpdates(p.Report))
+		} else {
+			b.Create(r.ref(p.Report.ID), toDoc(p.Report))
+		}
 		return b.Err()
 	})
 	res.Attempts = attempts
@@ -180,6 +198,29 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		return CreateResult{Attempts: attempts}, err
 	}
 	return res, nil
+}
+
+// reopenUpdates turns a RESOLVED report back into the OPEN report rep describes. The reporter, target and owner
+// are unchanged (they are in the id); the resolution fields and the retention TTL go away so the report is not
+// deleted under the moderator, and createdAt moves to the new filing so oldest-first order stays honest.
+func reopenUpdates(rep Report) []firestore.Update {
+	d := toDoc(rep)
+	u := []firestore.Update{
+		{Path: "status", Value: string(StatusOpen)},
+		{Path: "reason", Value: d.Reason},
+		{Path: "note", Value: d.Note},
+		{Path: "createdAt", Value: d.CreatedAt},
+		{Path: "resolvedAt", Value: firestore.Delete},
+		{Path: "resolution", Value: firestore.Delete},
+		{Path: "resolutionNote", Value: firestore.Delete},
+		{Path: "expireAt", Value: firestore.Delete},
+	}
+	if d.Evidence != nil {
+		u = append(u, firestore.Update{Path: "evidence", Value: d.Evidence})
+	} else {
+		u = append(u, firestore.Update{Path: "evidence", Value: firestore.Delete})
+	}
+	return u
 }
 
 // List implements Ops.

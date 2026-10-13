@@ -15,10 +15,13 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // FlagName is the wire name ModerationService RPCs check (FEATURE_REPORTS <-> "reports", ADR-0016 D1).
@@ -54,14 +57,29 @@ type Deps struct {
 
 type service struct {
 	d Deps
+	// exhausted remembers, per instance, the uids whose reports quota was found spent, so a client that keeps
+	// retrying an over-quota report costs 0 Firestore reads until the IST day rolls over (ADR-0016 D2).
+	exhausted *cache.LRU[string, exhaustion]
 }
+
+// exhaustion is one "reports quota spent" observation.
+type exhaustion struct {
+	// until is the next IST midnight, when the daily counter resets.
+	until time.Time
+	// windowEnds is when the new-account limit stops applying (zero when the spent limit was the normal one): the
+	// limit rises then, so the observation no longer holds.
+	windowEnds time.Time
+}
+
+// exhaustedCapacity bounds the instance memory of the exhaustion cache (a few dozen bytes per uid).
+const exhaustedCapacity = 4096
 
 // New builds the moderation service.
 func New(d Deps) Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &service{d: d}
+	return &service{d: d, exhausted: cache.New[string, exhaustion](exhaustedCapacity, 24*time.Hour)}
 }
 
 var _ Service = (*service)(nil)
@@ -108,6 +126,16 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	}
 	logger.SetRequestField(ctx, fieldTargetType, string(in.TargetType))
 	logger.SetRequestField(ctx, fieldReason, string(in.Reason))
+	// A uid already known to be out of quota is answered before any profile, post or transaction read. A repeat
+	// of a report it already filed gets the quota error too (not AlreadyReported) until midnight: acceptable, and
+	// the price of 0 reads.
+	if e, ok := s.exhausted.Get(uid); ok {
+		now := s.d.Now()
+		if now.Before(e.until) && (e.windowEnds.IsZero() || now.Before(e.windowEnds)) {
+			return ReportResult{}, quota.ExceededError(quota.Reports, now)
+		}
+		s.exhausted.Delete(uid)
+	}
 
 	// The reporter's own profile (cache-first; the interceptor just warmed it) decides the new-account quota.
 	profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid})
@@ -135,7 +163,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 			return ReportResult{}, apierr.Validation("target_id", "you cannot report your own post")
 		}
 		rep.TargetOwnerID = p.AuthorID
-		rep.Evidence = &Evidence{Text: p.Text, AuthorHandle: p.Author.Handle, PostCreatedAt: p.CreatedAt}
+		rep.Evidence = &Evidence{Text: p.Text, AuthorHandle: p.Author.Handle, PostCreatedAt: p.CreatedAt, MediaIDs: mediaIDs(p.Media)}
 	case TargetAccount:
 		prof, err := s.d.Accounts.GetProfile(ctx, uid, identity.ProfileTarget{UserID: in.TargetID})
 		if err != nil {
@@ -145,24 +173,45 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	}
 
 	limit := s.d.ReportsPerDay
+	var windowEnds time.Time
 	if !me.CreatedAt.IsZero() && s.d.Now().Sub(me.CreatedAt) < s.d.NewAccountWindow {
 		limit = s.d.NewAccountReportsPerDay
+		windowEnds = me.CreatedAt.Add(s.d.NewAccountWindow)
 	}
 	cr, err := s.d.Repo.Create(ctx, CreateParams{Report: rep, QuotaLimit: limit})
 	logger.SetRequestField(ctx, fieldTxn, cr.Attempts)
 	if err != nil {
 		var ae *apierr.Error
 		if errors.As(err, &ae) {
+			if ae.Reason == commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED {
+				now := s.d.Now()
+				s.exhausted.Set(uid, exhaustion{until: now.Add(quota.UntilNextDay(now)), windowEnds: windowEnds})
+			}
 			return ReportResult{}, err // quota exceeded and other already-shaped errors
 		}
 		return ReportResult{}, logger.RedactErr(fmt.Errorf("moderation: report: %w", err), uid)
 	}
-	if cr.Existing {
+	switch {
+	case cr.Existing:
 		logger.SetRequestField(ctx, fieldOutcome, "duplicate")
-	} else {
+	case cr.Reopened:
+		logger.SetRequestField(ctx, fieldOutcome, "reopened")
+	default:
 		logger.SetRequestField(ctx, fieldOutcome, "created")
 	}
 	return ReportResult{ReportID: rep.ID, AlreadyReported: cr.Existing}, nil
+}
+
+// mediaIDs are the ids of the post's images (0 reads: the post is already loaded), nil for a text-only post.
+func mediaIDs(m []posts.MediaRef) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	ids := make([]string, len(m))
+	for i, r := range m {
+		ids[i] = r.ID
+	}
+	return ids
 }
 
 // normalizeNote is the note rule from the proto: CRLF/CR -> LF, NFC, trim, <= MaxNoteRunes code points, no
