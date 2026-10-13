@@ -178,7 +178,8 @@ type Service interface {
 	// quotas), writes 2 + len(items) (idempotency, quotas, one media doc each); replay: 1 read, 0 writes. GCS: 0.
 	CreateUpload(ctx context.Context, uid string, in CreateUploadInput) ([]UploadTarget, error)
 	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. Firestore: reads
-	// len(items) + 1 (Vision counter, cached 60 s), writes len(items) + 1.
+	// 2*len(items) + 1 (media docs, the Vision counter cached 60 s, +1 per item whose upload is missing, whose
+	// screening fails or whose finalize race is lost), plus the interceptor read; writes len(items) + 1.
 	FinalizeUpload(ctx context.Context, uid string, items []FinalizeItem) ([]Result, error)
 }
 
