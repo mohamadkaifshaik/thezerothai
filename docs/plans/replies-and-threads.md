@@ -57,7 +57,7 @@ fixed-cost resource, no new topic, no new index.
 | T4 | GetThread service + `Conversation` repo query (Q-T) | backend | Done |
 | T5 | Reply delete releases parent `replyCount`; export field | backend | Done |
 | T6 | Unit tests (fakes) + emulator integration with budget assertions | backend/tester | Done |
-| T7 | Flutter: thread screen, reply composer, tombstones, `PostsFeatureGate`-style gate for replies | frontend | Open (needs regenerated Dart client; separate PR) |
+| T7 | Flutter: thread screen, reply composer, tombstones, `PostsFeatureGate`-style gate for replies | frontend | Done (PR feat/p3-thread-ui; Dart client regenerated; thread not cached offline, flag still off by default) |
 | T8 | Flag ramp (off -> allowlist -> percent -> on) | founder | Open |
 
 ## Done when
