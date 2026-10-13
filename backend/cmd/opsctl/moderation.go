@@ -4,7 +4,8 @@
 // every other opsctl command.
 //
 // Cost (printed at the end of every write command): suspend-user reads and writes one document per post of the
-// user, once, in batches of 500; everything else is 1-2 reads and 1-2 writes.
+// user, once, in batches of 500, then waits out the instance cache TTL and runs one settle pass over the posts of
+// the last suspendSkew (reads: the posts in that window, 1 when none); everything else is 1-3 reads and 1-2 writes.
 package main
 
 import (
@@ -20,6 +21,17 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+)
+
+const (
+	// settleWait is how long suspend-user waits before the settle pass: every warm instance caches the account
+	// status for at most CACHE_TTL (capped at config.MaxCacheTTL, ADR-0009 T33), so after this a post can no
+	// longer be accepted from the suspended account. The margin covers in-flight requests (Cloud Run's 10 s).
+	settleWait = config.MaxCacheTTL + 15*time.Second
+	// suspendSkew moves the settle pass's lower bound before the moment suspension started, so server/operator
+	// clock skew and a post created while the status write was in flight are still inside it.
+	suspendSkew = 2 * time.Minute
 )
 
 // accountStatusSetter is identity.FirestoreRepo's moderation write (the existing identity module, never Auth).
@@ -39,9 +51,10 @@ type modArgs struct {
 	dryRun                                     bool
 }
 
-const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED] [--limit N]
+const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED] [--limit N (default 20, max 50)]
   opsctl reports show     --project P --id REPORT
-  opsctl reports resolve  --project P --id REPORT --resolution NO_ACTION|DISMISSED|TAKEDOWN|SUSPENDED [--note TEXT]
+  opsctl reports resolve  --project P --id REPORT --resolution NO_ACTION|DISMISSED [--note TEXT]
+                          (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)
   opsctl takedown-post    --project P --post POSTID [--report REPORT] [--note TEXT]
   opsctl restore-post     --project P --post POSTID
   opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (also hides every post of the user)
@@ -87,8 +100,8 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 			return errors.New("--id must be a 32-character report id")
 		}
 		res := moderation.Resolution(strings.ToUpper(a.resolution))
-		if !res.Valid() {
-			return errors.New("--resolution must be NO_ACTION, DISMISSED, TAKEDOWN or SUSPENDED")
+		if res != moderation.ResolutionNoAction && res != moderation.ResolutionDismissed {
+			return errors.New("--resolution must be NO_ACTION or DISMISSED (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)")
 		}
 		r, err := b.reports.Resolve(cctx, a.id, res, a.note, now())
 		if err != nil {
@@ -137,6 +150,27 @@ func resolveReport(ctx context.Context, b *backends, id string, res moderation.R
 	return nil
 }
 
+// checkReport is the guard in front of takedown-post / suspend-user --report: the report must exist and be about
+// this very post (wantType POST, id) or about this user (wantOwner: an account report, or a report of one of their
+// posts), so a typo cannot close an unrelated report with a TAKEDOWN. An already RESOLVED report only warns: the
+// action still applies and the second resolve is a no-op. 1 read.
+func checkReport(ctx context.Context, b *backends, id string, wantType moderation.TargetType, wantTarget, wantOwner string, out io.Writer) error {
+	r, err := b.reports.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("--report %s: %w", id, err)
+	}
+	switch {
+	case wantOwner != "" && r.TargetOwnerID != wantOwner:
+		return fmt.Errorf("--report %s is about another user's content; refusing (nothing written)", id)
+	case wantOwner == "" && (r.TargetType != wantType || r.TargetID != wantTarget):
+		return fmt.Errorf("--report %s is about %s %s, not %s %s; refusing (nothing written)", id, r.TargetType, r.TargetID, wantType, wantTarget)
+	}
+	if r.Status == moderation.StatusResolved {
+		fmt.Fprintf(out, "warning: report %s is already RESOLVED (%s); the action still applies, the report stays as is\n", id, r.Resolution)
+	}
+	return nil
+}
+
 // takedownPost is takedown-post: the post is hidden from every read path within CACHE_TTL (60 s).
 func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, now func() time.Time) error {
 	if !postIDRe.MatchString(a.post) {
@@ -148,6 +182,11 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	if a.report != "" {
+		if err := checkReport(cctx, b, a.report, moderation.TargetPost, a.post, "", out); err != nil {
+			return err
+		}
+	}
 	r, err := b.moderator.Takedown(cctx, a.post, now())
 	if err != nil {
 		return err
@@ -211,8 +250,17 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 		return nil
 	}
 	ctx, _ = budget.WithCounter(ctx)
+	if a.report != "" {
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		err := checkReport(cctx, b, a.report, "", "", uid, out)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
+	suspendedAt := now()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
-	changed, err := b.accounts.SetAccountStatus(cctx, uid, identity.AccountStatusActive, identity.AccountStatusSuspended, now())
+	changed, err := b.accounts.SetAccountStatus(cctx, uid, identity.AccountStatusActive, identity.AccountStatusSuspended, suspendedAt)
 	cancel()
 	switch {
 	case errors.Is(err, identity.ErrStatusConflict):
@@ -232,6 +280,21 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return b.moderator.HideAuthor(ctx, uid, cp, now())
 		},
 		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("hidden=%d", cp.Changed) }, "hidden"); err != nil {
+		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
+	}
+	// Settle pass. Instances that cached the account as ACTIVE keep accepting its posts for up to CACHE_TTL, so a
+	// post can be created after the pass above read its page. Wait the cache out, then hide whatever was created
+	// since just before suspension began (Q-E with a createdAt lower bound: reads only that window).
+	fmt.Fprintf(out, "waiting %s for instance caches to see the suspension, then one settle pass\n", settleWait)
+	if err := b.wait(ctx, settleWait); err != nil {
+		return fmt.Errorf("settle wait: %w (re-run suspend-user to finish)", err)
+	}
+	since := suspendedAt.Add(-suspendSkew)
+	if err := driveLoop(ctx, out, posts.ModerationCheckpoint{Since: since},
+		func(ctx context.Context, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
+			return b.moderator.HideAuthor(ctx, uid, cp, now())
+		},
+		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("hidden=%d", cp.Changed) }, "settle pass"); err != nil {
 		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 	}
 	if a.report != "" {
@@ -269,6 +332,21 @@ func unsuspendUser(ctx context.Context, b *backends, uid string, out io.Writer, 
 		return fmt.Errorf("%w (re-run unsuspend-user to resume)", err)
 	}
 	return nil
+}
+
+// wait sleeps d (b.sleep in tests), returning ctx.Err() when ctx ends first.
+func (b *backends) wait(ctx context.Context, d time.Duration) error {
+	if b.sleep != nil {
+		return b.sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func statusName(s identity.AccountStatus) string {

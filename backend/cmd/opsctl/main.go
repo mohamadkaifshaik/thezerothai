@@ -53,6 +53,8 @@ type backends struct {
 	reports   moderation.Ops
 	moderator posts.Moderator
 	accounts  accountStatusSetter
+	// sleep replaces the real wait of suspend-user's settle pass in tests (nil = real timer).
+	sleep func(ctx context.Context, d time.Duration) error
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
@@ -127,7 +129,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION, DISMISSED, TAKEDOWN or SUSPENDED")
 	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user: resolution note")
-	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 200)")
+	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",

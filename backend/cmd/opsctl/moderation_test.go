@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ type fakeOps struct {
 	listSt   moderation.Status
 	resolved map[string]moderation.Resolution
 	getErr   error
+	// report, when set, is what Get returns (default: an OPEN report of testPostID owned by "u2").
+	report *moderation.Report
 }
 
 func (f *fakeOps) List(_ context.Context, st moderation.Status, _ int) ([]moderation.Report, error) {
@@ -33,8 +36,13 @@ func (f *fakeOps) Get(_ context.Context, id string) (moderation.Report, error) {
 	if f.getErr != nil {
 		return moderation.Report{}, f.getErr
 	}
+	if f.report != nil {
+		r := *f.report
+		r.ID = id
+		return r, nil
+	}
 	return moderation.Report{ID: id, ReporterID: "", TargetType: moderation.TargetPost, TargetID: testPostID,
-		Reason: moderation.ReasonSpam, Status: moderation.StatusOpen,
+		TargetOwnerID: "u2", Reason: moderation.ReasonSpam, Status: moderation.StatusOpen,
 		Evidence: &moderation.Evidence{Text: "evidence", AuthorHandle: "bob"}}, nil
 }
 
@@ -46,11 +54,23 @@ func (f *fakeOps) Resolve(_ context.Context, id string, res moderation.Resolutio
 	return moderation.Report{ID: id, Status: moderation.StatusResolved, Resolution: res, ExpireAt: now.Add(moderation.Retention)}, nil
 }
 
+// fakePost is one post of the fake author: hidden mirrors posts.moderation != "".
+type fakePost struct {
+	createdAt time.Time
+	hidden    bool
+}
+
+// fakeModerator models the author's posts (newest first). HideAuthor pages fakePage posts per call, honours
+// cp.Since like the Firestore implementation, and records every post it paged (reads).
 type fakeModerator struct {
 	takedowns, restores []string
 	hideCalls, restCall int
 	err                 error
+	posts               []*fakePost
+	paged               int
 }
+
+const fakePage = 2
 
 func (f *fakeModerator) Takedown(_ context.Context, id string, _ time.Time) (posts.ModerationResult, error) {
 	f.takedowns = append(f.takedowns, id)
@@ -64,10 +84,27 @@ func (f *fakeModerator) Restore(_ context.Context, id string) (posts.ModerationR
 
 func (f *fakeModerator) HideAuthor(_ context.Context, _ string, cp posts.ModerationCheckpoint, _ time.Time) (posts.ModerationCheckpoint, bool, error) {
 	f.hideCalls++
-	if f.hideCalls%2 == 1 {
-		return posts.ModerationCheckpoint{Changed: cp.Changed + 500}, false, nil
+	var eligible []*fakePost
+	for _, p := range f.posts {
+		if cp.Since.IsZero() || !p.createdAt.Before(cp.Since) {
+			eligible = append(eligible, p)
+		}
 	}
-	return posts.ModerationCheckpoint{Changed: cp.Changed + 3}, true, nil
+	start := 0
+	if cp.After != nil {
+		start, _ = strconv.Atoi(cp.After.ID)
+	}
+	end := min(start+fakePage, len(eligible))
+	next := posts.ModerationCheckpoint{Changed: cp.Changed, Since: cp.Since}
+	for _, p := range eligible[start:end] {
+		f.paged++
+		if !p.hidden {
+			p.hidden = true
+			next.Changed++
+		}
+	}
+	next.After = &posts.Position{ID: strconv.Itoa(end)}
+	return next, end >= len(eligible), nil
 }
 
 func (f *fakeModerator) RestoreAuthor(_ context.Context, _ string, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
@@ -90,6 +127,9 @@ type modFixture struct {
 	ops *fakeOps
 	mod *fakeModerator
 	acc *fakeAccounts
+	// slept records the settle waits; onSleep runs while "waiting" (a post created in the cache window).
+	slept   []time.Duration
+	onSleep func()
 }
 
 func newModFixture() *modFixture {
@@ -104,6 +144,13 @@ func (m *modFixture) run(stdin string, args ...string) (code int, stdout, stderr
 			postsPlanner: fakePostsPlanner{posts.PurgePlan{Posts: 7}},
 			profile: func(context.Context, string) (identity.Profile, error) {
 				return identity.Profile{Status: identity.AccountStatusActive}, nil
+			},
+			sleep: func(_ context.Context, d time.Duration) error {
+				m.slept = append(m.slept, d)
+				if m.onSleep != nil {
+					m.onSleep()
+				}
+				return nil
 			},
 			close: func() {},
 		}, nil
@@ -122,6 +169,7 @@ func TestModeration_UsageAndValidation(t *testing.T) {
 	}{
 		{"reports without sub-command", []string{"reports", "--project", "dzeroth-dev"}, "needs a sub-command"},
 		{"reports show bad id", []string{"reports", "show", "--project", "dzeroth-dev", "--id", "../x"}, "32-character report id"},
+		{"reports resolve cannot take down", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "TAKEDOWN"}, "--resolution must be NO_ACTION or DISMISSED"},
 		{"reports resolve bad resolution", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "BAN"}, "--resolution must be"},
 		{"reports list bad status", []string{"reports", "list", "--project", "dzeroth-dev", "--status", "OLD"}, "OPEN or RESOLVED"},
 		{"takedown bad post", []string{"takedown-post", "--project", "dzeroth-dev", "--post", "a/b"}, "19-digit post id"},
@@ -189,6 +237,46 @@ func TestTakedownRestore(t *testing.T) {
 	}
 }
 
+func TestTakedownAndSuspend_ReportMustMatchTheTarget(t *testing.T) {
+	t.Parallel()
+	t.Run("takedown with a report about another post writes nothing", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.ops.report = &moderation.Report{TargetType: moderation.TargetPost, TargetID: "0000000000000000099", Status: moderation.StatusOpen}
+		code, _, stderr := f.run("", "takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--report", testReportID)
+		if code != 1 || !strings.Contains(stderr, "not POST "+testPostID) || len(f.mod.takedowns) != 0 || len(f.ops.resolved) != 0 {
+			t.Fatalf("code=%d stderr=%q takedowns=%v resolved=%v", code, stderr, f.mod.takedowns, f.ops.resolved)
+		}
+	})
+	t.Run("takedown with an account report is refused", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.ops.report = &moderation.Report{TargetType: moderation.TargetAccount, TargetID: "u2", Status: moderation.StatusOpen}
+		code, _, _ := f.run("", "takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--report", testReportID)
+		if code != 1 || len(f.mod.takedowns) != 0 {
+			t.Fatalf("code=%d takedowns=%v", code, f.mod.takedowns)
+		}
+	})
+	t.Run("an already resolved report warns and the action still applies", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.ops.report = &moderation.Report{TargetType: moderation.TargetPost, TargetID: testPostID, Status: moderation.StatusResolved, Resolution: moderation.ResolutionDismissed}
+		code, out, stderr := f.run("", "takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--report", testReportID)
+		if code != 0 || !strings.Contains(out, "already RESOLVED (DISMISSED)") || len(f.mod.takedowns) != 1 {
+			t.Fatalf("code=%d out=%q stderr=%q takedowns=%v", code, out, stderr, f.mod.takedowns)
+		}
+	})
+	t.Run("suspend with a report about another user is refused before the status write", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.ops.report = &moderation.Report{TargetType: moderation.TargetAccount, TargetID: "u3", TargetOwnerID: "u3", Status: moderation.StatusOpen}
+		code, _, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--report", testReportID)
+		if code != 1 || !strings.Contains(stderr, "another user's content") || len(f.acc.calls) != 0 || f.mod.hideCalls != 0 {
+			t.Fatalf("code=%d stderr=%q acc=%v hide=%d", code, stderr, f.acc.calls, f.mod.hideCalls)
+		}
+	})
+}
+
 func TestSuspendUnsuspend(t *testing.T) {
 	t.Parallel()
 	t.Run("dry run writes nothing", func(t *testing.T) {
@@ -199,27 +287,64 @@ func TestSuspendUnsuspend(t *testing.T) {
 			t.Fatalf("code=%d out=%q acc=%v hide=%d", code, out, f.acc.calls, f.mod.hideCalls)
 		}
 	})
-	t.Run("suspend sets status first then hides all pages and resolves the report", func(t *testing.T) {
+	t.Run("suspend sets status first, hides every page, settles and resolves the report", func(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
+		old := time.Unix(1_000_000, 0).Add(-48 * time.Hour)
+		f.mod.posts = []*fakePost{{createdAt: old}, {createdAt: old}, {createdAt: old}, {createdAt: old}, {createdAt: old}}
 		code, out, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--report", testReportID)
 		if code != 0 {
 			t.Fatalf("code=%d stderr=%q", code, stderr)
 		}
-		if len(f.acc.calls) != 1 || f.acc.calls[0] != "u2:ACTIVE>SUSPENDED" || f.mod.hideCalls != 2 {
-			t.Errorf("acc=%v hideCalls=%d", f.acc.calls, f.mod.hideCalls)
+		if len(f.acc.calls) != 1 || f.acc.calls[0] != "u2:ACTIVE>SUSPENDED" {
+			t.Errorf("acc=%v", f.acc.calls)
 		}
-		if f.ops.resolved[testReportID] != moderation.ResolutionSuspended || !strings.Contains(out, "hidden=503") {
+		for i, p := range f.mod.posts {
+			if !p.hidden {
+				t.Errorf("post %d not hidden", i)
+			}
+		}
+		if f.ops.resolved[testReportID] != moderation.ResolutionSuspended || !strings.Contains(out, "hidden=5") {
 			t.Errorf("resolved=%v out=%q", f.ops.resolved, out)
+		}
+		if len(f.slept) != 1 || f.slept[0] < 60*time.Second {
+			t.Errorf("settle wait = %v, want one wait of at least CACHE_TTL", f.slept)
+		}
+		// 3 pages of 2 for the full pass; the settle pass bounded by createdAt >= suspension - skew pages nothing.
+		if f.mod.paged != 5 {
+			t.Errorf("paged = %d, want 5 (the settle pass must not re-read old posts)", f.mod.paged)
+		}
+	})
+	t.Run("a post created in the cache window is hidden by the settle pass", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		now := time.Unix(1_000_000, 0)
+		old := now.Add(-48 * time.Hour)
+		f.mod.posts = []*fakePost{{createdAt: old}, {createdAt: old}, {createdAt: old}}
+		var late *fakePost
+		f.onSleep = func() { // created on an instance that still cached the account as ACTIVE, after page 1 was read
+			late = &fakePost{createdAt: now.Add(20 * time.Second)}
+			f.mod.posts = append([]*fakePost{late}, f.mod.posts...)
+		}
+		code, out, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
+		if code != 0 {
+			t.Fatalf("code=%d stderr=%q", code, stderr)
+		}
+		if late == nil || !late.hidden {
+			t.Fatalf("the late post was not hidden; out=%q", out)
+		}
+		if f.mod.paged != 3+1 {
+			t.Errorf("paged = %d, want 3 (full pass) + 1 (the late post only)", f.mod.paged)
 		}
 	})
 	t.Run("already suspended still finishes the posts", func(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
 		f.acc.same = true
+		f.mod.posts = []*fakePost{{createdAt: time.Unix(5, 0)}, {createdAt: time.Unix(4, 0)}, {createdAt: time.Unix(3, 0)}}
 		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
-		if code != 0 || !strings.Contains(out, "already SUSPENDED") || f.mod.hideCalls != 2 {
-			t.Fatalf("code=%d out=%q hide=%d", code, out, f.mod.hideCalls)
+		if code != 0 || !strings.Contains(out, "already SUSPENDED") || !f.mod.posts[2].hidden {
+			t.Fatalf("code=%d out=%q", code, out)
 		}
 	})
 	t.Run("a deleting account is refused before any post is touched", func(t *testing.T) {
