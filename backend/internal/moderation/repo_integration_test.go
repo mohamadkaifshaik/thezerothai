@@ -109,7 +109,7 @@ func TestRepo_CreateBudgetsDuplicateAndQuota(t *testing.T) {
 }
 
 // A reporter who files the same target again after a moderator RESOLVED it reopens the report (ADR-0016 D2): status
-// OPEN, new reason/note/evidence, no resolution fields and no expireAt (so the TTL cannot delete it under the
+// OPEN, new reason/note/evidence, original createdAt, no resolution fields and no expireAt (so the TTL cannot delete it under the
 // moderator), quota charged, and it is back in the OPEN list. 2 reads, 2 writes like a first report.
 func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
 	client := newTestClient(t)
@@ -140,7 +140,7 @@ func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Status != StatusOpen || got.Reason != ReasonHate || got.Note != "it is worse now" || got.Resolution != "" ||
-		!got.ResolvedAt.IsZero() || !got.ExpireAt.IsZero() || got.ResolutionNote != "" || !got.CreatedAt.Equal(again.CreatedAt) {
+		!got.ResolvedAt.IsZero() || !got.ExpireAt.IsZero() || got.ResolutionNote != "" || !got.CreatedAt.Equal(first.CreatedAt) {
 		t.Fatalf("reopened report = %+v", got)
 	}
 	if got.Evidence == nil || got.Evidence.Text != "edited evidence" || len(got.Evidence.MediaIDs) != 1 {

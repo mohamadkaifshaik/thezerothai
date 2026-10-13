@@ -43,7 +43,7 @@ func (f *fakeOps) Get(_ context.Context, id string) (moderation.Report, error) {
 	}
 	return moderation.Report{ID: id, ReporterID: "", TargetType: moderation.TargetPost, TargetID: testPostID,
 		TargetOwnerID: "u2", Reason: moderation.ReasonSpam, Status: moderation.StatusOpen,
-		Evidence: &moderation.Evidence{Text: "evidence", AuthorHandle: "bob"}}, nil
+		Evidence: &moderation.Evidence{Text: "evidence", AuthorHandle: "bob", MediaIDs: []string{"m1", "m2"}}}, nil
 }
 
 func (f *fakeOps) Resolve(_ context.Context, id string, res moderation.Resolution, _ string, now time.Time) (moderation.Report, error) {
@@ -56,6 +56,7 @@ func (f *fakeOps) Resolve(_ context.Context, id string, res moderation.Resolutio
 
 // fakePost is one post of the fake author: hidden mirrors posts.moderation != "".
 type fakePost struct {
+	id        int
 	createdAt time.Time
 	hidden    bool
 }
@@ -68,6 +69,9 @@ type fakeModerator struct {
 	err                 error
 	posts               []*fakePost
 	paged               int
+	// afterFirstHide runs once, right after the first HideAuthor call returns (a post created on an instance that
+	// still cached the account as ACTIVE, after page 1 was read).
+	afterFirstHide func()
 }
 
 const fakePage = 2
@@ -92,7 +96,12 @@ func (f *fakeModerator) HideAuthor(_ context.Context, _ string, cp posts.Moderat
 	}
 	start := 0
 	if cp.After != nil {
-		start, _ = strconv.Atoi(cp.After.ID)
+		last, _ := strconv.Atoi(cp.After.ID)
+		for i, p := range eligible {
+			if p.id == last {
+				start = i + 1
+			}
+		}
 	}
 	end := min(start+fakePage, len(eligible))
 	next := posts.ModerationCheckpoint{Changed: cp.Changed, Since: cp.Since}
@@ -103,7 +112,14 @@ func (f *fakeModerator) HideAuthor(_ context.Context, _ string, cp posts.Moderat
 			next.Changed++
 		}
 	}
-	next.After = &posts.Position{ID: strconv.Itoa(end)}
+	if end > start {
+		next.After = &posts.Position{ID: strconv.Itoa(eligible[end-1].id)}
+	} else {
+		next.After = cp.After
+	}
+	if f.hideCalls == 1 && f.afterFirstHide != nil {
+		f.afterFirstHide()
+	}
 	return next, end >= len(eligible), nil
 }
 
@@ -201,7 +217,8 @@ func TestReports_ListShowResolve(t *testing.T) {
 		t.Fatalf("list: code=%d out=%q err=%q st=%q", code, out, stderr, f.ops.listSt)
 	}
 	code, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
-	if code != 0 || !strings.Contains(out, "reporter - (reporter deleted)") || !strings.Contains(out, "evidence post by @bob") {
+	if code != 0 || !strings.Contains(out, "reporter - (reporter deleted)") || !strings.Contains(out, "evidence post by @bob") ||
+		!strings.Contains(out, "evidence media: m1, m2") {
 		t.Fatalf("show: code=%d out=%q", code, out)
 	}
 	code, out, _ = f.run("", "reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "dismissed")
@@ -291,7 +308,7 @@ func TestSuspendUnsuspend(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
 		old := time.Unix(1_000_000, 0).Add(-48 * time.Hour)
-		f.mod.posts = []*fakePost{{createdAt: old}, {createdAt: old}, {createdAt: old}, {createdAt: old}, {createdAt: old}}
+		f.mod.posts = []*fakePost{{id: 1, createdAt: old}, {id: 2, createdAt: old}, {id: 3, createdAt: old}, {id: 4, createdAt: old}, {id: 5, createdAt: old}}
 		code, out, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--report", testReportID)
 		if code != 0 {
 			t.Fatalf("code=%d stderr=%q", code, stderr)
@@ -315,33 +332,35 @@ func TestSuspendUnsuspend(t *testing.T) {
 			t.Errorf("paged = %d, want 5 (the settle pass must not re-read old posts)", f.mod.paged)
 		}
 	})
-	t.Run("a post created in the cache window is hidden by the settle pass", func(t *testing.T) {
+	t.Run("a post created after page 1 was read is hidden by the settle pass", func(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
 		now := time.Unix(1_000_000, 0)
 		old := now.Add(-48 * time.Hour)
-		f.mod.posts = []*fakePost{{createdAt: old}, {createdAt: old}, {createdAt: old}}
-		var late *fakePost
-		f.onSleep = func() { // created on an instance that still cached the account as ACTIVE, after page 1 was read
-			late = &fakePost{createdAt: now.Add(20 * time.Second)}
-			f.mod.posts = append([]*fakePost{late}, f.mod.posts...)
-		}
+		f.mod.posts = []*fakePost{{id: 1, createdAt: old}, {id: 2, createdAt: old}, {id: 3, createdAt: old}}
+		late := &fakePost{id: 99, createdAt: now.Add(20 * time.Second)}
+		f.mod.afterFirstHide = func() { f.mod.posts = append([]*fakePost{late}, f.mod.posts...) }
 		code, out, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
 		if code != 0 {
 			t.Fatalf("code=%d stderr=%q", code, stderr)
 		}
-		if late == nil || !late.hidden {
+		if !late.hidden {
 			t.Fatalf("the late post was not hidden; out=%q", out)
 		}
-		if f.mod.paged != 3+1 {
-			t.Errorf("paged = %d, want 3 (full pass) + 1 (the late post only)", f.mod.paged)
+		if len(f.slept) != 1 {
+			t.Errorf("settle waits = %v, want 1", f.slept)
+		}
+		// full pass: page 1 (2 posts) + page 2 (1 post); settle pass: only the late post (older ones are below
+		// createdAt >= suspension - 2 min).
+		if f.mod.paged != 2+1+1 {
+			t.Errorf("paged = %d, want 4", f.mod.paged)
 		}
 	})
 	t.Run("already suspended still finishes the posts", func(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
 		f.acc.same = true
-		f.mod.posts = []*fakePost{{createdAt: time.Unix(5, 0)}, {createdAt: time.Unix(4, 0)}, {createdAt: time.Unix(3, 0)}}
+		f.mod.posts = []*fakePost{{id: 1, createdAt: time.Unix(5, 0)}, {id: 2, createdAt: time.Unix(4, 0)}, {id: 3, createdAt: time.Unix(3, 0)}}
 		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
 		if code != 0 || !strings.Contains(out, "already SUSPENDED") || !f.mod.posts[2].hidden {
 			t.Fatalf("code=%d out=%q", code, out)

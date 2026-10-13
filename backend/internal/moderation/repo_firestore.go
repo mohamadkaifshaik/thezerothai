@@ -80,7 +80,7 @@ func NewFirestoreRepo(client *firestore.Client, quotas *quota.Store) *FirestoreR
 type Repo interface {
 	// Create writes the report and charges the quota in one transaction, unless the report doc exists and is OPEN
 	// (a repeat: Existing=true, 0 writes, no charge). A RESOLVED report is reopened in the same transaction
-	// (Reopened=true: status OPEN, reason/note/evidence/createdAt replaced, the resolution fields and expireAt
+	// (Reopened=true: status OPEN, reason/note/evidence replaced, the resolution fields and expireAt
 	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. Reads 2 (report,
 	// quotas; 1 on a repeat), writes 2.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
@@ -201,15 +201,14 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 }
 
 // reopenUpdates turns a RESOLVED report back into the OPEN report rep describes. The reporter, target and owner
-// are unchanged (they are in the id); the resolution fields and the retention TTL go away so the report is not
-// deleted under the moderator, and createdAt moves to the new filing so oldest-first order stays honest.
+// are unchanged (they are in the id) and so is createdAt (the case keeps its place in the oldest-first queue); the
+// resolution fields and the retention TTL go away so the report is not deleted under the moderator.
 func reopenUpdates(rep Report) []firestore.Update {
 	d := toDoc(rep)
 	u := []firestore.Update{
 		{Path: "status", Value: string(StatusOpen)},
 		{Path: "reason", Value: d.Reason},
 		{Path: "note", Value: d.Note},
-		{Path: "createdAt", Value: d.CreatedAt},
 		{Path: "resolvedAt", Value: firestore.Delete},
 		{Path: "resolution", Value: firestore.Delete},
 		{Path: "resolutionNote", Value: firestore.Delete},
