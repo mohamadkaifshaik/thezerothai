@@ -59,10 +59,12 @@ an already RESOLVED report only warns.
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the
 post's `media[]` ids; also `media` docs with `ownerId` = the author) the objects are **still public** in the media
 bucket and reachable by anyone holding the URL. For illegal or abusive imagery:
-1. Note the media ids from the report evidence (`evidence.mediaIds`) before anything else; they are all that survives.
-2. Delete the objects, or make them private, in the media bucket: `gs://$P-media/m/<mediaId>*` (public object and
-   thumb). `gcloud storage rm "gs://$P-media/m/<mediaId>*"` is the deletion; if the content must be preserved for
-   law enforcement, copy it to a restricted bucket first or use `gcloud storage objects update ... --predefined-acl=private`.
+1. `reports show --id R` prints `evidence media: <ids>` (copied at report time). Note them before anything else; the
+   ids and the text are all that survives once the objects are deleted. If the report predates the post's media
+   (or was filed through an older build) list them from Firestore: `media` where `postId == <id>` (Limit 4).
+2. Delete the public objects `m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` in `<proj>-media`, then the `media/*` docs,
+   exactly as `docs/runbooks/media.md` "A deleted post's images are still served" step 2. If the content must be kept
+   for law enforcement, copy the objects out of the bucket first (to a restricted location) before deleting.
 3. Record what was done in the report resolution note.
 Note: P4's `post_delete` job removes the objects when the **author** deletes the post or their account, so image
 evidence is destroyed at that point; resolve image reports before the author can react, and rely on the ids plus the

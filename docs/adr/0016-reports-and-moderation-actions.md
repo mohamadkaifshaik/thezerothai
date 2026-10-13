@@ -70,14 +70,14 @@ is the same NOT_FOUND. Reporting your own post/account is `VALIDATION target_id`
 | `reason`, `note` | string | enum name; <= 500 code points |
 | `status` | string | `OPEN` or `RESOLVED` |
 | `evidence` | map | POST only: `text`, `authorHandle`, `mediaIds[]` (the post's image ids at report time, copied from the post already read: 0 reads), `postCreatedAt`. Copied at report time |
-| `createdAt` | timestamp | the time of the latest filing: a report reopened after RESOLVED gets a new `createdAt`, so the oldest-first queue is honest |
+| `createdAt` | timestamp | the first filing; a reopen keeps it, so a re-reported case is as old in the queue as its first report |
 | `resolvedAt`, `resolution`, `resolutionNote` | | `resolution`: `NO_ACTION`, `TAKEDOWN`, `SUSPENDED`, `DISMISSED` |
 | `expireAt` | timestamp | set at resolution: `resolvedAt + 90 d`. Firestore TTL deletes the doc. Absent while OPEN |
 
 **Re-reporting after RESOLVED reopens the report.** The id is deterministic, so a second filing by the same reporter of
 the same target finds the document. If it is `OPEN` the call is the plain no-op repeat (1 read, 0 writes, not charged).
-If it is `RESOLVED` the same transaction reopens it: `status = OPEN`, `reason`, `note`, `evidence` and `createdAt`
-replaced, `resolvedAt`/`resolution`/`resolutionNote`/`expireAt` deleted (so the TTL cannot delete a live report), the
+If it is `RESOLVED` the same transaction reopens it: `status = OPEN`, `reason`, `note` and `evidence`
+replaced (the original `createdAt` is kept), `resolvedAt`/`resolution`/`resolutionNote`/`expireAt` deleted (so the TTL cannot delete a live report), the
 `reports` quota charged. 2 reads, 2 writes, like a first report; `already_reported` is false. The new filing is the
 signal that the earlier decision may be wrong or the problem recurred; silently dropping it (the original behaviour)
 hid exactly the reports that matter.
@@ -211,7 +211,7 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
 - **Exports and deletion budget.** The `reports` export section costs one read per filed report (minimum 1, the empty
   page). With P4's own `media` export section the reference export row is **705** reads (703 + 1 media + 1 reports,
   was 704 before P4 merged); the `reports` Eraser step costs one read for the empty page on the reference account.
-  Delete job: plan criterion 509 (ADR-0011 T16) becomes 511 (+1 P4 media step, +1 P7 reports step, each one read for an empty page); measured on the reference account: 511 reads in one delivery, against 511 + D (the ADR-0011 formula's per-delivery job-state allowance). Asserted in `account_lifecycle_reference_integration_test.go`.
+  Delete job: the account-deletion plan's T16 acceptance criterion (`docs/plans/account-deletion-export.md`, 509 reads + job state) becomes 511, which needs sign-off from that plan's owner (+1 P4 media step, +1 P7 reports step, each one read for an empty page); measured on the reference account: 511 reads in one delivery, against 511 + D (the ADR-0011 formula's per-delivery job-state allowance). Asserted in `account_lifecycle_reference_integration_test.go`.
   Both are asserted in `account_lifecycle_reference_integration_test.go`.
 - **Residue allowlist.** `reports.targetOwnerId` and `reports.targetId` are the two new T11 entries (5 to 7). The
   privacy policy line is a founder action and a gate for turning `FEATURE_REPORTS` on.
