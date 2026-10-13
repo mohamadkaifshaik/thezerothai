@@ -4,9 +4,11 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
+import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -194,6 +196,108 @@ void main() {
       );
 
       expect(cachedIds(await store.read(const FeedKey.home())), [postId(2)]);
+    });
+  });
+
+  group('RATE_LIMITED hold shared across reads (ADR-0010 D5)', () {
+    const getThread = '/dzeroth.posts.v1.PostService/GetThread';
+    const getHome = '/dzeroth.timeline.v1.TimelineService/GetHomeTimeline';
+    var clock = Duration.zero;
+    late RateLimitHold hold;
+    late PostsRepository posts;
+    late TimelineRepository timeline;
+
+    Object daily() => serverError(
+      connect.Code.resourceExhausted,
+      common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+      metadata: {'limit': 'read_budget_daily'},
+    );
+
+    setUp(() {
+      clock = Duration.zero;
+      hold = RateLimitHold(monotonic: () => clock);
+      final api = ApiClient.withTransport(transport);
+      posts = PostsRepository(
+        apiClient: api,
+        store: store,
+        gate: gate,
+        rateLimitHold: hold,
+      );
+      timeline = TimelineRepository(
+        apiClient: api,
+        store: store,
+        gate: gate,
+        rateLimitHold: hold,
+      );
+    });
+
+    test('a held thread load or refresh sends nothing', () async {
+      answer = (_) => daily();
+      await expectLater(
+        posts.getThread(postId(1)),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(transport.calledProcedures, [getThread]);
+
+      clock = const Duration(minutes: 1);
+      await expectLater(
+        posts.getThread(postId(1)),
+        throwsA(
+          isA<RateLimitedException>().having(
+            (e) => e.retryAfter,
+            'retryAfter',
+            const Duration(minutes: 4),
+          ),
+        ),
+      );
+      await expectLater(
+        posts.getThread(postId(1), pageToken: 't'),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(transport.calledProcedures, [getThread]); // still one RPC
+
+      clock = const Duration(minutes: 6);
+      answer = (_) => pb.GetThreadResponse(focal: postView(1));
+      await posts.getThread(postId(1));
+      expect(transport.calledProcedures, [getThread, getThread]);
+    });
+
+    test('a thread RATE_LIMITED holds a Home refresh and vice versa', () async {
+      answer = (_) => daily();
+      await expectLater(
+        posts.getThread(postId(1)),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(timeline.rateLimitedFor(), isNotNull);
+      await expectLater(
+        timeline.refresh(const FeedKey.home()),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(transport.calledProcedures, [getThread]);
+
+      hold.clear();
+      await expectLater(
+        timeline.refresh(const FeedKey.home()),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(transport.calledProcedures, [getThread, getHome]);
+      await expectLater(
+        posts.getThread(postId(1)),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(transport.calledProcedures, [getThread, getHome]);
+    });
+
+    test('clearSession releases the hold for every repository', () async {
+      answer = (_) => daily();
+      await expectLater(
+        posts.getThread(postId(1)),
+        throwsA(isA<RateLimitedException>()),
+      );
+
+      timeline.clearSession();
+
+      expect(hold.check(), isNull);
     });
   });
 
