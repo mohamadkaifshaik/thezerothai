@@ -23,6 +23,12 @@ func (c *Counter) AddReads(n int64) {
 	atomic.AddInt64(&c.reads, n)
 }
 
+// AddQueryReads counts the reads of a query that returned n documents: one per document, minimum 1 (Firestore
+// bills an empty query as one read).
+func (c *Counter) AddQueryReads(n int) {
+	c.AddReads(int64(max(n, 1)))
+}
+
 func (c *Counter) AddWrites(n int64) {
 	if c == nil || n == 0 {
 		return
