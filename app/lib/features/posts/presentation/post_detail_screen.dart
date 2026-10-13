@@ -7,13 +7,15 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/widgets/blocked_post_gate.dart';
 import '../../../shared/widgets/post_card.dart';
-import '../../graph/data/graph_repository.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
 import '../domain/posts_feature_flag.dart';
 import 'bloc/post_detail_cubit.dart';
+import 'thread_screen.dart';
+import 'widgets/post_unavailable_view.dart';
 
 /// `/post/:id` (T18): one post via `GetPost`. A missing, deleted or hidden
 /// post shows "This post isn't available" with no retry; a post of an author
@@ -33,6 +35,16 @@ class PostDetailScreen extends StatelessWidget {
         ),
       );
     }
+    // FEATURE_REPLIES on: the conversation (GetThread). Off: the plain post
+    // (GetPost) with zero thread RPCs; a server FEATURE_DISABLED degrades to
+    // the same plain view.
+    if (isFeatureEnabled(context, kPostsSubFeatureReplies)) {
+      return ThreadScreen(postId: postId, fallbackBuilder: _plainPost);
+    }
+    return _plainPost(context);
+  }
+
+  Widget _plainPost(BuildContext context) {
     return BlocProvider<PostDetailCubit>(
       key: ValueKey('post-detail-$postId'),
       create: (context) => PostDetailCubit(
@@ -66,8 +78,6 @@ class _PostDetailView extends StatefulWidget {
 }
 
 class _PostDetailViewState extends State<_PostDetailView> {
-  bool _showBlocked = false;
-
   void _leave(BuildContext context) {
     if (context.canPop()) {
       context.pop();
@@ -87,7 +97,7 @@ class _PostDetailViewState extends State<_PostDetailView> {
           child: switch (state.status) {
             PostDetailStatus.loading || PostDetailStatus.deleted =>
               const Center(child: CircularProgressIndicator()),
-            PostDetailStatus.notFound => _Unavailable(
+            PostDetailStatus.notFound => PostUnavailableView(
               onHome: () => context.go(AppRouter.homePath),
             ),
             PostDetailStatus.error => AppErrorView(
@@ -96,8 +106,6 @@ class _PostDetailViewState extends State<_PostDetailView> {
             ),
             PostDetailStatus.ready => _ReadyPost(
               state: state,
-              showBlocked: _showBlocked,
-              onShowBlocked: () => setState(() => _showBlocked = true),
               // The request can outlive this screen.
               onRelationshipChanged: () {
                 if (mounted) setState(() {});
@@ -111,16 +119,9 @@ class _PostDetailViewState extends State<_PostDetailView> {
 }
 
 class _ReadyPost extends StatelessWidget {
-  const _ReadyPost({
-    required this.state,
-    required this.showBlocked,
-    required this.onShowBlocked,
-    required this.onRelationshipChanged,
-  });
+  const _ReadyPost({required this.state, required this.onRelationshipChanged});
 
   final PostDetailState state;
-  final bool showBlocked;
-  final VoidCallback onShowBlocked;
   final VoidCallback onRelationshipChanged;
 
   @override
@@ -128,10 +129,6 @@ class _ReadyPost extends StatelessWidget {
     final view = state.view!;
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final author = view.post.author;
-    final blocked =
-        graphEnabled &&
-        (context.read<GraphRepository>().cached(author.userId)?.blocking ??
-            false);
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
 
     return LayoutBuilder(
@@ -143,97 +140,23 @@ class _ReadyPost extends StatelessWidget {
               constraints: BoxConstraints(
                 maxWidth: isWide ? AppBreakpoints.mobile : double.infinity,
               ),
-              child: blocked && !showBlocked
-                  ? _BlockedPostBanner(
-                      handle: author.handle,
-                      onShow: onShowBlocked,
-                    )
-                  : PostCard(
-                      view: view,
-                      showFullImages: true,
-                      viewerUserId: viewerUserId,
-                      graphActionsEnabled: graphEnabled,
-                      onDelete: (_) =>
-                          context.read<PostDetailCubit>().deletePost(),
-                      onRelationshipChanged: (_) => onRelationshipChanged(),
-                    ),
+              child: BlockedPostGate(
+                authorId: author.userId,
+                handle: author.handle,
+                graphEnabled: graphEnabled,
+                child: PostCard(
+                  view: view,
+                  showFullImages: true,
+                  viewerUserId: viewerUserId,
+                  graphActionsEnabled: graphEnabled,
+                  onDelete: (_) => context.read<PostDetailCubit>().deletePost(),
+                  onRelationshipChanged: (_) => onRelationshipChanged(),
+                ),
+              ),
             ),
           ),
         );
       },
-    );
-  }
-}
-
-class _BlockedPostBanner extends StatelessWidget {
-  const _BlockedPostBanner({required this.handle, required this.onShow});
-
-  final String handle;
-  final VoidCallback onShow;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'You blocked @$handle ·',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              minimumSize: const Size(0, AppSpacing.minTapTarget),
-            ),
-            onPressed: onShow,
-            child: const Text('Show post'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The final NOT_FOUND state: nothing to retry, and the same words for
-/// missing, deleted and hidden (ADR-0010 D6).
-class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.onHome});
-
-  final VoidCallback onHome;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      liveRegion: true,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.speaker_notes_off_outlined,
-                size: 40,
-                color: theme.colorScheme.error,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                "This post isn't available",
-                style: theme.textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              FilledButton.tonal(
-                onPressed: onHome,
-                child: const Text('Go to Home'),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

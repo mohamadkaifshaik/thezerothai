@@ -30,6 +30,30 @@ void main() {
     );
   });
 
+  test('replyErrorMessage uses reply wording and falls back to the shared '
+      'messages', () {
+    expect(
+      replyErrorMessage(const NotFoundException('x')),
+      contains("isn't available any more"),
+    );
+    expect(
+      replyErrorMessage(const FeatureDisabledException('x')),
+      contains("Replies aren't available"),
+    );
+    expect(
+      replyErrorMessage(const NetworkException('x')),
+      contains('Your reply was not sent'),
+    );
+    expect(
+      replyErrorMessage(const QuotaExceededException('x')),
+      contains("today's limit"),
+    );
+    expect(
+      replyErrorMessage(const UnknownApiException('stack trace here')),
+      allOf(contains('reply'), isNot(contains('stack trace'))),
+    );
+  });
+
   test('never leaks the raw server message', () {
     expect(
       createPostErrorMessage(const UnknownApiException('stack trace here')),

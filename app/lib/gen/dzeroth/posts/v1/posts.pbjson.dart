@@ -376,6 +376,14 @@ const GetThreadResponse$json = {
       '10': 'replies'
     },
     {'1': 'next_page_token', '3': 5, '4': 1, '5': 9, '10': 'nextPageToken'},
+    {
+      '1': 'parent_unavailable',
+      '3': 6,
+      '4': 1,
+      '5': 8,
+      '10': 'parentUnavailable'
+    },
+    {'1': 'root_unavailable', '3': 7, '4': 1, '5': 8, '10': 'rootUnavailable'},
   ],
 };
 
@@ -385,7 +393,9 @@ final $typed_data.Uint8List getThreadResponseDescriptor = $convert.base64Decode(
     '9zdFZpZXdSBWZvY2FsEjIKBnBhcmVudBgCIAEoCzIaLmR6ZXJvdGgucG9zdHMudjEuUG9zdFZp'
     'ZXdSBnBhcmVudBIuCgRyb290GAMgASgLMhouZHplcm90aC5wb3N0cy52MS5Qb3N0Vmlld1IEcm'
     '9vdBI0CgdyZXBsaWVzGAQgAygLMhouZHplcm90aC5wb3N0cy52MS5Qb3N0Vmlld1IHcmVwbGll'
-    'cxImCg9uZXh0X3BhZ2VfdG9rZW4YBSABKAlSDW5leHRQYWdlVG9rZW4=');
+    'cxImCg9uZXh0X3BhZ2VfdG9rZW4YBSABKAlSDW5leHRQYWdlVG9rZW4SLQoScGFyZW50X3VuYX'
+    'ZhaWxhYmxlGAYgASgIUhFwYXJlbnRVbmF2YWlsYWJsZRIpChByb290X3VuYXZhaWxhYmxlGAcg'
+    'ASgIUg9yb290VW5hdmFpbGFibGU=');
 
 const $core.Map<$core.String, $core.dynamic> PostServiceBase$json = {
   '1': 'PostService',

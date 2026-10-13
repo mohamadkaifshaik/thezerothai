@@ -1,5 +1,6 @@
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
 import '../../posts/domain/posts_feature_flag.dart';
@@ -27,11 +28,14 @@ class TimelineRepository {
     required PostsFeatureGate gate,
     int pageSize = 0,
     Duration Function()? monotonic,
+    RateLimitHold? rateLimitHold,
   }) : _apiClient = apiClient,
        _store = store,
        _gate = gate,
        _pageSize = pageSize,
-       _elapsed = monotonic ?? _stopwatchClock();
+       _elapsed = monotonic ?? _stopwatchClock() {
+    _hold = rateLimitHold ?? RateLimitHold(monotonic: _elapsed);
+  }
 
   final ApiClient _apiClient;
   final TimelineStore _store;
@@ -45,8 +49,9 @@ class TimelineRepository {
   final Duration Function() _elapsed;
   final Map<String, Duration> _refreshedAt = {};
   final Map<String, Duration> _attemptedAt = {};
-  Duration? _rateLimitedUntil;
-  RateLimitedException? _rateLimit;
+
+  /// The RATE_LIMITED hold shared with the other read repositories.
+  late final RateLimitHold _hold;
 
   final Map<String, Future<void>> _lockTails = {};
   final Map<String, Future<TimelineSnapshot>> _inflight = {};
@@ -60,8 +65,7 @@ class TimelineRepository {
     _lockTails.clear();
     _refreshedAt.clear();
     _attemptedAt.clear();
-    _rateLimitedUntil = null;
-    _rateLimit = null;
+    _hold.clear();
   }
 
   /// Time since the last successful [refresh] of [feed] in this session, or
@@ -85,22 +89,7 @@ class TimelineRepository {
   /// (ADR-0010 D5: no timeline RPC before `retry_after`), with `retryAfter`
   /// reduced to the time left; null when nothing is held back. The short
   /// in-flight hold is excluded: the API client already retries it once.
-  RateLimitedException? rateLimitedFor() {
-    final until = _rateLimitedUntil;
-    final original = _rateLimit;
-    if (until == null || original == null) return null;
-    final left = until - _elapsed();
-    if (left <= Duration.zero) {
-      _rateLimitedUntil = null;
-      _rateLimit = null;
-      return null;
-    }
-    return RateLimitedException(
-      original.message,
-      retryAfter: left,
-      limitName: original.limitName,
-    );
-  }
+  RateLimitedException? rateLimitedFor() => _hold.check();
 
   /// What is on disk for [feed]. Never touches the network.
   Future<TimelineSnapshot> cached(FeedKey feed) => _store.read(feed);
@@ -229,6 +218,9 @@ class TimelineRepository {
     String sinceToken = '',
     String pageToken = '',
   }) async {
+    // A held RATE_LIMITED answer applies to every read: send nothing.
+    final held = _hold.check();
+    if (held != null) throw held;
     try {
       if (feed.isHome) {
         final r = await _gate.run(
@@ -265,15 +257,7 @@ class TimelineRepository {
         r.gapPageToken,
       );
     } on RateLimitedException catch (error) {
-      if (!error.isInflightHold) {
-        _rateLimit = error;
-        _rateLimitedUntil =
-            _elapsed() +
-            (error.retryAfter ??
-                (error.isDaily
-                    ? const Duration(minutes: 5)
-                    : const Duration(seconds: 30)));
-      }
+      _hold.record(error);
       rethrow;
     } on NotFoundException {
       // The user vanished or blocks the caller: forget their feed so a

@@ -1038,6 +1038,8 @@ class GetThreadResponse extends $pb.GeneratedMessage {
     PostView? root,
     $core.Iterable<PostView>? replies,
     $core.String? nextPageToken,
+    $core.bool? parentUnavailable,
+    $core.bool? rootUnavailable,
   }) {
     final result = GetThreadResponse._();
     if (focal != null) result.focal = focal;
@@ -1045,6 +1047,8 @@ class GetThreadResponse extends $pb.GeneratedMessage {
     if (root != null) result.root = root;
     if (replies != null) result.replies.addAll(replies);
     if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    if (parentUnavailable != null) result.parentUnavailable = parentUnavailable;
+    if (rootUnavailable != null) result.rootUnavailable = rootUnavailable;
     return result;
   }
 
@@ -1071,6 +1075,8 @@ class GetThreadResponse extends $pb.GeneratedMessage {
     ..pPM<PostView>(4, _omitFieldNames ? '' : 'replies',
         subBuilder: PostView.$_createMessage)
     ..aOS(5, _omitFieldNames ? '' : 'nextPageToken')
+    ..aOB(6, _omitFieldNames ? '' : 'parentUnavailable')
+    ..aOB(7, _omitFieldNames ? '' : 'rootUnavailable')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1106,7 +1112,7 @@ class GetThreadResponse extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   PostView ensureFocal() => $_ensure(0);
 
-  /// Unset when the focal post is a root, or the parent is unavailable.
+  /// Unset when the focal post is a root, or the parent is unavailable (see parent_unavailable).
   @$pb.TagNumber(2)
   PostView get parent => $_getN(1);
   @$pb.TagNumber(2)
@@ -1142,6 +1148,27 @@ class GetThreadResponse extends $pb.GeneratedMessage {
   $core.bool hasNextPageToken() => $_has(4);
   @$pb.TagNumber(5)
   void clearNextPageToken() => $_clearField(5);
+
+  /// True when the focal post is a reply whose parent no longer exists or cannot be shown to the caller
+  /// (deleted, author suspended/blocking, not public). Render a tombstone. Additive in P3.
+  @$pb.TagNumber(6)
+  $core.bool get parentUnavailable => $_getBF(5);
+  @$pb.TagNumber(6)
+  set parentUnavailable($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasParentUnavailable() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearParentUnavailable() => $_clearField(6);
+
+  /// Same for the conversation root when the focal post is a reply.
+  @$pb.TagNumber(7)
+  $core.bool get rootUnavailable => $_getBF(6);
+  @$pb.TagNumber(7)
+  set rootUnavailable($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasRootUnavailable() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearRootUnavailable() => $_clearField(7);
 }
 
 class PostServiceApi {
@@ -1156,6 +1183,12 @@ class PostServiceApi {
   /// Slice 1 (ADR-0010 D2): root posts only. A non-empty reply_to_post_id, quote_of_post_id, media_ids or
   /// media_alt_texts => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" |
   /// "media" (first match in that order), 0 reads, until the replies/engagement/media slices ship.
+  /// Replies (P3, plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
+  /// FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
+  /// rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
+  /// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
+  /// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
+  /// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
   /// Text (ADR-0010 D9): CRLF/CR -> LF, TAB -> space, NFC, trim; empty, control characters other than LF, or bidi
   /// formatting controls (U+202A-U+202E, U+2066-U+2069) => VALIDATION field "text"; <= 280 code points, <= 10
   /// lines. Links are kept as typed and count toward the length (no server rewriting or previews).
@@ -1210,10 +1243,18 @@ class PostServiceApi {
           ctx, 'PostService', 'GetPost', request, GetPostResponse());
 
   /// Post detail: the focal post, its parent and conversation root, and a page of the conversation in
-  /// chronological order (posts where conversationId == root, createdAt ASC). Blocked/muted/invisible
-  /// replies are dropped after the read (page may be short; follow next_page_token).
-  /// Returns UNIMPLEMENTED until the replies slice (P3); its ADR restates this budget.
-  /// Firestore: reads 56/10 (focal+parent+root 3, graphs 2, userLikes 1, page <= 50), writes 0.
+  /// chronological order (posts where conversationId == root, createdAt ASC, the root itself skipped).
+  /// Behind FEATURE_REPLIES (and FEATURE_POSTS); FEATURE_DISABLED with metadata["feature"] = "replies" if off.
+  /// NOT_FOUND "post not found" (the GetPost rules) if the focal post is missing, deleted, hidden, or its author
+  /// blocks the caller. A parent/root that is deleted, suspended, hidden or blocks the caller is not an error:
+  /// it is returned unset with parent_unavailable / root_unavailable = true so the client renders a tombstone.
+  /// Replies by authors the caller blocks or mutes (and by authors who block the caller) are dropped after the
+  /// read, so a page may be short; follow next_page_token while it is non-empty.
+  /// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
+  /// the caller and the focal post.
+  /// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
+  /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
+  /// (one conversation query, minimum 1); writes 0.
   $async.Future<GetThreadResponse> getThread(
           $pb.ClientContext? ctx, GetThreadRequest request) =>
       _client.invoke<GetThreadResponse>(

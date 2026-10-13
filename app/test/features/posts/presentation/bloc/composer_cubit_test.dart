@@ -39,6 +39,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).thenAnswer((_) => answer());
   }
@@ -48,88 +49,127 @@ void main() {
     expect(cubit.state.draft.remaining, 280);
   });
 
-  test('success: optimistic item appears while sending, then is removed', () async {
-    final done = Completer<pb.PostView>();
-    stubCreate(() => done.future);
-    cubit.textChanged('  hello  ');
-    final future = cubit.submit();
+  test(
+    'success: optimistic item appears while sending, then is removed',
+    () async {
+      final done = Completer<pb.PostView>();
+      stubCreate(() => done.future);
+      cubit.textChanged('  hello  ');
+      final future = cubit.submit();
 
-    expect(cubit.state.isSubmitting, isTrue);
-    expect(pending.state, hasLength(1));
-    expect(pending.state.single.text, 'hello');
-    expect(pending.state.single.author.userId, 'me');
+      expect(cubit.state.isSubmitting, isTrue);
+      expect(pending.state, hasLength(1));
+      expect(pending.state.single.text, 'hello');
+      expect(pending.state.single.author.userId, 'me');
 
-    done.complete(postView(1));
-    await future;
+      done.complete(postView(1));
+      await future;
 
-    expect(pending.state, isEmpty);
-    expect(cubit.state.status, ComposerStatus.posted);
-    verify(
+      expect(pending.state, isEmpty);
+      expect(cubit.state.status, ComposerStatus.posted);
+      verify(
+        () => repo.createPost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: 'hello',
+          replyToPostId: any(named: 'replyToPostId'),
+        ),
+      ).called(1);
+    },
+  );
+
+  test('a reply goes to replyToPostId, skips Home pending, and exposes the '
+      'created view', () async {
+    final reply = ComposerCubit.reply(
+      postsRepository: repo,
+      replyToPostId: postId(7),
+    );
+    addTearDown(reply.close);
+    when(
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
-        text: 'hello',
+        text: 'hi',
+        replyToPostId: postId(7),
       ),
-    ).called(1);
-  });
+    ).thenAnswer((_) async => postView(9));
 
-  test('QUOTA_EXCEEDED rolls back the optimistic item and keeps the draft',
-      () async {
-    stubCreate(() async => throw const QuotaExceededException('quota'));
-    cubit.textChanged('hello');
-    await cubit.submit();
+    reply.textChanged('hi');
+    await reply.submit();
 
-    expect(pending.state, isEmpty);
-    expect(cubit.state.error, isA<QuotaExceededException>());
-    expect(cubit.state.status, ComposerStatus.editing);
-    expect(cubit.state.draft.text, 'hello');
-    expect(cubit.state.canSubmit, isTrue);
-  });
-
-  test('a network error then a retry sends the same idempotency key, once',
-      () async {
-    var calls = 0;
-    stubCreate(() async {
-      calls++;
-      if (calls == 1) throw const NetworkException('offline');
-      return postView(1);
-    });
-    cubit.textChanged('hello');
-    await cubit.submit();
-    expect(cubit.state.error, isA<NetworkException>());
+    expect(reply.state.status, ComposerStatus.posted);
+    expect(reply.state.created!.post.postId, postId(9));
     expect(pending.state, isEmpty);
 
-    await cubit.submit();
-    expect(pending.state, isEmpty);
-    expect(cubit.state.status, ComposerStatus.posted);
-
-    final keys = verify(
-      () => repo.createPost(
-        idempotencyKey: captureAny(named: 'idempotencyKey'),
-        text: 'hello',
-      ),
-    ).captured;
-    expect(keys, hasLength(2));
-    expect(keys.first, isNotEmpty);
-    expect(keys[0], keys[1]);
+    // A new intent starts without the previous reply's view.
+    reply.textChanged('again');
+    expect(reply.state.created, isNull);
   });
 
-  test('editing the text after a failure starts a new intent (new key)',
-      () async {
-    stubCreate(() async => throw const NetworkException('offline'));
-    cubit.textChanged('hello');
-    await cubit.submit();
-    cubit.textChanged('hello world');
-    await cubit.submit();
+  test(
+    'QUOTA_EXCEEDED rolls back the optimistic item and keeps the draft',
+    () async {
+      stubCreate(() async => throw const QuotaExceededException('quota'));
+      cubit.textChanged('hello');
+      await cubit.submit();
 
-    final keys = verify(
-      () => repo.createPost(
-        idempotencyKey: captureAny(named: 'idempotencyKey'),
-        text: any(named: 'text'),
-      ),
-    ).captured;
-    expect(keys, hasLength(2));
-    expect(keys[0], isNot(keys[1]));
-  });
+      expect(pending.state, isEmpty);
+      expect(cubit.state.error, isA<QuotaExceededException>());
+      expect(cubit.state.status, ComposerStatus.editing);
+      expect(cubit.state.draft.text, 'hello');
+      expect(cubit.state.canSubmit, isTrue);
+    },
+  );
+
+  test(
+    'a network error then a retry sends the same idempotency key, once',
+    () async {
+      var calls = 0;
+      stubCreate(() async {
+        calls++;
+        if (calls == 1) throw const NetworkException('offline');
+        return postView(1);
+      });
+      cubit.textChanged('hello');
+      await cubit.submit();
+      expect(cubit.state.error, isA<NetworkException>());
+      expect(pending.state, isEmpty);
+
+      await cubit.submit();
+      expect(pending.state, isEmpty);
+      expect(cubit.state.status, ComposerStatus.posted);
+
+      final keys = verify(
+        () => repo.createPost(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          text: 'hello',
+          replyToPostId: any(named: 'replyToPostId'),
+        ),
+      ).captured;
+      expect(keys, hasLength(2));
+      expect(keys.first, isNotEmpty);
+      expect(keys[0], keys[1]);
+    },
+  );
+
+  test(
+    'editing the text after a failure starts a new intent (new key)',
+    () async {
+      stubCreate(() async => throw const NetworkException('offline'));
+      cubit.textChanged('hello');
+      await cubit.submit();
+      cubit.textChanged('hello world');
+      await cubit.submit();
+
+      final keys = verify(
+        () => repo.createPost(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          text: any(named: 'text'),
+          replyToPostId: any(named: 'replyToPostId'),
+        ),
+      ).captured;
+      expect(keys, hasLength(2));
+      expect(keys[0], isNot(keys[1]));
+    },
+  );
 
   test('edit-and-revert after a failure reuses the original key', () async {
     stubCreate(() async => throw const NetworkException('offline'));
@@ -144,6 +184,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: captureAny(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).captured;
     expect(keys, hasLength(3));
@@ -151,13 +192,15 @@ void main() {
     expect(keys[2], keys[0], reason: 'a dropped response may have stored it');
   });
 
-  test('a successful post clears the key so the next post gets a new one',
-      () async {
-    stubCreate(() async => postView(1));
-    cubit.textChanged('one');
-    await cubit.submit();
-    expect(cubit.currentKey, isNull);
-  });
+  test(
+    'a successful post clears the key so the next post gets a new one',
+    () async {
+      stubCreate(() async => postView(1));
+      cubit.textChanged('one');
+      await cubit.submit();
+      expect(cubit.currentKey, isNull);
+    },
+  );
 
   test('DEGRADED_MODE is surfaced and never retried automatically', () async {
     stubCreate(() async => throw const DegradedModeException('degraded'));
@@ -168,6 +211,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     ).called(1);
   });
@@ -179,6 +223,7 @@ void main() {
       () => repo.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
       ),
     );
     expect(pending.state, isEmpty);
