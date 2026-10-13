@@ -32,6 +32,7 @@ const (
 	fieldRejected    = "media_rejected"
 	fieldVisionUnits = "vision_units"
 	fieldExhausted   = "vision_cap_exhausted"
+	fieldConverged   = "finalize_converged" // a lost finalize race answered with the winner's result
 )
 
 // mediaIDPattern is the media id shape (19-digit zero-padded Snowflake decimal, like post ids).
@@ -385,6 +386,9 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	// 1. Verify what the signed URL already enforced (defence in depth) and the magic bytes.
 	reason, err := s.verify(ctx, d)
+	if errors.Is(err, errUploadMissing) {
+		return s.uploadMissing(ctx, uid, d, false, nil)
+	}
 	if err != nil {
 		return Result{}, 0, err
 	}
@@ -408,6 +412,11 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		blocked, err := s.screen(ctx, d)
 		if err != nil {
 			s.vision.release(units)
+			// Vision fetches the private object, so a concurrent finalize that already published and deleted it
+			// surfaces here as a screening failure although the image is READY: converge on its result.
+			if r, ok := s.resolvedElsewhere(ctx, d); ok {
+				return r, 0, nil
+			}
 			return Result{}, 0, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED,
 				"image checks are temporarily unavailable, please try again").WithCause(logger.RedactErr(err, uid))
 		}
@@ -433,15 +442,29 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	ext := extension(d.ContentType)
 	pub, pubThumb := publicObject(d.ID, ext), publicThumbObject(d.ID, ext)
 	if err := s.Objects.Publish(ctx, d.UploadPath, pub, d.ContentType); err != nil {
+		if errors.Is(err, objstore.ErrObjectNotFound) {
+			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)
+			return r, spent, rerr
+		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish full: %w", err), uid)
 	}
 	if err := s.Objects.Publish(ctx, d.ThumbUploadPath, pubThumb, d.ContentType); err != nil {
+		if errors.Is(err, objstore.ErrObjectNotFound) {
+			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)
+			s.dropOrphanedCopies(ctx, d, r, pub)
+			return r, spent, rerr
+		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish thumb: %w", err), uid)
 	}
 	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{Status: status, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash})
 	switch {
 	case errors.Is(err, ErrConflict):
-		return s.reload(ctx, uid, d.ID, spent)
+		r, spent, rerr := s.reload(ctx, uid, d.ID, spent)
+		if rerr == nil {
+			logger.SetRequestField(ctx, fieldConverged, true)
+			s.dropOrphanedCopies(ctx, d, r, pub, pubThumb)
+		}
+		return r, spent, rerr
 	case err != nil:
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: resolve: %w", err), uid)
 	}
@@ -449,6 +472,57 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	out := *d
 	out.Status, out.PublicPath, out.ThumbPath, out.Blurhash = string(status), pub, pubThumb, blurhash
 	return s.resultOf(&out), spent, nil
+}
+
+// errUploadMissing is verify's signal that a private upload object is not there.
+var errUploadMissing = errors.New("media: upload object missing")
+
+// resolvedElsewhere reports the result of a document a concurrent FinalizeUpload already resolved (1 read, only
+// on error paths). ok is false when the document is still PENDING or cannot be read.
+func (s *service) resolvedElsewhere(ctx context.Context, d *Doc) (Result, bool) {
+	r, _, err := s.reload(ctx, d.OwnerID, d.ID, 0)
+	if err != nil || r.Status == StatusPending {
+		return Result{}, false
+	}
+	logger.SetRequestField(ctx, fieldConverged, true)
+	return r, true
+}
+
+// dropOrphanedCopies deletes public objects this call copied when the document turned out to be resolved without
+// them (REJECTED by the winner: a REJECTED doc has no public path, so nothing else would ever remove them). A
+// READY result owns the same deterministic object names, so those are kept.
+func (s *service) dropOrphanedCopies(ctx context.Context, d *Doc, r Result, objects ...string) {
+	if r.Status == "" || r.Status == StatusPending || r.Ref != nil {
+		return
+	}
+	for _, o := range objects {
+		if err := s.Objects.DeletePublic(ctx, o); err != nil {
+			s.Log.WarnContext(ctx, "media_public_delete_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, d.OwnerID))}, logger.TraceAttrs(ctx)...)...)
+		}
+	}
+}
+
+// uploadMissing answers a finalize that found a private upload object gone. Two causes look identical from the
+// bucket: the client has not finished uploading, or a concurrent FinalizeUpload (a client retry) already published
+// the image and deleted the private copies after this call loaded the document as PENDING. The document tells them
+// apart (1 read, only on this path): a resolved document is the idempotent answer, a still-PENDING one is genuinely
+// not uploaded yet. afterVerify is true on the Publish path, where verify had just seen the objects: a still
+// PENDING document then is not a lost race but a broken source or bucket, so it is an internal error (visible in
+// Error Reporting) rather than a silent client retry.
+func (s *service) uploadMissing(ctx context.Context, uid string, d *Doc, afterVerify bool, cause error) (Result, int64, error) {
+	r, _, err := s.reload(ctx, uid, d.ID, 0)
+	if err != nil {
+		return Result{}, 0, err
+	}
+	if r.Status != StatusPending {
+		logger.SetRequestField(ctx, fieldConverged, true)
+		return r, 0, nil
+	}
+	if afterVerify {
+		return Result{}, 0, logger.RedactErr(fmt.Errorf("media: publish: source missing after verify: %w", cause), uid)
+	}
+	return Result{}, 0, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
+		"the upload is not complete yet").WithMeta("media_id", d.ID)
 }
 
 // reload returns the document another concurrent FinalizeUpload resolved first (1 read).
@@ -466,7 +540,8 @@ func (s *service) reload(ctx context.Context, uid, id string, spent int64) (Resu
 
 // verify checks both objects against the declared size, type and MD5 and sniffs their magic bytes. reason is
 // non-empty for a rejection; an error is an infrastructure failure (the client may retry). An object that is not
-// there yet is a precondition failure (the client has not finished uploading).
+// there yet is reported as errUploadMissing (the caller decides: the client has not finished uploading, or a
+// concurrent finalize already published and deleted it).
 func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error) {
 	for _, o := range []struct {
 		object, md5 string
@@ -479,8 +554,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		a, err := s.Objects.UploadAttrs(ctx, o.object)
 		switch {
 		case errors.Is(err, objstore.ErrObjectNotFound):
-			return "", apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
-				"the upload is not complete yet").WithMeta("media_id", d.ID)
+			return "", errUploadMissing
 		case err != nil:
 			return "", fmt.Errorf("media: object attrs: %w", err)
 		}
@@ -496,8 +570,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		head, err := s.Objects.UploadHead(ctx, o.object, 512)
 		switch {
 		case errors.Is(err, objstore.ErrObjectNotFound):
-			return "", apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
-				"the upload is not complete yet").WithMeta("media_id", d.ID)
+			return "", errUploadMissing
 		case err != nil:
 			return "", fmt.Errorf("media: object head: %w", err)
 		}
@@ -564,7 +637,8 @@ func (s *service) establishedAccount(ctx context.Context, uid string) (bool, err
 // reject deletes the private objects and records REJECTED (kept for PendingTTL so a replayed FinalizeUpload gets
 // the same answer, then removed by the TTL policy).
 func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, error) {
-	s.deleteUploads(ctx, d)
+	// Resolve first: deleting the objects before the document is resolved lets a rejecting loser pull them from
+	// under a winner that is about to publish, and a failed Resolve would strand a PENDING doc with no objects.
 	err := s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{
 		Status: StatusRejected, RejectionReason: reason, ExpireAt: s.Now().UTC().Add(PendingTTL),
 	})
@@ -575,6 +649,7 @@ func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, er
 	case err != nil:
 		return Result{}, logger.RedactErr(fmt.Errorf("media: reject: %w", err), d.OwnerID)
 	}
+	s.deleteUploads(ctx, d)
 	return Result{MediaID: d.ID, Status: StatusRejected, RejectionReason: reason}, nil
 }
 

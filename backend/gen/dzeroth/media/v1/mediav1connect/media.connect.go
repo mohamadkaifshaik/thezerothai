@@ -62,7 +62,8 @@ type MediaServiceClient interface {
 	// VISION_EXHAUSTED_POLICY=reject (ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
-	// Firestore: reads 5/2 (media docs + Vision counter, cached 60 s), writes 5/2.
+	// Firestore: reads 2n+1 worst case (n media docs, Vision counter cached 60 s, +1 per item when the upload
+	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes n+1.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 
@@ -125,7 +126,8 @@ type MediaServiceHandler interface {
 	// VISION_EXHAUSTED_POLICY=reject (ADR-0005). Naturally idempotent: items already READY/REJECTED are returned as-is.
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
-	// Firestore: reads 5/2 (media docs + Vision counter, cached 60 s), writes 5/2.
+	// Firestore: reads 2n+1 worst case (n media docs, Vision counter cached 60 s, +1 per item when the upload
+	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes n+1.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 
