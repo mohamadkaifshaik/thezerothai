@@ -240,12 +240,20 @@ func TestFollow_EventsHook(t *testing.T) {
 	t.Run("nil Events keeps the no-op", func(t *testing.T) {
 		repo := newFakeRepo()
 		repo.followOutcome = OutcomeCreated
+		repo.followResult = Relationship{UserID: "uid-2", FollowState: FollowStateFollowing}
 		dir := &fakeDirectory{profiles: map[string]identity.Profile{
 			"uid-1": activeProfile("uid-1", time.Now()), "uid-2": activeProfile("uid-2", time.Now()),
 		}}
 		svc := newTestServiceWithDirectory(repo, dir, Deps{})
-		if _, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2"); err != nil {
+		rel, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2")
+		if err != nil {
 			t.Fatal(err)
 		}
+		// With no Events wired the follow still commits and answers normally: the hook is a pure no-op.
+		if rel.UserID != "uid-2" || rel.FollowState != FollowStateFollowing {
+			t.Errorf("Follow = %+v, want a following relationship to uid-2", rel)
+		}
+		var fe FollowEvents = svc
+		fe.Followed(context.Background(), "uid-1", "uid-2", time.Now()) // the default hook must not panic
 	})
 }

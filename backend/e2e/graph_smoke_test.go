@@ -109,19 +109,7 @@ func (e graphSmokeEnv) eventually(t *testing.T, what string, cond func() (bool, 
 	if e.remote {
 		timeout = 90 * time.Second
 	}
-	deadline := time.Now().Add(timeout)
-	var last string
-	for {
-		ok, msg := cond()
-		if ok {
-			return
-		}
-		last = msg
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: not satisfied within %v: %s", what, timeout, last)
-		}
-		time.Sleep(500 * time.Millisecond) // bounded poll, not a sync sleep: cond re-queries the server
-	}
+	eventually(t, what, timeout, 500*time.Millisecond, cond)
 }
 
 func TestE2E_GraphSmoke_FollowListBlockUnblock(t *testing.T) {

@@ -84,21 +84,17 @@ func TestE2E_Notifications_FollowFlow(t *testing.T) {
 		t.Fatalf("Follow(B->A): %v", err)
 	}
 	var got *notificationsv1.Notification
-	deadline := time.Now().Add(5 * time.Second)
-	for got == nil {
+	eventually(t, "A's follow notification (since refresh)", 5*time.Second, 50*time.Millisecond, func() (bool, string) {
 		res, err := notifs.ListNotifications(ctx, authedRequest(tokenA, &notificationsv1.ListNotificationsRequest{SinceToken: first.Msg.GetSinceToken()}))
 		if err != nil {
-			t.Fatalf("ListNotifications(since): %v", err)
+			return false, err.Error()
 		}
-		if len(res.Msg.GetNotifications()) > 0 {
-			got = res.Msg.GetNotifications()[0]
-			break
+		if len(res.Msg.GetNotifications()) == 0 {
+			return false, "no rows yet"
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("no follow notification within 5 s")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		got = res.Msg.GetNotifications()[0]
+		return true, ""
+	})
 	if got.GetType() != notificationsv1.NotificationType_NOTIFICATION_TYPE_FOLLOW || got.GetActor().GetUserId() != uidB ||
 		got.GetActor().GetHandle() != handleB || got.GetActorCount() != 1 || got.GetId() != "follow_"+uidB {
 		t.Fatalf("notification = %+v", got)
