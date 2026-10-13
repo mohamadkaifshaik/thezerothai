@@ -76,8 +76,14 @@ dead-letters; a malformed message or a permanently invalid recipient is acknowle
 handler's commit time, not the event time, so `since` refreshes cannot miss a late-delivered row.
 
 **D4. Likes collapse (lever 6.4).** One doc per post per UTC hour. The first like `Create`s it and sends one push;
-later likes in that hour `Update` `actorIds` with `ArrayUnion` (idempotent), the latest `actor` and `createdAt`,
-without a push. `actor_count` on the wire is `len(actorIds)`.
+later likes in that hour fold into it without a push: a small transaction reads the row and, only when the actor
+is not already in `actorIds`, appends it, replaces `actor` and `createdAt` and increments `actorCount`.
+`actorIds` keeps the **last 50** distinct actors (older ones are trimmed in the same transaction) so a viral post
+cannot grow one document toward 1 MiB or hammer it past ~1 write/s sustained; `actorCount` keeps counting through
+`FieldValue.Increment`, and `actor_count` on the wire is `max(actorCount, len(actorIds))` (rows written before the
+field existed fall back to `len(actorIds)`). A redelivery or a repeat like by an actor still in the window writes
+nothing (1 read for the failed `Create`, 1 for the fold's check). An actor who left the 50-window and likes again
+is counted twice: `actor_count` beyond 50 is approximate by design.
 
 **D5. Suppression.** At consume time, from the recipient's cached `graph.Snapshot`: actor in `Blocked` (recipient
 blocks actor), in `Muted`, or in `BlockedBy` (actor blocks recipient) => no notification and no push. Self => none.
@@ -86,7 +92,11 @@ Matrix test in the plan (T10).
 **D6. Push payload.** FCM `data` only: `type`, `notificationId`, `postId`, `actorId`, a generic localized
 title/body chosen by type ("New follower", "You were mentioned", ...). **No post text, no handle in the body of the
 lock-screen notification**. Android channel `social`, iOS `apns-priority 5`. The app deep-links to `/post/:id` or the
-actor's profile. A send error `UNREGISTERED`/`INVALID_ARGUMENT` for the token deletes that device and its index doc.
+actor's profile. A send error `UNREGISTERED` or `SENDER_ID_MISMATCH` for the token deletes that device and its
+index doc (only if the stored token still matches). `INVALID_ARGUMENT` does **not** prune: it can be our payload or
+project misconfiguration, and pruning on it would silently delete every user's device. It is logged as
+`notification_push_failed` with the redacted FCM error code (never the error text or the token) and the device is
+kept.
 
 **D7. Flag.** `FEATURE_NOTIFICATIONS` (wire name `notifications`, default off) gates the four RPCs and the producers
 (`Emit` is a no-op, 0 publishes, when the flag is off for the recipient) and the handler (acknowledges and drops).
@@ -117,7 +127,13 @@ on post delete.
 - If the Pub/Sub publish fails the producer logs and drops the event (best effort; a lost notification is preferable
   to failing a follow or a post).
 - Clock skew between instances is bounded by the 5 s settle window of `since_token`.
-- Right-to-delete residue is nil for notifications (D10 step 3) apart from the 14-day backup window.
+- Right-to-delete residue for notifications is **small but not nil**. The fan-out evicts the actor and recipients
+  from the profile cache and re-reads them before writing, so a row is only written for an account that is ACTIVE
+  at that read (cost: up to 1 + R reads per delivery, typically 2; R = recipients <= 10). The remaining race is the
+  milliseconds between that read and the `Create` against a purge that has already swept the same subtree: such a
+  row (and an orphan row under a just-deleted recipient) lives until its 90-day TTL and the 14-day backup window.
+  The account-lifecycle backstop keys on `users/{uid}`, which is deleted last and so is already gone by then; a
+  re-run of step 3 is therefore not available without a new data model, and this ADR accepts the window.
 - The producer's flag and publish happen after commit, outside the transaction and its read budget.
 
 ## Handoff
@@ -125,8 +141,9 @@ on post delete.
 - frontend-developer: notifications tab, badge, permission flow, `firebase_messaging` behind the flag.
 - production-deployer: Terraform `FEATURE_NOTIFICATIONS*` variables (default off), `NOTIFICATIONS_TOPIC`, the `api`
   service account's publish permission on `notifications-fanout` (`api_publish_topics`), the FCM send permission
-  (`roles/firebasecloudmessaging.admin` is NOT needed: the Admin SDK uses the default service account's FCM API
-  access; confirm on dev), the new Firestore index override. No prod apply.
+  (see the 2026-10-13 amendment: the runtime SA needs the custom role `fcmSend` with
+  `cloudmessaging.messages.create`, and `fcm.googleapis.com` must be enabled; `roles/firebasecloudmessaging.admin`
+  is too broad), the new Firestore index override. No prod apply.
 - security-auditor: token handling, push payload, handler OIDC, cross-user token transfer.
 
 ## Amendment 2026-10-11 (implementation, P6 backend PR)
@@ -150,4 +167,30 @@ on post delete.
 - **Status.** The flag stays off everywhere. Terraform: variables `feature_notifications*` (default `off`) and the env
   vars are declared in both environments, and `notifications-fanout` joins `runtime_publisher_topics` (an IAM binding on
   an existing topic, no new resource, no fixed cost). Nothing was applied.
+
+## Amendment 2026-10-13 (review fixes, P6 backend PR)
+- **FCM permission (corrects the Handoff above).** The Admin SDK sends with the Cloud Run runtime service account's
+  token, and `messages:send` requires `cloudmessaging.messages.create`, which no existing grant carries; the
+  `fcm.googleapis.com` API was not enabled either. Terraform adds the custom role `fcmSend` (that one permission) on the
+  runtime SA (`modules/iam`) and `fcm.googleapis.com` to `modules/project-services`. No fixed cost. Until applied,
+  every push fails with a logged `PERMISSION_DENIED` code and rows keep being written.
+- **D4 amendment.** `actorIds` capped at the last 50 with a running `actorCount` (text in D4).
+- **D6 amendment.** `INVALID_ARGUMENT` no longer prunes (text in D6).
+- **D8 amendment.** `MarkNotificationsSeen` is a no-op returning the cached `seen_at` when that value is younger than
+  10 s, and has its own per-uid daily cap `notification_seen_daily` (default 200/day, `NOTIFICATION_SEEN_CALLS_PER_DAY`):
+  at most 200 writes per uid per day, 1% of the project's 20k/day for a single abusive uid, and 0 for a client that
+  marks seen on every tab focus.
+- **D5 amendment.** Suppression also runs at read time: `ListNotifications` filters rows through the caller's cached
+  graph snapshot (0-1 read). A block or mute made after the row was written takes effect immediately. The page is
+  filtered after the query, so a page can be short or empty; tokens are computed from the scanned rows and the client
+  keeps paging while `next_page_token` is set. The fan-out's block check honors `blockedByOverflow` (the actor's own
+  graph is read, +1 cached read, only for such recipients); the read-time filter does not (it would cost a graph read per
+  distinct actor per page).
+- **Fan-out ordering.** All rows of an event are committed (each with its own commit-time `createdAt`) before the
+  first push, so FCM latency cannot push a row past the 5 s since-token settle window.
+- **D10 amendment.** Step 3 removes the erased user from collapsed rows with `ArrayRemove` and decrements `actorCount`
+  when other actors remain, repointing the displayed `actor` at the newest remaining one (one `GetProfiles` per page of
+  <= 500 rows); a row with no remaining actor, or whose replacement actor is gone, is deleted.
+- **Budgets.** RegisterDevice worst case reads 8 to 9 (the evicted device's index is read so another account's index is
+  never deleted); a collapsed like costs 2 reads and 1 write (Create attempt + fold check), 0 writes on redelivery.
 

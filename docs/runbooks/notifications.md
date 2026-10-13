@@ -12,10 +12,11 @@ written stay readable for 90 days (TTL). `DEGRADED_MODE=readonly` also makes the
 | Symptom | Likely cause | What to do |
 |---|---|---|
 | Dead-letter depth > 0 on `notifications-fanout-dlq` (alert) | A transient Firestore failure persisted for 5 deliveries, or a bug in the handler | Look at the `notification_delivery_failed` log lines (`message_id`, `delivery_attempt`, redacted `err`). Fix, then replay the DLQ messages: the handler is idempotent (deterministic ids), so replay never double-notifies |
-| Users report no push but the list shows rows | No registered device, token pruned, or the Cloud Run runtime service account cannot send through FCM | Check `notification_push_failed` and `notification_delivery` (`pruned`) counts. The Admin SDK uses the default credentials; no extra role is granted in Terraform, confirm on dev. iOS also needs the APNs key uploaded in the Firebase console |
+| Users report no push but the list shows rows | No registered device, token pruned, or the Cloud Run runtime service account cannot send through FCM | Check `notification_push_failed` and `notification_delivery` (`pruned`) counts. Look at `fcm_code` on `notification_push_failed`: `PERMISSION_DENIED` means the runtime service account lacks the custom role `fcmSend` (`cloudmessaging.messages.create`, `modules/iam`) or `fcm.googleapis.com` is not enabled (`modules/project-services`); `INVALID_ARGUMENT` is our payload or project config (the device is kept, never pruned); `UNREGISTERED` / `SENDER_ID_MISMATCH` prune the device. iOS also needs the APNs key uploaded in the Firebase console |
 | A user keeps getting pushes for an account that left the handset | Should not happen: a token registered by a second account is removed from the first (`deviceTokens` index) | Check `deviceTokens/{sha256(token)}`: `uid` must be the newest account. Do not hand-edit; ask the user to sign out and in |
 | Reads spike on `users/*/notifications` | Clients polling without `since_token` | The app must send the `since_token` it was given. Rate limits: 60/min default plus the daily read budget |
-| `notification_devices_daily` limit hits | A client registering on every foreground | RegisterDevice writes nothing when unchanged within 24 h, but each call still reads 2 docs; the client should register once per app start and on token refresh |
+| `notification_seen_daily` limit hits (200/uid/day) | A client calling MarkNotificationsSeen in a loop | Calls inside 10 s of the previous mark are no-ops with 0 writes; the client should mark seen once when the tab is shown |
+| `notification_devices_daily` limit hits | A client registering on every foreground | RegisterDevice writes nothing when unchanged within 24 h, but each call still reads 2 docs (9 worst case when it evicts a sixth device); the client should register once per app start and on token refresh |
 | Publish failures (`notification_publish_failed`) | Pub/Sub outage or the runtime service account is missing `roles/pubsub.publisher` on `notifications-fanout` (`runtime_publisher_topics`) | Producers drop the event and never fail the follow or the post. Fix the binding or wait; lost events are not replayed |
 
 ## Privacy
@@ -23,7 +24,9 @@ written stay readable for 90 days (TTL). `DEGRADED_MODE=readonly` also makes the
   or API responses.
 - A push carries a generic title/body and ids (`type`, `notificationId`, `postId`, `actorId`): no post text, no handle.
 - Account deletion removes the user's devices and token index, their own rows and the rows other users hold about
-  them (`notifications` step, collection-group `array-contains` on `actorIds`). Backups age out after 14 days.
+  them (`notifications` step, collection-group `array-contains` on `actorIds`; collapsed rows keep their other actors
+  and are repointed). A row written by a delivery that raced the purge (milliseconds) outlives it until the 90-day TTL
+  (ADR-0017 Consequences). Backups age out after 14 days.
 
 ## Cost watch
 Per DAU about 11 reads, 7 writes and 6 TTL deletes (plan: `docs/plans/notifications.md`). Scale-up trigger: Firestore
