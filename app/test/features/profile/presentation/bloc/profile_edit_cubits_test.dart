@@ -143,7 +143,9 @@ void main() {
       },
     );
 
-    test('an unexpected error is reported and shown as a generic failure', () async {
+    test(
+      'an unexpected error is reported and shown as a generic failure',
+      () async {
       stubUpdate(() async => throw StateError('boom'));
       cubit.displayNameChanged('New');
 
@@ -152,7 +154,8 @@ void main() {
       expect(reported.single, isA<StateError>());
       expect(cubit.state.error, isA<UnknownApiException>());
       expect(cubit.state.status, EditProfileStatus.editing);
-    });
+      },
+    );
 
     test('an UnknownApiException from the server is reported too', () async {
       stubUpdate(() async => throw const UnknownApiException('weird'));
@@ -212,9 +215,8 @@ void main() {
     void stubCheck(
       Future<identity.CheckHandleAvailabilityResponse> Function(String) a,
     ) {
-      when(
-        () => repo.checkHandleAvailability(any()),
-      ).thenAnswer((i) => a(i.positionalArguments.single as String));
+      when(() => repo.checkHandleAvailability(any()))
+          .thenAnswer((i) => a(i.positionalArguments.single as String));
     }
 
     void stubAvailable() => stubCheck(
@@ -235,7 +237,8 @@ void main() {
     Future<void> typed(String value) {
       final handle = value.trim().toLowerCase().replaceFirst(RegExp('^@'), '');
       final settled = cubit.stream.firstWhere(
-        (s) => s.handle == handle && s.checkStatus != HandleCheckStatus.checking,
+        (s) =>
+            s.handle == handle && s.checkStatus != HandleCheckStatus.checking,
       );
       cubit.handleChanged(value);
       return settled;
@@ -297,15 +300,22 @@ void main() {
       expect(cubit.state.canSave, isTrue);
     });
 
-    test('a generic probe failure is unknown and never shows its message', () async {
-      stubCheck((_) async => throw const UnknownApiException('db is on fire'));
+    test(
+      'a generic probe failure is unknown and never shows its message',
+      () async {
+        stubCheck(
+          (_) async => throw const UnknownApiException('db is on fire'),
+        );
       await typed('new_one');
       expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
       expect(cubit.state.checkMessage, isNot(contains('fire')));
       expect(cubit.state.canSave, isTrue);
-    });
+      },
+    );
 
-    test('after a rate-limited probe, probing stops until retryAfter', () async {
+    test(
+      'after a rate-limited probe, probing stops until retryAfter',
+      () async {
       stubCheck(
         (_) async => throw const RateLimitedException(
           'slow down',
@@ -327,15 +337,19 @@ void main() {
       stubAvailable();
       await typed('third_one');
       expect(cubit.state.checkStatus, HandleCheckStatus.available);
-    });
+      },
+    );
 
-    test('a rate limit without retryAfter stops probing for the screen', () async {
+    test(
+      'a rate limit without retryAfter stops probing for the screen',
+      () async {
       stubCheck((_) async => throw const RateLimitedException('slow down'));
       await typed('first_one');
       now = now.add(const Duration(days: 2));
       await typed('second_one');
       verifyNever(() => repo.checkHandleAvailability('second_one'));
-    });
+      },
+    );
 
     test('only the newest keystroke is checked and shown', () async {
       final first = Completer<identity.CheckHandleAvailabilityResponse>();
@@ -383,12 +397,101 @@ void main() {
       expect(cubit.cooldownLeft, const Duration(days: 3));
       expect(cubit.state.canSave, isFalse);
 
-      // Still locked after another edit; free once the wait passed.
+      // Still locked after another edit (and no availability probe is
+      // spent on it); free once the wait passed.
+      clearInteractions(repo);
       await typed('other_one');
-      expect(cubit.state.checkStatus, HandleCheckStatus.available);
+      expect(cubit.state.checkStatus, HandleCheckStatus.idle);
       expect(cubit.state.canSave, isFalse);
+      verifyNever(() => repo.checkHandleAvailability(any()));
       now = now.add(const Duration(days: 3, minutes: 1));
       await typed('third_one');
+      expect(cubit.state.cooldownUntil, isNull);
+      expect(cubit.state.canSave, isTrue);
+    });
+
+    test(
+      'Save re-enables when the cooldown ends, without another edit',
+      () async {
+        stubAvailable();
+        stubChange(
+          () async => throw const QuotaExceededException(
+            'daily limit',
+            quota: 'posts',
+            retryAfter: Duration(milliseconds: 30),
+          ),
+        );
+        await typed('new_one');
+        await cubit.save();
+        expect(cubit.state.cooldownUntil, isNotNull);
+        expect(cubit.state.canSave, isFalse);
+
+        now = now.add(const Duration(seconds: 1));
+        final freed = await cubit.stream.firstWhere(
+          (s) => s.cooldownUntil == null,
+        );
+
+        expect(freed.canSave, isTrue);
+        expect(freed.handle, 'new_one');
+      },
+    );
+
+    test('an edit made during the lockout is checked when it ends', () async {
+      stubAvailable();
+      stubChange(
+        () async => throw const QuotaExceededException(
+          'daily limit',
+          quota: 'posts',
+          retryAfter: Duration(milliseconds: 150),
+        ),
+      );
+      await typed('new_one');
+      await cubit.save();
+      clearInteractions(repo);
+
+      await typed('other_one');
+      expect(cubit.state.checkStatus, HandleCheckStatus.idle);
+      verifyNever(() => repo.checkHandleAvailability(any()));
+
+      final freed = await cubit.stream.firstWhere(
+        (s) =>
+            s.cooldownUntil == null &&
+            s.checkStatus == HandleCheckStatus.available,
+      );
+      expect(freed.handle, 'other_one');
+      expect(freed.canSave, isTrue);
+      verify(() => repo.checkHandleAvailability('other_one')).called(1);
+    });
+
+    test('while locked, save() sends nothing', () async {
+      stubAvailable();
+      stubChange(
+        () async => throw const LimitReachedException(
+          'once every 7 days',
+          quota: 'handle_change',
+          retryAfter: Duration(days: 3),
+        ),
+      );
+      await typed('new_one');
+      await cubit.save();
+      clearInteractions(repo);
+
+      await cubit.save();
+
+      verifyNever(
+        () => repo.changeHandle(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          newHandle: any(named: 'newHandle'),
+        ),
+      );
+    });
+
+    test('a bare RESOURCE_EXHAUSTED does not lock Save', () async {
+      stubAvailable();
+      stubChange(() async => throw const QuotaExceededException('throttled'));
+      await typed('new_one');
+      await cubit.save();
+      expect(cubit.state.error, isA<QuotaExceededException>());
       expect(cubit.state.cooldownUntil, isNull);
       expect(cubit.state.canSave, isTrue);
     });
@@ -441,7 +544,9 @@ void main() {
       expect(cubit.state.canSave, isFalse);
     });
 
-    test('an unexpected error is reported and shown as a generic failure', () async {
+    test(
+      'an unexpected error is reported and shown as a generic failure',
+      () async {
       stubAvailable();
       stubChange(() async => throw StateError('boom'));
       await typed('new_one');
@@ -451,7 +556,8 @@ void main() {
       expect(reported.single, isA<StateError>());
       expect(cubit.state.error, isA<UnknownApiException>());
       expect(cubit.state.status, ChangeHandleStatus.editing);
-    });
+      },
+    );
 
     test('an UnknownApiException from the server is reported too', () async {
       stubAvailable();
@@ -464,12 +570,15 @@ void main() {
       expect(cubit.state.error, isA<UnknownApiException>());
     });
 
-    test('an unexpected probe error is reported and leaves Save possible', () async {
+    test(
+      'an unexpected probe error is reported and leaves Save possible',
+      () async {
       stubCheck((_) async => throw StateError('boom'));
       await typed('new_one');
 
       expect(reported.single, isA<StateError>());
       expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
-    });
+      },
+    );
   });
 }

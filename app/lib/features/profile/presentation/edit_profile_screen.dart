@@ -131,6 +131,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
           canPop: !cubit.hasChanges || state.status == EditProfileStatus.saved,
           onPopInvokedWithResult: (didPop, _) async {
             if (didPop) return;
+            // A save in flight cannot be discarded: leaving now would drop
+            // the answer (and the profile update it carries) unseen.
+            if (cubit.state.isSaving) return;
             if (await _confirmDiscard(context) && context.mounted) {
               _leave(context);
             }

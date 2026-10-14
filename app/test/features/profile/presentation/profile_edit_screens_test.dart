@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
-import 'package:dzeroth/app/session_wiring.dart'
-    show UnexpectedErrorReporter;
+import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -175,6 +174,32 @@ void main() {
       ).called(1);
     });
 
+    testWidgets('back while saving does not offer to discard; the save lands', (
+      tester,
+    ) async {
+      final done = Completer<identity.Profile>();
+      stubUpdate(() => done.future);
+      await open(tester, '/settings/profile');
+      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pump(
+        const Duration(milliseconds: 500),
+      ); // spinner: no settle
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(find.text('Edit profile'), findsOneWidget);
+
+      done.complete(_profile(name: 'Kaif S'));
+      await tester.pumpAndSettle();
+      expect(find.text('settings'), findsOneWidget);
+      verify(
+        () => onboardingBloc.add(any(that: isA<OnboardingProfileUpdated>())),
+      ).called(1);
+    });
+
     testWidgets('an empty name shows an error and keeps Save off', (
       tester,
     ) async {
@@ -246,10 +271,10 @@ void main() {
       expect(find.textContaining('or try again in 6 hours.'), findsOneWidget);
     });
 
-    testWidgets('counters are announced as characters remaining, and an unexpected '
-        'error is reported', (
-      tester,
-    ) async {
+    testWidgets(
+      'counters are announced as characters remaining, and an unexpected '
+      'error is reported',
+      (tester) async {
       final semantics = tester.ensureSemantics();
       stubUpdate(() async => throw StateError('boom'));
       await open(tester, '/settings/profile');
@@ -259,11 +284,17 @@ void main() {
           .label;
       expect(label('Kaif'), contains('Characters remaining: 46'));
       expect(label('hello there'), contains('Characters remaining: 149'));
-      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'a' * 51);
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Kaif'),
+          'a' * 51,
+        );
       await tester.pump();
       expect(label('a' * 51), contains('Characters over the limit: 1'));
 
-      await tester.enterText(find.widgetWithText(TextField, 'a' * 51), 'Kaif S');
+        await tester.enterText(
+          find.widgetWithText(TextField, 'a' * 51),
+          'Kaif S',
+        );
       await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
@@ -274,7 +305,8 @@ void main() {
         findsOneWidget,
       );
       semantics.dispose();
-    });
+      },
+    );
 
     testWidgets('the saving spinner has a semantics label', (tester) async {
       final semantics = tester.ensureSemantics();
@@ -519,9 +551,7 @@ void main() {
       expect(change(tester).onPressed, isNull);
     });
 
-    testWidgets('an unexpected error while saving is reported', (
-      tester,
-    ) async {
+    testWidgets('an unexpected error while saving is reported', (tester) async {
       stubCheck(true);
       when(
         () => repo.changeHandle(

@@ -76,6 +76,7 @@ class ChangeHandleState {
     bool clearError = false,
     identity.Profile? saved,
     DateTime? cooldownUntil,
+    bool clearCooldown = false,
   }) => ChangeHandleState(
     handle: handle ?? this.handle,
     checkStatus: checkStatus ?? this.checkStatus,
@@ -83,7 +84,7 @@ class ChangeHandleState {
     status: status ?? this.status,
     error: clearError ? null : (error ?? this.error),
     saved: saved ?? this.saved,
-    cooldownUntil: cooldownUntil ?? this.cooldownUntil,
+    cooldownUntil: clearCooldown ? null : (cooldownUntil ?? this.cooldownUntil),
   );
 }
 
@@ -117,6 +118,9 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Map<String, String> _keys = {};
   Timer? _timer;
+
+  /// Fires when the lockout ends so Save re-enables without another edit.
+  Timer? _cooldownTimer;
 
   /// After one RATE_LIMITED probe answer the probe is not asked again until
   /// its `retryAfter` passed (the rest of the screen when the server gave
@@ -164,6 +168,12 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
       emit(next(HandleCheckStatus.unavailable, issue));
       return;
     }
+    if (cooldown != null) {
+      // Save cannot succeed until the lockout ends, so asking the server
+      // whether the handle is free would only spend a read.
+      emit(next(HandleCheckStatus.idle));
+      return;
+    }
     if (_probesPaused) {
       emit(next(HandleCheckStatus.unknown, _pausedMessage));
       return;
@@ -209,7 +219,7 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
   }
 
   Future<void> save() async {
-    if (!state.canSave) return;
+    if (_activeCooldown != null || !state.canSave) return;
     final handle = state.handle;
     final key = _keys.putIfAbsent(handle, _uuid.v4);
     emit(state.copyWith(status: ChangeHandleStatus.saving, clearError: true));
@@ -234,13 +244,15 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     } on AppException catch (e, stack) {
       if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
       if (isClosed) return;
+      final lockout = _lockoutFor(e);
       emit(
         state.copyWith(
           status: ChangeHandleStatus.editing,
           error: e,
-          cooldownUntil: _lockoutFor(e),
+          cooldownUntil: lockout,
         ),
       );
+      if (lockout != null) _scheduleCooldownEnd(lockout);
     } catch (error, stack) {
       _onUnexpectedError?.call(error, stack);
       if (isClosed) return;
@@ -259,12 +271,27 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     final Duration wait;
     if (e is LimitReachedException && e.quota == kHandleChangeQuota) {
       wait = e.retryAfter ?? kHandleCooldown;
-    } else if (e is QuotaExceededException) {
+    } else if (e is QuotaExceededException &&
+        (e.quota != null || e.retryAfter != null)) {
+      // A bare RESOURCE_EXHAUSTED (no ErrorDetail: an infrastructure
+      // throttle) names no quota and says nothing about a day: retryable.
       wait = e.retryAfter ?? kDailyQuotaLockout;
     } else {
       return null;
     }
     return _clock().add(wait);
+  }
+
+  void _scheduleCooldownEnd(DateTime until) {
+    _cooldownTimer?.cancel();
+    final wait = until.difference(_clock());
+    _cooldownTimer = Timer(wait.isNegative ? Duration.zero : wait, () {
+      if (isClosed || state.cooldownUntil == null) return;
+      emit(state.copyWith(clearCooldown: true));
+      // Edits made during the lockout were not probed: check the handle now.
+      final handle = state.handle;
+      if (handle.isNotEmpty && !state.isSaving) handleChanged(handle);
+    });
   }
 
   void errorShown() {
@@ -274,6 +301,7 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
   @override
   Future<void> close() {
     _timer?.cancel();
+    _cooldownTimer?.cancel();
     return super.close();
   }
 }
