@@ -377,9 +377,9 @@ type Checkpoint struct {
 	// Phase is 0 while the user's own posts are being deleted and 1 while the copies of the user's content that
 	// live in other users' REPOST and QUOTE docs are removed (ADR-0018 D14). A checkpoint written before P5
 	// decodes as phase 0.
-	Phase int
+	Phase int `json:"Phase,omitempty"`
 	// Copies counts REPOST docs removed and QUOTE embeds tombstoned in phase 1.
-	Copies int
+	Copies int `json:"Copies,omitempty"`
 }
 
 // Eraser is the delete-cascade building block (ADR-0010 D19 Q-E), used by opsctl purge-posts now and later the

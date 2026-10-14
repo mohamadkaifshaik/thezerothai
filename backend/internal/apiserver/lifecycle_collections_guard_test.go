@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
@@ -80,9 +81,11 @@ var lifecycleCollections = []collectionRow{
 
 	// Declared in ADR-0003, no code yet.
 	{Name: "followRequests", Disposition: pendingEraser, Owner: "graph (private accounts, later ADR)", Cite: "ADR-0003 data model"},
-	{Name: "likes", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
-	{Name: "reposts", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
-	{Name: "userLikes", Disposition: pendingEraser, Owner: "engagement (P5)", Cite: "ADR-0003 data model, ADR-0011 Q1"},
+	// P5 (ADR-0018 D7): one `engagement` step erases the user's likes and reposts (each with its post's counter) and
+	// userLikes/{uid}; the posts step also removes the copies of the user's content inside other users' docs.
+	{Name: "likes", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
+	{Name: "reposts", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
+	{Name: "userLikes", Disposition: erasedByStep, Step: "engagement", ExportNote: "a cache of the likes and reposts sections (post ids only)", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
 	{Name: "media", Disposition: erasedByStep, Step: "media", Section: "media", Owner: "media", Cite: "ADR-0005, ADR-0011 Q1 (P4 media Eraser: objects first, then documents)"},
 	{Name: "reports", Disposition: erasedByStep, Step: "reports", Section: "reports", Owner: "moderation (P7)", Cite: "ADR-0016 D5 (reporterId cleared; reports about the user kept until resolved + 90 d), ADR-0011 Q1"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
@@ -260,6 +263,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil), media.NewPurger(nil, nil, ""), notifications.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerEngagementLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
 	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -301,9 +307,9 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 		want string
 	}{
 		{"new collection constant without a row", append(slices.Clone(real), collectionRef{"bookmarks", "bookmarksCollection at x.go:1"}), lifecycleCollections, `"bookmarks"`},
-		{"row names an unregistered step", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "likes2", Disposition: erasedByStep, Step: "engagement", ExportNote: "n", Owner: "o", Cite: "c"}), `step "engagement" is not registered`},
+		{"row names an unregistered step", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "likes2", Disposition: erasedByStep, Step: "engagement2", ExportNote: "n", Owner: "o", Cite: "c"}), `step "engagement2" is not registered`},
 		{"row names an unregistered section", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "x", Disposition: erasedByStep, Step: "graph", Section: "likes", Owner: "o", Cite: "c"}), `export section "likes" is not registered`},
-		{"pending row for a collection the code writes", []collectionRef{{"likes", "likesCollection at m.go:1"}}, lifecycleCollections, `still pendingEraser`},
+		{"pending row for a collection the code writes", []collectionRef{{"followRequests", "followRequestsCollection at m.go:1"}}, lifecycleCollections, `still pendingEraser`},
 		{"row without a citation", nil, []collectionRow{{Name: "x", Disposition: notPersonal, Owner: "o"}}, `no Owner/Cite`},
 		{"row without a disposition", nil, []collectionRow{{Name: "x", Owner: "o", Cite: "c"}}, `no disposition`},
 	}

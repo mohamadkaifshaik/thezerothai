@@ -19,6 +19,7 @@ import (
 	"connectrpc.com/connect"
 	firebase "firebase.google.com/go/v4"
 
+	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
@@ -26,6 +27,7 @@ import (
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
@@ -233,9 +235,29 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
 		CursorKey:             cfg.CursorHMACKey,
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
-	postsServer := posts.NewServer(postsSvc, featureFlags)
+
+	// engagement (P5, ADR-0018): likes and reposts behind FEATURE_ENGAGEMENT. posts and engagement need each
+	// other (engagement drives posts' counters and clean-up, DeletePost releases through engagement's reposts
+	// links), so the links are bound here, once, synchronously, before ListenAndServe.
+	engagementRepo := engagement.NewFirestoreRepo(fsClient, engagement.WriteDeps{
+		Quotas: quota.New(fsClient), Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
+	})
+	engagementMod, err := engagement.New(engagement.Deps{
+		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
+		Events:      engagementNotifier{slot: notifSlot},
+		LikesPerDay: int64(cfg.Quota.LikesPerDay), NewAccountLikesPerDay: int64(cfg.Quota.NewAccountLikesPerDay),
+		PostsPerDay: int64(cfg.Quota.PostsPerDay), NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
+		NewAccountWindow: cfg.Quota.NewAccountWindow, CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("engagement: %w", err)
+	}
+	postsRepo.SetRepostLinks(engagementMod)
+	postsSvc.(interface{ SetRepostLinks(posts.RepostLinks) }).SetRepostLinks(engagementMod)
+	engagementServer := engagement.NewServer(engagementMod, featureFlags)
+	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod))
 	timelineServer := timeline.NewServer(timeline.Deps{
-		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory),
+		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	})
 
@@ -258,6 +280,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger, notifRepo); err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
 	}
+	if err := registerEngagementLifecycle(lifecycle, engagementRepo); err != nil {
+		return nil, nil, fmt.Errorf("engagement lifecycle registry: %w", err)
+	}
 	// moderation (ADR-0016, P7): ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
 	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
@@ -272,15 +297,20 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		AllowAnonymous:          cfg.AuthEmulator,
 	})
 	moderationServer := moderation.NewServer(moderationSvc, featureFlags)
-	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, mediaMod.jobs); err != nil {
-		return nil, nil, fmt.Errorf("media job handler: %w", err)
+	// post_delete (P4 media, P5 engagement; ADR-0018 D10): one message, one composite handler.
+	postDeleteJob := postDeleteChain{
+		media: mediaMod.jobs,
+		eng:   engagement.NewJobs(engagementRepo, postsRepo, postGone{postsRepo}, jobsPublisher),
+	}
+	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
+		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)
 	}
 	identityServer := identity.NewServer(identitySvc,
 		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// engagement, search, admin are not implemented yet; their Connect servers are not registered.
+	// search and admin are not implemented yet; their Connect servers are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -332,6 +362,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(timelinePath, timelineHandler)
+
+	engagementPath, engagementHandler := engagementv1connect.NewEngagementServiceHandler(engagementServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(engagementPath, engagementHandler)
 
 	moderationPath, moderationHandler := moderationv1connect.NewModerationServiceHandler(moderationServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(moderationPath, moderationHandler)
