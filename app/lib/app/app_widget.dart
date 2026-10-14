@@ -11,8 +11,14 @@ import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/graph/data/graph_repository.dart';
+import '../features/moderation/data/moderation_repository.dart';
+import '../features/notifications/data/notifications_repository.dart';
+import '../features/notifications/domain/notifications_feature_flag.dart';
+import '../features/notifications/presentation/bloc/push_cubit.dart';
+import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
@@ -34,6 +40,10 @@ class AppWidget extends StatefulWidget {
     required this.postsRepository,
     required this.timelineRepository,
     required this.postsGate,
+    required this.notificationsRepository,
+    required this.moderationRepository,
+    required this.pushCubit,
+    required this.unreadBadgeCubit,
   });
 
   final AuthBloc authBloc;
@@ -46,6 +56,15 @@ class AppWidget extends StatefulWidget {
   final PostsRepository postsRepository;
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
+  final NotificationsRepository notificationsRepository;
+  final ModerationRepository moderationRepository;
+
+  /// Push registration and tap handling (P6); built in bootstrap so the
+  /// sign-out hook can unregister the device before the token is dropped.
+  final PushCubit pushCubit;
+
+  /// The unread badge, seeded from `GetMe` (P6).
+  final UnreadBadgeCubit unreadBadgeCubit;
 
   @override
   State<AppWidget> createState() => _AppWidgetState();
@@ -55,18 +74,42 @@ class _AppWidgetState extends State<AppWidget> {
   // Optimistic posts live for the session only (T16); sign-out drops them.
   final PendingPostsCubit _pendingPosts = PendingPostsCubit();
   late final StreamSubscription<AuthState> _authSub;
+  late final StreamSubscription<OnboardingState> _onboardingSub;
+  Set<String>? _lastFeatures;
 
   @override
   void initState() {
     super.initState();
     _authSub = widget.authBloc.stream.listen((state) {
-      if (state.status == AuthStatus.unauthenticated) _pendingPosts.clear();
+      if (state.status == AuthStatus.unauthenticated) {
+        _pendingPosts.clear();
+        widget.unreadBadgeCubit.seed(0);
+        _lastFeatures = null;
+        unawaited(widget.pushCubit.stop());
+      }
     });
+    widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
+    // Every fresh GetMe (a new flag-set instance) seeds the badge, and
+    // starts push once the notifications flag is on. Never a GetMe of its
+    // own: the badge costs 0 extra reads.
+    _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
+    _onOnboarding(widget.onboardingBloc.state);
+  }
+
+  void _onOnboarding(OnboardingState state) {
+    if (state.status != OnboardingStatus.ready) return;
+    if (identical(_lastFeatures, state.enabledFeatures)) return;
+    _lastFeatures = state.enabledFeatures;
+    if (state.enabledFeatures.contains(kFeatureNotifications)) {
+      widget.unreadBadgeCubit.seed(state.unreadNotificationCount);
+      unawaited(widget.pushCubit.start());
+    }
   }
 
   @override
   void dispose() {
     _authSub.cancel();
+    _onboardingSub.cancel();
     _pendingPosts.close();
     super.dispose();
   }
@@ -90,12 +133,16 @@ class _AppWidgetState extends State<AppWidget> {
         ),
         RepositoryProvider.value(value: widget.postsRepository),
         RepositoryProvider.value(value: widget.timelineRepository),
+        RepositoryProvider.value(value: widget.notificationsRepository),
+        RepositoryProvider.value(value: widget.moderationRepository),
       ],
       child: MultiBlocProvider(
         providers: [
           BlocProvider.value(value: widget.authBloc),
           BlocProvider.value(value: widget.onboardingBloc),
           BlocProvider.value(value: _pendingPosts),
+          BlocProvider.value(value: widget.pushCubit),
+          BlocProvider.value(value: widget.unreadBadgeCubit),
         ],
         child: MaterialApp.router(
           title: 'dZeroth',

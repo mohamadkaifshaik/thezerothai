@@ -17,6 +17,7 @@ import '../../../shared/widgets/pending_posts_section.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../graph/domain/graph_feature_flag.dart';
+import '../../moderation/domain/reports_feature_flag.dart';
 import 'bloc/timeline_cubit.dart';
 import 'bloc/timeline_state.dart';
 import 'timeline_error_messages.dart';
@@ -162,6 +163,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   Widget build(BuildContext context) {
     final cubit = context.read<TimelineCubit>();
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
+    final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     return LayoutBuilder(
       builder: (context, constraints) {
         // Cap the content width on tablet/desktop, centered.
@@ -198,7 +200,14 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                             ),
                           ),
                         ),
-                      ..._body(context, cubit, state, inset, graphEnabled),
+                      ..._body(
+                        context,
+                        cubit,
+                        state,
+                        inset,
+                        graphEnabled,
+                        reportsEnabled,
+                      ),
                     ],
                   ),
                 ),
@@ -233,6 +242,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     TimelineState state,
     double inset,
     bool graphEnabled,
+    bool reportsEnabled,
   ) {
     if (state.entries.isEmpty) {
       final Widget child;
@@ -285,6 +295,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                     viewerUserId: widget.viewerUserId,
                     now: _now,
                     graphActionsEnabled: graphEnabled,
+                    reportsEnabled: reportsEnabled,
                     onDelete: cubit.deletePost,
                     onRelationshipChanged: (r) => _onRelationship(cubit, r),
                   ),

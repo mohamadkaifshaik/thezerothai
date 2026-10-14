@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/notifications/domain/notifications_feature_flag.dart';
+import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../feature_flags/feature_flags.dart';
@@ -17,28 +19,51 @@ class MainShell extends StatelessWidget {
   final String location;
   final Widget child;
 
-  static const _destinations = [
-    AppNavDestination(
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home,
-      label: 'Home',
+  /// The top-level destinations, in order. Notifications sits second and
+  /// exists only with the `notifications` flag on (P6).
+  static List<_Destination> _destinationsFor({required bool notifications}) => [
+    const _Destination(
+      _Tab.home,
+      AppNavDestination(
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: 'Home',
+      ),
     ),
-    AppNavDestination(
-      icon: Icons.person_outline,
-      selectedIcon: Icons.person,
-      label: 'Profile',
+    if (notifications)
+      const _Destination(
+        _Tab.notifications,
+        AppNavDestination(
+          icon: Icons.notifications_none,
+          selectedIcon: Icons.notifications,
+          label: 'Notifications',
+        ),
+      ),
+    const _Destination(
+      _Tab.profile,
+      AppNavDestination(
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: 'Profile',
+      ),
     ),
-    AppNavDestination(
-      icon: Icons.settings_outlined,
-      selectedIcon: Icons.settings,
-      label: 'Settings',
+    const _Destination(
+      _Tab.settings,
+      AppNavDestination(
+        icon: Icons.settings_outlined,
+        selectedIcon: Icons.settings,
+        label: 'Settings',
+      ),
     ),
   ];
 
-  int get _selectedIndex {
-    if (location.startsWith('/profile') || location.startsWith('/u/')) return 1;
-    if (location.startsWith('/settings')) return 2;
-    return 0;
+  _Tab get _selectedTab {
+    if (location.startsWith('/notifications')) return _Tab.notifications;
+    if (location.startsWith('/profile') || location.startsWith('/u/')) {
+      return _Tab.profile;
+    }
+    if (location.startsWith('/settings')) return _Tab.settings;
+    return _Tab.home;
   }
 
   @override
@@ -53,8 +78,32 @@ class MainShell extends StatelessWidget {
         isFeatureEnabled(context, kFeaturePosts) &&
         !location.startsWith('/settings');
 
+    final notificationsEnabled = isFeatureEnabled(
+      context,
+      kFeatureNotifications,
+    );
+    // The badge cubit is read only when the tab exists.
+    final unread = notificationsEnabled
+        ? context.select((UnreadBadgeCubit cubit) => cubit.state)
+        : 0;
+    final tabs = _destinationsFor(notifications: notificationsEnabled);
+    final selectedIndex = tabs.indexWhere((t) => t.tab == _selectedTab);
+    final destinations = [
+      for (final t in tabs)
+        if (t.tab == _Tab.notifications && unread > 0)
+          AppNavDestination(
+            icon: t.destination.icon,
+            selectedIcon: t.destination.selectedIcon,
+            label: t.destination.label,
+            badgeLabel: unreadBadgeLabel(unread),
+            badgeSemanticLabel: '${unreadBadgeLabel(unread)} unread',
+          )
+        else
+          t.destination,
+    ];
+
     return ResponsiveScaffold(
-      selectedIndex: _selectedIndex,
+      selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
       floatingActionButton: canCompose
           ? FloatingActionButton(
               tooltip: 'New post',
@@ -62,22 +111,32 @@ class MainShell extends StatelessWidget {
               child: const Icon(Icons.edit_outlined),
             )
           : null,
-      destinations: _destinations,
+      destinations: destinations,
       onDestinationSelected: (index) {
-        switch (index) {
-          case 0:
+        switch (tabs[index].tab) {
+          case _Tab.home:
             context.go('/home');
-          case 1:
+          case _Tab.notifications:
+            context.go(AppRouter.notificationsPath);
+          case _Tab.profile:
             context.go(
               ownHandle == null || ownHandle.isEmpty
                   ? '/home'
                   : '/profile/$ownHandle',
             );
-          case 2:
+          case _Tab.settings:
             context.go('/settings');
         }
       },
       body: child,
     );
   }
+}
+
+enum _Tab { home, notifications, profile, settings }
+
+class _Destination {
+  const _Destination(this.tab, this.destination);
+  final _Tab tab;
+  final AppNavDestination destination;
 }

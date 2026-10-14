@@ -9,9 +9,12 @@ import '../../core/theme/app_theme.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/graph_error_messages.dart';
+import '../../features/moderation/presentation/report_sheet.dart';
 import '../../features/posts/domain/post_text_parser.dart';
 import '../../features/profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
+    show ReportTargetType;
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../format/relative_time.dart';
 import 'app_avatar.dart';
@@ -57,6 +60,7 @@ class PostCard extends StatelessWidget {
     this.viewerUserId,
     this.now,
     this.graphActionsEnabled = true,
+    this.reportsEnabled = false,
     this.onDelete,
     this.onOpenProfile,
     this.onOpenLink,
@@ -87,6 +91,10 @@ class PostCard extends StatelessWidget {
 
   /// Whether the `graph` flag is on, i.e. Block/Mute may be offered.
   final bool graphActionsEnabled;
+
+  /// Whether the `reports` flag is on, i.e. "Report post" may be offered on
+  /// other people's posts (ADR-0016). Off by default: a screen opts in.
+  final bool reportsEnabled;
 
   /// Deletes a post after the user confirmed. Null hides Delete. A thrown
   /// error is reported with a snackbar.
@@ -219,6 +227,7 @@ class PostCard extends StatelessWidget {
                       post: _post,
                       isOwn: _isOwn,
                       graphActionsEnabled: graphActionsEnabled,
+                      reportsEnabled: reportsEnabled,
                       onDelete: onDelete,
                       onRelationshipChanged: onRelationshipChanged,
                     ),
@@ -444,7 +453,7 @@ class _PostRichTextState extends State<PostRichText> {
   }
 }
 
-enum _MenuAction { delete, block, mute }
+enum _MenuAction { delete, block, mute, report }
 
 /// Closes [cubit] now, or once its in-flight Block/Mute settles, so the
 /// awaiting `_run` still sees the real outcome (never an optimistic state).
@@ -467,6 +476,7 @@ class _PostMenu extends StatefulWidget {
     required this.post,
     required this.isOwn,
     required this.graphActionsEnabled,
+    required this.reportsEnabled,
     required this.onDelete,
     required this.onRelationshipChanged,
   });
@@ -474,6 +484,7 @@ class _PostMenu extends StatefulWidget {
   final pb.Post post;
   final bool isOwn;
   final bool graphActionsEnabled;
+  final bool reportsEnabled;
   final Future<void> Function(String postId)? onDelete;
   final ValueChanged<graph.Relationship>? onRelationshipChanged;
 
@@ -516,7 +527,12 @@ class _PostMenuState extends State<_PostMenu> {
         !widget.isOwn &&
         widget.graphActionsEnabled &&
         widget.post.author.userId.isNotEmpty;
-    if (!canDelete && !canGraph) return const SizedBox.shrink();
+    final canReport =
+        !widget.isOwn &&
+        widget.reportsEnabled &&
+        widget.post.author.userId.isNotEmpty &&
+        widget.post.postId.isNotEmpty;
+    if (!canDelete && !canGraph && !canReport) return const SizedBox.shrink();
 
     return PopupMenuButton<_MenuAction>(
       tooltip: 'More options',
@@ -536,6 +552,11 @@ class _PostMenuState extends State<_PostMenu> {
             const PopupMenuItem(
               value: _MenuAction.delete,
               child: Text('Delete'),
+            ),
+          if (canReport)
+            const PopupMenuItem(
+              value: _MenuAction.report,
+              child: Text('Report post'),
             ),
           if (relationship != null) ...[
             PopupMenuItem(
@@ -561,15 +582,9 @@ class _PostMenuState extends State<_PostMenu> {
       case _MenuAction.delete:
         await _delete(context);
       case _MenuAction.block:
-        final cubit = _cubitFor(context);
-        if (cubit.state.relationship.blocking) {
-          await _run(context, cubit.unblock, 'Unblocked');
-        } else {
-          final confirmed = await showBlockConfirmationDialog(context);
-          if (confirmed && context.mounted) {
-            await _run(context, cubit.block, 'Blocked');
-          }
-        }
+        await _blockFlow(context);
+      case _MenuAction.report:
+        await _report(context);
       case _MenuAction.mute:
         final cubit = _cubitFor(context);
         if (cubit.state.relationship.muting) {
@@ -577,6 +592,37 @@ class _PostMenuState extends State<_PostMenu> {
         } else {
           await _run(context, cubit.mute, 'Muted');
         }
+    }
+  }
+
+  Future<void> _blockFlow(BuildContext context) async {
+    final cubit = _cubitFor(context);
+    if (cubit.state.relationship.blocking) {
+      await _run(context, cubit.unblock, 'Unblocked');
+    } else {
+      final confirmed = await showBlockConfirmationDialog(context);
+      if (confirmed && context.mounted) {
+        await _run(context, cubit.block, 'Blocked');
+      }
+    }
+  }
+
+  /// Report sheet; after a successful report it can hand over to the same
+  /// block flow as the menu's Block item (confirmation included).
+  Future<void> _report(BuildContext context) async {
+    final handle = widget.post.author.handle;
+    final canBlock =
+        widget.graphActionsEnabled &&
+        !_cubitFor(context).state.relationship.blocking;
+    final outcome = await showReportSheet(
+      context,
+      targetType: ReportTargetType.REPORT_TARGET_TYPE_POST,
+      targetId: widget.post.postId,
+      subject: "@$handle's post",
+      blockLabel: canBlock ? 'Block @$handle' : null,
+    );
+    if (outcome == ReportOutcome.blockRequested && context.mounted) {
+      await _blockFlow(context);
     }
   }
 

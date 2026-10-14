@@ -8,13 +8,19 @@ import '../../domain/auth_failure.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
 
+/// How long sign-out waits for the `beforeSignOut` hook.
+const kBeforeSignOutTimeout = Duration(seconds: 3);
+
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Provider configuration (Google web client id, Apple service id and
   /// redirect URI) lives on [AuthRepository], the single source shared with
   /// re-authentication.
-  AuthBloc({required AuthRepository authRepository})
-    : _authRepository = authRepository,
-      super(const AuthState()) {
+  AuthBloc({
+    required AuthRepository authRepository,
+    Future<void> Function()? beforeSignOut,
+  }) : _authRepository = authRepository,
+       _beforeSignOut = beforeSignOut,
+       super(const AuthState()) {
     on<AuthSubscriptionRequested>(_onSubscriptionRequested);
     on<AuthUserChanged>(_onUserChanged);
     on<AuthEmailSignUpRequested>(_onEmailSignUpRequested);
@@ -30,6 +36,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   final AuthRepository _authRepository;
+
+  /// Best-effort work that needs the ID token (unregistering the push
+  /// device, ADR-0017), run before the Firebase sign-out. Bounded by
+  /// [kBeforeSignOutTimeout]; a failure or a timeout never blocks sign-out.
+  final Future<void> Function()? _beforeSignOut;
   StreamSubscription<AppUser?>? _userSubscription;
 
   void _onSubscriptionRequested(
@@ -134,6 +145,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     AuthSignOutRequested event,
     Emitter<AuthState> emit,
   ) async {
+    final before = _beforeSignOut;
+    if (before != null) {
+      try {
+        await before().timeout(kBeforeSignOutTimeout);
+      } catch (_) {
+        // Never block sign-out on bookkeeping.
+      }
+    }
     await _authRepository.signOut();
   }
 
