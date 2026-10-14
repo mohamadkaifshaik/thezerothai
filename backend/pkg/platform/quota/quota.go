@@ -37,6 +37,8 @@ const (
 	// Reports counts ReportContent calls that wrote a report (ADR-0016). A repeat report is a no-op and is not
 	// charged.
 	Reports Kind = "reports"
+	// Likes counts LikePost calls that wrote a like (ADR-0018 D3). A replay is not charged; Unlike never is.
+	Likes Kind = "likes"
 	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
 	// avatar), P2 / ADR-0003: 5 per day.
 	SnapshotEdits Kind = "snapshotEdits"
@@ -72,6 +74,8 @@ type Record struct {
 	Blocks int64 `firestore:"blocks"`
 	// Reports counts ReportContent writes (ADR-0016). Absent in older docs, so it decodes as 0.
 	Reports int64 `firestore:"reports"`
+	// Likes counts LikePost writes (ADR-0018). Absent in older docs, so it decodes as 0.
+	Likes int64 `firestore:"likes"`
 	// SnapshotEdits counts snapshot-affecting profile edits (P2).
 	SnapshotEdits int64 `firestore:"snapshotEdits"`
 }
@@ -90,6 +94,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Blocks
 	case Reports:
 		return r.Reports
+	case Likes:
+		return r.Likes
 	case SnapshotEdits:
 		return r.SnapshotEdits
 	default:
@@ -111,6 +117,8 @@ func (r *Record) increment(k Kind, n int64) {
 		r.Blocks += n
 	case Reports:
 		r.Reports += n
+	case Likes:
+		r.Likes += n
 	case SnapshotEdits:
 		r.SnapshotEdits += n
 	}

@@ -176,6 +176,11 @@ type QuotaConfig struct {
 	// ReportsPerDay/NewAccountReportsPerDay cap ReportContent writes (ADR-0016 D1, quota.Reports).
 	ReportsPerDay           int
 	NewAccountReportsPerDay int
+
+	// LikesPerDay/NewAccountLikesPerDay cap LikePost writes (ADR-0018 D3, quota.Likes). Unlike and UndoRepost are
+	// never quota-gated; reposts use the posts quota.
+	LikesPerDay           int
+	NewAccountLikesPerDay int
 }
 
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
@@ -265,6 +270,9 @@ type Config struct {
 	// FeatureReports is the P7 server flag (wire name `reports`, ADR-0016 D1) gating ModerationService.ReportContent.
 	// FEATURE_REPORTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureReports flags.Spec
+	// FeatureEngagement is the P5 server flag (wire name `engagement`, ADR-0018 D8) gating EngagementService, the
+	// quote path of CreatePost and viewer-flag hydration. FEATURE_ENGAGEMENT[_ALLOWLIST|_PERCENT], default off.
+	FeatureEngagement flags.Spec
 	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
 	// GetThread. FEATURE_REPLIES[_ALLOWLIST|_PERCENT], default off in every environment. It is independent of
 	// FEATURE_POSTS but needs it (the posts guard runs first).
@@ -612,6 +620,13 @@ func Load() (Config, error) {
 	if q.NewAccountReportsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", 5); err != nil {
 		return Config{}, err
 	}
+	// ADR-0018 D3: 500 likes/day, 100 for accounts younger than the new-account window.
+	if q.LikesPerDay, err = getInt("QUOTA_LIKES_PER_DAY", 500); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountLikesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", 100); err != nil {
+		return Config{}, err
+	}
 
 	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
@@ -714,6 +729,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureEngagement, err := flags.LoadSpec("ENGAGEMENT", "engagement", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -780,6 +799,7 @@ func Load() (Config, error) {
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
 		FeatureReports:            featureReports,
+		FeatureEngagement:         featureEngagement,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,
 		AccountDeleteReauthMaxAge: reauthMaxAge,
