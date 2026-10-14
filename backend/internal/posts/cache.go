@@ -66,6 +66,23 @@ func (c *Cache) SetPostRead(p *Post, readAt time.Time) {
 	c.posts.Set(p.ID, p)
 }
 
+// AdjustCounts replaces the cached copy of id with one whose counters moved by the deltas (copy on write: a *Post
+// shared with an author-recent entry is never mutated). A post that is not cached is left alone (the next read
+// brings the fresh counters).
+func (c *Cache) AdjustCounts(id string, likeDelta, repostDelta, quoteDelta int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p, ok := c.posts.Get(id)
+	if !ok {
+		return
+	}
+	cp := *p
+	cp.LikeCount = max(cp.LikeCount+likeDelta, 0)
+	cp.RepostCount = max(cp.RepostCount+repostDelta, 0)
+	cp.QuoteCount = max(cp.QuoteCount+quoteDelta, 0)
+	c.posts.Set(id, &cp)
+}
+
 // DeletePost evicts a post (own deletes).
 func (c *Cache) DeletePost(id string) { c.posts.Delete(id) }
 

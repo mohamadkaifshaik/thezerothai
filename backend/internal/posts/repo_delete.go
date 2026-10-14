@@ -22,7 +22,7 @@ const (
 )
 
 // DeleteOwn implements Repo.
-func (r *FirestoreRepo) DeleteOwn(ctx context.Context, id, authorID string) (bool, error) {
+func (r *FirestoreRepo) DeleteOwn(ctx context.Context, id, authorID string, stage ...func(store.Batch)) (bool, error) {
 	if r.w.Counters == nil {
 		return false, errors.New("posts: repo has no Counters configured")
 	}
@@ -34,6 +34,9 @@ func (r *FirestoreRepo) DeleteOwn(ctx context.Context, id, authorID string) (boo
 		func(b store.Batch) {
 			b.Delete(r.ref(id), firestore.Exists)
 			r.w.Counters.AddPostsCount(b, authorID, -1)
+			for _, st := range stage {
+				st(b)
+			}
 		})
 	noteTxnAttempts(ctx, res.Attempts)
 	if err != nil {

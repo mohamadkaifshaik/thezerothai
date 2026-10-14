@@ -41,19 +41,25 @@ type Repo interface {
 	// DeleteOwn deletes posts/{id} and decrements the author's postsCount in one batch, with an Exists
 	// precondition on the post. deleted=false (and 0 writes) when the post is already gone (a concurrent delete
 	// won). Reads 0; writes 1 + deletes 1 only when deleted.
-	DeleteOwn(ctx context.Context, id, authorID string) (deleted bool, err error)
+	//
+	// stage functions append further writes to the same batch (DeletePost of a REPOST adds the blind delete of
+	// its reposts doc through RepostLinks); they must not add a guarded write of their own.
+	DeleteOwn(ctx context.Context, id, authorID string, stage ...func(store.Batch)) (deleted bool, err error)
 	// Conversation is Q-T (repo_thread.go): the posts of one conversation, oldest first, strictly after `after`
 	// (nil = from the start), at most limit. Reads: len(result), minimum 1.
 	Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error)
 	// AddReplyCount applies FieldValue.Increment(delta) to a parent's replyCount. A parent that is gone is not an
 	// error. Used by DeletePost for a reply (the create path does it inside the CreatePost transaction).
 	AddReplyCount(ctx context.Context, parentID string, delta int64) error
+	// AddQuoteCount is AddReplyCount for quoteCount (DeletePost of a QUOTE, best effort).
+	AddQuoteCount(ctx context.Context, quotedID string, delta int64) error
 }
 
 // FirestoreRepo implements Repo against the shared Firestore client.
 type FirestoreRepo struct {
 	client *firestore.Client
-	w      WriteDeps // CreatePost collaborators, set by SetWriters
+	w      WriteDeps   // CreatePost collaborators, set by SetWriters
+	links  RepostLinks // engagement's reposts-doc seam (P5), set by SetRepostLinks
 	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
 	// error makes the SDK retry the transaction. Never set outside tests.
 	attemptHook func(attempt int, id string) error
@@ -75,25 +81,28 @@ var _ Repo = (*FirestoreRepo)(nil)
 // postDoc is the posts/{postId} shape (ADR-0003); counters start at 0. Embedded and mentionIds are not
 // written yet (ADR-0010 D2, D12); media is written from P4 (empty unless the post has images).
 type postDoc struct {
-	AuthorID        string       `firestore:"authorId"`
-	Author          authorDoc    `firestore:"author"`
-	Kind            string       `firestore:"kind"`
-	IsReply         bool         `firestore:"isReply"`
-	Text            string       `firestore:"text"`
-	ReplyToID       string       `firestore:"replyToId,omitempty"`
-	ReplyToHandle   string       `firestore:"replyToHandle,omitempty"`
-	ConversationID  string       `firestore:"conversationId"`
-	QuoteOfID       string       `firestore:"quoteOfId,omitempty"`
-	RepostOfID      string       `firestore:"repostOfId,omitempty"`
-	Hashtags        []string     `firestore:"hashtags"`
-	Mentions        []mentionDoc `firestore:"mentions"`
-	Media           []mediaDoc   `firestore:"media,omitempty"`
-	LikeCount       int64        `firestore:"likeCount"`
-	RepostCount     int64        `firestore:"repostCount"`
-	ReplyCount      int64        `firestore:"replyCount"`
-	QuoteCount      int64        `firestore:"quoteCount"`
-	Visibility      string       `firestore:"visibility"`
-	SnapshotVersion int64        `firestore:"snapshotVersion"`
+	AuthorID       string    `firestore:"authorId"`
+	Author         authorDoc `firestore:"author"`
+	Kind           string    `firestore:"kind"`
+	IsReply        bool      `firestore:"isReply"`
+	Text           string    `firestore:"text"`
+	ReplyToID      string    `firestore:"replyToId,omitempty"`
+	ReplyToHandle  string    `firestore:"replyToHandle,omitempty"`
+	ConversationID string    `firestore:"conversationId"`
+	QuoteOfID      string    `firestore:"quoteOfId,omitempty"`
+	RepostOfID     string    `firestore:"repostOfId,omitempty"`
+	// Embedded is the QUOTE/REPOST snapshot (ADR-0018); EmbeddedAuthorID is its top-level, indexed author id.
+	Embedded         *embeddedDoc `firestore:"embedded,omitempty"`
+	EmbeddedAuthorID string       `firestore:"embeddedAuthorId,omitempty"`
+	Hashtags         []string     `firestore:"hashtags"`
+	Mentions         []mentionDoc `firestore:"mentions"`
+	Media            []mediaDoc   `firestore:"media,omitempty"`
+	LikeCount        int64        `firestore:"likeCount"`
+	RepostCount      int64        `firestore:"repostCount"`
+	ReplyCount       int64        `firestore:"replyCount"`
+	QuoteCount       int64        `firestore:"quoteCount"`
+	Visibility       string       `firestore:"visibility"`
+	SnapshotVersion  int64        `firestore:"snapshotVersion"`
 	// Moderation is absent for a visible post (ADR-0016 D3); ModeratedAt is when the state last changed.
 	Moderation  string     `firestore:"moderation,omitempty"`
 	ModeratedAt *time.Time `firestore:"moderatedAt,omitempty"`
@@ -106,6 +115,16 @@ type authorDoc struct {
 	DisplayName string `firestore:"displayName"`
 	AvatarURL   string `firestore:"avatarUrl"`
 	Verified    bool   `firestore:"verified"`
+}
+
+// embeddedDoc is the stored Embedded snapshot. A tombstone keeps only PostID and Unavailable.
+type embeddedDoc struct {
+	PostID      string     `firestore:"postId"`
+	Author      *authorDoc `firestore:"author,omitempty"`
+	Text        string     `firestore:"text,omitempty"`
+	Media       []mediaDoc `firestore:"media,omitempty"`
+	CreatedAt   *time.Time `firestore:"createdAt,omitempty"`
+	Unavailable bool       `firestore:"unavailable,omitempty"`
 }
 
 type mentionDoc struct {
@@ -134,11 +153,24 @@ func toDoc(p *Post) postDoc {
 		},
 		Kind: string(p.Kind), IsReply: p.IsReply, Text: p.Text,
 		ReplyToID: p.ReplyToID, ReplyToHandle: p.ReplyToHandle, ConversationID: p.ConversationID,
-		QuoteOfID: p.QuoteOfID, RepostOfID: p.RepostOfID,
+		QuoteOfID: p.QuoteOfID, RepostOfID: p.RepostOfID, EmbeddedAuthorID: p.EmbeddedAuthorID,
 		Hashtags:  p.Hashtags,
 		LikeCount: p.LikeCount, RepostCount: p.RepostCount, ReplyCount: p.ReplyCount, QuoteCount: p.QuoteCount,
 		Visibility: string(p.Visibility), SnapshotVersion: p.SnapshotVersion, CreatedAt: p.CreatedAt,
 		Moderation: string(p.Moderation),
+	}
+	if e := p.Embedded; e != nil {
+		ed := &embeddedDoc{PostID: e.PostID, Unavailable: e.Unavailable}
+		if !e.Unavailable {
+			ed.Author = &authorDoc{UserID: e.Author.UserID, Handle: e.Author.Handle, DisplayName: e.Author.DisplayName, AvatarURL: e.Author.AvatarURL, Verified: e.Author.Verified}
+			ed.Text = e.Text
+			t := e.CreatedAt
+			ed.CreatedAt = &t
+			for _, m := range e.Media {
+				ed.Media = append(ed.Media, mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText})
+			}
+		}
+		d.Embedded = ed
 	}
 	if d.Hashtags == nil {
 		d.Hashtags = []string{}
@@ -165,11 +197,24 @@ func (d postDoc) toPost(id string) *Post {
 		},
 		Kind: Kind(d.Kind), IsReply: d.IsReply, Text: d.Text,
 		ReplyToID: d.ReplyToID, ReplyToHandle: d.ReplyToHandle, ConversationID: d.ConversationID,
-		QuoteOfID: d.QuoteOfID, RepostOfID: d.RepostOfID,
+		QuoteOfID: d.QuoteOfID, RepostOfID: d.RepostOfID, EmbeddedAuthorID: d.EmbeddedAuthorID,
 		Hashtags:  d.Hashtags,
 		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount,
 		Visibility: Visibility(d.Visibility), SnapshotVersion: d.SnapshotVersion, CreatedAt: d.CreatedAt.UTC(),
 		Moderation: Moderation(d.Moderation),
+	}
+	if e := d.Embedded; e != nil {
+		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable}
+		if e.Author != nil {
+			pe.Author = AuthorSnapshot{UserID: e.Author.UserID, Handle: e.Author.Handle, DisplayName: e.Author.DisplayName, AvatarURL: e.Author.AvatarURL, Verified: e.Author.Verified}
+		}
+		if e.CreatedAt != nil {
+			pe.CreatedAt = e.CreatedAt.UTC()
+		}
+		for _, m := range e.Media {
+			pe.Media = append(pe.Media, MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText})
+		}
+		p.Embedded = pe
 	}
 	if len(d.Mentions) > 0 {
 		p.Mentions = make([]Mention, len(d.Mentions))

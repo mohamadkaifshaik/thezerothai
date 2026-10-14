@@ -13,6 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // outcomes of DeletePost (posts_op=delete) and GetPost (posts_op=get).
@@ -73,7 +74,13 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 		return nil
 	}
 
-	deleted, err := s.repo.DeleteOwn(ctx, postID, uid)
+	var stage []func(store.Batch)
+	if p.Kind == KindRepost && p.RepostOfID != "" && s.links != nil {
+		// Deleting a REPOST is an undo: its reposts doc goes in the same batch (blind; the post's own Exists
+		// precondition is the batch's only guard).
+		stage = append(stage, func(b store.Batch) { s.links.StageRelease(b, p.RepostOfID, uid) })
+	}
+	deleted, err := s.repo.DeleteOwn(ctx, postID, uid, stage...)
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: delete: %w", err), uid)
 	}
@@ -85,17 +92,19 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 	}
 	s.directory.Forget(uid) // users.postsCount changed by a blind increment (ADR-0008 B2)
 	s.releaseParent(ctx, p)
+	s.releaseEngagement(ctx, p)
 	s.events.Deleted(ctx, postID, uid)
 	s.publishPostDelete(ctx, uid, p)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDeleted)
 	return nil
 }
 
-// publishPostDelete hands a deleted post's images to the post_delete job (after the commit, never inside it). A failure
-// is logged for Error Reporting and does not fail the delete: the post is gone and the objects are removed by the
+// publishPostDelete hands a deleted post to the post_delete job (after the commit, never inside it): its images
+// (P4) and its likes, reposts and quotes (P5, ADR-0018 D6), so every deleted post publishes. A failure is logged
+// for Error Reporting and does not fail the delete: the post is gone and the dependants are removed by the
 // account purge at the latest. One Pub/Sub publish, no Firestore access.
 func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
-	if s.jobs == nil || len(p.Media) == 0 {
+	if s.jobs == nil {
 		return
 	}
 	ids := make([]string, len(p.Media))
