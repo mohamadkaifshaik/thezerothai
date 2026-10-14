@@ -71,12 +71,14 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	}
 	// Defence in depth: authors were removed before querying, but a stale cached entry or a replayed own write
 	// must never surface a blocked or muted author's post. The caller's own posts are always kept.
+	engaged := s.engagementOn(uid)
 	keep := func(p *posts.Post) bool {
-		return isPublic(p) && (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID))
+		return isPublic(p) && (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID)) &&
+			(!engaged || embedAllowed(snap, uid, p))
 	}
 	page := Merge(res.sources, limit, keep)
 
-	out := &timelinev1.GetHomeTimelineResponse{Posts: toViews(page.Items)}
+	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, engaged, page.Items)}
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -254,12 +256,64 @@ func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.
 	return it
 }
 
-func toViews(ps []*posts.Post) []*postsv1.PostView {
+// engagementOn is FEATURE_ENGAGEMENT for uid (viewer flags and the embedded-author filter apply only then, so
+// every read count is unchanged while the flag is off).
+func (s *Server) engagementOn(uid string) bool {
+	return s.deps.Viewer != nil && s.deps.Flags != nil && s.deps.Flags.Enabled(uid, posts.EngagementFlagName)
+}
+
+// toViews renders a page with the viewer's flags: one cached userLikes read per request when engaged (0 when the
+// page is empty), else every flag false.
+func (s *Server) toViews(ctx context.Context, uid string, engaged bool, ps []*posts.Post) []*postsv1.PostView {
+	var vs posts.ViewerSet
+	if engaged && len(ps) > 0 {
+		vs = s.deps.Viewer.Viewer(ctx, uid)
+	}
 	out := make([]*postsv1.PostView, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, &postsv1.PostView{Post: posts.ToProto(p)})
+		out = append(out, posts.ToView(p, vs))
 	}
 	return out
+}
+
+// filterEmbeds applies embedAllowed to a profile page. The caller's graph snapshot is the one checkVisible just
+// read (cached); only a caller viewing their own profile pays 1 read, and only when the page has a REPOST or QUOTE.
+func (s *Server) filterEmbeds(ctx context.Context, caller string, ps []*posts.Post) ([]*posts.Post, error) {
+	need := false
+	for _, p := range ps {
+		if p.Kind == posts.KindRepost || p.Kind == posts.KindQuote {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return ps, nil
+	}
+	snap, err := s.deps.Graph.Snapshot(ctx, caller)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller)
+	}
+	out := make([]*posts.Post, 0, len(ps))
+	for _, p := range ps {
+		if embedAllowed(snap, caller, p) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// embedAllowed is the ADR-0018 D13 feed filter: a REPOST or QUOTE is dropped when the author of the post it
+// copies is blocked or muted by the viewer, or blocks the viewer, so no content of such a user leaks through a
+// copy. The viewer's own copies and tombstones (no embedded author) are kept.
+func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
+	a := p.EmbeddedAuthorID
+	if a == "" && p.Embedded != nil && !p.Embedded.Unavailable {
+		a = p.Embedded.Author.UserID
+	}
+	if a == "" || a == uid || p.AuthorID == uid {
+		return true
+	}
+	return allowedAuthor(snap, a)
 }
 
 // user implements GetUserTimeline (ADR-0010 D6, D11, D13-D16). Reads: target users + caller graph (+ target
@@ -293,7 +347,16 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	if err != nil {
 		return nil, err
 	}
-	out := &timelinev1.GetUserTimelineResponse{Posts: toViews(res.page.Items)}
+	engaged := s.engagementOn(caller)
+	items := res.page.Items
+	if engaged {
+		kept, err := s.filterEmbeds(ctx, caller, items)
+		if err != nil {
+			return nil, err
+		}
+		items = kept
+	}
+	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, engaged, items)}
 	it := s.tokens(f, md, tok, res.page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
