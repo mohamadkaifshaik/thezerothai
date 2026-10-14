@@ -307,12 +307,19 @@ type ViewerFlags interface {
 	Viewer(ctx context.Context, uid string) ViewerSet
 }
 
+// ReleaseStager is the part of RepostLinks the clean-up paths (opsctl takedown, the account purge) need: the
+// blind delete of a reposts doc inside their own batch.
+type ReleaseStager interface {
+	// StageRelease appends the blind delete of reposts/{originalID}_{uid} to b.
+	StageRelease(b store.Batch, originalID, uid string)
+}
+
 // RepostLinks is implemented by engagement (it owns reposts/{postId}_{uid}) and consumed by DeletePost: deleting a
 // REPOST post is an undo, so the reposts doc goes in the same batch and the counters are released afterwards.
 type RepostLinks interface {
-	// StageRelease appends the blind delete of reposts/{originalID}_{uid} to the DeletePost batch (the post's own
-	// Exists-guarded delete is the batch's only guard, so a missing reposts doc never blocks the post's removal).
-	StageRelease(b store.Batch, originalID, uid string)
+	// ReleaseStager's StageRelease is blind: the DeletePost batch's only guard is the post's own Exists
+	// precondition, so a missing reposts doc never blocks the post's removal.
+	ReleaseStager
 	// Released runs after the commit, best effort: repostCount -1 on the original (a gone original is fine) and
 	// ArrayRemove on the user's userLikes.recentReposts.
 	Released(ctx context.Context, originalID, uid string) error

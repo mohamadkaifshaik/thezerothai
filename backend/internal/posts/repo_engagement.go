@@ -60,9 +60,9 @@ var (
 	_ Cleanup          = (*FirestoreRepo)(nil)
 )
 
-// SetRepostLinks gives the repo engagement's RepostLinks, needed by RemoveReposts and the purge copy phase. Call
-// once at startup (the service has its own SetRepostLinks).
-func (r *FirestoreRepo) SetRepostLinks(l RepostLinks) { r.links = l }
+// SetRepostLinks gives the repo engagement's reposts-doc seam, needed by RemoveReposts and the purge copy phase.
+// Call once at startup (the service has its own SetRepostLinks). Any RepostLinks satisfies it.
+func (r *FirestoreRepo) SetRepostLinks(l ReleaseStager) { r.links = l }
 
 // StageLikeCount implements EngagementWriter.
 func (r *FirestoreRepo) StageLikeCount(b store.Batch, postID string, delta int64) {

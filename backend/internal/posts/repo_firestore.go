@@ -58,8 +58,8 @@ type Repo interface {
 // FirestoreRepo implements Repo against the shared Firestore client.
 type FirestoreRepo struct {
 	client *firestore.Client
-	w      WriteDeps   // CreatePost collaborators, set by SetWriters
-	links  RepostLinks // engagement's reposts-doc seam (P5), set by SetRepostLinks
+	w      WriteDeps     // CreatePost collaborators, set by SetWriters
+	links  ReleaseStager // engagement's reposts-doc seam (P5), set by SetRepostLinks
 	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
 	// error makes the SDK retry the transaction. Never set outside tests.
 	attemptHook func(attempt int, id string) error
