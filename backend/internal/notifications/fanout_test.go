@@ -439,10 +439,13 @@ func TestDeliver_FreshStatusReadAndWriteFreeLikeRedelivery(t *testing.T) {
 	ev := Event{Type: TypeLike, ActorID: "alice", RecipientIDs: []string{"bob"}, PostID: postA, At: t0}
 	_, err := r.f.Deliver(context.Background(), ev)
 	mustNoErr(t, err)
-	// before the status read (actor + recipient), and the recipient again after its row commits so their unread
-	// badge is recounted
-	if want := "alice,bob,bob"; strings.Join(r.dir.forgotten, ",") != want {
+	// Full eviction only before the status read (actor + recipient); after the row commits only the recipient's
+	// unread count is evicted so the fresh profile stays cached (no re-read on their next request).
+	if want := "alice,bob"; strings.Join(r.dir.forgotten, ",") != want {
 		t.Errorf("forgotten = %v, want %s", r.dir.forgotten, want)
+	}
+	if want := "bob"; strings.Join(r.dir.forgottenUnread, ",") != want {
+		t.Errorf("forgottenUnread = %v, want %s", r.dir.forgottenUnread, want)
 	}
 	// A second like by carol folds in (1 write); a redelivery of carol's like writes nothing.
 	r.dir = newDirectory("alice", "bob", "carol")

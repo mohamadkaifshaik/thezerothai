@@ -131,7 +131,10 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 			}
 		}
 	}
-	b := store.NewFirestoreBatch(r.client, counter)
+	// store.Batch counts a write when it is appended, so a commit that fails (and is retried from a fresh query)
+	// would be counted twice; collect on a scratch counter and fold it in only once the commit succeeds.
+	scratch := &budget.Counter{}
+	b := store.NewFirestoreBatch(r.client, scratch)
 	// Every write is conditioned on the update time the query saw: a concurrent AddActor (a like folding in)
 	// makes the batch fail with FailedPrecondition instead of being clobbered, and this self-resuming step
 	// retries from a fresh query.
@@ -159,6 +162,8 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 		if err := b.Commit(ctx); err != nil {
 			return cp, false, fmt.Errorf("notifications: purge %s step 2: %w", logger.HashUID(uid), err)
 		}
+		counter.AddWrites(scratch.Writes())
+		counter.AddDeletes(scratch.Deletes())
 	}
 	next := Checkpoint{Step: 2, Deleted: cp.Deleted + len(docs)}
 	slog.InfoContext(ctx, "notifications_purge_batch", "uid_hash", logger.HashUID(uid), "step", 2, "docs", len(docs), "deleted_total", next.Deleted)

@@ -154,7 +154,7 @@ reads/writes. Flags marked (W) write.
   `reporterId = ""` on the user's reports (resumable pages of 500, self-resuming because updated docs leave the
   query). The report itself stays: it describes third-party content and is safety evidence. Reports **about** the
   user: kept until resolved + 90 d, then TTL. This is a Q10 residue: allowlist entries `reports.targetOwnerId` and
-  `reports.targetId` (+ `evidence`) with this ADR as the citation. **The privacy policy must say that reports about
+  `reports.targetId` with this ADR as the citation (the embedded `evidence` copy holds text, handle and media ids, no uid, so it needs no entry). **The privacy policy must say that reports about
   an account are retained for safety until 90 days after resolution** (founder action; flagged in the plan).
 - Export: the `reports` export section lists the reports the user **filed** (id, target, reason, note, status,
   createdAt). Reports about them are not exported (they would reveal reporters).

@@ -232,10 +232,11 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		createdFor = append(createdFor, r)
 		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID}})
 	}
-	// The fresh status read above re-cached each recipient's profile with the unread count as of before this
-	// Create; evict again (no reads) so their next GetMe counts the new row instead of serving the old badge.
+	// The fresh status read above re-cached each recipient's unread count as of before this Create; evict only
+	// that (no reads) so their next GetMe counts the new row instead of serving the old badge. The profile just
+	// read stays cached: it is current and a full Forget would re-read it on the next request.
 	if len(createdFor) > 0 {
-		f.d.Directory.Forget(createdFor...)
+		f.d.Directory.ForgetUnread(createdFor...)
 	}
 	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
 	// recipient's commit past the 5 s since-token settle window.

@@ -177,6 +177,8 @@ func (d *fakeDirectory) ResolveHandles(ctx context.Context, lowers []string) (ma
 
 func (d *fakeDirectory) Forget(uids ...string) { d.forgotten = append(d.forgotten, uids...) }
 
+func (d *fakeDirectory) ForgetUnread(...string) {}
+
 var _ identity.Directory = (*fakeDirectory)(nil)
 
 // fakeGraph implements graph.Reader; each uncached Snapshot costs 1 read.

@@ -733,8 +733,13 @@ func TestFinalize_LostRaceDuringPublishConvergesAndCarriesSpent(t *testing.T) {
 			if spent != 1 {
 				t.Fatalf("spent = %d: Vision units already paid by this call must still be counted", spent)
 			}
-			if _, ok := e.obj.public[publicObject(tg.MediaID, "jpg")]; !ok {
-				t.Fatal("a READY winner owns the public objects; they must be kept")
+			for _, name := range []string{publicObject(tg.MediaID, "jpg"), publicThumbObject(tg.MediaID, "jpg")} {
+				if _, ok := e.obj.public[name]; !ok {
+					t.Fatalf("a READY winner owns %s; it must be kept (have %v)", name, e.obj.public)
+				}
+			}
+			if len(e.obj.public) != 2 {
+				t.Fatalf("public objects = %v, want exactly the winner's full + thumb", e.obj.public)
 			}
 		})
 	}
@@ -813,8 +818,13 @@ func TestFinalize_RejectDoesNotDeleteUploadsUnlessItResolved(t *testing.T) {
 		if err != nil || got.Status != StatusReady {
 			t.Fatalf("got %+v err=%v", got, err)
 		}
-		if _, ok := e.obj.public[publicObject(tg.MediaID, "jpg")]; !ok {
-			t.Fatal("the winner's public objects must be untouched")
+		for _, name := range []string{publicObject(tg.MediaID, "jpg"), publicThumbObject(tg.MediaID, "jpg")} {
+			if _, ok := e.obj.public[name]; !ok {
+				t.Fatalf("the winner's %s must be untouched (have %v)", name, e.obj.public)
+			}
+		}
+		if len(e.obj.upload) != 0 || len(e.obj.public) != 2 {
+			t.Fatalf("uploads=%d public=%d, want the winner's state exactly", len(e.obj.upload), len(e.obj.public))
 		}
 	})
 	t.Run("resolved then deleted", func(t *testing.T) {

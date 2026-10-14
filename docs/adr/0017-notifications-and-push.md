@@ -133,7 +133,7 @@ on post delete.
   milliseconds between that read and the `Create` against a purge that has already swept the same subtree: such a
   row (and an orphan row under a just-deleted recipient) lives until its 90-day TTL and the 14-day backup window.
   The account-lifecycle backstop keys on `users/{uid}`, which is deleted last and so is already gone by then; a
-  re-run of step 3 is therefore not available without a new data model, and this ADR accepts the window.
+  re-run of the purge's actor-row step (notifications step 2) is therefore not available without a new data model, and this ADR accepts the window.
 - The producer's flag and publish happen after commit, outside the transaction and its read budget.
 
 ## Handoff
@@ -188,7 +188,7 @@ on post delete.
   distinct actor per page).
 - **Fan-out ordering.** All rows of an event are committed (each with its own commit-time `createdAt`) before the
   first push, so FCM latency cannot push a row past the 5 s since-token settle window.
-- **D10 amendment.** Step 3 removes the erased user from collapsed rows with `ArrayRemove` and decrements `actorCount`
+- **D10 amendment.** Notifications purge step 2 (rows in other users' lists) removes the erased user from collapsed rows with `ArrayRemove` and decrements `actorCount`
   when other actors remain, repointing the displayed `actor` at the newest remaining one (one `GetProfiles` per page of
   <= 500 rows); a row with no remaining actor, or whose replacement actor is gone, is deleted.
 - **Budgets.** RegisterDevice worst case reads 8 to 9 (the evicted device's index is read so another account's index is
@@ -196,9 +196,9 @@ on post delete.
 - **Accepted behaviors (round 2).** (a) The GetMe unread badge counts rows by `createdAt > notificationsSeenAt` and
   does not apply the read-time filter, so it can exceed the visible rows after a block or mute; fixing it would add
   reads. (b) A collapsed row is hidden entirely when its newest (displayed) actor is blocked or muted, even if other
-  actors are not; a later like shows it again. (c) Purge step 3 writes are conditioned on the update time seen by its
+  actors are not; a later like shows it again. (c) Purge step 2 writes are conditioned on the update time seen by its
   query, so a like folding in concurrently fails that batch and the self-resuming step retries; a document liked
   continuously could delay the purge but never loses a fold. `Checkpoint.Deleted` counts documents processed
-  (deleted or unfolded in place). (d) The fan-out evicts each recipient again after their row commits so the unread
-  badge is recounted (no reads).
+  (deleted or unfolded in place). (d) After their row commits, the fan-out evicts only each recipient's cached unread count
+  (`Directory.ForgetUnread`, no reads) so the badge is recounted; the freshly read profile stays cached.
 
