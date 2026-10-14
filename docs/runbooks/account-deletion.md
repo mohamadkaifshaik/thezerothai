@@ -162,6 +162,11 @@ against a cloud project.
   handle stay readable there. Scrubbing them is deferred to a follow-up ADR (P6 shipped mention notifications but
   still does not write `mentionIds`, ADR-0017). Do not hand-edit other users' posts. Tell the requester about this
   residue in the reply.
+- **Reports (P7, ADR-0016 D5):** reports the user **filed** are anonymised by the `reports` step (`reporterId` is
+  cleared; the report stays as safety evidence about third-party content). Reports **about** the user (and the
+  `evidence` copy of their post text) are kept until resolved + 90 days, then Firestore TTL deletes them; this is the
+  residue allowlist entries `reports.targetOwnerId` / `reports.targetId`. Do not hand-delete them. Tell the
+  requester in the reply; the privacy policy carries the same sentence.
 - **Notifications and devices (P6, ADR-0017):** the `notifications` step removes the user's devices and their
   `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
   `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when

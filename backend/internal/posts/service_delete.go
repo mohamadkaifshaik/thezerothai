@@ -150,6 +150,12 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 		return nil, logger.RedactErr(fmt.Errorf("posts: get: load post: %w", err), callerUID)
 	}
 
+	// A post a moderator hid (takedown or suspension, ADR-0016) is NOT_FOUND for everyone, the author included.
+	// Checked first: it is free (the field arrived with the document).
+	if p.Hidden() {
+		return nil, ErrNotFound
+	}
+
 	profiles, err := s.directory.GetProfiles(ctx, []string{p.AuthorID})
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID)

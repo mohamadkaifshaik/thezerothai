@@ -69,10 +69,22 @@ is the same NOT_FOUND. Reporting your own post/account is `VALIDATION target_id`
 | `targetOwnerId` | string | the post's author, or the account's uid |
 | `reason`, `note` | string | enum name; <= 500 code points |
 | `status` | string | `OPEN` or `RESOLVED` |
-| `evidence` | map | POST only: `text`, `authorHandle`, `mediaIds[]`, `postCreatedAt`. Copied at report time |
-| `createdAt` | timestamp | |
+| `evidence` | map | POST only: `text`, `authorHandle`, `mediaIds[]` (the post's image ids at report time, copied from the post already read: 0 reads), `postCreatedAt`. Copied at report time |
+| `createdAt` | timestamp | the first filing; a reopen keeps it, so a re-reported case is as old in the queue as its first report |
 | `resolvedAt`, `resolution`, `resolutionNote` | | `resolution`: `NO_ACTION`, `TAKEDOWN`, `SUSPENDED`, `DISMISSED` |
 | `expireAt` | timestamp | set at resolution: `resolvedAt + 90 d`. Firestore TTL deletes the doc. Absent while OPEN |
+
+**Re-reporting after RESOLVED reopens the report.** The id is deterministic, so a second filing by the same reporter of
+the same target finds the document. If it is `OPEN` the call is the plain no-op repeat (1 read, 0 writes, not charged).
+If it is `RESOLVED` the same transaction reopens it: `status = OPEN`, `reason`, `note` and `evidence`
+replaced (the original `createdAt` is kept), `resolvedAt`/`resolution`/`resolutionNote`/`expireAt` deleted (so the TTL cannot delete a live report), the
+`reports` quota charged. 2 reads, 2 writes, like a first report; `already_reported` is false. The new filing is the
+signal that the earlier decision may be wrong or the problem recurred; silently dropping it (the original behaviour)
+hid exactly the reports that matter.
+
+A reporter whose daily quota is spent is remembered per instance until the next IST midnight (or until the
+new-account window ends and the limit rises), so retries cost 0 Firestore reads; a replay of an existing report by
+such a reporter gets the quota error rather than `already_reported` until then.
 
 Rules: deny-all to clients (existing). Index: `(status ASC, createdAt ASC)` for `opsctl reports list`. The
 `reporterId == uid` and `targetOwnerId == uid` queries use single-field indexes.
@@ -98,14 +110,21 @@ Rules: deny-all to clients (existing). Index: `(status ASC, createdAt ASC)` for 
 ### D4. Moderator actions: `opsctl`
 All commands require `--project`, ask for a typed confirmation on a `-prod` project (existing `confirmed`) and print
 reads/writes. Flags marked (W) write.
-- `reports list [--status OPEN|RESOLVED] [--limit N]`: newest-oldest by createdAt (status, createdAt index).
+- `reports list [--status OPEN|RESOLVED] [--limit N]`: oldest-first (FIFO) by createdAt (status, createdAt index);
+  `--limit` default 20, max 50 (rule 5).
 - `reports show --id R`: one report, with evidence.
-- `reports resolve --id R --resolution NO_ACTION|DISMISSED [--note ...]` (W): sets RESOLVED + `expireAt`.
-- `takedown-post --post P [--report R] [--dry-run]` (W): `moderation = TAKEN_DOWN`; with `--report`, resolves it as
+- `reports resolve --id R --resolution NO_ACTION|DISMISSED [--note ...]` (W): sets RESOLVED + `expireAt`. TAKEDOWN and
+  SUSPENDED are only set by `takedown-post` / `suspend-user --report`, so a resolution always matches an action.
+- `--report R` on `takedown-post` / `suspend-user` is checked against the target first (1 read, before any write):
+  the report must be about that post (takedown) or about that user or one of their posts (suspend), else the command
+  refuses with nothing written. An already RESOLVED report only prints a warning; the action still applies.
+- `takedown-post --post P [--report R]` (W; no dry run): `moderation = TAKEN_DOWN`; with `--report`, resolves it as
   TAKEDOWN. `restore-post --post P` (W) clears `TAKEN_DOWN` only.
-- `suspend-user --uid U [--report R] [--dry-run] [--skip-hide]` (W): one transaction sets `users/{uid}.status =
+- `suspend-user --uid U [--report R] [--dry-run]` (W): one transaction sets `users/{uid}.status =
   SUSPENDED` through a new identity repo method (`SetAccountStatus`, status + updatedAt only, from ACTIVE only), then
-  hides the user's posts with a resumable loop (below), then (optionally) resolves the report as SUSPENDED.
+  hides the user's posts with a resumable loop (below), waits out the instance cache and runs a settle pass, then
+  (optionally) resolves the report as SUSPENDED. (`--skip-hide` was proposed and is not built: a suspension that
+  leaves posts visible is the failure D10 forbids.)
   `unsuspend-user --uid U` (W): status SUSPENDED -> ACTIVE, then restores posts whose `moderation` is
   `SUSPENDED_AUTHOR`. A post that was `TAKEN_DOWN` stays hidden through suspend and unsuspend.
 - The suspension hide loop (`posts.Moderator.HideAuthor`): query Q-E (`authorId == uid` ordered `createdAt DESC,
@@ -113,7 +132,15 @@ reads/writes. Flags marked (W) write.
   post whose `moderation` is empty. A re-run re-queries from the start, skips already-hidden posts (0 writes for
   them, 1 read each), so it is resumable and idempotent. Order: status first, then posts, so a crash leaves a
   suspended user with some visible posts, never the reverse; re-running `suspend-user` finishes the job (the
-  command accepts an already-SUSPENDED account for exactly that reason).
+  command accepts an already-SUSPENDED account for exactly that reason). Every update carries the `LastUpdateTime`
+  of the snapshot it was decided from (the same for `RestoreAuthor`), so a post a concurrent takedown or author
+  delete changed fails the batch and is re-read instead of overwritten.
+- **Settle pass (posts created in the cache window).** Warm instances cache the account status for up to `CACHE_TTL`
+  (<= 60 s, `config.MaxCacheTTL`), so a suspended user can still create posts on them after the loop read its
+  pages. After the loop, opsctl waits `CACHE_TTL + 15 s`, then runs `HideAuthor` once more restricted to
+  `createdAt >= suspensionStart - 2 min` (Q-E with a range on its first order field: the existing index, reads only
+  that window, 1 when empty). After the wait no instance accepts a post from the account, so nothing can be created
+  behind the pass. The command takes about 75 s longer; the clock and the wait are injected in tests.
 - Suspension never touches Firebase Auth (IAM control C2, `authadmin_guard_test.go` untouched): the Firestore status
   is what the interceptor reads. Cache bound: the identity cache TTL, 60 s.
 
@@ -134,8 +161,14 @@ reads/writes. Flags marked (W) write.
 
 ### D6. Out of scope
 Appeals, a moderator UI, automated actions, per-reason rate analytics, copying media bytes (only media ids are
-copied; GCS object retention is the media slice's). Evidence `mediaIds` is empty until P4 adds media fields to
-`Post` (plan ticket T12).
+copied into `evidence.mediaIds`; GCS object retention is the media slice's).
+
+**Media on takedown (known gap, follow-up).** `takedown-post` hides the post document; it does not touch the
+post's image objects, which stay public in the media bucket until someone deletes them. P4's `post_delete` job
+destroys the objects when the author deletes the post (or the account), so image evidence is lost at that moment;
+only the ids in `evidence.mediaIds` and the text survive. For now the runbook (`docs/runbooks/moderation.md`, "Media
+on takedown") has the moderator delete or make private the objects by hand, and the plan carries ticket T14
+(`takedown-post --purge-media`). It is not built in this PR.
 
 ## Consequences
 - Positive: store requirement met at $0; every read path filtered with 0 extra reads; reversible actions; the D10
@@ -147,6 +180,21 @@ copied; GCS object retention is the media slice's). Evidence `mediaIds` is empty
   founder is the only moderator and the single point of response SLA.
 - Revisit when: reports exceed ~50/day (build a console and a queue), or the first appeal, or a second moderator.
 
+## Open founder decision (not decided; the ADR stays Proposed)
+**D10 client bound.** D3 states the bound for a hidden post as "<= CACHE_TTL on the server, then the next client
+refresh". The client side is not bounded by anything the server can enforce: a `since` refresh returns only *new*
+posts, so a card the client already holds stays on screen until the user does a full reload or the timeline token
+expires. Two ways to close it; the founder has not chosen:
+1. **Server-only bound (current, no proto change).** Document that a hidden post leaves a client's feed on its next
+   full page load, and that GetPost on the hidden id answers NOT_FOUND. Cheapest; a taken-down post can linger on a
+   device that never does a full reload.
+2. **Additive `removed_ids` field on the timeline `since` response** (a new repeated field on
+   `GetHomeTimelineResponse` / `GetUserTimelineResponse`; backwards compatible, `buf breaking` clean). The server
+   needs to know which ids to remove, which costs a read per hidden post in the window (a `moderatedAt >= since`
+   query and one more index) or a bounded moderation-event log; the client drops those ids on refresh.
+`timeline.proto` is deliberately not changed here. Decision owner: founder, with the architect for option 2's read
+cost. Until then this ADR cannot be Accepted.
+
 ## Handoff
 - Backend: `internal/moderation` (service, repo, server, Eraser, exporter), `posts` moderation seam, identity
   `SetAccountStatus`, opsctl commands, config + flag + quota, lifecycle wiring and guard rows.
@@ -155,3 +203,28 @@ copied; GCS object retention is the media slice's). Evidence `mediaIds` is empty
 - Infra: `FEATURE_REPORTS` env var in Terraform (default off, no apply), TTL field `reports.expireAt` added to
   the firestore module's `ttl_fields`, index in `firebase/firestore.indexes.json`.
 - Founder: privacy-policy line (D5), accept this ADR, set the flag allowlist when ready.
+
+## Implementation notes (P7 backend PR)
+Recorded so the contract and the code agree; none of them changes D1-D6.
+- **Rate limit.** `ReportContent` has its own 5/min per-user bucket (`RATE_LIMIT_REPORT_PER_MIN`, default 5); the daily
+  bound is the `reports` quota (`QUOTA_REPORTS_PER_DAY` 20, `QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY` 5).
+- **Exports and deletion budget.** The `reports` export section costs one read per filed report (minimum 1, the empty
+  page). On the reference account the export row is **707** reads: 703 + 1 P4 `media` section + 2 P6
+  `notifications` section + 1 P7 `reports` section (it was 703 before P4, 705 with P4 and P7). The `reports` Eraser
+  step costs one read for the empty page.
+  Delete job: the account-deletion plan's T16 criterion (`docs/plans/account-deletion-export.md`, 509 reads + job
+  state) gains +1 for the `reports` step's empty page and +3 for P6's `notifications` step (ADR-0017 D10), so the
+  assertion is 509 + 3 + 1 = 513 + D. P4's media step read was already absorbed by main's 509 + D. The amendment is
+  the P8 plan owner's to sign off. Both are asserted in `account_lifecycle_reference_integration_test.go`.
+- **Re-report and replay.** A report resolved earlier is reopened by a new filing (D2). A reporter whose quota is
+  spent is remembered per instance until IST midnight; a call then costs one point read of the report: an OPEN report
+  is answered `already_reported` (the replay needed no quota), anything else is QUOTA_EXCEEDED.
+- **Dry run.** Only `purge-graph`, `purge-posts` and `suspend-user` have a dry run. `takedown-post`, `restore-post`,
+  `unsuspend-user` and `reports ...` reject `--dry-run` with exit 2 (accepting and ignoring it would write).
+- **Deleted reporters' notes.** The Eraser also clears `note` on RESOLVED reports it anonymises (open ones keep it
+  until a moderator has read it).
+- **Residue allowlist.** `reports.targetOwnerId` and `reports.targetId` are the two new T11 entries (5 to 7). The
+  privacy policy line is a founder action and a gate for turning `FEATURE_REPORTS` on.
+- **Infra.** Env vars `FEATURE_REPORTS*` (default off), the two quota vars, and one Firestore TTL policy on
+  `reports.expireAt` in the firestore module's `ttl_fields`. TTL policies and the one composite index are $0.
+

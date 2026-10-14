@@ -752,3 +752,57 @@ func TestUser_Integration_ColdSmallPageBudget(t *testing.T) {
 	}
 	t.Logf("BUDGET GetUserTimeline cold p=5 reads=%d (ceiling 22 + interceptor)", c.Reads())
 }
+
+// TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads is ADR-0016 acceptance 3 and 4: a takedown and a
+// suspension (HideAuthor) remove posts from Home and the profile timeline as seen by a cold instance (the cache TTL
+// bound), the hidden documents are the only extra cost (0 extra reads), and a restore brings exactly them back.
+func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testing.T) {
+	client := newClient(t)
+	in := newInstance(t, client)
+	world(t, in, 2) // me follows f1, f2
+	p11, _ := in.post(t, "f1", 1), in.post(t, "f1", 2)
+	_, _ = in.post(t, "f2", 1), in.post(t, "f2", 2)
+
+	resp, before, err := newInstance(t, client).home(t, "me", "", "", 20)
+	if err != nil || len(homeIDs(resp)) != 4 {
+		t.Fatalf("baseline home: err=%v ids=%v", err, homeIDs(resp))
+	}
+
+	mod := posts.NewFirestoreRepo(client)
+	if _, err := mod.Takedown(context.Background(), p11, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, done, err := mod.HideAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
+		t.Fatalf("hide author: done=%v err=%v", done, err)
+	}
+
+	cold := newInstance(t, client)
+	resp, after, err := cold.home(t, "me", "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := homeIDs(resp); len(ids) != 1 {
+		t.Fatalf("home after moderation = %v, want only f1's second post", ids)
+	}
+	if after.Reads() > before.Reads() {
+		t.Errorf("reads after = %d > before = %d: filtering must not add reads", after.Reads(), before.Reads())
+	}
+	for _, target := range []string{"f1", "f2"} {
+		u, _, err := newInstance(t, client).user(t, "me", target, "", "", 20)
+		want := map[string]int{"f1": 1, "f2": 0}[target]
+		if err != nil || len(u.GetPosts()) != want {
+			t.Fatalf("user %s: err=%v posts=%d, want %d", target, err, len(u.GetPosts()), want)
+		}
+	}
+
+	if _, err := mod.Restore(context.Background(), p11); err != nil {
+		t.Fatal(err)
+	}
+	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}); err != nil || !done {
+		t.Fatalf("restore author: done=%v err=%v", done, err)
+	}
+	resp, _, err = newInstance(t, client).home(t, "me", "", "", 20)
+	if err != nil || len(homeIDs(resp)) != 4 {
+		t.Fatalf("home after restore: err=%v ids=%v", err, homeIDs(resp))
+	}
+}

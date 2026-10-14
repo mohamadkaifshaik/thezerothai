@@ -57,6 +57,9 @@ type FirestoreRepo struct {
 	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
 	// error makes the SDK retry the transaction. Never set outside tests.
 	attemptHook func(attempt int, id string) error
+	// moderationReadHook is a test seam: HideAuthor/RestoreAuthor call it between reading a page and committing
+	// its batch, so a test can change a post in that window. Never set outside tests.
+	moderationReadHook func()
 	// Test seams for DeleteOwn's retry loop (store.RetryConfig); nil means real commit and jittered wait.
 	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
 	backoff     func(ctx context.Context, ceiling time.Duration) error
@@ -91,7 +94,10 @@ type postDoc struct {
 	QuoteCount      int64        `firestore:"quoteCount"`
 	Visibility      string       `firestore:"visibility"`
 	SnapshotVersion int64        `firestore:"snapshotVersion"`
-	CreatedAt       time.Time    `firestore:"createdAt"`
+	// Moderation is absent for a visible post (ADR-0016 D3); ModeratedAt is when the state last changed.
+	Moderation  string     `firestore:"moderation,omitempty"`
+	ModeratedAt *time.Time `firestore:"moderatedAt,omitempty"`
+	CreatedAt   time.Time  `firestore:"createdAt"`
 }
 
 type authorDoc struct {
@@ -132,6 +138,7 @@ func toDoc(p *Post) postDoc {
 		Hashtags:  p.Hashtags,
 		LikeCount: p.LikeCount, RepostCount: p.RepostCount, ReplyCount: p.ReplyCount, QuoteCount: p.QuoteCount,
 		Visibility: string(p.Visibility), SnapshotVersion: p.SnapshotVersion, CreatedAt: p.CreatedAt,
+		Moderation: string(p.Moderation),
 	}
 	if d.Hashtags == nil {
 		d.Hashtags = []string{}
@@ -162,6 +169,7 @@ func (d postDoc) toPost(id string) *Post {
 		Hashtags:  d.Hashtags,
 		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount,
 		Visibility: Visibility(d.Visibility), SnapshotVersion: d.SnapshotVersion, CreatedAt: d.CreatedAt.UTC(),
+		Moderation: Moderation(d.Moderation),
 	}
 	if len(d.Mentions) > 0 {
 		p.Mentions = make([]Mention, len(d.Mentions))

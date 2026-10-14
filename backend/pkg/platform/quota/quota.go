@@ -34,6 +34,9 @@ const (
 	// Blocks counts both Block and Mute calls (ADR-0008 D7): they share one daily counter. Unblock/Unmute
 	// are never quota-gated.
 	Blocks Kind = "blocks"
+	// Reports counts ReportContent calls that wrote a report (ADR-0016). A repeat report is a no-op and is not
+	// charged.
+	Reports Kind = "reports"
 	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
 	// avatar), P2 / ADR-0003: 5 per day.
 	SnapshotEdits Kind = "snapshotEdits"
@@ -67,6 +70,8 @@ type Record struct {
 	Exports int64  `firestore:"exports"`
 	// Blocks counts Block + Mute calls (ADR-0008 D7).
 	Blocks int64 `firestore:"blocks"`
+	// Reports counts ReportContent writes (ADR-0016). Absent in older docs, so it decodes as 0.
+	Reports int64 `firestore:"reports"`
 	// SnapshotEdits counts snapshot-affecting profile edits (P2).
 	SnapshotEdits int64 `firestore:"snapshotEdits"`
 }
@@ -83,6 +88,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Exports
 	case Blocks:
 		return r.Blocks
+	case Reports:
+		return r.Reports
 	case SnapshotEdits:
 		return r.SnapshotEdits
 	default:
@@ -102,6 +109,8 @@ func (r *Record) increment(k Kind, n int64) {
 		r.Exports += n
 	case Blocks:
 		r.Blocks += n
+	case Reports:
+		r.Reports += n
 	case SnapshotEdits:
 		r.SnapshotEdits += n
 	}
@@ -154,13 +163,20 @@ func CheckAndReserve(b store.Batch, ref *firestore.DocumentRef, rec Record, kind
 // 4-image call at 18/20 fails as a whole instead of half-reserving.
 func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kind Kind, limit, n int64) error {
 	if rec.valueFor(kind)+n > limit {
-		return apierr.New(
-			connect.CodeResourceExhausted,
-			commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
-			"daily limit reached, please try again tomorrow",
-		).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(time.Now()))
+		return ExceededError(kind, time.Now())
 	}
 	rec.increment(kind, n)
 	b.Set(ref, rec)
 	return nil
+}
+
+// ExceededError is the RESOURCE_EXHAUSTED / QUOTA_EXCEEDED error for kind at instant now, retry-after the next IST
+// midnight. CheckAndReserveN returns it; a module that remembers "this uid is out of quota until midnight" in its
+// instance cache (moderation, ADR-0016) builds the identical error from it without a Firestore read.
+func ExceededError(kind Kind, now time.Time) *apierr.Error {
+	return apierr.New(
+		connect.CodeResourceExhausted,
+		commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
+		"daily limit reached, please try again tomorrow",
+	).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(now))
 }

@@ -22,12 +22,14 @@ import (
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
+	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
@@ -104,7 +106,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -256,6 +258,20 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger, notifRepo); err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
 	}
+	// moderation (ADR-0016, P7): ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
+	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
+	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
+	if err := registerModerationLifecycle(lifecycle, moderationRepo); err != nil {
+		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
+	}
+	moderationSvc := moderation.New(moderation.Deps{
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,
+		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
+		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
+		NewAccountWindow:        cfg.Quota.NewAccountWindow,
+		AllowAnonymous:          cfg.AuthEmulator,
+	})
+	moderationServer := moderation.NewServer(moderationSvc, featureFlags)
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, mediaMod.jobs); err != nil {
 		return nil, nil, fmt.Errorf("media job handler: %w", err)
 	}
@@ -264,7 +280,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// engagement, search, moderation, admin are not implemented yet; their Connect servers are not registered.
+	// engagement, search, admin are not implemented yet; their Connect servers are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
@@ -317,6 +333,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(timelinePath, timelineHandler)
 
+	moderationPath, moderationHandler := moderationv1connect.NewModerationServiceHandler(moderationServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
+	mux.Handle(moderationPath, moderationHandler)
 	notifPath, notifHandler := notificationsv1connect.NewNotificationServiceHandler(notifServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
 	mux.Handle(notifPath, notifHandler)
 	mediaPath, mediaHandler := mediav1connect.NewMediaServiceHandler(mediaMod.server, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))

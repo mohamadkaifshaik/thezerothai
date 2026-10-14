@@ -91,6 +91,8 @@ type RateLimitConfig struct {
 	UserTimelinePerMinute int // GetUserTimeline, env RATE_LIMIT_USER_TIMELINE_PER_MIN, default 30
 	PostCreatePerMinute   int // CreatePost, env RATE_LIMIT_POST_CREATE_PER_MIN, default 10
 	PostDeletePerMinute   int // DeletePost, env RATE_LIMIT_POST_DELETE_PER_MIN, default 20
+	// ReportPerMinute is the ReportContent bucket (ADR-0016), env RATE_LIMIT_REPORT_PER_MIN, default 5.
+	ReportPerMinute int
 
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
@@ -170,6 +172,10 @@ type QuotaConfig struct {
 	// Unblock/Unmute are never quota-gated.
 	BlocksPerDay           int
 	NewAccountBlocksPerDay int
+
+	// ReportsPerDay/NewAccountReportsPerDay cap ReportContent writes (ADR-0016 D1, quota.Reports).
+	ReportsPerDay           int
+	NewAccountReportsPerDay int
 }
 
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
@@ -256,6 +262,9 @@ type Config struct {
 	// every environment.
 	FeatureAccountLifecycle flags.Spec
 
+	// FeatureReports is the P7 server flag (wire name `reports`, ADR-0016 D1) gating ModerationService.ReportContent.
+	// FEATURE_REPORTS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureReports flags.Spec
 	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
 	// GetThread. FEATURE_REPLIES[_ALLOWLIST|_PERCENT], default off in every environment. It is independent of
 	// FEATURE_POSTS but needs it (the posts guard runs first).
@@ -479,6 +488,7 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_USER_TIMELINE_PER_MIN", 30, &rl.UserTimelinePerMinute},
 		{"RATE_LIMIT_POST_CREATE_PER_MIN", 10, &rl.PostCreatePerMinute},
 		{"RATE_LIMIT_POST_DELETE_PER_MIN", 20, &rl.PostDeletePerMinute},
+		{"RATE_LIMIT_REPORT_PER_MIN", 5, &rl.ReportPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -595,6 +605,13 @@ func Load() (Config, error) {
 	if q.NewAccountBlocksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", 50); err != nil {
 		return Config{}, err
 	}
+	// ADR-0016 D1: 20 reports/day, 5 for accounts younger than the new-account window.
+	if q.ReportsPerDay, err = getInt("QUOTA_REPORTS_PER_DAY", 20); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountReportsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", 5); err != nil {
+		return Config{}, err
+	}
 
 	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
@@ -693,6 +710,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureReports, err := flags.LoadSpec("REPORTS", "reports", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -758,6 +779,7 @@ func Load() (Config, error) {
 		FeaturePosts:              featurePosts,
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
+		FeatureReports:            featureReports,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,
 		AccountDeleteReauthMaxAge: reauthMaxAge,

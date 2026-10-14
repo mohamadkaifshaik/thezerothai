@@ -164,7 +164,7 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	for _, p := range docs {
 		switch {
 		case skip[p.ID]:
-		case p.Visibility != VisibilityPublic || !replyAllowed(snap, callerUID, p.AuthorID):
+		case p.Visibility != VisibilityPublic || p.Hidden() || !replyAllowed(snap, callerUID, p.AuthorID): // ADR-0016: hidden replies are dropped
 			dropped++
 		default:
 			out.Replies = append(out.Replies, p)
@@ -207,7 +207,7 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	}
 	usable := func(id string) *Post {
 		p, ok := found[id]
-		if !ok || p.Visibility != VisibilityPublic {
+		if !ok || p.Visibility != VisibilityPublic || p.Hidden() {
 			return nil
 		}
 		if _, ok := profiles[p.AuthorID]; !ok {

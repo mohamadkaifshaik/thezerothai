@@ -153,6 +153,18 @@ locals {
   ]
 }
 
+// Reports and moderation (P7, ADR-0016). FEATURE_REPORTS is off in both envs until the founder ramps it
+// (var.feature_reports*); no code path or apply turns it on. Quotas mirror backend/pkg/platform/config/config.go.
+locals {
+  reports_env_vars = [
+    { name = "FEATURE_REPORTS", value = var.feature_reports },
+    { name = "FEATURE_REPORTS_ALLOWLIST", value = var.feature_reports_allowlist },
+    { name = "FEATURE_REPORTS_PERCENT", value = tostring(var.feature_reports_percent) },
+    { name = "QUOTA_REPORTS_PER_DAY", value = "20" },
+    { name = "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", value = "5" },
+  ]
+}
+
 // Notifications slice (P6, ADR-0017). FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
 // out via var.feature_notifications*. No new resource: the topic, push subscription and DLQ already exist in
 // modules/pubsub and the runtime SA's publish binding is in runtime_publisher_topics. The device-call cap mirrors
@@ -196,6 +208,7 @@ module "cloud_run_api" {
     local.posts_env_vars,
     local.account_lifecycle_env_vars,
     local.notifications_env_vars,
+    local.reports_env_vars,
   )
 
   depends_on = [module.project_services, module.secrets]

@@ -383,5 +383,7 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 	return res, nil
 }
 
-// isPublic keeps only public posts. Timelines fail closed so a future non-public visibility cannot leak by omission.
-func isPublic(p *posts.Post) bool { return p.Visibility == posts.VisibilityPublic }
+// isPublic keeps only public posts a moderator has not hidden (ADR-0016 D3: takedown and suspension are a
+// moderation field on the doc, so this filter costs no read). Timelines fail closed so a future non-public
+// visibility cannot leak by omission.
+func isPublic(p *posts.Post) bool { return p.Visibility == posts.VisibilityPublic && p.Visible() }

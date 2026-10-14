@@ -86,5 +86,9 @@
     "postsCount": 3,
     "userId": "<uid:A>",
     "verified": false
+  },
+  "reports": {
+    "reports": [],
+    "userId": "<uid:A>"
   }
 }

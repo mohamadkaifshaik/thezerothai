@@ -247,6 +247,15 @@ func TestIsPublic_FailsClosed(t *testing.T) {
 			t.Errorf("isPublic(%q) = %v, want %v", v, got, want)
 		}
 	}
+	// ADR-0016: a post a moderator hid is dropped even though it is PUBLIC (takedown and suspension).
+	for _, hidden := range []*posts.Post{
+		{Visibility: posts.VisibilityPublic, Moderation: "TAKEN_DOWN"},
+		{Visibility: posts.VisibilityPublic, Moderation: "SUSPENDED_AUTHOR"},
+	} {
+		if isPublic(hidden) {
+			t.Errorf("isPublic kept a %s post", hidden.Moderation)
+		}
+	}
 	p := mk(9, 90)
 	p.Visibility = posts.VisibilityFollowers
 	if page := Merge([]Source{{Posts: []*posts.Post{p, mkPublic(8, 80)}}}, 10, isPublic); len(page.Items) != 1 {
