@@ -64,7 +64,7 @@
 | PostCard | app/lib/shared/widgets/post_card.dart | any post row (Home, profile tabs, detail): author row (tap -> `/u/:userId`), relative time, rich text, overflow menu (Delete own with confirm / Block / Mute / Unblock / Unmute via one `RelationshipCubit` per card, `onRelationshipChanged` for the timeline); display only, navigation and launch are injectable |
 | PostRichText / launchPostLink | app/lib/shared/widgets/post_card.dart | post body as tappable spans (owns the recognizers); `launchPostLink` opens an http(s) URL in the external browser (returns false instead of throwing) |
 | parsePostText / PostSpan / PostSpanKind | app/lib/features/posts/domain/post_text_parser.dart | pure text -> plain/link/mention/hashtag spans: http(s) links only (no userinfo, non-ASCII hosts or bidi controls), mentions matched case-insensitively against `mentions[].handle` and carrying `user_id`, ADR-0010 D8 hashtags |
-| AppAvatar | app/lib/shared/widgets/app_avatar.dart | user avatar (post card, list rows, profile header): disk-cached network image decoded at display size, person-icon fallback |
+| AppAvatar | app/lib/shared/widgets/app_avatar.dart | user avatar (post card, list rows, profile header): disk-cached network image decoded at display size, person-icon fallback; optional `bytes` shows a local, unsaved image (avatar editor preview) |
 | formatRelativeTime / formatRelativeTimeSpoken | app/lib/shared/format/relative_time.dart | `now`/`5m`/`3h`/`2d`/date for rows, and the spoken form (`5 minutes ago`) for semantics |
 | FeedKey | app/lib/features/timeline/domain/feed_key.dart | identifies a cached feed: `home`, or a user's Posts/Replies tab (also what server tokens are bound to) |
 | GraphRepository / GraphPage | app/lib/features/graph/data/graph_repository.dart | `GraphService` client + session relationship cache (primed from list rows and the drift `following` cache); follow/unfollow/block/unblock/mute/unmute + paged lists |
@@ -98,7 +98,7 @@
 | PostUnavailableView | app/lib/features/posts/presentation/widgets/post_unavailable_view.dart | the final NOT_FOUND state ("This post isn't available" + Go to Home), shared by the post and thread screens |
 | PostListSkeleton | app/lib/shared/widgets/post_list_skeleton.dart | static post-shaped loading rows (`rows`, `semanticsLabel`); Home/profile feed and thread |
 | AppEmptyView | app/lib/shared/widgets/app_empty_view.dart | empty list state (icon, title, optional subtitle); feed and thread replies |
-| PendingPostRow | app/lib/shared/widgets/pending_post_row.dart | one dimmed optimistic post/reply row with "Posting..."; used by `PendingPostsSection` and the thread's reply in flight |
+| PendingPostRow | app/lib/shared/widgets/pending_post_row.dart | one dimmed optimistic post/reply row with "Posting..." (and on-device photo `thumbnails` when attached); used by `PendingPostsSection` and the thread's reply in flight |
 | BlockedPostGate | app/lib/shared/widgets/blocked_post_gate.dart | ADR-0010 D6 "You blocked @x - Show post" banner around a post of a blocked author (post detail and thread focal/context posts) |
 | viewerAuthorSnapshot | app/lib/features/posts/domain/viewer_author_snapshot.dart | the signed-in profile as an `AuthorSnapshot` for optimistic rows |
 | threadRefreshErrorMessage | app/lib/features/posts/presentation/post_error_messages.dart | snackbar text for a failed thread pull-to-refresh (stale thread stays) |

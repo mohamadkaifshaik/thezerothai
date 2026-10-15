@@ -167,7 +167,16 @@ class EditProfileCubit extends Cubit<EditProfileState> {
     try {
       bytes = await picker.pickAvatar();
     } catch (_) {
-      return; // Permission denied / picker failure: keep what we had.
+      // Permission denied / picker failure: keep what we had, and say so.
+      if (!isClosed) {
+        emit(
+          state.copyWith(
+            avatarFailed: true,
+            error: const UnknownApiException('The photo picker failed.'),
+          ),
+        );
+      }
+      return;
     }
     if (bytes == null || isClosed) return;
     emit(state.copyWith(isPreparingAvatar: true, clearError: true));
@@ -262,28 +271,30 @@ class EditProfileCubit extends Cubit<EditProfileState> {
     try {
       final avatarId = await _uploadAvatar();
       uploading = false;
+      if (isClosed) return;
       // The key covers the avatar's media id too: a different photo is a
       // different request body (the server answers IDEMPOTENCY_KEY_REUSED).
       final intent =
           '${name ?? '\u0000'}\u0001${bio ?? '\u0000'}\u0001${avatarId ?? ''}';
       final key = _keys.putIfAbsent(intent, _uuid.v4);
-      final profile = avatarId == null
-          ? await _repository.updateProfile(
-              idempotencyKey: key,
-              displayName: name,
-              bio: bio,
-            )
-          : await _repository.updateProfile(
-              idempotencyKey: key,
-              displayName: name,
-              bio: bio,
-              avatarMediaId: avatarId,
-            );
+      final profile = await _repository.updateProfile(
+        idempotencyKey: key,
+        displayName: name,
+        bio: bio,
+        avatarMediaId: avatarId,
+      );
       _keys.remove(intent);
       if (isClosed) return;
       emit(state.copyWith(status: EditProfileStatus.saved, saved: profile));
     } on AppException catch (e, stack) {
       if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
+      if (e is MediaNotReadyException) {
+        // The uploaded avatar is gone server-side: forget it so the user
+        // picks again instead of re-sending a dead media id.
+        _avatar = null;
+        _avatarMediaId = null;
+        _uploader?.forget(_avatarJobId);
+      }
       if (isClosed) return;
       emit(
         state.copyWith(

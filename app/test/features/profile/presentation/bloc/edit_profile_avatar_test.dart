@@ -104,6 +104,39 @@ void main() {
     },
   );
 
+  test('a picker failure is reported as a photo error', () async {
+    picker.failWith = StateError('denied');
+
+    await cubit.pickAvatar();
+
+    expect(cubit.state.avatarFailed, isTrue);
+    expect(cubit.state.error, isNotNull);
+    expect(cubit.hasChanges, isFalse);
+  });
+
+  test(
+    'MEDIA_NOT_READY on save drops the avatar so it is picked again',
+    () async {
+      stubHappyUpload(media);
+      when(
+        () => identityRepo.updateProfile(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          displayName: any(named: 'displayName'),
+          bio: any(named: 'bio'),
+          avatarMediaId: any(named: 'avatarMediaId'),
+        ),
+      ).thenThrow(const MediaNotReadyException('gone'));
+      picker.nextAvatar = imageBytes('a');
+      await cubit.pickAvatar();
+
+      await cubit.save();
+
+      expect(cubit.state.avatarFailed, isTrue);
+      expect(cubit.isAvatarChanged, isFalse);
+      expect(cubit.state.avatarPreview, isNull);
+    },
+  );
+
   test('save uploads the avatar then sends only its media id', () async {
     stubHappyUpload(media);
     picker.nextAvatar = imageBytes('a');

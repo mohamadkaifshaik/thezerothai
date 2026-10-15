@@ -39,17 +39,7 @@ class AvatarEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final preview = previewBytes;
-    final avatar = preview == null
-        ? AppAvatar(url: url, radius: radius)
-        : CircleAvatar(
-            radius: radius,
-            backgroundImage: ResizeImage(
-              MemoryImage(preview),
-              width: (radius * 2 * MediaQuery.devicePixelRatioOf(context))
-                  .ceil(),
-            ),
-          );
+    final avatar = AppAvatar(url: url, radius: radius, bytes: previewBytes);
     final editable = onChange != null;
     final size = radius * 2;
 
@@ -57,7 +47,7 @@ class AvatarEditor extends StatelessWidget {
       label: editable ? 'Change profile photo' : 'Profile photo',
       button: editable,
       image: !editable,
-      enabled: editable && !busy,
+      enabled: editable ? !busy : null,
       excludeSemantics: true,
       onTap: editable && !busy ? onChange : null,
       child: SizedBox(
