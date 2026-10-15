@@ -22,17 +22,6 @@ func (c countersStub) AddPostsCount(b store.Batch, uid string, _ int64) {
 	b.Update(c.client.Doc("users/"+uid), []firestore.Update{{Path: "postsCount", Value: 1}})
 }
 
-// releaseStub stands in for engagement's RepostLinks where a test only needs the purge copy phase to be wired.
-type releaseStub struct{}
-
-func (releaseStub) StageRelease(store.Batch, string, string) {}
-
-// withCopyPhase wires the collaborators PurgeUser's copy phase (ADR-0018 D14) needs.
-func withCopyPhase(repo *FirestoreRepo, client *firestore.Client) {
-	repo.SetWriters(WriteDeps{Counters: countersStub{client}})
-	repo.SetRepostLinks(releaseStub{})
-}
-
 func (countersStub) AddFollowingCount(store.Batch, string, int64) {}
 func (countersStub) AddFollowersCount(store.Batch, string, int64) {}
 func (countersStub) AddCounts(store.Batch, string, int64, int64)  {}
