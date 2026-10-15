@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -441,5 +442,70 @@ func TestCacheListHelpers(t *testing.T) {
 	}
 	if got := withoutIDs([]string{"a", "b", "c"}, []string{"a", "c"}); len(got) != 1 || got[0] != "b" {
 		t.Fatalf("withoutIDs = %v", got)
+	}
+}
+
+// gateRepo blocks Like until released and counts the calls that reach it.
+type gateRepo struct {
+	*fakeRepo
+	mu      sync.Mutex
+	calls   int
+	release chan struct{}
+}
+
+func (g *gateRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
+	g.mu.Lock()
+	g.calls++
+	g.mu.Unlock()
+	<-g.release
+	return false, nil
+}
+
+func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
+	e := newEnv(t)
+	g := &gateRepo{fakeRepo: e.repo, release: make(chan struct{})}
+	m, err := New(Deps{
+		Repo: g, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)},
+		Events: e.events, LikesPerDay: 500, NewAccountLikesPerDay: 100, NewAccountWindow: 24 * time.Hour,
+		CacheTTL: time.Minute, AllowAnonymous: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 8
+	var wg sync.WaitGroup
+	results := make([]Result, n)
+	errs := make([]error, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = m.Like(e.ctx, "viewer", keyOK, pidA)
+		}()
+	}
+	// Wait until the leader is inside the repo, give the followers time to join, then let it commit.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		g.mu.Lock()
+		c := g.calls
+		g.mu.Unlock()
+		if c > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(g.release)
+	wg.Wait()
+	for i := range n {
+		if errs[i] != nil || !results[i].LikedByViewer {
+			t.Fatalf("call %d: %+v, %v", i, results[i], errs[i])
+		}
+	}
+	if g.calls != 1 {
+		t.Errorf("repo.Like calls = %d, want 1 (collapsed)", g.calls)
+	}
+	if e.events.likes != 1 || len(e.posts.counts) != 1 {
+		t.Errorf("events=%d counts=%v, want exactly one notification and one counter bump", e.events.likes, e.posts.counts)
 	}
 }

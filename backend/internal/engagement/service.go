@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sync/singleflight"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -69,9 +70,10 @@ type Deps struct {
 }
 
 type service struct {
-	d     Deps
-	cache *userCache
-	now   func() time.Time
+	d          Deps
+	cache      *userCache
+	now        func() time.Time
+	likeFlight singleflight.Group
 }
 
 // New builds the service. Events defaults to the no-op.
@@ -296,7 +298,18 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	if s.isNew(prof) {
 		limit = s.d.NewAccountLikesPerDay
 	}
-	replayed, err := s.d.Repo.Like(ctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
+	// Concurrent likes of one post by one user (a retry storm, a double tap) collapse into one transaction per
+	// instance: they would only contend on the same like, post and quota docs. The followers did not write, so
+	// they are replays (no counter bump, no notification).
+	led := false
+	v, err, _ := s.likeFlight.Do(uid+"/"+target.ID, func() (any, error) {
+		led = true
+		return s.d.Repo.Like(ctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
+	})
+	replayed, _ := v.(bool)
+	if err == nil && !led {
+		replayed = true
+	}
 	switch {
 	case errors.Is(err, ErrPostGone):
 		logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
