@@ -309,7 +309,9 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 				if st, ok := s.cache.get(uid); ok {
 					if liked, _ := st.set.Flags(target); liked {
 						logger.SetRequestField(ctx, fieldOutcome, outcomeReplay)
-						return s.result(ctx, uid, target, 0, 0), nil
+						out := s.result(ctx, uid, target, 0, 0)
+						out.LikedByViewer = true
+						return out, nil
 					}
 				}
 			}
@@ -332,7 +334,9 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	if !replayed {
 		s.d.Events.Liked(ctx, uid, target, s.now())
 	}
-	return s.result(ctx, uid, target, likeDelta, 0), nil
+	out := s.result(ctx, uid, target, likeDelta, 0)
+	out.LikedByViewer = true
+	return out, nil
 }
 
 // result builds the response from the post as read plus this call's own delta, and the cached viewer flags.

@@ -51,14 +51,23 @@ func toProto(r Result) *engagementv1.PostEngagement {
 	}
 }
 
-// LikePost implements the RPC; the rules are Service.Like.
-func (s *Server) LikePost(ctx context.Context, req *connect.Request[engagementv1.LikePostRequest]) (*connect.Response[engagementv1.LikePostResponse], error) {
+// call is the shared RPC shell: guard, run the service method, hand back the result.
+func (s *Server) call(ctx context.Context, fn func(context.Context, string) (Result, error)) (Result, error) {
 	ctx, cancel, uid, err := s.guard(ctx)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	defer cancel()
-	r, err := s.svc.Like(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	return fn(ctx, uid)
+}
+
+// LikePost implements the RPC; the rules are Service.Like.
+//
+//nolint:dupl // mirrors the sibling RPCs over distinct generated proto types
+func (s *Server) LikePost(ctx context.Context, req *connect.Request[engagementv1.LikePostRequest]) (*connect.Response[engagementv1.LikePostResponse], error) {
+	r, err := s.call(ctx, func(ctx context.Context, uid string) (Result, error) {
+		return s.svc.Like(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -66,13 +75,12 @@ func (s *Server) LikePost(ctx context.Context, req *connect.Request[engagementv1
 }
 
 // UnlikePost implements the RPC; the rules are Service.Unlike.
+//
+//nolint:dupl // mirrors the sibling RPCs over distinct generated proto types
 func (s *Server) UnlikePost(ctx context.Context, req *connect.Request[engagementv1.UnlikePostRequest]) (*connect.Response[engagementv1.UnlikePostResponse], error) {
-	ctx, cancel, uid, err := s.guard(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	r, err := s.svc.Unlike(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	r, err := s.call(ctx, func(ctx context.Context, uid string) (Result, error) {
+		return s.svc.Unlike(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -81,12 +89,9 @@ func (s *Server) UnlikePost(ctx context.Context, req *connect.Request[engagement
 
 // RepostPost implements the RPC; the rules are Service.Repost.
 func (s *Server) RepostPost(ctx context.Context, req *connect.Request[engagementv1.RepostPostRequest]) (*connect.Response[engagementv1.RepostPostResponse], error) {
-	ctx, cancel, uid, err := s.guard(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	r, err := s.svc.Repost(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	r, err := s.call(ctx, func(ctx context.Context, uid string) (Result, error) {
+		return s.svc.Repost(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -94,13 +99,12 @@ func (s *Server) RepostPost(ctx context.Context, req *connect.Request[engagement
 }
 
 // UndoRepost implements the RPC; the rules are Service.UndoRepost.
+//
+//nolint:dupl // mirrors the sibling RPCs over distinct generated proto types
 func (s *Server) UndoRepost(ctx context.Context, req *connect.Request[engagementv1.UndoRepostRequest]) (*connect.Response[engagementv1.UndoRepostResponse], error) {
-	ctx, cancel, uid, err := s.guard(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	r, err := s.svc.UndoRepost(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	r, err := s.call(ctx, func(ctx context.Context, uid string) (Result, error) {
+		return s.svc.UndoRepost(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	})
 	if err != nil {
 		return nil, err
 	}

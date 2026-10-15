@@ -121,7 +121,7 @@ func (r *FirestoreRepo) LoadUserLikes(ctx context.Context, uid string) (UserLike
 	if err := snap.DataTo(&d); err != nil {
 		return UserLikes{}, fmt.Errorf("engagement: decode userLikes: %w", err)
 	}
-	return UserLikes{Recent: d.Recent, RecentReposts: d.RecentReposts}, nil
+	return UserLikes(d), nil
 }
 
 // runTx runs fn in a transaction with correct budget accounting, re-running it a bounded number of times when
