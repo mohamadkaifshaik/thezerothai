@@ -22,6 +22,10 @@ const kHandleCooldown = Duration(days: 7);
 /// reset at IST midnight, so a day is the upper bound).
 const kDailyQuotaLockout = Duration(days: 1);
 
+/// A lockout shorter than this keeps an "available" answer trustworthy: no
+/// re-probe when it ends.
+const kFreshCheckWindow = Duration(minutes: 1);
+
 enum ChangeHandleStatus { editing, saving, saved }
 
 @immutable
@@ -52,8 +56,9 @@ class ChangeHandleState {
   final identity.Profile? saved;
 
   /// When the server said the handle change (or its daily quota) is locked
-  /// until. Save stays disabled while this is set; the cubit clears it on the
-  /// first edit after it passed.
+  /// until. Save stays disabled while this is set; the cubit clears it when
+  /// the lockout ends (a timer, so no edit is needed) or on the first edit
+  /// after it passed.
   final DateTime? cooldownUntil;
 
   bool get isSaving => status == ChangeHandleStatus.saving;
@@ -219,7 +224,7 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
   }
 
   Future<void> save() async {
-    if (_activeCooldown != null || !state.canSave) return;
+    if (!state.canSave) return;
     final handle = state.handle;
     final key = _keys.putIfAbsent(handle, _uuid.v4);
     emit(state.copyWith(status: ChangeHandleStatus.saving, clearError: true));
@@ -287,10 +292,17 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     final wait = until.difference(_clock());
     _cooldownTimer = Timer(wait.isNegative ? Duration.zero : wait, () {
       if (isClosed || state.cooldownUntil == null) return;
+      // Any edit during the lockout resets the check to idle, so a handle
+      // still shown available after a short lockout is unchanged and fresh.
+      final stillFresh =
+          wait < kFreshCheckWindow &&
+          state.checkStatus == HandleCheckStatus.available;
       emit(state.copyWith(clearCooldown: true));
       // Edits made during the lockout were not probed: check the handle now.
       final handle = state.handle;
-      if (handle.isNotEmpty && !state.isSaving) handleChanged(handle);
+      if (!stillFresh && handle.isNotEmpty && !state.isSaving) {
+        handleChanged(handle);
+      }
     });
   }
 

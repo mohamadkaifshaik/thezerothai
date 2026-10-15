@@ -275,36 +275,36 @@ void main() {
       'counters are announced as characters remaining, and an unexpected '
       'error is reported',
       (tester) async {
-      final semantics = tester.ensureSemantics();
-      stubUpdate(() async => throw StateError('boom'));
-      await open(tester, '/settings/profile');
+        final semantics = tester.ensureSemantics();
+        stubUpdate(() async => throw StateError('boom'));
+        await open(tester, '/settings/profile');
 
-      String label(String fieldText) => tester
-          .getSemantics(find.widgetWithText(TextField, fieldText))
-          .label;
-      expect(label('Kaif'), contains('Characters remaining: 46'));
-      expect(label('hello there'), contains('Characters remaining: 149'));
+        String label(String fieldText) => tester
+            .getSemantics(find.widgetWithText(TextField, fieldText))
+            .label;
+        expect(label('Kaif'), contains('Characters remaining: 46'));
+        expect(label('hello there'), contains('Characters remaining: 149'));
         await tester.enterText(
           find.widgetWithText(TextField, 'Kaif'),
           'a' * 51,
         );
-      await tester.pump();
-      expect(label('a' * 51), contains('Characters over the limit: 1'));
+        await tester.pump();
+        expect(label('a' * 51), contains('Characters over the limit: 1'));
 
         await tester.enterText(
           find.widgetWithText(TextField, 'a' * 51),
           'Kaif S',
         );
-      await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
-      await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
 
-      expect(reported.single, isA<StateError>());
-      expect(
-        find.text("Couldn't save your changes. Please try again."),
-        findsOneWidget,
-      );
-      semantics.dispose();
+        expect(reported.single, isA<StateError>());
+        expect(
+          find.text("Couldn't save your changes. Please try again."),
+          findsOneWidget,
+        );
+        semantics.dispose();
       },
     );
 
@@ -461,6 +461,37 @@ void main() {
           newHandle: 'new_one',
         ),
       ).called(1);
+      expect(find.text('profile of new_one'), findsOneWidget);
+      verify(
+        () => onboardingBloc.add(any(that: isA<OnboardingProfileUpdated>())),
+      ).called(1);
+    });
+
+    testWidgets('back while saving stays; the save lands on the new profile', (
+      tester,
+    ) async {
+      stubCheck(true);
+      final done = Completer<identity.Profile>();
+      when(
+        () => repo.changeHandle(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          newHandle: any(named: 'newHandle'),
+        ),
+      ).thenAnswer((_) => done.future);
+      await open(tester, '/settings/handle');
+      await type(tester, 'new_one');
+      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
+      await tester.pump();
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Change handle'), findsWidgets);
+      expect(find.text('settings'), findsNothing);
+
+      done.complete(_profile(handle: 'new_one'));
+      await tester.pumpAndSettle();
       expect(find.text('profile of new_one'), findsOneWidget);
       verify(
         () => onboardingBloc.add(any(that: isA<OnboardingProfileUpdated>())),
