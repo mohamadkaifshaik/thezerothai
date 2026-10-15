@@ -32,8 +32,10 @@ func NewPurger(repo Repo, objects Objects, publicBaseURL string) *Purger {
 }
 
 // publicNames returns every public object name a document may own: the recorded paths plus the deterministic
-// names for both accepted extensions. A finalize that copied the objects and then lost the race to record the
-// paths (or was REJECTED after the copy) leaves public objects the document does not name (CLAUDE.md rule 10).
+// names for the document's own content type (the extension is fixed at upload init, so the other extension can
+// never exist). A finalize that copied the objects and then lost the race to record the paths (or was REJECTED
+// after the copy) leaves public objects the document does not name (CLAUDE.md rule 10). Deduplicated, so a
+// READY document is 2 names.
 func publicNames(d *Doc) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -45,10 +47,9 @@ func publicNames(d *Doc) []string {
 	}
 	add(d.PublicPath)
 	add(d.ThumbPath)
-	for _, ext := range []string{"jpg", "webp"} {
-		add(publicObject(d.ID, ext))
-		add(publicThumbObject(d.ID, ext))
-	}
+	ext := extension(d.ContentType)
+	add(publicObject(d.ID, ext))
+	add(publicThumbObject(d.ID, ext))
 	return out
 }
 
@@ -72,7 +73,7 @@ func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
 
 // PurgeUser deletes one page (<= opsPage) of uid's media: objects, then the documents in one batch. done is true
 // when the page was short (the account is DELETING, so no new uploads arrive). Reads: one per document, minimum 1;
-// deletes: one per document; GCS: free deletes, 4 public (deterministic names) + up to 2 private per document.
+// deletes: one per document; GCS: free deletes, 2 public (deterministic names) + up to 2 private per document.
 func (p *Purger) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := p.repo.ListByOwner(ctx, uid, "", opsPage)
 	if err != nil {

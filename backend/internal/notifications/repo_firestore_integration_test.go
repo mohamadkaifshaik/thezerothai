@@ -558,8 +558,13 @@ func TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold(t *testing.T) {
 		mustNoErr(t, plain.AddActor(ctx, "carol", "like_x", Actor{UserID: "erin", Handle: "h_erin"}, t0.Add(2*time.Second)))
 	}
 	repo := NewFirestoreRepo(client).WithDirectory(dir)
-	if _, _, err := repo.PurgeUser(ctx, "alice", Checkpoint{Step: 2}); err == nil {
-		t.Fatal("the stale batch must fail on the update-time precondition")
+	failCtx, failCounter := budget.WithCounter(ctx)
+	cp, done, err := repo.PurgeUser(failCtx, "alice", Checkpoint{Step: 2})
+	if err != nil || done || cp.Step != 2 || cp.Deleted != 0 {
+		t.Fatalf("a lost precondition is a no-progress no-op, not an error: cp=%+v done=%v err=%v", cp, done, err)
+	}
+	if failCounter.Writes() != 0 || failCounter.Deletes() != 0 {
+		t.Fatalf("failed batch counted writes=%d deletes=%d, want 0/0", failCounter.Writes(), failCounter.Deletes())
 	}
 	snap, err := client.Doc("users/carol/notifications/like_x").Get(ctx)
 	mustNoErr(t, err)
@@ -569,10 +574,14 @@ func TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold(t *testing.T) {
 		t.Fatalf("the concurrent fold was clobbered: %+v", d)
 	}
 	// The retry sees fresh data: alice is removed, erin stays the displayed actor.
-	_, done, err := repo.PurgeUser(ctx, "alice", Checkpoint{Step: 2})
+	retryCtx, retryCounter := budget.WithCounter(ctx)
+	_, done, err = repo.PurgeUser(retryCtx, "alice", Checkpoint{Step: 2})
 	mustNoErr(t, err)
 	if !done {
 		t.Error("retry must finish")
+	}
+	if retryCounter.Writes() != 1 || retryCounter.Deletes() != 0 {
+		t.Errorf("retry counted writes=%d deletes=%d, want 1/0 (one repointed row)", retryCounter.Writes(), retryCounter.Deletes())
 	}
 	snap, err = client.Doc("users/carol/notifications/like_x").Get(ctx)
 	mustNoErr(t, err)

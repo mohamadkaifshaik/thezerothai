@@ -199,6 +199,6 @@ on post delete.
   actors are not; a later like shows it again. (c) Purge step 2 writes are conditioned on the update time seen by its
   query, so a like folding in concurrently fails that batch and the self-resuming step retries; a document liked
   continuously could delay the purge but never loses a fold. `Checkpoint.Deleted` counts documents processed
-  (deleted or unfolded in place). (d) After their row commits, the fan-out evicts only each recipient's cached unread count
+  (deleted or unfolded in place). (d) After their row commits (a Create, or a like folded into an existing row via AddActor, which moves its createdAt forward), the fan-out evicts only each recipient's cached unread count
   (`Directory.ForgetUnread`, no reads) so the badge is recounted; the freshly read profile stays cached.
 

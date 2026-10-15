@@ -68,7 +68,7 @@ func (j *Jobs) PostDeleted(ctx context.Context, uid, postID string, mediaIDs []s
 }
 
 // Handle implements identity.JobHandler. Reads: len(MediaIDs) + 1 (the post); deletes: len(MediaIDs) documents;
-// GCS: free deletes, 4 per image.
+// GCS: free deletes, up to 4 per image (2 public + 2 private upload).
 func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m PostDeleteMessage
 	if err := json.Unmarshal(data, &m); err != nil {

@@ -64,8 +64,8 @@ func TestPurgeUser(t *testing.T) {
 func TestPurgeUser_DeletesDeterministicPublicNamesForUnrecordedObjects(t *testing.T) {
 	r, o := newFakeRepo(), newFakeObjects()
 	id := "0000000000000008001"
-	r.docs[id] = &Doc{ID: id, OwnerID: uidA, Status: string(StatusRejected)} // no PublicPath recorded
-	for _, name := range []string{publicObject(id, "jpg"), publicThumbObject(id, "jpg"), publicObject(id, "webp"), publicThumbObject(id, "webp")} {
+	r.docs[id] = &Doc{ID: id, OwnerID: uidA, Status: string(StatusRejected), ContentType: "image/webp"} // no PublicPath recorded
+	for _, name := range []string{publicObject(id, "webp"), publicThumbObject(id, "webp")} {
 		o.public[name] = "image/jpeg"
 	}
 	seedPublished(r, o, "0000000000000009000", uidB, "")
@@ -74,8 +74,8 @@ func TestPurgeUser_DeletesDeterministicPublicNamesForUnrecordedObjects(t *testin
 	if err != nil || !done {
 		t.Fatalf("done=%v err=%v", done, err)
 	}
-	if len(o.public) != before-4 {
-		t.Fatalf("public objects = %v: the four unrecorded names of Alice's document must be gone and Bob's kept", o.public)
+	if len(o.public) != before-2 {
+		t.Fatalf("public objects = %v: the two unrecorded names of Alice's document must be gone and Bob's kept", o.public)
 	}
 }
 

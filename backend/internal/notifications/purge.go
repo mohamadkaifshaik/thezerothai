@@ -22,6 +22,12 @@ import (
 // governs RPC pagination only (the same reading as posts/purge.go).
 const opsPage = 500
 
+// Contention retry for one purge batch (store.CommitWithRetry).
+const (
+	purgeCommitAttempts = 3
+	purgeCommitBackoff  = 50 * time.Millisecond
+)
+
 // Exporter writes one user's notification data as the manual data export (ADR-0003 "Deletes & privacy").
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
@@ -63,12 +69,16 @@ func (r *FirestoreRepo) purgeOwnRows(ctx context.Context, uid string, cp Checkpo
 		return cp, false, fmt.Errorf("notifications: purge %s step 1: query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) > 0 {
-		b := store.NewFirestoreBatch(r.client, counter)
-		for _, d := range docs {
-			b.Delete(d.Ref)
-		}
-		if err := b.Commit(ctx); err != nil {
+		committed, err := r.commitPurge(ctx, func(b store.Batch) {
+			for _, d := range docs {
+				b.Delete(d.Ref)
+			}
+		})
+		if err != nil {
 			return cp, false, fmt.Errorf("notifications: purge %s step 1: %w", logger.HashUID(uid), err)
+		}
+		if !committed {
+			return cp, false, nil // a precondition lost a race; the next call re-queries
 		}
 	}
 	next := Checkpoint{Step: 1, Deleted: cp.Deleted + len(docs)}
@@ -131,43 +141,54 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 			}
 		}
 	}
-	// store.Batch counts a write when it is appended, so a commit that fails (and is retried from a fresh query)
-	// would be counted twice; collect on a scratch counter and fold it in only once the commit succeeds.
-	scratch := &budget.Counter{}
-	b := store.NewFirestoreBatch(r.client, scratch)
 	// Every write is conditioned on the update time the query saw: a concurrent AddActor (a like folding in)
-	// makes the batch fail with FailedPrecondition instead of being clobbered, and this self-resuming step
-	// retries from a fresh query.
-	for _, d := range deletes {
-		b.Delete(d.Ref, firestore.LastUpdateTime(d.UpdateTime))
-	}
-	for _, f := range folds {
-		ups := []firestore.Update{{Path: "actorIds", Value: firestore.ArrayRemove(uid)}}
-		if f.doc.ActorCount > 0 {
-			ups = append(ups, firestore.Update{Path: "actorCount", Value: firestore.Increment(-1)})
-		} else {
-			ups = append(ups, firestore.Update{Path: "actorCount", Value: len(f.remain)})
-		}
-		if f.doc.Actor.UserID == uid {
-			p, ok := profiles[f.remain[len(f.remain)-1]]
-			if !ok {
-				b.Delete(f.snap.Ref, firestore.LastUpdateTime(f.snap.UpdateTime)) // the newest remaining actor is gone too (or no Directory): no one to show
-				continue
-			}
-			ups = append(ups, firestore.Update{Path: "actor", Value: toActorDoc(actorFromProfile(p))})
-		}
-		b.Update(f.snap.Ref, ups, firestore.LastUpdateTime(f.snap.UpdateTime))
-	}
+	// makes the commit fail its precondition instead of clobbering it. That is not an error: the step returns
+	// without progress and is re-run from a fresh query (it must not count against the job's step-error budget).
+	// CommitWithRetry counts writes only for the attempt that commits.
 	if len(docs) > 0 {
-		if err := b.Commit(ctx); err != nil {
+		committed, err := r.commitPurge(ctx, func(b store.Batch) {
+			for _, d := range deletes {
+				b.Delete(d.Ref, firestore.LastUpdateTime(d.UpdateTime))
+			}
+			for _, f := range folds {
+				ups := []firestore.Update{{Path: "actorIds", Value: firestore.ArrayRemove(uid)}}
+				if f.doc.ActorCount > 0 {
+					ups = append(ups, firestore.Update{Path: "actorCount", Value: firestore.Increment(-1)})
+				} else {
+					ups = append(ups, firestore.Update{Path: "actorCount", Value: len(f.remain)})
+				}
+				if f.doc.Actor.UserID == uid {
+					p, ok := profiles[f.remain[len(f.remain)-1]]
+					if !ok {
+						b.Delete(f.snap.Ref, firestore.LastUpdateTime(f.snap.UpdateTime)) // the newest remaining actor is gone too (or no Directory): no one to show
+						continue
+					}
+					ups = append(ups, firestore.Update{Path: "actor", Value: toActorDoc(actorFromProfile(p))})
+				}
+				b.Update(f.snap.Ref, ups, firestore.LastUpdateTime(f.snap.UpdateTime))
+			}
+		})
+		if err != nil {
 			return cp, false, fmt.Errorf("notifications: purge %s step 2: %w", logger.HashUID(uid), err)
 		}
-		counter.AddWrites(scratch.Writes())
-		counter.AddDeletes(scratch.Deletes())
+		if !committed {
+			return cp, false, nil
+		}
 	}
 	next := Checkpoint{Step: 2, Deleted: cp.Deleted + len(docs)}
 	slog.InfoContext(ctx, "notifications_purge_batch", "uid_hash", logger.HashUID(uid), "step", 2, "docs", len(docs), "deleted_total", next.Deleted)
 	return next, len(docs) < opsPage, nil
+}
+
+// commitPurge builds and commits one purge batch with store.CommitWithRetry: bounded jittered retry on
+// contention, writes counted only for the committing attempt, committed=false (nil error) when a precondition
+// failed.
+func (r *FirestoreRepo) commitPurge(ctx context.Context, build func(store.Batch)) (bool, error) {
+	res, err := store.CommitWithRetry(ctx,
+		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		store.RetryConfig{MaxAttempts: purgeCommitAttempts, Backoff: purgeCommitBackoff},
+		build)
+	return res.Committed, err
 }
 
 func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
