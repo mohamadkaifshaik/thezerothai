@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -445,34 +447,72 @@ func TestCacheListHelpers(t *testing.T) {
 	}
 }
 
-// gateRepo blocks Like until released and counts the calls that reach it.
+// gateRepo blocks Like until released and counts the calls that reach it. started is closed by the first call.
 type gateRepo struct {
 	*fakeRepo
 	mu      sync.Mutex
 	calls   int
+	started chan struct{}
+	once    sync.Once
 	release chan struct{}
+	// sawCancel records whether the context handed to Like was already cancelled when the gate opened.
+	sawCancel bool
 }
 
-func (g *gateRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
+func (g *gateRepo) Like(ctx context.Context, _ LikeParams) (bool, error) {
 	g.mu.Lock()
 	g.calls++
 	g.mu.Unlock()
+	g.once.Do(func() { close(g.started) })
 	<-g.release
+	g.mu.Lock()
+	g.sawCancel = ctx.Err() != nil
+	g.mu.Unlock()
 	return false, nil
 }
 
-func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
+// signalDir closes joined once n GetProfiles calls (one per Like, made just before the flight) have started.
+type signalDir struct {
+	fakeDir
+	n      int32
+	joined chan struct{}
+	seen   atomic.Int32
+}
+
+func (d *signalDir) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	if d.seen.Add(1) == d.n {
+		close(d.joined)
+	}
+	return d.fakeDir.GetProfiles(ctx, uids)
+}
+
+func newGateEnv(t *testing.T, n int32) (*env, *gateRepo, *signalDir) {
+	t.Helper()
 	e := newEnv(t)
-	g := &gateRepo{fakeRepo: e.repo, release: make(chan struct{})}
+	g := &gateRepo{fakeRepo: e.repo, started: make(chan struct{}), release: make(chan struct{})}
+	d := &signalDir{fakeDir: fakeDir{created: time.Now().Add(-48 * time.Hour)}, n: n, joined: make(chan struct{})}
 	m, err := New(Deps{
-		Repo: g, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)},
+		Repo: g, Posts: e.posts, Reader: e.posts, Directory: d,
 		Events: e.events, LikesPerDay: 500, NewAccountLikesPerDay: 100, NewAccountWindow: 24 * time.Hour,
 		CacheTTL: time.Minute, AllowAnonymous: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.m = m
+	return e, g, d
+}
+
+// settle lets goroutines that already passed GetProfiles reach singleflight before the gate opens.
+func settle() {
+	for range 200 {
+		runtime.Gosched()
+	}
+}
+
+func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 	const n = 8
+	e, g, d := newGateEnv(t, n)
 	var wg sync.WaitGroup
 	results := make([]Result, n)
 	errs := make([]error, n)
@@ -480,32 +520,66 @@ func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], errs[i] = m.Like(e.ctx, "viewer", keyOK, pidA)
+			results[i], errs[i] = e.m.Like(e.ctx, "viewer", keyOK, pidA)
 		}()
 	}
-	// Wait until the leader is inside the repo, give the followers time to join, then let it commit.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		g.mu.Lock()
-		c := g.calls
-		g.mu.Unlock()
-		if c > 0 || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(50 * time.Millisecond)
+	<-g.started
+	<-d.joined
+	settle()
 	close(g.release)
 	wg.Wait()
 	for i := range n {
 		if errs[i] != nil || !results[i].LikedByViewer {
 			t.Fatalf("call %d: %+v, %v", i, results[i], errs[i])
 		}
+		// Leader and followers agree on the count (4 stored + the leader's single increment).
+		if results[i].LikeCount != 5 {
+			t.Errorf("call %d: LikeCount = %d, want 5", i, results[i].LikeCount)
+		}
 	}
+	if g.calls >= n {
+		t.Errorf("repo.Like calls = %d, want collapsed (< %d)", g.calls, n)
+	}
+	if e.events.likes != g.calls || len(e.posts.counts) != g.calls {
+		t.Errorf("events=%d counts=%v calls=%d: one notification and counter bump per transaction", e.events.likes, e.posts.counts, g.calls)
+	}
+}
+
+// A leader whose own request context is cancelled must not fail or cancel the transaction its followers wait on.
+func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
+	e, g, d := newGateEnv(t, 2)
+	leaderCtx, cancelLeader := context.WithCancel(e.ctx)
+	var wg sync.WaitGroup
+	var leaderRes, followerRes Result
+	var leaderErr, followerErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		leaderRes, leaderErr = e.m.Like(leaderCtx, "viewer", keyOK, pidA)
+	}()
+	<-g.started // the leader is inside the repo
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		followerRes, followerErr = e.m.Like(e.ctx, "viewer", keyOK, pidA)
+	}()
+	<-d.joined
+	settle()
+	cancelLeader()
+	close(g.release)
+	wg.Wait()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.calls != 1 {
-		t.Errorf("repo.Like calls = %d, want 1 (collapsed)", g.calls)
+		t.Fatalf("repo.Like calls = %d, want 1 (follower joined the flight)", g.calls)
 	}
-	if e.events.likes != 1 || len(e.posts.counts) != 1 {
-		t.Errorf("events=%d counts=%v, want exactly one notification and one counter bump", e.events.likes, e.posts.counts)
+	if g.sawCancel {
+		t.Error("the flight's context was cancelled with the leader's request")
+	}
+	if followerErr != nil || !followerRes.LikedByViewer || followerRes.LikeCount != 5 {
+		t.Errorf("follower: %+v, %v", followerRes, followerErr)
+	}
+	if leaderErr != nil || leaderRes.LikeCount != 5 {
+		t.Errorf("leader: %+v, %v", leaderRes, leaderErr)
 	}
 }

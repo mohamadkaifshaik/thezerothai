@@ -301,12 +301,31 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// Concurrent likes of one post by one user (a retry storm, a double tap) collapse into one transaction per
 	// instance: they would only contend on the same like, post and quota docs. The followers did not write, so
 	// they are replays (no counter bump, no notification).
+	//
+	// The flight runs on a context detached from the leader's cancellation (values such as the budget counter
+	// and request log are kept) with its own transaction deadline, so a leader whose client disconnects does not
+	// fail the followers still waiting on it.
 	led := false
 	v, err, _ := s.likeFlight.Do(uid+"/"+target.ID, func() (any, error) {
 		led = true
-		return s.d.Repo.Like(ctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), txTimeout)
+		defer cancel()
+		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
+		if err != nil {
+			return nil, err
+		}
+		// The count after the leader's write, shared with every follower so all answers agree.
+		count := target.LikeCount
+		if !rep {
+			count++
+		}
+		return likeOutcome{replayed: rep, count: max(count, 0)}, nil
 	})
-	replayed, _ := v.(bool)
+	var oc likeOutcome
+	if err == nil {
+		oc, _ = v.(likeOutcome)
+	}
+	replayed := oc.replayed
 	if err == nil && !led {
 		replayed = true
 	}
@@ -348,8 +367,15 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 		s.d.Events.Liked(ctx, uid, target, s.now())
 	}
 	out := s.result(ctx, uid, target, likeDelta, 0)
+	out.LikeCount = oc.count
 	out.LikedByViewer = true
 	return out, nil
+}
+
+// likeOutcome is what one like flight shares with its followers.
+type likeOutcome struct {
+	replayed bool
+	count    int64
 }
 
 // result builds the response from the post as read plus this call's own delta, and the cached viewer flags.
