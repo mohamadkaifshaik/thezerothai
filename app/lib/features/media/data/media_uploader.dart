@@ -40,10 +40,29 @@ class UploadOutcome {
 }
 
 class _Reservation {
-  _Reservation(this.target, this.expiresAt);
+  _Reservation({
+    required this.target,
+    required this.receivedAt,
+    required this.intent,
+    required this.group,
+  });
   final pb.UploadTarget target;
-  final DateTime expiresAt;
+
+  /// When this device received the URLs (local clock). Expiry is measured
+  /// from here, never from the server's `expires_at` against the device
+  /// clock, so a skewed device clock cannot kill (or keep) a reservation.
+  DateTime? receivedAt;
+
+  /// The CreateUpload intent (and so idempotency key) it was reserved under.
+  final String intent;
+
+  /// Local ids reserved together, in request order (a replay must send the
+  /// same items).
+  final List<String> group;
   bool putDone = false;
+
+  /// The signed URLs are known to be unusable (storage refused the PUT).
+  bool urlsDead = false;
 }
 
 /// Runs CreateUpload -> PUT full + thumb -> FinalizeUpload for a set of
@@ -54,9 +73,12 @@ class _Reservation {
 ///   response replays the stored targets);
 /// - a reservation that is still valid is reused, finished PUTs are not
 ///   repeated, and a finalized image is never uploaded again;
-/// - a reservation that has expired (10-minute signed URLs) is dropped and
-///   re-reserved under a fresh key (replaying the old key would only return
-///   the dead URLs);
+/// - when the signed URLs have expired (10-minute TTL, measured on this
+///   device from the moment they arrived) or storage refused them (4xx),
+///   the URLs are dropped and re-signed by **replaying the same key** while
+///   the image set is unchanged: the server returns the same media ids with
+///   fresh URLs and charges no quota (backend `media/service.go`). A changed
+///   set mints a new key;
 /// - a rejected image stays rejected until the caller drops it.
 ///
 /// Create one per screen/intent; it holds no UI state.
@@ -66,6 +88,7 @@ class MediaUploader {
     Uuid? uuid,
     DateTime Function()? clock,
     this.expirySlack = const Duration(seconds: 30),
+    this.urlTtl = const Duration(minutes: 10),
   }) : _repository = repository,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now;
@@ -77,11 +100,30 @@ class MediaUploader {
   /// A reservation closer than this to its expiry is renewed first.
   final Duration expirySlack;
 
+  /// Lifetime of the signed URLs (backend `UploadURLTTL`).
+  final Duration urlTtl;
+
   final Map<String, _Reservation> _reservations = {};
   final Map<String, UploadOutcome> _final = {};
   final Map<String, String> _keys = {};
 
   String _key(String intent) => _keys.putIfAbsent(intent, _uuid.v4);
+
+  bool _unusable(_Reservation r, DateTime now) {
+    if (r.putDone) return false; // nothing left to PUT
+    if (r.urlsDead) return true;
+    final received = r.receivedAt;
+    return received == null || now.difference(received) >= urlTtl - expirySlack;
+  }
+
+  /// The local id of the job that reserved [mediaId], if still known (to
+  /// mark the right tile when FinalizeUpload names a media id).
+  String? jobIdForMedia(String mediaId) {
+    for (final entry in _reservations.entries) {
+      if (entry.value.target.mediaId == mediaId) return entry.key;
+    }
+    return null;
+  }
 
   /// Forgets everything remembered about [jobId] (the image was removed).
   void forget(String jobId) {
@@ -106,39 +148,65 @@ class MediaUploader {
       for (final job in jobs)
         if (!_final.containsKey(job.id)) job,
     ];
+    final byId = {for (final job in todo) job.id: job};
 
-    // 1. Reserve targets for jobs without a valid reservation.
-    final needReservation = [
+    // 1. Reserve targets for jobs without usable URLs.
+    final needIds = <String>{
       for (final job in todo)
         if (_reservations[job.id] == null ||
-            _reservations[job.id]!.expiresAt.difference(now) <= expirySlack)
-          job,
+            _unusable(_reservations[job.id]!, now))
+          job.id,
+    };
+    // Batches to (re)request. A batch of expired reservations replays the
+    // original request (same items, same key) so the server re-signs the
+    // same media ids without charging quota; the rest form one new batch.
+    final batches = <List<UploadJob>>[];
+    final batched = <String>{};
+    for (final id in needIds) {
+      final reservation = _reservations[id];
+      if (reservation == null || batched.contains(id)) continue;
+      final group = reservation.group;
+      final intact = group.every(
+        (g) =>
+            byId.containsKey(g) &&
+            _reservations[g]?.intent == reservation.intent,
+      );
+      if (!intact) continue;
+      batches.add([for (final g in group) byId[g]!]);
+      batched.addAll(group);
+    }
+    final fresh = [
+      for (final job in todo)
+        if (needIds.contains(job.id) && !batched.contains(job.id)) job,
     ];
-    if (needReservation.isNotEmpty) {
-      for (final job in needReservation) {
-        _reservations.remove(job.id);
-      }
+    if (fresh.isNotEmpty) batches.add(fresh);
+
+    for (final batch in batches) {
       // The key covers the exact image set (by local id and MD5), so the
       // same retry replays and a changed set mints a new key.
       final intent =
           'c|${purpose.value}|'
-          '${[for (final j in needReservation) '${j.id}:${j.image.fullMd5}'].join(',')}';
+          '${[for (final j in batch) '${j.id}:${j.image.fullMd5}'].join(',')}';
       final targets = await _repository.createUpload(
         idempotencyKey: _key(intent),
         purpose: purpose,
-        images: [for (final job in needReservation) job.image],
+        images: [for (final job in batch) job.image],
       );
-      for (var i = 0; i < needReservation.length; i++) {
-        final full = targets[i].full;
-        final expiresAt = full.hasExpiresAt()
-            ? full.expiresAt.toDateTime()
-            : now.add(const Duration(minutes: 10));
-        _reservations[needReservation[i].id] = _Reservation(
-          targets[i],
-          expiresAt,
+      final received = _clock();
+      final group = [for (final job in batch) job.id];
+      for (var i = 0; i < batch.length; i++) {
+        final existing = _reservations[batch[i].id];
+        if (existing != null &&
+            existing.putDone &&
+            existing.target.mediaId == targets[i].mediaId) {
+          continue; // replayed ids: already PUT, keep as is
+        }
+        _reservations[batch[i].id] = _Reservation(
+          target: targets[i],
+          receivedAt: received,
+          intent: intent,
+          group: group,
         );
-        // The intent is spent: an expiry re-reservation needs a new key.
-        _keys.remove(intent);
       }
     }
 
@@ -159,6 +227,13 @@ class MediaUploader {
         await _repository.putObject(reservation.target.thumb, thumb);
         onProgress?.call(job.id, 1);
         reservation.putDone = true;
+      } on StorageRefusedException catch (error) {
+        // Storage said no (expired or altered URL): drop the URLs so the
+        // next attempt re-signs them under the same key.
+        reservation.urlsDead = true;
+        failures[job.id] = UnknownApiException(
+          'Upload refused (${error.status}).',
+        );
       } on AppException catch (error) {
         // One image failing must not stop the others; a flag-off or quota
         // answer cannot happen here (PUTs go straight to storage).
@@ -175,16 +250,31 @@ class MediaUploader {
       final ids = [
         for (final job in toFinalize) _reservations[job.id]!.target.mediaId,
       ];
-      final results = await _repository.finalizeUpload(
-        idempotencyKey: _key('f|${ids.join(',')}'),
-        items: [
-          for (final job in toFinalize)
-            FinalizeRequestItem(
-              mediaId: _reservations[job.id]!.target.mediaId,
-              blurhash: job.image.blurhash,
-            ),
-        ],
-      );
+      // Retrying the same set replays; the key is dropped once it answered.
+      final finalizeIntent = 'f|${ids.join(',')}';
+      final List<pb.MediaResult> results;
+      try {
+        results = await _repository.finalizeUpload(
+          idempotencyKey: _key(finalizeIntent),
+          items: [
+            for (final job in toFinalize)
+              FinalizeRequestItem(
+                mediaId: _reservations[job.id]!.target.mediaId,
+                blurhash: job.image.blurhash,
+              ),
+          ],
+        );
+      } on MediaNotReadyException catch (error) {
+        // The server did not find the object: PUT it again (re-signed).
+        final jobId = jobIdForMedia(error.mediaId ?? '');
+        final reservation = jobId == null ? null : _reservations[jobId];
+        if (reservation != null) {
+          reservation.putDone = false;
+          reservation.urlsDead = true;
+        }
+        rethrow;
+      }
+      _keys.remove(finalizeIntent);
       final byMedia = {for (final r in results) r.mediaId: r};
       for (final job in toFinalize) {
         final mediaId = _reservations[job.id]!.target.mediaId;

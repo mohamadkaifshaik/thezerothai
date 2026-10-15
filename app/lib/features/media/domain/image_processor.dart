@@ -28,9 +28,16 @@ abstract interface class ImageProcessor {
   Future<ProcessedImage> process(Uint8List bytes, ImagePurpose purpose);
 }
 
-/// Pure-Dart implementation that runs the decode/resize/encode work in a
-/// background isolate (`compute`), so a 12 MP photo never janks the UI.
-/// Works the same on Android, iOS and web.
+/// Pure-Dart implementation (`package:image`) that runs decode/resize/encode
+/// through `compute`.
+///
+/// - Android and iOS: a background isolate, so a 12 MP photo does not block
+///   the UI thread.
+/// - Web: `compute` has no isolates there and runs on the main thread, so a
+///   large photo can drop frames while it is processed (one image at a time,
+///   see `AttachmentsCubit`). Accepted for Stage 0.
+/// - HEIC/HEIF cannot be decoded by this package. iOS' picker hands back
+///   JPEG; elsewhere such a file is reported as unsupported.
 class IsolateImageProcessor implements ImageProcessor {
   const IsolateImageProcessor();
 

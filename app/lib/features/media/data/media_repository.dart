@@ -16,6 +16,17 @@ import '../domain/processed_image.dart';
 /// read screens through [RateLimitHold].
 const _kReadBudgetDaily = 'read_budget_daily';
 
+/// Storage answered a signed-URL PUT with a 4xx: the URL is expired or
+/// otherwise unusable, so retrying the same URL cannot work. The uploader
+/// drops the URLs and re-signs them by replaying the same CreateUpload key.
+class StorageRefusedException implements Exception {
+  const StorageRefusedException(this.status);
+  final int status;
+
+  @override
+  String toString() => 'StorageRefusedException($status)';
+}
+
 /// An item for FinalizeUpload.
 class FinalizeRequestItem {
   const FinalizeRequestItem({required this.mediaId, required this.blurhash});
@@ -59,10 +70,6 @@ class MediaRepository {
   final void Function()? _onFeatureDisabled;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Duration _putTimeout;
-
-  /// Whether the media flag is on right now (the UI hides entry points when
-  /// it is not; this is the same check the RPCs make).
-  bool get isEnabled => _isMediaEnabled();
 
   Future<T> _run<T>(Future<T> Function() call) async {
     if (!_isMediaEnabled()) {
@@ -122,8 +129,9 @@ class MediaRepository {
   }
 
   /// PUTs [bytes] to [target] with exactly the headers the server signed.
-  /// Network trouble is a [NetworkException]; a refusal by storage (expired
-  /// or altered upload) is an [UnknownApiException].
+  /// Network trouble is a [NetworkException]; a 4xx from storage (expired or
+  /// altered upload) is a [StorageRefusedException]; a 5xx is an
+  /// [UnknownApiException] (transient).
   Future<void> putObject(pb.SignedUpload target, Uint8List bytes) async {
     final request = http.Request('PUT', Uri.parse(target.url))
       ..headers.addAll(target.headers)
@@ -137,6 +145,16 @@ class MediaRepository {
       throw const NetworkException('The upload timed out.');
     } on Exception {
       throw const NetworkException('The upload could not reach the server.');
+    }
+    if (status >= 400 && status < 500) {
+      // 403 is the normal "URL expired" answer; anything else 4xx is odd.
+      if (status != 403) {
+        _onUnexpectedError?.call(
+          StorageRefusedException(status),
+          StackTrace.current,
+        );
+      }
+      throw StorageRefusedException(status);
     }
     if (status < 200 || status >= 300) {
       final error = UnknownApiException('Upload refused ($status).');

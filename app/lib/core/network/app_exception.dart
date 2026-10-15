@@ -106,7 +106,10 @@ final class LimitReachedException extends AppException {
 
 /// Referenced media is not READY or not owned by the caller.
 final class MediaNotReadyException extends AppException {
-  const MediaNotReadyException(super.message);
+  const MediaNotReadyException(super.message, {this.mediaId});
+
+  /// The server's `metadata["media_id"]` when it names the offending image.
+  final String? mediaId;
 }
 
 /// The same idempotency key was reused with a different request body.

@@ -215,8 +215,30 @@ void main() {
       },
     );
 
-    test('a storage refusal is unexpected and reported', () async {
+    test('a 403 (expired URL) is a refusal, not reported', () async {
       putStatus = 403;
+
+      await expectLater(
+        repo.putObject(uploadTarget('m1').full, Uint8List(1)),
+        throwsA(
+          isA<StorageRefusedException>().having((e) => e.status, 'status', 403),
+        ),
+      );
+      expect(reported, isEmpty);
+    });
+
+    test('another 4xx is a refusal and is reported', () async {
+      putStatus = 400;
+
+      await expectLater(
+        repo.putObject(uploadTarget('m1').full, Uint8List(1)),
+        throwsA(isA<StorageRefusedException>()),
+      );
+      expect(reported, hasLength(1));
+    });
+
+    test('a 5xx is a transient UnknownApiException, reported', () async {
+      putStatus = 503;
 
       await expectLater(
         repo.putObject(uploadTarget('m1').full, Uint8List(1)),

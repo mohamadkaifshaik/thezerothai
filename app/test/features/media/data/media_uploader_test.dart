@@ -251,27 +251,25 @@ void main() {
     expect(keys, ['key-1', 'key-1']);
   });
 
+  void stubCreateRecording(List<String> keys, {String id = 'm1'}) {
+    when(
+      () => repo.createUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        purpose: any(named: 'purpose'),
+        images: any(named: 'images'),
+      ),
+    ).thenAnswer((invocation) async {
+      keys.add(invocation.namedArguments[#idempotencyKey] as String);
+      // Replay: the same media id, fresh URLs.
+      return [uploadTarget(id)];
+    });
+  }
+
   test(
-    'an expired reservation is renewed under a fresh key before the PUT',
+    'an expired reservation is re-signed by replaying the same key',
     () async {
       final keys = <String>[];
-      var created = 0;
-      when(
-        () => repo.createUpload(
-          idempotencyKey: any(named: 'idempotencyKey'),
-          purpose: any(named: 'purpose'),
-          images: any(named: 'images'),
-        ),
-      ).thenAnswer((invocation) async {
-        keys.add(invocation.namedArguments[#idempotencyKey] as String);
-        created++;
-        return [
-          uploadTarget(
-            'm$created',
-            expiresAt: now.add(const Duration(minutes: 10)),
-          ),
-        ];
-      });
+      stubCreateRecording(keys);
       var failFirstPut = true;
       when(() => repo.putObject(any(), any())).thenAnswer((_) async {
         if (failFirstPut) {
@@ -294,10 +292,95 @@ void main() {
       );
 
       expect(second.single.status, UploadOutcomeStatus.ready);
-      expect(second.single.mediaId, 'm2');
-      expect(keys, ['key-1', 'key-2']);
+      expect(second.single.mediaId, 'm1');
+      expect(keys, ['key-1', 'key-1']);
     },
   );
+
+  test('expiry is measured from local receipt, not server expiresAt', () async {
+    final keys = <String>[];
+    stubCreateRecording(keys);
+    stubPutOk();
+    var calls = 0;
+    when(() => repo.putObject(any(), any())).thenAnswer((_) async {
+      if (++calls == 1) throw const NetworkException('offline');
+    });
+    stubFinalize(readyResult);
+    await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(['a']),
+    );
+
+    // Only 5 minutes passed locally: the reservation is reused even though
+    // the (unset here) server timestamp says nothing.
+    now = now.add(const Duration(minutes: 5));
+    await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(['a']),
+    );
+
+    expect(keys, ['key-1']);
+  });
+
+  test('a finished PUT is not re-signed when the URLs have expired', () async {
+    final keys = <String>[];
+    stubCreateRecording(keys);
+    stubPutOk();
+    var finalizeCalls = 0;
+    when(
+      () => repo.finalizeUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        items: any(named: 'items'),
+      ),
+    ).thenAnswer((_) async {
+      if (++finalizeCalls == 1) throw const NetworkException('offline');
+      return [readyResult('m1')];
+    });
+
+    await expectLater(
+      uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a']),
+      ),
+      throwsA(isA<NetworkException>()),
+    );
+    now = now.add(const Duration(minutes: 30));
+    final out = await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(['a']),
+    );
+
+    expect(out.single.status, UploadOutcomeStatus.ready);
+    expect(keys, ['key-1']);
+    verify(() => repo.putObject(any(), any())).called(2); // full + thumb, once
+  });
+
+  test('a storage 403 drops the URLs and re-signs under the same key', () async {
+    final keys = <String>[];
+    stubCreateRecording(keys);
+    var refuse = true;
+    when(() => repo.putObject(any(), any())).thenAnswer((_) async {
+      if (refuse) {
+        refuse = false;
+        throw const StorageRefusedException(403);
+      }
+    });
+    stubFinalize(readyResult);
+
+    final first = await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(['a']),
+    );
+    expect(first.single.status, UploadOutcomeStatus.failed);
+
+    final second = await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(['a']),
+    );
+
+    expect(second.single.status, UploadOutcomeStatus.ready);
+    expect(keys, ['key-1', 'key-1']);
+  });
 
   test('forget drops the remembered result of a removed image', () async {
     stubCreate(['m1']);

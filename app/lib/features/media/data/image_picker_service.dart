@@ -12,9 +12,12 @@ abstract interface class ImagePickerService {
   Future<Uint8List?> pickAvatar();
 }
 
-/// `image_picker` implementation. The picker itself downsizes (and on iOS
-/// transcodes HEIC) natively, which keeps the Dart decode cheap; the
-/// processor still does the authoritative resize/compress and EXIF strip.
+/// `image_picker` implementation. The picker downsizes natively (which keeps
+/// the Dart decode cheap) and, on iOS, hands back JPEG for HEIC photos. It
+/// is not asked to re-encode (`imageQuality`), so JPEG is compressed once,
+/// by the processor, which also does the EXIF strip. HEIC from other
+/// sources (Android, web) is not decodable by the pure-Dart processor and
+/// shows as "Can't use this".
 class PlatformImagePickerService implements ImagePickerService {
   PlatformImagePickerService({ImagePicker? picker})
     : _picker = picker ?? ImagePicker();
@@ -22,7 +25,6 @@ class PlatformImagePickerService implements ImagePickerService {
   final ImagePicker _picker;
 
   static const _maxEdge = 2048.0;
-  static const _quality = 90;
 
   @override
   Future<List<Uint8List>> pickImages({required int limit}) async {
@@ -33,14 +35,12 @@ class PlatformImagePickerService implements ImagePickerService {
         source: ImageSource.gallery,
         maxWidth: _maxEdge,
         maxHeight: _maxEdge,
-        imageQuality: _quality,
       );
       files = single == null ? const [] : [single];
     } else {
       files = await _picker.pickMultiImage(
         maxWidth: _maxEdge,
         maxHeight: _maxEdge,
-        imageQuality: _quality,
         limit: limit,
       );
     }
@@ -53,7 +53,6 @@ class PlatformImagePickerService implements ImagePickerService {
       source: ImageSource.gallery,
       maxWidth: _maxEdge,
       maxHeight: _maxEdge,
-      imageQuality: _quality,
     );
     return file?.readAsBytes();
   }
