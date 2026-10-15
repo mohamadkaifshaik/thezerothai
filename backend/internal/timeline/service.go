@@ -74,7 +74,7 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	engaged := s.engagementOn(uid)
 	keep := func(p *posts.Post) bool {
 		return isPublic(p) && (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID)) &&
-			(!engaged || embedAllowed(snap, uid, p))
+			embedAllowed(snap, uid, p)
 	}
 	page := Merge(res.sources, limit, keep)
 
@@ -256,8 +256,8 @@ func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.
 	return it
 }
 
-// engagementOn is FEATURE_ENGAGEMENT for uid (viewer flags and the embedded-author filter apply only then, so
-// every read count is unchanged while the flag is off).
+// engagementOn is FEATURE_ENGAGEMENT for uid. It gates only viewer-flag hydration (the userLikes read); the
+// embedded-author filter is a privacy rule and applies regardless.
 func (s *Server) engagementOn(uid string) bool {
 	return s.deps.Viewer != nil && s.deps.Flags != nil && s.deps.Flags.Enabled(uid, posts.EngagementFlagName)
 }
@@ -348,13 +348,11 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 		return nil, err
 	}
 	engaged := s.engagementOn(caller)
-	items := res.page.Items
-	if engaged {
-		kept, err := s.filterEmbeds(ctx, caller, items)
-		if err != nil {
-			return nil, err
-		}
-		items = kept
+	// The embed filter is a privacy rule, not a viewer feature: it applies whatever the caller's
+	// FEATURE_ENGAGEMENT state is (the flag only gates viewer-flag hydration).
+	items, err := s.filterEmbeds(ctx, caller, res.page.Items)
+	if err != nil {
+		return nil, err
 	}
 	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, engaged, items)}
 	it := s.tokens(f, md, tok, res.page, res.entries, start)

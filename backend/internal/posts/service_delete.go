@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
@@ -174,30 +175,63 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 		return nil, ErrNotFound
 	}
 
-	if p.AuthorID != callerUID {
+	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller
+	// the copy must not leak their content, so the whole post is NOT_FOUND (ADR-0018 D13). The caller's own
+	// embedded posts and tombstones (no author) are exempt.
+	embAuthor := ""
+	if p.Embedded != nil && !p.Embedded.Unavailable {
+		embAuthor = p.Embedded.Author.UserID
+		if embAuthor == "" {
+			embAuthor = p.EmbeddedAuthorID
+		}
+	}
+	checkEmbed := embAuthor != "" && embAuthor != callerUID && embAuthor != p.AuthorID
+
+	if p.AuthorID != callerUID || checkEmbed {
 		snap, err := s.graph.Snapshot(ctx, callerUID)
 		if err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID, p.AuthorID)
 		}
-		if snap.BlockedBy[p.AuthorID] {
-			return nil, ErrNotFound
-		}
-		if snap.BlockedByOverflow {
-			// The caller's blockedBy stopped growing at its cap, so also ask the author's own graph.
-			as, err := s.graph.Snapshot(ctx, p.AuthorID)
+		if p.AuthorID != callerUID {
+			blocked, err := s.blockedBy(ctx, snap, callerUID, p.AuthorID)
 			if err != nil {
-				return nil, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID, p.AuthorID)
+				return nil, err
 			}
-			if as.Blocked[callerUID] {
+			if blocked {
+				return nil, ErrNotFound
+			}
+			// Follower-only posts need an accepted follow; P1 writes only public posts, so this fails closed.
+			if p.Visibility != VisibilityPublic && !snap.Following[p.AuthorID] {
 				return nil, ErrNotFound
 			}
 		}
-		// Follower-only posts need an accepted follow; P1 writes only public posts, so this fails closed.
-		if p.Visibility != VisibilityPublic && !snap.Following[p.AuthorID] {
-			return nil, ErrNotFound
+		if checkEmbed {
+			blocked, err := s.blockedBy(ctx, snap, callerUID, embAuthor)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				return nil, ErrNotFound
+			}
 		}
 	}
 	return p, nil
+}
+
+// blockedBy reports whether other blocks the caller: the caller's blockedBy set, or, once that set overflowed its
+// cap, other's own graph doc (1 extra read).
+func (s *service) blockedBy(ctx context.Context, snap graph.Snapshot, callerUID, other string) (bool, error) {
+	if snap.BlockedBy[other] {
+		return true, nil
+	}
+	if !snap.BlockedByOverflow {
+		return false, nil
+	}
+	os, err := s.graph.Snapshot(ctx, other)
+	if err != nil {
+		return false, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID, other)
+	}
+	return os.Blocked[callerUID], nil
 }
 
 func isPostNotFound(err error) bool {
