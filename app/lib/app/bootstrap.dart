@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import '../core/network/api_client.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
@@ -17,6 +18,8 @@ import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/graph/data/graph_repository.dart';
+import '../features/media/data/media_repository.dart';
+import '../features/media/domain/media_feature_flag.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -112,6 +115,18 @@ Future<void> bootstrap() async {
     gate: postsGate,
     rateLimitHold: rateLimitHold,
   );
+  // P4 media: gated by `GetMe.enabled_features` containing `media`; the PUT
+  // to the signed URL uses its own bare HTTP client (no auth headers).
+  final mediaRepository = MediaRepository(
+    apiClient: apiClient,
+    httpClient: http.Client(),
+    isMediaEnabled: () =>
+        onboardingBloc.state.enabledFeatures.contains(kFeatureMedia),
+    rateLimitHold: rateLimitHold,
+    onFeatureDisabled: () =>
+        onboardingBloc.add(const OnboardingRefreshRequested()),
+    onUnexpectedError: reportUnexpectedError,
+  );
 
   // Bridge: OnboardingBloc reacts to sign-in/sign-out, but never talks to
   // AuthBloc directly (keeps the two features decoupled — see the
@@ -153,6 +168,7 @@ Future<void> bootstrap() async {
       postsRepository: postsRepository,
       timelineRepository: timelineRepository,
       postsGate: postsGate,
+      mediaRepository: mediaRepository,
     ),
   );
 }

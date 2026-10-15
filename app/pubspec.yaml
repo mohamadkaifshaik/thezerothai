@@ -52,6 +52,10 @@ dependencies:
   url_launcher: ^6.3.2
   # NFC for the composer's code-point counter (ADR-0010 D9 step 3). Pure Dart.
   unorm_dart: ^0.3.0
+  image: ^4.12.0
+  image_picker: ^1.2.4
+  blurhash_dart: ^1.2.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

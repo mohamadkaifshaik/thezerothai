@@ -85,20 +85,24 @@ class IdentityRepository {
   }
 
   /// Partial update of the caller's own profile (P2): only the non-null
-  /// fields are sent and changed. Avatar and privacy are deliberately not
-  /// exposed (the server rejects them until P4 / private accounts).
+  /// fields are sent and changed. [avatarMediaId] is a READY avatar media id
+  /// from MediaService (P4; with `FEATURE_MEDIA` off the server answers
+  /// MEDIA_NOT_READY). Privacy is deliberately not exposed (the server
+  /// rejects it until private accounts).
   /// [idempotencyKey] must be reused when retrying the same edit. Updates
   /// the local profile cache with the server's copy.
   Future<identity.Profile> updateProfile({
     required String idempotencyKey,
     String? displayName,
     String? bio,
+    String? avatarMediaId,
   }) {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
       final request = identity.UpdateProfileRequest(
         idempotencyKey: idempotencyKey,
       );
+      if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
       if (displayName != null) request.displayName = displayName;
       if (bio != null) request.bio = bio;
       final response = await _apiClient.identity.updateProfile(request);
