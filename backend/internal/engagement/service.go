@@ -533,28 +533,39 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 	if err := validate(key, postID); err != nil {
 		return Result{}, err
 	}
-	res, err := s.d.Repo.UndoRepost(ctx, uid, postID)
+	// Like Unlike: a REPOST's own id resolves to the original it copies, so undoing "from the repost" works.
+	orig, found, err := s.resolveForCounts(ctx, postID)
+	if err != nil {
+		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: load post: %w", err), uid)
+	}
+	id := postID
+	if found {
+		id = orig.ID
+	}
+	res, err := s.d.Repo.UndoRepost(ctx, uid, id)
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: %w", err), uid)
 	}
 	if res.Removed {
 		logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
 		s.d.Posts.RepostRemoved(uid, res.RepostPostID)
-		s.d.Posts.CountsChanged(postID, 0, -1)
+		if found {
+			s.d.Posts.CountsChanged(id, 0, -1)
+		}
 	} else {
 		logger.SetRequestField(ctx, fieldOutcome, outcomeNoop)
 	}
 	s.cache.update(uid, func(recent, reposts []string) ([]string, []string) {
-		return recent, withoutID(reposts, postID)
+		return recent, withoutID(reposts, id)
 	})
-	orig, err := s.d.Reader.Get(ctx, postID)
-	if errors.Is(err, posts.ErrNotFound) {
-		return Result{PostID: postID}, nil
+	if !found {
+		return Result{PostID: id}, nil
 	}
-	if err != nil {
-		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: load post: %w", err), uid)
+	delta := int64(0)
+	if res.Removed {
+		delta = -1
 	}
-	out := s.result(ctx, uid, orig, 0, 0)
+	out := s.result(ctx, uid, orig, 0, delta)
 	out.RepostedByViewer = false
 	return out, nil
 }

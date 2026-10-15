@@ -38,3 +38,25 @@ a post is a replay (0 writes) and re-adds it to the set. Not a bug; raise the ca
 ## 6. Account deletion stalls on the `engagement` step
 The step pages 100 likes/reposts per invocation (each an atomic delete + counter -1) and falls back to one batch per
 doc when a post in the page is gone. Resumable via the checkpoint; see `docs/runbooks/account-deletion.md` Step 2.
+
+## 7. `posts_purge_copies_stuck` (Error) during an account deletion
+The posts purge's copy phase (ADR-0018 D14) removes the deleted user's text from other users' REPOST docs and
+tombstones their QUOTE docs. A full page that made no progress would repeat forever, so the job stops and logs
+`posts_purge_copies_stuck` at Error (it reaches Error Reporting) with `uid_hash` and `docs`.
+- Cause: copy docs the batch and the per-doc fallback both reject (typically a reposter's `users` doc in an unexpected
+  state, or a malformed `kind`).
+- Check: `opsctl purge-posts --dry-run` for the uid, then query `posts where embeddedAuthorId == <uid> limit 20` in
+  the Firestore console and look at the first doc's `kind`, `authorId` and `repostOfId`.
+- Fix: repair or delete the named doc by hand (write budget: a handful), then re-deliver the deletion job; the phase
+  resumes from the first full page. The account-deletion backstop does not delete `users/{uid}` while a residue
+  remains, so nothing is lost by waiting.
+- Related, same shape for a post deletion: `engagement_post_delete_no_progress` (Error) means a full page of likes,
+  reposts or quotes of a deleted post made no progress; the step is skipped for that delivery instead of
+  re-publishing forever. Same check on `repostOfId` / `quoteOfId` / `postId`.
+
+### Deploying while deletions are in progress
+A deletion whose posts step is still running at deploy time re-enters at its stored checkpoint (`Phase` 0 is the post
+purge), finishes it and then runs the copy phase once, so copies are cleaned. A deletion that had already left the
+posts step before the deploy never runs the copy phase: its copies (other users' REPOST and QUOTE docs of the
+deleted user) remain until `opsctl purge-posts` is run for that uid. Check the account-deletion jobs in flight at
+deploy time and re-run the posts purge for any that were past the posts step.

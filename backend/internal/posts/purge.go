@@ -111,24 +111,26 @@ func (r *FirestoreRepo) purgeCopies(ctx context.Context, uid string, cp Checkpoi
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
 	}
-	tombstoned := 0
+	items := make([]quoteItem, 0, len(quotes))
 	for _, q := range quotes {
 		var pd postDoc
 		if err := q.DataTo(&pd); err != nil {
 			return cp, false, fmt.Errorf("posts: purge decode %s: %w", q.Ref.ID, err)
 		}
-		n, err := r.tombstoneDocs(ctx, []*firestore.DocumentSnapshot{q}, pd.QuoteOfID)
-		if err != nil {
-			return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
-		}
-		tombstoned += n
+		items = append(items, quoteItem{ref: q.Ref, originalID: pd.QuoteOfID})
+	}
+	// One commit per page (CleanupPage <= 500 writes), not one per quote.
+	tombstoned, err := r.tombstoneItems(ctx, items)
+	if err != nil {
+		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
 	}
 	next := Checkpoint{Deleted: cp.Deleted, Phase: 1, Copies: cp.Copies + removed + tombstoned}
 	slog.InfoContext(ctx, "posts_purge_copies", "uid_hash", logger.HashUID(uid), "reposts", removed, "quotes", tombstoned)
 	// A full page that made no progress would repeat forever; stop and let the residue sweep name it.
 	stuck := len(docs) > 0 && removed+tombstoned == 0
 	if stuck {
-		slog.WarnContext(ctx, "posts_purge_copies_stuck", "uid_hash", logger.HashUID(uid), "docs", len(docs))
+		// Error severity: this reaches Error Reporting; the residue sweep and the runbook name the way out.
+		slog.ErrorContext(ctx, "posts_purge_copies_stuck", "uid_hash", logger.HashUID(uid), "docs", len(docs))
 	}
 	return next, len(docs) < CleanupPage || stuck, nil
 }

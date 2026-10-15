@@ -87,22 +87,19 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 
 	steps := []struct {
 		name string
-		run  func() (full bool, err error)
+		run  func() (n int, full bool, err error)
 	}{
 		// Likes: delete the docs; the counter died with the post.
-		{"likes", func() (bool, error) {
-			_, full, err := j.repo.deleteLikesOf(ctx, m.PostID, jobPage)
-			return full, err
+		{"likes", func() (int, bool, error) {
+			return j.repo.deleteLikesOf(ctx, m.PostID, jobPage)
 		}},
 		// Reposts: REPOST posts, their reposts docs and the reposters' postsCount.
-		{"reposts", func() (bool, error) {
-			_, full, err := j.cleanup.RemoveReposts(ctx, m.PostID, false, jobPage)
-			return full, err
+		{"reposts", func() (int, bool, error) {
+			return j.cleanup.RemoveReposts(ctx, m.PostID, false, jobPage)
 		}},
 		// Quotes: replace the embeds with a tombstone.
-		{"quotes", func() (bool, error) {
-			_, full, err := j.cleanup.TombstoneQuotes(ctx, m.PostID, jobPage)
-			return full, err
+		{"quotes", func() (int, bool, error) {
+			return j.cleanup.TombstoneQuotes(ctx, m.PostID, jobPage)
 		}},
 	}
 	pages, more := 0, false
@@ -113,12 +110,18 @@ steps:
 				more = true
 				break steps
 			}
-			full, err := st.run()
+			n, full, err := st.run()
 			if err != nil {
 				return "", logger.RedactErr(fmt.Errorf("engagement: post_delete: %s: %w", st.name, err), m.UID)
 			}
 			pages++
 			if !full {
+				break
+			}
+			// A full page that removed nothing would repeat (and re-publish) forever; stop the step and let
+			// the residue sweep and the runbook name what is left.
+			if n == 0 {
+				slog.ErrorContext(ctx, "engagement_post_delete_no_progress", "step", st.name)
 				break
 			}
 		}

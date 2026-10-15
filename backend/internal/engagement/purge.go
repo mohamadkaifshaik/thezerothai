@@ -129,6 +129,10 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 	// a concurrent run: one batch per doc, with the counter first and without it second.
 	done := 0
 	for _, rw := range rows {
+		// Up to 2 commits per doc: stop at the invocation deadline and let the checkpointed job resume.
+		if err := ctx.Err(); err != nil {
+			return done, false, fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err)
+		}
 		for _, counter := range []bool{true, false} {
 			var one budget.Counter
 			sb := store.NewFirestoreBatch(r.client, &one)

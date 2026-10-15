@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"sync"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -25,6 +26,9 @@ func newLikesState(recent, reposts []string) *likesState {
 // by this instance's own writes. Absence means "unknown": an own write never creates an entry (it would hide the
 // user's other likes), the next read loads the document.
 type userCache struct {
+	// mu makes update's read-modify-write atomic: concurrent likes of different posts by one user (separate
+	// flights) must not overwrite each other's new state.
+	mu  sync.Mutex
 	lru *cache.LRU[string, *likesState]
 }
 
@@ -39,6 +43,8 @@ func (c *userCache) get(uid string) (*likesState, bool) { return c.lru.Get(uid) 
 
 func (c *userCache) set(uid string, ul UserLikes) *likesState {
 	st := newLikesState(ul.Recent, ul.RecentReposts)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.lru.Set(uid, st)
 	return st
 }
@@ -46,6 +52,8 @@ func (c *userCache) set(uid string, ul UserLikes) *likesState {
 // update applies fn to a present entry and stores the result; an absent entry is left alone. It returns the new
 // state, or nil when there was none.
 func (c *userCache) update(uid string, fn func(recent, reposts []string) ([]string, []string)) *likesState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	st, ok := c.lru.Get(uid)
 	if !ok {
 		return nil

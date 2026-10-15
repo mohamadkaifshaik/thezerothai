@@ -225,30 +225,46 @@ func (r *FirestoreRepo) TombstoneQuotes(ctx context.Context, originalID string, 
 	return n, len(docs) >= limit, err
 }
 
-// tombstoneDocs updates the quote docs in one batch, one by one when the batch hits a deleted quote.
+// tombstoneDocs updates the quote docs of one original in one batch, one by one when the batch hits a deleted quote.
 func (r *FirestoreRepo) tombstoneDocs(ctx context.Context, docs []*firestore.DocumentSnapshot, originalID string) (int, error) {
-	if len(docs) == 0 {
+	items := make([]quoteItem, len(docs))
+	for i, d := range docs {
+		items[i] = quoteItem{ref: d.Ref, originalID: originalID}
+	}
+	return r.tombstoneItems(ctx, items)
+}
+
+// quoteItem is one quote doc to tombstone with the id of the original it quotes (which may differ per item).
+type quoteItem struct {
+	ref        *firestore.DocumentRef
+	originalID string
+}
+
+// tombstoneItems updates the quote docs in one batch (the caller keeps it within one page, <= 500 writes), one
+// by one when the batch hits a deleted quote.
+func (r *FirestoreRepo) tombstoneItems(ctx context.Context, items []quoteItem) (int, error) {
+	if len(items) == 0 {
 		return 0, nil
 	}
 	c := budget.FromContext(ctx)
 	var scratch budget.Counter
 	b := store.NewFirestoreBatch(r.client, &scratch)
-	for _, d := range docs {
-		b.Update(d.Ref, tombstoneUpdates(originalID))
+	for _, it := range items {
+		b.Update(it.ref, tombstoneUpdates(it.originalID))
 	}
 	err := b.Commit(ctx)
 	switch {
 	case err == nil:
 		c.AddWrites(scratch.Writes())
-		return len(docs), nil
+		return len(items), nil
 	case !store.IsPreconditionFailed(err):
 		return 0, fmt.Errorf("posts: tombstone quotes: %w", err)
 	}
 	n := 0
-	for _, d := range docs {
+	for _, it := range items {
 		var one budget.Counter
 		sb := store.NewFirestoreBatch(r.client, &one)
-		sb.Update(d.Ref, tombstoneUpdates(originalID))
+		sb.Update(it.ref, tombstoneUpdates(it.originalID))
 		switch err := sb.Commit(ctx); {
 		case err == nil:
 			c.AddWrites(one.Writes())

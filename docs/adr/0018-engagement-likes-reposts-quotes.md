@@ -149,6 +149,9 @@ Cleanup (the job, the Eraser, the export section) is never flag-gated.
   tombstoned when the original goes away (delete, or its author's account deletion).
 - A taken-down post (P7, ADR-0016) must also tombstone its embeds; this ADR provides `TombstoneQuotes` and the
   repost removal for that job, which is P7's follow-up and not done here.
+- P7 follow-up: until that job lands, embeds (REPOST and QUOTE snapshots) of a post whose author is suspended
+  outlive the suspension: the original is hidden, but copies keep showing the frozen text. P7 must tombstone or hide
+  them when it suspends an author, and restore nothing (the snapshot is gone once tombstoned).
 - A user that blocks someone keeps that user's old likes on their posts (counts stay exact; no per-block clean-up).
 
 ## Handoff
