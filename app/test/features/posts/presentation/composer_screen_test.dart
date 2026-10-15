@@ -62,6 +62,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).thenAnswer((_) async => await answer());
   }
@@ -159,6 +161,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: 'hello world',
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).called(1);
     expect(pending.state, isEmpty);
