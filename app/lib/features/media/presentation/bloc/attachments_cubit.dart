@@ -79,9 +79,13 @@ class Attachment {
 
 @immutable
 class AttachmentsState {
-  const AttachmentsState({this.items = const []});
+  const AttachmentsState({this.items = const [], this.pickFailed = false});
 
   final List<Attachment> items;
+
+  /// The picker or its permission failed; the screen tells the user once
+  /// ([AttachmentsCubit.pickFailureShown]).
+  final bool pickFailed;
 
   bool get isEmpty => items.isEmpty;
   int get count => items.length;
@@ -151,10 +155,20 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       files = await _picker.pickImages(limit: room);
     } catch (_) {
       // Permission denied / picker failure: nothing was added.
+      if (!isClosed) {
+        emit(AttachmentsState(items: state.items, pickFailed: true));
+      }
       return;
     }
     if (isClosed || files.isEmpty) return;
     await addImages(files);
+  }
+
+  /// The screen showed the picker failure.
+  void pickFailureShown() {
+    if (state.pickFailed && !isClosed) {
+      emit(AttachmentsState(items: state.items));
+    }
   }
 
   /// Adds already-read image bytes (the picker result; also used by tests).
@@ -170,9 +184,12 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         ],
       ),
     );
-    await Future.wait([
-      for (var i = 0; i < accepted.length; i++) _process(ids[i], accepted[i]),
-    ]);
+    // One at a time: decoding a full-size photo is memory-hungry, and four
+    // at once can exhaust a low-end phone. Each tile turns ready in turn.
+    for (var i = 0; i < accepted.length; i++) {
+      if (isClosed) return;
+      await _process(ids[i], accepted[i]);
+    }
   }
 
   Future<void> _process(String id, Uint8List bytes) async {
@@ -250,10 +267,22 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
               : a,
         ),
       );
-    } on AppException {
+    } on AppException catch (error) {
+      // The server named the image it could not find: that tile failed, the
+      // others simply go back to waiting.
+      final named = error is MediaNotReadyException && error.mediaId != null
+          ? _uploader.jobIdForMedia(error.mediaId!)
+          : null;
       for (final a in state.items) {
         if (a.status == AttachmentStatus.uploading) {
-          _update(a.id, (x) => x.copyWith(status: AttachmentStatus.ready));
+          _update(
+            a.id,
+            (x) => x.copyWith(
+              status: a.id == named
+                  ? AttachmentStatus.failed
+                  : AttachmentStatus.ready,
+            ),
+          );
         }
       }
       rethrow;
@@ -299,12 +328,22 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     }
     if (firstError != null) throw firstError;
 
-    final uploaded = state.items
-        .where((a) => a.status == AttachmentStatus.uploaded)
-        .toList();
-    final alts = [for (final a in uploaded) a.altText];
+    // Built from this call's outcomes (and the items as they were when it
+    // started), never from live state: the user may have removed a photo or
+    // closed the screen while the upload ran.
+    final byId = {for (final o in outcomes) o.id: o};
+    final mediaIds = <String>[];
+    final alts = <String>[];
+    for (final a in items) {
+      final outcome = byId[a.id];
+      if (outcome == null || outcome.status != UploadOutcomeStatus.ready) {
+        throw const UnknownApiException('A photo was not uploaded.');
+      }
+      mediaIds.add(outcome.mediaId);
+      alts.add(a.altText);
+    }
     return UploadedAttachments(
-      mediaIds: [for (final a in uploaded) a.mediaId],
+      mediaIds: mediaIds,
       altTexts: alts.every((t) => t.isEmpty) ? const [] : alts,
     );
   }

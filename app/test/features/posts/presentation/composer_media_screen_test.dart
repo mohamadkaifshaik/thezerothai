@@ -56,6 +56,7 @@ void main() {
       const Stream<AuthState>.empty(),
       initialState: const AuthState(status: AuthStatus.authenticated),
     );
+    when(() => posts.subFeatureEnabled(any())).thenReturn(true);
     when(
       () => posts.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
@@ -238,6 +239,62 @@ void main() {
     gate.complete();
     await tester.pumpAndSettle();
     expect(find.text('home page'), findsOneWidget);
+  });
+
+  testWidgets('Close is disabled and back is blocked while sending', (
+    tester,
+  ) async {
+    final gate = Completer<void>();
+    stubHappyUpload(media, onPut: (_) => gate.future);
+    await open(tester);
+    await addPhotos(tester, ['a']);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.pump();
+    await tester.pump();
+
+    final close = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.close).first,
+    );
+    expect(close.onPressed, isNull);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.text('New post'), findsOneWidget);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('home page'), findsOneWidget);
+  });
+
+  testWidgets('Close with photos attached asks before discarding', (
+    tester,
+  ) async {
+    await open(tester);
+    await addPhotos(tester, ['a']);
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(find.text('Discard this post?'), findsOneWidget);
+
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.text('New post'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(find.text('home page'), findsOneWidget);
+  });
+
+  testWidgets('a picker failure shows a snackbar', (tester) async {
+    await open(tester);
+    picker.failWith = StateError('denied');
+
+    await tester.tap(find.byTooltip('Add photos'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining("Couldn't open your photos"), findsOneWidget);
   });
 
   testWidgets('a rejected photo is explained and the post is not created', (

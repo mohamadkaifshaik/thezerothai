@@ -9,6 +9,7 @@ import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
+import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
 import 'pending_posts_cubit.dart';
 
@@ -163,11 +164,16 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (attachments == null) return;
     _attachmentsSub = attachments.stream.listen((a) {
       if (isClosed) return;
+      final hasAttachments = !a.isEmpty;
+      final ready = a.isEmpty || (a.isSendable && !a.isBusy);
+      // Upload progress re-emits attachments many times a second; the
+      // composer only cares when one of these two answers changes.
+      if (hasAttachments == state.hasAttachments &&
+          ready == state.attachmentsReady) {
+        return;
+      }
       emit(
-        state.copyWith(
-          hasAttachments: !a.isEmpty,
-          attachmentsReady: a.isEmpty || (a.isSendable && !a.isBusy),
-        ),
+        state.copyWith(hasAttachments: hasAttachments, attachmentsReady: ready),
       );
     });
   }
@@ -201,14 +207,36 @@ class ComposerCubit extends Cubit<ComposerState> {
       ),
     );
 
+    // On-device previews for the optimistic row (taken before upload).
+    final thumbnails = [
+      for (final a in _attachments?.state.items ?? const <Attachment>[])
+        if (a.previewBytes != null) a.previewBytes!,
+    ];
     var mediaIds = const <String>[];
     var altTexts = const <String>[];
     final attachments = _attachments;
     if (attachments != null && !attachments.state.isEmpty) {
+      // A CreatePost with media is refused while the media sub-feature is
+      // off: do not spend upload quota first.
+      if (!_repository.subFeatureEnabled(kPostsSubFeatureMedia)) {
+        emit(
+          state.copyWith(
+            status: ComposerStatus.editing,
+            error: const FeatureDisabledException(
+              'Photos are not available.',
+              feature: kPostsSubFeatureMedia,
+            ),
+          ),
+        );
+        return;
+      }
       try {
         final uploaded = await attachments.uploadAll();
         mediaIds = uploaded.mediaIds;
         altTexts = uploaded.altTexts;
+        // The screen may have gone while the photos uploaded: never create
+        // a post nobody is waiting for (and never one that lost its photos).
+        if (isClosed) return;
       } on AppException catch (e, stack) {
         if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
         if (isClosed) return;
@@ -250,6 +278,7 @@ class ComposerCubit extends Cubit<ComposerState> {
           text: text,
           author: author,
           createdAt: _clock(),
+          thumbnails: thumbnails,
         ),
       );
     }

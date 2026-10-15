@@ -1,3 +1,4 @@
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -14,6 +15,7 @@ class PendingPost {
     required this.text,
     required this.author,
     required this.createdAt,
+    this.thumbnails = const [],
   });
 
   /// The intent's idempotency key; unique per pending post.
@@ -25,6 +27,10 @@ class PendingPost {
   /// The viewer's own snapshot, so the card renders like a real post.
   final common.AuthorSnapshot author;
   final DateTime createdAt;
+
+  /// On-device previews of the attached photos (already in memory, so the
+  /// row shows them with no download).
+  final List<Uint8List> thumbnails;
 }
 
 /// Session-wide list of [PendingPost]s, newest first. Home and the own

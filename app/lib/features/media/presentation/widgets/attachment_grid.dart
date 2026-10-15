@@ -126,7 +126,10 @@ class AttachmentTile extends StatelessWidget {
                     child: Image.memory(
                       preview,
                       fit: BoxFit.cover,
-                      cacheWidth: (AttachmentGrid.tileSize * 2).round(),
+                      cacheWidth:
+                          (AttachmentGrid.tileSize *
+                                  MediaQuery.devicePixelRatioOf(context))
+                              .ceil(),
                       gaplessPlayback: true,
                       errorBuilder: (_, _, _) => Icon(
                         Icons.broken_image_outlined,
@@ -221,7 +224,7 @@ class _Status extends StatelessWidget {
           ),
         );
       case AttachmentStatus.failed:
-        return _problem(context, Icons.refresh, 'Will retry');
+        return _problem(context, Icons.refresh, 'Not sent');
       case AttachmentStatus.rejected:
         return _problem(context, Icons.block_outlined, 'Not accepted');
       case AttachmentStatus.unsupported:

@@ -48,3 +48,9 @@ String avatarErrorMessage(AppException error) {
     _ => "Couldn't update your photo. Please try again.",
   };
 }
+
+/// Snackbar text when the photo picker could not open or read the choice
+/// (permission denied, or the platform picker failed).
+const kPickFailedMessage =
+    "Couldn't open your photos. Check that dZeroth is allowed to access "
+    'them in Settings, then try again.';

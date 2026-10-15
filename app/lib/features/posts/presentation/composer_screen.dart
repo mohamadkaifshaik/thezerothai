@@ -20,6 +20,7 @@ import '../../media/presentation/media_error_messages.dart';
 import '../../media/presentation/widgets/attachment_grid.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
+import '../domain/posts_feature_flag.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
@@ -42,7 +43,13 @@ class ComposerScreen extends StatelessWidget {
     final profile = context.read<OnboardingBloc>().state.profile;
     // The photo button exists only with FEATURE_MEDIA on (P4 plan D3); with
     // it off nothing media-related is created or read from the tree.
-    final mediaEnabled = featureEnabledSnapshot(context, kFeatureMedia);
+    // The posts gate may already know the media sub-feature is off (a
+    // FEATURE_DISABLED earlier this session): then no photo button either.
+    final mediaEnabled =
+        featureEnabledSnapshot(context, kFeatureMedia) &&
+        context.read<PostsRepository>().subFeatureEnabled(
+          kPostsSubFeatureMedia,
+        );
     return MultiBlocProvider(
       providers: [
         if (mediaEnabled)
@@ -61,11 +68,24 @@ class ComposerScreen extends StatelessWidget {
             pending: context.read<PendingPostsCubit>(),
             author: viewerAuthorSnapshot(profile),
             attachments: mediaEnabled ? context.read<AttachmentsCubit>() : null,
-            onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
+            onUnexpectedError: context.read<UnexpectedErrorReporter>(),
           ),
         ),
       ],
-      child: _ComposerView(mediaEnabled: mediaEnabled),
+      child: mediaEnabled
+          ? BlocListener<AttachmentsCubit, AttachmentsState>(
+              listenWhen: (prev, curr) => curr.pickFailed && !prev.pickFailed,
+              listener: (context, _) {
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(content: Text(kPickFailedMessage)),
+                  );
+                context.read<AttachmentsCubit>().pickFailureShown();
+              },
+              child: _ComposerView(mediaEnabled: mediaEnabled),
+            )
+          : _ComposerView(mediaEnabled: mediaEnabled),
     );
   }
 }
@@ -116,6 +136,37 @@ class _ComposerViewState extends State<_ComposerView> {
     }
   }
 
+  /// Leaves the screen; with photos attached it asks first (they are not
+  /// saved anywhere). Never while the post is being sent.
+  Future<void> _requestClose(BuildContext context, ComposerState state) async {
+    if (state.isSubmitting) return;
+    if (state.hasAttachments) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Discard this post?'),
+          content: const Text('Your photos will not be saved.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep editing'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      );
+      if (discard != true || !context.mounted) return;
+    }
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRouter.homePath);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<ComposerCubit, ComposerState>(
@@ -132,96 +183,108 @@ class _ComposerViewState extends State<_ComposerView> {
           );
         }
         final cubit = context.read<ComposerCubit>();
-        return Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              tooltip: 'Close',
-              icon: const Icon(Icons.close),
-              onPressed: () => context.canPop()
-                  ? context.pop()
-                  : context.go(AppRouter.homePath),
-            ),
-            title: const Text('New post'),
-            actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: AppSpacing.sm),
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(72, AppSpacing.minTapTarget),
-                  ),
-                  onPressed: state.canSubmit ? cubit.submit : null,
-                  child: state.isSubmitting
-                      ? const SizedBox(
-                          width: AppIconSize.md,
-                          height: AppIconSize.md,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Post'),
-                ),
+        // Back (system gesture, browser) is blocked while the post is being
+        // sent, and asks first when photos are attached. There is no cancel
+        // for an upload in flight.
+        final canLeaveFreely =
+            state.status == ComposerStatus.posted ||
+            (!state.isSubmitting && !state.hasAttachments);
+        return PopScope(
+          canPop: canLeaveFreely,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _requestClose(context, state);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              leading: IconButton(
+                tooltip: 'Close',
+                icon: const Icon(Icons.close),
+                onPressed: state.isSubmitting
+                    ? null
+                    : () => _requestClose(context, state),
               ),
-            ],
-          ),
-          body: SafeArea(
-            child: Column(
-              children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    child: TextField(
-                      controller: _controller,
-                      autofocus: true,
-                      enabled: !state.isSubmitting,
-                      expands: true,
-                      maxLines: null,
-                      minLines: null,
-                      textAlignVertical: TextAlignVertical.top,
-                      keyboardType: TextInputType.multiline,
-                      textCapitalization: TextCapitalization.sentences,
-                      inputFormatters: [
-                        LengthLimitingTextInputFormatter(kComposerInputCap),
-                      ],
-                      style: Theme.of(context).textTheme.bodyLarge
-                          ?.copyWith(fontSize: 18),
-                      decoration: InputDecoration(
-                        hintText: "What's happening?",
-                        hintStyle: Theme.of(context).textTheme.bodyLarge
-                            ?.copyWith(
-                              fontSize: 18,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                        filled: false,
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                      ),
-                      onChanged: cubit.textChanged,
-                    ),
-                  ),
-                ),
-                if (widget.mediaEnabled)
-                  AttachmentGrid(enabled: !state.isSubmitting),
-                const Divider(height: 1),
+              title: const Text('New post'),
+              actions: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.xs,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      if (widget.mediaEnabled)
-                        const _AddPhotoButton()
-                      else
-                        const SizedBox(width: AppSpacing.sm),
-                      DraftProblemHint(problem: state.draft.problem),
-                      CharacterCounter(remaining: state.draft.remaining),
-                      const SizedBox(width: AppSpacing.sm),
-                    ],
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(72, AppSpacing.minTapTarget),
+                    ),
+                    onPressed: state.canSubmit ? cubit.submit : null,
+                    child: state.isSubmitting
+                        ? const SizedBox(
+                            width: AppIconSize.md,
+                            height: AppIconSize.md,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Post'),
                   ),
                 ),
               ],
+            ),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      child: TextField(
+                        controller: _controller,
+                        autofocus: true,
+                        enabled: !state.isSubmitting,
+                        expands: true,
+                        maxLines: null,
+                        minLines: null,
+                        textAlignVertical: TextAlignVertical.top,
+                        keyboardType: TextInputType.multiline,
+                        textCapitalization: TextCapitalization.sentences,
+                        inputFormatters: [
+                          LengthLimitingTextInputFormatter(kComposerInputCap),
+                        ],
+                        style: Theme.of(context).textTheme.bodyLarge
+                            ?.copyWith(fontSize: 18),
+                        decoration: InputDecoration(
+                          hintText: "What's happening?",
+                          hintStyle: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                fontSize: 18,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                        ),
+                        onChanged: cubit.textChanged,
+                      ),
+                    ),
+                  ),
+                  if (widget.mediaEnabled)
+                    AttachmentGrid(enabled: !state.isSubmitting),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.xs,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (widget.mediaEnabled)
+                          const _AddPhotoButton()
+                        else
+                          const SizedBox(width: AppSpacing.sm),
+                        DraftProblemHint(problem: state.draft.problem),
+                        CharacterCounter(remaining: state.draft.remaining),
+                        const SizedBox(width: AppSpacing.sm),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

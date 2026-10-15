@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/media/data/media_uploader.dart';
 import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
@@ -47,6 +49,7 @@ void main() {
       attachments: attachments,
       onUnexpectedError: (error, _) => reported.add(error),
     );
+    when(() => posts.subFeatureEnabled(any())).thenReturn(true);
     when(
       () => posts.createPost(
         idempotencyKey: any(named: 'idempotencyKey'),
@@ -239,5 +242,92 @@ void main() {
     await cubit.submit();
 
     expect(alts, ['a cat']);
+  });
+
+  test('closing the screen while the PUT is in flight never creates the post '
+      '(no photo-less post)', () async {
+    final gate = Completer<void>();
+    stubHappyUpload(media, onPut: (_) => gate.future);
+    await attach(['a']);
+    cubit.textChanged('look');
+
+    final submit = cubit.submit();
+    await Future<void>.delayed(Duration.zero);
+    await cubit.close();
+    await attachments.close();
+    gate.complete();
+    await submit;
+
+    verifyNever(
+      () => posts.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+      ),
+    );
+    expect(pending.state, isEmpty);
+  });
+
+  test('media sub-feature off: no upload is started and the error names '
+      'the feature', () async {
+    when(() => posts.subFeatureEnabled(any())).thenReturn(false);
+    stubHappyUpload(media);
+    await attach(['a']);
+    cubit.textChanged('look');
+
+    await cubit.submit();
+
+    expect(cubit.state.status, ComposerStatus.editing);
+    final error = cubit.state.error;
+    expect(error, isA<FeatureDisabledException>());
+    expect((error! as FeatureDisabledException).feature, 'media');
+    expect(cubit.state.uploadFailed, isFalse);
+    verifyNever(
+      () => media.createUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        purpose: any(named: 'purpose'),
+        images: any(named: 'images'),
+      ),
+    );
+  });
+
+  test('a picker failure is surfaced once and nothing is added', () async {
+    picker.failWith = StateError('permission denied');
+
+    await attachments.pick();
+
+    expect(attachments.state.pickFailed, isTrue);
+    expect(attachments.state.isEmpty, isTrue);
+    attachments.pickFailureShown();
+    expect(attachments.state.pickFailed, isFalse);
+  });
+
+  test('the optimistic post carries the photo previews', () async {
+    stubHappyUpload(media);
+    final gate = Completer<void>();
+    when(
+      () => posts.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+      ),
+    ).thenAnswer((_) async {
+      await gate.future;
+      return postView(1);
+    });
+    await attach(['a', 'b']);
+
+    final submit = cubit.submit();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(pending.state.single.thumbnails, hasLength(2));
+    gate.complete();
+    await submit;
+    expect(pending.state, isEmpty);
   });
 }

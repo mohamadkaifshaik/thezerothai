@@ -14,6 +14,9 @@ String createPostErrorMessage(AppException error) {
     DegradedModeException() =>
       'dZeroth is in a limited mode right now, so posting is paused. '
           'Please try again shortly.',
+    FeatureDisabledException(feature: 'media') =>
+      "Photos can't be added to posts right now. Remove them and post "
+          'again, or try later.',
     FeatureDisabledException() => "Posting isn't available right now.",
     NetworkException() =>
       'No connection. Your post was not sent; check your network and try '

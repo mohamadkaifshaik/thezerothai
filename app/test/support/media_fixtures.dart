@@ -72,9 +72,17 @@ class FakeImagePicker implements ImagePickerService {
   int calls = 0;
   int? lastLimit;
 
+  /// When set, the next pick throws it (permission denied, picker crash).
+  Object? failWith;
+
   @override
   Future<List<Uint8List>> pickImages({required int limit}) async {
     calls++;
+    final failure = failWith;
+    if (failure != null) {
+      failWith = null;
+      throw failure;
+    }
     lastLimit = limit;
     final out = next.take(limit).toList();
     next = [];
@@ -84,6 +92,11 @@ class FakeImagePicker implements ImagePickerService {
   @override
   Future<Uint8List?> pickAvatar() async {
     calls++;
+    final failure = failWith;
+    if (failure != null) {
+      failWith = null;
+      throw failure;
+    }
     return nextAvatar;
   }
 }
