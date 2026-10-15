@@ -41,6 +41,7 @@ type fakeRepo struct {
 	repostParams []RepostParams
 	trims        [][]string
 	trimRepost   [][]string
+	undoIDs      []string
 }
 
 func (f *fakeRepo) LoadUserLikes(context.Context, string) (UserLikes, error) {
@@ -60,7 +61,8 @@ func (f *fakeRepo) Repost(_ context.Context, p RepostParams) (RepostResult, erro
 	return f.repostRes, f.repostErr
 }
 
-func (f *fakeRepo) UndoRepost(context.Context, string, string) (UndoResult, error) {
+func (f *fakeRepo) UndoRepost(_ context.Context, _, postID string) (UndoResult, error) {
+	f.undoIDs = append(f.undoIDs, postID)
 	return f.undoRes, nil
 }
 
@@ -581,5 +583,121 @@ func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
 	}
 	if leaderErr != nil || leaderRes.LikeCount != 5 {
 		t.Errorf("leader: %+v, %v", leaderRes, leaderErr)
+	}
+}
+
+// Unlike and UndoRepost when the post (or the original behind a REPOST id) is gone: the delete still runs, the
+// answer carries the id and zero counts, and no counter hook fires for a post that no longer exists.
+func TestUndoAndUnlike_OriginalGone(t *testing.T) {
+	const goneID = "0000000000000000099"
+	t.Run("undo repost, original gone", func(t *testing.T) {
+		e := newEnv(t)
+		e.repo.undoRes = UndoResult{Removed: true, RepostPostID: pidRep}
+		r, err := e.m.UndoRepost(e.ctx, "viewer", keyOK, goneID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.PostID != goneID || r.RepostCount != 0 || r.RepostedByViewer {
+			t.Fatalf("r = %+v", r)
+		}
+		if len(e.posts.counts) != 0 {
+			t.Fatalf("counts = %v, want none for a gone original", e.posts.counts)
+		}
+		if len(e.posts.removed) != 1 {
+			t.Fatalf("the REPOST removal was not announced: %v", e.posts.removed)
+		}
+	})
+	t.Run("undo repost by the REPOST's own id resolves the original", func(t *testing.T) {
+		e := newEnv(t)
+		e.repo.undoRes = UndoResult{Removed: true, RepostPostID: pidRep}
+		r, err := e.m.UndoRepost(e.ctx, "viewer", keyOK, pidRep)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(e.repo.undoIDs) != 1 || e.repo.undoIDs[0] != pidA {
+			t.Fatalf("repo undo ids = %v, want the original %s", e.repo.undoIDs, pidA)
+		}
+		if r.PostID != pidA || r.RepostCount != 1 || len(e.posts.counts) != 1 || e.posts.counts[0] != pidA+":0:-1" {
+			t.Fatalf("r=%+v counts=%v", r, e.posts.counts)
+		}
+	})
+	t.Run("unlike by a REPOST id whose original is gone", func(t *testing.T) {
+		e := newEnv(t)
+		delete(e.posts.docs, pidA)
+		e.repo.unlikeResult = true
+		r, err := e.m.Unlike(e.ctx, "viewer", keyOK, pidRep)
+		if err != nil || r.LikeCount != 0 || len(e.posts.counts) != 0 {
+			t.Fatalf("r=%+v err=%v counts=%v", r, err, e.posts.counts)
+		}
+	})
+}
+
+// A REPOST id acts on its original; a broken or hidden original is the one NOT_FOUND.
+func TestLike_ResolvesRepostIDs(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(e *env)
+		wantID  string
+		wantErr bool
+	}{
+		{"repost id acts on the original", func(*env) {}, pidA, false},
+		{"repost without an original id", func(e *env) { e.posts.docs[pidRep].RepostOfID = "" }, "", true},
+		{"original hidden", func(e *env) { e.posts.hidden[pidA] = true }, "", true},
+		{"original deleted", func(e *env) { delete(e.posts.docs, pidA) }, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			tt.mutate(e)
+			r, err := e.m.Like(e.ctx, "viewer", keyOK, pidRep)
+			if tt.wantErr {
+				_ = requireCode(t, err, connect.CodeNotFound)
+				return
+			}
+			if err != nil || r.PostID != tt.wantID {
+				t.Fatalf("r=%+v err=%v", r, err)
+			}
+		})
+	}
+}
+
+// Released drops the reposted id from a cached userLikes entry even when the repo has no release seam, and
+// ForgetUser drops the entry.
+func TestReleasedAndForgetUser(t *testing.T) {
+	e := newEnv(t)
+	e.repo.loaded = UserLikes{Recent: []string{pidB}, RecentReposts: []string{pidA}}
+	_ = e.m.Viewer(e.ctx, "viewer")
+	if err := e.m.Released(e.ctx, pidA, "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	st, ok := e.m.s.cache.get("viewer")
+	if !ok || len(st.reposts) != 0 || len(st.recent) != 1 {
+		t.Fatalf("state after release = %+v ok=%v", st, ok)
+	}
+	e.m.StageRelease(nil, pidA, "viewer") // the fake repo is no releaser: a no-op, must not panic
+	e.m.ForgetUser("viewer")
+	if _, ok := e.m.s.cache.get("viewer"); ok {
+		t.Fatal("ForgetUser left the cached entry")
+	}
+}
+
+// Concurrent updates of one user's cached state (separate flights for different posts) never lose an id.
+func TestUserCache_ConcurrentUpdatesKeepEveryID(t *testing.T) {
+	c := newUserCache(time.Minute, 10)
+	c.set("u", UserLikes{})
+	const n = 50
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.update("u", func(recent, reposts []string) ([]string, []string) {
+				return withID(recent, fmt.Sprintf("%019d", i)), reposts
+			})
+		}()
+	}
+	wg.Wait()
+	if st, _ := c.get("u"); len(st.recent) != n {
+		t.Fatalf("recent has %d ids, want %d (a concurrent update was lost)", len(st.recent), n)
 	}
 }
