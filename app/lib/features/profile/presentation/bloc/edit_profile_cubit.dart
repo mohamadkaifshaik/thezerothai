@@ -30,6 +30,7 @@ class EditProfileState {
     this.isPreparingAvatar = false,
     this.avatarFailed = false,
     this.pickFailed = false,
+    this.avatarDropped = false,
   });
 
   final String displayName;
@@ -57,6 +58,10 @@ class EditProfileState {
   /// [error] is the photo picker (or its permission) failing, not a save.
   final bool pickFailed;
 
+  /// [error] means the uploaded avatar was discarded (MEDIA_NOT_READY on
+  /// UpdateProfile), so the user must choose it again.
+  final bool avatarDropped;
+
   bool get isSaving => status == EditProfileStatus.saving;
 
   /// Characters left in the name (negative when over the limit).
@@ -76,6 +81,7 @@ class EditProfileState {
     bool? isPreparingAvatar,
     bool? avatarFailed,
     bool? pickFailed,
+    bool? avatarDropped,
   }) => EditProfileState(
     displayName: displayName ?? this.displayName,
     bio: bio ?? this.bio,
@@ -88,6 +94,9 @@ class EditProfileState {
     isPreparingAvatar: isPreparingAvatar ?? this.isPreparingAvatar,
     avatarFailed: clearError ? false : (avatarFailed ?? this.avatarFailed),
     pickFailed: clearError ? false : (pickFailed ?? this.pickFailed),
+    avatarDropped: clearError
+        ? false
+        : (avatarDropped ?? this.avatarDropped),
   );
 }
 
@@ -301,7 +310,8 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       }
       // Only an UpdateProfile refusal means the uploaded avatar is gone; a
       // MEDIA_NOT_READY from the upload step just means "try again".
-      if (e is MediaNotReadyException && !uploading) {
+      final dropped = e is MediaNotReadyException && !uploading;
+      if (dropped) {
         // The uploaded avatar is gone server-side: forget it so the user
         // picks again instead of re-sending a dead media id.
         _avatar = null;
@@ -314,6 +324,7 @@ class EditProfileCubit extends Cubit<EditProfileState> {
           status: EditProfileStatus.editing,
           error: e,
           avatarFailed: uploading || e is MediaNotReadyException,
+          avatarDropped: dropped,
           clearAvatarPreview: _avatar == null,
         ),
       );

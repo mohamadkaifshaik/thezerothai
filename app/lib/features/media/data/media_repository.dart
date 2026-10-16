@@ -123,7 +123,10 @@ class MediaRepository {
       ),
     );
     if (response.targets.length != images.length) {
-      throw const UnknownApiException('Unexpected upload response.');
+      // Runs after [_run] returned, so report it here (once).
+      const error = UnknownApiException('Unexpected upload response.');
+      _onUnexpectedError?.call(error, StackTrace.current);
+      throw error;
     }
     return response.targets;
   }

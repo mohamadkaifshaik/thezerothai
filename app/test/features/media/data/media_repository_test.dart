@@ -187,6 +187,7 @@ void main() {
         ),
         throwsA(isA<UnknownApiException>()),
       );
+      expect(reported, hasLength(1), reason: 'reported exactly once');
     });
   });
 

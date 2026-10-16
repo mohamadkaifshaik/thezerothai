@@ -195,6 +195,8 @@ class MediaUploader {
     ];
     if (fresh.isNotEmpty) batches.add(fresh);
 
+    // Note: a replay after the server's idempotency record expired is a new
+    // request and charges the daily quota for the whole group again.
     for (final batch in batches) {
       // The key covers the exact image set (by local id and MD5), so the
       // same retry replays and a changed set mints a new key.
@@ -295,6 +297,13 @@ class MediaUploader {
         if (reservation != null) {
           reservation.putDone = false;
           reservation.urlsDead = true;
+        } else {
+          // Unknown media id: any object may be the missing one.
+          for (final job in toFinalize) {
+            final r = _reservations[job.id]!;
+            r.putDone = false;
+            r.urlsDead = true;
+          }
         }
         rethrow;
       }

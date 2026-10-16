@@ -7,6 +7,7 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/composer_cubit.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/media/v1/media.pb.dart' as pb_media;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -330,4 +331,53 @@ void main() {
     await submit;
     expect(pending.state, isEmpty);
   });
+
+  test('a photo missing from the upload outcomes is reported once and the '
+      'draft is kept', () async {
+    final broken = AttachmentsCubit(
+      picker: picker,
+      processor: FakeImageProcessor(),
+      uploader: _EmptyUploader(),
+    );
+    final c = ComposerCubit(
+      postsRepository: posts,
+      pending: pending,
+      author: common.AuthorSnapshot(userId: 'me', handle: 'me'),
+      attachments: broken,
+      onUnexpectedError: (error, _) => reported.add(error),
+    );
+    addTearDown(() async {
+      await c.close();
+      await broken.close();
+    });
+    picker.next = [imageBytes('a')];
+    await broken.pick();
+    await Future<void>.delayed(Duration.zero);
+    c.textChanged('look');
+
+    await c.submit();
+
+    expect(reported, hasLength(1));
+    expect(reported.single, isA<StateError>());
+    expect(c.state.status, isNot(ComposerStatus.posted));
+    verifyNever(
+      () => posts.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+      ),
+    );
+  });
+}
+
+/// An uploader that answers with no outcomes at all (a contract anomaly).
+class _EmptyUploader extends Mock implements MediaUploader {
+  @override
+  Future<List<UploadOutcome>> upload({
+    required pb_media.MediaPurpose purpose,
+    required List<UploadJob> jobs,
+    void Function(String jobId, double progress)? onProgress,
+  }) async => const [];
 }

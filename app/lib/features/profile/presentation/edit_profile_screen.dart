@@ -133,6 +133,8 @@ class _EditProfileViewState extends State<_EditProfileView> {
           content: Text(
             state.pickFailed
                 ? kPickFailedMessage
+                : state.avatarDropped
+                ? kAvatarGoneMessage
                 : state.avatarFailed
                 ? avatarErrorMessage(error)
                 : updateProfileErrorMessage(error),

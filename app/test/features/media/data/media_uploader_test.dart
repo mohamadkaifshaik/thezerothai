@@ -532,6 +532,131 @@ void main() {
 
     expect(out.single.mediaId, 'm2');
   });
+
+  group('MEDIA_NOT_READY from Finalize', () {
+    void failFinalizeOnce(Object error) {
+      stubCreate(['m1', 'm2']);
+      stubPutOk();
+      var first = true;
+      when(
+        () => repo.finalizeUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          items: any(named: 'items'),
+        ),
+      ).thenAnswer((invocation) async {
+        if (first) {
+          first = false;
+          throw error;
+        }
+        final items =
+            invocation.namedArguments[#items] as List<FinalizeRequestItem>;
+        return [for (final i in items) readyResult(i.mediaId)];
+      });
+    }
+
+    test('the named image is PUT again; the retry replays the same keys',
+        () async {
+      failFinalizeOnce(const MediaNotReadyException('x', mediaId: 'm1'));
+      await expectLater(
+        uploader.upload(
+          purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+          jobs: jobs(['a', 'b']),
+        ),
+        throwsA(isA<MediaNotReadyException>()),
+      );
+      verify(() => repo.putObject(any(), any())).called(4);
+      clearInteractions(repo);
+
+      final out = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+
+      expect(out.map((o) => o.status), everyElement(UploadOutcomeStatus.ready));
+      final puts = verify(() => repo.putObject(captureAny(), any())).captured
+          .cast<pb.SignedUpload>();
+      expect(puts, hasLength(2), reason: 'full + thumb of m1 only');
+      expect(puts.every((p) => p.url.contains('/m1')), isTrue);
+      final createKeys = verify(
+        () => repo.createUpload(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).captured;
+      expect(createKeys, ['key-1'], reason: 'replayed under the same key');
+    });
+
+    test('an unknown media id resets every image in the finalize set',
+        () async {
+      failFinalizeOnce(const MediaNotReadyException('x'));
+      await expectLater(
+        uploader.upload(
+          purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+          jobs: jobs(['a', 'b']),
+        ),
+        throwsA(isA<MediaNotReadyException>()),
+      );
+      clearInteractions(repo);
+
+      final out = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+
+      expect(out.map((o) => o.status), everyElement(UploadOutcomeStatus.ready));
+      verify(() => repo.putObject(any(), any())).called(4);
+    });
+  });
+
+  group('contract anomalies are reported once', () {
+    late List<Object> reported;
+    setUp(() {
+      reported = [];
+      uploader = MediaUploader(
+        repository: repo,
+        clock: () => now,
+        uuid: _CountingUuid(() => 'key-${++keyCounter}'),
+        onUnexpectedError: (error, _) => reported.add(error),
+      );
+      stubCreate(['m1']);
+      stubPutOk();
+    });
+
+    test('Finalize returns no result for the image', () async {
+      when(
+        () => repo.finalizeUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          items: any(named: 'items'),
+        ),
+      ).thenAnswer((_) async => []);
+
+      final out = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a']),
+      );
+
+      expect(out.single.error, isA<UploadInterruptedException>());
+      expect(reported, hasLength(1));
+    });
+
+    test('Finalize leaves the image PENDING', () async {
+      stubFinalize(
+        (id) => pb.MediaResult(
+          mediaId: id,
+          status: pb.MediaStatus.MEDIA_STATUS_PENDING,
+        ),
+      );
+
+      final out = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a']),
+      );
+
+      expect(out.single.error, isA<UploadInterruptedException>());
+      expect(reported, hasLength(1));
+    });
+  });
 }
 
 class _CountingUuid implements Uuid {

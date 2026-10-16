@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/media/data/media_uploader.dart';
@@ -210,4 +211,38 @@ void main() {
     expect(statuses(), [AttachmentStatus.ready]);
     verifyNever(() => repo.putObject(any(), any()));
   });
+
+  test('overlapping pick() calls open the picker once', () async {
+    final gate = Completer<void>();
+    final slow = _GatedPicker(gate.future)..next = [imageBytes('a')];
+    final c = AttachmentsCubit(
+      picker: slow,
+      processor: processor,
+      uploader: MediaUploader(repository: repo),
+    );
+    addTearDown(c.close);
+
+    final first = c.pick();
+    await c.pick();
+    expect(slow.calls, 1, reason: 'second tap while the picker is open');
+    gate.complete();
+    await first;
+    expect(c.state.count, 1);
+
+    slow.next = [imageBytes('b')];
+    await c.pick();
+    expect(c.state.count, 2, reason: 'the flag is released afterwards');
+  });
+}
+
+class _GatedPicker extends FakeImagePicker {
+  _GatedPicker(this.gate);
+  final Future<void> gate;
+
+  @override
+  Future<List<Uint8List>> pickImages({required int limit}) async {
+    final out = await super.pickImages(limit: limit);
+    if (calls == 1) await gate;
+    return out;
+  }
 }

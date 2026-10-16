@@ -148,21 +148,31 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
 
   /// Opens the picker for the remaining slots and processes each choice.
   Future<void> pick() async {
+    if (_picking) return;
     final room = kMaxPostImages - state.count;
     if (room <= 0) return;
-    final List<Uint8List> files;
+    _picking = true;
     try {
-      files = await _picker.pickImages(limit: room);
-    } catch (_) {
-      // Permission denied / picker failure: nothing was added.
-      if (!isClosed) {
-        emit(AttachmentsState(items: state.items, pickFailed: true));
+      final List<Uint8List> files;
+      try {
+        files = await _picker.pickImages(limit: room);
+      } catch (_) {
+        // Permission denied / picker failure: nothing was added.
+        if (!isClosed) {
+          emit(AttachmentsState(items: state.items, pickFailed: true));
+        }
+        return;
       }
-      return;
+      if (isClosed || files.isEmpty) return;
+      await addImages(files);
+    } finally {
+      _picking = false;
     }
-    if (isClosed || files.isEmpty) return;
-    await addImages(files);
   }
+
+  /// Held across the picker and the processing so two overlapping picks
+  /// cannot both claim the same free slots.
+  bool _picking = false;
 
   /// The screen showed the picker failure.
   void pickFailureShown() {
@@ -337,7 +347,9 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     for (final a in items) {
       final outcome = byId[a.id];
       if (outcome == null || outcome.status != UploadOutcomeStatus.ready) {
-        throw const UnknownApiException('A photo was not uploaded.');
+        // A contract/logic anomaly, not a user-facing failure: the composer's
+        // catch-all reports it to Crashlytics.
+        throw StateError('A photo was not uploaded.');
       }
       mediaIds.add(outcome.mediaId);
       alts.add(a.altText);

@@ -110,6 +110,7 @@ void main() {
     await cubit.pickAvatar();
 
     expect(cubit.state.avatarFailed, isTrue);
+    expect(cubit.state.pickFailed, isTrue);
     expect(cubit.state.error, isNotNull);
     expect(cubit.hasChanges, isFalse);
   });
@@ -132,10 +133,33 @@ void main() {
       await cubit.save();
 
       expect(cubit.state.avatarFailed, isTrue);
+      expect(cubit.state.avatarDropped, isTrue);
       expect(cubit.isAvatarChanged, isFalse);
       expect(cubit.state.avatarPreview, isNull);
     },
   );
+
+  test('MEDIA_NOT_READY from the upload step keeps the avatar and its '
+      'preview, and is not "dropped"', () async {
+    stubHappyUpload(media);
+    when(
+      () => media.finalizeUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        items: any(named: 'items'),
+      ),
+    ).thenThrow(const MediaNotReadyException('nf', mediaId: 'm1'));
+    picker.nextAvatar = imageBytes('a');
+    await cubit.pickAvatar();
+
+    await cubit.save();
+
+    expect(cubit.state.error, isA<MediaNotReadyException>());
+    expect(cubit.state.avatarFailed, isTrue);
+    expect(cubit.state.avatarDropped, isFalse);
+    expect(cubit.isAvatarChanged, isTrue);
+    expect(cubit.state.avatarPreview, isNotNull);
+    expect(cubit.canSave, isTrue);
+  });
 
   test('save uploads the avatar then sends only its media id', () async {
     stubHappyUpload(media);

@@ -8,6 +8,7 @@ import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/media_feature_flag.dart';
+import 'package:dzeroth/features/media/presentation/media_error_messages.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -178,6 +179,40 @@ void main() {
 
     expect(find.text('Not allowed'), findsOneWidget);
     expect(saveButton(tester).onPressed, isNull);
+  });
+
+  testWidgets('a picker failure shows the pick-failed message', (
+    tester,
+  ) async {
+    picker.failWith = StateError('denied');
+    await open(tester);
+
+    await tester.tap(find.byType(AvatarEditor));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kPickFailedMessage), findsOneWidget);
+  });
+
+  testWidgets('a dropped avatar (MEDIA_NOT_READY on save) asks to choose it '
+      'again', (tester) async {
+    stubHappyUpload(media);
+    when(
+      () => identityRepo.updateProfile(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        displayName: any(named: 'displayName'),
+        bio: any(named: 'bio'),
+        avatarMediaId: any(named: 'avatarMediaId'),
+      ),
+    ).thenThrow(const MediaNotReadyException('gone'));
+    picker.nextAvatar = imageBytes('a');
+    await open(tester);
+    await tester.tap(find.byType(AvatarEditor));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(kAvatarGoneMessage), findsOneWidget);
   });
 
   testWidgets('photo quota gets its own friendly text', (tester) async {

@@ -54,6 +54,9 @@ String avatarErrorMessage(AppException error) {
   };
 }
 
+/// The uploaded avatar was discarded server-side; it must be chosen again.
+const kAvatarGoneMessage = 'That photo is no longer available. Choose it again.';
+
 /// Snackbar text when the photo picker could not open or read the choice
 /// (permission denied, or the platform picker failed).
 const kPickFailedMessage =
