@@ -166,9 +166,8 @@ void main() {
     tester,
   ) async {
     stubCached(const TimelineSnapshot());
-    when(
-      () => timeline.refresh(feed),
-    ).thenAnswer((_) async => throw const NetworkException('offline'));
+    when(() => timeline.refresh(feed))
+        .thenAnswer((_) async => throw const NetworkException('offline'));
 
     await open(tester);
 
@@ -217,9 +216,8 @@ void main() {
     final gap = gapEntry(4);
     stubCached(snapshotOf([5, 4], gapAfter: {4: gap}));
     since = const Duration(seconds: 1);
-    when(
-      () => timeline.fillGap(feed, gap.itemKey),
-    ).thenAnswer((_) async => snapshotOf([5, 4, 3, 2]));
+    when(() => timeline.fillGap(feed, gap.itemKey))
+        .thenAnswer((_) async => snapshotOf([5, 4, 3, 2]));
 
     await open(tester);
     expect(find.text('Show more posts'), findsOneWidget);
@@ -236,9 +234,8 @@ void main() {
   testWidgets('scrolling past 70% loads the next page once', (tester) async {
     stubCached(snapshotOf([for (var i = 30; i >= 1; i--) i], older: 'o1'));
     since = const Duration(seconds: 1);
-    when(
-      () => timeline.loadOlder(feed),
-    ).thenAnswer((_) async => snapshotOf([for (var i = 30; i >= 1; i--) i]));
+    when(() => timeline.loadOlder(feed))
+        .thenAnswer((_) async => snapshotOf([for (var i = 30; i >= 1; i--) i]));
 
     await open(tester);
     verifyNever(() => timeline.loadOlder(feed));
@@ -255,7 +252,11 @@ void main() {
     await open(tester);
 
     stubRefresh(snapshotOf([3, 2, 1], since: 's2'));
-    await tester.fling(find.byType(CustomScrollView), const Offset(0, 400), 1000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 400),
+      1000,
+    );
     await tester.pumpAndSettle();
 
     verify(() => timeline.refresh(feed)).called(2);
@@ -332,7 +333,10 @@ void main() {
   ) async {
     stubCached(
       TimelineSnapshot(
-        entries: [postEntry(2, authorId: 'me'), postEntry(1)],
+        entries: [
+          postEntry(2, authorId: 'me'),
+          postEntry(1),
+        ],
         sinceToken: 's',
       ),
     );
@@ -366,7 +370,10 @@ void main() {
     tester,
   ) async {
     stubCached(
-      TimelineSnapshot(entries: [postEntry(2, authorId: 'me')], sinceToken: 's'),
+      TimelineSnapshot(
+        entries: [postEntry(2, authorId: 'me')],
+        sinceToken: 's',
+      ),
     );
     since = const Duration(seconds: 1);
     when(

@@ -27,6 +27,7 @@ class PendingPostRow extends StatelessWidget {
   final common.AuthorSnapshot? author;
   final DateTime? createdAt;
   final DateTime? now;
+
   /// Announced for the row; null leaves the card's own text and the
   /// "Posting..." line to speak for it.
   final String? semanticsLabel;

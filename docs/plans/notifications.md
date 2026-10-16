@@ -42,10 +42,10 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 | T6 | `notifications.Eraser` + exporter, T11 guard rows, `account-deletion.md` lists, index override | backend | In review (PR 2) |
 | T7 | Wiring: config, flag, rate limits, `FollowEvents` + `PostEvents` adapters, Terraform variable | backend | In review (PR 2) |
 | T8 | Tests: unit, emulator integration with budget assertions, suppression matrix, idempotency, DLQ semantics | tester | In review (PR 2) |
-| T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | In review (PR 3) |
+| T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | In review (client PR: branch `feat/p67-ui`, PR not opened yet, number TBD) |
 | T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices; the seam, `notifications.Event` types and the id scheme are ready) |
 | T11 | Security review (token handling, payload, handler auth) | security-auditor | Open |
-| T12 | **Manual:** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase) |
+| T12 | **Manual:** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase; prerequisites below) |
 | T13 | Terraform: `runtime_publisher_topics` += `notifications-fanout`, `FEATURE_NOTIFICATIONS*` env on the api service | backend (declared) / deployer (apply) | Declared in PR 2, not applied (needs plan-then-OK) |
 
 ### Acceptance criteria
@@ -107,6 +107,12 @@ Each cell is the asserted ceiling (`budgettest.Assert`), not a single measuremen
 (`backend/e2e/notifications_smoke_test.go`): flag off is FEATURE_DISABLED on every RPC; B follows A, A's list gets
 `follow_<B>`, the GetMe badge goes 1 -> 0 after MarkNotificationsSeen, a foreign cursor is INVALID_ARGUMENT, device
 register/unregister are idempotent.
+
+### T12 prerequisites (founder credentials; the client code is ready)
+- **iOS:** upload the APNs authentication key (.p8, key id, team id) to the Firebase project (Project settings -> Cloud Messaging). The client side is in the repo: `ios/Runner/Runner.entitlements` (`aps-environment`, referenced by all three Runner build configurations) and `UIBackgroundModes: remote-notification` in `Info.plist`. The Push Notifications capability must also be enabled on the App ID in the Apple developer account, and a provisioning profile regenerated.
+- **Android:** `google-services.json` for the app id (Firebase public config, not a secret). The `social` notification channel the backend names (`fcm.go` ChannelID) is created at startup in `MainActivity`, and `default_notification_channel_id` points at it; `POST_NOTIFICATIONS` is declared for Android 13+.
+- **Both:** `FEATURE_NOTIFICATIONS` allowlisted for the tester account, a real device (simulators and emulators without Play services do not receive pushes).
+- **Known client behaviour:** on iOS without an APNs token the FCM token is unavailable; the client treats `apns-token-not-set` as "not registered yet" and registers on the next token refresh.
 
 ## Open risks
 - On-device push (T12) cannot be verified from CI; iOS needs the APNs auth key uploaded to the Firebase project.

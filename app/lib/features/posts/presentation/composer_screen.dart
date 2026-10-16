@@ -137,17 +137,16 @@ class _ComposerViewState extends State<_ComposerView> {
                       inputFormatters: [
                         LengthLimitingTextInputFormatter(kComposerInputCap),
                       ],
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontSize: 18,
-                      ),
+                      style: Theme.of(context).textTheme.bodyLarge
+                          ?.copyWith(fontSize: 18),
                       decoration: InputDecoration(
                         hintText: "What's happening?",
                         hintStyle: Theme.of(context).textTheme.bodyLarge
                             ?.copyWith(
                               fontSize: 18,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                             ),
                         filled: false,
                         border: InputBorder.none,

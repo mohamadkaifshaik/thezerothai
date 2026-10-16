@@ -48,8 +48,8 @@ Storage: ~1 KB/report. **$0** at Stage 0: at 300 DAU about 6 reports/day against
 | T7 | reports Eraser + export section, T11 guard rows, residue allowlist, `account-deletion.md` retained-data lists | backend | backend | Done (backend PR; privacy.html line is a founder action) |
 | T8 | Go unit + emulator integration tests with budget assertions | tester | backend | Done (backend PR) |
 | T9 | `docs/runbooks/moderation.md` (SLA, procedures, cost) | backend | backend | Done (backend PR) |
-| T10 | Flutter: report sheet, PostCard overflow Report/Block, profile menu Report, widget tests | frontend | client | Todo |
-| T11 | Docs: ui-catalog, code-map, phase1 status, cost-model line | docs | docs | Todo |
+| T10 | Flutter: report sheet, PostCard overflow Report/Block, profile menu Report, widget tests | frontend | client (branch `feat/p67-ui`, PR not opened yet) | Done on branch (review changes applied; merges with the client PR) |
+| T11 | Docs: ui-catalog, code-map, phase1 status, cost-model line | docs | docs | In progress: ui-catalog Done on `feat/p67-ui`; code-map, phase1 status and cost-model line remain |
 | T12 | Copy `Post` media ids into `evidence.mediaIds` (done after P4 merged, 0 reads); P5/P6 consumers drop `Hidden()` posts (P5/P6 own that) | backend | backend | Done (media ids); consumers: with P5/P6 |
 | T13 | Security-auditor review of report abuse, oracle checks, opsctl | security | review | Todo |
 | T14 | `opsctl takedown-post --purge-media`: delete (or make private) the post's `evidence.mediaIds` objects and mark the `media/*` docs, with a dry run and the evidence kept as ids only. Today the runbook step "Media on takedown" does it by hand; P4's `post_delete` job destroys image evidence when the author deletes the post, so a report about an image post should be resolved before the author can delete it | backend | later | Todo (not built; ADR-0016 D6) |

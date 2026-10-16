@@ -7,8 +7,8 @@ import '../network/app_exception.dart';
 const kServiceGateRefreshInterval = Duration(seconds: 60);
 
 /// Client-side view of one whole-service server flag (`notifications`,
-/// `reports`; ADR-0017 D7 / ADR-0016), the small sibling of
-/// `PostsFeatureGate` for services with no sub-features.
+/// `reports`; ADR-0017 D7 / ADR-0016). `PostsFeatureGate` extends it and adds
+/// only the sub-feature set.
 ///
 /// - The flag comes from `GetMe.enabled_features` via [isEnabled]. While it
 ///   is off, [run] throws [FeatureDisabledException] **without calling the
@@ -38,6 +38,21 @@ class ServiceFeatureGate extends ChangeNotifier {
   /// Whether RPCs of this service may be sent at all.
   bool get enabled => _isEnabled() && !_disabledByServer;
 
+  /// Whether the server itself turned this whole service off (remembered
+  /// FEATURE_DISABLED), independent of the `GetMe` flag.
+  @protected
+  bool get disabledByServer => _disabledByServer;
+
+  /// Records a FEATURE_DISABLED answer; subclasses may narrow it (posts
+  /// sub-features). Fires the refresh callback only on a real change.
+  @protected
+  void recordDisabled(FeatureDisabledException exception) {
+    if (_disabledByServer) return;
+    _disabledByServer = true;
+    _requestRefresh();
+    notifyListeners();
+  }
+
   /// Forgets a remembered FEATURE_DISABLED answer (after a fresh `GetMe`).
   void reset() {
     if (!_disabledByServer) return;
@@ -54,13 +69,8 @@ class ServiceFeatureGate extends ChangeNotifier {
     }
     try {
       return await guardApiCall(call);
-    } on FeatureDisabledException {
-      final changed = !_disabledByServer;
-      _disabledByServer = true;
-      if (changed) {
-        _requestRefresh();
-        notifyListeners();
-      }
+    } on FeatureDisabledException catch (error) {
+      recordDisabled(error);
       rethrow;
     } on UnknownApiException catch (error, stack) {
       _onUnexpectedError?.call(error, stack);

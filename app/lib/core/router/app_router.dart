@@ -69,7 +69,8 @@ class AppRouter {
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
-  static String profileByIdPath(String userId) => '/u/$userId';
+  static String profileByIdPath(String userId) =>
+      '/u/${Uri.encodeComponent(userId)}';
 
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>

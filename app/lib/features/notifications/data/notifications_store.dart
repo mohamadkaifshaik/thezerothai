@@ -63,6 +63,14 @@ String _sortKeyBelow(String sortKey) {
   return bar < 0 ? sortKey : sortKey.substring(0, bar + 1);
 }
 
+/// A key that sorts directly above every row of [sortKey]'s timestamp
+/// (`~` is above every id character).
+String _sortKeyAbove(String sortKey) {
+  final bar = sortKey.indexOf('|');
+  final stamp = bar < 0 ? sortKey : sortKey.substring(0, bar);
+  return '$stamp|~';
+}
+
 /// Persists the notification list in drift and implements every merge rule
 /// in one place (one transaction per method, so a crash never leaves a
 /// half-merged list). Mirrors `TimelineStore`: every write takes the session
@@ -169,6 +177,19 @@ class NotificationsStore {
           _sortKeyBelow(notificationSortKey(valid.last)),
           gapPageToken,
         );
+      } else if (gapPageToken.isNotEmpty) {
+        // Every new row was filtered out but the server says more exist
+        // below them: keep the gap directly above the newest cached row so
+        // "Show more" is still offered (never infer the end from empty).
+        final newest =
+            await (_db.select(_db.notificationEntries)
+                  ..where((t) => t.payload.isNotNull())
+                  ..orderBy([(t) => OrderingTerm.desc(t.sortKey)])
+                  ..limit(1))
+                .getSingleOrNull();
+        if (newest != null) {
+          await _putGap(_sortKeyAbove(newest.sortKey), gapPageToken);
+        }
       }
       await _saveState(sinceToken: sinceToken, seenAt: seenAt);
       await _prune();
@@ -237,6 +258,10 @@ class NotificationsStore {
     await _tx(session, () => _saveState(deviceId: id));
     return id;
   }
+
+  /// This installation's stored device id, or '' when none was generated.
+  /// Read-only: never creates one (sign-out must not mint an id to remove).
+  Future<String> existingDeviceId() async => (await _state())?.deviceId ?? '';
 
   // --- internals -----------------------------------------------------------
 

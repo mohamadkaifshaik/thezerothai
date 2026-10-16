@@ -210,4 +210,37 @@ void main() {
     await cubit.refreshIfStale();
     verifyNever(() => repo.refresh());
   });
+
+  test('a nudge inside the throttle window schedules exactly one refresh for '
+      'when the window ends', () async {
+    when(() => repo.cached()).thenAnswer(
+      (_) async => snapshotOfNotifs([notif('a')], seenAt: kNotifBase),
+    );
+    when(() => repo.refresh()).thenAnswer(
+      (_) async => snapshotOfNotifs([notif('a')], seenAt: kNotifBase),
+    );
+    since = const Duration(seconds: 59, milliseconds: 950);
+
+    await cubit.refreshIfStale();
+    await cubit.refreshIfStale();
+    await cubit.refreshIfStale();
+    verifyNever(() => repo.refresh());
+
+    since = const Duration(seconds: 61);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    verify(() => repo.refresh()).called(1);
+  });
+
+  test('closing the cubit cancels the scheduled refresh', () async {
+    when(() => repo.refresh()).thenAnswer((_) async => snapshotOfNotifs([]));
+    since = const Duration(seconds: 59, milliseconds: 950);
+    await cubit.refreshIfStale();
+
+    await cubit.close();
+    since = const Duration(seconds: 61);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    verifyNever(() => repo.refresh());
+  });
 }

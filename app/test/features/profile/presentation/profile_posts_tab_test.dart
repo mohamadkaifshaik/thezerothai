@@ -83,7 +83,8 @@ void main() {
       ),
     );
     when(() => graphRepository.relationshipFor(profileUserId)).thenAnswer(
-      (_) async => graph.Relationship(userId: profileUserId, blocking: blocking),
+      (_) async =>
+          graph.Relationship(userId: profileUserId, blocking: blocking),
     );
   }
 
@@ -122,10 +123,7 @@ void main() {
     tester,
   ) async {
     arrange(profileUserId: 'target-uid');
-    stubFeed(
-      targetFeed,
-      snapshotOf([2, 1], authorId: 'target-uid'),
-    );
+    stubFeed(targetFeed, snapshotOf([2, 1], authorId: 'target-uid'));
     pending.add(
       PendingPost(
         localId: 'k',
@@ -138,7 +136,10 @@ void main() {
     await open(tester);
 
     expect(find.text('Kaif'), findsOneWidget);
-    expect(find.text('Posts'), findsOneWidget); // the tab; the count is "2 Posts"
+    expect(
+      find.text('Posts'),
+      findsOneWidget,
+    ); // the tab; the count is "2 Posts"
     expect(find.text('2 Posts'), findsOneWidget);
     expect(find.text('post 2'), findsOneWidget);
     expect(find.text('post 1'), findsOneWidget);

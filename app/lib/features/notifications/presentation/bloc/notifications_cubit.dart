@@ -126,6 +126,7 @@ class NotificationsCubit extends Cubit<NotificationsState> {
   DateTime? _serverSeenAt;
   bool _highlightSet = false;
   bool _marking = false;
+  Timer? _pendingRefresh;
 
   /// Opens the screen: cache first, then (throttled) one refresh.
   Future<void> load() async {
@@ -160,11 +161,21 @@ class NotificationsCubit extends Cubit<NotificationsState> {
   Future<void> refresh() => _refresh();
 
   /// Resume or an FCM nudge: throttled, quiet.
+  ///
+  /// A nudge inside the throttle window is not dropped: one refresh is
+  /// scheduled for when the window ends, so a push received right after a
+  /// refresh still shows up without a pull.
   Future<void> refreshIfStale() async {
     if (isClosed || state.refreshing || state.loadingMore) return;
     if (_repository.rateLimitedFor() != null) return;
     final since = _repository.sinceRefreshAttempt;
-    if (since != null && since < kNotificationsRefreshInterval) return;
+    if (since != null && since < kNotificationsRefreshInterval) {
+      _pendingRefresh ??= Timer(kNotificationsRefreshInterval - since, () {
+        _pendingRefresh = null;
+        unawaited(refreshIfStale());
+      });
+      return;
+    }
     await _refresh();
   }
 
@@ -295,5 +306,11 @@ class NotificationsCubit extends Cubit<NotificationsState> {
     } finally {
       _marking = false;
     }
+  }
+
+  @override
+  Future<void> close() {
+    _pendingRefresh?.cancel();
+    return super.close();
   }
 }

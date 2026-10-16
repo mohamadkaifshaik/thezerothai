@@ -30,13 +30,9 @@ class AuthGate extends StatelessWidget {
 }
 
 /// Whether the signed-in account is restricted. False when no onboarding flow
-/// is provided (screens used standalone).
+/// is provided (screens used standalone): a nullable lookup, no exceptions.
 bool _accountRestricted(BuildContext context) {
-  try {
-    return context.select(
-      (OnboardingBloc bloc) => bloc.state.accountRestricted,
-    );
-  } on Exception {
-    return false;
-  }
+  return context.select<OnboardingBloc?, bool>(
+    (bloc) => bloc?.state.accountRestricted ?? false,
+  );
 }

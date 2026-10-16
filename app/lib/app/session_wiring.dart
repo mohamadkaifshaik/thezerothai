@@ -8,6 +8,18 @@ import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/timeline/data/timeline_repository.dart';
 
+/// Resets [gate] on every fresh `GetMe` (it emits a new flag-set instance),
+/// so a remembered FEATURE_DISABLED can never stick for the session.
+void _wireGateReset(OnboardingBloc onboardingBloc, ServiceFeatureGate gate) {
+  var last = onboardingBloc.state.enabledFeatures;
+  onboardingBloc.stream.listen((state) {
+    if (!identical(state.enabledFeatures, last)) {
+      last = state.enabledFeatures;
+      gate.reset();
+    }
+  });
+}
+
 /// Builds the posts flag gate wired to [onboardingBloc] (ADR-0010 D1/D2):
 ///
 /// - enabled iff `GetMe.enabled_features` contains `posts`;
@@ -23,13 +35,7 @@ PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
     onWholeServiceDisabled: () =>
         onboardingBloc.add(const OnboardingRefreshRequested()),
   );
-  var last = onboardingBloc.state.enabledFeatures;
-  onboardingBloc.stream.listen((state) {
-    if (!identical(state.enabledFeatures, last)) {
-      last = state.enabledFeatures;
-      gate.reset();
-    }
-  });
+  _wireGateReset(onboardingBloc, gate);
   return gate;
 }
 
@@ -50,13 +56,7 @@ ServiceFeatureGate buildServiceGate(
         onboardingBloc.add(const OnboardingRefreshRequested()),
     onUnexpectedError: onUnexpectedError,
   );
-  var last = onboardingBloc.state.enabledFeatures;
-  onboardingBloc.stream.listen((state) {
-    if (!identical(state.enabledFeatures, last)) {
-      last = state.enabledFeatures;
-      gate.reset();
-    }
-  });
+  _wireGateReset(onboardingBloc, gate);
   return gate;
 }
 

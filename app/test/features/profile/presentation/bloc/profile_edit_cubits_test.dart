@@ -143,16 +143,19 @@ void main() {
       },
     );
 
-    test('an unexpected error is reported and shown as a generic failure', () async {
-      stubUpdate(() async => throw StateError('boom'));
-      cubit.displayNameChanged('New');
+    test(
+      'an unexpected error is reported and shown as a generic failure',
+      () async {
+        stubUpdate(() async => throw StateError('boom'));
+        cubit.displayNameChanged('New');
 
-      await cubit.save();
+        await cubit.save();
 
-      expect(reported.single, isA<StateError>());
-      expect(cubit.state.error, isA<UnknownApiException>());
-      expect(cubit.state.status, EditProfileStatus.editing);
-    });
+        expect(reported.single, isA<StateError>());
+        expect(cubit.state.error, isA<UnknownApiException>());
+        expect(cubit.state.status, EditProfileStatus.editing);
+      },
+    );
 
     test('an UnknownApiException from the server is reported too', () async {
       stubUpdate(() async => throw const UnknownApiException('weird'));
@@ -212,9 +215,8 @@ void main() {
     void stubCheck(
       Future<identity.CheckHandleAvailabilityResponse> Function(String) a,
     ) {
-      when(
-        () => repo.checkHandleAvailability(any()),
-      ).thenAnswer((i) => a(i.positionalArguments.single as String));
+      when(() => repo.checkHandleAvailability(any()))
+          .thenAnswer((i) => a(i.positionalArguments.single as String));
     }
 
     void stubAvailable() => stubCheck(
@@ -235,7 +237,8 @@ void main() {
     Future<void> typed(String value) {
       final handle = value.trim().toLowerCase().replaceFirst(RegExp('^@'), '');
       final settled = cubit.stream.firstWhere(
-        (s) => s.handle == handle && s.checkStatus != HandleCheckStatus.checking,
+        (s) =>
+            s.handle == handle && s.checkStatus != HandleCheckStatus.checking,
       );
       cubit.handleChanged(value);
       return settled;
@@ -297,45 +300,56 @@ void main() {
       expect(cubit.state.canSave, isTrue);
     });
 
-    test('a generic probe failure is unknown and never shows its message', () async {
-      stubCheck((_) async => throw const UnknownApiException('db is on fire'));
-      await typed('new_one');
-      expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
-      expect(cubit.state.checkMessage, isNot(contains('fire')));
-      expect(cubit.state.canSave, isTrue);
-    });
+    test(
+      'a generic probe failure is unknown and never shows its message',
+      () async {
+        stubCheck(
+          (_) async => throw const UnknownApiException('db is on fire'),
+        );
+        await typed('new_one');
+        expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
+        expect(cubit.state.checkMessage, isNot(contains('fire')));
+        expect(cubit.state.canSave, isTrue);
+      },
+    );
 
-    test('after a rate-limited probe, probing stops until retryAfter', () async {
-      stubCheck(
-        (_) async => throw const RateLimitedException(
-          'slow down',
-          retryAfter: Duration(seconds: 30),
-        ),
-      );
-      await typed('first_one');
-      verify(() => repo.checkHandleAvailability('first_one')).called(1);
+    test(
+      'after a rate-limited probe, probing stops until retryAfter',
+      () async {
+        stubCheck(
+          (_) async => throw const RateLimitedException(
+            'slow down',
+            retryAfter: Duration(seconds: 30),
+          ),
+        );
+        await typed('first_one');
+        verify(() => repo.checkHandleAvailability('first_one')).called(1);
 
-      await typed('second_one');
-      expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
-      expect(cubit.state.canSave, isTrue);
-      verifyNever(() => repo.checkHandleAvailability('second_one'));
+        await typed('second_one');
+        expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
+        expect(cubit.state.canSave, isTrue);
+        verifyNever(() => repo.checkHandleAvailability('second_one'));
 
-      // Local rules still answer, and the probe resumes after the wait.
-      await typed('ab');
-      expect(cubit.state.checkStatus, HandleCheckStatus.unavailable);
-      now = now.add(const Duration(seconds: 31));
-      stubAvailable();
-      await typed('third_one');
-      expect(cubit.state.checkStatus, HandleCheckStatus.available);
-    });
+        // Local rules still answer, and the probe resumes after the wait.
+        await typed('ab');
+        expect(cubit.state.checkStatus, HandleCheckStatus.unavailable);
+        now = now.add(const Duration(seconds: 31));
+        stubAvailable();
+        await typed('third_one');
+        expect(cubit.state.checkStatus, HandleCheckStatus.available);
+      },
+    );
 
-    test('a rate limit without retryAfter stops probing for the screen', () async {
-      stubCheck((_) async => throw const RateLimitedException('slow down'));
-      await typed('first_one');
-      now = now.add(const Duration(days: 2));
-      await typed('second_one');
-      verifyNever(() => repo.checkHandleAvailability('second_one'));
-    });
+    test(
+      'a rate limit without retryAfter stops probing for the screen',
+      () async {
+        stubCheck((_) async => throw const RateLimitedException('slow down'));
+        await typed('first_one');
+        now = now.add(const Duration(days: 2));
+        await typed('second_one');
+        verifyNever(() => repo.checkHandleAvailability('second_one'));
+      },
+    );
 
     test('only the newest keystroke is checked and shown', () async {
       final first = Completer<identity.CheckHandleAvailabilityResponse>();
@@ -441,17 +455,20 @@ void main() {
       expect(cubit.state.canSave, isFalse);
     });
 
-    test('an unexpected error is reported and shown as a generic failure', () async {
-      stubAvailable();
-      stubChange(() async => throw StateError('boom'));
-      await typed('new_one');
+    test(
+      'an unexpected error is reported and shown as a generic failure',
+      () async {
+        stubAvailable();
+        stubChange(() async => throw StateError('boom'));
+        await typed('new_one');
 
-      await cubit.save();
+        await cubit.save();
 
-      expect(reported.single, isA<StateError>());
-      expect(cubit.state.error, isA<UnknownApiException>());
-      expect(cubit.state.status, ChangeHandleStatus.editing);
-    });
+        expect(reported.single, isA<StateError>());
+        expect(cubit.state.error, isA<UnknownApiException>());
+        expect(cubit.state.status, ChangeHandleStatus.editing);
+      },
+    );
 
     test('an UnknownApiException from the server is reported too', () async {
       stubAvailable();
@@ -464,12 +481,15 @@ void main() {
       expect(cubit.state.error, isA<UnknownApiException>());
     });
 
-    test('an unexpected probe error is reported and leaves Save possible', () async {
-      stubCheck((_) async => throw StateError('boom'));
-      await typed('new_one');
+    test(
+      'an unexpected probe error is reported and leaves Save possible',
+      () async {
+        stubCheck((_) async => throw StateError('boom'));
+        await typed('new_one');
 
-      expect(reported.single, isA<StateError>());
-      expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
-    });
+        expect(reported.single, isA<StateError>());
+        expect(cubit.state.checkStatus, HandleCheckStatus.unknown);
+      },
+    );
   });
 }

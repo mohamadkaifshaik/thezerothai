@@ -155,7 +155,6 @@ Future<void> bootstrap() async {
   pushCubit = PushCubit(
     messaging: FirebasePushMessaging(),
     repository: notificationsRepository,
-    onForeground: unreadBadgeCubit.increment,
     onUnexpectedError: reportUnexpectedError,
   );
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
@@ -10,6 +12,19 @@ import '../../../support/fake_push_messaging.dart';
 
 class MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
+
+/// A messaging whose permission read can be held, to race start with stop.
+class _SlowPermissionMessaging extends FakePushMessaging {
+  _SlowPermissionMessaging() : super(currentPermission: PushPermission.granted);
+
+  final gate = Completer<void>();
+
+  @override
+  Future<PushPermission> permission() async {
+    await gate.future;
+    return super.permission();
+  }
+}
 
 void main() {
   late MockNotificationsRepository repo;
@@ -254,5 +269,159 @@ void main() {
         deviceId: any(named: 'deviceId'),
       ),
     );
+  });
+
+  group('sign-out and races', () {
+    test(
+      'unregister then deletes the FCM token, after the Unregister RPC',
+      () async {
+        final cubit = build();
+        addTearDown(cubit.close);
+
+        await cubit.unregister();
+
+        verify(
+          () => repo.unregisterDevice(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            deviceId: 'device-1',
+          ),
+        ).called(1);
+        expect(messaging.tokenDeletes, 1);
+      },
+    );
+
+    test('the token is deleted even when the Unregister RPC fails', () async {
+      when(
+        () => repo.unregisterDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+        ),
+      ).thenThrow(const NetworkException('offline'));
+      final cubit = build();
+      addTearDown(cubit.close);
+
+      await cubit.unregister();
+
+      expect(messaging.tokenDeletes, 1);
+    });
+
+    test(
+      'a token refresh after unregister never registers the device again',
+      () async {
+        messaging.currentPermission = PushPermission.granted;
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.start();
+        verifyRegistered(1);
+
+        await cubit.unregister();
+        messaging.refresh.add('fcm-token-2');
+        await pumpEventQueue();
+
+        verifyNever(
+          () => repo.registerDevice(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            deviceId: any(named: 'deviceId'),
+            fcmToken: 'fcm-token-2',
+            platform: any(named: 'platform'),
+          ),
+        );
+      },
+    );
+
+    test('a register still reading the device id when unregister runs is '
+        'dropped', () async {
+      messaging.currentPermission = PushPermission.granted;
+      final idGate = Completer<String>();
+      when(() => repo.deviceId(any())).thenAnswer((_) => idGate.future);
+      final cubit = build();
+      addTearDown(cubit.close);
+      final starting = cubit.start();
+      await pumpEventQueue();
+
+      await cubit.unregister();
+      idGate.complete('device-1');
+      await starting;
+
+      verifyNever(
+        () => repo.registerDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+          fcmToken: any(named: 'fcmToken'),
+          platform: any(named: 'platform'),
+        ),
+      );
+    });
+
+    test(
+      'stop deletes the token; stop(invalidateToken: false) keeps it',
+      () async {
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.start();
+
+        await cubit.stop(invalidateToken: false);
+        expect(messaging.tokenDeletes, 0);
+
+        await cubit.start();
+        await cubit.stop();
+        expect(messaging.tokenDeletes, 1);
+      },
+    );
+
+    test('stop clears listeners: later messages do nothing', () async {
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+
+      await cubit.stop();
+      messaging.foreground.add(const PushMessage(type: 'like'));
+      await pumpEventQueue();
+
+      expect(foreground, 0);
+      expect(cubit.state.received, 0);
+    });
+
+    test('a stop that lands while start awaits the permission leaves no '
+        'listeners and registers nothing', () async {
+      final slow = _SlowPermissionMessaging();
+      final cubit = PushCubit(
+        messaging: slow,
+        repository: repo,
+        onForeground: () => foreground++,
+      );
+      addTearDown(cubit.close);
+      final starting = cubit.start();
+      await pumpEventQueue();
+
+      await cubit.stop();
+      slow.gate.complete();
+      await starting;
+      slow.foreground.add(const PushMessage(type: 'like'));
+      await pumpEventQueue();
+
+      expect(foreground, 0);
+      expect(slow.tokenReads, 0);
+      verifyNever(
+        () => repo.registerDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+          fcmToken: any(named: 'fcmToken'),
+          platform: any(named: 'platform'),
+        ),
+      );
+    });
+
+    test('start works again after stop (a new sign-in)', () async {
+      messaging.currentPermission = PushPermission.granted;
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+      await cubit.stop();
+
+      await cubit.start();
+
+      verifyRegistered(2);
+    });
   });
 }

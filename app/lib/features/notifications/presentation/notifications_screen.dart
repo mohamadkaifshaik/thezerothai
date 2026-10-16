@@ -8,34 +8,21 @@ import 'package:go_router/go_router.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
-import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
-import '../../../gen/dzeroth/notifications/v1/notifications.pb.dart' as pb;
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
-import '../../timeline/presentation/widgets/timeline_gap_row.dart';
+import '../../../shared/widgets/timeline_gap_row.dart';
 import '../data/notifications_repository.dart';
+import '../domain/notification_location.dart';
 import '../domain/notifications_feature_flag.dart';
 import 'bloc/notifications_cubit.dart';
 import 'bloc/push_cubit.dart';
 import 'bloc/unread_badge_cubit.dart';
 import 'notifications_error_messages.dart';
 import 'widgets/notification_row.dart';
-
-/// The app location a tap on [n] opens: the actor's profile for a follow,
-/// the post for everything else (`/post/:id`; a deleted post shows "this
-/// post isn't available"). Null when the row names neither.
-String? notificationLocation(pb.Notification n) {
-  final isFollow = n.type == NotificationType.NOTIFICATION_TYPE_FOLLOW;
-  if (!isFollow && n.postId.isNotEmpty) return AppRouter.postPath(n.postId);
-  if (n.actor.userId.isNotEmpty) {
-    return AppRouter.profileByIdPath(n.actor.userId);
-  }
-  return null;
-}
 
 /// `/notifications` (P6, ADR-0017): the cached list renders at once, one
 /// throttled `since_token` refresh follows, and opening it marks everything
@@ -217,7 +204,13 @@ class _NotificationsViewState extends State<_NotificationsView>
             final created = n.hasCreatedAt() ? n.createdAt.toDateTime() : null;
             final unread =
                 created != null && (since == null || created.isAfter(since));
-            final location = notificationLocation(n);
+            final location = notificationLocation(
+              type: n.type == NotificationType.NOTIFICATION_TYPE_FOLLOW
+                  ? kNotificationTypeFollow
+                  : '',
+              postId: n.postId,
+              actorId: n.actor.userId,
+            );
             return Column(
               key: key,
               mainAxisSize: MainAxisSize.min,

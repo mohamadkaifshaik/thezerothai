@@ -22,7 +22,7 @@ import 'bloc/timeline_cubit.dart';
 import 'bloc/timeline_state.dart';
 import 'timeline_error_messages.dart';
 import 'widgets/new_posts_pill.dart';
-import 'widgets/timeline_gap_row.dart';
+import '../../../shared/widgets/timeline_gap_row.dart';
 
 /// How often the foreground tick fires: it re-renders relative times
 /// ("5m", no RPC) and asks the cubit for a throttled refresh, which sends at

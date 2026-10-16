@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -38,22 +40,30 @@ Future<ReportOutcome> showReportSheet(
 }) async {
   final repository = context.read<ModerationRepository>();
   final onError = context.read<UnexpectedErrorReporter>();
-  final result = await showModalBottomSheet<ReportOutcome>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    useSafeArea: true,
-    builder: (sheetContext) => BlocProvider(
-      create: (_) => ReportCubit(
-        repository: repository,
-        targetType: targetType,
-        targetId: targetId,
-        onUnexpectedError: onError,
-      ),
-      child: ReportSheet(subject: subject, blockLabel: blockLabel),
-    ),
+  final cubit = ReportCubit(
+    repository: repository,
+    targetType: targetType,
+    targetId: targetId,
+    onUnexpectedError: onError,
   );
-  return result ?? ReportOutcome.cancelled;
+  try {
+    final result = await showModalBottomSheet<ReportOutcome>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => BlocProvider.value(
+        value: cubit,
+        child: ReportSheet(subject: subject, blockLabel: blockLabel),
+      ),
+    );
+    if (result != null) return result;
+    // Swiped away or tapped outside after the report went through: it was
+    // still sent, so the caller can say so.
+    return cubit.state.sent ? ReportOutcome.sent : ReportOutcome.cancelled;
+  } finally {
+    unawaited(cubit.close());
+  }
 }
 
 /// The content of the report sheet: reasons, optional note, send, and the

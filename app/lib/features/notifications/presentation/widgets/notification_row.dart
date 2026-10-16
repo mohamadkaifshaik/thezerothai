@@ -81,7 +81,7 @@ class NotificationRow extends StatelessWidget {
       onTap: onTap,
       child: Material(
         color: unread
-            ? colors.primary.withValues(alpha: 0.08)
+            ? colors.primary.withValues(alpha: AppOpacity.rowTint)
             : Colors.transparent,
         child: InkWell(
           onTap: onTap,
@@ -94,7 +94,7 @@ class NotificationRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
-                  width: AppSpacing.xxl - AppSpacing.sm,
+                  width: AppIconSize.xl,
                   child: Padding(
                     padding: const EdgeInsets.only(top: AppSpacing.xs),
                     child: Icon(
@@ -111,8 +111,25 @@ class NotificationRow extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          AppAvatar(url: actor.avatarUrl, radius: 16),
+                          AppAvatar(
+                            url: actor.avatarUrl,
+                            radius: AppSpacing.md,
+                          ),
                           const Spacer(),
+                          if (unread) ...[
+                            // Not by colour alone: a dot (and a bold name)
+                            // also mark an unread row.
+                            Container(
+                              key: const ValueKey('notification-unread-dot'),
+                              width: AppSpacing.sm,
+                              height: AppSpacing.sm,
+                              decoration: BoxDecoration(
+                                color: colors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                          ],
                           if (shortTime.isNotEmpty)
                             Text(
                               shortTime,
@@ -128,11 +145,19 @@ class NotificationRow extends StatelessWidget {
                           children: [
                             TextSpan(
                               text: name,
-                              style: theme.textTheme.titleSmall,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: unread
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                              ),
                             ),
                             TextSpan(
                               text: action,
-                              style: theme.textTheme.bodyLarge,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontWeight: unread
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
                             ),
                           ],
                         ),

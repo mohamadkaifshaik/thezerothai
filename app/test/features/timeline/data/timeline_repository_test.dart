@@ -133,7 +133,10 @@ void main() {
       // Settle window repeats 5 and carries an updated copy of it.
       script[_home]!.add(
         tl.GetHomeTimelineResponse(
-          posts: [postView(6), postView(5, text: 'edited copy')],
+          posts: [
+            postView(6),
+            postView(5, text: 'edited copy'),
+          ],
           sinceToken: 's2',
         ),
       );
@@ -158,7 +161,11 @@ void main() {
 
       final snap = await repo.refresh(home);
 
-      expect(ids(snap), [...idsOf([20, 19]), 'gap', ...idsOf([5, 4, 3])]);
+      expect(ids(snap), [
+        ...idsOf([20, 19]),
+        'gap',
+        ...idsOf([5, 4, 3]),
+      ]);
       final gap = snap.entries.firstWhere((e) => e.isGap);
       expect(gap.gapToken, 'gap1');
 
@@ -176,10 +183,11 @@ void main() {
       // First gap page: all new, more below -> gap moves down.
       giveHome([15, 14], next: 'gap2');
       var snap = await repo.fillGap(home, gapKey);
-      expect(
-        ids(snap),
-        [...idsOf([20, 19, 15, 14]), 'gap', ...idsOf([5, 4, 3])],
-      );
+      expect(ids(snap), [
+        ...idsOf([20, 19, 15, 14]),
+        'gap',
+        ...idsOf([5, 4, 3]),
+      ]);
       expect((requests.single as tl.GetHomeTimelineRequest).pageToken, 'gap1');
       expect(snap.entries.firstWhere((e) => e.isGap).gapToken, 'gap2');
 
@@ -221,7 +229,11 @@ void main() {
       expect(cold.sinceToken, isEmpty);
       expect(cold.pageToken, isEmpty);
       expect(snap.sinceToken, 's9');
-      expect(ids(snap), [...idsOf([30, 29]), 'gap', ...idsOf([5, 4, 3])]);
+      expect(ids(snap), [
+        ...idsOf([30, 29]),
+        'gap',
+        ...idsOf([5, 4, 3]),
+      ]);
       expect(snap.entries.firstWhere((e) => e.isGap).gapToken, 'fillgap');
     });
 
@@ -249,9 +261,7 @@ void main() {
     test('cached items stay visible when the cold open itself fails', () async {
       script[_home]!
         ..add(rejectedToken('since_token'))
-        ..add(
-          connect.ConnectException(connect.Code.unavailable, 'down'),
-        );
+        ..add(connect.ConnectException(connect.Code.unavailable, 'down'));
 
       await expectLater(repo.refresh(home), throwsA(isA<NetworkException>()));
       expect(requests, hasLength(2));
@@ -261,28 +271,33 @@ void main() {
       expect(snap.sinceToken, isEmpty, reason: 'the bad token is dropped');
     });
 
-    test('a refresh with no since_token goes straight to a cold open', () async {
-      script[_home]!.add(rejectedToken('since_token'));
-      giveHome([6, 5], since: 's9');
-      await repo.refresh(home);
-      requests.clear();
-      // Make the stored token empty again, then refresh.
-      await store.clearSince(home, session: store.session);
-      giveHome([7, 6], since: 's10');
-      await repo.refresh(home);
-      expect(requests, hasLength(1));
-    });
+    test(
+      'a refresh with no since_token goes straight to a cold open',
+      () async {
+        script[_home]!.add(rejectedToken('since_token'));
+        giveHome([6, 5], since: 's9');
+        await repo.refresh(home);
+        requests.clear();
+        // Make the stored token empty again, then refresh.
+        await store.clearSince(home, session: store.session);
+        giveHome([7, 6], since: 's10');
+        await repo.refresh(home);
+        expect(requests, hasLength(1));
+      },
+    );
 
-    test('other validation errors are not treated as a rejected token',
-        () async {
-      script[_home]!.add(rejectedToken('page_size'));
-      await expectLater(
-        repo.refresh(home),
-        throwsA(isA<ValidationException>()),
-      );
-      expect(requests, hasLength(1));
-      expect((await repo.cached(home)).sinceToken, 's1');
-    });
+    test(
+      'other validation errors are not treated as a rejected token',
+      () async {
+        script[_home]!.add(rejectedToken('page_size'));
+        await expectLater(
+          repo.refresh(home),
+          throwsA(isA<ValidationException>()),
+        );
+        expect(requests, hasLength(1));
+        expect((await repo.cached(home)).sinceToken, 's1');
+      },
+    );
 
     test('rejected page_token on scroll: dropped, one cold open rebuilds the '
         'feed', () async {
@@ -312,8 +327,10 @@ void main() {
 
       expect(ids(snap), idsOf([5, 4, 3, 2]));
       expect(snap.hasMore, isFalse);
-      expect((requests.single as tl.GetHomeTimelineRequest).pageToken,
-          'older1');
+      expect(
+        (requests.single as tl.GetHomeTimelineRequest).pageToken,
+        'older1',
+      );
 
       requests.clear();
       await repo.loadOlder(home);
@@ -393,45 +410,49 @@ void main() {
       expect(snap.olderPageToken, isEmpty);
     });
 
-    test('between 500 and the hard cap with no boundary nothing is trimmed',
-        () async {
-      giveHome(range(600, 90), next: 'older1', since: 's1');
-      final snap = await repo.refresh(home);
-      expect(snap.posts, hasLength(510));
-      expect(snap.olderPageToken, 'older1');
-    });
+    test(
+      'between 500 and the hard cap with no boundary nothing is trimmed',
+      () async {
+        giveHome(range(600, 90), next: 'older1', since: 's1');
+        final snap = await repo.refresh(home);
+        expect(snap.posts, hasLength(510));
+        expect(snap.olderPageToken, 'older1');
+      },
+    );
   });
 
   group('sign-out race (privacy)', () {
-    test('an in-flight refresh that completes after sign-out writes nothing',
-        () async {
-      final gateOpen = Completer<void>();
-      final slowTransport = FakeTransport((procedure, input) async {
-        await gateOpen.future;
-        return tl.GetHomeTimelineResponse(
-          posts: [postView(5, authorId: 'userA')],
-          sinceToken: 'sA',
-          nextPageToken: 'oA',
+    test(
+      'an in-flight refresh that completes after sign-out writes nothing',
+      () async {
+        final gateOpen = Completer<void>();
+        final slowTransport = FakeTransport((procedure, input) async {
+          await gateOpen.future;
+          return tl.GetHomeTimelineResponse(
+            posts: [postView(5, authorId: 'userA')],
+            sinceToken: 'sA',
+            nextPageToken: 'oA',
+          );
+        });
+        final slowRepo = TimelineRepository(
+          apiClient: ApiClient.withTransport(slowTransport),
+          store: store,
+          gate: gate,
         );
-      });
-      final slowRepo = TimelineRepository(
-        apiClient: ApiClient.withTransport(slowTransport),
-        store: store,
-        gate: gate,
-      );
 
-      final pending = slowRepo.refresh(home);
-      await Future<void>.delayed(Duration.zero);
-      slowRepo.clearSession();
-      await db.clearAll();
-      gateOpen.complete();
-      await pending;
+        final pending = slowRepo.refresh(home);
+        await Future<void>.delayed(Duration.zero);
+        slowRepo.clearSession();
+        await db.clearAll();
+        gateOpen.complete();
+        await pending;
 
-      final snap = await store.read(home);
-      expect(snap.entries, isEmpty);
-      expect(snap.sinceToken, isEmpty);
-      expect(snap.olderPageToken, isEmpty);
-    });
+        final snap = await store.read(home);
+        expect(snap.entries, isEmpty);
+        expect(snap.sinceToken, isEmpty);
+        expect(snap.olderPageToken, isEmpty);
+      },
+    );
 
     test('wipeSessionData ends the session and wipes the cache', () async {
       giveHome([5], since: 's1');
@@ -461,8 +482,10 @@ void main() {
 
     test('sends user_id and tab, and caches per feed', () async {
       script[_user]!.add(
-        tl.GetUserTimelineResponse(posts: [postView(3, authorId: 'u9')],
-            sinceToken: 'us1'),
+        tl.GetUserTimelineResponse(
+          posts: [postView(3, authorId: 'u9')],
+          sinceToken: 'us1',
+        ),
       );
 
       final snap = await repo.refresh(feed);
@@ -567,10 +590,7 @@ void main() {
       clock = const Duration(seconds: 30);
       script[_home]!.add(const NetworkException('offline'));
 
-      await expectLater(
-        timed.refresh(home),
-        throwsA(isA<NetworkException>()),
-      );
+      await expectLater(timed.refresh(home), throwsA(isA<NetworkException>()));
 
       expect(timed.sinceRefresh(home), const Duration(seconds: 30));
     });
@@ -580,10 +600,7 @@ void main() {
       expect(timed.sinceRefreshAttempt(home), isNull);
       script[_home]!.add(const NetworkException('offline'));
 
-      await expectLater(
-        timed.refresh(home),
-        throwsA(isA<NetworkException>()),
-      );
+      await expectLater(timed.refresh(home), throwsA(isA<NetworkException>()));
       clock = const Duration(seconds: 25);
 
       expect(timed.sinceRefresh(home), isNull);

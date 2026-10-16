@@ -81,11 +81,23 @@ class PushCubit extends Cubit<PushState> {
   /// `AppWidget` once the router exists (the cubit is built in bootstrap, so
   /// the sign-out hook can reach it).
   void Function(String location)? onOpen;
-  final VoidCallback? onForeground;
+
+  /// Called for a foreground message (the badge). Set by `AppWidget`, which
+  /// knows whether the notifications list is already open.
+  VoidCallback? onForeground;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
   final List<StreamSubscription<Object?>> _subs = [];
   bool _started = false;
+
+  /// Bumped by [start] and [stop]/[unregister]: every await in a run checks
+  /// that its session is still current, so a start that raced a stop never
+  /// leaves listeners behind or registers a device after sign-out.
+  int _session = 0;
+
+  /// Set once this device was unregistered (sign-out); no registration is
+  /// sent until the next [start].
+  bool _unregistered = false;
 
   /// Starts listening (once per session) and, when permission is already
   /// granted, registers this device. No-op on web and with the flag off.
@@ -93,9 +105,12 @@ class PushCubit extends Cubit<PushState> {
     if (_started || isClosed) return;
     if (!_messaging.supported || !_repository.enabled) return;
     _started = true;
+    _unregistered = false;
+    final session = ++_session;
+    bool stale() => isClosed || session != _session;
     try {
       final permission = await _messaging.permission();
-      if (isClosed) return;
+      if (stale()) return;
       emit(state.copyWith(permission: permission));
       _subs
         ..add(_messaging.onTokenRefresh.listen((token) => _register(token)))
@@ -107,6 +122,7 @@ class PushCubit extends Cubit<PushState> {
         )
         ..add(_messaging.onOpenedApp.listen(_open));
       final launch = await _messaging.initialMessage();
+      if (stale()) return;
       if (launch != null) _open(launch);
       if (permission == PushPermission.granted) await _register();
     } catch (error, stack) {
@@ -135,12 +151,18 @@ class PushCubit extends Cubit<PushState> {
   }
 
   Future<void> _register([String? knownToken]) async {
+    final session = _session;
+    bool stale() => isClosed || session != _session || _unregistered;
+    if (stale()) return;
     try {
       final token = knownToken ?? await _messaging.token();
-      if (token == null || token.isEmpty) return;
+      if (stale() || token == null || token.isEmpty) return;
       final deviceId = await _repository.deviceId(
         () => _uuid.v4().replaceAll('-', ''),
       );
+      // Sign-out may have happened while the id was read: never register a
+      // device after its unregister.
+      if (stale()) return;
       await _repository.registerDevice(
         idempotencyKey: _uuid.v4(),
         deviceId: deviceId,
@@ -156,35 +178,60 @@ class PushCubit extends Cubit<PushState> {
     }
   }
 
-  /// Removes this device server-side. Call before the ID token is dropped
-  /// (sign-out). Never throws; callers bound it with a timeout.
+  /// Removes this device server-side, then invalidates the FCM token. Call
+  /// before the ID token is dropped (sign-out). Never throws; callers bound
+  /// it with a timeout. Registrations are blocked from the first line, so a
+  /// token refresh or a slow start cannot re-register the device afterwards.
   Future<void> unregister() async {
+    _unregistered = true;
+    _session++;
     try {
-      if (!_messaging.supported || !_repository.enabled) return;
-      final deviceId = await _repository.existingDeviceId();
-      if (deviceId.isEmpty) return;
-      await _repository.unregisterDevice(
-        idempotencyKey: _uuid.v4(),
-        deviceId: deviceId,
-      );
+      if (!_messaging.supported) return;
+      if (_repository.enabled) {
+        try {
+          final deviceId = await _repository.existingDeviceId();
+          if (deviceId.isNotEmpty) {
+            await _repository.unregisterDevice(
+              idempotencyKey: _uuid.v4(),
+              deviceId: deviceId,
+            );
+          }
+        } catch (_) {
+          // Best effort: the server prunes UNREGISTERED tokens and moves a
+          // token to the next account that registers it (ADR-0017 D1).
+        }
+      }
+      await _messaging.deleteToken();
     } catch (_) {
-      // Best effort: the server prunes UNREGISTERED tokens and moves a token
-      // to the next account that registers it (ADR-0017 D1).
+      // Best effort, see above.
     }
   }
 
-  /// Sign-out: stop listening so a new session starts clean.
-  Future<void> stop() async {
+  /// Stops listening so a new session (or a flag turned off mid-session)
+  /// starts clean. With [invalidateToken] (sign-out) the FCM token is also
+  /// deleted, in case [unregister] did not run.
+  Future<void> stop({bool invalidateToken = true}) async {
     _started = false;
-    for (final sub in _subs) {
+    _session++;
+    final subs = List.of(_subs);
+    _subs.clear();
+    for (final sub in subs) {
       await sub.cancel();
     }
-    _subs.clear();
+    if (invalidateToken && _messaging.supported) {
+      _unregistered = true;
+      try {
+        await _messaging.deleteToken();
+      } catch (_) {
+        // Best effort.
+      }
+    }
     if (!isClosed) emit(PushState(supported: _messaging.supported));
   }
 
   @override
   Future<void> close() async {
+    _session++;
     for (final sub in _subs) {
       await sub.cancel();
     }

@@ -135,9 +135,10 @@ void main() {
       final snapshot = await repo.refresh();
 
       expect(listRequests.map((r) => r.sinceToken), ['', 's1', '']);
-      // Cached rows stay (the cold open is merged, not a wipe).
+      // The cold open replaces the cache: the old row is gone, only the
+      // fresh page remains.
       expect(snapshot.sinceToken, 's9');
-      expect(snapshot.entries.map((e) => e.itemKey), contains('b'));
+      expect(snapshot.entries.map((e) => e.itemKey), ['b']);
     },
   );
 
@@ -171,6 +172,46 @@ void main() {
     expect(snapshot.entries.any((e) => e.isGap), isFalse);
     expect(snapshot.entries.map((e) => e.itemKey), ['n2', 'n1', 'mid', 'old']);
   });
+
+  test('a refresh that returns no visible rows but a gap token keeps a gap '
+      'above the newest cached row', () async {
+    answers.add(
+      listResponse([
+        notif('a', minutesAgo: 1),
+        notif('b', minutesAgo: 5),
+      ], since: 's1'),
+    );
+    await repo.refresh();
+    // Everything new was filtered (blocked/muted actors) but more exists.
+    answers.add(listResponse(const [], since: 's2', gap: 'gapTok'));
+
+    var snapshot = await repo.refresh();
+
+    expect(snapshot.entries.map((e) => e.isGap ? 'gap' : e.itemKey), [
+      'gap',
+      'a',
+      'b',
+    ]);
+    final gap = snapshot.entries.first;
+    expect(gap.gapToken, 'gapTok');
+
+    answers.add(listResponse([notif('mid', minutesAgo: 0)]));
+    snapshot = await repo.fillGap(gap.itemKey);
+
+    expect(listRequests.last.pageToken, 'gapTok');
+    expect(snapshot.entries.map((e) => e.itemKey), ['mid', 'a', 'b']);
+  });
+
+  test(
+    'existingDeviceId is read-only: nothing is generated or stored',
+    () async {
+      expect(await repo.existingDeviceId(), isEmpty);
+      expect(await repo.existingDeviceId(), isEmpty);
+
+      expect(await repo.deviceId(() => 'dev-1'), 'dev-1');
+      expect(await repo.existingDeviceId(), 'dev-1');
+    },
+  );
 
   test('loadOlder keeps paging through empty filtered pages', () async {
     answers.add(

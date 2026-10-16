@@ -27,6 +27,7 @@ class FakePushMessaging implements PushMessaging {
   int permissionRequests = 0;
   int permissionReads = 0;
   int tokenReads = 0;
+  int tokenDeletes = 0;
 
   final refresh = StreamController<String>.broadcast();
   final foreground = StreamController<PushMessage>.broadcast();
@@ -49,6 +50,11 @@ class FakePushMessaging implements PushMessaging {
   Future<String?> token() async {
     tokenReads++;
     return currentToken;
+  }
+
+  @override
+  Future<void> deleteToken() async {
+    tokenDeletes++;
   }
 
   @override

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_theme.dart';
+import '../../core/theme/app_theme.dart';
 
 /// A gap marker between two runs of cached posts: tap to load the posts in
 /// between with the gap's page token (ADR-0010 D14).

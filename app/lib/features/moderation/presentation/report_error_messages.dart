@@ -11,7 +11,14 @@ String reportErrorMessage(AppException error) {
     QuotaExceededException() || LimitReachedException() =>
       "You've reached today's limit for reports. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
-    ValidationException() => "You can't report your own content.",
+    ValidationException(:final field) => switch (field) {
+      'note' =>
+        "Your details can't be sent. Shorten them or remove unusual "
+            'characters.',
+      'reason' => 'Choose a reason for your report.',
+      'target_id' => "You can't report your own content.",
+      _ => "Couldn't send your report. Please try again.",
+    },
     EmailNotVerifiedException() =>
       'Please verify your email address to send a report.',
     FeatureDisabledException() => "Reporting isn't available right now.",

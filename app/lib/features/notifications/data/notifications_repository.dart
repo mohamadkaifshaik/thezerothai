@@ -228,9 +228,7 @@ class NotificationsRepository {
 
   /// The stored device id, or '' when none was generated (nothing to
   /// unregister).
-  Future<String> existingDeviceId() async {
-    return _store.deviceId(() => '');
-  }
+  Future<String> existingDeviceId() => _store.existingDeviceId();
 
   /// Registers (or refreshes) this installation's FCM token.
   Future<void> registerDevice({
