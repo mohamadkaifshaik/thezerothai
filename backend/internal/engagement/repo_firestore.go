@@ -31,6 +31,8 @@ const (
 
 	// txTimeout bounds one like/repost transaction (all attempts), like posts' createTxTimeout.
 	txTimeout = 5 * time.Second
+	// trimTimeout bounds the best-effort userLikes trim, which runs on a context detached from the request.
+	trimTimeout = 2 * time.Second
 	// maxTxRuns bounds the outer re-runs after the SDK's own attempts lost the lock race (a hot post, or ten
 	// concurrent calls of one user): jittered, so concurrent callers de-synchronise.
 	maxTxRuns          = 4

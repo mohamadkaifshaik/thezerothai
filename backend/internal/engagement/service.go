@@ -376,7 +376,8 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	})
 	// The like is committed: its effects must not depend on the leader's request context, which may already be
 	// cancelled (a cancelled ctx would fail the Pub/Sub publish and lose the notification for good: a client retry
-	// is a replay and never notifies). Emit and trim bound themselves with their own timeouts.
+	// is a replay and never notifies). WithoutCancel also drops the deadline: trim sets its own (trimTimeout); the
+	// notifier's emit is bounded by the emitter, not here.
 	ectx := context.WithoutCancel(ctx)
 	s.trim(ectx, uid)
 	if !replayed {
@@ -429,6 +430,8 @@ func (s *service) trim(ctx context.Context, uid string) {
 	if len(dropLikes) == 0 && len(dropReposts) == 0 {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, trimTimeout)
+	defer cancel()
 	if err := s.d.Repo.TrimLikes(ctx, uid, dropLikes, dropReposts); err != nil {
 		slog.WarnContext(ctx, "engagement_trim_failed", "error", logger.RedactErr(err, uid).Error())
 		return
@@ -502,7 +505,9 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	if s.isNew(prof) {
 		limit = s.d.NewAccountPostsPerDay
 	}
-	res, err := s.d.Repo.Repost(ctx, RepostParams{
+	// Detached like Like's flight (runTx bounds it with txTimeout): a repost that commits is never reported as an
+	// error that skips the effects below.
+	res, err := s.d.Repo.Repost(context.WithoutCancel(ctx), RepostParams{
 		UID: uid, Original: target, QuotaLimit: limit, SnapshotVersion: prof.SnapshotVersion,
 		Author: posts.AuthorSnapshot{
 			UserID: uid, Handle: prof.Handle, DisplayName: prof.DisplayName, AvatarURL: prof.AvatarThumbURL, Verified: prof.Verified,
@@ -533,7 +538,9 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	s.cache.update(uid, func(recent, reposts []string) ([]string, []string) {
 		return recent, withID(reposts, target.ID)
 	})
-	ectx := context.WithoutCancel(ctx) // committed: effects survive a cancelled request
+	// Committed: effects survive a cancelled request. WithoutCancel also drops the deadline: trim sets its own
+	// (trimTimeout); the notifier's emit is bounded by the emitter, not here.
+	ectx := context.WithoutCancel(ctx)
 	s.trim(ectx, uid)
 	if res.Post != nil {
 		s.d.Events.Reposted(ectx, uid, target, repostID, s.now())

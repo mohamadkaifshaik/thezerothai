@@ -27,22 +27,25 @@ const (
 )
 
 type fakeRepo struct {
-	likeErr      error
-	replayed     bool
-	unlikeResult bool
-	repostRes    RepostResult
-	repostErr    error
-	undoRes      UndoResult
-	loaded       UserLikes
-	loadErr      error
-	loads        int
-	likeParams   []LikeParams
-	repostParams []RepostParams
-	trims        [][]string
-	trimCtxErrs  []error
-	trimRepost   [][]string
-	undoIDs      []string
-	unlikeIDs    []string
+	likeErr       error
+	replayed      bool
+	unlikeResult  bool
+	repostRes     RepostResult
+	repostErr     error
+	undoRes       UndoResult
+	loaded        UserLikes
+	loadErr       error
+	loads         int
+	likeParams    []LikeParams
+	repostParams  []RepostParams
+	mu            sync.Mutex // guards trims, trimRepost, trimCtxErrs, trimDeadlines, repostCtxErrs (detached flights)
+	trims         [][]string
+	trimCtxErrs   []error
+	trimDeadlines []bool // whether each TrimLikes ctx carried a deadline
+	repostCtxErrs []error
+	trimRepost    [][]string
+	undoIDs       []string
+	unlikeIDs     []string
 }
 
 func (f *fakeRepo) LoadUserLikes(context.Context, string) (UserLikes, error) {
@@ -60,7 +63,10 @@ func (f *fakeRepo) Unlike(_ context.Context, _, postID string) (bool, error) {
 	return f.unlikeResult, nil
 }
 
-func (f *fakeRepo) Repost(_ context.Context, p RepostParams) (RepostResult, error) {
+func (f *fakeRepo) Repost(ctx context.Context, p RepostParams) (RepostResult, error) {
+	f.mu.Lock()
+	f.repostCtxErrs = append(f.repostCtxErrs, ctx.Err())
+	f.mu.Unlock()
 	f.repostParams = append(f.repostParams, p)
 	return f.repostRes, f.repostErr
 }
@@ -71,7 +77,11 @@ func (f *fakeRepo) UndoRepost(_ context.Context, _, postID string) (UndoResult, 
 }
 
 func (f *fakeRepo) TrimLikes(ctx context.Context, _ string, recent, reposts []string) error {
+	_, hasDeadline := ctx.Deadline()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.trimCtxErrs = append(f.trimCtxErrs, ctx.Err())
+	f.trimDeadlines = append(f.trimDeadlines, hasDeadline)
 	f.trims = append(f.trims, recent)
 	f.trimRepost = append(f.trimRepost, reposts)
 	return nil
@@ -567,6 +577,15 @@ func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 	}
 }
 
+// overCapLikes is a userLikes list exactly at the trim threshold, so the next like trims it.
+func overCapLikes() []string {
+	recent := make([]string, MaxRecentLikes+trimSlack)
+	for i := range recent {
+		recent[i] = fmt.Sprintf("%019d", 1000+i)
+	}
+	return recent
+}
+
 // assertLikeEffects checks the post-commit effects of one committed like: the notification, the counter hook and
 // the viewer's cached userLikes.
 func assertLikeEffects(t *testing.T, e *env) {
@@ -575,9 +594,22 @@ func assertLikeEffects(t *testing.T, e *env) {
 	likes := e.events.likes
 	ctxErrs := append([]error(nil), e.events.ctxErrs...)
 	e.events.mu.Unlock()
-	for _, ce := range append(ctxErrs, e.repo.trimCtxErrs...) {
+	e.repo.mu.Lock()
+	trimErrs := append([]error(nil), e.repo.trimCtxErrs...)
+	trimDeadlines := append([]bool(nil), e.repo.trimDeadlines...)
+	e.repo.mu.Unlock()
+	for _, ce := range append(ctxErrs, trimErrs...) {
 		if ce != nil {
 			t.Errorf("post-commit effect ran on a cancelled ctx (%v): the notification would be lost", ce)
+		}
+	}
+	// A follower's replay may trim too, so assert "at least once, always bounded" rather than an exact count.
+	if len(trimDeadlines) == 0 {
+		t.Error("the over-cap list was never trimmed")
+	}
+	for _, has := range trimDeadlines {
+		if !has {
+			t.Error("trim ran without a deadline: it is detached from the request and must bound itself (trimTimeout)")
 		}
 	}
 	if likes != 1 || len(e.posts.counts) != 1 || e.posts.counts[0] != pidA+":1:0" {
@@ -596,7 +628,7 @@ func assertLikeEffects(t *testing.T, e *env) {
 // on a detached context), so the post-commit effects run exactly once and the follower is not failed.
 func TestLike_LeaderCancellationStillRunsEffectsAndKeepsFollowers(t *testing.T) {
 	e, g, joined := newGateEnv(t, 1)
-	e.m.s.cache.set("viewer", UserLikes{}) // a warm viewer entry, as after the first timeline read
+	e.m.s.cache.set("viewer", UserLikes{Recent: overCapLikes()}) // warm and over cap + slack: the trim runs
 	leaderCtx, cancelLeader := context.WithCancel(e.ctx)
 	var wg sync.WaitGroup
 	var leaderRes, followerRes Result
@@ -636,7 +668,7 @@ func TestLike_LeaderCancellationStillRunsEffectsAndKeepsFollowers(t *testing.T) 
 // The same with no follower at all: a cancelled leader must still count, cache and notify the committed like.
 func TestLike_LeaderCancelledWithoutFollowerStillRunsEffects(t *testing.T) {
 	e, g, _ := newGateEnv(t, 0)
-	e.m.s.cache.set("viewer", UserLikes{})
+	e.m.s.cache.set("viewer", UserLikes{Recent: overCapLikes()})
 	leaderCtx, cancelLeader := context.WithCancel(e.ctx)
 	done := make(chan struct{})
 	var res Result
@@ -817,5 +849,47 @@ func TestUserCache_ConcurrentUpdatesKeepEveryID(t *testing.T) {
 	wg.Wait()
 	if st, _ := c.get("u"); len(st.recent) != n {
 		t.Fatalf("recent has %d ids, want %d (a concurrent update was lost)", len(st.recent), n)
+	}
+}
+
+// cancelAfterRepost cancels the request context once the repo's Repost has returned: the commit landed, so the
+// effects (notification, counter hook) must still run on a live context.
+type cancelAfterRepost struct {
+	*fakeRepo
+	cancel context.CancelFunc
+}
+
+func (c *cancelAfterRepost) Repost(ctx context.Context, p RepostParams) (RepostResult, error) {
+	res, err := c.fakeRepo.Repost(ctx, p)
+	c.cancel()
+	return res, err
+}
+
+func TestRepost_CancelledAfterCommitStillRunsEffects(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(e.ctx)
+	defer cancel()
+	e.repo.repostRes = RepostResult{Post: &posts.Post{ID: pidRep}}
+	m, err := New(Deps{
+		Repo: &cancelAfterRepost{fakeRepo: e.repo, cancel: cancel}, Posts: e.posts, Reader: e.posts,
+		Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)}, Events: e.events, LikesPerDay: 500,
+		NewAccountLikesPerDay: 100, PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
+		CacheTTL: time.Minute, AllowAnonymous: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Repost(ctx, "viewer", keyOK, pidA); err != nil {
+		t.Fatalf("Repost: %v", err)
+	}
+	e.events.mu.Lock()
+	defer e.events.mu.Unlock()
+	e.repo.mu.Lock()
+	defer e.repo.mu.Unlock()
+	if e.events.reposts != 1 || len(e.events.ctxErrs) != 1 || e.events.ctxErrs[0] != nil {
+		t.Errorf("reposts=%d ctxErrs=%v, want 1 notification on a live ctx", e.events.reposts, e.events.ctxErrs)
+	}
+	if len(e.repo.repostCtxErrs) != 1 || e.repo.repostCtxErrs[0] != nil {
+		t.Errorf("repo.Repost saw ctx errs %v, want a detached live ctx", e.repo.repostCtxErrs)
 	}
 }
