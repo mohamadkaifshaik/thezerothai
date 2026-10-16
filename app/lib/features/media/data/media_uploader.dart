@@ -51,7 +51,7 @@ class _Reservation {
   /// When this device received the URLs (local clock). Expiry is measured
   /// from here, never from the server's `expires_at` against the device
   /// clock, so a skewed device clock cannot kill (or keep) a reservation.
-  DateTime? receivedAt;
+  final DateTime receivedAt;
 
   /// The CreateUpload intent (and so idempotency key) it was reserved under.
   final String intent;
@@ -89,13 +89,20 @@ class MediaUploader {
     DateTime Function()? clock,
     this.expirySlack = const Duration(seconds: 30),
     this.urlTtl = const Duration(minutes: 10),
+    void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _repository = repository,
+       _onUnexpectedError = onUnexpectedError,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now;
 
   final MediaRepository _repository;
   final Uuid _uuid;
   final DateTime Function() _clock;
+
+  /// Told about contract anomalies this class detects itself. Failures the
+  /// repository already reported (CreateUpload, Finalize, PUT 5xx) are not
+  /// reported again.
+  final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
   /// A reservation closer than this to its expiry is renewed first.
   final Duration expirySlack;
@@ -107,13 +114,18 @@ class MediaUploader {
   final Map<String, UploadOutcome> _final = {};
   final Map<String, String> _keys = {};
 
+  UploadInterruptedException _anomaly(String message) {
+    final error = UploadInterruptedException(message);
+    _onUnexpectedError?.call(error, StackTrace.current);
+    return error;
+  }
+
   String _key(String intent) => _keys.putIfAbsent(intent, _uuid.v4);
 
   bool _unusable(_Reservation r, DateTime now) {
     if (r.putDone) return false; // nothing left to PUT
     if (r.urlsDead) return true;
-    final received = r.receivedAt;
-    return received == null || now.difference(received) >= urlTtl - expirySlack;
+    return now.difference(r.receivedAt) >= urlTtl - expirySlack;
   }
 
   /// The local id of the job that reserved [mediaId], if still known (to
@@ -148,7 +160,9 @@ class MediaUploader {
       for (final job in jobs)
         if (!_final.containsKey(job.id)) job,
     ];
-    final byId = {for (final job in todo) job.id: job};
+    // Every job the caller passed (finished ones included): a replay must
+    // send the original group, so a finished sibling must not break it.
+    final byId = {for (final job in jobs) job.id: job};
 
     // 1. Reserve targets for jobs without usable URLs.
     final needIds = <String>{
@@ -186,7 +200,12 @@ class MediaUploader {
       // same retry replays and a changed set mints a new key.
       final intent =
           'c|${purpose.value}|'
-          '${[for (final j in batch) '${j.id}:${j.image.fullMd5}'].join(',')}';
+          '${[
+            for (final j in batch)
+              '${j.id}:${j.image.fullMd5}:${j.image.thumbMd5}:'
+                  '${j.image.fullBytes.length}:${j.image.thumbBytes.length}:'
+                  '${j.image.width}x${j.image.height}',
+          ].join(',')}';
       final targets = await _repository.createUpload(
         idempotencyKey: _key(intent),
         purpose: purpose,
@@ -231,8 +250,13 @@ class MediaUploader {
         // Storage said no (expired or altered URL): drop the URLs so the
         // next attempt re-signs them under the same key.
         reservation.urlsDead = true;
-        failures[job.id] = UnknownApiException(
+        failures[job.id] = UploadInterruptedException(
           'Upload refused (${error.status}).',
+        );
+      } on UnknownApiException {
+        // A 5xx from storage: already reported by the repository.
+        failures[job.id] = const UploadInterruptedException(
+          'Storage had a problem.',
         );
       } on AppException catch (error) {
         // One image failing must not stop the others; a flag-off or quota
@@ -280,9 +304,7 @@ class MediaUploader {
         final mediaId = _reservations[job.id]!.target.mediaId;
         final result = byMedia[mediaId];
         if (result == null) {
-          failures[job.id] = const UnknownApiException(
-            'Upload was not confirmed.',
-          );
+          failures[job.id] = _anomaly('Upload was not confirmed.');
           continue;
         }
         switch (result.status) {
@@ -301,9 +323,7 @@ class MediaUploader {
             );
           default:
             // Still PENDING (should not happen): finalize again next time.
-            failures[job.id] = const UnknownApiException(
-              'Upload is not ready yet.',
-            );
+            failures[job.id] = _anomaly('Upload is not ready yet.');
         }
       }
     }
@@ -316,7 +336,7 @@ class MediaUploader {
               status: UploadOutcomeStatus.failed,
               error:
                   failures[job.id] ??
-                  const UnknownApiException('Upload did not finish.'),
+                  const UploadInterruptedException('Upload did not finish.'),
             ),
     ];
   }

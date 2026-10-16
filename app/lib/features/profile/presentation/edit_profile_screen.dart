@@ -49,7 +49,10 @@ class EditProfileScreen extends StatelessWidget {
         picker: mediaEnabled ? context.read<ImagePickerService>() : null,
         processor: mediaEnabled ? context.read<ImageProcessor>() : null,
         uploader: mediaEnabled
-            ? MediaUploader(repository: context.read<MediaRepository>())
+            ? MediaUploader(
+                repository: context.read<MediaRepository>(),
+                onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+              )
             : null,
       ),
       child: _EditProfileView(avatarUrl: profile.avatarThumbUrl),
@@ -128,7 +131,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
       ..showSnackBar(
         SnackBar(
           content: Text(
-            state.avatarFailed
+            state.pickFailed
+                ? kPickFailedMessage
+                : state.avatarFailed
                 ? avatarErrorMessage(error)
                 : updateProfileErrorMessage(error),
           ),

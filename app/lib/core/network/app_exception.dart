@@ -162,6 +162,14 @@ final class NetworkException extends AppException {
   const NetworkException(super.message);
 }
 
+/// A photo upload to storage did not complete (the signed URL expired or was
+/// refused, or storage had a transient fault). Retrying re-signs the URLs
+/// under the same key; it never burns upload quota. Already reported where it
+/// was detected, so callers must not report it again.
+final class UploadInterruptedException extends AppException {
+  const UploadInterruptedException(super.message);
+}
+
 /// Anything else (mapped from an unrecognized Connect `Code`).
 final class UnknownApiException extends AppException {
   const UnknownApiException(super.message);

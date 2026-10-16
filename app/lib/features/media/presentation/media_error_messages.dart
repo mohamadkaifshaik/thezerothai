@@ -21,8 +21,11 @@ String uploadErrorMessage(AppException error) {
     ValidationException(field: 'media', :final message) => message,
     ValidationException() =>
       "These photos can't be uploaded. Remove them and try again.",
+    // Upload step: the server could not find an object we just PUT.
     MediaNotReadyException() =>
-      'One of your photos is no longer available. Remove it and try again.',
+      "A photo didn't finish uploading. Try again.",
+    UploadInterruptedException() =>
+      "The upload didn't finish. Try again.",
     EmailNotVerifiedException() => 'Please verify your email address to post.',
     _ => "Couldn't upload your photos. Please try again.",
   };
@@ -44,7 +47,9 @@ String avatarErrorMessage(AppException error) {
           'again.',
     ValidationException(field: 'media', :final message) => message,
     MediaNotReadyException() =>
-      "That photo couldn't be used. Choose a different one.",
+      "The photo didn't finish uploading. Try again.",
+    UploadInterruptedException() =>
+      "The upload didn't finish. Try again.",
     _ => "Couldn't update your photo. Please try again.",
   };
 }

@@ -382,6 +382,138 @@ void main() {
     expect(keys, ['key-1', 'key-1']);
   });
 
+  group('a finished sibling does not break the replayed group', () {
+    late List<String> keys;
+    late List<String> putUrls;
+
+    void stubGroup({required Object? Function() failB}) {
+      keys = [];
+      putUrls = [];
+      when(
+        () => repo.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).thenAnswer((invocation) async {
+        keys.add(invocation.namedArguments[#idempotencyKey] as String);
+        final n = (invocation.namedArguments[#images] as List).length;
+        return [for (var i = 1; i <= n; i++) uploadTarget('m$i')];
+      });
+      when(() => repo.putObject(any(), any())).thenAnswer((invocation) async {
+        final target = invocation.positionalArguments.first as pb.SignedUpload;
+        putUrls.add(target.url);
+        if (target.url.contains('m2')) {
+          final error = failB();
+          if (error != null) throw error;
+        }
+      });
+      stubFinalize(readyResult);
+    }
+
+    test('storage refuses b (403): replay keeps the key, only b is PUT '
+        'again', () async {
+      var refuse = true;
+      stubGroup(
+        failB: () {
+          if (!refuse) return null;
+          refuse = false;
+          return const StorageRefusedException(403);
+        },
+      );
+
+      final first = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+      expect(first[0].status, UploadOutcomeStatus.ready);
+      expect(first[1].status, UploadOutcomeStatus.failed);
+      expect(first[1].error, isA<UploadInterruptedException>());
+
+      putUrls.clear();
+      final second = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+
+      expect(
+        second.map((o) => o.status),
+        everyElement(UploadOutcomeStatus.ready),
+      );
+      expect(keys, ['key-1', 'key-1']);
+      expect(putUrls, hasLength(2));
+      expect(putUrls, everyElement(contains('m2')));
+    });
+
+    test('b fails and its URLs expire: replay keeps the key', () async {
+      var fail = true;
+      stubGroup(
+        failB: () {
+          if (!fail) return null;
+          fail = false;
+          return const NetworkException('offline');
+        },
+      );
+
+      await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+      now = now.add(const Duration(minutes: 11));
+      putUrls.clear();
+      final second = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+
+      expect(
+        second.map((o) => o.status),
+        everyElement(UploadOutcomeStatus.ready),
+      );
+      expect(keys, ['key-1', 'key-1']);
+      expect(putUrls, everyElement(contains('m2')));
+    });
+
+    test('removing the finished sibling mints a new key', () async {
+      var fail = true;
+      stubGroup(
+        failB: () {
+          if (!fail) return null;
+          fail = false;
+          return const StorageRefusedException(403);
+        },
+      );
+      await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a', 'b']),
+      );
+
+      uploader.forget('a');
+      await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['b']),
+      );
+
+      expect(keys, hasLength(2));
+      expect(keys[1], isNot(keys[0]));
+    });
+  });
+
+  test('a PUT 5xx and a refusal are non-Unknown (never double-reported)',
+      () async {
+    stubCreate(['m1']);
+    when(
+      () => repo.putObject(any(), any()),
+    ).thenThrow(const UnknownApiException('Upload refused (503).'));
+
+    final out = await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(['a']),
+    );
+
+    expect(out.single.error, isA<UploadInterruptedException>());
+  });
+
   test('forget drops the remembered result of a removed image', () async {
     stubCreate(['m1']);
     stubPutOk();

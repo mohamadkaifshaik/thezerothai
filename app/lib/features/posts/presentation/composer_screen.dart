@@ -59,6 +59,7 @@ class ComposerScreen extends StatelessWidget {
               processor: context.read<ImageProcessor>(),
               uploader: MediaUploader(
                 repository: context.read<MediaRepository>(),
+                onUnexpectedError: context.read<UnexpectedErrorReporter>(),
               ),
             ),
           ),
@@ -176,19 +177,26 @@ class _ComposerViewState extends State<_ComposerView> {
           prev.status != curr.status || !identical(prev.error, curr.error),
       listener: _onState,
       builder: (context, state) {
-        if (state.error is EmailNotVerifiedException) {
-          return VerifyEmailView(
-            banner: createPostErrorMessage(state.error!),
-            onBack: context.read<ComposerCubit>().errorShown,
-          );
-        }
         final cubit = context.read<ComposerCubit>();
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
-        // for an upload in flight.
+        // for an upload in flight. Applies to the verify-email view too: it
+        // replaces the composer, but the attachments are still held.
         final canLeaveFreely =
             state.status == ComposerStatus.posted ||
             (!state.isSubmitting && !state.hasAttachments);
+        if (state.error is EmailNotVerifiedException) {
+          return PopScope(
+            canPop: canLeaveFreely,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) _requestClose(context, state);
+            },
+            child: VerifyEmailView(
+              banner: createPostErrorMessage(state.error!),
+              onBack: cubit.errorShown,
+            ),
+          );
+        }
         return PopScope(
           canPop: canLeaveFreely,
           onPopInvokedWithResult: (didPop, _) {
@@ -303,15 +311,20 @@ class _AddPhotoButton extends StatelessWidget {
     final submitting = context.select(
       (ComposerCubit c) => c.state.isSubmitting,
     );
-    return BlocSelector<AttachmentsCubit, AttachmentsState, bool>(
-      selector: (state) => state.isFull,
-      builder: (context, full) => IconButton(
-        tooltip: full ? 'Four photos is the limit' : 'Add photos',
-        icon: const Icon(Icons.image_outlined),
-        onPressed: submitting || full
-            ? null
-            : () => context.read<AttachmentsCubit>().pick(),
-      ),
+    // Also off while photos are being prepared/uploaded: a second pick
+    // would race the first one's processing queue.
+    return BlocSelector<AttachmentsCubit, AttachmentsState, (bool, bool)>(
+      selector: (state) => (state.isFull, state.isBusy),
+      builder: (context, flags) {
+        final (full, busy) = flags;
+        return IconButton(
+          tooltip: full ? 'Four photos is the limit' : 'Add photos',
+          icon: const Icon(Icons.image_outlined),
+          onPressed: submitting || full || busy
+              ? null
+              : () => context.read<AttachmentsCubit>().pick(),
+        );
+      },
     );
   }
 }

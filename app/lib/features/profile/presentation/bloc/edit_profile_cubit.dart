@@ -29,6 +29,7 @@ class EditProfileState {
     this.avatarPreview,
     this.isPreparingAvatar = false,
     this.avatarFailed = false,
+    this.pickFailed = false,
   });
 
   final String displayName;
@@ -53,6 +54,9 @@ class EditProfileState {
   /// UI words it for the photo.
   final bool avatarFailed;
 
+  /// [error] is the photo picker (or its permission) failing, not a save.
+  final bool pickFailed;
+
   bool get isSaving => status == EditProfileStatus.saving;
 
   /// Characters left in the name (negative when over the limit).
@@ -71,6 +75,7 @@ class EditProfileState {
     bool clearAvatarPreview = false,
     bool? isPreparingAvatar,
     bool? avatarFailed,
+    bool? pickFailed,
   }) => EditProfileState(
     displayName: displayName ?? this.displayName,
     bio: bio ?? this.bio,
@@ -82,6 +87,7 @@ class EditProfileState {
         : (avatarPreview ?? this.avatarPreview),
     isPreparingAvatar: isPreparingAvatar ?? this.isPreparingAvatar,
     avatarFailed: clearError ? false : (avatarFailed ?? this.avatarFailed),
+    pickFailed: clearError ? false : (pickFailed ?? this.pickFailed),
   );
 }
 
@@ -172,6 +178,7 @@ class EditProfileCubit extends Cubit<EditProfileState> {
         emit(
           state.copyWith(
             avatarFailed: true,
+            pickFailed: true,
             error: const UnknownApiException('The photo picker failed.'),
           ),
         );
@@ -287,8 +294,14 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       if (isClosed) return;
       emit(state.copyWith(status: EditProfileStatus.saved, saved: profile));
     } on AppException catch (e, stack) {
-      if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
-      if (e is MediaNotReadyException) {
+      // Upload-step failures were already reported where they happened
+      // (repository / uploader); an UpdateProfile one is reported here.
+      if (!uploading && e is UnknownApiException) {
+        _onUnexpectedError?.call(e, stack);
+      }
+      // Only an UpdateProfile refusal means the uploaded avatar is gone; a
+      // MEDIA_NOT_READY from the upload step just means "try again".
+      if (e is MediaNotReadyException && !uploading) {
         // The uploaded avatar is gone server-side: forget it so the user
         // picks again instead of re-sending a dead media id.
         _avatar = null;

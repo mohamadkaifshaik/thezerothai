@@ -237,8 +237,9 @@ class ComposerCubit extends Cubit<ComposerState> {
         // The screen may have gone while the photos uploaded: never create
         // a post nobody is waiting for (and never one that lost its photos).
         if (isClosed) return;
-      } on AppException catch (e, stack) {
-        if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
+      } on AppException catch (e) {
+        // Already reported where it happened (repository / uploader): never
+        // report an upload failure a second time here.
         if (isClosed) return;
         emit(
           state.copyWith(
