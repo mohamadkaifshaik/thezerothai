@@ -505,9 +505,7 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	if s.isNew(prof) {
 		limit = s.d.NewAccountPostsPerDay
 	}
-	// Detached like Like's flight (runTx bounds it with txTimeout): a repost that commits is never reported as an
-	// error that skips the effects below.
-	res, err := s.d.Repo.Repost(context.WithoutCancel(ctx), RepostParams{
+	res, err := s.d.Repo.Repost(ctx, RepostParams{
 		UID: uid, Original: target, QuotaLimit: limit, SnapshotVersion: prof.SnapshotVersion,
 		Author: posts.AuthorSnapshot{
 			UserID: uid, Handle: prof.Handle, DisplayName: prof.DisplayName, AvatarURL: prof.AvatarThumbURL, Verified: prof.Verified,
@@ -538,8 +536,8 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	s.cache.update(uid, func(recent, reposts []string) ([]string, []string) {
 		return recent, withID(reposts, target.ID)
 	})
-	// Committed: effects survive a cancelled request. WithoutCancel also drops the deadline: trim sets its own
-	// (trimTimeout); the notifier's emit is bounded by the emitter, not here.
+	// Committed: effects survive a request cancelled after the commit. WithoutCancel also drops the deadline: trim
+	// sets its own (trimTimeout); Events.Reposted is bounded by the emitter, not here.
 	ectx := context.WithoutCancel(ctx)
 	s.trim(ectx, uid)
 	if res.Post != nil {

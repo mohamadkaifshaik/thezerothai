@@ -38,11 +38,10 @@ type fakeRepo struct {
 	loads         int
 	likeParams    []LikeParams
 	repostParams  []RepostParams
-	mu            sync.Mutex // guards trims, trimRepost, trimCtxErrs, trimDeadlines, repostCtxErrs (detached flights)
+	mu            sync.Mutex // guards the slices appended by detached flights (params, ids, trims)
 	trims         [][]string
 	trimCtxErrs   []error
 	trimDeadlines []bool // whether each TrimLikes ctx carried a deadline
-	repostCtxErrs []error
 	trimRepost    [][]string
 	undoIDs       []string
 	unlikeIDs     []string
@@ -54,25 +53,30 @@ func (f *fakeRepo) LoadUserLikes(context.Context, string) (UserLikes, error) {
 }
 
 func (f *fakeRepo) Like(_ context.Context, p LikeParams) (bool, error) {
+	f.mu.Lock()
 	f.likeParams = append(f.likeParams, p)
+	f.mu.Unlock()
 	return f.replayed, f.likeErr
 }
 
 func (f *fakeRepo) Unlike(_ context.Context, _, postID string) (bool, error) {
+	f.mu.Lock()
 	f.unlikeIDs = append(f.unlikeIDs, postID)
+	f.mu.Unlock()
 	return f.unlikeResult, nil
 }
 
-func (f *fakeRepo) Repost(ctx context.Context, p RepostParams) (RepostResult, error) {
+func (f *fakeRepo) Repost(_ context.Context, p RepostParams) (RepostResult, error) {
 	f.mu.Lock()
-	f.repostCtxErrs = append(f.repostCtxErrs, ctx.Err())
-	f.mu.Unlock()
 	f.repostParams = append(f.repostParams, p)
+	f.mu.Unlock()
 	return f.repostRes, f.repostErr
 }
 
 func (f *fakeRepo) UndoRepost(_ context.Context, _, postID string) (UndoResult, error) {
+	f.mu.Lock()
 	f.undoIDs = append(f.undoIDs, postID)
+	f.mu.Unlock()
 	return f.undoRes, nil
 }
 
@@ -884,12 +888,7 @@ func TestRepost_CancelledAfterCommitStillRunsEffects(t *testing.T) {
 	}
 	e.events.mu.Lock()
 	defer e.events.mu.Unlock()
-	e.repo.mu.Lock()
-	defer e.repo.mu.Unlock()
 	if e.events.reposts != 1 || len(e.events.ctxErrs) != 1 || e.events.ctxErrs[0] != nil {
 		t.Errorf("reposts=%d ctxErrs=%v, want 1 notification on a live ctx", e.events.reposts, e.events.ctxErrs)
-	}
-	if len(e.repo.repostCtxErrs) != 1 || e.repo.repostCtxErrs[0] != nil {
-		t.Errorf("repo.Repost saw ctx errs %v, want a detached live ctx", e.repo.repostCtxErrs)
 	}
 }

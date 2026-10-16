@@ -145,3 +145,4 @@ No fixed-cost resource is added; nothing here can step to a fixed fee.
   quotes and reposts created before the takedown. Flagged to the P7 owner.
 - A `post_delete` publish failure leaves likes/reposts of a deleted post until a reconciliation sweep (none at Stage 0;
   the orphan docs hold only other users' ids and are erased with those users).
+- Consider detaching `Repo.Repost` with a single overall deadline (`repostTimeout` <= `rpcDeadline`) and wrapping the replay `Get`; and detaching ctx in apiserver `emitterSlot.emit` for quote/mention/follow.
