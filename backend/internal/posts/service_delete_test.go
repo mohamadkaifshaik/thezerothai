@@ -366,4 +366,7 @@ func TestGetForViewer_OwnCopyIsExempt(t *testing.T) {
 	if err != nil || p == nil {
 		t.Fatalf("own copy hidden: p=%v err=%v", p, err)
 	}
+	if e.graph.calls != 0 {
+		t.Errorf("caller-graph reads = %d, want 0 for the caller's own copy", e.graph.calls)
+	}
 }

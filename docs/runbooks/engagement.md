@@ -60,3 +60,9 @@ purge), finishes it and then runs the copy phase once, so copies are cleaned. A 
 posts step before the deploy never runs the copy phase: its copies (other users' REPOST and QUOTE docs of the
 deleted user) remain until `opsctl purge-posts` is run for that uid. Check the account-deletion jobs in flight at
 deploy time and re-run the posts purge for any that were past the posts step.
+
+### Concurrent likes: abandoned follower
+A LikePost that joined another request's in-flight like of the same post (same instance, same user) and whose client
+then left returns CANCELED / DEADLINE_EXCEEDED (not INTERNAL, not in Error Reporting). Its request log does not
+carry the transaction's `fs_reads` / `fs_writes`: the leader's request owns them. The leader never abandons its
+flight, so a committed like always updates the counter hook, the cache and the notification.

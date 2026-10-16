@@ -312,10 +312,7 @@ func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*
 // overflowed it cannot prove an embedded author does not block them, so a foreign copy fails closed (the same
 // choice posts makes for GetThread context; no extra graph read per row).
 func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
-	a := p.EmbeddedAuthorID
-	if a == "" && p.Embedded != nil && !p.Embedded.Unavailable {
-		a = p.Embedded.Author.UserID
-	}
+	a := p.EmbeddedAuthor()
 	if a == "" || a == uid || p.AuthorID == uid {
 		return true
 	}

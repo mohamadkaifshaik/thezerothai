@@ -188,7 +188,7 @@ func validate(key, postID string) error {
 
 // resolveViewable returns the post an action applies to: the target when visible to uid, and for a REPOST id the
 // original, also visible (D4, D13). Every refusal is the one NOT_FOUND. Reads: post 1 + author 1 + caller graph 1
-// cold, 0 warm; +2 for a REPOST id.
+// cold, 0 warm; +2 overflow for a QUOTE/REPOST target (embedded-author graph check), +2 for a REPOST id.
 func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*posts.Post, error) {
 	p, err := s.d.Posts.Viewable(ctx, uid, postID)
 	if errors.Is(err, posts.ErrNotFound) {
@@ -303,12 +303,11 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// they are replays (no counter bump, no notification).
 	//
 	// The flight runs on a context detached from the leader's cancellation (values such as the budget counter
-	// and request log are kept; the repo's runTx supplies the transaction deadline), so a leader whose client
-	// disconnects does not fail the followers still waiting on it. Every caller, the leader included, also
-	// honours its own context while waiting.
-	var fr flightResult
-	select {
-	case fr = <-s.likeFlight.do(uid+"/"+target.ID, func() (any, error) {
+	// and request log are kept; the repo's runTx supplies the transaction deadline). The leader always waits for
+	// its own flight (bounded by txTimeout): the transaction commits regardless, and the post-commit effects
+	// below (counter hook, cache, trim, notification) must run for a committed like. Only a follower, which
+	// wrote nothing, gives up on its own context.
+	ch, leader := s.likeFlight.do(uid+"/"+target.ID, func() (any, error) {
 		fctx := context.WithoutCancel(ctx) // runTx bounds the transaction with txTimeout
 		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
 		if err != nil {
@@ -320,10 +319,18 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 			count++
 		}
 		return likeOutcome{replayed: rep, count: max(count, 0)}, nil
-	}):
-	case <-ctx.Done():
-		// This caller gave up; the flight (and its followers) carries on without it.
-		return Result{}, logger.RedactErr(fmt.Errorf("engagement: like: %w", ctx.Err()), uid)
+	})
+	var fr flightResult
+	if leader {
+		fr = <-ch
+	} else {
+		select {
+		case fr = <-ch:
+		case <-ctx.Done():
+			// This follower gave up; the flight and its leader carry on without it. Its transaction counters
+			// are not in its request log (the leader's request owns them).
+			return Result{}, abandonedErr(ctx.Err())
+		}
 	}
 	err = fr.err
 	var oc likeOutcome
@@ -375,6 +382,15 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	out.LikeCount = oc.count
 	out.LikedByViewer = true
 	return out, nil
+}
+
+// abandonedErr is the answer of a follower whose client left: a client-side outcome, not a server fault (no
+// INTERNAL, no Error Reporting entry), mapped like graph's internalErr.
+func abandonedErr(cause error) error {
+	if errors.Is(cause, context.DeadlineExceeded) {
+		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded")
+	}
+	return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled")
 }
 
 // likeOutcome is what one like flight shares with its followers.

@@ -222,7 +222,7 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 			// A QUOTE or REPOST copies another user's content: when that author blocks the caller (or the
 			// blockedBy set overflowed) the copy must not leak (ADR-0018 D13). 0 extra reads. The caller's own
 			// posts are exempt, same as a direct post.
-			if emb := embeddedAuthor(p); emb != "" && emb != caller && (snap.BlockedBy[emb] || snap.BlockedByOverflow) {
+			if emb := p.EmbeddedAuthor(); emb != "" && emb != caller && snap.BlockedBy[emb] {
 				return nil
 			}
 		}
@@ -266,12 +266,4 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.Draft.Kind, p.Draft.IsReply = KindReply, true
 	p.Draft.ReplyToID, p.Draft.ReplyToHandle = parent.ID, parent.Author.Handle
 	p.Draft.ConversationID = conv
-}
-
-// embeddedAuthor is the author of the post a QUOTE or REPOST copies, "" for other posts and tombstones.
-func embeddedAuthor(p *Post) string {
-	if p.Embedded != nil && !p.Embedded.Unavailable && p.Embedded.Author.UserID != "" {
-		return p.Embedded.Author.UserID
-	}
-	return p.EmbeddedAuthorID
 }

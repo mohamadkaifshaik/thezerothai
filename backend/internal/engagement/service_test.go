@@ -562,18 +562,38 @@ func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 	}
 }
 
-// A leader whose own request context is cancelled gives up on its own call (every caller honours its own
-// context) but must not fail or cancel the transaction its followers wait on.
-func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
+// assertLikeEffects checks the post-commit effects of one committed like: the notification, the counter hook and
+// the viewer's cached userLikes.
+func assertLikeEffects(t *testing.T, e *env) {
+	t.Helper()
+	e.events.mu.Lock()
+	likes := e.events.likes
+	e.events.mu.Unlock()
+	if likes != 1 || len(e.posts.counts) != 1 || e.posts.counts[0] != pidA+":1:0" {
+		t.Errorf("events.likes=%d counts=%v, want 1 and [%s:1:0]", likes, e.posts.counts, pidA)
+	}
+	st, ok := e.m.s.cache.get("viewer")
+	if !ok {
+		t.Fatal("viewer's userLikes cache entry is gone")
+	}
+	if liked, _ := st.set.Flags(e.posts.docs[pidA]); !liked {
+		t.Errorf("cache recent = %v, want it to contain %s", st.recent, pidA)
+	}
+}
+
+// A leader whose request context is cancelled mid-flight still waits for its own flight (the transaction commits
+// on a detached context), so the post-commit effects run exactly once and the follower is not failed.
+func TestLike_LeaderCancellationStillRunsEffectsAndKeepsFollowers(t *testing.T) {
 	e, g, joined := newGateEnv(t, 1)
+	e.m.s.cache.set("viewer", UserLikes{}) // a warm viewer entry, as after the first timeline read
 	leaderCtx, cancelLeader := context.WithCancel(e.ctx)
 	var wg sync.WaitGroup
-	var followerRes Result
+	var leaderRes, followerRes Result
 	var leaderErr, followerErr error
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, leaderErr = e.m.Like(leaderCtx, "viewer", keyOK, pidA)
+		leaderRes, leaderErr = e.m.Like(leaderCtx, "viewer", keyOK, pidA)
 	}()
 	<-g.started // the leader is inside the repo
 	wg.Add(1)
@@ -596,10 +616,32 @@ func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
 	if followerErr != nil || !followerRes.LikedByViewer || followerRes.LikeCount != 5 {
 		t.Errorf("follower: %+v, %v", followerRes, followerErr)
 	}
-	// The leader's request was cancelled while the flight ran: it answers with its own context error.
-	if !errors.Is(leaderErr, context.Canceled) {
-		t.Errorf("leader err = %v, want context.Canceled", leaderErr)
+	if leaderErr != nil || !leaderRes.LikedByViewer || leaderRes.LikeCount != 5 {
+		t.Errorf("leader: %+v, %v", leaderRes, leaderErr)
 	}
+	assertLikeEffects(t, e)
+}
+
+// The same with no follower at all: a cancelled leader must still count, cache and notify the committed like.
+func TestLike_LeaderCancelledWithoutFollowerStillRunsEffects(t *testing.T) {
+	e, g, _ := newGateEnv(t, 0)
+	e.m.s.cache.set("viewer", UserLikes{})
+	leaderCtx, cancelLeader := context.WithCancel(e.ctx)
+	done := make(chan struct{})
+	var res Result
+	var err error
+	go func() {
+		defer close(done)
+		res, err = e.m.Like(leaderCtx, "viewer", keyOK, pidA)
+	}()
+	<-g.started
+	cancelLeader()
+	close(g.release)
+	<-done
+	if err != nil || !res.LikedByViewer {
+		t.Fatalf("leader: %+v, %v", res, err)
+	}
+	assertLikeEffects(t, e)
 }
 
 // A follower that gives up returns its own context error while the flight and the leader carry on.
@@ -627,9 +669,7 @@ func TestLike_FollowerCancellationDoesNotFailTheLeader(t *testing.T) {
 	<-followerDone // the follower returned while the flight is still gated
 	close(g.release)
 	wg.Wait()
-	if !errors.Is(followerErr, context.Canceled) {
-		t.Errorf("follower err = %v, want context.Canceled", followerErr)
-	}
+	_ = requireCode(t, followerErr, connect.CodeCanceled)
 	if leaderErr != nil || !leaderRes.LikedByViewer || leaderRes.LikeCount != 5 {
 		t.Errorf("leader: %+v, %v", leaderRes, leaderErr)
 	}

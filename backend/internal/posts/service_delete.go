@@ -181,13 +181,7 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller
 	// the copy must not leak their content, so the whole post is NOT_FOUND (ADR-0018 D13). The caller's own
 	// embedded posts and tombstones (no author) are exempt.
-	embAuthor := ""
-	if p.Embedded != nil && !p.Embedded.Unavailable {
-		embAuthor = p.Embedded.Author.UserID
-		if embAuthor == "" {
-			embAuthor = p.EmbeddedAuthorID
-		}
-	}
+	embAuthor := p.EmbeddedAuthor()
 	checkEmbed := embAuthor != "" && embAuthor != callerUID && embAuthor != p.AuthorID && p.AuthorID != callerUID
 
 	if p.AuthorID != callerUID || checkEmbed {

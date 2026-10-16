@@ -115,6 +115,22 @@ func (p *Post) Hidden() bool { return p.Moderation != ModerationNone }
 // drop posts for which it is false.
 func (p *Post) Visible() bool { return p.Moderation == ModerationNone }
 
+// EmbeddedAuthor is the one derivation of the author of the post a QUOTE or REPOST copies, used by every
+// block/mute check on a copy (GetPost, GetThread context, feed filter). Precedence: a tombstone (Embedded
+// marked Unavailable) has no author -> ""; else the snapshot's Author.UserID; else the top-level
+// EmbeddedAuthorID; "" for plain posts.
+func (p *Post) EmbeddedAuthor() string {
+	if p.Embedded != nil {
+		if p.Embedded.Unavailable {
+			return ""
+		}
+		if p.Embedded.Author.UserID != "" {
+			return p.Embedded.Author.UserID
+		}
+	}
+	return p.EmbeddedAuthorID
+}
+
 // Embedded is the frozen one-level snapshot a QUOTE or REPOST carries of the post it copies (ADR-0018 D2, D12). The
 // author snapshot is not refreshed by the profile-snapshot job. A tombstone has only PostID and Unavailable set.
 type Embedded struct {
