@@ -326,6 +326,8 @@ func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{testUID: true}}}, true},
 		{"tombstone has no author", KindRepost, &Embedded{PostID: "9", Unavailable: true}, "",
 			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, true},
+		{"nil embedded, top-level author id only", KindRepost, nil, embUID,
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, false},
 		{"top-level author id only", KindRepost, &Embedded{PostID: "9"}, embUID,
 			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, false},
 	}

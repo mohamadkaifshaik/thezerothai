@@ -11,9 +11,10 @@ import (
 var errFlightPanic = errors.New("engagement: like flight panicked")
 
 // flight collapses concurrent calls with one key into a single execution, like singleflight.Group.DoChan, with
-// two additions the like path needs: callers wait on a channel so a follower can honour its own context (the
-// leader never abandons its own flight: the post-commit effects must run), and onJoin (tests only) fires when a caller joins a flight already in progress, which gives the
-// concurrency tests a deterministic seam instead of scheduler yields.
+// two additions the like path needs. Callers wait on a channel, so a follower can honour its own context (the
+// leader never abandons its flight: the post-commit effects must run). And onJoin (tests only) fires when a
+// caller joins a flight already in progress, a deterministic seam for the concurrency tests instead of
+// scheduler yields.
 type flight struct {
 	mu     sync.Mutex
 	calls  map[string]*flightCall
@@ -26,11 +27,10 @@ type flightCall struct {
 	err  error
 }
 
-// flightResult is what a caller receives; led is true for the caller that ran fn.
+// flightResult is what a caller receives.
 type flightResult struct {
 	val any
 	err error
-	led bool
 }
 
 // do returns a channel that yields exactly one result, and whether this caller is the leader (ran fn). fn runs in
@@ -61,6 +61,7 @@ func (f *flight) do(key string, fn func() (any, error)) (<-chan flightResult, bo
 			// A panic in fn must not leave followers waiting forever (nor crash the instance from a goroutine
 			// no HTTP recovery covers): every waiter gets an internal error.
 			if r := recover(); r != nil {
+				// No request ctx here (the flight goroutine outlives it), so this record carries no trace id.
 				slog.Error("engagement: like flight panicked", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
 				c.err = fmt.Errorf("%w: %v", errFlightPanic, r)
 			}
@@ -68,7 +69,7 @@ func (f *flight) do(key string, fn func() (any, error)) (<-chan flightResult, bo
 			delete(f.calls, key)
 			f.mu.Unlock()
 			close(c.done)
-			out <- flightResult{val: c.val, err: c.err, led: true}
+			out <- flightResult{val: c.val, err: c.err}
 		}()
 		c.val, c.err = fn()
 	}()

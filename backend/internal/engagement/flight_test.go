@@ -1,12 +1,20 @@
 package engagement
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 )
 
+// The slog call in flight is ctx-less (no trace id): the flight goroutine has no request ctx.
 func TestFlight_PanicReachesLeaderAndFollowerAndClearsKey(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
 	var f flight
 	joined := make(chan struct{})
 	f.onJoin = func(string) { close(joined) }
@@ -28,9 +36,12 @@ func TestFlight_PanicReachesLeaderAndFollowerAndClearsKey(t *testing.T) {
 	<-joined
 	close(release)
 	for name, ch := range map[string]<-chan flightResult{"leader": lead, "follower": follow} {
-		if r := <-ch; !errors.Is(r.err, errFlightPanic) {
-			t.Errorf("%s err = %v, want errFlightPanic", name, r.err)
+		if r := <-ch; !errors.Is(r.err, errFlightPanic) || !strings.Contains(r.err.Error(), "boom") {
+			t.Errorf("%s err = %v, want errFlightPanic wrapping the panic value", name, r.err)
 		}
+	}
+	if out := logBuf.String(); !strings.Contains(out, "like flight panicked") || !strings.Contains(out, "boom") {
+		t.Errorf("panic record not logged: %q", out)
 	}
 	f.mu.Lock()
 	n := len(f.calls)

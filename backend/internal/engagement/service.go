@@ -188,7 +188,7 @@ func validate(key, postID string) error {
 
 // resolveViewable returns the post an action applies to: the target when visible to uid, and for a REPOST id the
 // original, also visible (D4, D13). Every refusal is the one NOT_FOUND. Reads: post 1 + author 1 + caller graph 1
-// cold, 0 warm; +2 overflow for a QUOTE/REPOST target (embedded-author graph check), +2 for a REPOST id.
+// cold, 0 warm; +1 on blockedBy overflow (author graph), +1 more for a QUOTE/REPOST (embedded author), +2 for a REPOST id.
 func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*posts.Post, error) {
 	p, err := s.d.Posts.Viewable(ctx, uid, postID)
 	if errors.Is(err, posts.ErrNotFound) {
@@ -338,7 +338,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 		oc, _ = fr.val.(likeOutcome)
 	}
 	replayed := oc.replayed
-	if err == nil && !fr.led {
+	if err == nil && !leader {
 		replayed = true
 	}
 	switch {
@@ -374,9 +374,13 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	s.cache.update(uid, func(recent, reposts []string) ([]string, []string) {
 		return withID(recent, target.ID), reposts
 	})
-	s.trim(ctx, uid)
+	// The like is committed: its effects must not depend on the leader's request context, which may already be
+	// cancelled (a cancelled ctx would fail the Pub/Sub publish and lose the notification for good: a client retry
+	// is a replay and never notifies). Emit and trim bound themselves with their own timeouts.
+	ectx := context.WithoutCancel(ctx)
+	s.trim(ectx, uid)
 	if !replayed {
-		s.d.Events.Liked(ctx, uid, target, s.now())
+		s.d.Events.Liked(ectx, uid, target, s.now())
 	}
 	out := s.result(ctx, uid, target, likeDelta, 0)
 	out.LikeCount = oc.count
@@ -529,9 +533,10 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	s.cache.update(uid, func(recent, reposts []string) ([]string, []string) {
 		return recent, withID(reposts, target.ID)
 	})
-	s.trim(ctx, uid)
+	ectx := context.WithoutCancel(ctx) // committed: effects survive a cancelled request
+	s.trim(ectx, uid)
 	if res.Post != nil {
-		s.d.Events.Reposted(ctx, uid, target, repostID, s.now())
+		s.d.Events.Reposted(ectx, uid, target, repostID, s.now())
 	}
 	out := s.result(ctx, uid, target, 0, repostDelta)
 	out.RepostPostID = repostID

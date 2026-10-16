@@ -219,9 +219,9 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 			if snap.BlockedBy[p.AuthorID] || snap.Blocked[p.AuthorID] || snap.BlockedByOverflow {
 				return nil
 			}
-			// A QUOTE or REPOST copies another user's content: when that author blocks the caller (or the
-			// blockedBy set overflowed) the copy must not leak (ADR-0018 D13). 0 extra reads. The caller's own
-			// posts are exempt, same as a direct post.
+			// A QUOTE or REPOST copies another user's content: when that author blocks the caller the copy must
+			// not leak (ADR-0018 D13). A blockedBy overflow is already handled by the author check above. 0 extra
+			// reads. The caller's own posts are exempt, same as a direct post.
 			if emb := p.EmbeddedAuthor(); emb != "" && emb != caller && snap.BlockedBy[emb] {
 				return nil
 			}

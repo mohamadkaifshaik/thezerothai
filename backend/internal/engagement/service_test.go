@@ -39,6 +39,7 @@ type fakeRepo struct {
 	likeParams   []LikeParams
 	repostParams []RepostParams
 	trims        [][]string
+	trimCtxErrs  []error
 	trimRepost   [][]string
 	undoIDs      []string
 	unlikeIDs    []string
@@ -69,7 +70,8 @@ func (f *fakeRepo) UndoRepost(_ context.Context, _, postID string) (UndoResult, 
 	return f.undoRes, nil
 }
 
-func (f *fakeRepo) TrimLikes(_ context.Context, _ string, recent, reposts []string) error {
+func (f *fakeRepo) TrimLikes(ctx context.Context, _ string, recent, reposts []string) error {
+	f.trimCtxErrs = append(f.trimCtxErrs, ctx.Err())
 	f.trims = append(f.trims, recent)
 	f.trimRepost = append(f.trimRepost, reposts)
 	return nil
@@ -159,18 +161,21 @@ func (fakeDir) Forget(...string)                                                
 type fakeEvents struct {
 	mu             sync.Mutex
 	likes, reposts int
+	ctxErrs        []error // ctx.Err() seen by each Liked/Reposted: the effects must not run on a cancelled ctx
 }
 
-func (e *fakeEvents) Liked(context.Context, string, *posts.Post, time.Time) {
+func (e *fakeEvents) Liked(ctx context.Context, _ string, _ *posts.Post, _ time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.likes++
+	e.ctxErrs = append(e.ctxErrs, ctx.Err())
 }
 
-func (e *fakeEvents) Reposted(context.Context, string, *posts.Post, string, time.Time) {
+func (e *fakeEvents) Reposted(ctx context.Context, _ string, _ *posts.Post, _ string, _ time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.reposts++
+	e.ctxErrs = append(e.ctxErrs, ctx.Err())
 }
 
 type env struct {
@@ -568,7 +573,13 @@ func assertLikeEffects(t *testing.T, e *env) {
 	t.Helper()
 	e.events.mu.Lock()
 	likes := e.events.likes
+	ctxErrs := append([]error(nil), e.events.ctxErrs...)
 	e.events.mu.Unlock()
+	for _, ce := range append(ctxErrs, e.repo.trimCtxErrs...) {
+		if ce != nil {
+			t.Errorf("post-commit effect ran on a cancelled ctx (%v): the notification would be lost", ce)
+		}
+	}
 	if likes != 1 || len(e.posts.counts) != 1 || e.posts.counts[0] != pidA+":1:0" {
 		t.Errorf("events.likes=%d counts=%v, want 1 and [%s:1:0]", likes, e.posts.counts, pidA)
 	}

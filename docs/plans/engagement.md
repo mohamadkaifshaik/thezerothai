@@ -85,9 +85,9 @@ Posts tab skips the filter entirely.
 
 | RPC | Reads cold / warm | Writes / deletes | Asserted by |
 |---|---|---|---|
-| LikePost (first like) | 5 (+1 overflow, +2 overflow for a QUOTE/REPOST target, +2 REPOST id) / 1: interceptor 1, post 1, author users 1, caller graph 1, `quotas` 1 in the transaction | 4: like, `likeCount`, `userLikes`, quota; replay 0 writes (same reads) | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
+| LikePost (first like) | 5 (+1 on blockedBy overflow (author graph), +1 more for a QUOTE/REPOST (embedded author), +2 REPOST id) / 1: interceptor 1, post 1, author users 1, caller graph 1, `quotas` 1 in the transaction | 4: like, `likeCount`, `userLikes`, quota; replay 0 writes (same reads) | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | UnlikePost | <= 3 / 0: interceptor, the post for the returned counts (cache first), +1 for a REPOST id | 2 + 1 delete (`likeCount`, `userLikes`; the like doc); no-op 0 | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
-| RepostPost (first) | 5 (+1, +2 overflow for a QUOTE/REPOST target, +2) / 1: as Like, `quotas` 1 | 6: reposts doc, REPOST post, `repostCount`, `users.postsCount`, `userLikes`, quota; replay +1 read (the reposts doc), 0 writes | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
+| RepostPost (first) | 5 (+1 on blockedBy overflow (author graph), +1 more for a QUOTE/REPOST (embedded author), +2 REPOST id) / 1: as Like, `quotas` 1 | 6: reposts doc, REPOST post, `repostCount`, `users.postsCount`, `userLikes`, quota; replay +1 read (the reposts doc), 0 writes | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | UndoRepost | 3 / 1: interceptor, `reposts/{id}`, the original (cache first) | 3 + 2 deletes (`repostCount`, `postsCount`, `userLikes`; reposts doc, REPOST post); no-op 0 | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | CreatePost (quote) | 17 cold / 2 warm (root post 14/2 + quoted post, its author, caller graph) | 5 (idempotency, post, `postsCount`, quota, quoted `quoteCount`) | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | DeletePost (REPOST) | 2 / 0 | 1 write (`postsCount`) + 2 deletes (post, reposts doc) + best effort 2 writes (`repostCount`, `userLikes`) | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
