@@ -45,7 +45,9 @@ func (s *service) RepostRemoved(authorID, repostID string) {
 
 // quoteTarget resolves and validates a quote target for CreatePost: the id shape, then the GetPost visibility
 // rules. A REPOST target resolves to the original (D4) and is checked with the same rules. Every refusal is the
-// one NOT_FOUND "post not found" answer. Reads: target 1 + its author 1 + caller graph 1 cold (+2 for a REPOST).
+// one NOT_FOUND "post not found" answer. Reads: target 1 + its author 1 + caller graph 1 cold (+2 for a REPOST); the embedded-author
+// check reuses the same caller snapshot (0 extra), +1 more on a blockedBy overflow (overflow worst case +2); the
+// caller's own copy is exempt.
 func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error) {
 	if !ids.ValidPostID(id) {
 		return nil, apierr.Validation("quote_of_post_id", "quote_of_post_id must be a 19-digit post id")

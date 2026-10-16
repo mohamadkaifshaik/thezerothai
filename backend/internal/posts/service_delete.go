@@ -124,7 +124,10 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 //
 // Firestore, worst case: post 1 + author users 1 + caller graph 1 cold (the caller's own users read belongs to
 // the account-status interceptor) = 3 here, 4 per request; +1 author graph when the caller's blockedBy
-// overflowed; 0 warm; writes 0. Filters use graph.Reader.Snapshot only (ADR-0008 D9).
+// overflowed. Another user's QUOTE or REPOST adds nothing when the author check already read the caller graph
+// (the same cached snapshot) and, on a blockedBy overflow, 1 read for the embedded author's graph, so the
+// overflow worst case is +2. The caller's own QUOTE or REPOST is exempt from the embed check (D13, same as a
+// direct post): no graph read at all. 0 warm; writes 0.
 func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "get")
 	defer func() {
@@ -185,7 +188,7 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 			embAuthor = p.EmbeddedAuthorID
 		}
 	}
-	checkEmbed := embAuthor != "" && embAuthor != callerUID && embAuthor != p.AuthorID
+	checkEmbed := embAuthor != "" && embAuthor != callerUID && embAuthor != p.AuthorID && p.AuthorID != callerUID
 
 	if p.AuthorID != callerUID || checkEmbed {
 		snap, err := s.graph.Snapshot(ctx, callerUID)

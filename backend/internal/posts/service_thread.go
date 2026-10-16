@@ -102,7 +102,8 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 //
 // Firestore, worst case with the interceptor's caller read: 1 + focal 1 + focal author 1 + caller graph 1 (+1
 // author graph on blockedBy overflow) + parent and root 2 + their authors <= 2 + one conversation query of
-// Limit(page) <= 30 => 38 cold; warm: the query only (1 .. 30). Writes 0.
+// Limit(page) <= 30 => 38 cold; warm: the query only (1 .. 30). Writes 0. A QUOTE or REPOST parent or root is
+// checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")
 	defer func() {
@@ -218,6 +219,12 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 			if snap.BlockedBy[p.AuthorID] || snap.Blocked[p.AuthorID] || snap.BlockedByOverflow {
 				return nil
 			}
+			// A QUOTE or REPOST copies another user's content: when that author blocks the caller (or the
+			// blockedBy set overflowed) the copy must not leak (ADR-0018 D13). 0 extra reads. The caller's own
+			// posts are exempt, same as a direct post.
+			if emb := embeddedAuthor(p); emb != "" && emb != caller && (snap.BlockedBy[emb] || snap.BlockedByOverflow) {
+				return nil
+			}
 		}
 		return p
 	}
@@ -259,4 +266,12 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.Draft.Kind, p.Draft.IsReply = KindReply, true
 	p.Draft.ReplyToID, p.Draft.ReplyToHandle = parent.ID, parent.Author.Handle
 	p.Draft.ConversationID = conv
+}
+
+// embeddedAuthor is the author of the post a QUOTE or REPOST copies, "" for other posts and tombstones.
+func embeddedAuthor(p *Post) string {
+	if p.Embedded != nil && !p.Embedded.Unavailable && p.Embedded.Author.UserID != "" {
+		return p.Embedded.Author.UserID
+	}
+	return p.EmbeddedAuthorID
 }

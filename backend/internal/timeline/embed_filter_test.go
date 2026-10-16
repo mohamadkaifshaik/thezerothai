@@ -24,6 +24,9 @@ func TestEmbedAllowed(t *testing.T) {
 		want bool
 	}{
 		{"plain post", graph.Snapshot{}, &posts.Post{AuthorID: "x", Kind: posts.KindPost}, true},
+		{"overflow fails closed for a foreign copy", graph.Snapshot{BlockedByOverflow: true}, embCopy(posts.KindRepost, "x", emb, embAuthor), false},
+		{"overflow keeps own copy", graph.Snapshot{BlockedByOverflow: true}, embCopy(posts.KindRepost, embViewer, emb, embAuthor), true},
+		{"overflow keeps tombstone", graph.Snapshot{BlockedByOverflow: true}, embCopy(posts.KindRepost, "x", &posts.Embedded{PostID: "9", Unavailable: true}, ""), true},
 		{"clean repost", graph.Snapshot{}, embCopy(posts.KindRepost, "x", emb, embAuthor), true},
 		{"blocked embedded author", graph.Snapshot{Blocked: map[string]bool{embAuthor: true}}, embCopy(posts.KindRepost, "x", emb, embAuthor), false},
 		{"muted embedded author", graph.Snapshot{Muted: map[string]bool{embAuthor: true}}, embCopy(posts.KindQuote, "x", emb, embAuthor), false},
@@ -69,7 +72,7 @@ func TestFilterEmbeds_IndependentOfFlag(t *testing.T) {
 					embCopy(posts.KindRepost, "a", &posts.Embedded{PostID: "9", Unavailable: true}, ""),
 				}
 				ctx, _ := budget.WithCounter(context.Background())
-				got, err := s.filterEmbeds(ctx, embViewer, in)
+				got, err := s.filterEmbeds(ctx, embViewer, "uid-profile", in)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -79,10 +82,19 @@ func TestFilterEmbeds_IndependentOfFlag(t *testing.T) {
 			})
 		}
 	}
+	t.Run("own profile skips the graph read", func(t *testing.T) {
+		g := &fakeGraph{}
+		s := NewServer(Deps{Graph: g})
+		in := []*posts.Post{embCopy(posts.KindRepost, embViewer, &posts.Embedded{PostID: "9", Author: posts.AuthorSnapshot{UserID: embAuthor}}, embAuthor)}
+		got, err := s.filterEmbeds(context.Background(), embViewer, embViewer, in)
+		if err != nil || len(got) != 1 || len(g.calls) != 0 {
+			t.Fatalf("got=%d err=%v calls=%v", len(got), err, g.calls)
+		}
+	})
 	t.Run("no copies skips the graph read", func(t *testing.T) {
 		g := &fakeGraph{}
 		s := NewServer(Deps{Graph: g})
-		if _, err := s.filterEmbeds(context.Background(), embViewer, []*posts.Post{{ID: "1", Kind: posts.KindPost}}); err != nil || len(g.calls) != 0 {
+		if _, err := s.filterEmbeds(context.Background(), embViewer, "uid-profile", []*posts.Post{{ID: "1", Kind: posts.KindPost}}); err != nil || len(g.calls) != 0 {
 			t.Fatalf("err=%v calls=%v", err, g.calls)
 		}
 	})

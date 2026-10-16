@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -42,6 +41,7 @@ type fakeRepo struct {
 	trims        [][]string
 	trimRepost   [][]string
 	undoIDs      []string
+	unlikeIDs    []string
 }
 
 func (f *fakeRepo) LoadUserLikes(context.Context, string) (UserLikes, error) {
@@ -54,7 +54,10 @@ func (f *fakeRepo) Like(_ context.Context, p LikeParams) (bool, error) {
 	return f.replayed, f.likeErr
 }
 
-func (f *fakeRepo) Unlike(context.Context, string, string) (bool, error) { return f.unlikeResult, nil }
+func (f *fakeRepo) Unlike(_ context.Context, _, postID string) (bool, error) {
+	f.unlikeIDs = append(f.unlikeIDs, postID)
+	return f.unlikeResult, nil
+}
 
 func (f *fakeRepo) Repost(_ context.Context, p RepostParams) (RepostResult, error) {
 	f.repostParams = append(f.repostParams, p)
@@ -72,7 +75,10 @@ func (f *fakeRepo) TrimLikes(_ context.Context, _ string, recent, reposts []stri
 	return nil
 }
 
+// fakePosts is touched by concurrent like calls, so every recorder takes mu. Tests read the recorded fields only
+// after the calls have returned (wg.Wait), which orders them after the writes.
 type fakePosts struct {
+	mu        sync.Mutex
 	docs      map[string]*posts.Post
 	hidden    map[string]bool
 	counts    []string
@@ -82,7 +88,9 @@ type fakePosts struct {
 }
 
 func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, error) {
+	f.mu.Lock()
 	f.viewCalls++
+	f.mu.Unlock()
 	p, ok := f.docs[id]
 	if !ok || f.hidden[id] {
 		return nil, posts.ErrNotFound
@@ -91,10 +99,21 @@ func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, erro
 }
 
 func (f *fakePosts) CountsChanged(id string, l, r int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.counts = append(f.counts, fmt.Sprintf("%s:%d:%d", id, l, r))
 }
-func (f *fakePosts) RepostCreated(p *posts.Post) { f.created = append(f.created, p) }
-func (f *fakePosts) RepostRemoved(a, id string)  { f.removed = append(f.removed, a+"/"+id) }
+func (f *fakePosts) RepostCreated(p *posts.Post) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.created = append(f.created, p)
+}
+
+func (f *fakePosts) RepostRemoved(a, id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removed = append(f.removed, a+"/"+id)
+}
 
 func (f *fakePosts) Get(_ context.Context, id string) (*posts.Post, error) {
 	if p, ok := f.docs[id]; ok {
@@ -137,10 +156,20 @@ func (fakeDir) LookupProfiles(context.Context, []string) (map[string]identity.Pr
 func (fakeDir) ResolveHandles(context.Context, []string) (map[string]string, error) { return nil, nil }
 func (fakeDir) Forget(...string)                                                    {}
 
-type fakeEvents struct{ likes, reposts int }
+type fakeEvents struct {
+	mu             sync.Mutex
+	likes, reposts int
+}
 
-func (e *fakeEvents) Liked(context.Context, string, *posts.Post, time.Time) { e.likes++ }
+func (e *fakeEvents) Liked(context.Context, string, *posts.Post, time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.likes++
+}
+
 func (e *fakeEvents) Reposted(context.Context, string, *posts.Post, string, time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.reposts++
 }
 
@@ -473,28 +502,15 @@ func (g *gateRepo) Like(ctx context.Context, _ LikeParams) (bool, error) {
 	return false, nil
 }
 
-// signalDir closes joined once n GetProfiles calls (one per Like, made just before the flight) have started.
-type signalDir struct {
-	fakeDir
-	n      int32
-	joined chan struct{}
-	seen   atomic.Int32
-}
-
-func (d *signalDir) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
-	if d.seen.Add(1) == d.n {
-		close(d.joined)
-	}
-	return d.fakeDir.GetProfiles(ctx, uids)
-}
-
-func newGateEnv(t *testing.T, n int32) (*env, *gateRepo, *signalDir) {
+// newGateEnv builds an env whose repo blocks Like at a gate. joined is closed once n callers have joined a flight
+// already in progress (flight.onJoin), the deterministic replacement for yielding to the scheduler: when it is
+// closed every follower is parked on the leader's flight, so opening the gate cannot race a late arrival.
+func newGateEnv(t *testing.T, n int32) (*env, *gateRepo, chan struct{}) {
 	t.Helper()
 	e := newEnv(t)
 	g := &gateRepo{fakeRepo: e.repo, started: make(chan struct{}), release: make(chan struct{})}
-	d := &signalDir{fakeDir: fakeDir{created: time.Now().Add(-48 * time.Hour)}, n: n, joined: make(chan struct{})}
 	m, err := New(Deps{
-		Repo: g, Posts: e.posts, Reader: e.posts, Directory: d,
+		Repo: g, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)},
 		Events: e.events, LikesPerDay: 500, NewAccountLikesPerDay: 100, NewAccountWindow: 24 * time.Hour,
 		CacheTTL: time.Minute, AllowAnonymous: true,
 	})
@@ -502,19 +518,19 @@ func newGateEnv(t *testing.T, n int32) (*env, *gateRepo, *signalDir) {
 		t.Fatal(err)
 	}
 	e.m = m
-	return e, g, d
-}
-
-// settle lets goroutines that already passed GetProfiles reach singleflight before the gate opens.
-func settle() {
-	for range 200 {
-		runtime.Gosched()
+	joined := make(chan struct{})
+	var seen atomic.Int32
+	m.s.likeFlight.onJoin = func(string) {
+		if seen.Add(1) == n {
+			close(joined)
+		}
 	}
+	return e, g, joined
 }
 
 func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 	const n = 8
-	e, g, d := newGateEnv(t, n)
+	e, g, joined := newGateEnv(t, n-1)
 	var wg sync.WaitGroup
 	results := make([]Result, n)
 	errs := make([]error, n)
@@ -526,8 +542,7 @@ func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 		}()
 	}
 	<-g.started
-	<-d.joined
-	settle()
+	<-joined
 	close(g.release)
 	wg.Wait()
 	for i := range n {
@@ -539,25 +554,26 @@ func TestLike_ConcurrentCallsCollapseIntoOneTransaction(t *testing.T) {
 			t.Errorf("call %d: LikeCount = %d, want 5", i, results[i].LikeCount)
 		}
 	}
-	if g.calls >= n {
-		t.Errorf("repo.Like calls = %d, want collapsed (< %d)", g.calls, n)
+	if g.calls != 1 {
+		t.Errorf("repo.Like calls = %d, want exactly 1 (every other caller joined the flight)", g.calls)
 	}
 	if e.events.likes != g.calls || len(e.posts.counts) != g.calls {
 		t.Errorf("events=%d counts=%v calls=%d: one notification and counter bump per transaction", e.events.likes, e.posts.counts, g.calls)
 	}
 }
 
-// A leader whose own request context is cancelled must not fail or cancel the transaction its followers wait on.
+// A leader whose own request context is cancelled gives up on its own call (every caller honours its own
+// context) but must not fail or cancel the transaction its followers wait on.
 func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
-	e, g, d := newGateEnv(t, 2)
+	e, g, joined := newGateEnv(t, 1)
 	leaderCtx, cancelLeader := context.WithCancel(e.ctx)
 	var wg sync.WaitGroup
-	var leaderRes, followerRes Result
+	var followerRes Result
 	var leaderErr, followerErr error
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		leaderRes, leaderErr = e.m.Like(leaderCtx, "viewer", keyOK, pidA)
+		_, leaderErr = e.m.Like(leaderCtx, "viewer", keyOK, pidA)
 	}()
 	<-g.started // the leader is inside the repo
 	wg.Add(1)
@@ -565,8 +581,7 @@ func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
 		defer wg.Done()
 		followerRes, followerErr = e.m.Like(e.ctx, "viewer", keyOK, pidA)
 	}()
-	<-d.joined
-	settle()
+	<-joined // the follower is parked on the leader's flight
 	cancelLeader()
 	close(g.release)
 	wg.Wait()
@@ -581,7 +596,41 @@ func TestLike_LeaderCancellationDoesNotFailFollowers(t *testing.T) {
 	if followerErr != nil || !followerRes.LikedByViewer || followerRes.LikeCount != 5 {
 		t.Errorf("follower: %+v, %v", followerRes, followerErr)
 	}
-	if leaderErr != nil || leaderRes.LikeCount != 5 {
+	// The leader's request was cancelled while the flight ran: it answers with its own context error.
+	if !errors.Is(leaderErr, context.Canceled) {
+		t.Errorf("leader err = %v, want context.Canceled", leaderErr)
+	}
+}
+
+// A follower that gives up returns its own context error while the flight and the leader carry on.
+func TestLike_FollowerCancellationDoesNotFailTheLeader(t *testing.T) {
+	e, g, joined := newGateEnv(t, 1)
+	followerCtx, cancelFollower := context.WithCancel(e.ctx)
+	var wg sync.WaitGroup
+	var leaderRes Result
+	var leaderErr, followerErr error
+	followerDone := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		leaderRes, leaderErr = e.m.Like(e.ctx, "viewer", keyOK, pidA)
+	}()
+	<-g.started
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(followerDone)
+		_, followerErr = e.m.Like(followerCtx, "viewer", keyOK, pidA)
+	}()
+	<-joined
+	cancelFollower()
+	<-followerDone // the follower returned while the flight is still gated
+	close(g.release)
+	wg.Wait()
+	if !errors.Is(followerErr, context.Canceled) {
+		t.Errorf("follower err = %v, want context.Canceled", followerErr)
+	}
+	if leaderErr != nil || !leaderRes.LikedByViewer || leaderRes.LikeCount != 5 {
 		t.Errorf("leader: %+v, %v", leaderRes, leaderErr)
 	}
 }
@@ -621,6 +670,18 @@ func TestUndoAndUnlike_OriginalGone(t *testing.T) {
 			t.Fatalf("r=%+v counts=%v", r, e.posts.counts)
 		}
 	})
+	t.Run("undo repost by a REPOST id whose original is gone", func(t *testing.T) {
+		e := newEnv(t)
+		delete(e.posts.docs, pidA)
+		e.repo.undoRes = UndoResult{Removed: true, RepostPostID: pidRep}
+		r, err := e.m.UndoRepost(e.ctx, "viewer", keyOK, pidRep)
+		if err != nil || r.PostID != pidA {
+			t.Fatalf("r=%+v err=%v", r, err)
+		}
+		if len(e.repo.undoIDs) != 1 || e.repo.undoIDs[0] != pidA {
+			t.Fatalf("repo undo ids = %v, want the original %s (not the REPOST id)", e.repo.undoIDs, pidA)
+		}
+	})
 	t.Run("unlike by a REPOST id whose original is gone", func(t *testing.T) {
 		e := newEnv(t)
 		delete(e.posts.docs, pidA)
@@ -628,6 +689,12 @@ func TestUndoAndUnlike_OriginalGone(t *testing.T) {
 		r, err := e.m.Unlike(e.ctx, "viewer", keyOK, pidRep)
 		if err != nil || r.LikeCount != 0 || len(e.posts.counts) != 0 {
 			t.Fatalf("r=%+v err=%v counts=%v", r, err, e.posts.counts)
+		}
+		if len(e.repo.unlikeIDs) != 1 || e.repo.unlikeIDs[0] != pidA {
+			t.Fatalf("repo unlike ids = %v, want the original %s (not the REPOST id)", e.repo.unlikeIDs, pidA)
+		}
+		if r.PostID != pidA {
+			t.Fatalf("r.PostID = %s, want %s", r.PostID, pidA)
 		}
 	})
 }

@@ -493,3 +493,61 @@ func TestServer_GetThreadAndReplyMapping(t *testing.T) {
 		t.Fatalf("root posts must not depend on FEATURE_REPLIES: %v", err)
 	}
 }
+
+// A QUOTE or REPOST used as the parent or root context row copies another user's content: when that author
+// blocks the caller (or the blockedBy set overflowed) the row is a tombstone, with no extra read (ADR-0018 D13).
+func TestGetThread_ContextCopyOfABlockingAuthorIsATombstone(t *testing.T) {
+	const uEmb = "uid-embedded"
+	copyOf := func(p *Post, kind Kind, author string) {
+		p.Kind = kind
+		p.Embedded = &Embedded{PostID: "9", Author: AuthorSnapshot{UserID: author}, Text: "secret"}
+		p.EmbeddedAuthorID = author
+	}
+	tests := []struct {
+		name                  string
+		focal                 string
+		copyID                string // the context row turned into a copy
+		kind                  Kind
+		embAuthor             string
+		snap                  graph.Snapshot
+		wantParentUnavailable bool
+		wantRootUnavailable   bool
+	}{
+		{"parent quote, embedded author blocks caller", rReply4, rReply1, KindQuote, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, true, false},
+		{"parent repost, embedded author blocks caller", rReply4, rReply1, KindRepost, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, true, false},
+		{"root quote, embedded author blocks caller", rReply4, rRoot, KindQuote, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, false, true},
+		{"parent is also the root", rReply1, rRoot, KindRepost, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, true, true},
+		{"overflow fails closed (every context row)", rReply4, rReply1, KindQuote, uEmb,
+			graph.Snapshot{BlockedByOverflow: true}, true, true},
+		{"clean copy is shown", rReply4, rReply1, KindQuote, uEmb, graph.Snapshot{}, false, false},
+		{"caller blocking the embedded author does not hide it", rReply4, rReply1, KindQuote, uEmb,
+			graph.Snapshot{Blocked: map[string]bool{uEmb: true}}, false, false},
+		{"embedded author is the caller", rReply4, rReply1, KindQuote, testUID,
+			graph.Snapshot{BlockedBy: map[string]bool{testUID: true}}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newThreadEnv()
+			copyOf(e.repo.docs[tt.copyID], tt.kind, tt.embAuthor)
+			e.graph.snap = tt.snap
+			th, c, err := e.thread(ThreadInput{PostID: tt.focal})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if th.ParentUnavailable != tt.wantParentUnavailable || th.RootUnavailable != tt.wantRootUnavailable {
+				t.Fatalf("parentUnavailable=%v rootUnavailable=%v, want %v / %v", th.ParentUnavailable, th.RootUnavailable,
+					tt.wantParentUnavailable, tt.wantRootUnavailable)
+			}
+			if (th.Parent == nil) != tt.wantParentUnavailable || (th.Root == nil) != tt.wantRootUnavailable {
+				t.Fatalf("copied content leaked: parent=%v root=%v", th.Parent, th.Root)
+			}
+			if c.Reads() > 38 {
+				t.Fatalf("reads = %d", c.Reads())
+			}
+		})
+	}
+}

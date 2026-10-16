@@ -348,3 +348,22 @@ func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 		})
 	}
 }
+
+// The caller's own QUOTE or REPOST is exempt from the embedded-author check (ADR-0018 D13, same as a direct post):
+// it stays viewable even when the copied author blocks the caller, and costs no caller-graph read.
+func TestGetForViewer_OwnCopyIsExempt(t *testing.T) {
+	const embUID = "uid-embedded"
+	e := newDeleteEnv()
+	d := e.repo.docs[pidOther]
+	d.AuthorID = testUID
+	d.Author = AuthorSnapshot{UserID: testUID}
+	d.Kind = KindQuote
+	d.Embedded = &Embedded{PostID: "9", Author: AuthorSnapshot{UserID: embUID}}
+	d.EmbeddedAuthorID = embUID
+	e.graph.snaps = map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}, BlockedByOverflow: true}}
+	e.dir.profiles[testUID] = identity.Profile{UserID: testUID, Handle: "alice", Status: identity.AccountStatusActive}
+	_, p, err := e.get(pidOther)
+	if err != nil || p == nil {
+		t.Fatalf("own copy hidden: p=%v err=%v", p, err)
+	}
+}

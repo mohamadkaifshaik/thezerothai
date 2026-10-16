@@ -277,8 +277,12 @@ func (s *Server) toViews(ctx context.Context, uid string, engaged bool, ps []*po
 }
 
 // filterEmbeds applies embedAllowed to a profile page. The caller's graph snapshot is the one checkVisible just
-// read (cached); only a caller viewing their own profile pays 1 read, and only when the page has a REPOST or QUOTE.
-func (s *Server) filterEmbeds(ctx context.Context, caller string, ps []*posts.Post) ([]*posts.Post, error) {
+// read (cached), so the filter costs 0 reads. A caller viewing their own profile skips it: embedAllowed keeps the
+// viewer's own copies anyway (D13, same as a direct post), which restores 0 reads for the own Posts tab.
+func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*posts.Post) ([]*posts.Post, error) {
+	if caller == target {
+		return ps, nil
+	}
 	need := false
 	for _, p := range ps {
 		if p.Kind == posts.KindRepost || p.Kind == posts.KindQuote {
@@ -304,7 +308,9 @@ func (s *Server) filterEmbeds(ctx context.Context, caller string, ps []*posts.Po
 
 // embedAllowed is the ADR-0018 D13 feed filter: a REPOST or QUOTE is dropped when the author of the post it
 // copies is blocked or muted by the viewer, or blocks the viewer, so no content of such a user leaks through a
-// copy. The viewer's own copies and tombstones (no embedded author) are kept.
+// copy. The viewer's own copies and tombstones (no embedded author) are kept. When the viewer's blockedBy set
+// overflowed it cannot prove an embedded author does not block them, so a foreign copy fails closed (the same
+// choice posts makes for GetThread context; no extra graph read per row).
 func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
 	a := p.EmbeddedAuthorID
 	if a == "" && p.Embedded != nil && !p.Embedded.Unavailable {
@@ -312,6 +318,9 @@ func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
 	}
 	if a == "" || a == uid || p.AuthorID == uid {
 		return true
+	}
+	if snap.BlockedByOverflow {
+		return false
 	}
 	return allowedAuthor(snap, a)
 }
@@ -350,7 +359,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	engaged := s.engagementOn(caller)
 	// The embed filter is a privacy rule, not a viewer feature: it applies whatever the caller's
 	// FEATURE_ENGAGEMENT state is (the flag only gates viewer-flag hydration).
-	items, err := s.filterEmbeds(ctx, caller, res.page.Items)
+	items, err := s.filterEmbeds(ctx, caller, target, res.page.Items)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +368,8 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
 	logger.SetRequestField(ctx, fieldCacheHit, res.cacheHit)
-	logger.SetRequestField(ctx, fieldReturned, len(res.page.Items))
+	logger.SetRequestField(ctx, fieldReturned, len(items))
+	logger.SetRequestField(ctx, fieldFiltered, len(res.page.Items)-len(items))
 	logger.SetRequestField(ctx, fieldGap, out.GetGapPageToken() != "")
 	return out, nil
 }

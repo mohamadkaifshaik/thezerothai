@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"golang.org/x/sync/singleflight"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -73,7 +72,7 @@ type service struct {
 	d          Deps
 	cache      *userCache
 	now        func() time.Time
-	likeFlight singleflight.Group
+	likeFlight flight
 }
 
 // New builds the service. Events defaults to the no-op.
@@ -218,26 +217,27 @@ func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*pos
 }
 
 // resolveForCounts is resolveViewable without the visibility rules, for Unlike and UndoRepost (a user can always
-// retract): the post for the returned counts, cache first. ok is false when the post is gone.
-func (s *service) resolveForCounts(ctx context.Context, postID string) (*posts.Post, bool, error) {
-	p, err := s.d.Reader.Get(ctx, postID)
+// retract): the post for the returned counts, cache first. found is false when the post is gone, and id is then
+// the id to act on: the original's id when postID was a REPOST whose original is gone, else postID itself.
+func (s *service) resolveForCounts(ctx context.Context, postID string) (p *posts.Post, id string, found bool, err error) {
+	p, err = s.d.Reader.Get(ctx, postID)
 	if errors.Is(err, posts.ErrNotFound) {
-		return nil, false, nil
+		return nil, postID, false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, postID, false, err
 	}
 	if p.Kind == posts.KindRepost && p.RepostOfID != "" {
 		o, err := s.d.Reader.Get(ctx, p.RepostOfID)
 		if errors.Is(err, posts.ErrNotFound) {
-			return nil, false, nil
+			return nil, p.RepostOfID, false, nil
 		}
 		if err != nil {
-			return nil, false, err
+			return nil, postID, false, err
 		}
-		return o, true, nil
+		return o, o.ID, true, nil
 	}
-	return p, true, nil
+	return p, p.ID, true, nil
 }
 
 func (s *service) profile(ctx context.Context, uid string) (identity.Profile, error) {
@@ -303,13 +303,13 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// they are replays (no counter bump, no notification).
 	//
 	// The flight runs on a context detached from the leader's cancellation (values such as the budget counter
-	// and request log are kept) with its own transaction deadline, so a leader whose client disconnects does not
-	// fail the followers still waiting on it.
-	led := false
-	v, err, _ := s.likeFlight.Do(uid+"/"+target.ID, func() (any, error) {
-		led = true
-		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), txTimeout)
-		defer cancel()
+	// and request log are kept; the repo's runTx supplies the transaction deadline), so a leader whose client
+	// disconnects does not fail the followers still waiting on it. Every caller, the leader included, also
+	// honours its own context while waiting.
+	var fr flightResult
+	select {
+	case fr = <-s.likeFlight.do(uid+"/"+target.ID, func() (any, error) {
+		fctx := context.WithoutCancel(ctx) // runTx bounds the transaction with txTimeout
 		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
 		if err != nil {
 			return nil, err
@@ -320,13 +320,18 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 			count++
 		}
 		return likeOutcome{replayed: rep, count: max(count, 0)}, nil
-	})
+	}):
+	case <-ctx.Done():
+		// This caller gave up; the flight (and its followers) carries on without it.
+		return Result{}, logger.RedactErr(fmt.Errorf("engagement: like: %w", ctx.Err()), uid)
+	}
+	err = fr.err
 	var oc likeOutcome
 	if err == nil {
-		oc, _ = v.(likeOutcome)
+		oc, _ = fr.val.(likeOutcome)
 	}
 	replayed := oc.replayed
-	if err == nil && !led {
+	if err == nil && !fr.led {
 		replayed = true
 	}
 	switch {
@@ -424,13 +429,9 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 	if err := validate(key, postID); err != nil {
 		return Result{}, err
 	}
-	target, found, err := s.resolveForCounts(ctx, postID)
+	target, id, found, err := s.resolveForCounts(ctx, postID)
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: unlike: load post: %w", err), uid)
-	}
-	id := postID
-	if found {
-		id = target.ID
 	}
 	removed, err := s.d.Repo.Unlike(ctx, uid, id)
 	if err != nil {
@@ -534,13 +535,9 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 		return Result{}, err
 	}
 	// Like Unlike: a REPOST's own id resolves to the original it copies, so undoing "from the repost" works.
-	orig, found, err := s.resolveForCounts(ctx, postID)
+	orig, id, found, err := s.resolveForCounts(ctx, postID)
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: load post: %w", err), uid)
-	}
-	id := postID
-	if found {
-		id = orig.ID
 	}
 	res, err := s.d.Repo.UndoRepost(ctx, uid, id)
 	if err != nil {

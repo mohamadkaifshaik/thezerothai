@@ -64,7 +64,11 @@ func (c *userCache) update(uid string, fn func(recent, reposts []string) ([]stri
 	return next
 }
 
-func (c *userCache) delete(uid string) { c.lru.Delete(uid) }
+func (c *userCache) delete(uid string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lru.Delete(uid)
+}
 
 // withID appends id (newest last) unless present.
 func withID(list []string, id string) []string {
