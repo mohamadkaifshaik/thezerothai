@@ -531,20 +531,24 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 type racingDirectory struct {
 	*fakeDirectory
 	hook func()
+	// every re-arms the hook on each call (a row that keeps changing under the purge).
+	every bool
 }
 
 func (d *racingDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
 	if d.hook != nil {
 		h := d.hook
-		d.hook = nil
+		if !d.every {
+			d.hook = nil
+		}
 		h()
 	}
 	return d.fakeDirectory.GetProfiles(ctx, uids)
 }
 
 // TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold: a like folded in between the purge's query and its
-// commit must not be overwritten by the stale snapshot (precondition on the update time); the batch fails and a
-// retry applies cleanly.
+// commit must not be overwritten by the stale snapshot (precondition on the update time); the batch fails and the
+// inline retry applies cleanly.
 func TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold(t *testing.T) {
 	client := newTestClient(t)
 	ctx := context.Background()
@@ -558,35 +562,54 @@ func TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold(t *testing.T) {
 		mustNoErr(t, plain.AddActor(ctx, "carol", "like_x", Actor{UserID: "erin", Handle: "h_erin"}, t0.Add(2*time.Second)))
 	}
 	repo := NewFirestoreRepo(client).WithDirectory(dir)
-	failCtx, failCounter := budget.WithCounter(ctx)
-	cp, done, err := repo.PurgeUser(failCtx, "alice", Checkpoint{Step: 2})
-	if err != nil || done || cp.Step != 2 || cp.Deleted != 0 {
-		t.Fatalf("a lost precondition is a no-progress no-op, not an error: cp=%+v done=%v err=%v", cp, done, err)
+	runCtx, counter := budget.WithCounter(ctx)
+	_, done, err := repo.PurgeUser(runCtx, "alice", Checkpoint{Step: 2})
+	mustNoErr(t, err)
+	if !done {
+		t.Error("the inline retry must finish the step")
 	}
-	if failCounter.Writes() != 0 || failCounter.Deletes() != 0 {
-		t.Fatalf("failed batch counted writes=%d deletes=%d, want 0/0", failCounter.Writes(), failCounter.Deletes())
+	// Only the retry's batch commits: 1 repointed row, the failed attempt counted nothing.
+	if counter.Writes() != 1 || counter.Deletes() != 0 {
+		t.Errorf("counted writes=%d deletes=%d, want 1/0 (one repointed row)", counter.Writes(), counter.Deletes())
 	}
 	snap, err := client.Doc("users/carol/notifications/like_x").Get(ctx)
 	mustNoErr(t, err)
 	var d notificationDoc
 	mustNoErr(t, snap.DataTo(&d))
-	if len(d.ActorIDs) != 3 || d.Actor.UserID != "erin" || d.ActorCount != 3 {
-		t.Fatalf("the concurrent fold was clobbered: %+v", d)
-	}
-	// The retry sees fresh data: alice is removed, erin stays the displayed actor.
-	retryCtx, retryCounter := budget.WithCounter(ctx)
-	_, done, err = repo.PurgeUser(retryCtx, "alice", Checkpoint{Step: 2})
-	mustNoErr(t, err)
-	if !done {
-		t.Error("retry must finish")
-	}
-	if retryCounter.Writes() != 1 || retryCounter.Deletes() != 0 {
-		t.Errorf("retry counted writes=%d deletes=%d, want 1/0 (one repointed row)", retryCounter.Writes(), retryCounter.Deletes())
-	}
-	snap, err = client.Doc("users/carol/notifications/like_x").Get(ctx)
-	mustNoErr(t, err)
-	mustNoErr(t, snap.DataTo(&d))
 	if strings.Join(d.ActorIDs, ",") != "dave,erin" || d.Actor.UserID != "erin" || d.ActorCount != 2 {
-		t.Errorf("row after retry = %+v", d)
+		t.Errorf("the concurrent fold was clobbered or alice not removed: %+v", d)
+	}
+}
+
+// TestIntegration_PurgeStep2PersistentRaceEndsInAnError: a row that changes between every query and commit must
+// not loop forever as a no-progress success; after the one inline retry the step errors so the job's
+// step-error budget and backoff apply.
+func TestIntegration_PurgeStep2PersistentRaceEndsInAnError(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	plain := NewFirestoreRepo(client)
+	_, err := plain.Create(ctx, "carol", row("like_x", TypeLike, "dave", t0))
+	mustNoErr(t, err)
+	mustNoErr(t, plain.AddActor(ctx, "carol", "like_x", Actor{UserID: "alice", Handle: "h_alice"}, t0.Add(time.Second)))
+
+	calls := 0
+	dir := &racingDirectory{fakeDirectory: newDirectory("dave", "erin"), every: true}
+	dir.hook = func() {
+		calls++
+		// Touch the row without changing who is displayed, so every attempt reaches GetProfiles again.
+		_, err := client.Doc("users/carol/notifications/like_x").Update(ctx, []firestore.Update{{Path: "bumped", Value: calls}})
+		mustNoErr(t, err)
+	}
+	repo := NewFirestoreRepo(client).WithDirectory(dir)
+	cctx, counter := budget.WithCounter(ctx)
+	cp, done, err := repo.PurgeUser(cctx, "alice", Checkpoint{Step: 2})
+	if err == nil || done {
+		t.Fatalf("persistent race: cp=%+v done=%v err=%v, want an error", cp, done, err)
+	}
+	if calls != 2 {
+		t.Errorf("step ran %d times, want exactly 2 (one inline retry)", calls)
+	}
+	if counter.Writes() != 0 || counter.Deletes() != 0 {
+		t.Errorf("failed batches counted writes=%d deletes=%d, want 0/0", counter.Writes(), counter.Deletes())
 	}
 }

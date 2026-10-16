@@ -459,6 +459,10 @@ func TestDeliver_FreshStatusReadAndWriteFreeLikeRedelivery(t *testing.T) {
 	if r.repo.foldWrite != 1 {
 		t.Errorf("fold writes = %d, want 1 (redelivery must be write-free)", r.repo.foldWrite)
 	}
+	// AddActor moves createdAt, so each of carol's 3 deliveries evicts bob's cached unread count (0 reads).
+	if want := "bob,bob,bob"; strings.Join(r.dir.forgottenUnread, ",") != want {
+		t.Errorf("after carol's likes forgottenUnread = %v, want %s", r.dir.forgottenUnread, want)
+	}
 	row := r.repo.rows["bob"]["like_"+postA+"_2026101012"]
 	if len(row.ActorIDs) != 2 || row.ActorCount != 2 {
 		t.Errorf("row = %+v", row)

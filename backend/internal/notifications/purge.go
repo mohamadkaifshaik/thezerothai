@@ -5,6 +5,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -52,12 +53,31 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	case 0:
 		return r.purgeDevices(ctx, uid, cp)
 	case 1:
-		return r.purgeOwnRows(ctx, uid, cp)
+		return r.withRaceRetry(ctx, uid, cp, r.purgeOwnRows)
 	case 2:
-		return r.purgeActorRows(ctx, uid, cp)
+		return r.withRaceRetry(ctx, uid, cp, r.purgeActorRows)
 	default:
 		return cp, false, fmt.Errorf("notifications: purge: unknown checkpoint step %d", cp.Step)
 	}
+}
+
+// errPurgeRaced reports a batch whose preconditions lost a race with a concurrent writer.
+var errPurgeRaced = errors.New("notifications: purge: precondition lost a race")
+
+// withRaceRetry runs one purge step; when its batch loses a precondition race it re-queries and retries once
+// inline (graph/purge.go pattern), then returns an error so the job's step-error budget and backoff apply
+// instead of an unbounded immediate re-run that burns reads.
+func (r *FirestoreRepo) withRaceRetry(ctx context.Context, uid string, cp Checkpoint,
+	step func(context.Context, string, Checkpoint) (Checkpoint, bool, error)) (Checkpoint, bool, error) {
+	next, done, err := step(ctx, uid, cp)
+	if !errors.Is(err, errPurgeRaced) {
+		return next, done, err
+	}
+	next, done, err = step(ctx, uid, cp)
+	if errors.Is(err, errPurgeRaced) {
+		return cp, false, fmt.Errorf("notifications: purge %s step %d: rows kept changing: %w", logger.HashUID(uid), cp.Step, err)
+	}
+	return next, done, err
 }
 
 // purgeOwnRows is step 1: a page of the user's own notification rows.
@@ -78,7 +98,7 @@ func (r *FirestoreRepo) purgeOwnRows(ctx context.Context, uid string, cp Checkpo
 			return cp, false, fmt.Errorf("notifications: purge %s step 1: %w", logger.HashUID(uid), err)
 		}
 		if !committed {
-			return cp, false, nil // a precondition lost a race; the next call re-queries
+			return cp, false, errPurgeRaced // a precondition lost a race; withRaceRetry re-queries once
 		}
 	}
 	next := Checkpoint{Step: 1, Deleted: cp.Deleted + len(docs)}
@@ -142,8 +162,8 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 		}
 	}
 	// Every write is conditioned on the update time the query saw: a concurrent AddActor (a like folding in)
-	// makes the commit fail its precondition instead of clobbering it. That is not an error: the step returns
-	// without progress and is re-run from a fresh query (it must not count against the job's step-error budget).
+	// makes the commit fail its precondition instead of clobbering it. The step is retried once from a fresh
+	// query; a second loss is an error so the job's step-error budget and backoff apply.
 	// CommitWithRetry counts writes only for the attempt that commits.
 	if len(docs) > 0 {
 		committed, err := r.commitPurge(ctx, func(b store.Batch) {
@@ -172,7 +192,7 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 			return cp, false, fmt.Errorf("notifications: purge %s step 2: %w", logger.HashUID(uid), err)
 		}
 		if !committed {
-			return cp, false, nil
+			return cp, false, errPurgeRaced
 		}
 	}
 	next := Checkpoint{Step: 2, Deleted: cp.Deleted + len(docs)}

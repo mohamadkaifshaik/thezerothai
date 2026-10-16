@@ -79,6 +79,29 @@ func TestPurgeUser_DeletesDeterministicPublicNamesForUnrecordedObjects(t *testin
 	}
 }
 
+// A READY webp document is exactly 4 object deletes: 2 deduplicated public names (recorded paths equal the
+// deterministic ones) and its 2 private upload objects.
+func TestPurgeUser_ReadyWebpDeletesFourObjects(t *testing.T) {
+	r, o := newFakeRepo(), newFakeObjects()
+	id := "0000000000000008002"
+	pub, thumb := publicObject(id, "webp"), publicThumbObject(id, "webp")
+	r.docs[id] = &Doc{
+		ID: id, OwnerID: uidA, Status: string(StatusReady), ContentType: "image/webp",
+		PublicPath: pub, ThumbPath: thumb,
+		UploadPath: "u/" + uidA + "/" + id + ".webp", ThumbUploadPath: "u/" + uidA + "/" + id + "_t.webp",
+	}
+	o.public[pub], o.public[thumb] = "image/webp", "image/webp"
+	o.upload[r.docs[id].UploadPath] = fakeObject{}
+	o.upload[r.docs[id].ThumbUploadPath] = fakeObject{}
+	_, done, err := NewPurger(r, o, "").PurgeUser(context.Background(), uidA, Checkpoint{})
+	if err != nil || !done {
+		t.Fatalf("done=%v err=%v", done, err)
+	}
+	if len(o.deleted) != 4 {
+		t.Fatalf("deleted = %v, want 4 objects", o.deleted)
+	}
+}
+
 func TestPurgeUser_ObjectsBeforeDocuments(t *testing.T) {
 	r, o := newFakeRepo(), newFakeObjects()
 	seedPublished(r, o, idM1, uidA, "")

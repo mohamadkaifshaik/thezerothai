@@ -440,6 +440,34 @@ void main() {
       });
     });
 
+    test('a lockout of kFreshCheckWindow or more re-probes the handle', () {
+      fakeAsync((fa) {
+        stubAvailable();
+        stubChange(
+          () async => throw const QuotaExceededException(
+            'daily limit',
+            quota: 'snapshot_edits',
+            retryAfter: Duration(minutes: 2),
+          ),
+        );
+        cubit.handleChanged('new_one');
+        fa.flushTimers();
+        fa.flushMicrotasks();
+        unawaited(cubit.save());
+        fa.flushMicrotasks();
+        expect(cubit.state.cooldownUntil, isNotNull);
+
+        fa.elapse(const Duration(minutes: 2, seconds: 1));
+        fa.flushMicrotasks();
+
+        expect(cubit.state.cooldownUntil, isNull);
+        expect(cubit.state.handle, 'new_one');
+        // Unchanged and shown available, but the lockout outlasted the
+        // fresh window: probed again.
+        verify(() => repo.checkHandleAvailability('new_one')).called(2);
+      });
+    });
+
     test('an edit made during the lockout is checked when it ends', () {
       fakeAsync((fa) {
         stubAvailable();
