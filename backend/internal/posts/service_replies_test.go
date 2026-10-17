@@ -193,6 +193,98 @@ func TestCreateReply_IdempotencyKeyBindsTheParent(t *testing.T) {
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
+// --- ADR-0018 D17: replies to a REPOST resolve to the original --------------------------------------------
+
+const rRepost = "0000000000000000110" // by carol, a REPOST (its original is set per test)
+
+func withRepost(e *createEnv, of string) *Post {
+	rp := replyPost(rRepost, uCarol, "carol", "", rRepost)
+	rp.Kind, rp.RepostOfID = KindRepost, of
+	e.repo.docs[rRepost] = rp
+	return rp
+}
+
+func TestCreateReply_ToARepostResolvesToTheOriginal(t *testing.T) {
+	e := newThreadEnv()
+	rp := withRepost(e, rRoot)
+	_, direct, err := newThreadEnv().create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRoot, RepliesEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "good point", ReplyToPostID: rRepost, RepliesEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ReplyToID != rRoot || p.ReplyToHandle != "zed" || p.ConversationID != rRoot || !p.IsReply {
+		t.Fatalf("reply = %+v, want parent, handle and conversation of the original", p)
+	}
+	if got := e.repo.docs[rRoot].ReplyCount; got != 1 {
+		t.Fatalf("original replyCount = %d, want 1", got)
+	}
+	if rp.ReplyCount != 0 || rp.LikeCount != 0 || rp.RepostCount != 0 || rp.QuoteCount != 0 {
+		t.Fatalf("REPOST counters moved: %+v", rp)
+	}
+	// D17: +1 post read here; the original's author profile comes from the directory (+2 cold in Firestore).
+	if c.Writes() != direct.Writes() || c.Reads() < direct.Reads()+1 || c.Reads() > direct.Reads()+2 {
+		t.Fatalf("reads=%d writes=%d, direct reply reads=%d writes=%d; want +1..+2 reads, same writes",
+			c.Reads(), c.Writes(), direct.Reads(), direct.Writes())
+	}
+
+	// UndoRepost removes the REPOST doc; the reply's thread still renders from the original.
+	delete(e.repo.docs, rRepost)
+	th, _, err := e.thread(ThreadInput{PostID: p.ID})
+	if err != nil || th.Focal.ID != p.ID || th.Parent == nil || th.Parent.ID != rRoot || th.ParentUnavailable {
+		t.Fatalf("thread after UndoRepost: %+v err=%v", th, err)
+	}
+}
+
+func TestCreateReply_ToARepostNotFound(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(e *createEnv)
+	}{
+		{"original deleted", func(e *createEnv) { delete(e.repo.docs, rRoot) }},
+		{"original author blocks the caller", func(e *createEnv) { e.graph.snap.BlockedBy = map[string]bool{uZed: true} }},
+		{"original not public", func(e *createEnv) { e.repo.docs[rRoot].Visibility = VisibilityFollowers }},
+		{"repost without an original id", func(e *createEnv) { e.repo.docs[rRepost].RepostOfID = "" }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newThreadEnv()
+			withRepost(e, rRoot)
+			tc.setup(e)
+			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRepost, RepliesEnabled: true})
+			ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+			if ae.Message != postNotFoundText || c.Writes() != 0 {
+				t.Fatalf("message=%q writes=%d", ae.Message, c.Writes())
+			}
+		})
+	}
+}
+
+func TestGetThread_OnARepostIdOpensTheOriginalsThread(t *testing.T) {
+	e := newThreadEnv()
+	withRepost(e, rReply1)
+	th, c, err := e.thread(ThreadInput{PostID: rRepost})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Focal.ID != rReply1 || th.Parent == nil || th.Parent.ID != rRoot {
+		t.Fatalf("focal=%v parent=%v, want the original's thread", th.Focal.ID, th.Parent)
+	}
+	if c.Reads() > 40 {
+		t.Fatalf("reads = %d, want <= 40 (38 + 2 for the REPOST)", c.Reads())
+	}
+
+	delete(e.repo.docs, rReply1) // original gone: NOT_FOUND "post not found"
+	e.cache.DeletePost(rReply1)
+	_, _, err = e.thread(ThreadInput{PostID: rRepost})
+	if ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED); ae.Message != postNotFoundText {
+		t.Fatalf("message = %q", ae.Message)
+	}
+}
+
 // --- DeletePost of a reply ------------------------------------------------------------------------------
 
 func TestDeleteReply_ReleasesTheParentCounter(t *testing.T) {

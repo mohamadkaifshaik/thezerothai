@@ -202,7 +202,21 @@ func TestEngagementLifecycle_DeleteAccountWithEngagement(t *testing.T) {
 	if qs.Data()["text"] != "c take" {
 		t.Errorf("c's own quote text changed: %v", qs.Data()["text"])
 	}
-	// Likes OTHER users left on a's post are not touched by the purge (review MAJOR 5, a founder decision): they
-	// name only the deleted post id, no PII of a. Logged so a change in behaviour is visible.
-	t.Logf("likes by other users on the deleted post (orphans, no PII): %d", countWhere(t, e.fs, "likes", "postId", pA))
+	// Likes OTHER users left on a's post are not touched by the purge (ADR-0018 "Orphaned likes", a founder
+	// decision): they name only the deleted post id and the liker's own uid, no PII of a. Exactly c's like is
+	// left (a's self-like went with a's records), and none of the deleted user's own likes remain anywhere.
+	orphans, err := e.fs.Collection("likes").Where("postId", "==", pA).Limit(50).Documents(ctx).GetAll()
+	if err != nil {
+		t.Fatalf("list orphan likes: %v", err)
+	}
+	if len(orphans) != 1 || orphans[0].Ref.ID != pA+"_"+c.uid || orphans[0].Data()["uid"] != c.uid {
+		var got []string
+		for _, d := range orphans {
+			got = append(got, d.Ref.ID)
+		}
+		t.Errorf("orphan likes on the deleted post = %v, want exactly [%s_%s]", got, pA, c.uid)
+	}
+	if n := countWhere(t, e.fs, "likes", "uid", a.uid); n != 0 {
+		t.Errorf("likes by the deleted user: %d, want 0", n)
+	}
 }

@@ -43,6 +43,31 @@ func (s *service) RepostRemoved(authorID, repostID string) {
 	s.directory.Forget(authorID)
 }
 
+// viewableResolved is the one REPOST resolver (ADR-0018 D4 for quotes, D17 for replies and GetThread): it returns
+// the post by the viewable rules and, when that post is a REPOST, its original by the same rules. The REPOST's own
+// counters are never touched. A REPOST without an original id is treated as gone. Errors are those of viewable
+// (ErrNotFound for every refusal). Reads: target 1 + its author 1 + caller graph 1 cold, +2 for a REPOST (the
+// original and its author); 0 warm.
+func (s *service) viewableResolved(ctx context.Context, uid, id string) (*Post, error) {
+	p, err := s.viewable(ctx, uid, id)
+	if err != nil || p.Kind != KindRepost {
+		return p, err
+	}
+	if p.RepostOfID == "" {
+		return nil, ErrNotFound
+	}
+	return s.viewable(ctx, uid, p.RepostOfID)
+}
+
+// resolveTarget is viewableResolved for CreatePost: the one NOT_FOUND "post not found" answer for every refusal.
+func (s *service) resolveTarget(ctx context.Context, uid, id string) (*Post, error) {
+	p, err := s.viewableResolved(ctx, uid, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil, s.notFound(ctx)
+	}
+	return p, err
+}
+
 // quoteTarget resolves and validates a quote target for CreatePost: the id shape, then the GetPost visibility
 // rules. A REPOST target resolves to the original (D4) and is checked with the same rules. Every refusal is the
 // one NOT_FOUND "post not found" answer. Reads: target 1 + its author 1 + caller graph 1 cold (+2 for a REPOST); the embedded-author
@@ -52,30 +77,7 @@ func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error
 	if !ids.ValidPostID(id) {
 		return nil, apierr.Validation("quote_of_post_id", "quote_of_post_id must be a 19-digit post id")
 	}
-	p, err := s.viewable(ctx, uid, id)
-	if errors.Is(err, ErrNotFound) {
-		logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
-		return nil, postNotFound()
-	}
-	if err != nil {
-		return nil, err
-	}
-	if p.Kind != KindRepost {
-		return p, nil
-	}
-	if p.RepostOfID == "" {
-		logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
-		return nil, postNotFound()
-	}
-	orig, err := s.viewable(ctx, uid, p.RepostOfID)
-	if errors.Is(err, ErrNotFound) {
-		logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
-		return nil, postNotFound()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return orig, nil
+	return s.resolveTarget(ctx, uid, id)
 }
 
 // applyQuote turns a root-post draft into a QUOTE of q: kind, the quote link, the frozen snapshot of q and the

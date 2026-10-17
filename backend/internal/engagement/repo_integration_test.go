@@ -266,3 +266,49 @@ func TestJobs_NoProgressGuard(t *testing.T) {
 		t.Errorf("remove=%d quote=%d republished=%d, want one call per step and no continuation", cl.removeCalls, cl.quoteCalls, pub.n)
 	}
 }
+
+// ADR-0018 "Rule 4" (plan T13) on the emulator: a RepostPost replay while the repost exists writes nothing,
+// reads the reposts doc once more and returns the same REPOST id; a Like replayed after an Unlike re-likes.
+func TestRepo_Rule4Replays(t *testing.T) {
+	e := newRepoEnv(t)
+	const pid, uid = "0000000000000000031", "u4"
+	e.seedPost(t, pid, "author", 0, 0)
+	if _, err := e.client.Doc("users/"+uid).Set(context.Background(), map[string]any{"postsCount": int64(0)}); err != nil {
+		t.Fatal(err)
+	}
+	params := RepostParams{UID: uid, Original: &posts.Post{ID: pid, AuthorID: "author"}, QuotaLimit: 10,
+		Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}}
+
+	firstCtx, first := budget.WithCounter(context.Background())
+	res, err := e.repo.Repost(firstCtx, params)
+	if err != nil || res.Post == nil {
+		t.Fatalf("Repost: %+v %v", res, err)
+	}
+	replayCtx, replay := budget.WithCounter(context.Background())
+	again, err := e.repo.Repost(replayCtx, params)
+	if err != nil || again.Post != nil || again.ReplayPostID != res.Post.ID {
+		t.Fatalf("replay: %+v err=%v, want ReplayPostID %s", again, err, res.Post.ID)
+	}
+	if replay.Writes() != 0 {
+		t.Errorf("replay writes = %d, want 0", replay.Writes())
+	}
+	if replay.Reads() > first.Reads()+1 {
+		t.Errorf("replay reads = %d, want <= first (%d) + 1", replay.Reads(), first.Reads())
+	}
+	if got := e.intField(t, "posts/"+pid, "repostCount"); got != 1 {
+		t.Errorf("repostCount = %d, want 1", got)
+	}
+
+	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || replayed {
+		t.Fatalf("Like: replayed=%v err=%v", replayed, err)
+	}
+	if removed, err := e.repo.Unlike(context.Background(), uid, pid); err != nil || !removed {
+		t.Fatalf("Unlike: removed=%v err=%v", removed, err)
+	}
+	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || replayed {
+		t.Fatalf("Like after Unlike: replayed=%v err=%v, want a fresh like", replayed, err)
+	}
+	if got := e.intField(t, "posts/"+pid, "likeCount"); got != 1 {
+		t.Errorf("likeCount = %d, want 1", got)
+	}
+}

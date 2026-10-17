@@ -892,3 +892,50 @@ func TestRepost_CancelledAfterCommitStillRunsEffects(t *testing.T) {
 		t.Errorf("reposts=%d ctxErrs=%v, want 1 notification on a live ctx", e.events.reposts, e.events.ctxErrs)
 	}
 }
+
+// ADR-0018 "Rule 4" (plan T13): the idempotency_key is format-checked only; the natural keys carry the replay.
+
+// A LikePost delivered after an UnlikePost re-likes. This is the documented behaviour of natural-key
+// idempotency (a late retry is the client's problem: serialize toggles, latest intent wins), pinned here.
+func TestLike_ReplayAfterUnlikeReLikes(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.m.Like(e.ctx, "viewer", keyOK, pidA); err != nil {
+		t.Fatal(err)
+	}
+	e.repo.unlikeResult = true
+	if _, err := e.m.Unlike(e.ctx, "viewer", "engagement-key-0002", pidA); err != nil {
+		t.Fatal(err)
+	}
+	// The same idempotency_key again: the like doc is gone, so the repo creates it (replayed == false).
+	r, err := e.m.Like(e.ctx, "viewer", keyOK, pidA)
+	if err != nil || !r.LikedByViewer {
+		t.Fatalf("r=%+v err=%v", r, err)
+	}
+	if len(e.repo.likeParams) != 2 || e.events.likes != 2 {
+		t.Fatalf("like calls=%d events=%d, want 2 and 2 (the late replay re-liked and re-notified)", len(e.repo.likeParams), e.events.likes)
+	}
+	want := []string{pidA + ":1:0", pidA + ":-1:0", pidA + ":1:0"}
+	if fmt.Sprint(e.posts.counts) != fmt.Sprint(want) {
+		t.Fatalf("counts = %v, want %v", e.posts.counts, want)
+	}
+}
+
+// A RepostPost replay while the repost still exists returns the same repostPostId, with no new REPOST, counter
+// move, notification or second call to the stored-key path (the repo's 0-write replay is asserted against the
+// emulator in TestRepo_RepostReplayBudget).
+func TestRepost_ReplayWhileRepostExistsIsTheSameId(t *testing.T) {
+	e := newEnv(t)
+	e.repo.repostRes = RepostResult{Post: &posts.Post{ID: pidRep, AuthorID: "viewer"}}
+	first, err := e.m.Repost(e.ctx, "viewer", keyOK, pidA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.repo.repostRes = RepostResult{ReplayPostID: pidRep}
+	again, err := e.m.Repost(e.ctx, "viewer", keyOK, pidA)
+	if err != nil || again.RepostPostID != first.RepostPostID || !again.RepostedByViewer {
+		t.Fatalf("first=%+v again=%+v err=%v", first, again, err)
+	}
+	if len(e.posts.created) != 1 || e.events.reposts != 1 || len(e.posts.counts) != 1 {
+		t.Fatalf("created=%d events=%d counts=%v, want the first call's effects only", len(e.posts.created), e.events.reposts, e.posts.counts)
+	}
+}

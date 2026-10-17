@@ -154,7 +154,7 @@ Cleanup (the job, the Eraser, the export section) is never flag-gated.
 - Tests required (plan T13): a `LikePost` replay after `UnlikePost` re-likes (asserted as the documented behaviour);
   a `RepostPost` replay while the repost exists writes 0 and returns the same `repostPostId`.
 
-**D17. Replies to a REPOST (decision brief item D10; decided 2026-10-17, NOT YET IMPLEMENTED).** Numbered D17 so that
+**D17. Replies to a REPOST (decision brief item D10; decided 2026-10-17, implemented in plan T11).** Numbered D17 so that
 code citing "ADR-0018 D10" (plan D10, below) keeps its meaning. A reply whose `reply_to_post_id` is a REPOST resolves
 to the original post, through one resolver shared with `quoteTarget` (+2 cold reads: the original and its author;
 0 warm). The REPOST's own counters stay 0. Original gone (or not viewable) => NOT_FOUND "post not found". The client
