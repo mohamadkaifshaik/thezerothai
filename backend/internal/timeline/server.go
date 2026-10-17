@@ -32,6 +32,9 @@ type Deps struct {
 	Posts     posts.Reader
 	Graph     graph.Reader
 	Directory identity.Directory
+	// Removals is the moderation removal log (ADR-0016 D10), consulted only by since_token refreshes. Nil disables
+	// removed_ids (no reads, no reset): tests and processes that do not wire the log.
+	Removals posts.Removals
 
 	// CursorKey seals tokens (config.CursorHMACKey).
 	CursorKey []byte

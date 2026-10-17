@@ -236,6 +236,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	postsServer := posts.NewServer(postsSvc, featureFlags)
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory),
+		Removals:  posts.NewRemovalLog(postsRepo, cfg.CacheTTL, nil),
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	})
 

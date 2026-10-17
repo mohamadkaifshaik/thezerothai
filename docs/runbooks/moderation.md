@@ -1,7 +1,7 @@
 # Runbook: reports, takedown and suspension (P7, ADR-0016)
 
 Owner module: `backend/internal/moderation` (+ `posts.Moderator`, `identity.SetAccountStatus`, `cmd/opsctl`).
-Data: `reports/{reportId}` (TTL field `expireAt`), `posts/{id}.moderation`, `users/{uid}.status`, `quotas/{uid}.reports`.
+Data: `reports/{reportId}` (TTL field `expireAt`), `postRemovals/{postId}` (removal log, TTL field `expireAt`, ADR-0016 D10), `posts/{id}.moderation`, `users/{uid}.status`, `quotas/{uid}.reports`.
 The user-facing RPC `ModerationService.ReportContent` is behind `FEATURE_REPORTS` (off | allowlist | percent | on,
 default **off** in every environment). Moderator actions are `opsctl` commands run by the founder; there is no admin
 console at Stage 0.
@@ -45,7 +45,8 @@ confirmation. Nothing here touches Firebase Auth.
 | `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 500, + the posts of the last ~3 minutes re-read by the settle pass) | P + 1, or P + 2 with `--report` |
 | `unsuspend-user` | P_hidden + 2 | P_hidden + 1 |
 
-`suspend-user` on a 5,000-post account is about 5,000 reads and 5,000 writes (25% of the daily write quota): run it
+`suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
+the post update plus its removal-log entry): run it
 off-peak and use `--dry-run` to see the number first (`suspend-user` is the only moderator command with a dry run; the
 others reject `--dry-run`). It is resumable and idempotent: if it stops half way, run the
 same command again (it accepts an already SUSPENDED account for exactly that reason; hidden posts are skipped at 0
@@ -56,6 +57,21 @@ writes).
 post a warm instance accepted during that window is hidden too. Do not interrupt it; if it stops, re-run it.
 `--report` is checked against the target before anything is written: a report about another post or user is refused,
 an already RESOLVED report only warns.
+
+## 3b. The removal log (`postRemovals`, ADR-0016 D10, plan T15)
+Every hide and un-hide writes `postRemovals/{postId}` (`state` REMOVED | RESTORED, server-time `createdAt`, `expireAt` =
+createdAt + 32 days) in the same transaction or batch as the `moderation` field, so a crash can never hide a post without
+logging it and re-running `suspend-user` needs no extra step (hidden posts are skipped, they are already logged). The id is
+the post id: a repeat overwrites one document. The API reads it incrementally into a per-instance cache (<= 50 entries) and
+answers `removed_ids` on `since_token` refreshes, so a client drops a card it already holds within about two cache TTLs.
+- **Looks stale / a card did not disappear.** The client drops ids only on its next refresh; the instance cache lags up to
+  60 s.
+- **Many clients are being sent back to a full reload after a big suspension.** Expected once per client: a log window that
+  cannot list every id (more than 50 removals newer than the client's token, or a token older than the log) rejects the
+  refresh exactly like an expired `since_token` and the app cold-opens. Cost is one cold open per client, not per refresh.
+- **TTL.** `postRemovals.expireAt` needs the TTL policy (Terraform `ttl_fields.post_removals_expire_at`, ADR-0016 D10); until it is
+  applied the log only grows (about 1 KB per hidden post), never wrong. Check with `gcloud firestore fields ttls list`.
+- Entries hold a post id, a state and timestamps. No uid, no text: the log is not personal data (ADR-0011 Q10 table row).
 
 ## 3a. Media on takedown (manual until `--purge-media` exists)
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the

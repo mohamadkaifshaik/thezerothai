@@ -4,8 +4,11 @@
 // every other opsctl command.
 //
 // Cost (printed at the end of every write command): suspend-user reads and writes one document per post of the
-// user, once, in batches of 500, then waits out the instance cache TTL and runs one settle pass over the posts of
-// the last suspendSkew (reads: the posts in that window, 1 when none); everything else is 1-3 reads and 1-2 writes.
+// user, once, in batches of 250. Each hidden post is two writes (the post and its postRemovals entry, ADR-0016 D10);
+// unsuspend-user and restore-post write a RESTORED entry the same way (+1 write per restored post). It then waits out
+// the instance cache TTL and runs one settle pass over the posts of the last suspendSkew
+// (reads: the posts in that window, 1 when none); everything else is 1-3 reads and 1-3 writes (takedown-post and
+// restore-post: 2 for the post and its log entry, +1 to resolve a report).
 package main
 
 import (
@@ -258,7 +261,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 		fmt.Fprintf(out, "dry-run: status=%s posts=%d -> would set SUSPENDED and hide up to %d post(s), wait %s, then run the settle pass\n"+
 			"  reads~%d writes~%d (+1 read only when P is a multiple of 500, + the posts of the last few minutes for the settle pass;\n"+
 			"  with --report: reads~%d writes~%d) (nothing written)\n",
-			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, plan.Posts+1, plan.Posts+4, plan.Posts+2)
+			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, 2*plan.Posts+1, plan.Posts+4, 2*plan.Posts+2)
 		return nil
 	}
 	ctx, counter := budget.WithCounter(ctx)

@@ -253,3 +253,26 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
 - **Infra.** Env vars `FEATURE_REPORTS*` (default off), the two quota vars, and one Firestore TTL policy on
   `reports.expireAt` in the firestore module's `ttl_fields`. TTL policies and the one composite index are $0.
 
+
+## Implementation notes (D10 server half, `feat/removed-ids`; for architect review)
+Where the build differs from the D10 text, and why. Client work (ticket d) is still open.
+- **Cold read is bounded to the newest 50 entries, not "the live entries".** After a 5,000-post suspension "the live
+  entries once per cold start" would be thousands of reads on every cold start for 30 days. The instance loads the newest
+  50 (`Limit` 50, rule 5); a client whose since token is older than the oldest loaded entry, or who would need more than 50
+  ids, gets the truncation signal below. Worst warm refresh: 1 read (empty or unchanged log), 50 (changed), 100 (a full
+  incremental page reloads the newest 50 instead of paging forward).
+- **Truncation signal reuses the since_token rejection** (INVALID_ARGUMENT + VALIDATION, `field = since_token`, decided before
+  any post read) instead of a new proto field. The existing client merges the cold open, which keeps the stale cards, so
+  ticket (d) must make a rejected `since_token` a replacing cold open. No existing path does that for a refresh today.
+- **Comparison uses the since token's issue time, not its position.** The token position is a post time (`NextSince`) and can
+  be months old on a quiet feed; comparing with it would make every refresh after a big suspension truncate again. The
+  server compares log `createdAt` with `issuedAt - (2 x CACHE_TTL + 15 s)`; the lag covers a card served from a stale post
+  cache plus an instance log cache that is itself up to one TTL stale. Needs `cursor.DecodeIssuedAtTTL` (additive).
+- **Retention is 32 days** (`posts.RemovalRetention`) against the 30-day token; a configured token TTL longer than that is
+  safe because the reader refuses (truncated) any cutoff below its coverage floor.
+- **Writes are +1 per hidden post and also +1 per restored post.** An un-hide cannot delete the entry (an incremental
+  `createdAt` query never sees deletes, so warm instances would keep the stale id): `restore-post` and `unsuspend-user`
+  overwrite the same doc id with `RESTORED` and a new `createdAt`. A suspension of P posts is 2P writes (post + entry), an
+  unsuspend another 2P. `createdAt` is a server timestamp; the log write shares the transaction or batch with the
+  `moderation` update (crash-safe resume), so `HideAuthor`/`RestoreAuthor` pages are 250 posts (2 operations each, 500 max).
+- Terraform: `ttl_fields.post_removals_expire_at` added to `infra/terraform/modules/firestore/variables.tf` (edited, not applied).
