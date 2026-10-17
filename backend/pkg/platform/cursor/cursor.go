@@ -85,25 +85,35 @@ func DecodeTTL(key []byte, binding, token string, ttl time.Duration) (Cursor, er
 // DecodeAtTTL is DecodeTTL with an explicit current time (tests, fake clocks). A ttl <= 0 rejects every
 // non-empty token.
 func DecodeAtTTL(key []byte, binding, token string, now time.Time, ttl time.Duration) (Cursor, error) {
+	c, _, err := DecodeIssuedAtTTL(key, binding, token, now, ttl)
+	return c, err
+}
+
+// DecodeIssuedAtTTL is DecodeAtTTL that also returns the time the token was issued (sealed in the token, so a
+// client cannot move it). The issue time is zero for an empty token. Timelines compare it with moderation
+// removals, which are stamped by the server clock: the token position itself is a post time and can be months
+// old on a quiet feed.
+func DecodeIssuedAtTTL(key []byte, binding, token string, now time.Time, ttl time.Duration) (Cursor, time.Time, error) {
 	if token == "" {
-		return Cursor{}, nil
+		return Cursor{}, time.Time{}, nil
 	}
 	plain, err := open(key, aadLabel+binding, token)
 	if err != nil {
-		return Cursor{}, err
+		return Cursor{}, time.Time{}, err
 	}
 	parts := strings.SplitN(plain, "|", 3)
 	if len(parts) != 3 || parts[2] == "" {
-		return Cursor{}, ErrInvalid
+		return Cursor{}, time.Time{}, ErrInvalid
 	}
 	if err := checkIssued(parts[0], now, ttl); err != nil {
-		return Cursor{}, err
+		return Cursor{}, time.Time{}, err
 	}
+	issuedMicros, _ := strconv.ParseInt(parts[0], 10, 64) // checkIssued parsed it
 	micros, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return Cursor{}, ErrInvalid
+		return Cursor{}, time.Time{}, ErrInvalid
 	}
-	return Cursor{CreatedAt: time.UnixMicro(micros).UTC(), DocID: parts[2]}, nil
+	return Cursor{CreatedAt: time.UnixMicro(micros).UTC(), DocID: parts[2]}, time.UnixMicro(issuedMicros).UTC(), nil
 }
 
 // open base64-decodes and AES-GCM-opens a token with the given additional data.

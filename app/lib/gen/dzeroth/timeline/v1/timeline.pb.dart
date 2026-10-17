@@ -112,12 +112,14 @@ class GetHomeTimelineResponse extends $pb.GeneratedMessage {
     $core.String? nextPageToken,
     $core.String? sinceToken,
     $core.String? gapPageToken,
+    $core.Iterable<$core.String>? removedIds,
   }) {
     final result = GetHomeTimelineResponse._();
     if (posts != null) result.posts.addAll(posts);
     if (nextPageToken != null) result.nextPageToken = nextPageToken;
     if (sinceToken != null) result.sinceToken = sinceToken;
     if (gapPageToken != null) result.gapPageToken = gapPageToken;
+    if (removedIds != null) result.removedIds.addAll(removedIds);
     return result;
   }
 
@@ -140,6 +142,7 @@ class GetHomeTimelineResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
     ..aOS(3, _omitFieldNames ? '' : 'sinceToken')
     ..aOS(4, _omitFieldNames ? '' : 'gapPageToken')
+    ..pPS(5, _omitFieldNames ? '' : 'removedIds')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -199,6 +202,11 @@ class GetHomeTimelineResponse extends $pb.GeneratedMessage {
   $core.bool hasGapPageToken() => $_has(3);
   @$pb.TagNumber(4)
   void clearGapPageToken() => $_clearField(4);
+
+  /// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
+  /// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get removedIds => $_getList(4);
 }
 
 class GetUserTimelineRequest extends $pb.GeneratedMessage {
@@ -315,12 +323,14 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     $core.String? nextPageToken,
     $core.String? sinceToken,
     $core.String? gapPageToken,
+    $core.Iterable<$core.String>? removedIds,
   }) {
     final result = GetUserTimelineResponse._();
     if (posts != null) result.posts.addAll(posts);
     if (nextPageToken != null) result.nextPageToken = nextPageToken;
     if (sinceToken != null) result.sinceToken = sinceToken;
     if (gapPageToken != null) result.gapPageToken = gapPageToken;
+    if (removedIds != null) result.removedIds.addAll(removedIds);
     return result;
   }
 
@@ -343,6 +353,7 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
     ..aOS(3, _omitFieldNames ? '' : 'sinceToken')
     ..aOS(4, _omitFieldNames ? '' : 'gapPageToken')
+    ..pPS(5, _omitFieldNames ? '' : 'removedIds')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -398,6 +409,11 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
   $core.bool hasGapPageToken() => $_has(3);
   @$pb.TagNumber(4)
   void clearGapPageToken() => $_clearField(4);
+
+  /// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
+  /// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get removedIds => $_getList(4);
 }
 
 class TimelineServiceApi {
@@ -422,6 +438,9 @@ class TimelineServiceApi {
   ///            account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
   ///            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
   ///            cold open 30 (F=60, page 20), writes 0.
+  /// A since_token refresh also consults the instance-cached removal log (removed_ids): 0 extra reads on a warm
+  /// cache hit, +1 (empty or unchanged log) to +50 (a changed log) once per instance per CACHE_TTL, +100 worst
+  /// (a full incremental page reloads the newest 50). Other modes read nothing from the log.
   /// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
   $async.Future<GetHomeTimelineResponse> getHomeTimeline(
           $pb.ClientContext? ctx, GetHomeTimelineRequest request) =>
@@ -441,6 +460,8 @@ class TimelineServiceApi {
   /// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
   /// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
   /// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
+  /// A since_token refresh also consults the removal log (removed_ids), same cost as GetHomeTimeline: 0 warm,
+  /// +1 to +50 once per instance per CACHE_TTL, +100 worst.
   $async.Future<GetUserTimelineResponse> getUserTimeline(
           $pb.ClientContext? ctx, GetUserTimelineRequest request) =>
       _client.invoke<GetUserTimelineResponse>(ctx, 'TimelineService',

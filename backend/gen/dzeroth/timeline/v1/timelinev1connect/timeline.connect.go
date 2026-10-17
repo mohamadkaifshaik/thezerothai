@@ -21,6 +21,13 @@
 //     and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
 //     VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token, call with no
 //     token (cold open) and use its next_page_token to fill down to the cached items.
+//   - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
+//     account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
+//     Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
+//     token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
+//     expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
+//     the client must then replace its cache for that feed with the cold open, not merge into it, because cards it
+//     holds may have been removed.
 //
 // The Stage 2 Memorystore design keeps this contract unchanged.
 package timelinev1connect
@@ -78,9 +85,14 @@ type TimelineServiceClient interface {
 	// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
 	// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
 	// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
-	//            account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
-	//            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
-	//            cold open 30 (F=60, page 20), writes 0.
+	//
+	//	account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
+	//	4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
+	//	cold open 30 (F=60, page 20), writes 0.
+	//
+	// A since_token refresh also consults the instance-cached removal log (removed_ids): 0 extra reads on a warm
+	// cache hit, +1 (empty or unchanged log) to +50 (a changed log) once per instance per CACHE_TTL, +100 worst
+	// (a full incremental page reloads the newest 50). Other modes read nothing from the log.
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
@@ -96,6 +108,8 @@ type TimelineServiceClient interface {
 	// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
 	// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
 	// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
+	// A since_token refresh also consults the removal log (removed_ids), same cost as GetHomeTimeline: 0 warm,
+	// +1 to +50 once per instance per CACHE_TTL, +100 worst.
 	GetUserTimeline(context.Context, *connect.Request[v1.GetUserTimelineRequest]) (*connect.Response[v1.GetUserTimelineResponse], error)
 }
 
@@ -159,9 +173,14 @@ type TimelineServiceHandler interface {
 	// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
 	// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
 	// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
-	//            account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
-	//            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
-	//            cold open 30 (F=60, page 20), writes 0.
+	//
+	//	account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
+	//	4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
+	//	cold open 30 (F=60, page 20), writes 0.
+	//
+	// A since_token refresh also consults the instance-cached removal log (removed_ids): 0 extra reads on a warm
+	// cache hit, +1 (empty or unchanged log) to +50 (a changed log) once per instance per CACHE_TTL, +100 worst
+	// (a full incremental page reloads the newest 50). Other modes read nothing from the log.
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
@@ -177,6 +196,8 @@ type TimelineServiceHandler interface {
 	// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
 	// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
 	// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
+	// A since_token refresh also consults the removal log (removed_ids), same cost as GetHomeTimeline: 0 warm,
+	// +1 to +50 once per instance per CACHE_TTL, +100 worst.
 	GetUserTimeline(context.Context, *connect.Request[v1.GetUserTimelineRequest]) (*connect.Response[v1.GetUserTimelineResponse], error)
 }
 

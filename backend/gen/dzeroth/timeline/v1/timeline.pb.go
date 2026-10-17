@@ -23,6 +23,13 @@
 //   and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
 //   VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token, call with no
 //   token (cold open) and use its next_page_token to fill down to the cached items.
+// - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
+//   account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
+//   Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
+//   token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
+//   expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
+//   the client must then replace its cache for that feed with the cold open, not merge into it, because cards it
+//   holds may have been removed.
 // The Stage 2 Memorystore design keeps this contract unchanged.
 
 package timelinev1
@@ -115,7 +122,10 @@ type GetHomeTimelineResponse struct {
 	// Persist; send on the next refresh.
 	SinceToken string `protobuf:"bytes,3,opt,name=since_token,json=sinceToken,proto3" json:"since_token,omitempty"`
 	// Non-empty => a refresh gap exists below the returned items (see token contract).
-	GapPageToken  string `protobuf:"bytes,4,opt,name=gap_page_token,json=gapPageToken,proto3" json:"gap_page_token,omitempty"`
+	GapPageToken string `protobuf:"bytes,4,opt,name=gap_page_token,json=gapPageToken,proto3" json:"gap_page_token,omitempty"`
+	// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
+	// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
+	RemovedIds    []string `protobuf:"bytes,5,rep,name=removed_ids,json=removedIds,proto3" json:"removed_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -176,6 +186,13 @@ func (x *GetHomeTimelineResponse) GetGapPageToken() string {
 		return x.GapPageToken
 	}
 	return ""
+}
+
+func (x *GetHomeTimelineResponse) GetRemovedIds() []string {
+	if x != nil {
+		return x.RemovedIds
+	}
+	return nil
 }
 
 type GetUserTimelineRequest struct {
@@ -260,6 +277,9 @@ type GetUserTimelineResponse struct {
 	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	SinceToken    string                 `protobuf:"bytes,3,opt,name=since_token,json=sinceToken,proto3" json:"since_token,omitempty"`
 	GapPageToken  string                 `protobuf:"bytes,4,opt,name=gap_page_token,json=gapPageToken,proto3" json:"gap_page_token,omitempty"`
+	// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
+	// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
+	RemovedIds    []string `protobuf:"bytes,5,rep,name=removed_ids,json=removedIds,proto3" json:"removed_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -322,6 +342,13 @@ func (x *GetUserTimelineResponse) GetGapPageToken() string {
 	return ""
 }
 
+func (x *GetUserTimelineResponse) GetRemovedIds() []string {
+	if x != nil {
+		return x.RemovedIds
+	}
+	return nil
+}
+
 var File_dzeroth_timeline_v1_timeline_proto protoreflect.FileDescriptor
 
 const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
@@ -332,13 +359,15 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1f\n" +
 	"\vsince_token\x18\x03 \x01(\tR\n" +
-	"sinceToken\"\xba\x01\n" +
+	"sinceToken\"\xdb\x01\n" +
 	"\x17GetHomeTimelineResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x1f\n" +
 	"\vsince_token\x18\x03 \x01(\tR\n" +
 	"sinceToken\x12$\n" +
-	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\"\xb7\x01\n" +
+	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\x12\x1f\n" +
+	"\vremoved_ids\x18\x05 \x03(\tR\n" +
+	"removedIds\"\xb7\x01\n" +
 	"\x16GetUserTimelineRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
 	"\x0finclude_replies\x18\x02 \x01(\bR\x0eincludeReplies\x12\x1b\n" +
@@ -346,13 +375,15 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"\n" +
 	"page_token\x18\x04 \x01(\tR\tpageToken\x12\x1f\n" +
 	"\vsince_token\x18\x05 \x01(\tR\n" +
-	"sinceToken\"\xba\x01\n" +
+	"sinceToken\"\xdb\x01\n" +
 	"\x17GetUserTimelineResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x1f\n" +
 	"\vsince_token\x18\x03 \x01(\tR\n" +
 	"sinceToken\x12$\n" +
-	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken2\xf7\x01\n" +
+	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\x12\x1f\n" +
+	"\vremoved_ids\x18\x05 \x03(\tR\n" +
+	"removedIds2\xf7\x01\n" +
 	"\x0fTimelineService\x12q\n" +
 	"\x0fGetHomeTimeline\x12+.dzeroth.timeline.v1.GetHomeTimelineRequest\x1a,.dzeroth.timeline.v1.GetHomeTimelineResponse\"\x03\x90\x02\x01\x12q\n" +
 	"\x0fGetUserTimeline\x12+.dzeroth.timeline.v1.GetUserTimelineRequest\x1a,.dzeroth.timeline.v1.GetUserTimelineResponse\"\x03\x90\x02\x01BGZEgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1;timelinev1b\x06proto3"

@@ -27,6 +27,9 @@ abstract final class TimelineService {
   ///            account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
   ///            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
   ///            cold open 30 (F=60, page 20), writes 0.
+  /// A since_token refresh also consults the instance-cached removal log (removed_ids): 0 extra reads on a warm
+  /// cache hit, +1 (empty or unchanged log) to +50 (a changed log) once per instance per CACHE_TTL, +100 worst
+  /// (a full incremental page reloads the newest 50). Other modes read nothing from the log.
   /// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
   static const getHomeTimeline = connect.Spec(
     '/$name/GetHomeTimeline',
@@ -49,6 +52,8 @@ abstract final class TimelineService {
   /// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
   /// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
   /// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
+  /// A since_token refresh also consults the removal log (removed_ids), same cost as GetHomeTimeline: 0 warm,
+  /// +1 to +50 once per instance per CACHE_TTL, +100 worst.
   static const getUserTimeline = connect.Spec(
     '/$name/GetUserTimeline',
     connect.StreamType.unary,
