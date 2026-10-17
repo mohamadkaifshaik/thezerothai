@@ -1,7 +1,7 @@
 # 0018. Engagement: likes, reposts and quotes
-Status: Proposed
-Date: 2026-10-11
-Deciders: lead (founder delegated product decisions 2026-10-10); founder accepts the ADR (CLAUDE.md)
+Status: Accepted (founder, 2026-10-17; includes the rule-4 bend in "Rule 4 (idempotency_key)" below)
+Date: 2026-10-11 (amended 2026-10-17: rule 4, D17, orphaned likes, numbering table; founder approval 2026-10-17)
+Deciders: lead (founder delegated product decisions 2026-10-10); founder (accepted 2026-10-17)
 
 > Numbering: next free number after 0017. 0012-0015 stay reserved for the slices that ran in parallel (P2-P4 did not need an ADR).
 
@@ -53,6 +53,8 @@ of 20k) and 0.2k deletes per day. Reads are already over the free quota at 300 D
 there assumed 0 reads; this adds the quota read and the `userLikes` hydration), about +$0.06/month at list price.
 Pub/Sub: one < 200 byte message per deleted post. No new GCP resource, no fixed cost, no new index, no new topic, no
 new Terraform beyond `FEATURE_ENGAGEMENT` env vars.
+Amendment 2026-10-17: the rule-4 bend (below) avoids about 1.7k writes + 1.7k TTL deletes per day at 300 DAU; D17
+(replies to a REPOST) adds +2 cold reads per such reply (0 warm), immaterial at Stage 0 reply volumes.
 
 ## Decision
 **D1. Contract.** A new additive `dzeroth.engagement.v1.EngagementService` with `LikePost`, `UnlikePost`,
@@ -136,6 +138,62 @@ Cleanup (the job, the Eraser, the export section) is never flag-gated.
 `PostEvents.Created` for quotes (a QUOTE carries `Embedded.Author.UserID`). apiserver adapts both to
 `notifications.Emitter.Emit` when ADR-0017 merges. Events are called after the commit, never inside it.
 
+**Rule 4 (idempotency_key): bend of CLAUDE.md rule 4, founder approval 2026-10-17.** The four RPCs accept an
+`idempotency_key` and validate its format only; no idempotency doc is stored.
+- `LikePost`, `UnlikePost`, `UndoRepost` are covered by the ADR-0003 natural keys `likes/{postId}_{uid}` and
+  `reposts/{postId}_{uid}`: a replay sets the same state (Create AlreadyExists = 0 writes; a failed `Exists` = 0 writes).
+- `RepostPost` carve-out: `Create(reposts/{id})` runs in the same transaction as the REPOST post doc, so the reposts
+  doc is the idempotency record. A replay finds it, reads it (+1 read) and returns its `repostPostId`, 0 writes.
+- Rationale: a stored idempotency doc per call is 1 write + 1 TTL delete each. At the plan's mix (5.8
+  Like/Unlike/Repost calls per DAU) that is about 1.74k writes (8.7% of 20k) and 1.74k deletes (8.7%) per day at
+  300 DAU (the decision brief quoted about +15% of the daily write quota; the plan's mix gives the figures above).
+  Rejected.
+- Risks: a late `RepostPost` (a retry delivered after an `UndoRepost`) recreates the repost and re-notifies; a late
+  `LikePost` after an `UnlikePost` re-likes. Client rule: serialize like/repost toggles per post, latest intent wins,
+  never blindly retry a stale mutation (retry only while it is still the latest intent).
+- Tests required (plan T13): a `LikePost` replay after `UnlikePost` re-likes (asserted as the documented behaviour);
+  a `RepostPost` replay while the repost exists writes 0 and returns the same `repostPostId`.
+
+**D17. Replies to a REPOST (decision brief item D10; decided 2026-10-17, NOT YET IMPLEMENTED).** Numbered D17 so that
+code citing "ADR-0018 D10" (plan D10, below) keeps its meaning. A reply whose `reply_to_post_id` is a REPOST resolves
+to the original post, through one resolver shared with `quoteTarget` (+2 cold reads: the original and its author;
+0 warm). The REPOST's own counters stay 0. Original gone (or not viewable) => NOT_FOUND "post not found". The client
+keeps the "Reposted by" context in its UI. `GetThread` on a REPOST id is covered by the same ticket (plan T11).
+
+**Orphaned likes (founder approval 2026-10-17).** Accepted and documented: when a user deletes their account, likes
+that *other* users left on that user's posts (`likes/{deletedPostId}_{otherUid}`, and the ids in their `userLikes`)
+remain. They hold only the liker's uid and a post id that no longer resolves; counts and integrity are unaffected (the
+post doc and its counters are gone) and Snowflake ids are never reused. This is **not** an ADR-0011 Q10 residue: the
+doc is the liker's data and is erased with the liker's account. Runbook: `docs/runbooks/engagement.md` §1. Ticket
+(plan T12): assert, not just log, the orphan count in `apiserver/engagement_lifecycle_integration_test.go` (~line 207).
+
+**Numbering: plan decisions vs this ADR.** `docs/plans/engagement.md` numbers its delegated decisions D1-D17; this
+ADR numbers D1-D9 (+ D17). Code comments cite "ADR-0018 Dn" with either numbering: **Dn >= 10 always means the plan's
+Dn**. Low numbers are ambiguous; known plan-numbered citations: `apiserver/ratelimit_config.go:64` "D9" (plan D9 =
+ADR D8), `pkg/platform/config/config.go:180` and `:623` "D3" (likes quota = plan D6), `engagement/cache.go:25` "D7"
+(plan D7 = ADR D5), `engagement/api.go:7` "D3" (plan D3 = rule 4 above), `engagement/api.go:22` "D7, D8" (plan D7,
+D8 = ADR D2). `apiserver/notifications_wiring.go:40` "D9" is ADR D9. Code comments are not mass-edited.
+
+| Plan | Subject | ADR-0018 section |
+|---|---|---|
+| D1 | one flag `FEATURE_ENGAGEMENT` | D8 |
+| D2 | `EngagementService`, no `ListLikers` | D1 |
+| D3 | natural-key idempotency | D2, Rule 4 |
+| D4 | acting on a REPOST id acts on the original | D4 |
+| D5 | a repost is a real post | D3 (Repost), Consequences |
+| D6 | likes quota 500/100 per day | Options "Like daily quota", D2 (`quotas.likes`) |
+| D7 | `userLikes` set, cache, degrade | D2, D5 |
+| D8 | best-effort trim | D2 |
+| D9 | one rate-limit bucket | D8 |
+| D10 | `post_delete` for every post, composite handler | D6 |
+| D11 | paged job, republish | D6 |
+| D12 | frozen one-level embeds, tombstone | Options "Quote embed", D2, D6 |
+| D13 | block/mute/visibility of targets and copies | D4 (feed and thread filtering of copies: plan D13 only) |
+| D14 | account deletion removes copies | D7 |
+| D15 | notifications seam | D9 |
+| D16 | quote/reply counters drift on account deletion | Consequences |
+| D17 | replies to a REPOST resolve to the original | D17 |
+
 ## Consequences
 - Counters are exact except for the best-effort releases in D6 (reply/quote/repost counters after a DeletePost whose
   second write fails) and quote/reply counters when the quoting user deletes the account (accepted, as in P3).
@@ -155,9 +213,11 @@ Cleanup (the job, the Eraser, the export section) is never flag-gated.
 - A user that blocks someone keeps that user's old likes on their posts (counts stay exact; no per-block clean-up).
 
 ## Handoff
-- backend-developer: `docs/plans/engagement.md` tickets T2-T5.
+- backend-developer: `docs/plans/engagement.md` tickets T2-T5; amendment 2026-10-17: T11 (D17), T12 (orphan
+  assertion), T13 (rule-4 replay tests).
 - frontend-developer: regenerate the Dart client; flag `engagement`; actions on `embedded.post_id` for REPOST items;
-  hide like/repost/quote when `enabled_features` lacks `engagement`.
+  hide like/repost/quote when `enabled_features` lacks `engagement`; serialize like/repost toggles per post, latest
+  intent wins (Rule 4); replies from a REPOST row keep the "Reposted by" context (D17).
 - production-deployer: `FEATURE_ENGAGEMENT[_ALLOWLIST|_PERCENT]`, `QUOTA_LIKES_PER_DAY`,
   `QUOTA_NEW_ACCOUNT_LIKES_PER_DAY` as plain env vars (default off); no new topic or index.
 - security-auditor: the post_delete job still never trusts the message (fresh gone-check, ids validated, only

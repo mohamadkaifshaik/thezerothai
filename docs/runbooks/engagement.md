@@ -14,6 +14,13 @@ stay, and quotes still show the frozen text. There is no reconciliation sweep at
 `{"kind":"post_delete","uid":"<author uid>","postId":"<postId>","mediaIds":[]}`. The job refuses while the post exists
 (`refused`), is idempotent, and converges on a redelivery. The same message re-runs the media step.
 
+**Expected orphans, no action (ADR-0018 "Orphaned likes", founder approval 2026-10-17).** After an *account* deletion,
+likes that other users left on the deleted user's posts (`likes/{postId}_{otherUid}`, and those ids in their
+`userLikes`) remain by design. They hold only the liker's uid and a dead post id, counts are unaffected, ids are never
+reused, and they are erased with the liker's account. They are not ADR-0011 Q10 residue. Tell them apart from the
+failed-publish case above by Error Reporting: if there is no `post_delete_job_publish_failed` for that postId, treat
+the orphans as expected; no action needed.
+
 ## 2. `engagement_post_delete_continued` appears repeatedly for one post
 **What it is.** A post with thousands of likes/reposts: one delivery handles at most 10 pages of 100, then republishes
 the same message and acks (D11), so it never dead-letters. Each continuation is normal; the job finishes when a page

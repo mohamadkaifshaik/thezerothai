@@ -1,7 +1,7 @@
 # Likes, reposts and quotes (Phase 1 slice P5)
 Plan owner: backend-developer (resumed from planner's P5 outline in `docs/plans/phase1.md`) · Date: 2026-10-11 ·
 Stage: 0 (0 – ~300 DAU, pay-per-use only) · Flag: `FEATURE_ENGAGEMENT` (wire name `engagement`, default **off** in every environment)
-Inputs: CLAUDE.md, ADR-0003, ADR-0004, ADR-0010 (D3, D6), ADR-0011, ADR-0017, **ADR-0018 (this slice, Proposed)**,
+Inputs: CLAUDE.md, ADR-0003, ADR-0004, ADR-0010 (D3, D6), ADR-0011, ADR-0017, **ADR-0018 (this slice, Accepted by the founder 2026-10-17)**,
 `docs/plans/phase1.md` §P5, `docs/plans/media-uploads.md` ("post-delete job interface"), `docs/plans/replies-and-threads.md`,
 `docs/plans/notifications.md`, `docs/reviews/cost-model.md`, `proto/dzeroth/engagement/v1/engagement.proto`.
 
@@ -22,6 +22,9 @@ every list, and deleting a post or an account leaves no dependants behind.
 | T8 | Terraform env vars `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]`, `QUOTA_LIKES_PER_DAY`, `QUOTA_NEW_ACCOUNT_LIKES_PER_DAY` | deployer | **Not started** (needs founder creds) | |
 | T9 | Notifications: adapt `engagement.Events` and QUOTE `PostEvents.Created` to `notifications.Emitter` | backend | In review (P6 #122 merged) | `feat/p5-engagement-impl` |
 | T10 | P7: tombstone embeds of a taken-down post (uses `TombstoneQuotes` and the repost removal) | backend | In review (P7 #125 merged; opsctl takedown cleans up copies) | `feat/p5-engagement-impl` |
+| T11 | D17: replies to a REPOST resolve to the original: one resolver shared by `replyParent` and `quoteTarget`, flip the REPOST-parent cases in `posts/service_replies_test.go`, `GetThread` on a REPOST id | backend | **Decided, not implemented** (founder approval 2026-10-17) | |
+| T12 | Orphaned likes: assert (not just log) the orphan count in `apiserver/engagement_lifecycle_integration_test.go` (~line 207) | backend/tester | **Not started** (founder approval 2026-10-17) | |
+| T13 | Rule-4 replay tests (ADR-0018 "Rule 4"): LikePost replay after UnlikePost re-likes (documented); RepostPost replay while the repost exists = 0 writes, same `repostPostId` | backend/tester | **Not started** (founder approval 2026-10-17) | |
 
 T2-T5 are one PR on purpose: the seams in posts, the engagement module, the job and the lifecycle rows are consumed by
 each other's tests (the invariant checker needs all four RPCs and the job) and splitting them would leave a PR that
@@ -35,7 +38,7 @@ The founder delegated the open P5 choices. Each is reversible by config unless n
 |---|---|---|---|
 | D1 | **One flag, `FEATURE_ENGAGEMENT`**, gates the four RPCs, the quote path of CreatePost (`metadata["feature"]="quotes"`, as P1 already answers) and viewer-flag hydration. FEATURE_POSTS is still required. Cleanup (job, Eraser, export) is never flag-gated. | One switch, one rollout (`flag-rollout`); no half-enabled state. | |
 | D2 | **A new `EngagementService`** with `LikePost`, `UnlikePost`, `RepostPost`, `UndoRepost`; **no `ListLikers`**. | Additive proto. A liker page is one query + up to 50 profile reads + block filtering; nothing in Phase 1 needs it (phase1.md: "only if cheap"). | A "liked by" screen is designed. |
-| D3 | **Natural-key idempotency**: `likes/{postId}_{uid}`, `reposts/{postId}_{uid}`; `idempotency_key` is validated for format only. | State-setting ops keyed by (post, caller): a replay is the same effect. Same precedent as DeletePost (ADR-0010 D4), and it saves the 24 h idempotency doc (1 write + 1 TTL delete) per like. | |
+| D3 | **Natural-key idempotency**: `likes/{postId}_{uid}`, `reposts/{postId}_{uid}`; `idempotency_key` is validated for format only. A bend of CLAUDE.md rule 4, approved by the founder 2026-10-17 (ADR-0018 "Rule 4": RepostPost carve-out, risks, client rule, required tests T13). | State-setting ops keyed by (post, caller): a replay is the same effect. Same precedent as DeletePost (ADR-0010 D4), and it saves the 24 h idempotency doc (1 write + 1 TTL delete) per like. | |
 | D4 | **Acting on a REPOST id acts on its original** (like, repost, quote, unlike). `UndoRepost.post_id` is the original (clients use `embedded.post_id`). | X behaves this way; keeps counters on one doc. | |
 | D5 | **A repost is a real post**: a `kind=REPOST` doc, root (`isReply=false`), own Snowflake id, embedded snapshot, counts toward the `posts` quota (100/day) and `users.postsCount`. Own posts and replies can be reposted; a REPOST of a REPOST resolves to the original. | Pull timelines include it with no new query (ADR-0003). One quota for "things that appear in followers' feeds". | |
 | D6 | **Likes quota 500/day, 100/day for accounts < 24 h** in `quotas/{uid}.likes`; unlike and undo are free. 1 read + 1 write per like. | `free-tier-budget` §4. An in-memory cap is not a bound (30/min = 43k likes/day = 170k writes for one account). | Reads become the binding quota (they already are at ~217 DAU): move the likes counter into the `userLikes` write (saves 1 write, not a read). |
@@ -49,9 +52,14 @@ The founder delegated the open P5 choices. Each is reversible by config unless n
 | D14 | **Account deletion also removes the copies**: the posts step pages `embeddedAuthorId == uid` and deletes REPOST docs / tombstones QUOTE docs of other users. | Otherwise the deleted user's text survives inside other people's docs (privacy; ADR-0011 Q10 would need a new allowance). | |
 | D15 | **Notifications are a seam, not a dependency**: `engagement.Events` (nil = no-op); QUOTE notifications derive from `PostEvents.Created` (a QUOTE carries `Embedded.Author.UserID`). Wiring waits for P6. | `notifications.Emitter` is in open PR #122. | P6 merges (T9). |
 | D16 | **Quote/reply counters on account deletion are not decremented** (accepted drift, the P3 precedent); like and repost counters are exact. | A blind update per quote/reply in the purge costs a write each for a cosmetic number. | |
+| D17 | **Replies to a REPOST resolve to the original** (founder approval 2026-10-17; decision brief item D10; **decided, NOT YET IMPLEMENTED**, T11): one resolver shared with `quoteTarget`, +2 cold reads; the REPOST's own counters stay 0; original gone => NOT_FOUND; the client keeps the "Reposted by" context. | Counters and threads live on one doc, as D4. | |
+
+Decision numbers: ADR-0018 maps D1-D17 to its sections ("Numbering" table); code citing "ADR-0018 D10"-"D16" means
+these plan numbers. Orphaned likes of a deleted user's posts are accepted (founder approval 2026-10-17, ADR-0018
+"Orphaned likes", T12).
 
 ### Not decided here (needs the founder)
-- Accepting ADR-0018 (CLAUDE.md: the founder accepts ADRs).
+- ~~Accepting ADR-0018~~: accepted by the founder 2026-10-17, including the rule-4 bend (D3).
 - Terraform env vars and the flag ramp (T8).
 
 ## Contract changes
