@@ -1,8 +1,8 @@
 # 0016. Reports, takedown and suspension (moderation.v1, P7)
-Status: Proposed
-Date: 2026-10-10
+Status: Accepted (founder, 2026-10-17; includes the rule-4 bend in option C and the D10 decision below)
+Date: 2026-10-10 (amended 2026-10-17: D10 decided, D2/D3 corrections; founder approval 2026-10-17)
 Deciders: architect (proposed by the P7 slice agent), founder (decisions delegated to the lead 2026-10-10, recorded in
-`docs/plans/reports.md` "Decisions (delegated 2026-10-10)"). Not Accepted: needs the founder's acceptance.
+`docs/plans/reports.md` "Decisions (delegated 2026-10-10)"; ADR accepted 2026-10-17).
 
 Plan: `docs/plans/reports.md` (P7). Builds on ADR-0003 (`reports` row), ADR-0005 (moderation), ADR-0008 (block UI,
 D9), ADR-0010 (D6 visibility matrix, **D10 suspension obligation**, D19 Q-E) and ADR-0011 (Q1 eraser order, Q10 residue).
@@ -34,6 +34,7 @@ D9), ADR-0010 (D6 visibility matrix, **D10 suspension obligation**, D19 Q-E) and
 2. **A deterministic report id from (reporter, target type, target id) (chosen).** The natural key makes a second
    report by the same reporter on the same target a read-only no-op that is not charged to the quota. This is the
    graph pattern (`follows/{a}_{b}`). The request still carries `idempotency_key` (rule 4) and validates it.
+   This bends CLAUDE.md rule 4 (the key is validated, not stored); **explicitly approved by the founder 2026-10-17**.
 
 ## Cost impact
 $0 at Stage 0. Detail in the plan's cost line. Summary:
@@ -47,6 +48,9 @@ $0 at Stage 0. Detail in the plan's cost line. Summary:
 - Reports retention: Firestore TTL on `reports.expireAt` (free, ADR-0003 pattern) deletes 90 days after resolution.
   Open reports have no `expireAt`. Storage: ~1 KB per report; 1 GiB free holds 1M reports.
 - No new GCP resource, no fixed cost. One composite index (`reports`: status ASC, createdAt ASC) is $0.
+- D10 `removed_ids` (decided 2026-10-17, not built): ~1 read per instance per TTL warm (incremental; at most ~4.3k
+  reads/day, ~9% of free, with 3 instances busy all day), + the live entries once per cold start; writes +1 per
+  hidden post (a suspension of P posts adds P); one more TTL policy ($0).
 
 ## Decision
 ### D1. API: `dzeroth.moderation.v1.ModerationService.ReportContent` (one RPC)
@@ -83,8 +87,10 @@ signal that the earlier decision may be wrong or the problem recurred; silently 
 hid exactly the reports that matter.
 
 A reporter whose daily quota is spent is remembered per instance until the next IST midnight (or until the
-new-account window ends and the limit rises), so retries cost 0 Firestore reads; a replay of an existing report by
-such a reporter gets the quota error rather than `already_reported` until then.
+new-account window ends and the limit rises), so a retry costs 1 Firestore read (a point read of the deterministic
+report id) and no transaction: a replay of a report that is `OPEN` is answered `already_reported` (it needs no
+quota); a new or reopening filing gets QUOTA_EXCEEDED until then. (Corrected 2026-10-17 to match
+`moderation/service.go` and `TestReport_ExhaustedQuotaIsRememberedUntilMidnight`; same as the Implementation notes.)
 
 Rules: deny-all to clients (existing). Index: `(status ASC, createdAt ASC)` for `opsctl reports list`. The
 `reporterId == uid` and `targetOwnerId == uid` queries use single-field indexes.
@@ -102,9 +108,11 @@ Rules: deny-all to clients (existing). Index: `(status ASC, createdAt ASC)` for 
     P5 engagement counts must follow). `GetMany` and `Get` still return them, with the flag, so a consumer can decide.
 - **60 s bound.** opsctl writes the doc from another process. Running instances serve the old value until their post
   cache entry or author-recent entry expires: `CACHE_TTL` (default 60 s, ADR-0010 D15) after the data was read. The
-  `since` refresh watermark does not add delay (a taken-down post is not "new"). The client's own cache keeps a
-  hidden post until it next refreshes the page (GetPost -> NOT_FOUND; the client drops the card). This is the stated
-  bound: <= CACHE_TTL on the server, then the next client refresh.
+  `since` refresh watermark does not add delay (a taken-down post is not "new"). The bound is <= CACHE_TTL on the
+  server. On the client there is **no bound yet**: a `since` refresh returns only new posts, so a card the client
+  already holds stays on screen (opening it answers GetPost NOT_FOUND) until `removed_ids` (D10 below, plan T15)
+  ships. (Corrected 2026-10-17: the earlier "until it next refreshes the page" / "leaves on its next full page
+  load" is not true of the current client.)
 - `postsCount` on `users` is NOT decremented (a takedown is reversible, and the count is not a visibility signal).
 
 ### D4. Moderator actions: `opsctl`
@@ -180,20 +188,34 @@ on takedown") has the moderator delete or make private the objects by hand, and 
   founder is the only moderator and the single point of response SLA.
 - Revisit when: reports exceed ~50/day (build a console and a queue), or the first appeal, or a second moderator.
 
-## Open founder decision (not decided; the ADR stays Proposed)
-**D10 client bound.** D3 states the bound for a hidden post as "<= CACHE_TTL on the server, then the next client
-refresh". The client side is not bounded by anything the server can enforce: a `since` refresh returns only *new*
-posts, so a card the client already holds stays on screen until the user does a full reload or the timeline token
-expires. Two ways to close it; the founder has not chosen:
-1. **Server-only bound (current, no proto change).** Document that a hidden post leaves a client's feed on its next
-   full page load, and that GetPost on the hidden id answers NOT_FOUND. Cheapest; a taken-down post can linger on a
-   device that never does a full reload.
-2. **Additive `removed_ids` field on the timeline `since` response** (a new repeated field on
-   `GetHomeTimelineResponse` / `GetUserTimelineResponse`; backwards compatible, `buf breaking` clean). The server
-   needs to know which ids to remove, which costs a read per hidden post in the window (a `moderatedAt >= since`
-   query and one more index) or a bounded moderation-event log; the client drops those ids on refresh.
-`timeline.proto` is deliberately not changed here. Decision owner: founder, with the architect for option 2's read
-cost. Until then this ADR cannot be Accepted.
+## D10. Client bound for hidden posts: DECIDED 2026-10-17 (option 2), NOT YET IMPLEMENTED
+Founder approval 2026-10-17. (This ADR's D10; not to be confused with ADR-0010 D10, the suspension obligation that
+D3/D4 close.) Problem: a `since` refresh returns only *new* posts, so a card the client already holds
+stays on screen after a takedown or suspension (D3). Options were:
+1. Server-only bound (no proto change): a taken-down post can linger on a device indefinitely. Rejected.
+2. **Additive `removed_ids` on the timeline responses (chosen).** A new `repeated string removed_ids` on
+   `GetHomeTimelineResponse` and `GetUserTimelineResponse` (new field numbers, backwards compatible, `buf breaking`
+   clean). Backed by **a single global moderation-event log**: a new small collection written only by opsctl
+   (`takedown-post`, `suspend-user`; entries TTL-bounded), read by the API incrementally (`createdAt > lastSeen`) once
+   per instance per CACHE_TTL and held in the instance cache, so a refresh costs ~0 extra reads. The client drops
+   those ids from its cache on refresh. Rejected variant: a per-request `moderatedAt >= since` query (+1 read per
+   refresh and one more index).
+- Cost: warm, ~1 read per instance per CACHE_TTL (incremental; an empty query still bills 1 read): at most 3 x 1,440
+  = ~4.3k reads/day (~9% of the free 50k) if all 3 instances serve timelines all day, far lower typically. Plus the
+  live entries once per cold start (a non-empty query bills 1 read per returned doc). Writes: +1 per hidden post, so
+  a suspension of P posts adds P log writes on top of its P hide writes (a 5,000-post account: ~10k writes, 50% of
+  the free daily writes; run off-peak, as D4). $0 fixed.
+- Not built until these tickets land (plan T15): (a) proto field on both responses; (b) opsctl writer, with the
+  collection's TTL policy and its ADR-0011 T11 lifecycle-guard row (`make ci` fails without it); the log's live
+  window is bounded and its retention is set against the 30-day `since` token TTL (an entry must outlive any token
+  that could still hold the card); (c) server read-count test: the read is incremental (~1 read per instance per
+  TTL warm, the live window once cold, 0 on a warm cache hit); (d) Flutter drop-on-refresh plus a client test; (e)
+  warm-instance fake-clock test (an entry written after the cache filled is served once the TTL expires).
+- Until it ships, D3's client side stays unbounded.
+
+## Gates before `FEATURE_REPORTS` leaves off (founder approval 2026-10-17)
+- The privacy-policy line of D5 is published.
+- The media-public gap of D6 is known and handled by the runbook until T14 (`takedown-post --purge-media`) is built.
 
 ## Handoff
 - Backend: `internal/moderation` (service, repo, server, Eraser, exporter), `posts` moderation seam, identity
@@ -202,7 +224,9 @@ cost. Until then this ADR cannot be Accepted.
   showBlockConfirmationDialog.
 - Infra: `FEATURE_REPORTS` env var in Terraform (default off, no apply), TTL field `reports.expireAt` added to
   the firestore module's `ttl_fields`, index in `firebase/firestore.indexes.json`.
-- Founder: privacy-policy line (D5), accept this ADR, set the flag allowlist when ready.
+- Founder: privacy-policy line (D5), set the flag allowlist when ready (ADR accepted 2026-10-17).
+- D10 (`removed_ids`): backend (proto, opsctl writer, read-count tests), frontend (drop on refresh), infra (TTL
+  policy for the log collection); tickets in `docs/plans/reports.md` T15.
 
 ## Implementation notes (P7 backend PR)
 Recorded so the contract and the code agree; none of them changes D1-D6.
@@ -214,7 +238,8 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
   step costs one read for the empty page.
   Delete job: the account-deletion plan's T16 criterion (`docs/plans/account-deletion-export.md`, 509 reads + job
   state) gains +1 for the `reports` step's empty page and +3 for P6's `notifications` step (ADR-0017 D10), so the
-  assertion is 509 + 3 + 1 = 513 + D. P4's media step read was already absorbed by main's 509 + D. The amendment is
+  plan criterion is 509 + 3 + 1 = 513 + D (`planDeleteReads`); the ADR-0011 formula constant is 510 + 3 + 1 = 514 + D
+  (`refDeleteReadsBase`); ADR-0017's 512 / 513 are the P6-only values. P4's media step read was already absorbed by main's 509 + D. The amendment is
   the P8 plan owner's to sign off. Both are asserted in `account_lifecycle_reference_integration_test.go`.
 - **Re-report and replay.** A report resolved earlier is reopened by a new filing (D2). A reporter whose quota is
   spent is remembered per instance until IST midnight; a call then costs one point read of the report: an OPEN report
