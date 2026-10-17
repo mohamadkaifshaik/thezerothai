@@ -42,6 +42,12 @@ variable "ttl_fields" {
       collection = "reports"
       field      = "expireAt"
     }
+    # ADR-0016 D10: the moderation removal log (postRemovals/{postId}); expireAt = createdAt + 32 days
+    # (posts.RemovalRetention), set against the 30-day timeline since token. Edited only, not applied.
+    post_removals_expire_at = {
+      collection = "postRemovals"
+      field      = "expireAt"
+    }
   }
 }
 
