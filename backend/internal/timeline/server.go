@@ -74,6 +74,10 @@ var _ timelinev1connect.TimelineServiceHandler = (*Server)(nil)
 // before chunking, so the queries are ceil(uncovered/30). Planning: refresh 4 + new posts, older page and cold
 // open 30 (F = 60, page 20). Writes 0.
 //
+// A since_token refresh also reads the moderation removal log (removed_ids, ADR-0016 D10): 0 reads on a warm
+// instance cache hit, +1 to +50 once per instance per CACHE_TTL, +100 worst (a full incremental page reloads the
+// newest 50). Cold, older and gap calls read nothing from it.
+//
 //nolint:dupl // mirrors GetUserTimeline over distinct generated proto types
 func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timelinev1.GetHomeTimelineRequest]) (*connect.Response[timelinev1.GetHomeTimelineResponse], error) {
 	if err := posts.GuardFeature(ctx, s.deps.Flags); err != nil {
@@ -99,6 +103,9 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 // 53 at page 50; +1 when the caller's blockedBy overflowed), 0 warm for a Posts-tab first page (<= 20) or an
 // empty refresh served by a fresh author-recent entry, 4 for a cold refresh with 0 new posts. Planning 11.
 // Writes 0.
+//
+// A since_token refresh also reads the removal log (removed_ids, ADR-0016 D10), same cost as GetHomeTimeline: 0 warm,
+// +1 to +50 once per instance per CACHE_TTL, +100 worst.
 //
 //nolint:dupl // mirrors GetHomeTimeline over distinct generated proto types
 func (s *Server) GetUserTimeline(ctx context.Context, req *connect.Request[timelinev1.GetUserTimelineRequest]) (*connect.Response[timelinev1.GetUserTimelineResponse], error) {

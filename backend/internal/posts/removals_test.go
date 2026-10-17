@@ -309,3 +309,34 @@ func TestRemovalRetention_OutlivesDefaultTokenTTL(t *testing.T) {
 		t.Fatalf("RemovalRetention = %v, too short for a 30-day since token", RemovalRetention)
 	}
 }
+
+// TestRemovalLog_SharedTimestamp: a 250-post batch commits with one server timestamp, so a whole suspension page
+// shares one At. The strict "> cutoff" rule and the coverage floor must still give a complete answer or truncate.
+func TestRemovalLog_SharedTimestamp(t *testing.T) {
+	t.Parallel()
+	r := newRemovalRig()
+	at := r.now.Add(-10 * time.Second)
+	for i := range 30 {
+		r.src.put(fmt.Sprintf("p%02d", i), RemovalRemoved, at)
+	}
+	ids, trunc, _ := r.since(t, at.Add(-time.Second))
+	if trunc || len(ids) != 30 {
+		t.Fatalf("30 entries at one instant: ids=%d trunc=%v, want 30/false", len(ids), trunc)
+	}
+	if ids, _, _ = r.since(t, at); len(ids) != 0 {
+		t.Fatalf("cutoff equal to the shared instant must exclude them (strictly newer only), got %d", len(ids))
+	}
+
+	// 80 at one instant overflow the newest-50 load: the floor is that instant, so a cutoff before it is truncated
+	// and a cutoff at it is answerable (nothing is strictly newer).
+	r2 := newRemovalRig()
+	for i := range 80 {
+		r2.src.put(fmt.Sprintf("q%02d", i), RemovalRemoved, at)
+	}
+	if _, trunc, _ = r2.since(t, at.Add(-time.Second)); !trunc {
+		t.Fatal("80 entries at one instant with a cutoff before it must truncate")
+	}
+	if ids, trunc, _ = r2.since(t, at); trunc || len(ids) != 0 {
+		t.Fatalf("cutoff at the shared instant: ids=%d trunc=%v, want 0/false", len(ids), trunc)
+	}
+}

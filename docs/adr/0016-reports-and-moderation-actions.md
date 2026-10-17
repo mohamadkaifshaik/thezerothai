@@ -43,7 +43,7 @@ $0 at Stage 0. Detail in the plan's cost line. Summary:
   query already returns. The cost is one extra byte-sized field per post doc and, for a hidden post, the read of a
   document the page then drops (one page may return fewer items; the timeline merge already handles filtered rows).
 - `opsctl suspend-user`: reads = writes = P (user's posts), once, in batches of 500, run by the founder from a laptop.
-  A 5,000-post account is 5,000 reads + 5,000 writes (25% of the 20k/day free writes and 10% of the 50k reads;
+  A 5,000-post account is 5,000 reads + 5,000 writes (10,000 with the D10 removal-log entries; 25% of the 20k/day free writes before D10 and 10% of the 50k reads;
   run it off-peak). Typical: under 500.
 - Reports retention: Firestore TTL on `reports.expireAt` (free, ADR-0003 pattern) deletes 90 days after resolution.
   Open reports have no `expireAt`. Storage: ~1 KB per report; 1 GiB free holds 1M reports.
@@ -263,7 +263,7 @@ Where the build differs from the D10 text, and why. Client work (ticket d) is st
   incremental page reloads the newest 50 instead of paging forward).
 - **Truncation signal reuses the since_token rejection** (INVALID_ARGUMENT + VALIDATION, `field = since_token`, decided before
   any post read) instead of a new proto field. The existing client merges the cold open, which keeps the stale cards, so
-  ticket (d) must make a rejected `since_token` a replacing cold open. No existing path does that for a refresh today.
+  ticket (d) must make a rejected `since_token` a replacing cold open. No existing path does that for a refresh today. This amends ADR-0010 D14, which says a rejected since_token is followed by a cold open that fills down to the cached items; the proto comment now says every rejected since_token is replaced (the client cannot tell truncation from expiry).
 - **Comparison uses the since token's issue time, not its position.** The token position is a post time (`NextSince`) and can
   be months old on a quiet feed; comparing with it would make every refresh after a big suspension truncate again. The
   server compares log `createdAt` with `issuedAt - (2 x CACHE_TTL + 15 s)`; the lag covers a card served from a stale post

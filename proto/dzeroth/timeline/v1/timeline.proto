@@ -17,15 +17,18 @@ syntax = "proto3";
 // - Every response returns since_token; persist it with the cached items.
 // - Tokens are bound to the caller, the feed (and for user timelines the target and tab) and the token kind,
 //   and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
-//   VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token, call with no
-//   token (cold open) and use its next_page_token to fill down to the cached items.
+//   VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token and call with no
+//   token (cold open). After a rejected page_token, or a rejected since_token (amended by ADR-0016 D10), REPLACE the
+//   cached feed with the cold open, do not merge into it: a since_token is also rejected when the server cannot list
+//   removed_ids completely (below), it answers exactly as for an expired token, so the client cannot tell the two
+//   apart. Scroll down from the cold open's next_page_token.
 // - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
 //   account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
 //   Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
 //   token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
 //   expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
-//   the client must then replace its cache for that feed with the cold open, not merge into it, because cards it
-//   holds may have been removed.
+//   the client replaces its cache for that feed with the cold open (see above). removed_ids is global, not per
+//   feed: on a user timeline it can name posts by other authors, so drop each id from every cached feed that holds it.
 // The Stage 2 Memorystore design keeps this contract unchanged.
 package dzeroth.timeline.v1;
 

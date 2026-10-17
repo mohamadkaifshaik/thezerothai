@@ -70,16 +70,6 @@ type RemovalSource interface {
 	After(ctx context.Context, after time.Time, limit int) ([]RemovalEntry, error)
 }
 
-// Removals is the seam timeline uses (ADR-0016 D10).
-type Removals interface {
-	// RemovedSince returns the ids of posts a moderator removed after cutoff and has not restored, newest first, at
-	// most RemovalMaxIDs. truncated=true means the answer would be incomplete (cutoff is older than the log
-	// covers, or more than RemovalMaxIDs match): the caller must make the client reset instead of trusting ids.
-	// Reads: 0 on a warm cache hit; otherwise 1-50 (cold or after the TTL: 1 when the log is empty or unchanged),
-	// 100 at most when the incremental page was full and the cache is reloaded.
-	RemovedSince(ctx context.Context, cutoff time.Time) (ids []string, truncated bool, err error)
-}
-
 // RemovalLog implements Removals over a RemovalSource with a TTL'd instance cache.
 type RemovalLog struct {
 	src RemovalSource
