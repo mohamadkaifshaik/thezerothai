@@ -10,10 +10,9 @@ String createPostErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
-    EmailNotVerifiedException() =>
-      'Please verify your email address to post.',
+    EmailNotVerifiedException() => 'Please verify your email address to post.',
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now, so posting is paused. '
+      'Dzeroth is in a limited mode right now, so posting is paused. '
           'Please try again shortly.',
     FeatureDisabledException() => "Posting isn't available right now.",
     NetworkException() =>

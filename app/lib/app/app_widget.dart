@@ -98,7 +98,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: _pendingPosts),
         ],
         child: MaterialApp.router(
-          title: 'dZeroth',
+          title: 'Dzeroth',
           debugShowCheckedModeBanner: false,
           theme: appLightTheme,
           darkTheme: appDarkTheme,

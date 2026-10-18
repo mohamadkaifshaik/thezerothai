@@ -17,7 +17,7 @@ String relationshipErrorMessage(AppException error) {
     TargetBlockedException() => 'Unblock this account first.',
     FeatureDisabledException() => "This feature isn't available yet.",
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now. Please try again shortly.',
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
     NetworkException() => 'No connection. Check your network and try again.',
     NotFoundException() => "This account doesn't exist anymore.",
     _ => error.message,

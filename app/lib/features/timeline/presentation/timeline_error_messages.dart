@@ -11,7 +11,7 @@ String timelineNoticeMessage(AppException error) {
     RateLimitedException() =>
       "You're refreshing too fast. Showing saved posts for a moment.",
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now. Showing saved posts.',
+      'Dzeroth is in a limited mode right now. Showing saved posts.',
     NetworkException() => "You're offline. Showing saved posts.",
     FeatureDisabledException() => "Posts aren't available right now.",
     _ => "Couldn't refresh. Showing saved posts.",
