@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -140,10 +142,27 @@ func (f *fakeAccounts) SetAccountStatus(_ context.Context, uid string, from, to 
 	return !f.same, f.err
 }
 
+// fakeSweeper records the N-4 notification sweep (opsctl's notifications.ActorSweeper).
+type fakeSweeper struct {
+	calls []string
+	// order, when set, receives "sweep" so tests can check it runs after the settle wait.
+	order *[]string
+}
+
+func (f *fakeSweeper) SweepActorRows(_ context.Context, uid string, cp notifications.Checkpoint) (notifications.Checkpoint, bool, error) {
+	f.calls = append(f.calls, uid)
+	if f.order != nil {
+		*f.order = append(*f.order, "sweep")
+	}
+	return notifications.Checkpoint{Step: 2, Deleted: cp.Deleted + 3}, true, nil
+}
+
 type modFixture struct {
-	ops *fakeOps
-	mod *fakeModerator
-	acc *fakeAccounts
+	sweep *fakeSweeper
+	order []string
+	ops   *fakeOps
+	mod   *fakeModerator
+	acc   *fakeAccounts
 	// slept records the settle waits; onSleep runs while "waiting" (a post created in the cache window).
 	slept   []time.Duration
 	onSleep func()
@@ -152,20 +171,23 @@ type modFixture struct {
 }
 
 func newModFixture() *modFixture {
-	return &modFixture{ops: &fakeOps{}, mod: &fakeModerator{}, acc: &fakeAccounts{}}
+	m := &modFixture{ops: &fakeOps{}, mod: &fakeModerator{}, acc: &fakeAccounts{}, sweep: &fakeSweeper{}}
+	m.sweep.order = &m.order
+	return m
 }
 
 func (m *modFixture) run(stdin string, args ...string) (code int, stdout, stderr string) {
 	var out, errOut bytes.Buffer
 	open := func(context.Context, string) (*backends, error) {
 		return &backends{
-			reports: m.ops, moderator: m.mod, accounts: m.acc,
+			reports: m.ops, moderator: m.mod, accounts: m.acc, actorSweeper: m.sweep,
 			postsPlanner: fakePostsPlanner{posts.PurgePlan{Posts: cmp.Or(m.plannedPosts, 7)}},
 			profile: func(context.Context, string) (identity.Profile, error) {
 				return identity.Profile{Status: identity.AccountStatusActive}, nil
 			},
 			sleep: func(_ context.Context, d time.Duration) error {
 				m.slept = append(m.slept, d)
+				m.order = append(m.order, "settle-wait")
 				if m.onSleep != nil {
 					m.onSleep()
 				}
@@ -196,7 +218,6 @@ func TestModeration_UsageAndValidation(t *testing.T) {
 		{"suspend without uid", []string{"suspend-user", "--project", "dzeroth-dev"}, "--uid is required"},
 		{"takedown-post rejects --dry-run", []string{"takedown-post", "--project", "dzeroth-dev", "--post", testPostID, "--dry-run"}, "--dry-run is not supported by takedown-post"},
 		{"restore-post rejects --dry-run", []string{"restore-post", "--project", "dzeroth-dev", "--post", testPostID, "--dry-run"}, "--dry-run is not supported by restore-post"},
-		{"unsuspend-user rejects --dry-run", []string{"unsuspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run"}, "--dry-run is not supported by unsuspend-user"},
 		{"reports resolve rejects --dry-run", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "DISMISSED", "--dry-run"}, "--dry-run is not supported by reports"},
 		{"unquoted multi-word note must not swallow --dry-run", []string{"suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--note", "spam", "account", "--dry-run"}, "unexpected argument"},
 		{"unquoted note must not swallow --resolution flags", []string{"reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "DISMISSED", "--note", "two", "words", "--dry-run"}, "unexpected argument"},
@@ -328,6 +349,35 @@ func TestSuspendUnsuspend(t *testing.T) {
 			if code != 0 || strings.Contains(out, "WARNING") != tc.warn || (tc.warn && !strings.Contains(out, "section 3b")) {
 				t.Fatalf("P=%d code=%d warn=%v out=%q", tc.posts, code, tc.warn, out)
 			}
+		}
+	})
+	t.Run("unsuspend dry run warns about the reset when P reaches the removal log page and writes nothing", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			posts int64
+			warn  bool
+		}{{49, false}, {50, true}, {1203, true}} {
+			f := newModFixture()
+			f.plannedPosts = tc.posts
+			code, out, _ := f.run("", "unsuspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run")
+			if code != 0 || strings.Contains(out, "WARNING") != tc.warn || !strings.Contains(out, "nothing written") ||
+				(tc.warn && !strings.Contains(out, "followers of this account")) || len(f.acc.calls) != 0 || f.mod.restCall != 0 {
+				t.Fatalf("P=%d code=%d warn=%v out=%q acc=%v restores=%d", tc.posts, code, tc.warn, out, f.acc.calls, f.mod.restCall)
+			}
+		}
+	})
+	t.Run("suspend sweeps the notification rows about the actor after the settle wait, never on a dry run", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		if code, _, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run"); code != 0 || len(f.sweep.calls) != 0 {
+			t.Fatalf("dry run swept: code=%d calls=%v", code, f.sweep.calls)
+		}
+		code, out, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
+		if code != 0 || !reflect.DeepEqual(f.sweep.calls, []string{"u2"}) || !reflect.DeepEqual(f.order, []string{"settle-wait", "sweep"}) {
+			t.Fatalf("code=%d calls=%v order=%v stderr=%q", code, f.sweep.calls, f.order, stderr)
+		}
+		if !strings.Contains(out, "notification sweep") || !strings.Contains(out, "swept=3") {
+			t.Errorf("out=%q, want the sweep progress", out)
 		}
 	})
 	t.Run("suspend sets status first, hides every page, settles and resolves the report", func(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
@@ -57,6 +58,9 @@ type backends struct {
 	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
 	cleanup  posts.Cleanup
 	accounts accountStatusSetter
+	// actorSweeper removes the notification rows other users hold about a suspended actor (security audit N-4);
+	// nil skips the sweep.
+	actorSweeper notifications.ActorSweeper
 	// sleep replaces the real wait of suspend-user's settle pass in tests (nil = real timer).
 	sleep func(ctx context.Context, d time.Duration) error
 	// listAuthUsers and usersExist serve check-t26 (read-only).
@@ -106,6 +110,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		moderator:     postsRepo,
 		cleanup:       postsRepo,
 		accounts:      identityRepo,
+		actorSweeper:  notifications.NewFirestoreRepo(client),
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
 		close:         func() { _ = client.Close() },
@@ -131,7 +136,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, suspend-user: print counts, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, suspend-user, unsuspend-user: print counts, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	var ma modArgs
@@ -167,7 +172,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	ma.dryRun = *dryRun
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "suspend-user" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "suspend-user" && cmd != "unsuspend-user" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -219,7 +224,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "suspend-user":
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":
-		err = unsuspendUser(ctx, b, *uid, out, now)
+		err = unsuspendUser(ctx, b, *uid, ma.dryRun, out, now)
 	default:
 		err = export(ctx, b, *uid, *outFile, out)
 	}

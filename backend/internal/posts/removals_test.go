@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -18,6 +19,9 @@ type fakeRemovalSource struct {
 	entries map[string]RemovalEntry
 	queries []string
 	err     error
+	// reads counts the documents the shared cache queries (Newest, After) returned; windowReads those of Window.
+	reads, windowReads int64
+	windowAuthors      [][]string
 	// block, when set, is received from before each query answers (tests use it to hold a refresh open).
 	block chan struct{}
 	// entered is signalled when a query starts waiting on block.
@@ -28,8 +32,15 @@ func newFakeRemovalSource() *fakeRemovalSource {
 	return &fakeRemovalSource{entries: map[string]RemovalEntry{}}
 }
 
+// testAuthor is the author put() gives entries; the rig's default scope is exactly this author.
+const testAuthor = "a"
+
 func (f *fakeRemovalSource) put(id string, st RemovalState, at time.Time) {
-	f.entries[id] = RemovalEntry{PostID: id, State: st, At: at}
+	f.putBy(id, testAuthor, st, at)
+}
+
+func (f *fakeRemovalSource) putBy(id, author string, st RemovalState, at time.Time) {
+	f.entries[id] = RemovalEntry{PostID: id, AuthorID: author, State: st, At: at}
 }
 
 func (f *fakeRemovalSource) query(ctx context.Context, name string, keep func(RemovalEntry) bool, desc bool, limit int) ([]RemovalEntry, error) {
@@ -62,8 +73,21 @@ func (f *fakeRemovalSource) query(ctx context.Context, name string, keep func(Re
 	if len(all) > limit {
 		all = all[:limit]
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(all), 1)))
+	n := int64(max(len(all), 1))
+	budget.FromContext(ctx).AddReads(n)
+	if name == "window" {
+		f.windowReads += n
+	} else {
+		f.reads += n
+	}
 	return all, nil
+}
+
+func (f *fakeRemovalSource) Window(ctx context.Context, authors []string, after, upTo time.Time, limit int) ([]RemovalEntry, error) {
+	f.windowAuthors = append(f.windowAuthors, authors)
+	return f.query(ctx, "window", func(e RemovalEntry) bool {
+		return slices.Contains(authors, e.AuthorID) && e.At.After(after) && !e.At.After(upTo)
+	}, true, limit)
 }
 
 func (f *fakeRemovalSource) Newest(ctx context.Context, floor time.Time, limit int) ([]RemovalEntry, error) {
@@ -75,28 +99,47 @@ func (f *fakeRemovalSource) After(ctx context.Context, afterAt time.Time, afterI
 }
 
 type removalRig struct {
-	src *fakeRemovalSource
-	log *RemovalLog
-	now time.Time
+	winSeen int64
+	src     *fakeRemovalSource
+	log     *RemovalLog
+	now     time.Time
 }
 
 const testTTL = 60 * time.Second
 
 func newRemovalRig() *removalRig {
-	r := &removalRig{src: newFakeRemovalSource(), now: time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)}
+	r := &removalRig{src: newFakeRemovalSource(), now: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}
 	r.log = NewRemovalLog(r.src, testTTL, func() time.Time { return r.now })
 	return r
 }
 
-// since calls RemovedSince and returns the ids, truncation and the reads the call cost.
+// since calls RemovedSince for the feed that shows testAuthor and returns the ids, truncation and the reads the
+// shared cache refresh cost (the detached counter's reads; the window query is r.src.windowReads).
 func (r *removalRig) since(t *testing.T, cutoff time.Time) (ids []string, truncated bool, reads int64) {
 	t.Helper()
+	return r.sinceFor(t, cutoff, testAuthor)
+}
+
+func (r *removalRig) sinceFor(t *testing.T, cutoff time.Time, authors ...string) (ids []string, truncated bool, reads int64) {
+	t.Helper()
 	ctx, c := budget.WithCounter(context.Background())
-	ids, truncated, err := r.log.RemovedSince(ctx, cutoff)
+	before := r.src.reads
+	ids, truncated, err := r.log.RemovedSince(ctx, cutoff, RemovalScope{Authors: authors})
 	if err != nil {
 		t.Fatalf("RemovedSince: %v", err)
 	}
-	return ids, truncated, c.Reads()
+	if c.Reads() != r.windowDelta() {
+		t.Fatalf("request counter = %d reads, want only the window query's (the shared refresh is detached)", c.Reads())
+	}
+	return ids, truncated, r.src.reads - before
+}
+
+// windowDelta is the reads the request counter must show after a call: the window query's, which the fake tallies
+// cumulatively (r.winSeen is what earlier calls already accounted for).
+func (r *removalRig) windowDelta() int64 {
+	d := r.src.windowReads - r.winSeen
+	r.winSeen = r.src.windowReads
+	return d
 }
 
 func TestRemovalLog_ReadCounts(t *testing.T) {
@@ -252,8 +295,9 @@ func TestRemovalLog_BurstReloadsNewestAndTruncatesOldTokens(t *testing.T) {
 	if !trunc || ids != nil {
 		t.Fatalf("burst with an old token: ids=%d trunc=%v, want truncated (the log cannot list 120)", len(ids), trunc)
 	}
-	// A full incremental page (50) is followed by a reload of the newest 50, never paging forward.
-	if want := []string{"after", "newest"}; !reflect.DeepEqual(r.src.queries, want) {
+	// A full incremental page (50) is followed by a reload of the newest 50, never paging forward; the old token
+	// then asks the window query for the rest, which says there is more than the 50 cached hits allow.
+	if want := []string{"after", "newest", "window"}; !reflect.DeepEqual(r.src.queries, want) {
 		t.Fatalf("queries = %v, want %v", r.src.queries, want)
 	}
 	if reads != RemovalWorstReads {
@@ -274,9 +318,14 @@ func TestRemovalLog_BurstReloadsNewestAndTruncatesOldTokens(t *testing.T) {
 	if ids[0] != "p119" {
 		t.Fatalf("newest first, got %s", ids[0])
 	}
-	// A cutoff just below the oldest loaded entry is below the coverage floor: truncated.
-	if _, trunc, _ = r.since(t, cutoff.Add(-time.Second/2)); !trunc {
-		t.Fatal("a cutoff older than the oldest loaded entry must be truncated")
+	// A cutoff just below the oldest loaded entry is below the cache's coverage: the window query finds p070 (already
+	// cached) and nothing else, so the answer is complete: 50 ids, no reset.
+	if ids, trunc, _ = r.since(t, cutoff.Add(-time.Second/2)); trunc || len(ids) != 50 {
+		t.Fatalf("cutoff just below the cache: ids=%d trunc=%v, want 50/false", len(ids), trunc)
+	}
+	// A cutoff that leaves more than 50 matches in total cannot be listed: truncated.
+	if _, trunc, _ = r.since(t, cutoff.Add(-5*time.Second)); !trunc {
+		t.Fatal("more than 50 matches must truncate")
 	}
 }
 
@@ -309,7 +358,7 @@ func TestRemovalLog_SourceErrorIsReturnedAndRetried(t *testing.T) {
 	r := newRemovalRig()
 	boom := errors.New("boom")
 	r.src.err = boom
-	if _, _, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour)); !errors.Is(err, boom) {
+	if _, _, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour), RemovalScope{Authors: []string{testAuthor}}); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	r.src.err = nil

@@ -7,7 +7,9 @@
 // user, once, in batches of 250. Each hidden post is two writes (the post and its postRemovals entry, ADR-0016 D10);
 // unsuspend-user and restore-post write a RESTORED entry the same way (+1 write per restored post). It then waits out
 // the instance cache TTL and runs one settle pass over the posts of the last suspendSkew
-// (reads: the posts in that window, 1 when none); everything else is 1-3 reads and 1-3 writes (takedown-post and
+// (reads: the posts in that window, 1 when none), then sweeps the notification rows other users hold about the
+// suspended account (security audit N-4: one collection-group array-contains query on actorIds, 500 rows a page; one
+// read and one delete or update per row, 1 read when there are none); everything else is 1-3 reads and 1-3 writes (takedown-post and
 // restore-post: 2 for the post and its log entry, +1 to resolve a report).
 package main
 
@@ -22,6 +24,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
+	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -68,7 +71,7 @@ const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED]
   opsctl takedown-post    --project P --post POSTID [--report REPORT] [--note TEXT]
   opsctl restore-post     --project P --post POSTID
   opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (hides every post, waits ~75 s, settle pass)
-  opsctl unsuspend-user   --project P --uid U                                (restores only suspension-hidden posts)
+  opsctl unsuspend-user   --project P --uid U [--dry-run]                    (restores only suspension-hidden posts)
 `
 
 // reportsCommand dispatches `opsctl reports <list|show|resolve>`. sub is the first positional argument.
@@ -310,12 +313,8 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			"  reads~%d writes~%d (+1 read only when P is a multiple of 250, + the posts of the last few minutes for the settle pass;\n"+
 			"  with --report: reads~%d writes~%d) (nothing written)\n",
 			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, 2*plan.Posts+1, plan.Posts+4, 2*plan.Posts+2)
-		if plan.Posts >= posts.RemovalMaxIDs {
-			fmt.Fprintf(out, "WARNING: %d posts >= %d: the removal log cannot list them in one response, so every timeline client\n"+
-				"  will have its since_token rejected once and reset (cold-open) every cached feed, about DAU x 30 reads.\n"+
-				"  A token issued before the burst, or up to %s after it, is rejected. Run this off-peak\n"+
-				"  (docs/runbooks/moderation.md section 3b).\n", plan.Posts, posts.RemovalMaxIDs, posts.RemovalLag)
-		}
+		fmt.Fprintf(out, "  then sweeps the notification rows other users hold about the account: 1 read + 1 delete per row (500 a page, 1 read when none)\n")
+		printResetWarning(out, "suspend-user", plan.Posts)
 		return nil
 	}
 	ctx, counter := budget.WithCounter(ctx)
@@ -367,6 +366,17 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("hidden=%d", cp.Changed) }, "settle pass"); err != nil {
 		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 	}
+	// N-4: after the settle wait no instance accepts new activity from the account, so the rows it left in other
+	// users' notification lists (spam likes, follows) can be removed for good. Re-running is safe.
+	if b.actorSweeper != nil {
+		if err := driveLoop(ctx, out, notifications.Checkpoint{Step: 2},
+			func(ctx context.Context, cp notifications.Checkpoint) (notifications.Checkpoint, bool, error) {
+				return b.actorSweeper.SweepActorRows(ctx, uid, cp)
+			},
+			func(cp notifications.Checkpoint) string { return fmt.Sprintf("swept=%d", cp.Deleted) }, "notification sweep"); err != nil {
+			return fmt.Errorf("%w (re-run suspend-user to resume)", err)
+		}
+	}
 	if a.report != "" {
 		if err := resolveReport(ctx, b, a.report, moderation.ResolutionSuspended, a.note, out, now); err != nil {
 			return err
@@ -376,8 +386,40 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 	return nil
 }
 
-// unsuspendUser is unsuspend-user: ACTIVE again, then restore only the posts the suspension hid.
-func unsuspendUser(ctx context.Context, b *backends, uid string, out io.Writer, now func() time.Time) error {
+// printResetWarning prints the P >= 50 warning for a command that logs P removals at once (suspend-user,
+// unsuspend-user). The removal log is scoped per feed (ADR-0016 amendment 2026-10-18 (b)): only the feeds that
+// show this account (its followers' Home, its profile) are affected, so the cost is those clients' cold opens.
+func printResetWarning(out io.Writer, cmd string, p int64) {
+	if p < int64(posts.RemovalMaxIDs) {
+		return
+	}
+	fmt.Fprintf(out, "WARNING: %d posts >= %d: the removal log cannot list them in one response, so the followers of this account\n"+
+		"  (and anyone viewing its profile) will have their since_token rejected once and cold-open that feed, about 30 reads each\n"+
+		"  (about followers x 30). Other users are not affected. A token issued before the burst, or up to %s after it,\n"+
+		"  is rejected. Usually ~0 for a spam account; check the follower count and run %s off-peak\n"+
+		"  (docs/runbooks/moderation.md section 3b).\n", p, posts.RemovalMaxIDs, posts.RemovalLag, cmd)
+}
+
+// unsuspendUser is unsuspend-user: ACTIVE again, then restore only the posts the suspension hid. With dryRun it
+// prints the P >= 50 reset warning and writes nothing (reads: the post count, 1 per 1,000 posts, minimum 1; the
+// count is of all the user's posts, an upper bound of the restores).
+func unsuspendUser(ctx context.Context, b *backends, uid string, dryRun bool, out io.Writer, now func() time.Time) error {
+	if dryRun {
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		p, err := b.profile(cctx, uid)
+		if err != nil {
+			return fmt.Errorf("read profile: %w", err)
+		}
+		plan, err := b.postsPlanner.PlanPurge(cctx, uid)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "dry-run: status=%s posts=%d -> would set ACTIVE and restore up to %d suspension-hidden post(s)\n"+
+			"  reads~%d writes~%d (nothing written)\n", statusName(p.Status), plan.Posts, plan.Posts, plan.Posts+2, 2*plan.Posts+1)
+		printResetWarning(out, "unsuspend-user", plan.Posts)
+		return nil
+	}
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	changed, err := b.accounts.SetAccountStatus(cctx, uid, identity.AccountStatusSuspended, identity.AccountStatusActive, now())

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
@@ -19,10 +20,12 @@ type fakeRemovals struct {
 	err       error
 	reads     int64
 	cutoffs   []time.Time
+	scopes    []posts.RemovalScope
 }
 
-func (f *fakeRemovals) RemovedSince(ctx context.Context, cutoff time.Time) ([]string, bool, error) {
+func (f *fakeRemovals) RemovedSince(ctx context.Context, cutoff time.Time, scope posts.RemovalScope) ([]string, bool, error) {
 	f.cutoffs = append(f.cutoffs, cutoff)
+	f.scopes = append(f.scopes, scope)
 	budget.FromContext(ctx).AddReads(f.reads)
 	return f.ids, f.truncated, f.err
 }
@@ -110,8 +113,8 @@ func TestRemovedIDs_OnlyRefreshConsultsTheLog(t *testing.T) {
 	}
 }
 
-// A log that cannot answer completely rejects the refresh like an expired since_token, before any post, graph or
-// profile-dependent read (home) / any post read (user): the client drops the token and cold-opens.
+// A log that cannot answer completely rejects the refresh like an expired since_token, before any post read: the
+// client drops the token and cold-opens. (Home reads the cached caller graph first: the log is scoped to its authors.)
 func TestRemovedIDs_TruncatedRejectsTheSinceToken(t *testing.T) {
 	t.Parallel()
 	t.Run("home", func(t *testing.T) {
@@ -123,8 +126,8 @@ func TestRemovedIDs_TruncatedRejectsTheSinceToken(t *testing.T) {
 		r.posts.queries, r.graph.calls = nil, nil
 		_, counter, err := r.home("me", cold.SinceToken, "", 20)
 		wantField(t, err, fieldSince)
-		if counter.Reads() != 1 || len(r.posts.queries) != 0 || len(r.graph.calls) != 0 {
-			t.Fatalf("reads=%d queries=%v graph=%v, want only the log read", counter.Reads(), r.posts.queries, r.graph.calls)
+		if counter.Reads() != 2 || len(r.posts.queries) != 0 || len(r.graph.calls) != 1 {
+			t.Fatalf("reads=%d queries=%v graph=%v, want only the graph read and the log read", counter.Reads(), r.posts.queries, r.graph.calls)
 		}
 		if got, ok := r.info.Get(fieldRemovedReset); !ok || got != true {
 			t.Fatalf("logged %s = %v, want true", fieldRemovedReset, got)
@@ -203,5 +206,34 @@ func TestRemovedIDs_FlagOffReadsNothing(t *testing.T) {
 	}
 	if len(f.cutoffs) != 0 || len(resp.RemovedIds) != 0 {
 		t.Fatalf("log consulted %d times, removed_ids=%v, want 0/none", len(f.cutoffs), resp.RemovedIds)
+	}
+}
+
+// The scope handed to the log is the feed's authors: the caller plus the followees for home, the one profile author
+// for a user timeline (ADR-0016 amendment 2026-10-18 (b)).
+func TestRemovedIDs_ScopeIsTheFeedsAuthors(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.follow("me", 3)
+	cold := r.mustHome("", "", 20)
+	f := withRemovals(r, &fakeRemovals{})
+	r.clock.Advance(time.Minute)
+	if _, _, err := r.home("me", cold.SinceToken, "", 20); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.scopes) != 1 || !reflect.DeepEqual(f.scopes[0].Authors, []string{"me", "f1", "f2", "f3"}) {
+		t.Fatalf("home scope = %+v, want me + f1..f3", f.scopes)
+	}
+
+	u := newRig(t)
+	u.seedUser("bob", 3)
+	uc := u.mustUser("me", "bob", false, "", "", 20)
+	uf := withRemovals(u, &fakeRemovals{})
+	u.clock.Advance(time.Minute)
+	if _, _, err := u.user("me", "bob", false, uc.SinceToken, "", 20); err != nil {
+		t.Fatal(err)
+	}
+	if len(uf.scopes) != 1 || !reflect.DeepEqual(uf.scopes[0].Authors, []string{"bob"}) {
+		t.Fatalf("user scope = %+v, want [bob]", uf.scopes)
 	}
 }

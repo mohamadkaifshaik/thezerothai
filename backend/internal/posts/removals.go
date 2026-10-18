@@ -13,6 +13,18 @@
 // and a client whose token is older than the oldest loaded entry is told to reset (truncated) rather than being
 // served a partial list.
 //
+// Scope (ADR-0016 amendment 2026-10-18 (b)): every entry carries the post's authorId and RemovedSince answers for
+// ONE feed: the authors that feed shows (the viewer's home authors, or the one profile author). An entry for any
+// other author is neither listed nor does it make the answer incomplete, so a suspension resets only the
+// followers of the suspended account. The shared cache above is the complete view down to coverFrom. A cutoff
+// older than coverFrom (a cold instance after a burst, a long-idle token) is not answered with a reset but with
+// a targeted window query on (authorId, createdAt) for just that feed (RemovalWindowMaxReads); only a feed with
+// too many authors, more than 50 matches, a window that reaches entries written before authorId existed, or a
+// cutoff beyond the retention is rejected.
+//
+// Charging: the shared refresh is the instance's, not the triggering user's, so it runs under its own detached
+// read counter (logged as removal_log_reads); the window query is the viewer's and is charged to the request.
+//
 // Failure (ADR-0016 D10 implementation notes): the log query runs under its own removalQueryTimeout, a request
 // waiting for another request's refresh gives up on its own context, and a refresh that fails on an instance that
 // already holds data serves that stale data (logged at ERROR) instead of failing the timeline refresh.
@@ -25,6 +37,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -58,6 +71,17 @@ const (
 	// pins them equal.
 	RemovalWorstReads = 2 * RemovalMaxIDs
 
+	// RemovalWindowMaxChunks bounds the targeted window query of one RemovedSince call: authors are queried 30 at a
+	// time (Firestore's `in` limit), so a feed with more than 6 x 30 authors is rejected rather than queried.
+	RemovalWindowMaxChunks = 6
+
+	// RemovalWindowWorstReads is the most reads the window query of one call can charge to the viewer: at most
+	// RemovalMaxIDs+1 new documents in total across the chunks (each chunk's Limit is what is left), up to
+	// RemovalMaxIDs more for cached entries at the coverage boundary that the window returns again, plus the
+	// minimum of one read for each empty chunk. config.RemovalWindowMaxReads is the copy the budget docs use; a test pins
+	// them equal. It only runs for feeds of at most 180 authors, so the home worst case stays 269.
+	RemovalWindowWorstReads = 2*RemovalMaxIDs + 1 + RemovalWindowMaxChunks
+
 	// RemovalLag is how far before a since token's issue time the log is consulted (timeline passes
 	// issued - RemovalLag as the cutoff). A card can reach a client up to CACHE_TTL after a moderator hid its post
 	// (the author-recent and post caches), and the log cache of the serving instance can lag the log by another
@@ -77,10 +101,26 @@ const (
 	removalRetryBackoff = 5 * time.Second
 )
 
-// RemovalEntry is one log row. It holds no user id: the log is not personal data (ADR-0011 Q10 table row).
+// removalAuthorScopedFrom is the instant from which every log entry carries authorId (amendment 2026-10-18 (b)).
+// Entries written before it have none: the cache treats them as visible to every feed, but the window query can
+// not find them, so a window that starts before this instant is rejected instead of queried. It must be on or
+// after the release that ships the writer change; delete it (and the check) 32 days after that release.
+var defaultRemovalAuthorScopedFrom = time.Date(2026, time.October, 18, 0, 0, 0, 0, time.UTC)
+
+// fieldRemovalLogReads is the request-log field for the reads of the shared refresh this request triggered.
+const fieldRemovalLogReads = "removal_log_reads"
+
+// RemovalScope names the feed a RemovedSince answer is for: the authors whose posts it shows.
+type RemovalScope struct {
+	Authors []string
+}
+
+// RemovalEntry is one log row. AuthorID is a pseudonymous uid link (ADR-0011 Q10: erased with the account by the
+// posts step); it is empty only for entries written before the scoped log shipped.
 type RemovalEntry struct {
-	PostID string
-	State  RemovalState
+	PostID   string
+	AuthorID string
+	State    RemovalState
 	// At is the server commit time of the entry (createdAt).
 	At time.Time
 }
@@ -94,6 +134,9 @@ type RemovalSource interface {
 	// order, oldest first. afterID may be empty, meaning every entry with At > afterAt. Entries with At == afterAt
 	// and a larger id are returned, so entries that share one commit timestamp are never skipped or re-read.
 	After(ctx context.Context, afterAt time.Time, afterID string, limit int) ([]RemovalEntry, error)
+	// Window returns up to limit entries of the given authors (1 to 30) with after < At <= upTo, newest first. One
+	// query; it needs the (authorId, createdAt DESC) index. Entries without authorId are not found.
+	Window(ctx context.Context, authors []string, after, upTo time.Time, limit int) ([]RemovalEntry, error)
 }
 
 // RemovalLog implements Removals over a RemovalSource with a TTL'd instance cache.
@@ -102,6 +145,8 @@ type RemovalLog struct {
 	ttl          time.Duration
 	now          func() time.Time
 	queryTimeout time.Duration
+	// scopedFrom is defaultRemovalAuthorScopedFrom (a field so tests can move it).
+	scopedFrom time.Time
 
 	// sem (capacity 1) is held across the refresh query so concurrent requests on a cold or expired cache share one
 	// read. It is a channel rather than a sync.Mutex so a waiter can give up on its own context.
@@ -122,25 +167,56 @@ func NewRemovalLog(src RemovalSource, ttl time.Duration, now func() time.Time) *
 	if now == nil {
 		now = time.Now
 	}
-	return &RemovalLog{src: src, ttl: ttl, now: now, queryTimeout: removalQueryTimeout, sem: make(chan struct{}, 1)}
+	return &RemovalLog{src: src, ttl: ttl, now: now, queryTimeout: removalQueryTimeout, scopedFrom: defaultRemovalAuthorScopedFrom, sem: make(chan struct{}, 1)}
 }
 
 // RemovedSince implements Removals.
-func (l *RemovalLog) RemovedSince(ctx context.Context, cutoff time.Time) ([]string, bool, error) {
+func (l *RemovalLog) RemovedSince(ctx context.Context, cutoff time.Time, scope RemovalScope) ([]string, bool, error) {
+	if len(scope.Authors) == 0 {
+		return nil, false, nil // a feed that shows nobody has nothing to remove: 0 reads, no refresh
+	}
+	view, err := l.viewLocked(ctx, cutoff, scope)
+	if err != nil {
+		return nil, false, err
+	}
+	if view.truncated {
+		return nil, true, nil
+	}
+	if view.needWindow {
+		return l.windowAnswer(ctx, cutoff, scope, view)
+	}
+	return finishHits(view.hits)
+}
+
+// removalView is what one request takes from the shared cache while holding it.
+type removalView struct {
+	truncated  bool
+	needWindow bool
+	coverFrom  time.Time
+	hits       map[string]RemovalEntry
+}
+
+// viewLocked refreshes the shared cache when it is due (under a detached read counter) and copies out the
+// entries newer than cutoff that belong to scope. It holds the refresh semaphore only for that.
+func (l *RemovalLog) viewLocked(ctx context.Context, cutoff time.Time, scope RemovalScope) (removalView, error) {
 	select {
 	case l.sem <- struct{}{}:
 	case <-ctx.Done():
-		return nil, false, fmt.Errorf("posts: removal log: waiting for refresh: %w", ctx.Err())
+		return removalView{}, fmt.Errorf("posts: removal log: waiting for refresh: %w", ctx.Err())
 	}
 	defer func() { <-l.sem }()
 	now := l.now()
 	if !l.loaded || now.Sub(l.fetchedAt) >= l.ttl {
-		qctx, cancel := context.WithTimeout(ctx, l.queryTimeout)
+		// The refresh belongs to the instance, not to the user whose request happened to trigger it: its reads go to
+		// their own counter (not the request's, so not the user's daily read budget) and are logged separately.
+		rctx, counter := budget.WithCounter(ctx)
+		qctx, cancel := context.WithTimeout(rctx, l.queryTimeout)
 		err := l.refreshLocked(qctx, now)
 		cancel()
+		logger.SetRequestField(ctx, fieldRemovalLogReads, counter.Reads())
 		if err != nil {
 			if !l.loaded {
-				return nil, false, err
+				return removalView{}, err
 			}
 			// Serve the stale cache: this instance has data, and failing every refresh for the length of a Firestore
 			// blip is worse than a removal reaching clients one TTL late.
@@ -149,12 +225,81 @@ func (l *RemovalLog) RemovedSince(ctx context.Context, cutoff time.Time) ([]stri
 			l.fetchedAt = now.Add(min(l.ttl, removalRetryBackoff) - l.ttl)
 		}
 	}
-	if cutoff.Before(l.coverFrom) {
+	if cutoff.Before(now.Add(-RemovalRetention)) {
+		return removalView{truncated: true}, nil // older than the log keeps: nothing can answer
+	}
+	v := removalView{coverFrom: l.coverFrom, needWindow: cutoff.Before(l.coverFrom), hits: map[string]RemovalEntry{}}
+	set := make(map[string]struct{}, len(scope.Authors))
+	for _, a := range scope.Authors {
+		set[a] = struct{}{}
+	}
+	for id, e := range l.entries {
+		if !e.At.After(cutoff) || !inScope(e, set) {
+			continue
+		}
+		v.hits[id] = e
+	}
+	return v, nil
+}
+
+// inScope: an entry belongs to a feed when its author is shown there. An entry without authorId (written before
+// the scoped log) is visible to every feed: correct, only less precise.
+func inScope(e RemovalEntry, authors map[string]struct{}) bool {
+	if e.AuthorID == "" {
+		return true
+	}
+	_, ok := authors[e.AuthorID]
+	return ok
+}
+
+// windowAnswer completes a view whose cutoff is older than the cache's coverage: the entries in (cutoff, coverFrom]
+// for this feed's authors are read with one bounded query per 30 authors and merged with the cached hits (the
+// cached entry wins for the same post: it is the newer state). Rejects (truncated) instead of querying when the
+// feed has more than RemovalWindowMaxChunks x 30 authors or the window starts before authorId existed, and when
+// the merged answer would exceed RemovalMaxIDs. These reads are the viewer's and are charged to the request.
+func (l *RemovalLog) windowAnswer(ctx context.Context, cutoff time.Time, scope RemovalScope, v removalView) ([]string, bool, error) {
+	const chunk = 30
+	if cutoff.Before(l.scopedFrom) || len(scope.Authors) > RemovalWindowMaxChunks*chunk {
 		return nil, true, nil
 	}
+	merged := v.hits
+	// Cached entries at exactly coverFrom can come back from the window too (it includes coverFrom, because the
+	// cache is only complete strictly after it): they are allowed on top of the Limit so duplicates never cause a
+	// reject, and merging by post id keeps the count honest.
+	ties := 0
+	for _, e := range merged {
+		if e.At.Equal(v.coverFrom) {
+			ties++
+		}
+	}
+	for start := 0; start < len(scope.Authors); start += chunk {
+		limit := RemovalMaxIDs + 1 + ties - len(merged)
+		if limit <= 0 {
+			return nil, true, nil
+		}
+		qctx, cancel := context.WithTimeout(ctx, l.queryTimeout)
+		es, err := l.src.Window(qctx, scope.Authors[start:min(start+chunk, len(scope.Authors))], cutoff, v.coverFrom, limit)
+		cancel()
+		if err != nil {
+			return nil, false, fmt.Errorf("posts: removal log: window: %w", err)
+		}
+		if len(es) >= limit {
+			return nil, true, nil // possibly more behind the Limit: do not claim a complete answer
+		}
+		for _, e := range es {
+			if cur, ok := merged[e.PostID]; !ok || e.At.After(cur.At) {
+				merged[e.PostID] = e
+			}
+		}
+	}
+	return finishHits(merged)
+}
+
+// finishHits turns the merged entries into the response: REMOVED only, newest first, at most RemovalMaxIDs.
+func finishHits(m map[string]RemovalEntry) ([]string, bool, error) {
 	var hits []RemovalEntry
-	for _, e := range l.entries {
-		if e.State == RemovalRemoved && e.At.After(cutoff) {
+	for _, e := range m {
+		if e.State == RemovalRemoved {
 			hits = append(hits, e)
 		}
 	}

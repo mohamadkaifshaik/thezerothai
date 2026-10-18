@@ -25,10 +25,13 @@ const (
 )
 
 // removedIDs returns the removal ids for a refresh (ADR-0016 D10) and nil for every other mode or when no log is
-// wired. A log that cannot answer completely (token older than its coverage, or more than 50 matches) rejects the
+// wired. The answer is scoped to the feed being refreshed (ADR-0016 amendment 2026-10-18 (b)): authors are the
+// accounts the feed shows (the caller's home authors, or the one profile author), so a removal by anyone else is
+// neither listed nor a reason to reject the token. A log that cannot answer completely for this feed (token older
+// than the log keeps, a window it could not query for this author set, or more than 50 matches) rejects the
 // refresh exactly like an expired since_token, before any post is read: the client then cold-opens and replaces
 // its cache. Reads: see posts.Removals.RemovedSince.
-func (s *Server) removedIDs(ctx context.Context, tok request) ([]string, error) {
+func (s *Server) removedIDs(ctx context.Context, tok request, authors []string) ([]string, error) {
 	if tok.Since == nil || s.deps.Removals == nil {
 		return nil, nil
 	}
@@ -36,7 +39,7 @@ func (s *Server) removedIDs(ctx context.Context, tok request) ([]string, error) 
 	if uid, ok := authn.UIDFromContext(ctx); !ok || s.deps.Flags == nil || !s.deps.Flags.Enabled(uid, FlagRemovedIDs) {
 		return nil, nil
 	}
-	ids, truncated, err := s.deps.Removals.RemovedSince(ctx, tok.SinceIssued.Add(-removalLag))
+	ids, truncated, err := s.deps.Removals.RemovedSince(ctx, tok.SinceIssued.Add(-removalLag), posts.RemovalScope{Authors: authors})
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("timeline: removal log: %w", err))
 	}

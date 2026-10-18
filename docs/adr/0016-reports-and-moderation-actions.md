@@ -291,7 +291,7 @@ one global log) is unchanged. These numbers replace the D10 and Cost impact numb
   250 entries sharing one commit timestamp costs the 50-read cold load once and 1 read per TTL afterwards. (The first build
   re-read 10 s behind `lastSeen` and cost about 100 reads per TTL after such a burst; fixed.)
 - **Worst case per refresh:** 100 reads (a full incremental page of 50, then the reload of the newest 50), once per instance
-  per TTL and only when 50 or more entries are new within one TTL. It is part of `config.ReadBudgetMaxCallReads` (269 + 100 = 369).
+  per TTL and only when 50 or more entries are new within one TTL. It was part of `config.ReadBudgetMaxCallReads` (269 + 100 = 369); superseded by amendment 2026-10-18 (b): detached, 269.
 - **Writes:** a hide or restore of one post is 2 writes (the `moderation` update and its log entry). `+P` writes is replaced by
   suspend-user 2P + 1, unsuspend-user 2 P_hidden + 1, takedown-post and restore-post 2 each; batches are 250 posts (2 operations
   each, 500 max). A 5,000-post account is 10,000 writes (50% of the free daily writes), as already stated under Cost impact.
@@ -303,3 +303,62 @@ one global log) is unchanged. These numbers replace the D10 and Cost impact numb
   off; off means no log reads and no resets; the log is still written).
 - `removed_ids` is global (<= 50 ids per response, not per feed); it reveals the timing of moderator removals to every client
   (security-auditor follow-up).
+
+## Amendment 2026-10-18 (b): per-author scoping of the removal log (founder approval 2026-10-18; security audit RID-2 (a), RID-3, RID-4, N-4)
+The decision of D10 (option 2: `removed_ids` backed by a TTL'd log, instance-cached, behind `FEATURE_REMOVED_IDS`) is unchanged.
+This amendment **supersedes the "global log, global broadcast" text** of D10, of the Implementation notes ("`removed_ids` is global,
+not per feed") and of the 2026-10-18 cost amendment above, where they differ.
+
+**What changes**
+- **Scope (RID-2/RID-3).** Every `postRemovals/{postId}` entry now carries `authorId` (the post's author; written by every writer,
+  RESTORED entries included). `RemovedSince(cutoff, scope)` answers for one feed: Home = `homeAuthors(snapshot)` (the caller plus the
+  followees the caller neither blocks nor mutes), user timeline = the profile's author. A removal by anyone else is neither listed in
+  `removed_ids` nor a reason to reject the token. A suspension therefore resets only the feeds that show the suspended account (its
+  followers' Home and its own profile), usually about zero for a spam account, and ids are no longer broadcast to every client.
+- **Truncation per feed, conservative.** The instance cache is still the global newest-50 view (complete for entries newer than its
+  `coverFrom`). A feed is rejected (token invalid, client cold-opens) only when it cannot be answered exactly:
+  1. the cutoff is older than the retention floor (32 d);
+  2. more than 50 matching REMOVED ids for this feed;
+  3. the cutoff is older than the cache's coverage **and** the window `(cutoff, coverFrom]` cannot be queried for this feed: the feed
+     has more than 180 authors (6 chunks of 30), the window starts before authorId existed (`defaultRemovalAuthorScopedFrom`,
+     2026-10-18; delete the check 32 days after the release), or the window query itself returns more than the response can hold.
+
+  Otherwise the window is read with one query per 30 authors, `authorId in [...] AND createdAt > cutoff AND createdAt <= coverFrom`
+  ordered `createdAt DESC, __name__ DESC`, `Limit` = what is left of 51 (+ ties at `coverFrom`, which both views return), merged
+  with the cached entries by post id (the cached entry wins). This is what makes a cold instance exact right after a burst: its
+  cache only holds the newest 50 entries, which are the spammer's, and the followed author's older removals come from the window.
+  Reasoning for "correct over clever": the cache never claims coverage it lacks; whatever the cache or the window cannot prove
+  complete for the feed becomes a reset, never a silently shortened list. Entries without `authorId` (written before this
+  amendment, no backfill; they expire within 32 d) are treated as visible to every feed in the cached view, and any window that
+  could contain them is rejected rather than queried.
+- **Index.** New composite `postRemovals (authorId ASC, createdAt DESC)` in `firebase/firestore.indexes.json` (the same single-field
+  `authorId` serves the erase query). The `postRemovals.state` exemption stays. Every query keeps its `Limit`.
+- **Charging (RID-4).** The shared refresh (cold load 1-50 reads, incremental 1 read per TTL, 100 worst) runs under a detached
+  `budget.WithCounter` and is logged as `removal_log_reads`; it is **not** charged to the triggering user's 2,000/day budget.
+  `config.ReadBudgetMaxCallReads` goes **369 -> 269**. The window query is per viewer and is charged to them: at most
+  `RemovalWindowWorstReads` = 107 reads (51 new documents across chunks + 50 boundary entries returned twice + 1 per empty chunk),
+  only for feeds of at most 180 authors, so such a call is at most 2 + 7 + 100 + 107 = 216 reads, below 269. Pinned by
+  `config.RemovalWindowMaxReads` and the config test.
+- **Steady state is unchanged:** 0 reads on a warm hit, 1 read per instance per CACHE_TTL.
+- **Right to delete (rule 10).** `authorId` is a pseudonymous link to a uid, so `postRemovals` is no longer `notPersonal`: the lifecycle
+  guard row is `erasedByStep "posts"`. `posts.Eraser.PurgeUser` has a new phase 2 (after the copies phase) that deletes the entries with
+  `authorId == uid` (Limit 500, one read per entry, minimum 1, one delete per entry). Account deletion therefore costs **+1 read**
+  (the empty page): the reference account is 21 reads (was 20) and the plan T16 delete criterion 517 + D (was 516 + D). No residue
+  allowlist entry is needed; the 32-day TTL is only the backstop.
+- **opsctl (N-4, RID-3).** `suspend-user` now sweeps the notification rows other users hold about the actor after the settle pass
+  (`collectionGroup("notifications").where(actorIds array-contains uid)`, the existing `purgeActorRows` step through the new
+  `notifications.ActorSweeper` seam: 1 read + 1 delete or update per row, 500 per page, 1 read when none; index already
+  deployed). `suspend-user --dry-run` and `unsuspend-user --dry-run` print the P >= 50 reset warning, reworded for the new
+  scope (only followers of the account and viewers of its profile are reset).
+
+**Cost.** Writes unchanged (2 per hide or restore; `authorId` is one more field). Reads per Home refresh: unchanged on a warm
+instance; the shared refresh no longer counts against any user. Worst reset cost of a P >= 50 suspension: followers x 30 reads
+instead of DAU x 30.
+
+**Trade-offs accepted by the founder.** (1) A removal by an author the viewer just unfollowed, muted or blocked is not listed (tokens
+are not bound to the follow set): a cached card of that author can stay until the next cold open. (2) A repost or quote card of a
+removed post inside another author's post is covered by the take-down clean-up and the server-side embed filter, not by `removed_ids`.
+(3) Legacy entries without `authorId` are global until they expire.
+
+**Flutter client contract: unchanged.** The client still drops each `removed_ids` id from every cached feed that holds it and
+replaces the feed with the cold open on a rejected `since_token`. No proto field changes (`buf breaking` clean; only comments).

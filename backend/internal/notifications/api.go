@@ -173,3 +173,9 @@ type Checkpoint struct {
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, cp Checkpoint) (next Checkpoint, done bool, err error)
 }
+
+// ActorSweeper is the opsctl seam over purge step 2 (N-4): remove the rows other users hold about an actor.
+// Implemented by FirestoreRepo.SweepActorRows (sweep.go).
+type ActorSweeper interface {
+	SweepActorRows(ctx context.Context, uid string, cp Checkpoint) (next Checkpoint, done bool, err error)
+}
