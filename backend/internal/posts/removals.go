@@ -103,8 +103,10 @@ const (
 
 // removalAuthorScopedFrom is the instant from which every log entry carries authorId (amendment 2026-10-18 (b)).
 // Entries written before it have none: the cache treats them as visible to every feed, but the window query can
-// not find them, so a window that starts before this instant is rejected instead of queried. It must be on or
-// after the release that ships the writer change; delete it (and the check) 32 days after that release.
+// not find them, so a window that starts before this instant is rejected instead of queried. It is only correct if no
+// moderation action runs with an opsctl built before this change after this date: rebuild opsctl before any takedown or
+// suspension, or move the date to the release tag (ADR-0016 amendment 2026-10-18 (b)). Delete it (and the check) 32 days
+// after the release.
 var defaultRemovalAuthorScopedFrom = time.Date(2026, time.October, 18, 0, 0, 0, 0, time.UTC)
 
 // fieldRemovalLogReads is the request-log field for the reads of the shared refresh this request triggered.

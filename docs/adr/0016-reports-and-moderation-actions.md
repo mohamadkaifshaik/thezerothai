@@ -356,9 +356,16 @@ instance; the shared refresh no longer counts against any user. Worst reset cost
 instead of DAU x 30.
 
 **Trade-offs accepted by the founder.** (1) A removal by an author the viewer just unfollowed, muted or blocked is not listed (tokens
-are not bound to the follow set): a cached card of that author can stay until the next cold open. (2) A repost or quote card of a
-removed post inside another author's post is covered by the take-down clean-up and the server-side embed filter, not by `removed_ids`.
-(3) Legacy entries without `authorId` are global until they expire.
+are not bound to the follow set): a cached card of that author can stay until the next cold open. (2) A viewer who holds a suspended
+author's post only as a repost or quote copy inside another account's post is not told: copies carry their own ids, are removed only by
+`takedown-post`'s clean-up (ADR-0018 D6), and the read-path embed filter handles block and mute only. This is unchanged by this amendment
+(the log never listed copies). (3) Legacy entries without `authorId` are global until they expire.
+
+**Legacy-entry guarantee and the cutover date.** Entries written by an opsctl built before this change have no `authorId`. The cached view
+treats them as visible to every feed (exact, only less precise). The window query cannot find them, so a window that starts before
+`defaultRemovalAuthorScopedFrom` is rejected, never queried. That constant (2026-10-18, `backend/internal/posts/removals.go`) is only
+correct if **no moderation action runs with an old opsctl after that date**: rebuild opsctl from this change before any `takedown-post`,
+`suspend-user` or `restore-post`, or move the date to the release tag. Delete the constant 32 days after the release.
 
 **Flutter client contract: unchanged.** The client still drops each `removed_ids` id from every cached feed that holds it and
 replaces the feed with the cold open on a rejected `since_token`. No proto field changes (`buf breaking` clean; only comments).

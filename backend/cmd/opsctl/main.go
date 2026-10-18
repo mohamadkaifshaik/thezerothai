@@ -110,7 +110,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		moderator:     postsRepo,
 		cleanup:       postsRepo,
 		accounts:      identityRepo,
-		actorSweeper:  notifications.NewFirestoreRepo(client),
+		actorSweeper:  notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
 		close:         func() { _ = client.Close() },

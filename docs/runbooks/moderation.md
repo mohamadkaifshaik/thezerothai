@@ -77,7 +77,7 @@ answers `removed_ids` on `since_token` refreshes, so a client drops a card it al
   `opsctl unsuspend-user --dry-run` print a WARNING when P >= 50: run those off-peak when the account has many followers.
   Server cost of the log itself: one 50-read cold load per instance and 1 read per CACHE_TTL after that, a 100-read reload only
   when 50 or more entries are new within one TTL. These shared reads run on a detached counter (log field `removal_log_reads`)
-  and are **not** charged to any user's daily read budget (`ReadBudgetMaxCallReads` = 269). A viewer whose token is older than
+  and are **not** in the request's `fs_reads` nor charged to any user's daily read budget (when summing Firestore usage from logs, add `removal_log_reads`) (`ReadBudgetMaxCallReads` = 269). A viewer whose token is older than
   the instance's cache (a cold instance after a burst) pays one bounded window query of at most 107 reads for its own feed.
   The kill switch is `FEATURE_REMOVED_IDS=off` (no log reads, no resets; the log is still written).
 - **Flag.** `FEATURE_REMOVED_IDS` (off | allowlist | percent | on, default off, Terraform `feature_removed_ids*`). Off for a

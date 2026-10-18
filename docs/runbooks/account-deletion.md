@@ -72,7 +72,7 @@ curl -s -X POST "${H[@]}" -d "{\"localId\":\"$UID_\",\"disableUser\":true}" \
 **Step 1a. Purge the posts (before the graph).** Same flags and guards as `purge-graph` (explicit `--project`, typed
 confirmation for `*-prod`, the DELETING >= 120 s start gate, `--dry-run`, `--skip-start-gate`). It deletes every
 `posts` doc with `authorId == uid`, 500 per batch, newest first; it is resumable (deleted docs drop out of the next page,
-so a re-run after a crash simply continues) and does not touch `users.postsCount` because the `users` doc is deleted
+so a re-run after a crash simply continues; after the posts and the repost/quote copies it also deletes the moderation `postRemovals` entries with `authorId == uid`, one extra empty read when there are none, ADR-0016 amendment 2026-10-18 (b)) and does not touch `users.postsCount` because the `users` doc is deleted
 later. Cost: about 1 read and 1 delete per post (a 300-post user: 300 reads, 300 deletes).
 ```bash
 cd backend
