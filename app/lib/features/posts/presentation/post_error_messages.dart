@@ -37,7 +37,7 @@ String replyErrorMessage(AppException error) {
       'No connection. Your reply was not sent; check your network and try '
           'again.',
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now, so replying is paused. '
+      'Dzeroth is in a limited mode right now, so replying is paused. '
           'Please try again shortly.',
     ValidationException() =>
       "This reply can't be sent. Check the text and try again.",
