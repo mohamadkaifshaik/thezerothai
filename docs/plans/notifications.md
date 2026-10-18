@@ -34,16 +34,16 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 
 | # | Ticket | Owner | Status |
 |---|---|---|---|
-| T1 | ADR-0017 + `notifications.v1` proto + this plan | architect | In review (PR 118; renumbered from ADR-0016) |
-| T2 | Module: types, `Emitter`, Firestore repo (notifications, devices, token index), ids, cursor tokens | backend | In review (PR 2, backend) |
-| T3 | Fan-out push handler `/internal/pubsub/notifications-fanout`: decode, suppress, create, push, prune, DLQ semantics | backend | In review (PR 2) |
-| T4 | ListNotifications (`since`/gap tokens) + MarkNotificationsSeen (identity method + cache evict) | backend | In review (PR 2) |
-| T5 | RegisterDevice/UnregisterDevice (cap 5, cross-user token transfer, daily call cap) | backend | In review (PR 2) |
-| T6 | `notifications.Eraser` + exporter, T11 guard rows, `account-deletion.md` lists, index override | backend | In review (PR 2) |
-| T7 | Wiring: config, flag, rate limits, `FollowEvents` + `PostEvents` adapters, Terraform variable | backend | In review (PR 2) |
-| T8 | Tests: unit, emulator integration with budget assertions, suppression matrix, idempotency, DLQ semantics | tester | In review (PR 2) |
-| T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | In review (client PR: branch `feat/p67-ui`, PR not opened yet, number TBD) |
-| T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices; the seam, `notifications.Event` types and the id scheme are ready) |
+| T1 | ADR-0017 + `notifications.v1` proto + this plan | architect | Done (proto `proto/dzeroth/notifications/v1/notifications.proto` and this plan on main; ADR-0017 Accepted 2026-10-18, #141; renumbered from ADR-0016) |
+| T2 | Module: types, `Emitter`, Firestore repo (notifications, devices, token index), ids, cursor tokens | backend | Done (#122 merged, per `engagement.md` T9; `backend/internal/notifications/*` on main) |
+| T3 | Fan-out push handler `/internal/pubsub/notifications-fanout`: decode, suppress, create, push, prune, DLQ semantics | backend | Done (#122 merged; `notifications.NewFanout` wired in `apiserver.go:214`) |
+| T4 | ListNotifications (`since`/gap tokens) + MarkNotificationsSeen (identity method + cache evict) | backend | Done (#122 merged; `notifications/server.go` on main) |
+| T5 | RegisterDevice/UnregisterDevice (cap 5, cross-user token transfer, daily call cap) | backend | Done (#122 merged; cap later hardened by T14, #139) |
+| T6 | `notifications.Eraser` + exporter, T11 guard rows, `account-deletion.md` lists, index override | backend | Done (#122 merged; `notifRepo` registered in `registerLifecycleModules`, `apiserver.go:305`) |
+| T7 | Wiring: config, flag, rate limits, `FollowEvents` + `PostEvents` adapters, Terraform variable | backend | Done (#122 merged; `apiserver/notifications_wiring.go`). Terraform variable: see T13 |
+| T8 | Tests: unit, emulator integration with budget assertions, suppression matrix, idempotency, DLQ semantics | tester | Done (#122 merged; `apiserver/notifications_wiring_test.go`, `internal/notifications/*_test.go`) |
+| T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | Done (merged via integration PR #135; `app/lib/features/notifications/*`) |
+| T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Partly done: P5 likes/reposts/quotes are wired (`engagementNotifier`, `postNotifier` in `apiserver.go:246,264`; engagement T9, #135). The P3 reply producer is in progress; status unverified as of 2026-10-18 |
 | T11 | Security review (token handling, payload, handler auth) | security-auditor | Done (findings N-1..N-5; N-1, N-2, N-3, N-5 fixed in `fix/notifications-hardening`, N-4 owned by the moderation/removal-log change) |
 | T14 | Hardening from the T11 audit: per-actor recipient cap (N-1), per-recipient push limit + collapse by type (N-2), no row id in the export (N-3), FCM dry-run token validation + devices cap 10/day (N-5) | backend | Done (#139 merged) |
 | T12 | **Manual (iOS half PAUSED until the Apple launch, 2026-10-18; Android half only for now):** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase; prerequisites below) |

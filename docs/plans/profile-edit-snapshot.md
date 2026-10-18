@@ -28,7 +28,7 @@ without any write fan-out on the request path.
 | P2-T3 | Job kind + dispatch in the P8 handler, flag gate, wiring | backend | Done (this PR) |
 | P2-T4 | Unit tests (fakes) + emulator integration test with budget assertions | tester | Done (this PR) |
 | P2-T5 | Flutter Edit profile + Change handle screens (RPCs exist; no UI) | frontend | Done (PR feat/p2-profile-edit-ui; widget test per screen; UI gated on `profile_snapshot` in `enabled_features`, avatar not editable until P4) |
-| P2-T6 | Terraform env vars `FEATURE_PROFILE_SNAPSHOT*` per env (default in code is off, so not required to ship) | deployer | Open (rollout: dev on, prod allowlist) |
+| P2-T6 | Terraform env vars `FEATURE_PROFILE_SNAPSHOT*` per env (default in code is off, so not required to ship) | deployer | Open (rollout: dev on, prod allowlist); status unverified as of 2026-10-18 (Terraform vars reported in progress by another agent) |
 
 ## Worst-case Firestore reads/writes
 | Path | Reads | Writes |

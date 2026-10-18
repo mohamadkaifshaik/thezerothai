@@ -13,16 +13,16 @@ the API reads attributes and 512 bytes, asks Vision, then copies approved object
 ## Status
 | Ticket | Title | Owner | Status | PR |
 |---|---|---|---|---|
-| T1 | objstore: signed PUT, attrs, ranged head, cross-bucket copy | backend | In review | `feat/p4-media-backend` |
-| T2 | `internal/media`: CreateUpload / FinalizeUpload / Vision cap / policy | backend | In review | same |
-| T3 | CreatePost `media_ids` + alt texts + image-only posts; UpdateProfile avatar | backend | In review | same |
-| T4 | `post_delete` job, `media.Eraser`, export section | backend | In review | same |
-| T5 | Wiring: `FEATURE_MEDIA`, `DEGRADED_MODE=nomedia`, config, quota `uploads` | backend | In review | same |
+| T1 | objstore: signed PUT, attrs, ranged head, cross-bucket copy | backend | Merged (on main as of 2026-10-18: `backend/pkg/platform/objstore`; PR number not recorded) | `feat/p4-media-backend` |
+| T2 | `internal/media`: CreateUpload / FinalizeUpload / Vision cap / policy | backend | Merged (on main: `backend/internal/media`) | same |
+| T3 | CreatePost `media_ids` + alt texts + image-only posts; UpdateProfile avatar | backend | Merged (on main: `postsMediaAttacher`, `identity.WithAvatarResolver` in `apiserver.go:181,243`) | same |
+| T4 | `post_delete` job, `media.Eraser`, export section | backend | Merged (on main: `media.JobKindPostDelete` handler, `mediaMod.purger` in `apiserver.go:305,330`) | same |
+| T5 | Wiring: `FEATURE_MEDIA`, `DEGRADED_MODE=nomedia`, config, quota `uploads` | backend | Merged (on main: `apiserver/media_wiring.go`, `mediaProcedures()`) | same |
 | T6 | Review #110 M2: list views thumbnail-only, `useFullImage` for detail | frontend | Done | #124 |
-| T7 | Flutter: image_picker + compress + BlurHash + upload with progress/retry, grid, avatar editor | frontend | In review | `feat/p4-media-ui` |
+| T7 | Flutter: image_picker + compress + BlurHash + upload with progress/retry, grid, avatar editor | frontend | Merged (via integration PR #135; `app/lib/features/media/*`, `profile/presentation/widgets/avatar_editor.dart`) | `feat/p4-media-ui` |
 | T8 | Dev smoke on real GCS: IAM signBlob signing, bucket CORS, Vision API, rewrite copy | deployer | **Not started** (needs founder creds) | |
-| T9 | Terraform env vars: `FEATURE_MEDIA[_ALLOWLIST\|_PERCENT]`, `VISION_*`, `MEDIA_PUBLIC_BASE_URL`; enable `vision.googleapis.com` | deployer | **Not started** | |
-| T10 | Runbook `docs/runbooks/media.md` (added in this PR) | backend | In review | same |
+| T9 | Terraform env vars: `FEATURE_MEDIA[_ALLOWLIST\|_PERCENT]`, `VISION_*`, `MEDIA_PUBLIC_BASE_URL`; enable `vision.googleapis.com` | deployer | Not done; status unverified as of 2026-10-18 (Terraform vars reported in progress by another agent) | |
+| T10 | Runbook `docs/runbooks/media.md` (added in this PR) | backend | Merged (on main: `docs/runbooks/media.md`) | same |
 
 ### T7 as built (Flutter, behind `FEATURE_MEDIA`)
 - **Gate.** `kFeatureMedia = 'media'` from `GetMe.enabled_features`, the same way `profile_snapshot` and `replies` are
