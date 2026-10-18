@@ -149,6 +149,39 @@ class PostCard extends StatelessWidget {
       viewerUserId!.isNotEmpty &&
       _post.author.userId == viewerUserId;
 
+  bool _isViewer(String userId) =>
+      viewerUserId != null &&
+      viewerUserId!.isNotEmpty &&
+      userId == viewerUserId;
+
+  /// What Report / Block / Mute act on. A REPOST row that shows its original
+  /// targets the ORIGINAL post and author (the account the card displays);
+  /// everything else (own posts, QUOTE rows, a REPOST whose original is
+  /// hidden) targets the row's own post and author.
+  _MenuTarget _menuTarget({pb.EmbeddedPost? original}) {
+    if (original != null) {
+      return _MenuTarget(
+        userId: original.author.userId,
+        handle: original.author.handle,
+        postId: original.postId,
+        isOwn: _isViewer(original.author.userId),
+        reportLabel: 'Report post',
+        subject: "@${original.author.handle}'s post",
+      );
+    }
+    final isRepost = _post.kind == PostKind.POST_KIND_REPOST;
+    return _MenuTarget(
+      userId: _post.author.userId,
+      handle: _post.author.handle,
+      postId: _post.postId,
+      isOwn: _isOwn,
+      reportLabel: isRepost ? 'Report repost' : 'Report post',
+      subject: isRepost
+          ? "@${_post.author.handle}'s repost"
+          : "@${_post.author.handle}'s post",
+    );
+  }
+
   void _openProfile(BuildContext context, String userId) {
     if (userId.isEmpty) return;
     final handler = onOpenProfile;
@@ -189,6 +222,15 @@ class PostCard extends StatelessWidget {
         reposter: _post.author,
         isOwn: _isOwn,
         placeholder: placeholder,
+        menu: _PostMenu(
+          post: _post,
+          isOwn: _isOwn,
+          target: _menuTarget(),
+          graphActionsEnabled: graphActionsEnabled,
+          reportsEnabled: reportsEnabled,
+          onDelete: onDelete,
+          onRelationshipChanged: onRelationshipChanged,
+        ),
       );
     }
     // A REPOST shows the original it points to (its frozen snapshot).
@@ -269,6 +311,7 @@ class PostCard extends StatelessWidget {
                   _PostMenu(
                     post: _post,
                     isOwn: _isOwn,
+                    target: _menuTarget(original: isRepost ? embedded : null),
                     graphActionsEnabled: graphActionsEnabled,
                     reportsEnabled: reportsEnabled,
                     onDelete: onDelete,
@@ -389,10 +432,15 @@ String _repostedByLabel(common.AuthorSnapshot reposter, bool isOwn) {
 /// The "X reposted" line above a REPOST item, aligned with the avatar
 /// column (the viewer's own repost reads "You reposted").
 class _RepostedBy extends StatelessWidget {
-  const _RepostedBy({required this.reposter, required this.isOwn});
+  const _RepostedBy({
+    required this.reposter,
+    required this.isOwn,
+    this.trailing,
+  });
 
   final common.AuthorSnapshot reposter;
   final bool isOwn;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -423,6 +471,7 @@ class _RepostedBy extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(color: muted),
               ),
             ),
+            ?trailing,
           ],
         ),
       ),
@@ -438,11 +487,15 @@ class _RepostPlaceholder extends StatelessWidget {
     required this.reposter,
     required this.isOwn,
     required this.placeholder,
+    required this.menu,
   });
 
   final common.AuthorSnapshot reposter;
   final bool isOwn;
   final EmbedPlaceholder placeholder;
+
+  /// Actions on the repost itself (the hidden original gets none).
+  final Widget menu;
 
   @override
   Widget build(BuildContext context) {
@@ -456,7 +509,7 @@ class _RepostPlaceholder extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _RepostedBy(reposter: reposter, isOwn: isOwn),
+          _RepostedBy(reposter: reposter, isOwn: isOwn, trailing: menu),
           Padding(
             padding: const EdgeInsetsDirectional.only(
               start: AppSpacing.minTapTarget + AppSpacing.sm,
@@ -667,6 +720,27 @@ void _closeWhenSettled(RelationshipCubit cubit) {
   }
 }
 
+/// Who Report / Block / Mute act on (see [PostCard._menuTarget]).
+class _MenuTarget {
+  const _MenuTarget({
+    required this.userId,
+    required this.handle,
+    required this.postId,
+    required this.isOwn,
+    required this.reportLabel,
+    required this.subject,
+  });
+
+  final String userId;
+  final String handle;
+  final String postId;
+
+  /// The viewer is this target's author (no Report / Block / Mute).
+  final bool isOwn;
+  final String reportLabel;
+  final String subject;
+}
+
 /// The overflow menu. For another author it holds ONE [RelationshipCubit]
 /// for the card's lifetime (created on first open), so a retry after a
 /// failed Block/Mute reuses the same idempotency key (CLAUDE.md rule 4).
@@ -674,14 +748,19 @@ class _PostMenu extends StatefulWidget {
   const _PostMenu({
     required this.post,
     required this.isOwn,
+    required this.target,
     required this.graphActionsEnabled,
     required this.reportsEnabled,
     required this.onDelete,
     required this.onRelationshipChanged,
   });
 
+  /// The row's own post: Delete acts on it (a repost's id for a repost).
   final pb.Post post;
+
+  /// The viewer authored [post] (gates Delete).
   final bool isOwn;
+  final _MenuTarget target;
   final bool graphActionsEnabled;
   final bool reportsEnabled;
   final Future<void> Function(String postId)? onDelete;
@@ -696,12 +775,12 @@ class _PostMenuState extends State<_PostMenu> {
 
   RelationshipCubit _cubitFor(BuildContext context) {
     final existing = _cubit;
-    if (existing != null && existing.userId == widget.post.author.userId) {
+    if (existing != null && existing.userId == widget.target.userId) {
       return existing;
     }
     if (existing != null) _closeWhenSettled(existing);
     final repository = context.read<GraphRepository>();
-    final userId = widget.post.author.userId;
+    final userId = widget.target.userId;
     return _cubit = RelationshipCubit(
       graphRepository: repository,
       userId: userId,
@@ -720,17 +799,16 @@ class _PostMenuState extends State<_PostMenu> {
 
   @override
   Widget build(BuildContext context) {
-    final handle = widget.post.author.handle;
+    final target = widget.target;
+    final handle = target.handle;
     final canDelete = widget.isOwn && widget.onDelete != null;
     final canGraph =
-        !widget.isOwn &&
-        widget.graphActionsEnabled &&
-        widget.post.author.userId.isNotEmpty;
+        !target.isOwn && widget.graphActionsEnabled && target.userId.isNotEmpty;
     final canReport =
-        !widget.isOwn &&
+        !target.isOwn &&
         widget.reportsEnabled &&
-        widget.post.author.userId.isNotEmpty &&
-        widget.post.postId.isNotEmpty;
+        target.userId.isNotEmpty &&
+        target.postId.isNotEmpty;
     if (!canDelete && !canGraph && !canReport) return const SizedBox.shrink();
 
     return PopupMenuButton<_MenuAction>(
@@ -753,9 +831,9 @@ class _PostMenuState extends State<_PostMenu> {
               child: Text('Delete'),
             ),
           if (canReport)
-            const PopupMenuItem(
+            PopupMenuItem(
               value: _MenuAction.report,
-              child: Text('Report post'),
+              child: Text(target.reportLabel),
             ),
           if (relationship != null) ...[
             PopupMenuItem(
@@ -809,15 +887,16 @@ class _PostMenuState extends State<_PostMenu> {
   /// Report sheet; after a successful report it can hand over to the same
   /// block flow as the menu's Block item (confirmation included).
   Future<void> _report(BuildContext context) async {
-    final handle = widget.post.author.handle;
+    final target = widget.target;
+    final handle = target.handle;
     final canBlock =
         widget.graphActionsEnabled &&
         !_cubitFor(context).state.relationship.blocking;
     final outcome = await showReportSheet(
       context,
       targetType: ReportTargetType.REPORT_TARGET_TYPE_POST,
-      targetId: widget.post.postId,
-      subject: "@$handle's post",
+      targetId: target.postId,
+      subject: target.subject,
       blockLabel: canBlock ? 'Block @$handle' : null,
     );
     if (outcome == ReportOutcome.blockRequested && context.mounted) {
@@ -834,7 +913,7 @@ class _PostMenuState extends State<_PostMenu> {
     final messenger = ScaffoldMessenger.of(context);
     // Captured now: the card may be disposed while the request is in flight.
     final onChanged = widget.onRelationshipChanged;
-    final handle = widget.post.author.handle;
+    final handle = widget.target.handle;
     await action();
     final error = cubit.state.error;
     // The snackbar only makes sense while the card is still on screen; the

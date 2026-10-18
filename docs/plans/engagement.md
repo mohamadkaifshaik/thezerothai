@@ -156,3 +156,4 @@ No fixed-cost resource is added; nothing here can step to a fixed fee.
 - A `post_delete` publish failure leaves likes/reposts of a deleted post until a reconciliation sweep (none at Stage 0;
   the orphan docs hold only other users' ids and are erased with those users).
 - Consider detaching `Repo.Repost` with a single overall deadline (`repostTimeout` <= `rpcDeadline`) and wrapping the replay `Get`; and detaching ctx in apiserver `emitterSlot.emit` for quote/mention/follow.
+- **B1 fixed (founder-approved 2026-10-18)**: REPOST rows reported/blocked/muted the reposter while showing the original. Now Report -> original `post_id` + original handle, Block/Mute -> original author (hidden when the viewer wrote the original); Delete stays on the repost id; a hidden/unavailable original falls back to "Report repost" / the reposter. QUOTE rows unchanged.
