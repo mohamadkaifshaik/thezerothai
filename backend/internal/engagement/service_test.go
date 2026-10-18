@@ -156,6 +156,8 @@ type fakeDir struct {
 	missing bool
 }
 
+func (fakeDir) ForgetUnread(...string) {}
+
 func (d fakeDir) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
 	if d.missing {
 		return map[string]identity.Profile{}, nil
