@@ -105,15 +105,15 @@ func DecodeIssuedAtTTL(key []byte, binding, token string, now time.Time, ttl tim
 	if len(parts) != 3 || parts[2] == "" {
 		return Cursor{}, time.Time{}, ErrInvalid
 	}
-	if err := checkIssued(parts[0], now, ttl); err != nil {
+	issuedAt, err := checkIssued(parts[0], now, ttl)
+	if err != nil {
 		return Cursor{}, time.Time{}, err
 	}
-	issuedMicros, _ := strconv.ParseInt(parts[0], 10, 64) // checkIssued parsed it
 	micros, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
 		return Cursor{}, time.Time{}, ErrInvalid
 	}
-	return Cursor{CreatedAt: time.UnixMicro(micros).UTC(), DocID: parts[2]}, time.UnixMicro(issuedMicros).UTC(), nil
+	return Cursor{CreatedAt: time.UnixMicro(micros).UTC(), DocID: parts[2]}, issuedAt.UTC(), nil
 }
 
 // open base64-decodes and AES-GCM-opens a token with the given additional data.
@@ -149,17 +149,17 @@ func seal(key []byte, aad, plain string) string {
 	return base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte(plain), []byte(aad)))
 }
 
-// checkIssued rejects an issue time older than ttl or more than clockSkew in the future.
-func checkIssued(field string, now time.Time, ttl time.Duration) error {
+// checkIssued parses the issue-time field and rejects one older than ttl or more than clockSkew in the future.
+func checkIssued(field string, now time.Time, ttl time.Duration) (time.Time, error) {
 	issued, err := strconv.ParseInt(field, 10, 64)
 	if err != nil {
-		return ErrInvalid
+		return time.Time{}, ErrInvalid
 	}
 	issuedAt := time.UnixMicro(issued)
 	if ttl <= 0 || now.Sub(issuedAt) > ttl || issuedAt.Sub(now) > clockSkew {
-		return ErrInvalid
+		return time.Time{}, ErrInvalid
 	}
-	return nil
+	return issuedAt, nil
 }
 
 // IsFirstPage reports whether a decoded (zero-value, no error) Cursor represents "start from the top".

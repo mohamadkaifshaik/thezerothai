@@ -39,10 +39,11 @@ func (r *FirestoreRepo) Takedown(ctx context.Context, postID string, now time.Ti
 }
 
 // Restore implements Moderator. One transaction: 1 read, 2 writes (post + RESTORED log entry; 0 unless the post is TAKEN_DOWN).
-func (r *FirestoreRepo) Restore(ctx context.Context, postID string) (ModerationResult, error) {
+// now is the operator's clock; it only sets the log entry's expireAt.
+func (r *FirestoreRepo) Restore(ctx context.Context, postID string, now time.Time) (ModerationResult, error) {
 	return r.setModeration(ctx, postID, func(cur Moderation) (Moderation, bool) {
 		return ModerationNone, cur == ModerationTakenDown
-	}, time.Time{})
+	}, now)
 }
 
 func (r *FirestoreRepo) setModeration(ctx context.Context, postID string, decide func(Moderation) (Moderation, bool), now time.Time) (ModerationResult, error) {
@@ -93,9 +94,9 @@ func removalStateFor(next Moderation) RemovalState {
 	return RemovalRemoved
 }
 
-// expiryBase is the instant a log entry's retention counts from: the operator's now, or the wall clock for a restore
-// (Restore and RestoreAuthor take no clock; expireAt only needs to be later than any token that could still hold
-// the card, so a few seconds either way do not matter).
+// expiryBase is the instant a log entry's retention counts from: the operator's now. A zero now (a caller that did
+// not pass a clock) falls back to the wall clock rather than writing an expireAt in year 1, which Firestore's TTL
+// would delete at once.
 func expiryBase(now time.Time) time.Time {
 	if now.IsZero() {
 		return time.Now()
@@ -183,7 +184,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 }
 
 // RestoreAuthor implements Moderator. Reads one per post returned (1 for an empty page), writes two per post (update + RESTORED log entry, same batch).
-func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint) (ModerationCheckpoint, bool, error) {
+func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (ModerationCheckpoint, bool, error) {
 	docs, err := r.client.Collection(postsCollection).
 		Where("authorId", "==", uid).
 		Where(fieldModeration, "==", string(ModerationSuspendedAuthor)).
@@ -205,8 +206,8 @@ func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp Modera
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, s := range docs {
 		// Select() keeps UpdateTime, so a post a moderator took down meanwhile fails the batch (and is re-read).
-		b.Update(s.Ref, moderationUpdates(ModerationNone, time.Time{}), firestore.LastUpdateTime(s.UpdateTime))
-		r.setRemoval(b, s.Ref.ID, RemovalRestored, time.Time{})
+		b.Update(s.Ref, moderationUpdates(ModerationNone, now), firestore.LastUpdateTime(s.UpdateTime))
+		r.setRemoval(b, s.Ref.ID, RemovalRestored, now)
 	}
 	if err := b.Commit(ctx); err != nil {
 		return cp, false, fmt.Errorf("posts: restore %s: %w", logger.HashUID(uid), err)

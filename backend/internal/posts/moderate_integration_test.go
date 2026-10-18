@@ -53,7 +53,7 @@ func TestModerator_TakedownRestoreBudgets(t *testing.T) {
 	budgettest.Assert(t, "Takedown again", c, budgettest.Budget{Reads: 1})
 
 	ctx, c = budget.WithCounter(context.Background())
-	if res, err = repo.Restore(ctx, pid(1)); err != nil || res.After != ModerationNone {
+	if res, err = repo.Restore(ctx, pid(1), time.Now()); err != nil || res.After != ModerationNone {
 		t.Fatalf("restore = %+v err=%v", res, err)
 	}
 	budgettest.Assert(t, "Restore", c, budgettest.Budget{Reads: 1, Writes: 2})
@@ -126,11 +126,11 @@ func TestModerator_HideAndRestoreAuthor(t *testing.T) {
 	budgettest.Assert(t, "HideAuthor resume", c, budgettest.Budget{Reads: 2})
 
 	// restore-post must not undo a suspension; unsuspend restores exactly the suspension-hidden posts.
-	if res, err := repo.Restore(context.Background(), pid(1)); err != nil || res.After != ModerationSuspendedAuthor {
+	if res, err := repo.Restore(context.Background(), pid(1), time.Now()); err != nil || res.After != ModerationSuspendedAuthor {
 		t.Fatalf("restore of a suspended-author post = %+v err=%v", res, err)
 	}
 	ctx, c = budget.WithCounter(context.Background())
-	rn, done, err := repo.RestoreAuthor(ctx, "u-bad", ModerationCheckpoint{})
+	rn, done, err := repo.RestoreAuthor(ctx, "u-bad", ModerationCheckpoint{}, time.Now())
 	if err != nil || !done || rn.Changed != 3 {
 		t.Fatalf("restore author: next=%+v done=%v err=%v", rn, done, err)
 	}
@@ -169,7 +169,7 @@ func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 		}
 		budgettest.Assert(t, "GetPost hidden", c, budgettest.Budget{Reads: 1})
 	}
-	if _, err := in.repo.Restore(context.Background(), p.ID); err != nil {
+	if _, err := in.repo.Restore(context.Background(), p.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	in3 := newCreateInstance(t, client, time.Nanosecond)
@@ -245,7 +245,7 @@ func TestModerator_BatchFailsWhenAPostChangedAfterTheRead(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if _, _, err := repo.RestoreAuthor(context.Background(), "u-bad", ModerationCheckpoint{}); err == nil {
+	if _, _, err := repo.RestoreAuthor(context.Background(), "u-bad", ModerationCheckpoint{}, time.Now()); err == nil {
 		t.Fatal("RestoreAuthor committed over a post changed after its read")
 	}
 	if got := storedModeration(t, repo, pid(2)); got != ModerationTakenDown {
@@ -304,7 +304,7 @@ func TestModerator_RemovalLogFollowsEveryHideAndRestore(t *testing.T) {
 	}
 
 	time.Sleep(20 * time.Millisecond)
-	if _, err := repo.Restore(context.Background(), pid(1)); err != nil {
+	if _, err := repo.Restore(context.Background(), pid(1), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	st, at2, _ := storedRemoval(t, repo, pid(1))
@@ -381,7 +381,7 @@ func TestModerator_HideAuthorLogsEveryPostInOneBatchAndIsIdempotent(t *testing.T
 	cp = ModerationCheckpoint{}
 	for {
 		var done bool
-		if cp, done, err = repo.RestoreAuthor(context.Background(), "u-bad", cp); err != nil {
+		if cp, done, err = repo.RestoreAuthor(context.Background(), "u-bad", cp, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		if done {

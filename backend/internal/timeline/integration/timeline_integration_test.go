@@ -797,10 +797,10 @@ func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testi
 		}
 	}
 
-	if _, err := mod.Restore(context.Background(), p11); err != nil {
+	if _, err := mod.Restore(context.Background(), p11, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}); err != nil || !done {
+	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
 		t.Fatalf("restore author: done=%v err=%v", done, err)
 	}
 	resp, _, err = newInstance(t, client).home(t, "me", "", "", 20)
@@ -869,10 +869,10 @@ func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
 	}
 
 	// Restores overwrite the entries: a client with the old token is no longer told to drop the posts.
-	if _, err := mod.Restore(context.Background(), p11); err != nil {
+	if _, err := mod.Restore(context.Background(), p11, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}); err != nil || !done {
+	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
 		t.Fatalf("restore author: done=%v err=%v", done, err)
 	}
 	resp, _, err = newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)

@@ -175,6 +175,10 @@ locals {
     { name = "FEATURE_REPORTS", value = var.feature_reports },
     { name = "FEATURE_REPORTS_ALLOWLIST", value = var.feature_reports_allowlist },
     { name = "FEATURE_REPORTS_PERCENT", value = tostring(var.feature_reports_percent) },
+    // ADR-0016 D10: the moderation removal log read on since_token refreshes. Off = no log reads and no feed reset.
+    { name = "FEATURE_REMOVED_IDS", value = var.feature_removed_ids },
+    { name = "FEATURE_REMOVED_IDS_ALLOWLIST", value = var.feature_removed_ids_allowlist },
+    { name = "FEATURE_REMOVED_IDS_PERCENT", value = tostring(var.feature_removed_ids_percent) },
     { name = "QUOTA_REPORTS_PER_DAY", value = "20" },
     { name = "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", value = "5" },
   ]

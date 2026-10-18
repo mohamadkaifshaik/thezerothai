@@ -208,7 +208,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "takedown-post":
 		err = takedownPost(ctx, b, ma, out, now)
 	case "restore-post":
-		err = restorePost(ctx, b, ma, out)
+		err = restorePost(ctx, b, ma, out, now)
 	case "suspend-user":
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":

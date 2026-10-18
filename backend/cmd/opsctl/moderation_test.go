@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"strconv"
 	"strings"
@@ -81,7 +82,7 @@ func (f *fakeModerator) Takedown(_ context.Context, id string, _ time.Time) (pos
 	return posts.ModerationResult{AuthorID: "u2", Before: posts.ModerationNone, After: posts.ModerationTakenDown}, f.err
 }
 
-func (f *fakeModerator) Restore(_ context.Context, id string) (posts.ModerationResult, error) {
+func (f *fakeModerator) Restore(_ context.Context, id string, _ time.Time) (posts.ModerationResult, error) {
 	f.restores = append(f.restores, id)
 	return posts.ModerationResult{AuthorID: "u2", Before: posts.ModerationSuspendedAuthor, After: posts.ModerationSuspendedAuthor}, f.err
 }
@@ -123,7 +124,7 @@ func (f *fakeModerator) HideAuthor(_ context.Context, _ string, cp posts.Moderat
 	return next, end >= len(eligible), nil
 }
 
-func (f *fakeModerator) RestoreAuthor(_ context.Context, _ string, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
+func (f *fakeModerator) RestoreAuthor(_ context.Context, _ string, cp posts.ModerationCheckpoint, _ time.Time) (posts.ModerationCheckpoint, bool, error) {
 	f.restCall++
 	return posts.ModerationCheckpoint{Changed: cp.Changed + 2}, true, nil
 }
@@ -146,6 +147,8 @@ type modFixture struct {
 	// slept records the settle waits; onSleep runs while "waiting" (a post created in the cache window).
 	slept   []time.Duration
 	onSleep func()
+	// plannedPosts is what the dry-run plan reports; 0 means 7.
+	plannedPosts int64
 }
 
 func newModFixture() *modFixture {
@@ -157,7 +160,7 @@ func (m *modFixture) run(stdin string, args ...string) (code int, stdout, stderr
 	open := func(context.Context, string) (*backends, error) {
 		return &backends{
 			reports: m.ops, moderator: m.mod, accounts: m.acc,
-			postsPlanner: fakePostsPlanner{posts.PurgePlan{Posts: 7}},
+			postsPlanner: fakePostsPlanner{posts.PurgePlan{Posts: cmp.Or(m.plannedPosts, 7)}},
 			profile: func(context.Context, string) (identity.Profile, error) {
 				return identity.Profile{Status: identity.AccountStatusActive}, nil
 			},
@@ -311,6 +314,20 @@ func TestSuspendUnsuspend(t *testing.T) {
 		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run")
 		if code != 0 || !strings.Contains(out, "nothing written") || !strings.Contains(out, "reads~9 writes~15") || len(f.acc.calls) != 0 || f.mod.hideCalls != 0 {
 			t.Fatalf("code=%d out=%q acc=%v hide=%d", code, out, f.acc.calls, f.mod.hideCalls)
+		}
+	})
+	t.Run("dry run warns about the client reset when P reaches the removal log page", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			posts int64
+			warn  bool
+		}{{49, false}, {50, true}, {1203, true}} {
+			f := newModFixture()
+			f.plannedPosts = tc.posts
+			code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run")
+			if code != 0 || strings.Contains(out, "WARNING") != tc.warn || (tc.warn && !strings.Contains(out, "section 3b")) {
+				t.Fatalf("P=%d code=%d warn=%v out=%q", tc.posts, code, tc.warn, out)
+			}
 		}
 	})
 	t.Run("suspend sets status first, hides every page, settles and resolves the report", func(t *testing.T) {

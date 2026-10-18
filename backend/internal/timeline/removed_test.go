@@ -181,3 +181,27 @@ func TestRemovalLag_CoversBothCaches(t *testing.T) {
 		t.Fatalf("removalLag = %v, want at least 2 x CACHE_TTL (60 s max)", removalLag)
 	}
 }
+
+// namedFlags enables only the listed flag names.
+type namedFlags map[string]bool
+
+func (f namedFlags) Enabled(_, name string) bool { return f[name] }
+
+// TestRemovedIDs_FlagOffReadsNothing: FEATURE_REMOVED_IDS off for the caller means a refresh never consults the log
+// (0 reads, no rejection even if the log would truncate), while the posts flag still lets the RPC through.
+func TestRemovedIDs_FlagOffReadsNothing(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	r.follow("me", 3)
+	cold := r.mustHome("", "", 20)
+	f := withRemovals(r, &fakeRemovals{ids: []string{"9"}, truncated: true, reads: 50})
+	r.srv.deps.Flags = namedFlags{"posts": true}
+	r.clock.Advance(time.Hour)
+	resp, _, err := r.home("me", cold.SinceToken, "", 20)
+	if err != nil {
+		t.Fatalf("refresh with the flag off: %v", err)
+	}
+	if len(f.cutoffs) != 0 || len(resp.RemovedIds) != 0 {
+		t.Fatalf("log consulted %d times, removed_ids=%v, want 0/none", len(f.cutoffs), resp.RemovedIds)
+	}
+}

@@ -40,10 +40,10 @@ confirmation. Nothing here touches Firebase Auth.
 | `reports list` | one per report shown (<= 50) | 0 |
 | `reports show` | 1 | 0 |
 | `reports resolve` | 1 | 1 (0 if already resolved) |
-| `takedown-post` | 1 (+2 with `--report`: target check, resolve) | 1 (+1) |
-| `restore-post` | 1 (rejects `--report`) | 1 |
-| `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 500, + the posts of the last ~3 minutes re-read by the settle pass) | P + 1, or P + 2 with `--report` |
-| `unsuspend-user` | P_hidden + 2 | P_hidden + 1 |
+| `takedown-post` | 1 (+2 with `--report`: target check, resolve) | 2 (post + log entry; +1 with `--report`) |
+| `restore-post` | 1 (rejects `--report`) | 2 (post + RESTORED log entry) |
+| `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 250, + the posts of the last ~3 minutes re-read by the settle pass) | 2P + 1, or 2P + 2 with `--report` |
+| `unsuspend-user` | P_hidden + 2 | 2 P_hidden + 1 |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
 the post update plus its removal-log entry): run it
@@ -62,13 +62,23 @@ an already RESOLVED report only warns.
 Every hide and un-hide writes `postRemovals/{postId}` (`state` REMOVED | RESTORED, server-time `createdAt`, `expireAt` =
 createdAt + 32 days) in the same transaction or batch as the `moderation` field, so a crash can never hide a post without
 logging it and re-running `suspend-user` needs no extra step (hidden posts are skipped, they are already logged). The id is
-the post id: a repeat overwrites one document. The API reads it incrementally into a per-instance cache (<= 50 entries) and
+the post id: a repeat overwrites one document. The API reads it incrementally into a per-instance cache (at most `removalKeep` = 200 entries; <= 50 per query) and
 answers `removed_ids` on `since_token` refreshes, so a client drops a card it already holds within about two cache TTLs.
 - **Looks stale / a card did not disappear.** The client drops ids only on its next refresh; the instance cache lags up to
   60 s.
-- **Many clients are being sent back to a full reload after a big suspension.** Expected once per client: a log window that
-  cannot list every id (more than 50 removals newer than the client's token, or a token older than the log) rejects the
-  refresh exactly like an expired `since_token` and the app cold-opens. Cost is one cold open per client, not per refresh.
+- **Many clients are being sent back to a full reload after a big suspension.** Expected: a log window that cannot list
+  every id (more than 50 removals newer than the client's token, or a token older than the log) rejects the refresh
+  exactly like an expired `since_token` and the app cold-opens, replacing that feed.
+  **Suspension reset cost.** Suspending (or unsuspending) an account with P >= 50 posts makes every client that refreshes
+  reset every cached feed once (home and each cached user timeline: about DAU x 30 reads at a 30-read cold open). Tokens
+  issued before the burst, and tokens issued up to `removalLag` (135 s) after it, are rejected too, so a client that
+  refreshes right after the burst can be reset again once. `opsctl suspend-user --dry-run` prints a WARNING when P >= 50:
+  run those off-peak. Server cost of the log itself: one 50-read cold load per instance, 1 read per CACHE_TTL after that, a
+  100-read reload only when 50 or more entries are new within one TTL (these reads are in `ReadBudgetMaxCallReads` = 369).
+  The kill switch is `FEATURE_REMOVED_IDS=off` (no log reads, no resets; the log is still written).
+- **Flag.** `FEATURE_REMOVED_IDS` (off | allowlist | percent | on, default off, Terraform `feature_removed_ids*`). Off for a
+  caller means refreshes carry no `removed_ids` and never touch the log. If the log query fails on an instance that holds
+  data, the stale cache is served and `removal_log_refresh_failed_serving_stale` is logged at ERROR (retried every 5 s).
 - **TTL.** `postRemovals.expireAt` needs the TTL policy (Terraform `ttl_fields.post_removals_expire_at`, ADR-0016 D10); until it is
   applied the log only grows (about 1 KB per hidden post), never wrong. Check with `gcloud firestore fields ttls list`.
 - Entries hold a post id, a state and timestamps. No uid, no text: the log is not personal data (ADR-0011 Q10 table row).

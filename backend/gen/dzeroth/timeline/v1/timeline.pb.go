@@ -18,7 +18,8 @@
 //   cache, shows a "show more" gap row between the new items and the cached ones, and fills it by calling with
 //   page_token = gap_page_token (the token is bounded below by the old since_token, so it never re-reads the cache).
 //   Pages inside a gap keep that lower bound; next_page_token is "" once the gap is closed.
-// - Every response returns since_token; persist it with the cached items.
+// - Cold-open and since_token refresh responses return a fresh since_token; persist it with the cached items.
+//   Scroll (page_token) and gap-fill responses return no since_token: keep the one you have.
 // - Tokens are bound to the caller, the feed (and for user timelines the target and tab) and the token kind,
 //   and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
 //   VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token and call with no

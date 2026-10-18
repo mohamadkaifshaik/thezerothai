@@ -18,6 +18,10 @@ type fakeRemovalSource struct {
 	entries map[string]RemovalEntry
 	queries []string
 	err     error
+	// block, when set, is received from before each query answers (tests use it to hold a refresh open).
+	block chan struct{}
+	// entered is signalled when a query starts waiting on block.
+	entered chan struct{}
 }
 
 func newFakeRemovalSource() *fakeRemovalSource {
@@ -30,6 +34,16 @@ func (f *fakeRemovalSource) put(id string, st RemovalState, at time.Time) {
 
 func (f *fakeRemovalSource) query(ctx context.Context, name string, keep func(RemovalEntry) bool, desc bool, limit int) ([]RemovalEntry, error) {
 	f.queries = append(f.queries, name)
+	if f.block != nil {
+		if f.entered != nil {
+			f.entered <- struct{}{}
+		}
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -41,9 +55,9 @@ func (f *fakeRemovalSource) query(ctx context.Context, name string, keep func(Re
 	}
 	sort.Slice(all, func(i, j int) bool {
 		if desc {
-			return all[i].At.After(all[j].At)
+			return afterPos(all[i].At, all[i].PostID, all[j].At, all[j].PostID)
 		}
-		return all[i].At.Before(all[j].At)
+		return afterPos(all[j].At, all[j].PostID, all[i].At, all[i].PostID)
 	})
 	if len(all) > limit {
 		all = all[:limit]
@@ -56,8 +70,8 @@ func (f *fakeRemovalSource) Newest(ctx context.Context, floor time.Time, limit i
 	return f.query(ctx, "newest", func(e RemovalEntry) bool { return e.At.After(floor) }, true, limit)
 }
 
-func (f *fakeRemovalSource) After(ctx context.Context, after time.Time, limit int) ([]RemovalEntry, error) {
-	return f.query(ctx, "after", func(e RemovalEntry) bool { return e.At.After(after) }, false, limit)
+func (f *fakeRemovalSource) After(ctx context.Context, afterAt time.Time, afterID string, limit int) ([]RemovalEntry, error) {
+	return f.query(ctx, "after", func(e RemovalEntry) bool { return afterPos(e.At, e.PostID, afterAt, afterID) }, false, limit)
 }
 
 type removalRig struct {
@@ -130,9 +144,9 @@ func TestRemovalLog_WarmInstanceSeesLaterEntryAfterTTL(t *testing.T) {
 	if !reflect.DeepEqual(ids, []string{"p2", "p1"}) {
 		t.Fatalf("after TTL: ids=%v, want [p2 p1] (newest first)", ids)
 	}
-	// p1 (At = lastSeen) is inside the overlap window and read again with p2; the merge deduplicates it.
-	if reads != 2 {
-		t.Fatalf("incremental read cost = %d, want 2", reads)
+	// p1 (At = lastSeen) is not read again: the query starts strictly after the last entry seen.
+	if reads != 1 {
+		t.Fatalf("incremental read cost = %d, want 1", reads)
 	}
 }
 
@@ -242,8 +256,13 @@ func TestRemovalLog_BurstReloadsNewestAndTruncatesOldTokens(t *testing.T) {
 	if want := []string{"after", "newest"}; !reflect.DeepEqual(r.src.queries, want) {
 		t.Fatalf("queries = %v, want %v", r.src.queries, want)
 	}
-	if reads != 100 {
-		t.Fatalf("burst reads = %d, want 100 (the documented worst case)", reads)
+	if reads != RemovalWorstReads {
+		t.Fatalf("burst reads = %d, want %d (the documented worst case)", reads, RemovalWorstReads)
+	}
+	// The burst is behind lastSeen now: the next TTL costs one read, not another reload.
+	r.now = r.now.Add(testTTL)
+	if _, _, reads = r.since(t, old); reads != 1 {
+		t.Fatalf("TTL after the burst reads = %d, want 1", reads)
 	}
 
 	// A token issued after the burst's first 70 entries is covered by the newest 50 and gets an answer.

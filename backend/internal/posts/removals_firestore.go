@@ -1,8 +1,8 @@
 // removals_firestore.go is the Firestore side of the moderation removal log (ADR-0016 D10): the writes that
 // moderate.go batches with the moderation field, and the RemovalSource the instance cache reads.
 //
-// Both queries are single-field range queries on createdAt (built-in index, no firestore.indexes.json entry) with
-// an explicit Limit. The collection is deny-all to clients and holds no user id.
+// Both queries order by createdAt then __name__ in the same direction, which the built-in single-field index on
+// createdAt serves (no firestore.indexes.json composite), and carry an explicit Limit. The collection is deny-all to clients and holds no user id.
 package posts
 
 import (
@@ -40,15 +40,19 @@ func (r *FirestoreRepo) setRemoval(b store.Batch, postID string, state RemovalSt
 // Newest implements RemovalSource. Reads: one per entry returned, minimum 1.
 func (r *FirestoreRepo) Newest(ctx context.Context, floor time.Time, limit int) ([]RemovalEntry, error) {
 	q := r.client.Collection(removalsCollection).Where("createdAt", ">", floor.UTC()).
-		OrderBy("createdAt", firestore.Desc).Limit(limit)
+		OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc).Limit(limit)
 	return r.readRemovals(ctx, q)
 }
 
 // After implements RemovalSource. Reads: one per entry returned, minimum 1.
-func (r *FirestoreRepo) After(ctx context.Context, after time.Time, limit int) ([]RemovalEntry, error) {
-	q := r.client.Collection(removalsCollection).Where("createdAt", ">", after.UTC()).
-		OrderBy("createdAt", firestore.Asc).Limit(limit)
-	return r.readRemovals(ctx, q)
+func (r *FirestoreRepo) After(ctx context.Context, afterAt time.Time, afterID string, limit int) ([]RemovalEntry, error) {
+	q := r.client.Collection(removalsCollection).OrderBy("createdAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc)
+	if afterID == "" {
+		q = q.Where("createdAt", ">", afterAt.UTC())
+	} else {
+		q = q.StartAfter(afterAt.UTC(), afterID)
+	}
+	return r.readRemovals(ctx, q.Limit(limit))
 }
 
 func (r *FirestoreRepo) readRemovals(ctx context.Context, q firestore.Query) ([]RemovalEntry, error) {

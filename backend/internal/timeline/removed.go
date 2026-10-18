@@ -3,19 +3,19 @@ package timeline
 import (
 	"context"
 	"fmt"
-	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// removalLag is how far before a since token's issue time the removal log is consulted (ADR-0016 D10). A card can
-// reach a client up to CACHE_TTL after a moderator hid its post (the author-recent and post caches), and the log
-// cache of the serving instance can lag the log by another CACHE_TTL, so a removal can first become visible to a
-// refresh up to 2 x CACHE_TTL after it was written; the margin covers clock skew between instances. The cost of
-// being generous is a few ids repeated in a response, which the client ignores.
-const removalLag = 2*config.MaxCacheTTL + 15*time.Second
+// FlagRemovedIDs is the wire name of the FEATURE_REMOVED_IDS server flag (ADR-0016 D10). Off for the caller: the
+// refresh answers without removed_ids, reads nothing from the log and never rejects a since_token for the log.
+const FlagRemovedIDs = "removed_ids"
+
+// removalLag is posts.RemovalLag (ADR-0016 D10): how far before a since token's issue time the removal log is consulted.
+const removalLag = posts.RemovalLag
 
 // Request-log fields: how many ids a refresh returned, and whether it was rejected because the log could not answer
 // completely (counts and a boolean, never ids).
@@ -30,6 +30,10 @@ const (
 // its cache. Reads: see posts.Removals.RemovedSince.
 func (s *Server) removedIDs(ctx context.Context, tok request) ([]string, error) {
 	if tok.Since == nil || s.deps.Removals == nil {
+		return nil, nil
+	}
+	// FEATURE_REMOVED_IDS per caller (allowlist/percent rollout); 0 reads, checked before the log is touched.
+	if uid, ok := authn.UIDFromContext(ctx); !ok || s.deps.Flags == nil || !s.deps.Flags.Enabled(uid, FlagRemovedIDs) {
 		return nil, nil
 	}
 	ids, truncated, err := s.deps.Removals.RemovedSince(ctx, tok.SinceIssued.Add(-removalLag))

@@ -336,13 +336,13 @@ type Moderator interface {
 	Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
 	// Restore clears TAKEN_DOWN (ErrNotFound when missing). A SUSPENDED_AUTHOR post is left unchanged: only
 	// unsuspend-user restores those. Reads 1, writes 2 (post + RESTORED entry; 0 when not TAKEN_DOWN).
-	Restore(ctx context.Context, postID string) (ModerationResult, error)
+	Restore(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
 	// HideAuthor sets SUSPENDED_AUTHOR on every post of uid whose moderation is empty, one page of up to 250 per
 	// call, newest first. Resumable and idempotent: re-running from the zero checkpoint is safe. Reads one per
 	// post paged (minimum 1), writes two per post changed (the update and its postRemovals entry, one atomic batch).
 	HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (next ModerationCheckpoint, done bool, err error)
 	// RestoreAuthor clears SUSPENDED_AUTHOR on uid's posts (TAKEN_DOWN posts are untouched), one page of up to 250
-	// per call, writing two documents per post (the update and a RESTORED postRemovals entry). Cleared documents
+	// per call (now is the operator's clock, used only for the log entries' expireAt), writing two documents per post (the update and a RESTORED postRemovals entry). Cleared documents
 	// leave the query, so it is self-resuming.
-	RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint) (next ModerationCheckpoint, done bool, err error)
+	RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (next ModerationCheckpoint, done bool, err error)
 }
