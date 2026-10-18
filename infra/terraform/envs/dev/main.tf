@@ -185,6 +185,37 @@ locals {
   ]
 }
 
+// Media, engagement, replies and profile snapshot (P3/P4/P5, ADR-0005). All four flags are off in every
+// environment until the founder ramps them via var.feature_*; nothing here turns one on. The non-flag values below
+// are the config.go defaults written out so they are reviewed as code (caps are code); changing one needs a cost note.
+// VISION_MONTHLY_CAP is the runaway-bill guard (ADR-0005). vision.googleapis.com is already enabled in
+// modules/project-services.
+locals {
+  media_engagement_env_vars = [
+    { name = "FEATURE_MEDIA", value = var.feature_media },
+    { name = "FEATURE_MEDIA_ALLOWLIST", value = var.feature_media_allowlist },
+    { name = "FEATURE_MEDIA_PERCENT", value = tostring(var.feature_media_percent) },
+    { name = "VISION_MONTHLY_CAP", value = "10000" },
+    { name = "VISION_EXHAUSTED_POLICY", value = "unscreened_established" },
+    { name = "VISION_SCREEN_THUMB", value = "true" },
+    { name = "MEDIA_PUBLIC_BASE_URL", value = "https://storage.googleapis.com/${module.media_buckets.media_bucket_name}" },
+    { name = "QUOTA_MEDIA_PER_DAY", value = "20" },
+    { name = "QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", value = "5" },
+    { name = "FEATURE_ENGAGEMENT", value = var.feature_engagement },
+    { name = "FEATURE_ENGAGEMENT_ALLOWLIST", value = var.feature_engagement_allowlist },
+    { name = "FEATURE_ENGAGEMENT_PERCENT", value = tostring(var.feature_engagement_percent) },
+    { name = "QUOTA_LIKES_PER_DAY", value = "500" },
+    { name = "QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", value = "100" },
+    { name = "FEATURE_REPLIES", value = var.feature_replies },
+    { name = "FEATURE_REPLIES_ALLOWLIST", value = var.feature_replies_allowlist },
+    { name = "FEATURE_REPLIES_PERCENT", value = tostring(var.feature_replies_percent) },
+    { name = "FEATURE_PROFILE_SNAPSHOT", value = var.feature_profile_snapshot },
+    { name = "FEATURE_PROFILE_SNAPSHOT_ALLOWLIST", value = var.feature_profile_snapshot_allowlist },
+    { name = "FEATURE_PROFILE_SNAPSHOT_PERCENT", value = tostring(var.feature_profile_snapshot_percent) },
+    { name = "QUOTA_SNAPSHOT_EDITS_PER_DAY", value = "5" },
+  ]
+}
+
 module "cloud_run_api" {
   source                            = "../../modules/cloud-run-api"
   project_id                        = var.project_id
@@ -213,6 +244,7 @@ module "cloud_run_api" {
     local.account_lifecycle_env_vars,
     local.notifications_env_vars,
     local.reports_env_vars,
+    local.media_engagement_env_vars,
   )
 
   depends_on = [module.project_services, module.secrets]

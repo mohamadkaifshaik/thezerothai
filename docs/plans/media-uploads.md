@@ -21,7 +21,7 @@ the API reads attributes and 512 bytes, asks Vision, then copies approved object
 | T6 | Review #110 M2: list views thumbnail-only, `useFullImage` for detail | frontend | Done | #124 |
 | T7 | Flutter: image_picker + compress + BlurHash + upload with progress/retry, grid, avatar editor | frontend | In review | `feat/p4-media-ui` |
 | T8 | Dev smoke on real GCS: IAM signBlob signing, bucket CORS, Vision API, rewrite copy | deployer | **Not started** (needs founder creds) | |
-| T9 | Terraform env vars: `FEATURE_MEDIA[_ALLOWLIST\|_PERCENT]`, `VISION_*`, `MEDIA_PUBLIC_BASE_URL`; enable `vision.googleapis.com` | deployer | **Not started** | |
+| T9 | Terraform env vars: `FEATURE_MEDIA[_ALLOWLIST\|_PERCENT]`, `VISION_*`, `MEDIA_PUBLIC_BASE_URL`; enable `vision.googleapis.com` | deployer | **Terraform vars merged, NOT applied** (flag off; `vision.googleapis.com` was already in project-services; apply needs founder plan OK) | |
 | T10 | Runbook `docs/runbooks/media.md` (added in this PR) | backend | In review | same |
 
 ### T7 as built (Flutter, behind `FEATURE_MEDIA`)
