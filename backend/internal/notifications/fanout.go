@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpush"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
 // eventVersion is the wire version of the Pub/Sub message. Unknown versions are acknowledged and dropped.
@@ -22,6 +23,9 @@ const eventVersion = 1
 
 // handlerBudget bounds one push delivery (Cloud Run request deadline is far above; Pub/Sub ack deadline is 10 s+).
 const handlerBudget = 8 * time.Second
+
+// fanoutRPC is the rpc label of the delivery log line (the handler is not a Connect procedure).
+const fanoutRPC = "internal.NotificationsFanout"
 
 // wireEvent is the Pub/Sub message body (< 400 bytes with 10 recipients).
 type wireEvent struct {
@@ -92,7 +96,24 @@ type FanoutDeps struct {
 	ProjectID string
 	// ReadOnly makes the handler acknowledge and drop every event (DEGRADED_MODE=readonly: no Firestore writes).
 	ReadOnly bool
-	Now      func() time.Time
+	// PushLimit is the per-recipient inbound push token bucket (N-2; NewPushLimiter builds the shipped one). Nil
+	// means unlimited. A throttled push still has its row written; only the FCM send is skipped.
+	PushLimit *ratelimit.Limiter
+	Now       func() time.Time
+}
+
+// pushLimiterIdleTTL keeps an idle recipient's bucket longer than its refill window so an eviction can never refill
+// it early (ratelimit.NewLimiterWindow requires idleTTL >= window).
+const pushLimiterIdleTTL = 2 * time.Hour
+
+// NewPushLimiter builds the per-recipient push limiter: perHour pushes per recipient per hour (burst perHour),
+// in memory per instance (the same accepted approximation as every in-memory limiter here). perHour <= 0 returns
+// nil, which FanoutDeps treats as unlimited (config.Load rejects a non-positive value in deployed builds).
+func NewPushLimiter(perHour int) *ratelimit.Limiter {
+	if perHour <= 0 {
+		return nil
+	}
+	return ratelimit.NewLimiterWindow(perHour, time.Hour, pushLimiterIdleTTL)
 }
 
 // Fanout turns one event into rows and pushes. It is both the Pub/Sub push handler and, in local dev, called inline.
@@ -114,6 +135,8 @@ func NewFanout(d FanoutDeps) *Fanout {
 // Outcome counts what one delivery did, for the one log line per delivery.
 type Outcome struct {
 	Created, Duplicate, Suppressed, Dropped, Pushed, Pruned int
+	// Throttled counts recipients whose push was skipped by the per-recipient hourly limit (the row was written).
+	Throttled int
 }
 
 // Deliver processes one event idempotently (ADR-0017 D3). A non-nil error means "retry": at least one recipient hit
@@ -123,7 +146,8 @@ type Outcome struct {
 // below), then one GetAll: 1 + R reads (R <= 10 recipients; typically 2). Per recipient: graph snapshot (cached
 // 60 s: 0-1 read, +1 when the recipient's blockedBy overflowed and the actor's graph is read), 1 write for the row
 // (a duplicate costs 1 read), devices <= 5 reads; a like folded into an existing row costs 1 read and 1 write (0
-// writes when that actor is already in the row: a redelivery is write-free).
+// writes when that actor is already in the row: a redelivery is write-free). A recipient over the hourly push limit
+// (N-2) costs 0 device reads and no FCM call: the limiter is consulted before Repo.Devices.
 //
 // Right to delete (ADR-0017 D10): the fresh status read narrows the race with an account purge from "the profile
 // cache TTL plus any redelivery delay" to the milliseconds between that read and the Create. It cannot be zero
@@ -246,6 +270,12 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
 	// recipient's commit past the 5 s since-token settle window.
 	for _, pd := range toPush {
+		if f.d.PushLimit != nil {
+			if ok, _ := f.d.PushLimit.Allow(pd.uid); !ok {
+				out.Throttled++
+				continue
+			}
+		}
 		pushed, pruned := f.push(ctx, pd.uid, pd.p)
 		out.Pushed += pushed
 		out.Pruned += pruned
@@ -334,7 +364,10 @@ func (f *Fanout) Handler() http.Handler {
 		attrs := append([]any{
 			"event", "notification_delivery", "type", string(m.Type), "message_id", d.MessageID, "delivery_attempt", d.Attempt,
 			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed,
-			"dropped", out.Dropped, "pushed", out.Pushed, "pruned", out.Pruned,
+			"dropped", out.Dropped, "pushed", out.Pushed, "pruned", out.Pruned, "push_throttled", out.Throttled,
+			// rpc and fanout_fs_reads make the handler's Firestore cost a project-level field: `make cost` prints
+			// both, and the fan-out is otherwise invisible next to the Connect request lines.
+			"rpc", fanoutRPC, "fanout_fs_reads", counter.Reads(),
 			"fs_reads", counter.Reads(), "fs_writes", counter.Writes(), "fs_deletes", counter.Deletes(),
 			"elapsed_ms", f.d.Now().Sub(started).Milliseconds(),
 		}, logger.TraceAttrs(ctx)...)

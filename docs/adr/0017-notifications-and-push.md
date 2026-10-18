@@ -212,3 +212,19 @@ on post delete.
   (deleted or unfolded in place). (d) After their row commits (a Create, or a like folded into an existing row via AddActor, which moves its createdAt forward), the fan-out evicts only each recipient's cached unread count
   (`Directory.ForgetUnread`, no reads) so the badge is recounted; the freshly read profile stays cached.
 
+
+## Implementation notes / follow-ups
+Security audit of the P6 backend (plan ticket T11, hardening ticket T14, branch `fix/notifications-hardening`). This
+section records implementation facts only; the ADR status is unchanged (Proposed).
+
+| Finding | State | What changed |
+|---|---|---|
+| N-1 fan-out cost not charged to the actor | Done | `prepare`'s callers (`PubSubEmitter`, `InlineEmitter`) charge the surviving recipients to the actor in a `RecipientCap` (`ratelimit.DailyCap.AllowN`, all or nothing): default 200 recipients/day, 50 for accounts younger than `QUOTA_NEW_ACCOUNT_WINDOW`; env `NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY` / `NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY`, both validated > 0 at startup, set in `envs/*` Terraform. 0 reads: "new account" is a peek at the actor's cached profile and a miss counts as established. An over-cap event is dropped and logged as WARN `notification_fanout_capped` (hashed actor). The delivery log line gains `rpc=internal.NotificationsFanout` and `fanout_fs_reads` so `make cost` shows fan-out reads. Worst case per actor per day: 200 recipients x (1 + R fresh reads, typically 2, plus graph and <= 5 device reads) x 1 write. |
+| N-2 no per-recipient inbound push limit | Done | `FanoutDeps.PushLimit`, a per-recipient token bucket (`ratelimit.NewLimiterWindow`, default 10 pushes/hour, `NOTIFICATION_PUSHES_PER_RECIPIENT_PER_HOUR`), consulted before `Repo.Devices`: rows are still written, the push is skipped and counted (`push_throttled`). FCM collapse key, Android tag and `apns-collapse-id` are now the notification type; `notificationId` stays in `data`. |
+| N-3 export leaks uids through notification ids | Done | `exportedNotification` has no `id`; `exportRow` is the pure mapping, unit-tested with a uid-shaped actor id. |
+| N-4 removal-log findings | Open here, owned by the moderation change | Not part of this branch (posts/timeline removal-log code and opsctl belong to the moderation change). |
+| N-5 RegisterDevice accepts any string as an FCM token | Done | `TokenValidator` seam; `FCMSender.Validate` does an FCM dry-run send (`SendDryRun`, free) after the shape checks and before any Firestore operation, with a 2 s timeout. INVALID_ARGUMENT, UNREGISTERED and SENDER_ID_MISMATCH reject (INVALID_ARGUMENT on the RPC); every other outcome fails open with WARN `notification_token_validation_skipped` and the fixed code, so an unapplied `fcmSend` role (Amendment 2026-10-13) cannot block registration. Local and emulator (`NOTIFICATIONS_DELIVERY=inline`) wire `NopValidator`. `NOTIFICATION_DEVICES_CALLS_PER_DAY` default lowered from 50 to 10 in code and in `envs/*` Terraform (not applied). |
+
+Residuals: the recipient and device caps are per Cloud Run instance lifetime (the accepted in-memory approximation); a
+cold profile cache gives a new account the established-tier allowance; a client that re-registers on every foreground
+can now hit the 10/day devices cap (the runbook already asks for once per app start and on token refresh).

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
@@ -192,25 +193,36 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
 	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
 	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
+	var tokenValidator notifications.TokenValidator = notifications.NopValidator{}
 	if cfg.NotificationsDelivery == "pubsub" {
-		pushSender = notifications.NewFCMSender(fbApp)
+		fcm := notifications.NewFCMSender(fbApp)
+		pushSender, tokenValidator = fcm, fcm // one lazily created messaging client for sends and dry runs
 	}
+	// N-1: the per-actor recipient cap. "New account" is a 0-read peek at the actor's cached profile (the request
+	// that produced the event loaded it through the account-status interceptor); on a cache miss the actor counts as
+	// established, so the stricter tier is best effort, never a read.
+	isNewActor := func(uid string) bool {
+		p, ok := identityCache.GetProfile(uid)
+		return ok && !p.CreatedAt.IsZero() && time.Since(p.CreatedAt) < cfg.Quota.NewAccountWindow
+	}
+	recipientCap := notifications.NewRecipientCap(cfg.RateLimit.NotificationRecipientsPerActorPerDay, cfg.RateLimit.NotificationRecipientsPerNewActorPerDay, isNewActor)
 	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
+		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
 	})
 	switch cfg.NotificationsDelivery {
 	case "inline":
-		notifSlot.em = notifications.NewInlineEmitter(notifFanout, featureFlags, log)
+		notifSlot.em = notifications.NewInlineEmitter(notifFanout, featureFlags, log).WithRecipientCap(recipientCap)
 	default:
 		notifPublisher, perr := pubsubpublish.New(cfg.ProjectID, cfg.NotificationsTopic)
 		if perr != nil {
 			return nil, nil, fmt.Errorf("notifications publisher: %w", perr)
 		}
-		notifSlot.em = notifications.NewPubSubEmitter(notifPublisher, featureFlags, log)
+		notifSlot.em = notifications.NewPubSubEmitter(notifPublisher, featureFlags, log).WithRecipientCap(recipientCap)
 	}
 	notifService := notifications.NewService(notifications.Deps{
-		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, CursorKey: cfg.CursorHMACKey,
+		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags)
 

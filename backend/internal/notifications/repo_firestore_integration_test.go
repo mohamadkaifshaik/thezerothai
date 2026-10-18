@@ -448,8 +448,17 @@ func TestIntegration_ExportCarriesNoTokens(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, buf.String())
 	}
-	if out.UserID != "alice" || len(out.Devices) != 1 || len(out.Notifications) != 2 || out.Notifications[0]["id"] != "mention_"+postA {
+	if out.UserID != "alice" || len(out.Devices) != 1 || len(out.Notifications) != 2 {
 		t.Errorf("export = %+v", out)
+	}
+	// N-3: row ids embed other users' uids (follow_{actorUid}); the export carries no id at all.
+	for _, n := range out.Notifications {
+		if _, has := n["id"]; has {
+			t.Errorf("export row carries an id: %v", n)
+		}
+	}
+	if strings.Contains(buf.String(), "follow_bob") {
+		t.Errorf("export leaks a notification id: %s", buf.String())
 	}
 	// Empty account: still valid JSON.
 	buf.Reset()

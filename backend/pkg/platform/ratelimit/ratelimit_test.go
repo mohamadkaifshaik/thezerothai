@@ -211,3 +211,26 @@ func TestXFFHopCount(t *testing.T) {
 		})
 	}
 }
+
+func TestNewLimiterWindowHourly(t *testing.T) {
+	t.Parallel()
+	l := NewLimiterWindow(10, time.Hour, 2*time.Hour)
+	now := time.Now()
+	l.now = func() time.Time { return now }
+	for i := 0; i < 10; i++ {
+		if ok, _ := l.Allow("k"); !ok {
+			t.Fatalf("call %d inside the burst must pass", i)
+		}
+	}
+	if ok, _ := l.Allow("k"); ok {
+		t.Fatal("11th call within the hour must be rejected")
+	}
+	now = now.Add(5 * time.Minute) // 10/h refills one token per 6 minutes: still none
+	if ok, _ := l.Allow("k"); ok {
+		t.Fatal("no token after 5 minutes")
+	}
+	now = now.Add(2 * time.Minute)
+	if ok, _ := l.Allow("k"); !ok {
+		t.Fatal("one token after 7 minutes")
+	}
+}

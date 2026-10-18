@@ -32,12 +32,23 @@ type bucket struct {
 // NewLimiter builds a limiter allowing ratePerMinute requests/minute/key with a short burst allowance.
 // idleTTL bounds how long an unused key's bucket is kept (also bounds memory alongside maxTrackedKeys).
 func NewLimiter(ratePerMinute int, idleTTL time.Duration) *Limiter {
-	if ratePerMinute <= 0 {
-		ratePerMinute = 1
+	return NewLimiterWindow(ratePerMinute, time.Minute, idleTTL)
+}
+
+// NewLimiterWindow builds a limiter allowing n requests per window per key (burst n, refilled evenly over the
+// window): NewLimiterWindow(10, time.Hour, ...) is "10 per hour". idleTTL must be at least window, or an idle
+// key's bucket is evicted and refills early (the effective rate becomes n per idleTTL). n <= 0 is clamped to 1 and
+// a non-positive window to one minute.
+func NewLimiterWindow(n int, window, idleTTL time.Duration) *Limiter {
+	if n <= 0 {
+		n = 1
+	}
+	if window <= 0 {
+		window = time.Minute
 	}
 	return &Limiter{
-		ratePerSecond: float64(ratePerMinute) / 60.0,
-		burst:         float64(ratePerMinute),
+		ratePerSecond: float64(n) / window.Seconds(),
+		burst:         float64(n),
 		buckets:       cache.New[string, *bucket](maxTrackedKeys, idleTTL),
 		now:           time.Now,
 	}

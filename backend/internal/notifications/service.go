@@ -59,8 +59,10 @@ type Deps struct {
 	Directory Directory
 	// Social is the caller's cached graph context: List hides rows whose actor the caller blocks or mutes, or who
 	// blocks the caller, as of read time (a block after the fan-out check must take effect). Required.
-	Social    Social
-	Seen      SeenStore
+	Social Social
+	Seen   SeenStore
+	// Validator checks a FCM token with a dry-run send before RegisterDevice stores it (N-5). Nil accepts every token.
+	Validator TokenValidator
 	CursorKey []byte
 	// TokenTTL is the lifetime of a persisted since/gap token (RefreshTokenTTL when zero).
 	TokenTTL time.Duration
@@ -269,7 +271,38 @@ func validateToken(token string) error {
 	return nil
 }
 
+// validateTimeout bounds the FCM dry run inside RegisterDevice's 5 s RPC deadline, leaving the transaction time.
+const validateTimeout = 2 * time.Second
+
+// checkToken runs the FCM dry run (N-5). Only a definitive rejection fails; every other outcome (timeout, quota,
+// permission before the fcmSend role is applied, FCM down) logs a WARN with the fixed code and lets the
+// registration through.
+func (s *service) checkToken(ctx context.Context, uid, token string) error {
+	if s.d.Validator == nil {
+		return nil
+	}
+	vctx, cancel := context.WithTimeout(ctx, validateTimeout)
+	defer cancel()
+	err := s.d.Validator.Validate(vctx, token)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrTokenInvalid):
+		slog.WarnContext(ctx, "notification_device_token_rejected", "uid_hash", logger.HashUID(uid))
+		return apierr.Validation("fcm_token", "fcm_token is not a valid registration token")
+	}
+	code := "UNKNOWN"
+	var pe *PushError
+	if errors.As(err, &pe) {
+		code = pe.Code
+	}
+	slog.WarnContext(ctx, "notification_token_validation_skipped", "uid_hash", logger.HashUID(uid), "fcm_code", code)
+	return nil
+}
+
 // RegisterDevice: reads worst 8 / typical 2, writes worst 5 / typical 2 (0 when fresh). See FirestoreRepo.RegisterDevice.
+// The FCM dry-run validation (N-5) is a Google API call, not a Firestore operation: it costs 0 reads and 0 writes,
+// and a token it rejects returns INVALID_ARGUMENT before the repo is touched (0 reads, 0 writes).
 func (s *service) RegisterDevice(ctx context.Context, uid string, in DeviceInput) error {
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
@@ -282,6 +315,9 @@ func (s *service) RegisterDevice(ctx context.Context, uid string, in DeviceInput
 	}
 	if in.Platform != PlatformIOS && in.Platform != PlatformAndroid {
 		return apierr.Validation("platform", "platform must be ios or android")
+	}
+	if err := s.checkToken(ctx, uid, in.Token); err != nil {
+		return err
 	}
 	err := s.d.Repo.RegisterDevice(ctx, uid, Device{ID: in.DeviceID, Token: in.Token, Platform: in.Platform}, s.d.Now().UTC())
 	if err != nil {
