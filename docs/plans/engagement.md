@@ -19,7 +19,7 @@ every list, and deleting a post or an account leaves no dependants behind.
 | T5 | Tests: unit (fakes), emulator integration with budget assertions, invariant checker, 10-way concurrency | backend/tester | In review | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | T6 | Quotes: `CreatePost.quote_of_post_id`, quote counter, embedded tombstone on delete, notifications hook data | backend | In review | `feat/p5-quotes` |
 | T7 | Flutter: like/repost/quote actions, viewer flags, repost row, `engagement` gate | frontend | **Not started** (needs the regenerated Dart client) | |
-| T8 | Terraform env vars `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]`, `QUOTA_LIKES_PER_DAY`, `QUOTA_NEW_ACCOUNT_LIKES_PER_DAY` | deployer | **Not started** (needs founder creds) | |
+| T8 | Terraform env vars `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]`, `QUOTA_LIKES_PER_DAY`, `QUOTA_NEW_ACCOUNT_LIKES_PER_DAY` | deployer | **Terraform vars merged, NOT applied** (flag off; apply needs founder plan OK) | |
 | T9 | Notifications: adapt `engagement.Events` and QUOTE `PostEvents.Created` to `notifications.Emitter` | backend | In review (P6 #122 merged) | `feat/p5-engagement-impl` |
 | T10 | P7: tombstone embeds of a taken-down post (uses `TombstoneQuotes` and the repost removal) | backend | In review (P7 #125 merged; opsctl takedown cleans up copies) | `feat/p5-engagement-impl` |
 | T11 | D17: replies to a REPOST resolve to the original: one resolver shared by `replyParent` and `quoteTarget`, flip the REPOST-parent cases in `posts/service_replies_test.go`, `GetThread` on a REPOST id | backend | **Implemented** (founder approval 2026-10-17) | `TestCreateReply_ToARepostResolvesToTheOriginal`, `TestCreateReply_ToARepostNotFound`, `TestGetThread_OnARepostIdOpensTheOriginalsThread` |
