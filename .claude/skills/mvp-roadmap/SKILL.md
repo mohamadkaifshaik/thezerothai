@@ -18,7 +18,7 @@ Status (2026-10): **Phase 0 done** (v0.1.0). **Phase 1 in progress**: profiles, 
 - Create post (text ≤ 280, mentions, hashtags, links), delete post, reply threads.
 - Images (≤ 4) via client compression + signed uploads + SafeSearch within quota.
 - Home timeline (pull + incremental refresh + caches), profile timeline, post detail with replies.
-- Likes, reposts, quote posts.
+- Likes, reposts. Quote posts: backend exists; **quote UI is later, not MVP** (founder 2026-10-18).
 - Notifications (in-app + FCM push; **Android push only for now, iOS/APNs push paused until the Apple launch**).
 - Report + block flows, account deletion + export (store requirements).
 - Cost model doc with real numbers after first 100 users.
@@ -27,7 +27,7 @@ Status (2026-10): **Phase 0 done** (v0.1.0). **Phase 1 in progress**: profiles, 
 No macOS/Xcode access now. Deferred until a Mac is available: iOS build and TestFlight/App Store release, the APNs authentication key (.p8) uploaded to the dev and prod Firebase projects (Cloud Messaging), Push Notifications capability on the App ID, and on-device iOS verification (notifications plan T12). The repo already carries the client side (`Runner.entitlements`, `UIBackgroundModes`). Sign in with Apple stays in scope for that launch.
 
 ## Phase 2 — Growth — pay-per-use, a few $/month
-- Handle/hashtag search (Firestore prefix + array-contains), trending hashtags from a daily Scheduler job.
+- Handle/hashtag search (Firestore prefix + array-contains), trending hashtags from a daily Scheduler job. **Search and extra hashtag UI are Phase 2, not MVP** (founder 2026-10-18).
 - Bookmarks, pinned posts, edit window.
 - Link previews (SSRF-safe fetcher, cached in Firestore).
 - Short video ADR (client-compressed MP4 ≤ 30 s) if users ask for it.
