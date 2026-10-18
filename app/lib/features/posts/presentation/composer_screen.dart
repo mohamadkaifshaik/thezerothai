@@ -8,8 +8,12 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_error_view.dart';
+import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/character_counter.dart';
+import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
+import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
 import '../../media/data/media_uploader.dart';
@@ -35,11 +39,44 @@ const kComposerInputCap = 1000;
 /// `/compose` (T16): write a text post. 280 code points counted after NFC
 /// (ADR-0010 D9), at most 10 lines; Post is disabled otherwise. The server
 /// stays authoritative.
+///
+/// With [quoteOfPostId] (`/compose?quote=<id>`, P5) it is the quote
+/// composer: the same screen and the same 280 limit, with a preview of the
+/// quoted post ([quotePreview], a frozen snapshot passed by the router; null
+/// after a page reload) under the text field. It needs the `engagement` flag
+/// and the `quotes` sub-feature; without them it shows "not available"
+/// instead of a composer that could only fail.
 class ComposerScreen extends StatelessWidget {
-  const ComposerScreen({super.key});
+  const ComposerScreen({super.key, this.quoteOfPostId = '', this.quotePreview});
+
+  final String quoteOfPostId;
+  final pb.EmbeddedPost? quotePreview;
 
   @override
   Widget build(BuildContext context) {
+    if (quoteOfPostId.isNotEmpty &&
+        !(featureEnabledSnapshot(context, kFeatureEngagement) &&
+            context.read<PostsRepository>().subFeatureEnabled(
+              kPostsSubFeatureQuotes,
+            ))) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'Close',
+            icon: const Icon(Icons.close),
+            onPressed: () => context.canPop()
+                ? context.pop()
+                : context.go(AppRouter.homePath),
+          ),
+          title: const Text('Quote'),
+        ),
+        body: const SafeArea(
+          child: AppErrorView(
+            error: FeatureDisabledException('Quotes are not available.'),
+          ),
+        ),
+      );
+    }
     final profile = context.read<OnboardingBloc>().state.profile;
     // The photo button exists only with FEATURE_MEDIA on (P4 plan D3); with
     // it off nothing media-related is created or read from the tree.
@@ -68,6 +105,7 @@ class ComposerScreen extends StatelessWidget {
             postsRepository: context.read<PostsRepository>(),
             pending: context.read<PendingPostsCubit>(),
             author: viewerAuthorSnapshot(profile),
+            quoteOfPostId: quoteOfPostId,
             attachments: mediaEnabled ? context.read<AttachmentsCubit>() : null,
             onUnexpectedError: context.read<UnexpectedErrorReporter>(),
           ),
@@ -84,17 +122,24 @@ class ComposerScreen extends StatelessWidget {
                   );
                 context.read<AttachmentsCubit>().pickFailureShown();
               },
-              child: _ComposerView(mediaEnabled: mediaEnabled),
+              child: _ComposerView(
+                mediaEnabled: mediaEnabled,
+                quotePreview: quotePreview,
+              ),
             )
-          : _ComposerView(mediaEnabled: mediaEnabled),
+          : _ComposerView(
+              mediaEnabled: mediaEnabled,
+              quotePreview: quotePreview,
+            ),
     );
   }
 }
 
 class _ComposerView extends StatefulWidget {
-  const _ComposerView({required this.mediaEnabled});
+  const _ComposerView({required this.mediaEnabled, this.quotePreview});
 
   final bool mediaEnabled;
+  final pb.EmbeddedPost? quotePreview;
 
   @override
   State<_ComposerView> createState() => _ComposerViewState();
@@ -129,6 +174,8 @@ class _ComposerViewState extends State<_ComposerView> {
             content: Text(
               state.uploadFailed
                   ? uploadErrorMessage(error)
+                  : context.read<ComposerCubit>().quoteOfPostId.isNotEmpty
+                  ? quoteErrorMessage(error)
                   : createPostErrorMessage(error),
             ),
           ),
@@ -178,6 +225,7 @@ class _ComposerViewState extends State<_ComposerView> {
       listener: _onState,
       builder: (context, state) {
         final cubit = context.read<ComposerCubit>();
+        final isQuote = cubit.quoteOfPostId.isNotEmpty;
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
         // for an upload in flight. Applies to the verify-email view too: it
@@ -211,7 +259,7 @@ class _ComposerViewState extends State<_ComposerView> {
                     ? null
                     : () => _requestClose(context, state),
               ),
-              title: const Text('New post'),
+              title: Text(isQuote ? 'Quote' : 'New post'),
               actions: [
                 Padding(
                   padding: const EdgeInsets.only(right: AppSpacing.sm),
@@ -253,7 +301,9 @@ class _ComposerViewState extends State<_ComposerView> {
                         style: Theme.of(context).textTheme.bodyLarge
                             ?.copyWith(fontSize: 18),
                         decoration: InputDecoration(
-                          hintText: "What's happening?",
+                          hintText: isQuote
+                              ? 'Add a comment'
+                              : "What's happening?",
                           hintStyle: Theme.of(context).textTheme.bodyLarge
                               ?.copyWith(
                                 fontSize: 18,
@@ -270,6 +320,7 @@ class _ComposerViewState extends State<_ComposerView> {
                       ),
                     ),
                   ),
+                  if (isQuote) _QuotePreview(preview: widget.quotePreview),
                   if (widget.mediaEnabled)
                     AttachmentGrid(enabled: !state.isSubmitting),
                   const Divider(height: 1),
@@ -325,6 +376,44 @@ class _AddPhotoButton extends StatelessWidget {
               : () => context.read<AttachmentsCubit>().pick(),
         );
       },
+    );
+  }
+}
+
+/// The quoted post under the text field: the frozen snapshot the router
+/// passed, or a plain line after a page reload (the server still embeds the
+/// original). Capped in height so a long quote never squeezes the field.
+class _QuotePreview extends StatelessWidget {
+  const _QuotePreview({required this.preview});
+
+  final pb.EmbeddedPost? preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final quoted = preview;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        0,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.3,
+        ),
+        child: quoted == null
+            ? Text(
+                'Quoting a post',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
+            : SingleChildScrollView(
+                child: EmbeddedPostCard(embedded: quoted, maxTextLines: 4),
+              ),
+      ),
     );
   }
 }

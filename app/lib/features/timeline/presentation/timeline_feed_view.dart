@@ -16,6 +16,7 @@ import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/pending_posts_section.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
+import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import 'bloc/timeline_cubit.dart';
@@ -164,6 +165,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     final cubit = context.read<TimelineCubit>();
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
+    final engagementEnabled = isFeatureEnabled(context, kFeatureEngagement);
     return LayoutBuilder(
       builder: (context, constraints) {
         // Cap the content width on tablet/desktop, centered.
@@ -207,6 +209,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                         inset,
                         graphEnabled,
                         reportsEnabled,
+                        engagementEnabled,
                       ),
                     ],
                   ),
@@ -243,6 +246,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     double inset,
     bool graphEnabled,
     bool reportsEnabled,
+    bool engagementEnabled,
   ) {
     if (state.entries.isEmpty) {
       final Widget child;
@@ -296,6 +300,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                     now: _now,
                     graphActionsEnabled: graphEnabled,
                     reportsEnabled: reportsEnabled,
+                    engagementEnabled: engagementEnabled,
                     onDelete: cubit.deletePost,
                     onRelationshipChanged: (r) => _onRelationship(cubit, r),
                   ),

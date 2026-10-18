@@ -51,6 +51,27 @@ String replyErrorMessage(AppException error) {
   };
 }
 
+/// Friendly messages for a failed quote (CreatePost with `quote_of_post_id`,
+/// ADR-0018): the quoted post vanished or is not viewable (one NOT_FOUND for
+/// every cause), or the quotes sub-feature is off. Everything else is the
+/// shared [createPostErrorMessage].
+String quoteErrorMessage(AppException error) {
+  return switch (error) {
+    NotFoundException() => "The post you're quoting isn't available any more.",
+    FeatureDisabledException() => "Quotes aren't available right now.",
+    NetworkException() =>
+      'No connection. Your quote was not sent; check your network and try '
+          'again.',
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now, so quoting is paused. '
+          'Please try again shortly.',
+    ValidationException() =>
+      "This quote can't be sent. Check the text and try again.",
+    UnknownApiException() => "Couldn't send your quote. Please try again.",
+    _ => createPostErrorMessage(error),
+  };
+}
+
 /// Snackbar text for a failed pull-to-refresh of a thread that stays on
 /// screen.
 String threadRefreshErrorMessage(AppException error) {

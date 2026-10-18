@@ -5,7 +5,9 @@ import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/features/timeline/presentation/bloc/timeline_cubit.dart';
 import 'package:dzeroth/features/timeline/presentation/bloc/timeline_state.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -378,6 +380,39 @@ void main() {
       expect(ids(cubit.state), idsOf([3, 2, 1]));
       verifyNever(() => timeline.refresh(feed));
     });
+
+    test(
+      'hideAuthor also hides reposts and quotes of that author (D13)',
+      () async {
+        final repost = pb.PostView(
+          post: pb.Post(
+            postId: postId(4),
+            kind: PostKind.POST_KIND_REPOST,
+            author: common.AuthorSnapshot(userId: 'u1', handle: 'hu1'),
+            embedded: pb.EmbeddedPost(
+              postId: postId(9),
+              author: common.AuthorSnapshot(userId: 'blocked'),
+            ),
+          ),
+        );
+        stubCached(
+          TimelineSnapshot(
+            entries: [
+              TimelineEntry.post(postId(4), postId(4), repost),
+              postEntry(2),
+            ],
+          ),
+        );
+        await cubit.reloadFromCache();
+        expect(ids(cubit.state), idsOf([4, 2]));
+
+        cubit.hideAuthor('blocked');
+        expect(ids(cubit.state), idsOf([2]));
+
+        cubit.restoreAuthor('blocked');
+        expect(ids(cubit.state), idsOf([4, 2]));
+      },
+    );
 
     test('a post removed elsewhere leaves the list', () async {
       removed.add(postId(2));

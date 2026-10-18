@@ -17,6 +17,8 @@ import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/pending_post_row.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
+import '../../../shared/widgets/unavailable_post_box.dart';
+import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -208,6 +210,7 @@ class _ThreadList extends StatelessWidget {
     final cubit = context.read<ThreadCubit>();
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
+    final engagementEnabled = isFeatureEnabled(context, kFeatureEngagement);
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
     return BlocBuilder<ThreadCubit, ThreadState>(
       builder: (context, state) {
@@ -280,6 +283,9 @@ class _ThreadList extends StatelessWidget {
                           viewerUserId: viewerUserId,
                           graphActionsEnabled: graphEnabled,
                           reportsEnabled: reportsEnabled,
+                          engagementEnabled: engagementEnabled,
+                          // The reply composer is right below.
+                          showReply: false,
                           onDelete: cubit.deletePost,
                           onRelationshipChanged: onRelationship,
                         ),
@@ -315,6 +321,7 @@ class _ThreadList extends StatelessWidget {
                             viewerUserId: viewerUserId,
                             graphActionsEnabled: graphEnabled,
                             reportsEnabled: reportsEnabled,
+                            engagementEnabled: engagementEnabled,
                             onDelete: cubit.deletePost,
                             onRelationshipChanged: onRelationship,
                           ),
@@ -364,6 +371,7 @@ class _ContextPost extends StatelessWidget {
               viewerUserId: viewerUserId,
               graphActionsEnabled: graphEnabled,
               reportsEnabled: isFeatureEnabled(context, kFeatureReports),
+              engagementEnabled: isFeatureEnabled(context, kFeatureEngagement),
             ),
           ),
         ),
@@ -380,46 +388,13 @@ class _Tombstone extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Column(
+    return const Column(
       children: [
-        Semantics(
-          container: true,
-          label: 'This post is unavailable',
-          excludeSemantics: true,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: theme.dividerColor),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.speaker_notes_off_outlined,
-                      size: AppIconSize.lg,
-                      color: muted,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Text(
-                        'This post is unavailable',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: muted,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: UnavailablePostBox(),
         ),
-        const Divider(height: 1),
+        Divider(height: 1),
       ],
     );
   }

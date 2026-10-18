@@ -25,6 +25,7 @@ import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
+import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../widgets/splash_screen.dart';
 import 'go_router_refresh_stream.dart';
 import 'main_shell.dart';
@@ -66,6 +67,11 @@ class AppRouter {
   static const editProfilePath = '/settings/profile';
   static const changeHandlePath = '/settings/handle';
   static String profilePath(String handle) => '/profile/$handle';
+
+  /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
+  /// quoted post's `EmbeddedPost` as `extra` for the preview.
+  static String composeQuotePath(String postId) =>
+      '$composePath?quote=${Uri.encodeQueryComponent(postId)}';
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
@@ -109,7 +115,18 @@ class AppRouter {
       // Full-screen, outside the shell: no nav chrome while writing.
       GoRoute(
         path: composePath,
-        builder: (context, state) => const AuthGate(child: ComposerScreen()),
+        builder: (context, state) {
+          final quote = state.uri.queryParameters['quote'] ?? '';
+          return AuthGate(
+            child: ComposerScreen(
+              // Only a well-formed post id (19 digits) starts a quote.
+              quoteOfPostId: _postIdPattern.hasMatch(quote) ? quote : '',
+              quotePreview: state.extra is pb.EmbeddedPost
+                  ? state.extra as pb.EmbeddedPost
+                  : null,
+            ),
+          );
+        },
       ),
       GoRoute(
         path: accountDeletedPath,
@@ -254,6 +271,7 @@ class AppRouter {
     }
   }
 
+  static final _postIdPattern = RegExp(r'^\d{19}$');
   static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
   static final _accountOnlyRoutes = RegExp(
     r'^/settings/(?:export|delete-account)$',

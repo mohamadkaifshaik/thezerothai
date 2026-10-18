@@ -2,6 +2,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:connectrpc/protobuf.dart' show ProtoCodec;
 import 'package:connectrpc/protocol/connect.dart' as protocol_connect;
 
+import '../../gen/dzeroth/engagement/v1/engagement.connect.client.dart';
 import '../../gen/dzeroth/graph/v1/graph.connect.client.dart';
 import '../../gen/dzeroth/identity/v1/identity.connect.client.dart';
 import '../../gen/dzeroth/media/v1/media.connect.client.dart';
@@ -50,6 +51,7 @@ class ApiClient {
   late final timeline = TimelineServiceClient(_transport);
   late final notifications = NotificationServiceClient(_transport);
   late final moderation = ModerationServiceClient(_transport);
+  late final engagement = EngagementServiceClient(_transport);
 }
 
 /// Runs [call], converting any thrown error into a typed [AppException].

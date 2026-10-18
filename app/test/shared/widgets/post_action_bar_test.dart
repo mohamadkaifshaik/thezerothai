@@ -17,6 +17,24 @@ Widget _host(Widget child, {double width = 360}) => MaterialApp(
 
 void main() {
   group('PostActionBar', () {
+    testWidgets('showDisabled false hides actions without a callback', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            showDisabled: false,
+            actions: PostActions(onLike: () {}, onRepost: () {}),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+      expect(find.byIcon(Icons.repeat), findsOneWidget);
+      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+      expect(find.byIcon(Icons.ios_share), findsNothing);
+    });
+
     testWidgets('shows compact counts and spreads four actions evenly', (
       tester,
     ) async {

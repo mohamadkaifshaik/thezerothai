@@ -18,7 +18,7 @@ every list, and deleting a post or an account leaves no dependants behind.
 | T4 | Wiring and lifecycle: apiserver, rate-limit bucket, T11 rows, export golden, reference budgets, runbook, code map | backend | In review | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | T5 | Tests: unit (fakes), emulator integration with budget assertions, invariant checker, 10-way concurrency | backend/tester | In review | `TestEngagementChain_LikeRepostQuoteAndDeleteJob` |
 | T6 | Quotes: `CreatePost.quote_of_post_id`, quote counter, embedded tombstone on delete, notifications hook data | backend | In review | `feat/p5-quotes` |
-| T7 | Flutter: like/repost/quote actions, viewer flags, repost row, `engagement` gate | frontend | **Not started** (needs the regenerated Dart client) | |
+| T7 | Flutter: like/repost/quote actions, viewer flags, repost row, `engagement` gate | frontend | **In review** (like/unlike, repost/undo, quote composer, REPOST/QUOTE embeds with placeholders, optimistic + rollback, flag gate; deferred: likes list, REPOST-row counts, pruning own undone REPOST rows until refresh) | `feat/engagement-ui` |
 | T8 | Terraform env vars `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]`, `QUOTA_LIKES_PER_DAY`, `QUOTA_NEW_ACCOUNT_LIKES_PER_DAY` | deployer | **Not started** (needs founder creds) | |
 | T9 | Notifications: adapt `engagement.Events` and QUOTE `PostEvents.Created` to `notifications.Emitter` | backend | In review (P6 #122 merged) | `feat/p5-engagement-impl` |
 | T10 | P7: tombstone embeds of a taken-down post (uses `TombstoneQuotes` and the repost removal) | backend | In review (P7 #125 merged; opsctl takedown cleans up copies) | `feat/p5-engagement-impl` |

@@ -11,6 +11,8 @@ import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
@@ -49,6 +51,7 @@ class AppWidget extends StatefulWidget {
     this.imageProcessor = const IsolateImageProcessor(),
     required this.notificationsRepository,
     required this.moderationRepository,
+    required this.engagementRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
   });
@@ -65,6 +68,9 @@ class AppWidget extends StatefulWidget {
   final PostsFeatureGate postsGate;
   final NotificationsRepository notificationsRepository;
   final ModerationRepository moderationRepository;
+
+  /// Likes, reposts and quotes (P5, `FEATURE_ENGAGEMENT`).
+  final EngagementRepository engagementRepository;
 
   /// Push registration and tap handling (P6); built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
@@ -88,6 +94,11 @@ class AppWidget extends StatefulWidget {
 class _AppWidgetState extends State<AppWidget> {
   // Optimistic posts live for the session only (T16); sign-out drops them.
   final PendingPostsCubit _pendingPosts = PendingPostsCubit();
+  // The session's like/repost overlay (P5); sign-out forgets it.
+  late final EngagementCubit _engagement = EngagementCubit(
+    repository: widget.engagementRepository,
+    onUnexpectedError: reportUnexpectedError,
+  );
   late final StreamSubscription<AuthState> _authSub;
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
@@ -101,6 +112,7 @@ class _AppWidgetState extends State<AppWidget> {
     _authSub = widget.authBloc.stream.listen((state) {
       if (state.status == AuthStatus.unauthenticated) {
         _pendingPosts.clear();
+        _engagement.reset();
         widget.unreadBadgeCubit.seed(0);
         _lastFeatures = null;
         _lastUnread = 0;
@@ -154,6 +166,7 @@ class _AppWidgetState extends State<AppWidget> {
     _authSub.cancel();
     _onboardingSub.cancel();
     _pendingPosts.close();
+    _engagement.close();
     super.dispose();
   }
 
@@ -181,12 +194,14 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
         RepositoryProvider.value(value: widget.notificationsRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
+        RepositoryProvider.value(value: widget.engagementRepository),
       ],
       child: MultiBlocProvider(
         providers: [
           BlocProvider.value(value: widget.authBloc),
           BlocProvider.value(value: widget.onboardingBloc),
           BlocProvider.value(value: _pendingPosts),
+          BlocProvider.value(value: _engagement),
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: widget.unreadBadgeCubit),
         ],

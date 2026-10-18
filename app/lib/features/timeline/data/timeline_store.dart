@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:fixnum/fixnum.dart' show Int64;
 
 import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -283,6 +284,46 @@ class TimelineStore {
     return (_db.delete(
       _db.timelineItemEntries,
     )..where((t) => t.itemKey.equals(postId))).go();
+  }
+
+  /// Writes the caller's own like/repost result into every cached copy of
+  /// [postId] (ADR-0018, plan T7), so a restart does not show an unliked post
+  /// the caller liked: a since-refresh never re-sends old rows. Null
+  /// arguments leave that field alone. Rows that are REPOSTs of [postId]
+  /// (their id differs) are not touched; their flags refresh with the feed.
+  ///
+  /// Guarded like every write: dropped when the session ended since
+  /// [session] was read.
+  Future<void> patchEngagement({
+    required String postId,
+    required int session,
+    bool? liked,
+    bool? reposted,
+    int? likeCount,
+    int? repostCount,
+  }) {
+    return _tx(session, () async {
+      final rows = await (_db.select(
+        _db.timelineItemEntries,
+      )..where((t) => t.itemKey.equals(postId) & t.payload.isNotNull())).get();
+      for (final row in rows) {
+        final payload = row.payload;
+        if (payload == null) continue;
+        final view = pb.PostView.fromBuffer(payload);
+        if (liked != null) view.likedByViewer = liked;
+        if (reposted != null) view.repostedByViewer = reposted;
+        if (likeCount != null) view.post.likeCount = Int64(likeCount);
+        if (repostCount != null) view.post.repostCount = Int64(repostCount);
+        await (_db.update(_db.timelineItemEntries)..where(
+              (t) => t.feedKey.equals(row.feedKey) & t.itemKey.equals(postId),
+            ))
+            .write(
+              TimelineItemEntriesCompanion(
+                payload: Value(Uint8List.fromList(view.writeToBuffer())),
+              ),
+            );
+      }
+    });
   }
 
   /// Forgets a feed entirely (its user is gone, or blocks the caller).

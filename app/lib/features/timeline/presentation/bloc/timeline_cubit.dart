@@ -299,9 +299,16 @@ class TimelineCubit extends Cubit<TimelineState> {
       final view = e.postView;
       if (view != null) {
         final id = view.post.postId;
+        // A REPOST or QUOTE of a hidden author's post is a copy of their
+        // text: it leaves the list too (ADR-0018 D13).
+        final embeddedAuthor = view.post.hasEmbedded()
+            ? view.post.embedded.author.userId
+            : '';
         if (_held.contains(id) ||
             _removed.contains(id) ||
-            _hiddenAuthors.contains(view.post.author.userId)) {
+            _hiddenAuthors.contains(view.post.author.userId) ||
+            (embeddedAuthor.isNotEmpty &&
+                _hiddenAuthors.contains(embeddedAuthor))) {
           continue;
         }
       } else if (rows.isEmpty) {
