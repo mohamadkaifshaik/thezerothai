@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/feature_flags/quote_ui.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -47,15 +48,25 @@ const kComposerInputCap = 1000;
 /// and the `quotes` sub-feature; without them it shows "not available"
 /// instead of a composer that could only fail.
 class ComposerScreen extends StatelessWidget {
-  const ComposerScreen({super.key, this.quoteOfPostId = '', this.quotePreview});
+  const ComposerScreen({
+    super.key,
+    this.quoteOfPostId = '',
+    this.quotePreview,
+    this.quoteUiEnabled = kQuoteUiEnabled,
+  });
 
   final String quoteOfPostId;
   final pb.EmbeddedPost? quotePreview;
 
+  /// Quote creation switch (MVP build: off, see [kQuoteUiEnabled]); off shows
+  /// the "not available" state for `/compose?quote=<id>`.
+  final bool quoteUiEnabled;
+
   @override
   Widget build(BuildContext context) {
     if (quoteOfPostId.isNotEmpty &&
-        !(featureEnabledSnapshot(context, kFeatureEngagement) &&
+        !(quoteUiEnabled &&
+            featureEnabledSnapshot(context, kFeatureEngagement) &&
             context.read<PostsRepository>().subFeatureEnabled(
               kPostsSubFeatureQuotes,
             ))) {
