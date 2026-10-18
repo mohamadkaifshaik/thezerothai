@@ -108,6 +108,36 @@ func TestRepo_CreateBudgetsDuplicateAndQuota(t *testing.T) {
 	}
 }
 
+// A repost report stores the original's id inside evidence (additive field) and a reopen with plain-post evidence
+// replaces the whole map, so the id does not linger. Budget as a first report: 2 reads, 2 writes.
+func TestRepo_RepostEvidenceOriginalPostID(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	r := sampleReport("u-rep", TargetPost, pidN(8), "u-bob", t0)
+	r.Evidence.OriginalPostID = pidN(3)
+	ctx, c := counted()
+	if _, err := repo.Create(ctx, CreateParams{Report: r, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "Create repost report", c, budgettest.Budget{Reads: 2, Writes: 2})
+	got, err := repo.Get(context.Background(), r.ID)
+	if err != nil || got.Evidence == nil || got.Evidence.OriginalPostID != pidN(3) || got.TargetOwnerID != "u-bob" {
+		t.Fatalf("stored = %+v err=%v", got, err)
+	}
+	if _, err := repo.Resolve(context.Background(), r.ID, ResolutionNoAction, "", t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	again := sampleReport("u-rep", TargetPost, pidN(8), "u-bob", t0.Add(time.Hour))
+	if _, err := repo.Create(context.Background(), CreateParams{Report: again, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.Get(context.Background(), r.ID)
+	if err != nil || got.Evidence == nil || got.Evidence.OriginalPostID != "" {
+		t.Fatalf("after reopen = %+v err=%v", got, err)
+	}
+}
+
 // A reporter who files the same target again after a moderator RESOLVED it reopens the report (ADR-0016 D2): status
 // OPEN, new reason/note/evidence, original createdAt, no resolution fields and no expireAt (so the TTL cannot delete it under the
 // moderator), quota charged, and it is back in the OPEN list. 2 reads, 2 writes like a first report.

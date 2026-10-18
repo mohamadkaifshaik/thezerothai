@@ -88,6 +88,10 @@ type Evidence struct {
 	AuthorHandle  string
 	MediaIDs      []string
 	PostCreatedAt time.Time
+	// OriginalPostID is set only when the reported post was a REPOST: the fields above then describe the ORIGINAL
+	// post (from the repost's frozen Embedded snapshot, 0 extra reads) and this is its id, the id takedown-post
+	// takes. "" for every other report. TargetOwnerID still names the reposter.
+	OriginalPostID string
 }
 
 // Report is the domain form of reports/{reportId}. ReporterID is "" after the reporter's account was deleted.

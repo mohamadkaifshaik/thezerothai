@@ -92,6 +92,13 @@ answers `removed_ids` on `since_token` refreshes, so a client drops a card it al
   hold about the suspended account: 1 read + 1 delete or update per row, 500 per page (1 read when there are none). It is not undone
   by `unsuspend-user`. Re-running `suspend-user` resumes it.
 
+### Reading a repost report
+A report on a **repost** has `target` = the repost id and `owner` = the reposter, but `reports show` prints
+`evidence is the ORIGINAL post <id>`: the text, handle, media ids and time under `evidence` belong to the original post
+(snapshot at report time). To remove the content run `takedown-post` on that original id; `takedown-post` on the repost id
+hides only the repost. Account actions on `owner` concern the reposter. Reports filed before B2, or whose original was
+already unavailable, show empty evidence text.
+
 ## 3a. Media on takedown (manual until `--purge-media` exists)
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the
 post's `media[]` ids; also `media` docs with `ownerId` = the author) the objects are **still public** in the media

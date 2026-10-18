@@ -173,6 +173,12 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		}
 		rep.TargetOwnerID = p.AuthorID
 		rep.Evidence = &Evidence{Text: p.Text, AuthorHandle: p.Author.Handle, PostCreatedAt: p.CreatedAt, MediaIDs: mediaIDs(p.Media)}
+		// A REPOST carries no content of its own: the evidence is the original it embeds (already loaded, 0 reads).
+		// TargetOwnerID stays the reposter. A tombstone or missing snapshot keeps the empty evidence above.
+		if e := p.Embedded; p.Kind == posts.KindRepost && e != nil && !e.Unavailable && e.PostID != "" {
+			rep.Evidence = &Evidence{Text: e.Text, AuthorHandle: e.Author.Handle, PostCreatedAt: e.CreatedAt,
+				MediaIDs: mediaIDs(e.Media), OriginalPostID: e.PostID}
+		}
 	case TargetAccount:
 		prof, err := s.d.Accounts.GetProfile(ctx, uid, identity.ProfileTarget{UserID: in.TargetID})
 		if err != nil {
