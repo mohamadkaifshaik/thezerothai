@@ -212,14 +212,18 @@ type Recent struct {
 	LoadedAt time.Time
 }
 
-// Removals is the seam timeline uses (ADR-0016 D10).
+// Removals is the seam timeline uses (ADR-0016 D10, amendment 2026-10-18 (b)).
 type Removals interface {
-	// RemovedSince returns the ids of posts a moderator removed after cutoff and has not restored, newest first, at
-	// most RemovalMaxIDs. truncated=true means the answer would be incomplete (cutoff is older than the log
-	// covers, or more than RemovalMaxIDs match): the caller must make the client reset instead of trusting ids.
-	// Reads: 0 on a warm cache hit; otherwise 1-50 (cold or after the TTL: 1 when the log is empty or unchanged),
-	// 100 at most when the incremental page was full and the cache is reloaded.
-	RemovedSince(ctx context.Context, cutoff time.Time) (ids []string, truncated bool, err error)
+	// RemovedSince returns the ids of posts a moderator removed after cutoff and has not restored, restricted to
+	// the authors in scope (the feed being refreshed), newest first, at most RemovalMaxIDs. An empty scope returns
+	// nothing with 0 reads. truncated=true means the answer would be incomplete for THIS feed (the cutoff is older
+	// than the log keeps, the window the instance cache lacks could not be queried for this scope, or more than
+	// RemovalMaxIDs match): the caller must make the client reset instead of trusting ids.
+	// Reads: shared cache refresh 0 on a warm hit, otherwise 1-50 (1 when the log is empty or unchanged), 100 at
+	// most when the incremental page was full, charged to a detached counter (log field removal_log_reads), not
+	// the caller's budget. Window query (cutoff older than the cache's coverage and a feed of at most 180 authors):
+	// at most RemovalWindowWorstReads (107), charged to ctx.
+	RemovedSince(ctx context.Context, cutoff time.Time, scope RemovalScope) (ids []string, truncated bool, err error)
 }
 
 // Service is the Connect handler's dependency: the Reader plus CreatePost (T8), DeletePost and GetPost (T9).
@@ -409,7 +413,7 @@ type Checkpoint struct {
 	Deleted int
 	// Phase is 0 while the user's own posts are being deleted and 1 while the copies of the user's content that
 	// live in other users' REPOST and QUOTE docs are removed (ADR-0018 D14). A checkpoint written before P5
-	// decodes as phase 0.
+	// decodes as phase 0. Phase 2 deletes the user's postRemovals entries (amendment 2026-10-18 (b)).
 	Phase int `json:"Phase,omitempty"`
 	// Copies counts REPOST docs removed and QUOTE embeds tombstoned in phase 1.
 	Copies int `json:"Copies,omitempty"`

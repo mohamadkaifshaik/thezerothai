@@ -59,16 +59,16 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 		return &timelinev1.GetHomeTimelineResponse{}, nil
 	}
 
-	removed, err := s.removedIDs(ctx, tok)
-	if err != nil {
-		return nil, err
-	}
-
 	snap, err := s.deps.Graph.Snapshot(ctx, uid)
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), uid)
 	}
 	authors := homeAuthors(uid, snap)
+	// The graph is read first: the removal log answers for exactly the authors this feed shows.
+	removed, err := s.removedIDs(ctx, tok, authors)
+	if err != nil {
+		return nil, err
+	}
 
 	res, err := s.homeSources(ctx, authors, tok, limit, start)
 	if err != nil {
@@ -354,7 +354,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 		return &timelinev1.GetUserTimelineResponse{}, nil
 	}
 
-	removed, err := s.removedIDs(ctx, tok)
+	removed, err := s.removedIDs(ctx, tok, []string{target})
 	if err != nil {
 		return nil, err
 	}

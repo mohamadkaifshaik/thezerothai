@@ -81,7 +81,7 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 	// repo, a cache constructor or a Firestore-backed type (L1: importing the package alone is not enough).
 	allowedSel := map[string]map[string]bool{
 		"posts": {
-			"Reader": true, "Removals": true, "RemovalLag": true, "Window": true, "Position": true, "Post": true, "Recent": true, "Mention": true,
+			"Reader": true, "Removals": true, "RemovalLag": true, "RemovalScope": true, "Window": true, "Position": true, "Post": true, "Recent": true, "Mention": true,
 			"AuthorSnapshot": true, "Embedded": true, "Kind": true, "Visibility": true, "ErrNotFound": true, "ErrInvalidID": true,
 			"FlagChecker": true, "GuardFeature": true, "FlagName": true, "ToProto": true,
 			"MaxGetMany": true, "MaxByAuthors": true, "MaxLimit": true, "MaxRecent": true,

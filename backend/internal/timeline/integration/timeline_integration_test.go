@@ -30,7 +30,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
@@ -67,6 +69,8 @@ type instance struct {
 	followFn func(ctx context.Context, caller, target string) error
 	blockFn  func(ctx context.Context, caller, target string) error
 	muteFn   func(ctx context.Context, caller, target string) error
+	// info holds the request-log fields of the most recent home() call.
+	info *logger.RequestInfo
 }
 
 func newInstance(t *testing.T, client *firestore.Client) *instance {
@@ -152,7 +156,9 @@ func seedFollowing(t *testing.T, client *firestore.Client, uid string, following
 
 func (in *instance) home(t *testing.T, uid, since, page string, size int32) (*timelinev1.GetHomeTimelineResponse, *budget.Counter, error) {
 	t.Helper()
-	ctx, c := budget.WithCounter(ctxFor(uid))
+	ictx, info := logger.WithRequestInfo(ctxFor(uid))
+	in.info = info
+	ctx, c := budget.WithCounter(ictx)
 	resp, err := in.srv.GetHomeTimeline(ctx, connect.NewRequest(&timelinev1.GetHomeTimelineRequest{PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
 		return nil, c, err
@@ -275,16 +281,19 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 	if len(ra.Posts) == 0 {
 		t.Fatal("the clamped since should re-deliver the recent posts")
 	}
-	// Refresh with 0 new posts on a fresh instance: author-recent empty, graph warm => exactly C, plus the one read of the
-	// instance's cold removal log (ADR-0016 D10; 0 once the instance is warm).
+	// Refresh with 0 new posts on a fresh instance: author-recent empty, graph warm => exactly C. The instance's cold
+	// removal log read (ADR-0016 D10) is detached from the caller's budget (RID-4) and logged as removal_log_reads.
 	b := newInstanceAt(t, client, later)
 	b.warm(t, "me")
 	r0, c0, err := b.home(t, "me", ra.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c0.Reads() != 3+1 || len(r0.Posts) != 0 {
-		t.Fatalf("refresh with nothing new: reads = %d posts = %d, want C = 3 + 1 (cold removal log) and 0 posts", c0.Reads(), len(r0.Posts))
+	if c0.Reads() != 3 || len(r0.Posts) != 0 {
+		t.Fatalf("refresh with nothing new: reads = %d posts = %d, want C = 3 (the removal log read is detached) and 0 posts", c0.Reads(), len(r0.Posts))
+	}
+	if got, ok := b.info.Get("removal_log_reads"); !ok || fmt.Sprint(got) != "1" {
+		t.Fatalf("removal_log_reads = %v, want 1 (cold log)", got)
 	}
 	t.Logf("BUDGET GetHomeTimeline refresh 0 new F=60 reads=%d (C=3, graph warm)", c0.Reads())
 
@@ -331,8 +340,8 @@ func TestHome_Integration_OwnPostUpdatesAuthorRecentInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c2.Reads() != 1 { // the cold removal log of this instance (ADR-0016 D10); the post itself costs 0
-		t.Fatalf("refresh after an own post: reads = %d, want 1 (cold removal log only)", c2.Reads())
+	if c2.Reads() != 0 { // the cold removal log of this instance is detached (RID-4); the post itself costs 0
+		t.Fatalf("refresh after an own post: reads = %d, want 0 (the cold removal log read is not charged to the caller)", c2.Reads())
 	}
 	hit := false
 	for _, id := range homeIDs(r2) {
@@ -881,6 +890,61 @@ func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
 	}
 }
 
+// TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers is the RID-2 regression end to end
+// (ADR-0016 amendment 2026-10-18 (b)): suspending a 60-post account (more than one response can list) neither
+// rejects the since_token of a viewer who does not follow it nor leaks a single id into removed_ids, on a cold
+// instance too; a viewer of that account's own profile is told to reset, and a followed author's takedown is still
+// delivered through the same cold cache.
+func TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers(t *testing.T) {
+	client := newClient(t)
+	in := newInstance(t, client)
+	world(t, in, 2) // me follows f1, f2
+	in.signUp(t, "spam")
+	p11 := in.post(t, "f1", 1)
+
+	coldHome, _, err := newInstance(t, client).home(t, "me", "", "", 20)
+	if err != nil || coldHome.GetSinceToken() == "" {
+		t.Fatalf("cold home: err=%v", err)
+	}
+	coldSpam, _, err := newInstance(t, client).user(t, "me", "spam", "", "", 20)
+	if err != nil {
+		t.Fatalf("cold user: %v", err)
+	}
+
+	// 60 posts by the account that will be suspended, written straight to the collection (the post quota is not under test).
+	for i := range 60 {
+		id := fmt.Sprintf("%019d", 9_000_000_000_000_000_000+int64(i))
+		if _, err := client.Collection("posts").Doc(id).Set(context.Background(), map[string]any{"authorId": "spam", "createdAt": time.Now(), "kind": "POST"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mod := posts.NewFirestoreRepo(client)
+	if _, done, err := mod.HideAuthor(context.Background(), "spam", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
+		t.Fatalf("hide author: done=%v err=%v", done, err)
+	}
+	if _, err := mod.Takedown(context.Background(), p11, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, c, err := newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
+	if err != nil {
+		t.Fatalf("a suspension of a user the viewer does not follow reset the viewer's feed: %v", err)
+	}
+	if got := resp.GetRemovedIds(); len(got) != 1 || got[0] != p11 {
+		t.Fatalf("home removed_ids = %v, want only the followed author's takedown %s", got, p11)
+	}
+	// The viewer pays for its own window query (1 read: the followed authors have nothing older than the cache) on
+	// top of the refresh's own reads; the 50-entry shared refresh is not charged to it (RID-4).
+	if c.Reads() > config.ReadBudgetMaxCallReads {
+		t.Fatalf("home refresh reads = %d, above the per-call ceiling %d", c.Reads(), config.ReadBudgetMaxCallReads)
+	}
+
+	_, _, err = newInstance(t, client).user(t, "me", "spam", coldSpam.GetSinceToken(), "", 20)
+	if err == nil {
+		t.Fatal("the suspended account's own profile feed must be reset (60 ids cannot be listed)")
+	}
+}
+
 // TestModeration_Integration_RemovalLogReadsOnARefresh pins the documented cost: with an empty log a refresh adds
 // one read on a cold instance and none on a warm one (plus the post reads it would cost anyway).
 func TestModeration_Integration_RemovalLogReadsOnARefresh(t *testing.T) {
@@ -902,8 +966,13 @@ func TestModeration_Integration_RemovalLogReadsOnARefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Reads() != second.Reads()+1 {
-		t.Fatalf("cold-log refresh reads=%d, warm-log refresh reads=%d: want exactly the log's single read in between", first.Reads(), second.Reads())
+	// RID-4: the shared refresh is detached from the caller's budget, so both calls cost the caller the same; the
+	// cold instance's single log read shows up as removal_log_reads on the first call only.
+	if first.Reads() != second.Reads() {
+		t.Fatalf("cold-log refresh reads=%d, warm-log refresh reads=%d: want equal (the log read is detached)", first.Reads(), second.Reads())
+	}
+	if got, ok := probe.info.Get("removal_log_reads"); ok && fmt.Sprint(got) != "0" {
+		t.Fatalf("warm-log refresh logged removal_log_reads=%v, want none", got)
 	}
 }
 

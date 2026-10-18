@@ -62,26 +62,35 @@ an already RESOLVED report only warns.
 Every hide and un-hide writes `postRemovals/{postId}` (`state` REMOVED | RESTORED, server-time `createdAt`, `expireAt` =
 createdAt + 32 days) in the same transaction or batch as the `moderation` field, so a crash can never hide a post without
 logging it and re-running `suspend-user` needs no extra step (hidden posts are skipped, they are already logged). The id is
-the post id: a repeat overwrites one document. The API reads it incrementally into a per-instance cache (at most `removalKeep` = 200 entries; <= 50 per query) and
+the post id: a repeat overwrites one document. Each entry also stores `authorId` (the post author), which scopes it to the feeds that show that author. The API reads it incrementally into a per-instance cache (at most `removalKeep` = 200 entries; <= 50 per query) and
 answers `removed_ids` on `since_token` refreshes, so a client drops a card it already holds within about two cache TTLs.
 - **Looks stale / a card did not disappear.** The client drops ids only on its next refresh; the instance cache lags up to
   60 s.
 - **Many clients are being sent back to a full reload after a big suspension.** Expected: a log window that cannot list
   every id (more than 50 removals newer than the client's token, or a token older than the log) rejects the refresh
   exactly like an expired `since_token` and the app cold-opens, replacing that feed.
-  **Suspension reset cost.** Suspending (or unsuspending) an account with P >= 50 posts makes every client that refreshes
-  reset every cached feed once (home and each cached user timeline: about DAU x 30 reads at a 30-read cold open). Tokens
-  issued before the burst, and tokens issued up to `removalLag` (135 s) after it, are rejected too, so a client that
-  refreshes right after the burst can be reset again once. `opsctl suspend-user --dry-run` prints a WARNING when P >= 50:
-  run those off-peak. Server cost of the log itself: one 50-read cold load per instance, 1 read per CACHE_TTL after that, a
-  100-read reload only when 50 or more entries are new within one TTL (these reads are in `ReadBudgetMaxCallReads` = 369).
+  **Suspension reset cost (ADR-0016 amendment 2026-10-18 (b)).** The log is scoped per feed. Suspending (or unsuspending) an
+  account with P >= 50 posts makes only the feeds that show that account reset once: the Home of its followers and its own
+  profile (about followers x 30 reads at a 30-read cold open, usually about zero for a spam account), not every client. Check the
+  follower count first. Tokens issued before the burst, and up to `removalLag` (135 s) after it, are rejected for those feeds,
+  so a follower that refreshes right after can be reset again once. `opsctl suspend-user --dry-run` and
+  `opsctl unsuspend-user --dry-run` print a WARNING when P >= 50: run those off-peak when the account has many followers.
+  Server cost of the log itself: one 50-read cold load per instance and 1 read per CACHE_TTL after that, a 100-read reload only
+  when 50 or more entries are new within one TTL. These shared reads run on a detached counter (log field `removal_log_reads`)
+  and are **not** in the request's `fs_reads` nor charged to any user's daily read budget (when summing Firestore usage from logs, add `removal_log_reads`) (`ReadBudgetMaxCallReads` = 269). A viewer whose token is older than
+  the instance's cache (a cold instance after a burst) pays one bounded window query of at most 107 reads for its own feed.
   The kill switch is `FEATURE_REMOVED_IDS=off` (no log reads, no resets; the log is still written).
 - **Flag.** `FEATURE_REMOVED_IDS` (off | allowlist | percent | on, default off, Terraform `feature_removed_ids*`). Off for a
   caller means refreshes carry no `removed_ids` and never touch the log. If the log query fails on an instance that holds
   data, the stale cache is served and `removal_log_refresh_failed_serving_stale` is logged at ERROR (retried every 5 s).
 - **TTL.** `postRemovals.expireAt` needs the TTL policy (Terraform `ttl_fields.post_removals_expire_at`, ADR-0016 D10); until it is
   applied the log only grows (about 1 KB per hidden post), never wrong. Check with `gcloud firestore fields ttls list`.
-- Entries hold a post id, a state and timestamps. No uid, no text: the log is not personal data (ADR-0011 Q10 table row).
+- Entries hold a post id, the author uid (pseudonymous link), a state and timestamps; no text. Account deletion deletes them by
+  `authorId` (posts step, phase 2: +1 read when there are none); the 32-day TTL is only the backstop. Entries written before the
+  scoped log (no `authorId`) are treated as visible to every feed and expire within 32 days.
+- **`suspend-user` also sweeps notifications (N-4).** After the settle pass it deletes (or unfolds) the notification rows other users
+  hold about the suspended account: 1 read + 1 delete or update per row, 500 per page (1 read when there are none). It is not undone
+  by `unsuspend-user`. Re-running `suspend-user` resumes it.
 
 ## 3a. Media on takedown (manual until `--purge-media` exists)
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the

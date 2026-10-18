@@ -73,7 +73,7 @@ func (r *FirestoreRepo) setModeration(ctx context.Context, postID string, decide
 		}
 		b := store.NewFirestoreTxBatch(tx, counter)
 		b.Update(r.ref(postID), moderationUpdates(next, now))
-		r.setRemoval(b, postID, removalStateFor(next), now)
+		r.setRemoval(b, postID, d.AuthorID, removalStateFor(next), now)
 		if err := b.Err(); err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 			continue // already hidden (TAKEN_DOWN stays TAKEN_DOWN; SUSPENDED_AUTHOR is a re-run)
 		}
 		b.Update(s.Ref, moderationUpdates(ModerationSuspendedAuthor, now), firestore.LastUpdateTime(s.UpdateTime))
-		r.setRemoval(b, s.Ref.ID, RemovalRemoved, now)
+		r.setRemoval(b, s.Ref.ID, uid, RemovalRemoved, now)
 		changed++
 	}
 	if changed > 0 {
@@ -207,7 +207,7 @@ func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp Modera
 	for _, s := range docs {
 		// Select() keeps UpdateTime, so a post a moderator took down meanwhile fails the batch (and is re-read).
 		b.Update(s.Ref, moderationUpdates(ModerationNone, now), firestore.LastUpdateTime(s.UpdateTime))
-		r.setRemoval(b, s.Ref.ID, RemovalRestored, now)
+		r.setRemoval(b, s.Ref.ID, uid, RemovalRestored, now)
 	}
 	if err := b.Commit(ctx); err != nil {
 		return cp, false, fmt.Errorf("posts: restore %s: %w", logger.HashUID(uid), err)

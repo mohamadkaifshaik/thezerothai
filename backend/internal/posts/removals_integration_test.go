@@ -16,9 +16,14 @@ import (
 // shape of a suspension page, ADR-0016 D10).
 func seedSharedInstantRemovals(t *testing.T, repo *FirestoreRepo, n int) {
 	t.Helper()
+	seedSharedInstantRemovalsBy(t, repo, "spammer", n)
+}
+
+func seedSharedInstantRemovalsBy(t *testing.T, repo *FirestoreRepo, author string, n int) {
+	t.Helper()
 	b := repo.client.Batch()
 	for i := range n {
-		b.Set(repo.removalRef(fmt.Sprintf("%019d", i+1)), removalDoc{State: string(RemovalRemoved), ExpireAt: time.Now().Add(RemovalRetention)})
+		b.Set(repo.removalRef(fmt.Sprintf("%019d", i+1)), removalDoc{State: string(RemovalRemoved), AuthorID: author, ExpireAt: time.Now().Add(RemovalRetention)})
 	}
 	if _, err := b.Commit(context.Background()); err != nil {
 		t.Fatal(err)
@@ -74,31 +79,5 @@ func TestRemovalSource_AfterPagesThroughSharedTimestamp(t *testing.T) {
 	newest, err := repo.Newest(context.Background(), floor, 3)
 	if err != nil || len(newest) != 3 || newest[0].PostID != fmt.Sprintf("%019d", 120) || newest[2].PostID != fmt.Sprintf("%019d", 118) {
 		t.Fatalf("Newest = %+v err=%v, want ids 120,119,118", newest, err)
-	}
-}
-
-// TestRemovalLog_SharedInstantBurstBudget is the B1 regression on the real repo: after the cold load of a 120-entry
-// single-timestamp burst, every TTL step costs one read.
-func TestRemovalLog_SharedInstantBurstBudget(t *testing.T) {
-	client := newTestClient(t)
-	repo := NewFirestoreRepo(client)
-	seedSharedInstantRemovals(t, repo, 120)
-
-	now := time.Now()
-	log := NewRemovalLog(repo, time.Minute, func() time.Time { return now })
-	cutoff := now.Add(-time.Hour)
-
-	ctx, c := budget.WithCounter(context.Background())
-	if _, trunc, err := log.RemovedSince(ctx, cutoff); err != nil || !trunc {
-		t.Fatalf("cold: trunc=%v err=%v, want truncated", trunc, err)
-	}
-	budgettest.Assert(t, "cold load", c, budgettest.Budget{Reads: RemovalMaxIDs})
-	for step := 1; step <= 5; step++ {
-		now = now.Add(time.Minute)
-		ctx, c = budget.WithCounter(context.Background())
-		if _, _, err := log.RemovedSince(ctx, cutoff); err != nil {
-			t.Fatal(err)
-		}
-		budgettest.Assert(t, fmt.Sprintf("TTL step %d", step), c, budgettest.Budget{Reads: 1})
 	}
 }

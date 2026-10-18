@@ -32,8 +32,11 @@
 //   Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
 //   token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
 //   expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
-//   the client replaces its cache for that feed with the cold open (see above). removed_ids is global, not per
-//   feed: on a user timeline it can name posts by other authors, so drop each id from every cached feed that holds it.
+//   the client replaces its cache for that feed with the cold open (see above). Since ADR-0016 amendment
+//   2026-10-18 (b) removed_ids is scoped to the feed it answers (Home: the posts of the caller and the accounts the
+//   caller follows; a user timeline: that account's posts), so a suspension lists ids and rejects tokens only for
+//   the feeds that show the suspended account. The client contract is unchanged: drop each id from every cached
+//   feed that holds it, and replace the feed on a rejected since_token.
 // The Stage 2 Memorystore design keeps this contract unchanged.
 
 package timelinev1

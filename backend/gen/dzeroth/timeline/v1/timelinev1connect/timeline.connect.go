@@ -30,8 +30,11 @@
 //     Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
 //     token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
 //     expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
-//     the client replaces its cache for that feed with the cold open (see above). removed_ids is global, not per
-//     feed: on a user timeline it can name posts by other authors, so drop each id from every cached feed that holds it.
+//     the client replaces its cache for that feed with the cold open (see above). Since ADR-0016 amendment
+//     2026-10-18 (b) removed_ids is scoped to the feed it answers (Home: the posts of the caller and the accounts the
+//     caller follows; a user timeline: that account's posts), so a suspension lists ids and rejects tokens only for
+//     the feeds that show the suspended account. The client contract is unchanged: drop each id from every cached
+//     feed that holds it, and replace the feed on a rejected since_token.
 //
 // The Stage 2 Memorystore design keeps this contract unchanged.
 package timelinev1connect
@@ -98,11 +101,13 @@ type TimelineServiceClient interface {
 	//	cold open 30 (F=60, page 20), writes 0.
 	//
 	// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
-	// 0 reads while that flag is off): 0 extra reads on a warm cache hit, +1 (empty or unchanged log) to +50 (a
-	// changed log) once per instance per CACHE_TTL, +100 worst (a full incremental page of 50 reloads the newest 50),
-	// so a refresh is bounded by 2 + C + 2 * page_size + 100 (= 369 at 5,000 following, page 50). Other modes read
-	// nothing from the log. Suspending an account with 50 or more posts makes every client reset its cached feeds
-	// once (see removed_ids in the token contract).
+	// 0 reads while that flag is off). The shared log refresh (0 on a warm hit, 1 to 50 once per instance per
+	// CACHE_TTL, 100 worst) runs on a detached counter and is NOT charged to the caller's read budget (request log
+	// field removal_log_reads). Only a token older than the instance's log cache reads for the caller: at most 107
+	// (one bounded window query on postRemovals, only for feeds of up to 180 accounts), so a refresh stays bounded
+	// by 2 + C + 2 * page_size = 269 at 5,000 following, page 50. Other modes read nothing from the log. Suspending
+	// an account with 50 or more posts makes only the feeds that show it reset once (see removed_ids in the token
+	// contract).
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	GetUserTimeline(context.Context, *connect.Request[v1.GetUserTimelineRequest]) (*connect.Response[v1.GetUserTimelineResponse], error)
@@ -177,11 +182,13 @@ type TimelineServiceHandler interface {
 	//	cold open 30 (F=60, page 20), writes 0.
 	//
 	// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
-	// 0 reads while that flag is off): 0 extra reads on a warm cache hit, +1 (empty or unchanged log) to +50 (a
-	// changed log) once per instance per CACHE_TTL, +100 worst (a full incremental page of 50 reloads the newest 50),
-	// so a refresh is bounded by 2 + C + 2 * page_size + 100 (= 369 at 5,000 following, page 50). Other modes read
-	// nothing from the log. Suspending an account with 50 or more posts makes every client reset its cached feeds
-	// once (see removed_ids in the token contract).
+	// 0 reads while that flag is off). The shared log refresh (0 on a warm hit, 1 to 50 once per instance per
+	// CACHE_TTL, 100 worst) runs on a detached counter and is NOT charged to the caller's read budget (request log
+	// field removal_log_reads). Only a token older than the instance's log cache reads for the caller: at most 107
+	// (one bounded window query on postRemovals, only for feeds of up to 180 accounts), so a refresh stays bounded
+	// by 2 + C + 2 * page_size = 269 at 5,000 following, page 50. Other modes read nothing from the log. Suspending
+	// an account with 50 or more posts makes only the feeds that show it reset once (see removed_ids in the token
+	// contract).
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	GetUserTimeline(context.Context, *connect.Request[v1.GetUserTimelineRequest]) (*connect.Response[v1.GetUserTimelineResponse], error)

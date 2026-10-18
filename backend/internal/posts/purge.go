@@ -49,6 +49,9 @@ func (r *FirestoreRepo) authorQuery(uid string) firestore.Query {
 // only carries the running count. There are no counter updates: the user doc is deleted anyway (runbook).
 // Reads: one per post returned (1 for an empty page); deletes: one per post.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
+	if cp.Phase >= 2 {
+		return r.purgeRemovals(ctx, uid, cp)
+	}
 	if cp.Phase >= 1 {
 		return r.purgeCopies(ctx, uid, cp)
 	}
@@ -132,7 +135,36 @@ func (r *FirestoreRepo) purgeCopies(ctx context.Context, uid string, cp Checkpoi
 		// Error severity: this reaches Error Reporting; the residue sweep and the runbook name the way out.
 		slog.ErrorContext(ctx, "posts_purge_copies_stuck", "uid_hash", logger.HashUID(uid), "docs", len(docs))
 	}
-	return next, len(docs) < CleanupPage || stuck, nil
+	// A short page was the last one: continue with the user's postRemovals entries (phase 2) unless stuck.
+	if len(docs) < CleanupPage && !stuck {
+		next.Phase = 2
+		return next, false, nil
+	}
+	return next, stuck, nil
+}
+
+// purgeRemovals is phase 2 of PurgeUser (amendment 2026-10-18 (b)): postRemovals entries carry the author's uid
+// (pseudonymous link), so they are deleted with the account: authorId == uid, one equality filter served by the
+// single-field index, Limit(opsPage), no ordering. Deleted docs drop out of the next page (self-resuming). Reads
+// one per entry (minimum 1); deletes one per entry. Normally 0 or a handful of entries (only moderated posts).
+func (r *FirestoreRepo) purgeRemovals(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
+	docs, err := r.client.Collection(removalsCollection).Where("authorId", "==", uid).Select().Limit(opsPage).Documents(ctx).GetAll()
+	budget.FromContext(ctx).AddReads(int64(max(len(docs), 1)))
+	if err != nil {
+		return cp, false, fmt.Errorf("posts: purge %s: removals query: %w", logger.HashUID(uid), err)
+	}
+	if len(docs) == 0 {
+		return cp, true, nil
+	}
+	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	for _, d := range docs {
+		b.Delete(d.Ref)
+	}
+	if err := b.Commit(ctx); err != nil {
+		return cp, false, fmt.Errorf("posts: purge %s: removals: %w", logger.HashUID(uid), err)
+	}
+	slog.InfoContext(ctx, "posts_purge_removals", "uid_hash", logger.HashUID(uid), "entries", len(docs))
+	return cp, len(docs) < opsPage, nil
 }
 
 // PlanPurge counts the user's posts without writing anything (opsctl purge-posts --dry-run). Reads: one per

@@ -35,7 +35,7 @@ func TestRemovalLog_SharedInstantBurstCostsOneReadPerTTL(t *testing.T) {
 			t.Fatalf("TTL step %d: a token from before the burst must still be rejected", step)
 		}
 	}
-	if want := []string{"newest", "after", "after", "after", "after", "after"}; !reflect.DeepEqual(r.src.queries, want) {
+	if want := []string{"newest", "window", "after", "window", "after", "window", "after", "window", "after", "window", "after", "window"}; !reflect.DeepEqual(r.src.queries, want) {
 		t.Fatalf("queries = %v, want %v", r.src.queries, want)
 	}
 
@@ -92,7 +92,7 @@ func TestRemovalLog_QueryHasItsOwnTimeout(t *testing.T) {
 	r := newRemovalRig()
 	r.log.queryTimeout = 20 * time.Millisecond
 	r.src.block = make(chan struct{}) // never released: the query only ends through its context
-	_, _, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour))
+	_, _, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour), RemovalScope{Authors: []string{testAuthor}})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want DeadlineExceeded from the query timeout", err)
 	}
@@ -105,14 +105,14 @@ func TestRemovalLog_WaiterGivesUpOnItsOwnContext(t *testing.T) {
 	r.src.entered = make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour))
+		_, _, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour), RemovalScope{Authors: []string{testAuthor}})
 		done <- err
 	}()
 	<-r.src.entered // the first caller holds the refresh
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, _, err := r.log.RemovedSince(ctx, r.now.Add(-time.Hour)); !errors.Is(err, context.DeadlineExceeded) {
+	if _, _, err := r.log.RemovedSince(ctx, r.now.Add(-time.Hour), RemovalScope{Authors: []string{testAuthor}}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("waiter err = %v, want its own DeadlineExceeded", err)
 	}
 	close(r.src.block)
@@ -125,5 +125,12 @@ func TestRemovalWorstReads_MatchesReadBudget(t *testing.T) {
 	t.Parallel()
 	if RemovalWorstReads != config.RemovalLogMaxReads {
 		t.Fatalf("RemovalWorstReads = %d, config.RemovalLogMaxReads = %d: keep them equal", RemovalWorstReads, config.RemovalLogMaxReads)
+	}
+}
+
+func TestRemovalWindowWorstReads_MatchesBudgetDocs(t *testing.T) {
+	t.Parallel()
+	if RemovalWindowWorstReads != config.RemovalWindowMaxReads {
+		t.Fatalf("RemovalWindowWorstReads = %d, config.RemovalWindowMaxReads = %d: keep them equal", RemovalWindowWorstReads, config.RemovalWindowMaxReads)
 	}
 }
