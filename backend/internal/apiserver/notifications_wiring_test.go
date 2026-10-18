@@ -106,3 +106,31 @@ func TestNotificationSeenHasItsOwnDailyCap(t *testing.T) {
 		t.Fatalf("daily caps = %+v / %+v, want a separate cap named notification_seen_daily", seen, reg)
 	}
 }
+
+func TestAccountAges(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	a := newAccountAges(24 * time.Hour)
+	a.now = func() time.Time { return now }
+	a.Record("young", now.Add(-time.Hour))
+	a.Record("old", now.Add(-48*time.Hour))
+	a.Record("zero", time.Time{})
+	tests := []struct {
+		uid               string
+		wantNew, wantSeen bool
+	}{
+		{"young", true, true},
+		{"old", false, true},
+		{"zero", false, false},
+		{"stranger", false, false},
+	}
+	for _, tt := range tests {
+		if gotNew, gotKnown := a.IsNew(tt.uid); gotNew != tt.wantNew || gotKnown != tt.wantSeen {
+			t.Errorf("IsNew(%q) = %v, %v; want %v, %v", tt.uid, gotNew, gotKnown, tt.wantNew, tt.wantSeen)
+		}
+	}
+	now = now.Add(24 * time.Hour) // the young account ages out of the tier on time
+	if gotNew, _ := a.IsNew("young"); gotNew {
+		t.Error("young account must age out")
+	}
+}

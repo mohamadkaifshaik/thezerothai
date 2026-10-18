@@ -64,7 +64,7 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay = 500
 	cfg.RateLimit.CheckHandleCallsPerDay = 100
 	cfg.RateLimit.AccountOpsCallsPerDay = 20
-	cfg.RateLimit.NotificationDevicesCallsPerDay = 50
+	cfg.RateLimit.NotificationDevicesCallsPerDay = 10
 	cfg.RateLimit.NotificationSeenCallsPerDay = 200
 	// ADR-0010 T4 per-minute buckets (the config.Load defaults).
 	cfg.RateLimit.TimelinePerUserPerMinute = 6

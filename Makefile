@@ -165,7 +165,7 @@ cost:
 	else \
 		gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="api"' \
 			--project="$$PROJECT_ID" --freshness=1d --limit=50 \
-			--format='table(timestamp, jsonPayload.rpc, jsonPayload.fs_reads, jsonPayload.fs_writes, jsonPayload.code)' \
+			--format='table(timestamp, jsonPayload.rpc, jsonPayload.fs_reads, jsonPayload.fs_writes, jsonPayload.fanout_fs_reads, jsonPayload.code)' \
 		|| echo "gcloud query failed - check 'gcloud auth login' and PROJECT_ID=$$PROJECT_ID"; \
 	fi
 

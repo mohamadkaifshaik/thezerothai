@@ -160,13 +160,26 @@ type RateLimitConfig struct {
 	AccountOpsCallsPerDay int64
 	// NotificationDevicesCallsPerDay is the per-uid daily call cap shared by RegisterDevice and UnregisterDevice
 	// (ADR-0017 D9; a ratelimit.DailyCap, limit_name "notification_devices_daily"), env
-	// NOTIFICATION_DEVICES_CALLS_PER_DAY, default 50. Each call is at most 8 reads and 5 writes.
+	// NOTIFICATION_DEVICES_CALLS_PER_DAY, default 10 (security audit N-5: a handful of launches and token refreshes per
+	// day; each call is at most 9 reads and 5 writes, so 10 bounds one uid to 90 reads and 50 writes).
 	NotificationDevicesCallsPerDay int64
 	// NotificationSeenCallsPerDay is the per-uid daily call cap of MarkNotificationsSeen (a ratelimit.DailyCap,
 	// limit_name "notification_seen_daily"), env NOTIFICATION_SEEN_CALLS_PER_DAY, default 200. A call inside the
 	// 10 s no-op window writes nothing; otherwise 1 write, so the worst case is 200 writes per uid per day (1% of
 	// the 20k/day free quota for one uid; the per-minute bucket and the account read budget bound the rest).
 	NotificationSeenCallsPerDay int64
+	// NotificationRecipientsPerActorPerDay is the per-actor daily cap on notification recipients, charged at the
+	// producer before anything is published (security audit N-1; a notifications.RecipientCap), env
+	// NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY, default 200. Each recipient costs the fan-out handler 1 + R reads
+	// (typically 2) and 1 write, so 200 bounds one actor to about 600 reads and 200 writes a day (1.2% and 1% of the
+	// free quota). NotificationRecipientsPerNewActorPerDay is the tier for accounts younger than
+	// Quota.NewAccountWindow (NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY, default 50).
+	NotificationRecipientsPerActorPerDay    int64
+	NotificationRecipientsPerNewActorPerDay int64
+	// NotificationPushesPerRecipientPerHour is the inbound push limit per recipient (security audit N-2; a
+	// ratelimit.Limiter, burst = the value), env NOTIFICATION_PUSHES_PER_RECIPIENT_PER_HOUR, default 10. Rows are
+	// still written; only the FCM send is skipped.
+	NotificationPushesPerRecipientPerHour int64
 }
 
 // QuotaConfig holds the daily per-user quotas from ADR-0006 §4, persisted in quotas/{uid}.
@@ -573,7 +586,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.AccountOpsCallsPerDay = int64(accountOpsCalls)
-	notifDeviceCalls, err := getInt("NOTIFICATION_DEVICES_CALLS_PER_DAY", 50)
+	notifDeviceCalls, err := getInt("NOTIFICATION_DEVICES_CALLS_PER_DAY", 10)
 	if err != nil {
 		return Config{}, err
 	}
@@ -583,6 +596,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.NotificationSeenCallsPerDay = int64(notifSeenCalls)
+	notifRecipients, err := getInt("NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY", 200)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.NotificationRecipientsPerActorPerDay = int64(notifRecipients)
+	notifRecipientsNew, err := getInt("NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY", 50)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.NotificationRecipientsPerNewActorPerDay = int64(notifRecipientsNew)
+	notifPushes, err := getInt("NOTIFICATION_PUSHES_PER_RECIPIENT_PER_HOUR", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	rl.NotificationPushesPerRecipientPerHour = int64(notifPushes)
 	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
 	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
 	for name, v := range map[string]int{
@@ -592,6 +620,10 @@ func Load() (Config, error) {
 		"ACCOUNT_OPS_CALLS_PER_DAY":             accountOpsCalls,
 		"NOTIFICATION_DEVICES_CALLS_PER_DAY":    notifDeviceCalls,
 		"NOTIFICATION_SEEN_CALLS_PER_DAY":       notifSeenCalls,
+
+		"NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY":     notifRecipients,
+		"NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY": notifRecipientsNew,
+		"NOTIFICATION_PUSHES_PER_RECIPIENT_PER_HOUR":    notifPushes,
 	} {
 		if v <= 0 {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)

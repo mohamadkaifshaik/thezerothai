@@ -236,4 +236,5 @@ must verify** and replace them, especially for `asia-south1`:
   - By operation: `jsonPayload.posts_op!="" | sum fs_reads by posts_op` and `jsonPayload.timeline_op!="" | sum fs_reads by timeline_op, timeline_mode` (split `outcome` for posts).
   - The T25 revisit signal: mean `fs_reads` where `timeline_mode="older"` over 7 days, against 40 (modelled) and 30 (ADR). Above 1.4 x `page_size` means apply the k lever.
   - Per-user spread: `jsonPayload.read_budget_spent` (never a body or text; `uid_hash` only).
+- **Notifications fan-out (N-1/N-2 hardening).** The Pub/Sub push handler's per-delivery line (`message="notification_delivery"`) now carries `rpc="internal.NotificationsFanout"`, `fanout_fs_reads` (equal to `fs_reads`, kept as its own project-level field), `push_throttled` and `created`/`pushed`; `make cost` prints `fanout_fs_reads`. Fan-out reads: `jsonPayload.rpc="internal.NotificationsFanout" | sum fanout_fs_reads`. Producer-side drops: `jsonPayload.message="notification_fanout_capped"` (count by `actor_hash`).
 - No new log-based metric or alert policy. The existing "reads > 40k/day" alert fires at ≈ 207 DAU for the released scope (≈ 174 whole product).
