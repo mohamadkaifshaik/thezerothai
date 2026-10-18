@@ -271,3 +271,115 @@ variable "feature_removed_ids_percent" {
     error_message = "feature_removed_ids_percent must be an integer 0-100."
   }
 }
+
+variable "feature_media" {
+  description = "FEATURE_MEDIA rollout mode for media uploads (P4, ADR-0005). Off keeps CreateUploadUrl/CompleteUpload closed; Vision spend only starts once on: off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_media)
+    error_message = "feature_media must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_media_allowlist" {
+  description = "FEATURE_MEDIA_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_media_percent" {
+  description = "FEATURE_MEDIA_PERCENT: 0-100, only meaningful when feature_media = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_media_percent >= 0 && var.feature_media_percent <= 100 && floor(var.feature_media_percent) == var.feature_media_percent
+    error_message = "feature_media_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_engagement" {
+  description = "FEATURE_ENGAGEMENT rollout mode for likes / reposts / quotes (P5): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_engagement)
+    error_message = "feature_engagement must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_engagement_allowlist" {
+  description = "FEATURE_ENGAGEMENT_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_engagement_percent" {
+  description = "FEATURE_ENGAGEMENT_PERCENT: 0-100, only meaningful when feature_engagement = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_engagement_percent >= 0 && var.feature_engagement_percent <= 100 && floor(var.feature_engagement_percent) == var.feature_engagement_percent
+    error_message = "feature_engagement_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_replies" {
+  description = "FEATURE_REPLIES rollout mode for replies and GetThread (P3): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_replies)
+    error_message = "feature_replies must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_replies_allowlist" {
+  description = "FEATURE_REPLIES_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_replies_percent" {
+  description = "FEATURE_REPLIES_PERCENT: 0-100, only meaningful when feature_replies = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_replies_percent >= 0 && var.feature_replies_percent <= 100 && floor(var.feature_replies_percent) == var.feature_replies_percent
+    error_message = "feature_replies_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_profile_snapshot" {
+  description = "FEATURE_PROFILE_SNAPSHOT rollout mode for profile snapshot refresh job and snapshot edits: off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_profile_snapshot)
+    error_message = "feature_profile_snapshot must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_profile_snapshot_allowlist" {
+  description = "FEATURE_PROFILE_SNAPSHOT_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_profile_snapshot_percent" {
+  description = "FEATURE_PROFILE_SNAPSHOT_PERCENT: 0-100, only meaningful when feature_profile_snapshot = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_profile_snapshot_percent >= 0 && var.feature_profile_snapshot_percent <= 100 && floor(var.feature_profile_snapshot_percent) == var.feature_profile_snapshot_percent
+    error_message = "feature_profile_snapshot_percent must be an integer 0-100."
+  }
+}

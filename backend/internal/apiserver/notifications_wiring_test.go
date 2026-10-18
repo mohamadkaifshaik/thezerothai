@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,61 @@ func TestPostNotifier(t *testing.T) {
 			e := em.events[0]
 			if e.Type != notifications.TypeMention || e.ActorID != "alice" || e.PostID != tt.post.ID || len(e.RecipientIDs) != len(tt.want) || !e.At.Equal(at) {
 				t.Errorf("event = %+v", e)
+			}
+		})
+	}
+}
+
+// TestPostNotifierReplies (ADR-0017 T10): a reply notifies the parent author; replying to yourself emits nothing; a
+// mention of the parent author is folded into the reply row (precedence: reply beats mention) while other mentions
+// still get their own event; a non-public reply and a post without a known parent author emit nothing for the reply.
+func TestPostNotifierReplies(t *testing.T) {
+	at := time.Date(2026, 10, 18, 1, 2, 3, 0, time.UTC)
+	reply := func(mut func(*posts.Post)) *posts.Post {
+		p := &posts.Post{ID: "1000000000000000002", AuthorID: "alice", Kind: posts.KindReply, IsReply: true,
+			ReplyToID: "1000000000000000001", ReplyToAuthorID: "bob", CreatedAt: at}
+		if mut != nil {
+			mut(p)
+		}
+		return p
+	}
+	type ev struct {
+		typ  notifications.Type
+		recv []string
+	}
+	tests := []struct {
+		name string
+		post *posts.Post
+		want []ev
+	}{
+		{"reply notifies the parent author", reply(nil), []ev{{notifications.TypeReply, []string{"bob"}}}},
+		{"reply to own post emits nothing", reply(func(p *posts.Post) { p.ReplyToAuthorID = "alice" }), nil},
+		{"unknown parent author emits nothing", reply(func(p *posts.Post) { p.ReplyToAuthorID = "" }), nil},
+		{"not public emits nothing", reply(func(p *posts.Post) { p.Visibility = posts.VisibilityFollowers }), nil},
+		{"mention of the parent author collapses into the reply", reply(func(p *posts.Post) {
+			p.Mentions = []posts.Mention{{UserID: "bob", Handle: "bob"}}
+		}), []ev{{notifications.TypeReply, []string{"bob"}}}},
+		{"other mentions still notify", reply(func(p *posts.Post) {
+			p.Mentions = []posts.Mention{{UserID: "bob", Handle: "bob"}, {UserID: "carol", Handle: "carol"}}
+		}), []ev{{notifications.TypeReply, []string{"bob"}}, {notifications.TypeMention, []string{"carol"}}}},
+		{"self-reply still mentions others", reply(func(p *posts.Post) {
+			p.ReplyToAuthorID = "alice"
+			p.Mentions = []posts.Mention{{UserID: "carol", Handle: "carol"}}
+		}), []ev{{notifications.TypeMention, []string{"carol"}}}},
+		{"a plain post is not a reply", &posts.Post{ID: "1000000000000000003", AuthorID: "alice", ReplyToAuthorID: "bob"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			em := &recordingEmitter{}
+			postNotifier{slot: &emitterSlot{em: em}}.Created(context.Background(), tt.post)
+			if len(em.events) != len(tt.want) {
+				t.Fatalf("events = %+v, want %d", em.events, len(tt.want))
+			}
+			for i, w := range tt.want {
+				g := em.events[i]
+				if g.Type != w.typ || g.ActorID != "alice" || g.PostID != tt.post.ID || !g.At.Equal(at) || strings.Join(g.RecipientIDs, ",") != strings.Join(w.recv, ",") {
+					t.Errorf("event %d = %+v, want %v", i, g, w)
+				}
 			}
 		})
 	}
