@@ -176,6 +176,25 @@ func TestRemovalLog_WindowBounds(t *testing.T) {
 			t.Fatalf("trunc=%v window queries=%d, want a reset with no window query", trunc, len(r.src.windowAuthors))
 		}
 	})
+	t.Run("the cutover option and default gate the window query", func(t *testing.T) {
+		t.Parallel()
+		cutoff := time.Date(2026, time.October, 20, 0, 0, 0, 0, time.UTC)
+		if !cutoff.Before(defaultRemovalAuthorScopedFrom) {
+			t.Fatal("test premise: cutoff must precede the production default")
+		}
+		rBefore := newRemovalRig()
+		fill(rBefore)
+		rBefore.log.scopedFrom = defaultRemovalAuthorScopedFrom
+		if _, trunc, _ := rBefore.sinceFor(t, cutoff, "a000"); !trunc || len(rBefore.src.windowAuthors) != 0 {
+			t.Fatalf("before the cutover: trunc=%v window queries=%d, want a reset with no query", trunc, len(rBefore.src.windowAuthors))
+		}
+		rAfter := newRemovalRig()
+		fill(rAfter)
+		WithAuthorScopedFromForTest(cutoff.Add(-time.Hour))(rAfter.log)
+		if _, trunc, _ := rAfter.sinceFor(t, cutoff, "a000"); trunc || len(rAfter.src.windowAuthors) == 0 {
+			t.Fatalf("after the cutover: trunc=%v window queries=%d, want a window query", trunc, len(rAfter.src.windowAuthors))
+		}
+	})
 	t.Run("an empty scope costs nothing", func(t *testing.T) {
 		t.Parallel()
 		r := newRemovalRig()

@@ -105,7 +105,7 @@ func newInstanceAt(t *testing.T, client *firestore.Client, now func() time.Time)
 	})
 	srv := timeline.NewServer(timeline.Deps{
 		Flags: allOn{}, Posts: postsSvc, Graph: graphSvc, Directory: dir,
-		Removals:  posts.NewRemovalLog(repo, time.Minute, nil),
+		Removals:  posts.NewRemovalLog(repo, time.Minute, nil, posts.WithAuthorScopedFromForTest(time.Now().Add(-24*time.Hour))),
 		CursorKey: cursorKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: now,
 	})
 	key := func(a, b string) string { return fmt.Sprintf("k-%s-%s-0123456789abcdef", a, b) }

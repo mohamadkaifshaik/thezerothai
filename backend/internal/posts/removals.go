@@ -166,11 +166,24 @@ type RemovalLog struct {
 var _ Removals = (*RemovalLog)(nil)
 
 // NewRemovalLog builds the cache. ttl is config.CacheTTL; now nil means time.Now (tests inject a fake clock).
-func NewRemovalLog(src RemovalSource, ttl time.Duration, now func() time.Time) *RemovalLog {
+func NewRemovalLog(src RemovalSource, ttl time.Duration, now func() time.Time, opts ...RemovalLogOption) *RemovalLog {
 	if now == nil {
 		now = time.Now
 	}
-	return &RemovalLog{src: src, ttl: ttl, now: now, queryTimeout: removalQueryTimeout, scopedFrom: defaultRemovalAuthorScopedFrom, sem: make(chan struct{}, 1)}
+	l := &RemovalLog{src: src, ttl: ttl, now: now, queryTimeout: removalQueryTimeout, scopedFrom: defaultRemovalAuthorScopedFrom, sem: make(chan struct{}, 1)}
+	for _, o := range opts {
+		o(l)
+	}
+	return l
+}
+
+// RemovalLogOption customizes a RemovalLog. Production wiring passes none.
+type RemovalLogOption func(*RemovalLog)
+
+// WithAuthorScopedFromForTest overrides the authorId cutover (default defaultRemovalAuthorScopedFrom). It exists so
+// tests in other packages, which run on the real clock, can place the cutover before "now"; never use it in wiring.
+func WithAuthorScopedFromForTest(t time.Time) RemovalLogOption {
+	return func(l *RemovalLog) { l.scopedFrom = t }
 }
 
 // RemovedSince implements Removals.
