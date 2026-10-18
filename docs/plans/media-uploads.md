@@ -18,11 +18,47 @@ the API reads attributes and 512 bytes, asks Vision, then copies approved object
 | T3 | CreatePost `media_ids` + alt texts + image-only posts; UpdateProfile avatar | backend | In review | same |
 | T4 | `post_delete` job, `media.Eraser`, export section | backend | In review | same |
 | T5 | Wiring: `FEATURE_MEDIA`, `DEGRADED_MODE=nomedia`, config, quota `uploads` | backend | In review | same |
-| T6 | Review #110 M2: list views thumbnail-only, `useFullImage` for detail | frontend | In review | separate PR (`fix/media-thumb-only-lists`) |
-| T7 | Flutter: image_picker + compress + BlurHash + upload with progress/retry, grid, avatar editor | frontend | **Not started** | |
+| T6 | Review #110 M2: list views thumbnail-only, `useFullImage` for detail | frontend | Done | #124 |
+| T7 | Flutter: image_picker + compress + BlurHash + upload with progress/retry, grid, avatar editor | frontend | In review | `feat/p4-media-ui` |
 | T8 | Dev smoke on real GCS: IAM signBlob signing, bucket CORS, Vision API, rewrite copy | deployer | **Not started** (needs founder creds) | |
 | T9 | Terraform env vars: `FEATURE_MEDIA[_ALLOWLIST\|_PERCENT]`, `VISION_*`, `MEDIA_PUBLIC_BASE_URL`; enable `vision.googleapis.com` | deployer | **Not started** | |
 | T10 | Runbook `docs/runbooks/media.md` (added in this PR) | backend | In review | same |
+
+### T7 as built (Flutter, behind `FEATURE_MEDIA`)
+- **Gate.** `kFeatureMedia = 'media'` from `GetMe.enabled_features`, the same way `profile_snapshot` and `replies` are
+  gated: with it off the composer has no photo button, Edit profile shows the avatar read-only, and `MediaRepository`
+  sends no RPC. A server FEATURE_DISABLED refreshes `GetMe`.
+- **On device.** `image_picker` downsizes natively; the pure-Dart `image` package (in an isolate) bakes the orientation,
+  **clears EXIF**, flattens alpha, and re-encodes JPEG (post 1600 / thumb 400, avatar 400 / 96 square) stepping quality
+  and size down until it fits 2 MiB / 256 KiB; MD5 (base64) and a 4x3 BlurHash from a 32 px copy.
+- **Upload.** Nothing is uploaded until the user taps Post / Save (no quota spent for discarded photos). One
+  CreateUpload per intent, PUT full then thumb on a bare `http.Client` with exactly the signed headers, one
+  FinalizeUpload. A retry never repeats a finished PUT or a finalized image; an expired reservation (10 min) is
+  re-signed by **replaying the same CreateUpload key** while the image set is unchanged (the server returns the same ids
+  with new URLs and charges no quota); expiry is measured from local receipt time (TTL minus 30 s slack), and a storage
+  4xx drops the URLs the same way; a rejected image shows the server's reason and must be removed.
+- **Post.** `CreatePost` gets the media ids and alt texts; an image-only post is valid (D2); the idempotency key covers
+  text + media ids + alt texts so a changed photo set cannot hit IDEMPOTENCY_KEY_REUSED.
+- **Avatar.** Edit profile: tap the photo, preview, Save uploads then sends `avatar_media_id`.
+- **Errors.** Quota, nomedia degraded mode ("you can still post without photos"), rate limit, network, rejected and
+  MEDIA_NOT_READY each have their own text (`media_error_messages.dart`).
+- **Tests.** `test/features/media/**`, `composer_media_test.dart`, `composer_media_screen_test.dart`,
+  `edit_profile_avatar_test.dart`, `edit_profile_avatar_screen_test.dart`.
+- **Review fixes (2026-10-15).** Closing the composer mid-upload never publishes a photo-less post (media ids come from
+  the upload outcomes, `isClosed` is checked after `uploadAll`, back/Close are blocked while sending; there is no
+  cancel); the media sub-feature gate is checked before uploading (`PostsRepository.subFeatureEnabled`); picker
+  failures show a snackbar; leaving with photos asks to discard; the optimistic row shows the photo previews.
+- **Deviations from the `media-pipeline` skill (accepted).** Processing uses pure-Dart `package:image` through
+  `compute`, not `flutter_image_compress` (no new dependency at Stage 0). Consequences: on web `compute` runs on the
+  main thread (one image is processed at a time, so frames may drop briefly); HEIC/HEIF cannot be decoded (iOS' picker
+  returns JPEG; HEIC from other sources shows "Can't use this"). Revisit with `flutter_image_compress` if HEIC uploads
+  from Android show up in support.
+- **Reuse report (review M6).** Reused: `AppAvatar`, `PendingPostRow`, `MediaUploader`, `uploadErrorMessage`.
+  Extended: `AppAvatar` (new optional `bytes` for a local, unsaved image; `AvatarEditor` no longer builds its own
+  `CircleAvatar`), `PendingPost`/`PendingPostRow` (`thumbnails`), `MediaNotReadyException` (`mediaId`),
+  `PostsRepository` (`subFeatureEnabled`). Created: `StorageRefusedException` (a 4xx PUT must be told apart from a
+  transient 5xx so the uploader re-signs instead of retrying a dead URL). Catalog updated: yes.
+- **Not in T7.** Photos in replies (the thread composer is text-only), camera capture, cropping UI, WebP output.
 
 T1-T5 and T10 are one PR on purpose: the post_delete job, the Eraser, the avatar path and CreatePost all consume the
 same `media` documents and the same `media.Library`, and splitting them would leave a PR that cannot be tested end to

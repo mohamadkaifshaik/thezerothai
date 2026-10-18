@@ -22,6 +22,10 @@ const kHandleCooldown = Duration(days: 7);
 /// reset at IST midnight, so a day is the upper bound).
 const kDailyQuotaLockout = Duration(days: 1);
 
+/// A lockout shorter than this keeps an "available" answer trustworthy: no
+/// re-probe when it ends.
+const kFreshCheckWindow = Duration(minutes: 1);
+
 enum ChangeHandleStatus { editing, saving, saved }
 
 @immutable
@@ -52,8 +56,9 @@ class ChangeHandleState {
   final identity.Profile? saved;
 
   /// When the server said the handle change (or its daily quota) is locked
-  /// until. Save stays disabled while this is set; the cubit clears it on the
-  /// first edit after it passed.
+  /// until. Save stays disabled while this is set; the cubit clears it when
+  /// the lockout ends (a timer, so no edit is needed) or on the first edit
+  /// after it passed.
   final DateTime? cooldownUntil;
 
   bool get isSaving => status == ChangeHandleStatus.saving;
@@ -76,6 +81,7 @@ class ChangeHandleState {
     bool clearError = false,
     identity.Profile? saved,
     DateTime? cooldownUntil,
+    bool clearCooldown = false,
   }) => ChangeHandleState(
     handle: handle ?? this.handle,
     checkStatus: checkStatus ?? this.checkStatus,
@@ -83,7 +89,7 @@ class ChangeHandleState {
     status: status ?? this.status,
     error: clearError ? null : (error ?? this.error),
     saved: saved ?? this.saved,
-    cooldownUntil: cooldownUntil ?? this.cooldownUntil,
+    cooldownUntil: clearCooldown ? null : (cooldownUntil ?? this.cooldownUntil),
   );
 }
 
@@ -117,6 +123,9 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Map<String, String> _keys = {};
   Timer? _timer;
+
+  /// Fires when the lockout ends so Save re-enables without another edit.
+  Timer? _cooldownTimer;
 
   /// After one RATE_LIMITED probe answer the probe is not asked again until
   /// its `retryAfter` passed (the rest of the screen when the server gave
@@ -162,6 +171,12 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     final issue = localHandleIssue(handle);
     if (issue != null) {
       emit(next(HandleCheckStatus.unavailable, issue));
+      return;
+    }
+    if (cooldown != null) {
+      // Save cannot succeed until the lockout ends, so asking the server
+      // whether the handle is free would only spend a read.
+      emit(next(HandleCheckStatus.idle));
       return;
     }
     if (_probesPaused) {
@@ -234,13 +249,15 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     } on AppException catch (e, stack) {
       if (e is UnknownApiException) _onUnexpectedError?.call(e, stack);
       if (isClosed) return;
+      final lockout = _lockoutFor(e);
       emit(
         state.copyWith(
           status: ChangeHandleStatus.editing,
           error: e,
-          cooldownUntil: _lockoutFor(e),
+          cooldownUntil: lockout,
         ),
       );
+      if (lockout != null) _scheduleCooldownEnd(lockout);
     } catch (error, stack) {
       _onUnexpectedError?.call(error, stack);
       if (isClosed) return;
@@ -259,12 +276,34 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
     final Duration wait;
     if (e is LimitReachedException && e.quota == kHandleChangeQuota) {
       wait = e.retryAfter ?? kHandleCooldown;
-    } else if (e is QuotaExceededException) {
+    } else if (e is QuotaExceededException &&
+        (e.quota != null || e.retryAfter != null)) {
+      // A bare RESOURCE_EXHAUSTED (no ErrorDetail: an infrastructure
+      // throttle) names no quota and says nothing about a day: retryable.
       wait = e.retryAfter ?? kDailyQuotaLockout;
     } else {
       return null;
     }
     return _clock().add(wait);
+  }
+
+  void _scheduleCooldownEnd(DateTime until) {
+    _cooldownTimer?.cancel();
+    final wait = until.difference(_clock());
+    _cooldownTimer = Timer(wait.isNegative ? Duration.zero : wait, () {
+      if (isClosed || state.cooldownUntil == null) return;
+      // Any edit during the lockout resets the check to idle, so a handle
+      // still shown available after a short lockout is unchanged and fresh.
+      final stillFresh =
+          wait < kFreshCheckWindow &&
+          state.checkStatus == HandleCheckStatus.available;
+      emit(state.copyWith(clearCooldown: true));
+      // Edits made during the lockout were not probed: check the handle now.
+      final handle = state.handle;
+      if (!stillFresh && handle.isNotEmpty && !state.isSaving) {
+        handleChanged(handle);
+      }
+    });
   }
 
   void errorShown() {
@@ -274,6 +313,7 @@ class ChangeHandleCubit extends Cubit<ChangeHandleState> {
   @override
   Future<void> close() {
     _timer?.cancel();
+    _cooldownTimer?.cancel();
     return super.close();
   }
 }

@@ -75,26 +75,32 @@ type Mention struct {
 // visibility PUBLIC, all counters 0 (ADR-0010 D2), and the replies and engagement slices add their fields. Media
 // (P4) is the published image refs the post carries, in request order.
 type Post struct {
-	ID              string
-	AuthorID        string
-	Author          AuthorSnapshot
-	Kind            Kind
-	IsReply         bool
-	Text            string
-	ReplyToID       string
-	ReplyToHandle   string
-	ConversationID  string
-	QuoteOfID       string
-	RepostOfID      string
-	Hashtags        []string
-	Mentions        []Mention
-	Media           []MediaRef
-	LikeCount       int64
-	RepostCount     int64
-	ReplyCount      int64
-	QuoteCount      int64
-	Visibility      Visibility
-	SnapshotVersion int64
+	ID             string
+	AuthorID       string
+	Author         AuthorSnapshot
+	Kind           Kind
+	IsReply        bool
+	Text           string
+	ReplyToID      string
+	ReplyToHandle  string
+	ConversationID string
+	QuoteOfID      string
+	RepostOfID     string
+	// Embedded is the snapshot of the quoted or reposted post (kind QUOTE / REPOST), nil otherwise. It is
+	// immutable like the Post that holds it.
+	Embedded *Embedded
+	// EmbeddedAuthorID is the top-level copy of Embedded.Author.UserID that the Eraser and the moderation cleanup
+	// query (the `embedded` map is exempt from indexing); empty for plain posts and for a tombstone.
+	EmbeddedAuthorID string
+	Hashtags         []string
+	Mentions         []Mention
+	Media            []MediaRef
+	LikeCount        int64
+	RepostCount      int64
+	ReplyCount       int64
+	QuoteCount       int64
+	Visibility       Visibility
+	SnapshotVersion  int64
 	// Moderation is the moderation state (ADR-0016). Readers return hidden posts WITH this field set: every
 	// consumer must drop them (Visible), exactly like it drops blocked authors.
 	Moderation Moderation
@@ -108,6 +114,33 @@ func (p *Post) Hidden() bool { return p.Moderation != ModerationNone }
 // Visible is !Hidden. Every consumer of Reader results (timelines, thread views, notifications, counts) must
 // drop posts for which it is false.
 func (p *Post) Visible() bool { return p.Moderation == ModerationNone }
+
+// EmbeddedAuthor is the one derivation of the author of the post a QUOTE or REPOST copies, used by every
+// block/mute check on a copy (GetPost, GetThread context, feed filter). Precedence: a tombstone (Embedded
+// marked Unavailable) has no author -> ""; else the snapshot's Author.UserID; else the top-level
+// EmbeddedAuthorID; "" for plain posts.
+func (p *Post) EmbeddedAuthor() string {
+	if p.Embedded != nil {
+		if p.Embedded.Unavailable {
+			return ""
+		}
+		if p.Embedded.Author.UserID != "" {
+			return p.Embedded.Author.UserID
+		}
+	}
+	return p.EmbeddedAuthorID
+}
+
+// Embedded is the frozen one-level snapshot a QUOTE or REPOST carries of the post it copies (ADR-0018 D2, D12). The
+// author snapshot is not refreshed by the profile-snapshot job. A tombstone has only PostID and Unavailable set.
+type Embedded struct {
+	PostID      string
+	Author      AuthorSnapshot
+	Text        string
+	Media       []MediaRef
+	CreatedAt   time.Time
+	Unavailable bool
+}
 
 // MediaRef is one image of a post (common.v1.MediaRef): the URLs are the published public-bucket objects, copied
 // into the post at create time so rendering a post never reads media/*. ThumbURL is always set; list views show
@@ -179,6 +212,16 @@ type Recent struct {
 	LoadedAt time.Time
 }
 
+// Removals is the seam timeline uses (ADR-0016 D10).
+type Removals interface {
+	// RemovedSince returns the ids of posts a moderator removed after cutoff and has not restored, newest first, at
+	// most RemovalMaxIDs. truncated=true means the answer would be incomplete (cutoff is older than the log
+	// covers, or more than RemovalMaxIDs match): the caller must make the client reset instead of trusting ids.
+	// Reads: 0 on a warm cache hit; otherwise 1-50 (cold or after the TTL: 1 when the log is empty or unchanged),
+	// 100 at most when the incremental page was full and the cache is reloaded.
+	RemovedSince(ctx context.Context, cutoff time.Time) (ids []string, truncated bool, err error)
+}
+
 // Service is the Connect handler's dependency: the Reader plus CreatePost (T8), DeletePost and GetPost (T9).
 type Service interface {
 	Reader
@@ -213,6 +256,9 @@ type CreateInput struct {
 	// MediaEnabled is FEATURE_MEDIA for the caller (set by server.go from the flag registry). When false, media
 	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before P4.
 	MediaEnabled bool
+	// QuotesEnabled is the FEATURE_ENGAGEMENT decision for the caller, made by server.go (never from the request).
+	// A non-empty QuoteOfPostID with it false is FEATURE_DISABLED (metadata feature=quotes).
+	QuotesEnabled bool
 	// RepliesEnabled is the FEATURE_REPLIES decision for the caller, made by server.go (never from the request).
 	// A non-empty ReplyToPostID with it false is FEATURE_DISABLED (metadata feature=replies).
 	RepliesEnabled bool
@@ -238,11 +284,88 @@ type MediaAttacher interface {
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (MediaClaim, error)
 }
 
-// PostDeleteJobs publishes the post_delete background job (P4; P5 reuses it for likes/reposts clean-up). It is
-// called once, after DeletePost's commit, for a post that has dependants (today: images). An error is logged and
-// never fails the delete: the post is already gone and the objects are also removed by the account purge.
+// PostDeleteJobs publishes the post_delete background job (P4 media, P5 likes/reposts/quotes; ADR-0018 D6). It is
+// called once, after DeletePost's commit, for every deleted post (mediaIDs may be empty). An error is logged and
+// never fails the delete: the post is already gone and the dependants are also removed by the account purge.
 type PostDeleteJobs interface {
 	PostDeleted(ctx context.Context, uid, postID string, mediaIDs []string) error
+}
+
+// EngagementFlagName is the wire name of FEATURE_ENGAGEMENT (ADR-0018 D8). It gates the quote path of CreatePost
+// and viewer-flag hydration here; engagement.FlagName is the same string and gates its own RPCs. FEATURE_POSTS is
+// still required.
+const EngagementFlagName = "engagement"
+
+// ViewerSet is what a viewer has liked and reposted, from one userLikes read (ADR-0018 D5). The zero value means
+// "nothing", which is also what every flag is while FEATURE_ENGAGEMENT is off. A ViewerSet is read-only.
+type ViewerSet struct {
+	liked, reposted map[string]struct{}
+}
+
+// NewViewerSet builds a ViewerSet from post-id lists.
+func NewViewerSet(liked, reposted []string) ViewerSet {
+	v := ViewerSet{liked: make(map[string]struct{}, len(liked)), reposted: make(map[string]struct{}, len(reposted))}
+	for _, id := range liked {
+		v.liked[id] = struct{}{}
+	}
+	for _, id := range reposted {
+		v.reposted[id] = struct{}{}
+	}
+	return v
+}
+
+// Flags returns the viewer's flags for an item. For a REPOST item they describe the original (embedded.post_id),
+// as the PostView proto documents.
+func (v ViewerSet) Flags(p *Post) (liked, reposted bool) {
+	id := p.ID
+	if p.Kind == KindRepost && p.Embedded != nil && p.Embedded.PostID != "" {
+		id = p.Embedded.PostID
+	}
+	_, liked = v.liked[id]
+	_, reposted = v.reposted[id]
+	return liked, reposted
+}
+
+// ViewerFlags is implemented by engagement and consumed by the GetPost/GetThread handlers and the timelines. One
+// call is one cached userLikes read per request; a failed read degrades to the zero ViewerSet (never an error).
+// Callers invoke it only when FEATURE_ENGAGEMENT is on for the viewer, so the off path performs no read.
+type ViewerFlags interface {
+	Viewer(ctx context.Context, uid string) ViewerSet
+}
+
+// ReleaseStager is the part of RepostLinks the clean-up paths (opsctl takedown, the account purge) need: the
+// blind delete of a reposts doc inside their own batch.
+type ReleaseStager interface {
+	// StageRelease appends the blind delete of reposts/{originalID}_{uid} to b.
+	StageRelease(b store.Batch, originalID, uid string)
+}
+
+// RepostLinks is implemented by engagement (it owns reposts/{postId}_{uid}) and consumed by DeletePost: deleting a
+// REPOST post is an undo, so the reposts doc goes in the same batch and the counters are released afterwards.
+type RepostLinks interface {
+	// ReleaseStager's StageRelease is blind: the DeletePost batch's only guard is the post's own Exists
+	// precondition, so a missing reposts doc never blocks the post's removal.
+	ReleaseStager
+	// Released runs after the commit, best effort: repostCount -1 on the original (a gone original is fine) and
+	// ArrayRemove on the user's userLikes.recentReposts.
+	Released(ctx context.Context, originalID, uid string) error
+}
+
+// Engagement is posts' read/cache seam for the engagement module (ADR-0018 D4, D5). It is implemented by the
+// concrete service returned by New (apiserver type-asserts it, like identity.Directory), so Service and every
+// fake of it stay unchanged.
+type Engagement interface {
+	// Viewable returns the post if the caller may see it by the GetPost rules (missing, deleted, hidden, blocked
+	// or non-ACTIVE author are the single ErrNotFound). It reads like GetPost (post 1, author 1, caller graph 1
+	// cold) and sets no request-log fields.
+	Viewable(ctx context.Context, callerUID, postID string) (*Post, error)
+	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
+	CountsChanged(postID string, likeDelta, repostDelta int64)
+	// RepostCreated caches a REPOST this instance just committed: posts cache, author-recent, and the author's
+	// postsCount via identity.Directory.Forget.
+	RepostCreated(p *Post)
+	// RepostRemoved drops a REPOST this instance removed from the caches and Forgets the author's profile.
+	RepostRemoved(authorID, repostID string)
 }
 
 // ErrIdempotencyKeyReused is returned by Repo.Create when the idempotency key was already used for a different
@@ -284,6 +407,12 @@ type PostEvents interface {
 type Checkpoint struct {
 	// Deleted counts posts removed so far across calls.
 	Deleted int
+	// Phase is 0 while the user's own posts are being deleted and 1 while the copies of the user's content that
+	// live in other users' REPOST and QUOTE docs are removed (ADR-0018 D14). A checkpoint written before P5
+	// decodes as phase 0.
+	Phase int `json:"Phase,omitempty"`
+	// Copies counts REPOST docs removed and QUOTE embeds tombstoned in phase 1.
+	Copies int `json:"Copies,omitempty"`
 }
 
 // Eraser is the delete-cascade building block (ADR-0010 D19 Q-E), used by opsctl purge-posts now and later the
@@ -321,17 +450,18 @@ type ModerationResult struct {
 // it does not touch the instance caches: serving instances converge within CACHE_TTL (60 s).
 type Moderator interface {
 	// Takedown sets TAKEN_DOWN on one post (ErrNotFound when it does not exist). A post already hidden by a
-	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). Reads 1, writes 1
-	// (0 when already TAKEN_DOWN).
+	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). Reads 1, writes 2 (the post and its
+	// postRemovals entry, ADR-0016 D10; 0 when already TAKEN_DOWN).
 	Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
 	// Restore clears TAKEN_DOWN (ErrNotFound when missing). A SUSPENDED_AUTHOR post is left unchanged: only
-	// unsuspend-user restores those. Reads 1, writes 1 (0 when not TAKEN_DOWN).
-	Restore(ctx context.Context, postID string) (ModerationResult, error)
-	// HideAuthor sets SUSPENDED_AUTHOR on every post of uid whose moderation is empty, one page of up to 500 per
+	// unsuspend-user restores those. Reads 1, writes 2 (post + RESTORED entry; 0 when not TAKEN_DOWN).
+	Restore(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
+	// HideAuthor sets SUSPENDED_AUTHOR on every post of uid whose moderation is empty, one page of up to 250 per
 	// call, newest first. Resumable and idempotent: re-running from the zero checkpoint is safe. Reads one per
-	// post paged (minimum 1), writes one per post changed.
+	// post paged (minimum 1), writes two per post changed (the update and its postRemovals entry, one atomic batch).
 	HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (next ModerationCheckpoint, done bool, err error)
-	// RestoreAuthor clears SUSPENDED_AUTHOR on uid's posts (TAKEN_DOWN posts are untouched), one page of up to 500
-	// per call. Cleared documents leave the query, so it is self-resuming.
-	RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint) (next ModerationCheckpoint, done bool, err error)
+	// RestoreAuthor clears SUSPENDED_AUTHOR on uid's posts (TAKEN_DOWN posts are untouched), one page of up to 250
+	// per call (now is the operator's clock, used only for the log entries' expireAt), writing two documents per post (the update and a RESTORED postRemovals entry). Cleared documents
+	// leave the query, so it is self-resuming.
+	RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (next ModerationCheckpoint, done bool, err error)
 }

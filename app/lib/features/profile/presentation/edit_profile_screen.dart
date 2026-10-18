@@ -3,24 +3,33 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/character_counter.dart';
+import '../../media/data/image_picker_service.dart';
+import '../../media/data/media_repository.dart';
+import '../../media/data/media_uploader.dart';
+import '../../media/domain/image_processor.dart';
+import '../../media/domain/media_feature_flag.dart';
+import '../../media/presentation/media_error_messages.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import 'bloc/edit_profile_cubit.dart';
 import 'profile_edit_error_messages.dart';
+import 'widgets/avatar_editor.dart';
 import 'widgets/profile_edit_unavailable.dart';
 
 /// Settings -> Edit profile (`/settings/profile`, only reachable with the
-/// `profile_snapshot` flag on): display name and bio. The avatar is shown but
-/// not editable (the server rejects avatar changes until P4). Saves only the
-/// changed fields and pops with the server's [identity.Profile] so the caller
-/// can show it without another read.
+/// `profile_snapshot` flag on): display name, bio and, with `FEATURE_MEDIA`
+/// on, the profile photo (tap it to choose one; it is resized on the device
+/// and uploaded on Save). With media off the avatar is shown read-only (the
+/// server answers MEDIA_NOT_READY). Saves only the changed fields and pops
+/// with the server's [identity.Profile] so the caller can show it without
+/// another read.
 class EditProfileScreen extends StatelessWidget {
   const EditProfileScreen({super.key});
 
@@ -31,11 +40,20 @@ class EditProfileScreen extends StatelessWidget {
       // Router redirects keep profile-less callers out; belt and braces.
       return const ProfileEditUnavailable(title: 'Edit profile');
     }
+    final mediaEnabled = featureEnabledSnapshot(context, kFeatureMedia);
     return BlocProvider<EditProfileCubit>(
       create: (context) => EditProfileCubit(
         identityRepository: context.read<IdentityRepository>(),
         initial: profile,
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+        picker: mediaEnabled ? context.read<ImagePickerService>() : null,
+        processor: mediaEnabled ? context.read<ImageProcessor>() : null,
+        uploader: mediaEnabled
+            ? MediaUploader(
+                repository: context.read<MediaRepository>(),
+                onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+              )
+            : null,
       ),
       child: _EditProfileView(avatarUrl: profile.avatarThumbUrl),
     );
@@ -110,7 +128,19 @@ class _EditProfileViewState extends State<_EditProfileView> {
     if (error == null) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(updateProfileErrorMessage(error))));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            state.pickFailed
+                ? kPickFailedMessage
+                : state.avatarDropped
+                ? kAvatarGoneMessage
+                : state.avatarFailed
+                ? avatarErrorMessage(error)
+                : updateProfileErrorMessage(error),
+          ),
+        ),
+      );
     // Whole feature off for this caller: refresh the flag set, which also
     // sends the router's flag redirect back to Settings.
     if (error is FeatureDisabledException) {
@@ -131,6 +161,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
           canPop: !cubit.hasChanges || state.status == EditProfileStatus.saved,
           onPopInvokedWithResult: (didPop, _) async {
             if (didPop) return;
+            // A save in flight cannot be discarded: leaving now would drop
+            // the answer (and the profile update it carries) unseen.
+            if (cubit.state.isSaving) return;
             if (await _confirmDiscard(context) && context.mounted) {
               _leave(context);
             }
@@ -174,14 +207,14 @@ class _EditProfileViewState extends State<_EditProfileView> {
                     children: [
                       Align(
                         alignment: AlignmentDirectional.centerStart,
-                        child: Semantics(
-                          label: 'Profile photo',
-                          image: true,
-                          excludeSemantics: true,
-                          child: AppAvatar(
-                            url: widget.avatarUrl,
-                            radius: AppSpacing.xl + AppSpacing.sm,
-                          ),
+                        child: AvatarEditor(
+                          url: widget.avatarUrl,
+                          previewBytes: state.avatarPreview,
+                          busy: state.isPreparingAvatar || state.isSaving,
+                          preparing: state.isPreparingAvatar,
+                          onChange: cubit.canChangeAvatar
+                              ? cubit.pickAvatar
+                              : null,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.lg),

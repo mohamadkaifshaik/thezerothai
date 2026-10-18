@@ -31,12 +31,31 @@ func NewPurger(repo Repo, objects Objects, publicBaseURL string) *Purger {
 	return &Purger{repo: repo, objects: objects, publicBaseURL: publicBaseURL}
 }
 
-// deleteObjects removes every object a document may own; a missing object is success.
-func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
-	for _, p := range []string{d.PublicPath, d.ThumbPath} {
-		if p == "" {
-			continue
+// publicNames returns every public object name a document may own: the recorded paths plus the deterministic
+// names for the document's own content type (the extension is fixed at upload init, so the other extension can
+// never exist). A finalize that copied the objects and then lost the race to record the paths (or was REJECTED
+// after the copy) leaves public objects the document does not name (CLAUDE.md rule 10). Deduplicated, so a
+// READY document is 2 names.
+func publicNames(d *Doc) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
+	}
+	add(d.PublicPath)
+	add(d.ThumbPath)
+	ext := extension(d.ContentType)
+	add(publicObject(d.ID, ext))
+	add(publicThumbObject(d.ID, ext))
+	return out
+}
+
+// deleteObjects removes every object a document may own; a missing object is success (free operations).
+func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
+	for _, p := range publicNames(d) {
 		if err := o.DeletePublic(ctx, p); err != nil {
 			return err
 		}
@@ -54,7 +73,7 @@ func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
 
 // PurgeUser deletes one page (<= opsPage) of uid's media: objects, then the documents in one batch. done is true
 // when the page was short (the account is DELETING, so no new uploads arrive). Reads: one per document, minimum 1;
-// deletes: one per document; GCS: free deletes, 4 per document.
+// deletes: one per document; GCS: free deletes, 2 public (deterministic names) + up to 2 private per document.
 func (p *Purger) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := p.repo.ListByOwner(ctx, uid, "", opsPage)
 	if err != nil {

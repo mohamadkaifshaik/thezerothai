@@ -121,6 +121,54 @@ class AccountExportEntries extends Table {
   Set<Column> get primaryKey => {exportId};
 }
 
+/// One row of the signed-in user's cached notification list (P6 T9,
+/// ADR-0017): a notification (serialized `Notification`) or a "gap" marker
+/// holding the `gap_page_token` of a refresh gap. Rows sort by [sortKey]
+/// descending: the zero-padded `created_at` microseconds, `|`, the id (a
+/// collapsed like is rewritten in place with a newer `created_at`, so the id
+/// is the identity and the key is rebuilt on every upsert). Wiped on sign-out
+/// ([AppDatabase.clearAll]).
+@DataClassName('CachedNotification')
+class NotificationEntries extends Table {
+  /// The notification id, or `gap:{sortKey}` for a gap row.
+  TextColumn get itemKey => text()();
+  TextColumn get sortKey => text()();
+
+  /// Serialized `Notification`; null for a gap row.
+  BlobColumn get payload => blob().nullable()();
+
+  /// `gap_page_token`; null for a notification row.
+  TextColumn get gapToken => text().nullable()();
+
+  /// For a row that ended a fetched page: that page's `next_page_token`
+  /// (lets retention trim at a page boundary and resume scrolling).
+  TextColumn get pageToken => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {itemKey};
+}
+
+/// The notification list's refresh state (at most one row, key `main`): the
+/// `since_token` of the last response, the `next_page_token` below the oldest
+/// cached row and the caller's `seen_at` (unread = `created_at > seen_at`).
+@DataClassName('CachedNotificationState')
+class NotificationStateEntries extends Table {
+  TextColumn get stateKey => text()();
+  TextColumn get sinceToken => text().withDefault(const Constant(''))();
+  TextColumn get olderPageToken => text().withDefault(const Constant(''))();
+
+  /// `seen_at` in microseconds since the epoch; null = never marked seen.
+  IntColumn get seenAtMicros => integer().nullable()();
+
+  /// This installation's random device id for RegisterDevice (stable until
+  /// sign-out wipes the cache; '' = not generated yet). Never the FCM token.
+  TextColumn get deviceId => text().withDefault(const Constant(''))();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {stateKey};
+}
+
 @DriftDatabase(
   tables: [
     ProfileCacheEntries,
@@ -128,6 +176,8 @@ class AccountExportEntries extends Table {
     TimelineItemEntries,
     TimelineStateEntries,
     AccountExportEntries,
+    NotificationEntries,
+    NotificationStateEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -141,7 +191,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -159,6 +209,11 @@ class AppDatabase extends _$AppDatabase {
       // v3 -> v4 (account plan T15): the pending data export.
       if (from < 4) {
         await m.createTable(accountExportEntries);
+      }
+      // v4 -> v5 (notifications plan T9): the cached notification list.
+      if (from < 5) {
+        await m.createTable(notificationEntries);
+        await m.createTable(notificationStateEntries);
       }
     },
   );
@@ -275,6 +330,8 @@ class AppDatabase extends _$AppDatabase {
       await delete(timelineItemEntries).go();
       await delete(timelineStateEntries).go();
       await delete(accountExportEntries).go();
+      await delete(notificationEntries).go();
+      await delete(notificationStateEntries).go();
     });
   }
 

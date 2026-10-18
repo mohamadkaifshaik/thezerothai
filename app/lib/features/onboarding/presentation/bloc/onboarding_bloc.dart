@@ -101,8 +101,15 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           status: OnboardingStatus.ready,
           profile: response.profile,
           enabledFeatures: response.enabledFeatures.toSet(),
+          unreadNotificationCount: response.unreadNotificationCount.toInt(),
+          accountRestricted: false,
         ),
       );
+    } on AccountRestrictedException {
+      if (stale()) return;
+      // Suspended (or pending deletion): a cached profile must not keep the
+      // app looking normal. AuthGate shows the account-restricted view.
+      emit(state.copyWith(accountRestricted: true));
     } on ProfileRequiredException {
       if (stale()) return;
       emit(state.copyWith(status: OnboardingStatus.profileRequired));

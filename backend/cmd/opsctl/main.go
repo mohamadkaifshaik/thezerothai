@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -53,7 +54,9 @@ type backends struct {
 	// moderation (ADR-0016 T6): report list/show/resolve, post takedown, and the account status change.
 	reports   moderation.Ops
 	moderator posts.Moderator
-	accounts  accountStatusSetter
+	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
+	cleanup  posts.Cleanup
+	accounts accountStatusSetter
 	// sleep replaces the real wait of suspend-user's settle pass in tests (nil = real timer).
 	sleep func(ctx context.Context, d time.Duration) error
 	// listAuthUsers and usersExist serve check-t26 (read-only).
@@ -82,6 +85,9 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
 	postsRepo := posts.NewFirestoreRepo(client)
+	// Takedown and the purge copy phase drive posts' clean-up (P5): counters and the reposts-doc delete.
+	postsRepo.SetWriters(posts.WriteDeps{Counters: identityRepo})
+	postsRepo.SetRepostLinks(engagement.NewFirestoreRepo(client, engagement.WriteDeps{}))
 	moderationRepo := moderation.NewFirestoreRepo(client, nil)
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
@@ -98,6 +104,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		profile:       identityRepo.GetProfile,
 		reports:       moderationRepo,
 		moderator:     postsRepo,
+		cleanup:       postsRepo,
 		accounts:      identityRepo,
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
@@ -208,7 +215,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "takedown-post":
 		err = takedownPost(ctx, b, ma, out, now)
 	case "restore-post":
-		err = restorePost(ctx, b, ma, out)
+		err = restorePost(ctx, b, ma, out, now)
 	case "suspend-user":
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":

@@ -8,11 +8,31 @@ class AppNavDestination {
     required this.icon,
     required this.selectedIcon,
     required this.label,
+    this.badgeLabel = '',
+    this.badgeSemanticLabel,
   });
 
   final IconData icon;
   final IconData selectedIcon;
   final String label;
+
+  /// Short text on a badge over the icon (`3`, `99+`); empty hides it.
+  final String badgeLabel;
+
+  /// Spoken form of the badge (`3 unread`); defaults to [badgeLabel].
+  final String? badgeSemanticLabel;
+
+  Widget iconWidget(IconData data) {
+    final icon = Icon(data);
+    if (badgeLabel.isEmpty) return icon;
+    return Semantics(
+      label: badgeSemanticLabel ?? badgeLabel,
+      child: Badge(
+        label: ExcludeSemantics(child: Text(badgeLabel)),
+        child: icon,
+      ),
+    );
+  }
 }
 
 /// Adaptive shell used by every top-level, authenticated screen:
@@ -63,8 +83,8 @@ class ResponsiveScaffold extends StatelessWidget {
                 destinations: [
                   for (final d in destinations)
                     NavigationDestination(
-                      icon: Icon(d.icon),
-                      selectedIcon: Icon(d.selectedIcon),
+                      icon: d.iconWidget(d.icon),
+                      selectedIcon: d.iconWidget(d.selectedIcon),
                       label: d.label,
                     ),
                 ],
@@ -86,8 +106,8 @@ class ResponsiveScaffold extends StatelessWidget {
                   destinations: [
                     for (final d in destinations)
                       NavigationRailDestination(
-                        icon: Icon(d.icon),
-                        selectedIcon: Icon(d.selectedIcon),
+                        icon: d.iconWidget(d.icon),
+                        selectedIcon: d.iconWidget(d.selectedIcon),
                         label: Text(d.label),
                       ),
                   ],

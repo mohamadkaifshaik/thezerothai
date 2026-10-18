@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Create implements Repo for unit tests: an in-memory model of the CreatePost transaction that charges the same
@@ -68,7 +69,7 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 
 // DeleteOwn implements Repo for unit tests: 0 reads; on success 1 write (postsCount) + 1 delete. A post that is
 // absent models a lost Exists precondition (deleted=false, nothing charged).
-func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string) (bool, error) {
+func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string, stage ...func(store.Batch)) (bool, error) {
 	r.deleteCalls++
 	if r.deleteErr != nil {
 		return false, r.deleteErr
@@ -125,6 +126,15 @@ func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int
 	return nil
 }
 
+// AddQuoteCount implements Repo for unit tests: 1 write when the quoted post exists.
+func (r *fakeRepo) AddQuoteCount(ctx context.Context, id string, delta int64) error {
+	if p, ok := r.docs[id]; ok {
+		p.QuoteCount += delta
+		budget.FromContext(ctx).AddWrites(1)
+	}
+	return nil
+}
+
 type fakeIdem struct{ hash, postID string }
 
 // fakeDirectory implements identity.Directory with counted reads.
@@ -176,6 +186,8 @@ func (d *fakeDirectory) ResolveHandles(ctx context.Context, lowers []string) (ma
 }
 
 func (d *fakeDirectory) Forget(uids ...string) { d.forgotten = append(d.forgotten, uids...) }
+
+func (d *fakeDirectory) ForgetUnread(...string) {}
 
 var _ identity.Directory = (*fakeDirectory)(nil)
 

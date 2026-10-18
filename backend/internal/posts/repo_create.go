@@ -42,8 +42,8 @@ const (
 	maxIDCollisionRetries = 2
 )
 
-// ErrParentGone is returned by Repo.Create when the reply's parent no longer exists at commit time (the service
-// maps it to the one NOT_FOUND "post not found" answer).
+// ErrParentGone is returned by Repo.Create when the reply's parent (or the quoted post) no longer exists at
+// commit time (the service maps it to the one NOT_FOUND "post not found" answer).
 var ErrParentGone = errors.New("posts: reply parent no longer exists")
 
 // IDGenerator draws post ids (*snowflake.Node).
@@ -64,6 +64,9 @@ type CreateParams struct {
 	// ParentID is the post being replied to (P3): its replyCount is incremented in the same transaction, which
 	// fails with ErrParentGone if the parent was deleted in the meantime. Empty for root posts.
 	ParentID string
+	// QuoteID is the post being quoted (P5): its quoteCount is incremented the same way (ErrParentGone when it is
+	// gone). A request carries a ParentID or a QuoteID, never both.
+	QuoteID string
 }
 
 // CreateResult is the outcome of Repo.Create. Exactly one of Post (a new post, already committed) and ReplayID
@@ -109,7 +112,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			res, err = r.createAttempt(ctx, tx, p, attempts)
 			return err
 		})
-		if p.ParentID != "" && status.Code(err) == codes.NotFound {
+		if (p.ParentID != "" || p.QuoteID != "") && status.Code(err) == codes.NotFound {
 			// The parent's replyCount Update carries an implicit Exists precondition: the parent was deleted
 			// after the visibility check. Nothing was written.
 			err = ErrParentGone
@@ -192,6 +195,9 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	r.w.Counters.AddPostsCount(b, p.AuthorID, 1)
 	if p.ParentID != "" {
 		bumpReplyCount(b, r.ref(p.ParentID), 1)
+	}
+	if p.QuoteID != "" {
+		bumpCount(b, r.ref(p.QuoteID), "quoteCount", 1)
 	}
 	r.w.Idempotency.Put(b, p.IdemKey, idempotency.Record{
 		UID: p.AuthorID, RPC: createRPC, RequestHash: p.RequestHash,

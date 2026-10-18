@@ -510,6 +510,13 @@ func (s *service) Forget(uids ...string) {
 	}
 }
 
+// ForgetUnread implements Directory: evicts only the cached unread count.
+func (s *service) ForgetUnread(uids ...string) {
+	for _, uid := range uids {
+		s.cache.InvalidateUnreadCount(uid)
+	}
+}
+
 // AccountStatus backs pkg/platform/authn.AccountStatusProvider; reuses the same 60s cache as every
 // other RPC, so this costs ~0 extra Firestore reads once a user's first request has warmed the cache.
 func (s *service) AccountStatus(ctx context.Context, uid string) (bool, AccountStatus, error) {

@@ -281,14 +281,12 @@ class TimelineRepository {
     _inflight[key] = future;
     final tail = future.then<void>((_) {}, onError: (Object _) {});
     _lockTails[feed.value] = tail;
-    future
-        .whenComplete(() {
-          if (identical(_inflight[key], future)) _inflight.remove(key);
-          if (identical(_lockTails[feed.value], tail)) {
-            _lockTails.remove(feed.value);
-          }
-        })
-        .ignore();
+    future.whenComplete(() {
+      if (identical(_inflight[key], future)) _inflight.remove(key);
+      if (identical(_lockTails[feed.value], tail)) {
+        _lockTails.remove(feed.value);
+      }
+    }).ignore();
     return future;
   }
 }

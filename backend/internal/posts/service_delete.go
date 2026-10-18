@@ -9,10 +9,12 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // outcomes of DeletePost (posts_op=delete) and GetPost (posts_op=get).
@@ -73,7 +75,13 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 		return nil
 	}
 
-	deleted, err := s.repo.DeleteOwn(ctx, postID, uid)
+	var stage []func(store.Batch)
+	if p.Kind == KindRepost && p.RepostOfID != "" && s.links != nil {
+		// Deleting a REPOST is an undo: its reposts doc goes in the same batch (blind; the post's own Exists
+		// precondition is the batch's only guard).
+		stage = append(stage, func(b store.Batch) { s.links.StageRelease(b, p.RepostOfID, uid) })
+	}
+	deleted, err := s.repo.DeleteOwn(ctx, postID, uid, stage...)
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: delete: %w", err), uid)
 	}
@@ -85,17 +93,19 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 	}
 	s.directory.Forget(uid) // users.postsCount changed by a blind increment (ADR-0008 B2)
 	s.releaseParent(ctx, p)
+	s.releaseEngagement(ctx, p)
 	s.events.Deleted(ctx, postID, uid)
 	s.publishPostDelete(ctx, uid, p)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDeleted)
 	return nil
 }
 
-// publishPostDelete hands a deleted post's images to the post_delete job (after the commit, never inside it). A failure
-// is logged for Error Reporting and does not fail the delete: the post is gone and the objects are removed by the
+// publishPostDelete hands a deleted post to the post_delete job (after the commit, never inside it): its images
+// (P4) and its likes, reposts and quotes (P5, ADR-0018 D6), so every deleted post publishes. A failure is logged
+// for Error Reporting and does not fail the delete: the post is gone and the dependants are removed by the
 // account purge at the latest. One Pub/Sub publish, no Firestore access.
 func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
-	if s.jobs == nil || len(p.Media) == 0 {
+	if s.jobs == nil {
 		return
 	}
 	ids := make([]string, len(p.Media))
@@ -114,7 +124,10 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 //
 // Firestore, worst case: post 1 + author users 1 + caller graph 1 cold (the caller's own users read belongs to
 // the account-status interceptor) = 3 here, 4 per request; +1 author graph when the caller's blockedBy
-// overflowed; 0 warm; writes 0. Filters use graph.Reader.Snapshot only (ADR-0008 D9).
+// overflowed. Another user's QUOTE or REPOST adds nothing when the author check already read the caller graph
+// (the same cached snapshot) and, on a blockedBy overflow, 1 read for the embedded author's graph, so the
+// overflow worst case is +2. The caller's own QUOTE or REPOST is exempt from the embed check (D13, same as a
+// direct post): no graph read at all. 0 warm; writes 0.
 func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "get")
 	defer func() {
@@ -165,30 +178,57 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 		return nil, ErrNotFound
 	}
 
-	if p.AuthorID != callerUID {
+	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller
+	// the copy must not leak their content, so the whole post is NOT_FOUND (ADR-0018 D13). The caller's own
+	// embedded posts and tombstones (no author) are exempt.
+	embAuthor := p.EmbeddedAuthor()
+	checkEmbed := embAuthor != "" && embAuthor != callerUID && embAuthor != p.AuthorID && p.AuthorID != callerUID
+
+	if p.AuthorID != callerUID || checkEmbed {
 		snap, err := s.graph.Snapshot(ctx, callerUID)
 		if err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID, p.AuthorID)
 		}
-		if snap.BlockedBy[p.AuthorID] {
-			return nil, ErrNotFound
-		}
-		if snap.BlockedByOverflow {
-			// The caller's blockedBy stopped growing at its cap, so also ask the author's own graph.
-			as, err := s.graph.Snapshot(ctx, p.AuthorID)
+		if p.AuthorID != callerUID {
+			blocked, err := s.blockedBy(ctx, snap, callerUID, p.AuthorID)
 			if err != nil {
-				return nil, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID, p.AuthorID)
+				return nil, err
 			}
-			if as.Blocked[callerUID] {
+			if blocked {
+				return nil, ErrNotFound
+			}
+			// Follower-only posts need an accepted follow; P1 writes only public posts, so this fails closed.
+			if p.Visibility != VisibilityPublic && !snap.Following[p.AuthorID] {
 				return nil, ErrNotFound
 			}
 		}
-		// Follower-only posts need an accepted follow; P1 writes only public posts, so this fails closed.
-		if p.Visibility != VisibilityPublic && !snap.Following[p.AuthorID] {
-			return nil, ErrNotFound
+		if checkEmbed {
+			blocked, err := s.blockedBy(ctx, snap, callerUID, embAuthor)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				return nil, ErrNotFound
+			}
 		}
 	}
 	return p, nil
+}
+
+// blockedBy reports whether other blocks the caller: the caller's blockedBy set, or, once that set overflowed its
+// cap, other's own graph doc (1 extra read).
+func (s *service) blockedBy(ctx context.Context, snap graph.Snapshot, callerUID, other string) (bool, error) {
+	if snap.BlockedBy[other] {
+		return true, nil
+	}
+	if !snap.BlockedByOverflow {
+		return false, nil
+	}
+	os, err := s.graph.Snapshot(ctx, other)
+	if err != nil {
+		return false, logger.RedactErr(fmt.Errorf("posts: get: load author graph: %w", err), callerUID, other)
+	}
+	return os.Blocked[callerUID], nil
 }
 
 func isPostNotFound(err error) bool {

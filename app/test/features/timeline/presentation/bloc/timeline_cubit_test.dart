@@ -88,9 +88,8 @@ void main() {
 
     test('no RPC when the feed was refreshed moments ago', () async {
       stubCached(snapshotOf([2, 1]));
-      when(
-        () => timeline.sinceRefresh(feed),
-      ).thenReturn(const Duration(seconds: 20));
+      when(() => timeline.sinceRefresh(feed))
+          .thenReturn(const Duration(seconds: 20));
 
       await cubit.load();
 
@@ -104,10 +103,15 @@ void main() {
       stubCached(snapshotOf([2, 1]));
       stubRefresh(
         TimelineSnapshot(
-          entries: [postEntry(3, authorId: 'me'), postEntry(2), postEntry(1)],
+          entries: [
+            postEntry(3, authorId: 'me'),
+            postEntry(2),
+            postEntry(1),
+          ],
         ),
       );
-      late.viewerUserId = 'me'; // the Home screen sets it when the profile loads
+      late.viewerUserId =
+          'me'; // the Home screen sets it when the profile loads
 
       await late.load();
 
@@ -119,7 +123,11 @@ void main() {
       stubCached(snapshotOf([2, 1]));
       stubRefresh(
         TimelineSnapshot(
-          entries: [postEntry(3, authorId: 'me'), postEntry(2), postEntry(1)],
+          entries: [
+            postEntry(3, authorId: 'me'),
+            postEntry(2),
+            postEntry(1),
+          ],
         ),
       );
 
@@ -133,23 +141,20 @@ void main() {
   group('refreshIfStale', () {
     setUp(() async {
       stubCached(snapshotOf([2, 1]));
-      when(
-        () => timeline.sinceRefresh(feed),
-      ).thenReturn(const Duration(seconds: 5));
+      when(() => timeline.sinceRefresh(feed))
+          .thenReturn(const Duration(seconds: 5));
       await cubit.load();
       clearInteractions(timeline);
     });
 
     test('20 s after the last refresh sends nothing, 61 s sends one', () async {
-      when(
-        () => timeline.sinceRefreshAttempt(feed),
-      ).thenReturn(const Duration(seconds: 20));
+      when(() => timeline.sinceRefreshAttempt(feed))
+          .thenReturn(const Duration(seconds: 20));
       await cubit.refreshIfStale();
       verifyNever(() => timeline.refresh(feed));
 
-      when(
-        () => timeline.sinceRefreshAttempt(feed),
-      ).thenReturn(const Duration(seconds: 61));
+      when(() => timeline.sinceRefreshAttempt(feed))
+          .thenReturn(const Duration(seconds: 61));
       stubRefresh(snapshotOf([2, 1]));
       await cubit.refreshIfStale();
       verify(() => timeline.refresh(feed)).called(1);
@@ -178,62 +183,67 @@ void main() {
       expect(cubit.state.newPosts, 0);
     });
 
-    test('skipped at the retention size (the store would trim the list)',
-        () async {
-      final big = snapshotOf([for (var i = kTimelineRetention; i >= 1; i--) i]);
-      stubCached(big);
-      final other = build();
-      addTearDown(other.close);
-      when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
-      stubRefresh(big);
-      await other.load();
-      clearInteractions(timeline);
+    test(
+      'skipped at the retention size (the store would trim the list)',
+      () async {
+        final big = snapshotOf([
+          for (var i = kTimelineRetention; i >= 1; i--) i,
+        ]);
+        stubCached(big);
+        final other = build();
+        addTearDown(other.close);
+        when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
+        stubRefresh(big);
+        await other.load();
+        clearInteractions(timeline);
 
-      await other.refreshIfStale();
+        await other.refreshIfStale();
 
-      verifyNever(() => timeline.refresh(feed));
-    });
+        verifyNever(() => timeline.refresh(feed));
+      },
+    );
   });
 
   group('rate limiting', () {
-    test('a daily limit keeps the cache under a notice and stops asking',
-        () async {
-      stubCached(snapshotOf([2, 1], older: 'o1'));
-      const daily = RateLimitedException(
-        'limited',
-        retryAfter: Duration(hours: 2),
-        limitName: 'read_budget_daily',
-      );
-      when(() => timeline.refresh(feed)).thenAnswer((_) async => throw daily);
-
-      await cubit.load();
-
-      expect(cubit.state.status, TimelineStatus.ready);
-      expect(ids(cubit.state), idsOf([2, 1]));
-      expect(cubit.state.notice, isA<RateLimitedException>());
-      expect((cubit.state.notice! as RateLimitedException).isDaily, isTrue);
-
-      // The repository now reports the hold: no RPC is sent before it ends.
-      when(() => timeline.rateLimitedFor()).thenReturn(
-        const RateLimitedException(
+    test(
+      'a daily limit keeps the cache under a notice and stops asking',
+      () async {
+        stubCached(snapshotOf([2, 1], older: 'o1'));
+        const daily = RateLimitedException(
           'limited',
           retryAfter: Duration(hours: 2),
           limitName: 'read_budget_daily',
-        ),
-      );
-      clearInteractions(timeline);
-      await cubit.refreshIfStale();
-      await cubit.refresh();
-      await cubit.loadMore();
-      verifyNever(() => timeline.refresh(feed));
-      verifyNever(() => timeline.loadOlder(feed));
-    });
+        );
+        when(() => timeline.refresh(feed)).thenAnswer((_) async => throw daily);
+
+        await cubit.load();
+
+        expect(cubit.state.status, TimelineStatus.ready);
+        expect(ids(cubit.state), idsOf([2, 1]));
+        expect(cubit.state.notice, isA<RateLimitedException>());
+        expect((cubit.state.notice! as RateLimitedException).isDaily, isTrue);
+
+        // The repository now reports the hold: no RPC is sent before it ends.
+        when(() => timeline.rateLimitedFor()).thenReturn(
+          const RateLimitedException(
+            'limited',
+            retryAfter: Duration(hours: 2),
+            limitName: 'read_budget_daily',
+          ),
+        );
+        clearInteractions(timeline);
+        await cubit.refreshIfStale();
+        await cubit.refresh();
+        await cubit.loadMore();
+        verifyNever(() => timeline.refresh(feed));
+        verifyNever(() => timeline.loadOlder(feed));
+      },
+    );
 
     test('with nothing cached it is a blocking error', () async {
       stubCached(const TimelineSnapshot());
-      when(
-        () => timeline.refresh(feed),
-      ).thenAnswer((_) async => throw const NetworkException('offline'));
+      when(() => timeline.refresh(feed))
+          .thenAnswer((_) async => throw const NetworkException('offline'));
 
       await cubit.load();
 
@@ -243,9 +253,8 @@ void main() {
 
     test('a later successful refresh clears the notice', () async {
       stubCached(snapshotOf([2, 1]));
-      when(
-        () => timeline.refresh(feed),
-      ).thenAnswer((_) async => throw const NetworkException('offline'));
+      when(() => timeline.refresh(feed))
+          .thenAnswer((_) async => throw const NetworkException('offline'));
       await cubit.load();
       expect(cubit.state.notice, isA<NetworkException>());
 
@@ -259,14 +268,12 @@ void main() {
   group('older pages and gaps', () {
     setUp(() async {
       stubCached(snapshotOf([5, 4], older: 'o1'));
-      when(
-        () => timeline.sinceRefresh(feed),
-      ).thenReturn(const Duration(seconds: 1));
+      when(() => timeline.sinceRefresh(feed))
+          .thenReturn(const Duration(seconds: 1));
       await cubit.load();
     });
 
-    test('loadMore appends the next page once, even if called twice',
-        () async {
+    test('loadMore appends the next page once, even if called twice', () async {
       final page = Completer<TimelineSnapshot>();
       when(() => timeline.loadOlder(feed)).thenAnswer((_) => page.future);
 
@@ -283,18 +290,16 @@ void main() {
     });
 
     test('a failed page does not retry by itself; Retry does', () async {
-      when(
-        () => timeline.loadOlder(feed),
-      ).thenAnswer((_) async => throw const NetworkException('offline'));
+      when(() => timeline.loadOlder(feed))
+          .thenAnswer((_) async => throw const NetworkException('offline'));
       await cubit.loadMore();
       expect(cubit.state.loadMoreFailed, isTrue);
 
       await cubit.loadMore();
       verify(() => timeline.loadOlder(feed)).called(1);
 
-      when(
-        () => timeline.loadOlder(feed),
-      ).thenAnswer((_) async => snapshotOf([5, 4, 3]));
+      when(() => timeline.loadOlder(feed))
+          .thenAnswer((_) async => snapshotOf([5, 4, 3]));
       await cubit.retryLoadMore();
       expect(ids(cubit.state), idsOf([5, 4, 3]));
       expect(cubit.state.loadMoreFailed, isFalse);
@@ -308,9 +313,8 @@ void main() {
       await other.load();
       expect(ids(other.state), [postId(5), postId(4), 'gap']);
 
-      when(
-        () => timeline.fillGap(feed, gap.itemKey),
-      ).thenAnswer((_) async => snapshotOf([5, 4, 3, 2]));
+      when(() => timeline.fillGap(feed, gap.itemKey))
+          .thenAnswer((_) async => snapshotOf([5, 4, 3, 2]));
       await other.fillGap(gap.itemKey);
 
       verify(() => timeline.fillGap(feed, gap.itemKey)).called(1);
@@ -323,12 +327,15 @@ void main() {
     setUp(() async {
       stubCached(
         TimelineSnapshot(
-          entries: [postEntry(3, authorId: 'a'), postEntry(2), postEntry(1)],
+          entries: [
+            postEntry(3, authorId: 'a'),
+            postEntry(2),
+            postEntry(1),
+          ],
         ),
       );
-      when(
-        () => timeline.sinceRefresh(feed),
-      ).thenReturn(const Duration(seconds: 1));
+      when(() => timeline.sinceRefresh(feed))
+          .thenReturn(const Duration(seconds: 1));
       await cubit.load();
     });
 
@@ -365,35 +372,37 @@ void main() {
       expect(deleted.single.post.postId, postId(2));
     });
 
-    test('a failed delete restores the post and a retry reuses the key',
-        () async {
-      var calls = 0;
-      when(
-        () => posts.deletePost(
-          postId: postId(2),
-          idempotencyKey: any(named: 'idempotencyKey'),
-        ),
-      ).thenAnswer((_) async {
-        calls++;
-        if (calls == 1) throw const NetworkException('offline');
-      });
+    test(
+      'a failed delete restores the post and a retry reuses the key',
+      () async {
+        var calls = 0;
+        when(
+          () => posts.deletePost(
+            postId: postId(2),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkException('offline');
+        });
 
-      await expectLater(
-        cubit.deletePost(postId(2)),
-        throwsA(isA<NetworkException>()),
-      );
-      expect(ids(cubit.state), idsOf([3, 2, 1]));
-      expect(deleted, isEmpty);
+        await expectLater(
+          cubit.deletePost(postId(2)),
+          throwsA(isA<NetworkException>()),
+        );
+        expect(ids(cubit.state), idsOf([3, 2, 1]));
+        expect(deleted, isEmpty);
 
-      await cubit.deletePost(postId(2));
-      final keys = verify(
-        () => posts.deletePost(
-          postId: postId(2),
-          idempotencyKey: captureAny(named: 'idempotencyKey'),
-        ),
-      ).captured;
-      expect(keys, hasLength(2));
-      expect(keys[0], keys[1]);
-    });
+        await cubit.deletePost(postId(2));
+        final keys = verify(
+          () => posts.deletePost(
+            postId: postId(2),
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+          ),
+        ).captured;
+        expect(keys, hasLength(2));
+        expect(keys[0], keys[1]);
+      },
+    );
   });
 }

@@ -550,6 +550,28 @@ func TestForget_EvictsProfileAndUnreadCount(t *testing.T) {
 	}
 }
 
+func TestForgetUnread_EvictsOnlyTheUnreadCount(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	ctx := context.Background()
+	if _, err := svc.CreateProfile(ctx, "uid-1", validKey, "Alice", "Alice A."); err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if _, err := svc.GetMe(ctx, "uid-1"); err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if _, ok := svc.cache.GetUnreadCount("uid-1"); !ok {
+		t.Fatal("expected the unread count to be cached before ForgetUnread")
+	}
+	svc.ForgetUnread("uid-1")
+	if _, ok := svc.cache.GetUnreadCount("uid-1"); ok {
+		t.Error("expected ForgetUnread to evict the cached unread count")
+	}
+	if _, ok := svc.cache.GetProfile("uid-1"); !ok {
+		t.Error("expected ForgetUnread to leave the cached profile warm")
+	}
+}
+
 // TestGetProfile_InvalidUserID (minor fix, phase0 code review): user_id is caller-supplied and must be
 // validated (length/charset) like every other input, not passed straight to a Firestore lookup.
 func TestGetProfile_InvalidUserID(t *testing.T) {

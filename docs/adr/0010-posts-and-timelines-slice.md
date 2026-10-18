@@ -27,7 +27,7 @@ fixed list of blank-looking code points as invisible for the empty check (L5), a
 who blocked the author, because the drop was a "who blocked me" oracle (M2). The D6 table row and the D7 resolution rules
 follow. Cost impact: none; CreatePost reads one fewer document when the text has mention candidates (the author's graph is
 no longer read), so the cold ceiling of 14 stays as a conservative upper bound.
-Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01; D21 G1-G5 accepted 2026-10-01; L5 and M2 amendment decided 2026-10-05)
+Deciders: architect, founder (on merge; R1/R2 accepted 2026-10-01; D21 G1-G5 accepted 2026-10-01; L5 and M2 amendment decided 2026-10-05; D14 rejected-since_token amendment 2026-10-18)
 
 Inputs: `docs/plans/posts-and-timeline.md` (Q1–Q12, T1–T27), `docs/plans/phase1.md` (P0, P1, D1–D5),
 ADR-0003 (data model, ids, idempotency), ADR-0004 (pull timeline), ADR-0008 (graph, D2 overflow, D6 flags, D9 block
@@ -742,6 +742,12 @@ Applied in this order in `internal/posts/text` (pure):
   - Both tokens set → VALIDATION `field=page_token`.
 - **Client rule on a rejected token:** drop that token, cold-open, and treat the cold page's `next_page_token` as the
   gap filler. Stop merging when a cached `post_id` is reached.
+- **Amendment 2026-10-18 (founder approval 2026-10-18; ADR-0016 D10).** The client rule above is superseded for a rejected
+  `since_token`: the client REPLACES its cached feed with the cold open (no gap filling, no merge that keeps cached cards).
+  Reason: a since_token is also rejected when the server's removal log cannot list `removed_ids` completely (ADR-0016 D10),
+  which is indistinguishable from expiry on the wire, and merging would keep the cards a moderator removed. A rejected
+  `page_token` is unchanged in rejection but also replaces. Cost: one cold open per affected feed (see
+  `docs/runbooks/moderation.md` section 3b for the suspension case).
 
 ### D15. Caches: sizes within ADR-0004 §6's ~150 MiB. **Changed vs ADR-0004 §6** (sizes; profile-first-page cache merged)
 - **Posts** (`posts/{id}` → immutable `*Post`): **20,000** entries, `CACHE_TTL` (60 s).

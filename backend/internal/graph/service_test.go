@@ -238,6 +238,8 @@ func (f *fakeDirectory) Forget(uids ...string) {
 	f.forgotten = append(f.forgotten, uids...)
 }
 
+func (f *fakeDirectory) ForgetUnread(...string) {}
+
 // fakeFlags is a minimal FlagChecker fake.
 type fakeFlags struct{ on map[string]bool }
 

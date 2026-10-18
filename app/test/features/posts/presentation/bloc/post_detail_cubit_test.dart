@@ -28,9 +28,8 @@ void main() {
   });
 
   test('NOT_FOUND is a final state, not an error', () async {
-    when(
-      () => repo.getPost(postId(1)),
-    ).thenAnswer((_) async => throw const NotFoundException('gone'));
+    when(() => repo.getPost(postId(1)))
+        .thenAnswer((_) async => throw const NotFoundException('gone'));
 
     await cubit.load();
 
@@ -39,9 +38,8 @@ void main() {
   });
 
   test('a malformed id is treated as not found', () async {
-    when(
-      () => repo.getPost(postId(1)),
-    ).thenAnswer((_) async => throw const ValidationException('bad id'));
+    when(() => repo.getPost(postId(1)))
+        .thenAnswer((_) async => throw const ValidationException('bad id'));
 
     await cubit.load();
 
@@ -49,9 +47,8 @@ void main() {
   });
 
   test('other failures are errors that load() can retry', () async {
-    when(
-      () => repo.getPost(postId(1)),
-    ).thenAnswer((_) async => throw const NetworkException('offline'));
+    when(() => repo.getPost(postId(1)))
+        .thenAnswer((_) async => throw const NetworkException('offline'));
     await cubit.load();
     expect(cubit.state.status, PostDetailStatus.error);
     expect(cubit.state.error, isA<NetworkException>());

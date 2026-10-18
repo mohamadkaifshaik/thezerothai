@@ -2031,6 +2031,831 @@ class AccountExportEntriesCompanion
   }
 }
 
+class $NotificationEntriesTable extends NotificationEntries
+    with TableInfo<$NotificationEntriesTable, CachedNotification> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NotificationEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _itemKeyMeta = const VerificationMeta(
+    'itemKey',
+  );
+  @override
+  late final GeneratedColumn<String> itemKey = GeneratedColumn<String>(
+    'item_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortKeyMeta = const VerificationMeta(
+    'sortKey',
+  );
+  @override
+  late final GeneratedColumn<String> sortKey = GeneratedColumn<String>(
+    'sort_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> payload = GeneratedColumn<Uint8List>(
+    'payload',
+    aliasedName,
+    true,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _gapTokenMeta = const VerificationMeta(
+    'gapToken',
+  );
+  @override
+  late final GeneratedColumn<String> gapToken = GeneratedColumn<String>(
+    'gap_token',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pageTokenMeta = const VerificationMeta(
+    'pageToken',
+  );
+  @override
+  late final GeneratedColumn<String> pageToken = GeneratedColumn<String>(
+    'page_token',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    itemKey,
+    sortKey,
+    payload,
+    gapToken,
+    pageToken,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'notification_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedNotification> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('item_key')) {
+      context.handle(
+        _itemKeyMeta,
+        itemKey.isAcceptableOrUnknown(data['item_key']!, _itemKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemKeyMeta);
+    }
+    if (data.containsKey('sort_key')) {
+      context.handle(
+        _sortKeyMeta,
+        sortKey.isAcceptableOrUnknown(data['sort_key']!, _sortKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortKeyMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    }
+    if (data.containsKey('gap_token')) {
+      context.handle(
+        _gapTokenMeta,
+        gapToken.isAcceptableOrUnknown(data['gap_token']!, _gapTokenMeta),
+      );
+    }
+    if (data.containsKey('page_token')) {
+      context.handle(
+        _pageTokenMeta,
+        pageToken.isAcceptableOrUnknown(data['page_token']!, _pageTokenMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {itemKey};
+  @override
+  CachedNotification map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedNotification(
+      itemKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}item_key'],
+      )!,
+      sortKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sort_key'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}payload'],
+      ),
+      gapToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}gap_token'],
+      ),
+      pageToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_token'],
+      ),
+    );
+  }
+
+  @override
+  $NotificationEntriesTable createAlias(String alias) {
+    return $NotificationEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedNotification extends DataClass
+    implements Insertable<CachedNotification> {
+  /// The notification id, or `gap:{sortKey}` for a gap row.
+  final String itemKey;
+  final String sortKey;
+
+  /// Serialized `Notification`; null for a gap row.
+  final Uint8List? payload;
+
+  /// `gap_page_token`; null for a notification row.
+  final String? gapToken;
+
+  /// For a row that ended a fetched page: that page's `next_page_token`
+  /// (lets retention trim at a page boundary and resume scrolling).
+  final String? pageToken;
+  const CachedNotification({
+    required this.itemKey,
+    required this.sortKey,
+    this.payload,
+    this.gapToken,
+    this.pageToken,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['item_key'] = Variable<String>(itemKey);
+    map['sort_key'] = Variable<String>(sortKey);
+    if (!nullToAbsent || payload != null) {
+      map['payload'] = Variable<Uint8List>(payload);
+    }
+    if (!nullToAbsent || gapToken != null) {
+      map['gap_token'] = Variable<String>(gapToken);
+    }
+    if (!nullToAbsent || pageToken != null) {
+      map['page_token'] = Variable<String>(pageToken);
+    }
+    return map;
+  }
+
+  NotificationEntriesCompanion toCompanion(bool nullToAbsent) {
+    return NotificationEntriesCompanion(
+      itemKey: Value(itemKey),
+      sortKey: Value(sortKey),
+      payload: payload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(payload),
+      gapToken: gapToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(gapToken),
+      pageToken: pageToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pageToken),
+    );
+  }
+
+  factory CachedNotification.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedNotification(
+      itemKey: serializer.fromJson<String>(json['itemKey']),
+      sortKey: serializer.fromJson<String>(json['sortKey']),
+      payload: serializer.fromJson<Uint8List?>(json['payload']),
+      gapToken: serializer.fromJson<String?>(json['gapToken']),
+      pageToken: serializer.fromJson<String?>(json['pageToken']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'itemKey': serializer.toJson<String>(itemKey),
+      'sortKey': serializer.toJson<String>(sortKey),
+      'payload': serializer.toJson<Uint8List?>(payload),
+      'gapToken': serializer.toJson<String?>(gapToken),
+      'pageToken': serializer.toJson<String?>(pageToken),
+    };
+  }
+
+  CachedNotification copyWith({
+    String? itemKey,
+    String? sortKey,
+    Value<Uint8List?> payload = const Value.absent(),
+    Value<String?> gapToken = const Value.absent(),
+    Value<String?> pageToken = const Value.absent(),
+  }) => CachedNotification(
+    itemKey: itemKey ?? this.itemKey,
+    sortKey: sortKey ?? this.sortKey,
+    payload: payload.present ? payload.value : this.payload,
+    gapToken: gapToken.present ? gapToken.value : this.gapToken,
+    pageToken: pageToken.present ? pageToken.value : this.pageToken,
+  );
+  CachedNotification copyWithCompanion(NotificationEntriesCompanion data) {
+    return CachedNotification(
+      itemKey: data.itemKey.present ? data.itemKey.value : this.itemKey,
+      sortKey: data.sortKey.present ? data.sortKey.value : this.sortKey,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      gapToken: data.gapToken.present ? data.gapToken.value : this.gapToken,
+      pageToken: data.pageToken.present ? data.pageToken.value : this.pageToken,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedNotification(')
+          ..write('itemKey: $itemKey, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('gapToken: $gapToken, ')
+          ..write('pageToken: $pageToken')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    itemKey,
+    sortKey,
+    $driftBlobEquality.hash(payload),
+    gapToken,
+    pageToken,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedNotification &&
+          other.itemKey == this.itemKey &&
+          other.sortKey == this.sortKey &&
+          $driftBlobEquality.equals(other.payload, this.payload) &&
+          other.gapToken == this.gapToken &&
+          other.pageToken == this.pageToken);
+}
+
+class NotificationEntriesCompanion extends UpdateCompanion<CachedNotification> {
+  final Value<String> itemKey;
+  final Value<String> sortKey;
+  final Value<Uint8List?> payload;
+  final Value<String?> gapToken;
+  final Value<String?> pageToken;
+  final Value<int> rowid;
+  const NotificationEntriesCompanion({
+    this.itemKey = const Value.absent(),
+    this.sortKey = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.gapToken = const Value.absent(),
+    this.pageToken = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NotificationEntriesCompanion.insert({
+    required String itemKey,
+    required String sortKey,
+    this.payload = const Value.absent(),
+    this.gapToken = const Value.absent(),
+    this.pageToken = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : itemKey = Value(itemKey),
+       sortKey = Value(sortKey);
+  static Insertable<CachedNotification> custom({
+    Expression<String>? itemKey,
+    Expression<String>? sortKey,
+    Expression<Uint8List>? payload,
+    Expression<String>? gapToken,
+    Expression<String>? pageToken,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (itemKey != null) 'item_key': itemKey,
+      if (sortKey != null) 'sort_key': sortKey,
+      if (payload != null) 'payload': payload,
+      if (gapToken != null) 'gap_token': gapToken,
+      if (pageToken != null) 'page_token': pageToken,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NotificationEntriesCompanion copyWith({
+    Value<String>? itemKey,
+    Value<String>? sortKey,
+    Value<Uint8List?>? payload,
+    Value<String?>? gapToken,
+    Value<String?>? pageToken,
+    Value<int>? rowid,
+  }) {
+    return NotificationEntriesCompanion(
+      itemKey: itemKey ?? this.itemKey,
+      sortKey: sortKey ?? this.sortKey,
+      payload: payload ?? this.payload,
+      gapToken: gapToken ?? this.gapToken,
+      pageToken: pageToken ?? this.pageToken,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (itemKey.present) {
+      map['item_key'] = Variable<String>(itemKey.value);
+    }
+    if (sortKey.present) {
+      map['sort_key'] = Variable<String>(sortKey.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<Uint8List>(payload.value);
+    }
+    if (gapToken.present) {
+      map['gap_token'] = Variable<String>(gapToken.value);
+    }
+    if (pageToken.present) {
+      map['page_token'] = Variable<String>(pageToken.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotificationEntriesCompanion(')
+          ..write('itemKey: $itemKey, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('gapToken: $gapToken, ')
+          ..write('pageToken: $pageToken, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NotificationStateEntriesTable extends NotificationStateEntries
+    with TableInfo<$NotificationStateEntriesTable, CachedNotificationState> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NotificationStateEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _stateKeyMeta = const VerificationMeta(
+    'stateKey',
+  );
+  @override
+  late final GeneratedColumn<String> stateKey = GeneratedColumn<String>(
+    'state_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sinceTokenMeta = const VerificationMeta(
+    'sinceToken',
+  );
+  @override
+  late final GeneratedColumn<String> sinceToken = GeneratedColumn<String>(
+    'since_token',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _olderPageTokenMeta = const VerificationMeta(
+    'olderPageToken',
+  );
+  @override
+  late final GeneratedColumn<String> olderPageToken = GeneratedColumn<String>(
+    'older_page_token',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _seenAtMicrosMeta = const VerificationMeta(
+    'seenAtMicros',
+  );
+  @override
+  late final GeneratedColumn<int> seenAtMicros = GeneratedColumn<int>(
+    'seen_at_micros',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    stateKey,
+    sinceToken,
+    olderPageToken,
+    seenAtMicros,
+    deviceId,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'notification_state_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedNotificationState> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('state_key')) {
+      context.handle(
+        _stateKeyMeta,
+        stateKey.isAcceptableOrUnknown(data['state_key']!, _stateKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_stateKeyMeta);
+    }
+    if (data.containsKey('since_token')) {
+      context.handle(
+        _sinceTokenMeta,
+        sinceToken.isAcceptableOrUnknown(data['since_token']!, _sinceTokenMeta),
+      );
+    }
+    if (data.containsKey('older_page_token')) {
+      context.handle(
+        _olderPageTokenMeta,
+        olderPageToken.isAcceptableOrUnknown(
+          data['older_page_token']!,
+          _olderPageTokenMeta,
+        ),
+      );
+    }
+    if (data.containsKey('seen_at_micros')) {
+      context.handle(
+        _seenAtMicrosMeta,
+        seenAtMicros.isAcceptableOrUnknown(
+          data['seen_at_micros']!,
+          _seenAtMicrosMeta,
+        ),
+      );
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {stateKey};
+  @override
+  CachedNotificationState map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedNotificationState(
+      stateKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state_key'],
+      )!,
+      sinceToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}since_token'],
+      )!,
+      olderPageToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}older_page_token'],
+      )!,
+      seenAtMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}seen_at_micros'],
+      ),
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NotificationStateEntriesTable createAlias(String alias) {
+    return $NotificationStateEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedNotificationState extends DataClass
+    implements Insertable<CachedNotificationState> {
+  final String stateKey;
+  final String sinceToken;
+  final String olderPageToken;
+
+  /// `seen_at` in microseconds since the epoch; null = never marked seen.
+  final int? seenAtMicros;
+
+  /// This installation's random device id for RegisterDevice (stable until
+  /// sign-out wipes the cache; '' = not generated yet). Never the FCM token.
+  final String deviceId;
+  final DateTime updatedAt;
+  const CachedNotificationState({
+    required this.stateKey,
+    required this.sinceToken,
+    required this.olderPageToken,
+    this.seenAtMicros,
+    required this.deviceId,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['state_key'] = Variable<String>(stateKey);
+    map['since_token'] = Variable<String>(sinceToken);
+    map['older_page_token'] = Variable<String>(olderPageToken);
+    if (!nullToAbsent || seenAtMicros != null) {
+      map['seen_at_micros'] = Variable<int>(seenAtMicros);
+    }
+    map['device_id'] = Variable<String>(deviceId);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NotificationStateEntriesCompanion toCompanion(bool nullToAbsent) {
+    return NotificationStateEntriesCompanion(
+      stateKey: Value(stateKey),
+      sinceToken: Value(sinceToken),
+      olderPageToken: Value(olderPageToken),
+      seenAtMicros: seenAtMicros == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seenAtMicros),
+      deviceId: Value(deviceId),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CachedNotificationState.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedNotificationState(
+      stateKey: serializer.fromJson<String>(json['stateKey']),
+      sinceToken: serializer.fromJson<String>(json['sinceToken']),
+      olderPageToken: serializer.fromJson<String>(json['olderPageToken']),
+      seenAtMicros: serializer.fromJson<int?>(json['seenAtMicros']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'stateKey': serializer.toJson<String>(stateKey),
+      'sinceToken': serializer.toJson<String>(sinceToken),
+      'olderPageToken': serializer.toJson<String>(olderPageToken),
+      'seenAtMicros': serializer.toJson<int?>(seenAtMicros),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  CachedNotificationState copyWith({
+    String? stateKey,
+    String? sinceToken,
+    String? olderPageToken,
+    Value<int?> seenAtMicros = const Value.absent(),
+    String? deviceId,
+    DateTime? updatedAt,
+  }) => CachedNotificationState(
+    stateKey: stateKey ?? this.stateKey,
+    sinceToken: sinceToken ?? this.sinceToken,
+    olderPageToken: olderPageToken ?? this.olderPageToken,
+    seenAtMicros: seenAtMicros.present ? seenAtMicros.value : this.seenAtMicros,
+    deviceId: deviceId ?? this.deviceId,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CachedNotificationState copyWithCompanion(
+    NotificationStateEntriesCompanion data,
+  ) {
+    return CachedNotificationState(
+      stateKey: data.stateKey.present ? data.stateKey.value : this.stateKey,
+      sinceToken: data.sinceToken.present
+          ? data.sinceToken.value
+          : this.sinceToken,
+      olderPageToken: data.olderPageToken.present
+          ? data.olderPageToken.value
+          : this.olderPageToken,
+      seenAtMicros: data.seenAtMicros.present
+          ? data.seenAtMicros.value
+          : this.seenAtMicros,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedNotificationState(')
+          ..write('stateKey: $stateKey, ')
+          ..write('sinceToken: $sinceToken, ')
+          ..write('olderPageToken: $olderPageToken, ')
+          ..write('seenAtMicros: $seenAtMicros, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    stateKey,
+    sinceToken,
+    olderPageToken,
+    seenAtMicros,
+    deviceId,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedNotificationState &&
+          other.stateKey == this.stateKey &&
+          other.sinceToken == this.sinceToken &&
+          other.olderPageToken == this.olderPageToken &&
+          other.seenAtMicros == this.seenAtMicros &&
+          other.deviceId == this.deviceId &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NotificationStateEntriesCompanion
+    extends UpdateCompanion<CachedNotificationState> {
+  final Value<String> stateKey;
+  final Value<String> sinceToken;
+  final Value<String> olderPageToken;
+  final Value<int?> seenAtMicros;
+  final Value<String> deviceId;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const NotificationStateEntriesCompanion({
+    this.stateKey = const Value.absent(),
+    this.sinceToken = const Value.absent(),
+    this.olderPageToken = const Value.absent(),
+    this.seenAtMicros = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NotificationStateEntriesCompanion.insert({
+    required String stateKey,
+    this.sinceToken = const Value.absent(),
+    this.olderPageToken = const Value.absent(),
+    this.seenAtMicros = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : stateKey = Value(stateKey),
+       updatedAt = Value(updatedAt);
+  static Insertable<CachedNotificationState> custom({
+    Expression<String>? stateKey,
+    Expression<String>? sinceToken,
+    Expression<String>? olderPageToken,
+    Expression<int>? seenAtMicros,
+    Expression<String>? deviceId,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (stateKey != null) 'state_key': stateKey,
+      if (sinceToken != null) 'since_token': sinceToken,
+      if (olderPageToken != null) 'older_page_token': olderPageToken,
+      if (seenAtMicros != null) 'seen_at_micros': seenAtMicros,
+      if (deviceId != null) 'device_id': deviceId,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NotificationStateEntriesCompanion copyWith({
+    Value<String>? stateKey,
+    Value<String>? sinceToken,
+    Value<String>? olderPageToken,
+    Value<int?>? seenAtMicros,
+    Value<String>? deviceId,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return NotificationStateEntriesCompanion(
+      stateKey: stateKey ?? this.stateKey,
+      sinceToken: sinceToken ?? this.sinceToken,
+      olderPageToken: olderPageToken ?? this.olderPageToken,
+      seenAtMicros: seenAtMicros ?? this.seenAtMicros,
+      deviceId: deviceId ?? this.deviceId,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (stateKey.present) {
+      map['state_key'] = Variable<String>(stateKey.value);
+    }
+    if (sinceToken.present) {
+      map['since_token'] = Variable<String>(sinceToken.value);
+    }
+    if (olderPageToken.present) {
+      map['older_page_token'] = Variable<String>(olderPageToken.value);
+    }
+    if (seenAtMicros.present) {
+      map['seen_at_micros'] = Variable<int>(seenAtMicros.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotificationStateEntriesCompanion(')
+          ..write('stateKey: $stateKey, ')
+          ..write('sinceToken: $sinceToken, ')
+          ..write('olderPageToken: $olderPageToken, ')
+          ..write('seenAtMicros: $seenAtMicros, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2044,6 +2869,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $TimelineStateEntriesTable(this);
   late final $AccountExportEntriesTable accountExportEntries =
       $AccountExportEntriesTable(this);
+  late final $NotificationEntriesTable notificationEntries =
+      $NotificationEntriesTable(this);
+  late final $NotificationStateEntriesTable notificationStateEntries =
+      $NotificationStateEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2054,6 +2883,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     timelineItemEntries,
     timelineStateEntries,
     accountExportEntries,
+    notificationEntries,
+    notificationStateEntries,
   ];
 }
 
@@ -3262,6 +4093,489 @@ typedef $$AccountExportEntriesTableProcessedTableManager =
       SavedAccountExport,
       PrefetchHooks Function()
     >;
+typedef $$NotificationEntriesTableCreateCompanionBuilder =
+    NotificationEntriesCompanion Function({
+      required String itemKey,
+      required String sortKey,
+      Value<Uint8List?> payload,
+      Value<String?> gapToken,
+      Value<String?> pageToken,
+      Value<int> rowid,
+    });
+typedef $$NotificationEntriesTableUpdateCompanionBuilder =
+    NotificationEntriesCompanion Function({
+      Value<String> itemKey,
+      Value<String> sortKey,
+      Value<Uint8List?> payload,
+      Value<String?> gapToken,
+      Value<String?> pageToken,
+      Value<int> rowid,
+    });
+
+class $$NotificationEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $NotificationEntriesTable> {
+  $$NotificationEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get itemKey => $composableBuilder(
+    column: $table.itemKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get gapToken => $composableBuilder(
+    column: $table.gapToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageToken => $composableBuilder(
+    column: $table.pageToken,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NotificationEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $NotificationEntriesTable> {
+  $$NotificationEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get itemKey => $composableBuilder(
+    column: $table.itemKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get gapToken => $composableBuilder(
+    column: $table.gapToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pageToken => $composableBuilder(
+    column: $table.pageToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NotificationEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $NotificationEntriesTable> {
+  $$NotificationEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get itemKey =>
+      $composableBuilder(column: $table.itemKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sortKey =>
+      $composableBuilder(column: $table.sortKey, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get gapToken =>
+      $composableBuilder(column: $table.gapToken, builder: (column) => column);
+
+  GeneratedColumn<String> get pageToken =>
+      $composableBuilder(column: $table.pageToken, builder: (column) => column);
+}
+
+class $$NotificationEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $NotificationEntriesTable,
+          CachedNotification,
+          $$NotificationEntriesTableFilterComposer,
+          $$NotificationEntriesTableOrderingComposer,
+          $$NotificationEntriesTableAnnotationComposer,
+          $$NotificationEntriesTableCreateCompanionBuilder,
+          $$NotificationEntriesTableUpdateCompanionBuilder,
+          (
+            CachedNotification,
+            BaseReferences<
+              _$AppDatabase,
+              $NotificationEntriesTable,
+              CachedNotification
+            >,
+          ),
+          CachedNotification,
+          PrefetchHooks Function()
+        > {
+  $$NotificationEntriesTableTableManager(
+    _$AppDatabase db,
+    $NotificationEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NotificationEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NotificationEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$NotificationEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> itemKey = const Value.absent(),
+                Value<String> sortKey = const Value.absent(),
+                Value<Uint8List?> payload = const Value.absent(),
+                Value<String?> gapToken = const Value.absent(),
+                Value<String?> pageToken = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NotificationEntriesCompanion(
+                itemKey: itemKey,
+                sortKey: sortKey,
+                payload: payload,
+                gapToken: gapToken,
+                pageToken: pageToken,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String itemKey,
+                required String sortKey,
+                Value<Uint8List?> payload = const Value.absent(),
+                Value<String?> gapToken = const Value.absent(),
+                Value<String?> pageToken = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NotificationEntriesCompanion.insert(
+                itemKey: itemKey,
+                sortKey: sortKey,
+                payload: payload,
+                gapToken: gapToken,
+                pageToken: pageToken,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$NotificationEntriesTable, CachedNotification>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $NotificationEntriesTable,
+                    CachedNotification
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NotificationEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $NotificationEntriesTable,
+      CachedNotification,
+      $$NotificationEntriesTableFilterComposer,
+      $$NotificationEntriesTableOrderingComposer,
+      $$NotificationEntriesTableAnnotationComposer,
+      $$NotificationEntriesTableCreateCompanionBuilder,
+      $$NotificationEntriesTableUpdateCompanionBuilder,
+      (
+        CachedNotification,
+        BaseReferences<
+          _$AppDatabase,
+          $NotificationEntriesTable,
+          CachedNotification
+        >,
+      ),
+      CachedNotification,
+      PrefetchHooks Function()
+    >;
+typedef $$NotificationStateEntriesTableCreateCompanionBuilder =
+    NotificationStateEntriesCompanion Function({
+      required String stateKey,
+      Value<String> sinceToken,
+      Value<String> olderPageToken,
+      Value<int?> seenAtMicros,
+      Value<String> deviceId,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$NotificationStateEntriesTableUpdateCompanionBuilder =
+    NotificationStateEntriesCompanion Function({
+      Value<String> stateKey,
+      Value<String> sinceToken,
+      Value<String> olderPageToken,
+      Value<int?> seenAtMicros,
+      Value<String> deviceId,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$NotificationStateEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $NotificationStateEntriesTable> {
+  $$NotificationStateEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get stateKey => $composableBuilder(
+    column: $table.stateKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seenAtMicros => $composableBuilder(
+    column: $table.seenAtMicros,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NotificationStateEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $NotificationStateEntriesTable> {
+  $$NotificationStateEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get stateKey => $composableBuilder(
+    column: $table.stateKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seenAtMicros => $composableBuilder(
+    column: $table.seenAtMicros,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NotificationStateEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $NotificationStateEntriesTable> {
+  $$NotificationStateEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get stateKey =>
+      $composableBuilder(column: $table.stateKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get seenAtMicros => $composableBuilder(
+    column: $table.seenAtMicros,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NotificationStateEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $NotificationStateEntriesTable,
+          CachedNotificationState,
+          $$NotificationStateEntriesTableFilterComposer,
+          $$NotificationStateEntriesTableOrderingComposer,
+          $$NotificationStateEntriesTableAnnotationComposer,
+          $$NotificationStateEntriesTableCreateCompanionBuilder,
+          $$NotificationStateEntriesTableUpdateCompanionBuilder,
+          (
+            CachedNotificationState,
+            BaseReferences<
+              _$AppDatabase,
+              $NotificationStateEntriesTable,
+              CachedNotificationState
+            >,
+          ),
+          CachedNotificationState,
+          PrefetchHooks Function()
+        > {
+  $$NotificationStateEntriesTableTableManager(
+    _$AppDatabase db,
+    $NotificationStateEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NotificationStateEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$NotificationStateEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$NotificationStateEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> stateKey = const Value.absent(),
+                Value<String> sinceToken = const Value.absent(),
+                Value<String> olderPageToken = const Value.absent(),
+                Value<int?> seenAtMicros = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NotificationStateEntriesCompanion(
+                stateKey: stateKey,
+                sinceToken: sinceToken,
+                olderPageToken: olderPageToken,
+                seenAtMicros: seenAtMicros,
+                deviceId: deviceId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String stateKey,
+                Value<String> sinceToken = const Value.absent(),
+                Value<String> olderPageToken = const Value.absent(),
+                Value<int?> seenAtMicros = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NotificationStateEntriesCompanion.insert(
+                stateKey: stateKey,
+                sinceToken: sinceToken,
+                olderPageToken: olderPageToken,
+                seenAtMicros: seenAtMicros,
+                deviceId: deviceId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $NotificationStateEntriesTable,
+                    CachedNotificationState
+                  >(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $NotificationStateEntriesTable,
+                    CachedNotificationState
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NotificationStateEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $NotificationStateEntriesTable,
+      CachedNotificationState,
+      $$NotificationStateEntriesTableFilterComposer,
+      $$NotificationStateEntriesTableOrderingComposer,
+      $$NotificationStateEntriesTableAnnotationComposer,
+      $$NotificationStateEntriesTableCreateCompanionBuilder,
+      $$NotificationStateEntriesTableUpdateCompanionBuilder,
+      (
+        CachedNotificationState,
+        BaseReferences<
+          _$AppDatabase,
+          $NotificationStateEntriesTable,
+          CachedNotificationState
+        >,
+      ),
+      CachedNotificationState,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3276,4 +4590,11 @@ class $AppDatabaseManager {
       $$TimelineStateEntriesTableTableManager(_db, _db.timelineStateEntries);
   $$AccountExportEntriesTableTableManager get accountExportEntries =>
       $$AccountExportEntriesTableTableManager(_db, _db.accountExportEntries);
+  $$NotificationEntriesTableTableManager get notificationEntries =>
+      $$NotificationEntriesTableTableManager(_db, _db.notificationEntries);
+  $$NotificationStateEntriesTableTableManager get notificationStateEntries =>
+      $$NotificationStateEntriesTableTableManager(
+        _db,
+        _db.notificationStateEntries,
+      );
 }

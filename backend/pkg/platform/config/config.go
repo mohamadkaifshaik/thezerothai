@@ -29,11 +29,17 @@ const MinTimelineSettleWindow = 15 * time.Second
 // timeline tokens effectively immortal.
 const MaxTimelineTokenTTL = 2160 * time.Hour
 
+// RemovalLogMaxReads is the most reads the moderation removal log (ADR-0016 D10) can charge to ONE since_token
+// refresh: a full incremental page (50) followed by the reload of the newest 50, once per instance per CACHE_TTL
+// and only when 50 or more log entries are new. posts.RemovalWorstReads is the source; a test pins them equal.
+const RemovalLogMaxReads = 100
+
 // ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call, the figure ADR-0010 D5's
 // cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
-// 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto). Keep it in sync with that RPC's
+// 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto), plus RemovalLogMaxReads = 100 when
+// that call is a since_token refresh that also refreshes the removal log = 369. Keep it in sync with that RPC's
 // doc comment; tests use this constant, not a literal.
-const ReadBudgetMaxCallReads = 269
+const ReadBudgetMaxCallReads = 269 + RemovalLogMaxReads
 
 // IPReadBudgetMaxCallReads is the per-call hold M of the IP read budget (ADR-0010 D5 A1). Since A8 nothing
 // reserves the IP key (it is charge-only everywhere), so this hold has no admission role; it is the constant any
@@ -125,8 +131,8 @@ type RateLimitConfig struct {
 	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
 	// (ADR-0010 D5, ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
 	// typical day of ~183 reads). The counter is per instance LIFETIME (in memory, reset only at the IST day
-	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,268 reads
-	// on the budget plus 40 on account_ops_daily = 2,308 per instance lifetime (ADR-0010 D5 A1, A6). The daily
+	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,368 reads
+	// on the budget plus 40 on account_ops_daily = 2,408 per instance lifetime (ADR-0010 D5 A1, A6). The daily
 	// total is that times the lifetimes the uid touches: 3 on a steady day, up to 6 on a rollout day, and up to
 	// ~270 when an attacker idle-cycles instances (residual R2, accepted; abuse-spike.md has the churn check).
 	ReadBudgetPerUIDPerDay int64
@@ -176,6 +182,11 @@ type QuotaConfig struct {
 	// ReportsPerDay/NewAccountReportsPerDay cap ReportContent writes (ADR-0016 D1, quota.Reports).
 	ReportsPerDay           int
 	NewAccountReportsPerDay int
+
+	// LikesPerDay/NewAccountLikesPerDay cap LikePost writes (ADR-0018 D3, quota.Likes). Unlike and UndoRepost are
+	// never quota-gated; reposts use the posts quota.
+	LikesPerDay           int
+	NewAccountLikesPerDay int
 }
 
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
@@ -265,6 +276,15 @@ type Config struct {
 	// FeatureReports is the P7 server flag (wire name `reports`, ADR-0016 D1) gating ModerationService.ReportContent.
 	// FEATURE_REPORTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureReports flags.Spec
+	// FeatureEngagement is the P5 server flag (wire name `engagement`, ADR-0018 D8) gating EngagementService, the
+	// quote path of CreatePost and viewer-flag hydration. FEATURE_ENGAGEMENT[_ALLOWLIST|_PERCENT], default off.
+	FeatureEngagement flags.Spec
+
+	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
+	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
+	// off in every environment: off means no log reads and no suspension-reset cost (docs/runbooks/moderation.md 3b).
+	// The log is still WRITTEN on every hide/restore while this is off, so enabling it later needs no backfill.
+	FeatureRemovedIDs flags.Spec
 	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
 	// GetThread. FEATURE_REPLIES[_ALLOWLIST|_PERCENT], default off in every environment. It is independent of
 	// FEATURE_POSTS but needs it (the posts guard runs first).
@@ -612,6 +632,13 @@ func Load() (Config, error) {
 	if q.NewAccountReportsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", 5); err != nil {
 		return Config{}, err
 	}
+	// ADR-0018 D3: 500 likes/day, 100 for accounts younger than the new-account window.
+	if q.LikesPerDay, err = getInt("QUOTA_LIKES_PER_DAY", 500); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountLikesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", 100); err != nil {
+		return Config{}, err
+	}
 
 	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
@@ -714,6 +741,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureEngagement, err := flags.LoadSpec("ENGAGEMENT", "engagement", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	reauthMaxAge, err := getDuration("ACCOUNT_DELETE_REAUTH_MAX_AGE", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -780,6 +815,8 @@ func Load() (Config, error) {
 		AuthEmulator:              authEmulator,
 		FeatureAccountLifecycle:   featureAccountLifecycle,
 		FeatureReports:            featureReports,
+		FeatureEngagement:         featureEngagement,
+		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,
 		AccountDeleteReauthMaxAge: reauthMaxAge,

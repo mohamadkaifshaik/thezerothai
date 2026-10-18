@@ -10,17 +10,21 @@ String createPostErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
-    EmailNotVerifiedException() =>
-      'Please verify your email address to post.',
+    EmailNotVerifiedException() => 'Please verify your email address to post.',
     DegradedModeException() =>
       'dZeroth is in a limited mode right now, so posting is paused. '
           'Please try again shortly.',
+    FeatureDisabledException(feature: 'media') =>
+      "Photos can't be added to posts right now. Remove them and post "
+          'again, or try later.',
     FeatureDisabledException() => "Posting isn't available right now.",
     NetworkException() =>
       'No connection. Your post was not sent; check your network and try '
           'again.',
     ValidationException() =>
       "This post can't be sent. Check the text and try again.",
+    MediaNotReadyException() =>
+      'One of your photos is no longer available. Remove it and try again.',
     _ => "Couldn't send your post. Please try again.",
   };
 }
@@ -52,8 +56,7 @@ String replyErrorMessage(AppException error) {
 String threadRefreshErrorMessage(AppException error) {
   return switch (error) {
     final RateLimitedException e => rateLimitedMessage(e),
-    NetworkException() =>
-      'No connection. Showing the conversation as it was.',
+    NetworkException() => 'No connection. Showing the conversation as it was.',
     _ => "Couldn't refresh this conversation. Pull down to try again.",
   };
 }

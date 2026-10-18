@@ -233,6 +233,21 @@ void main() {
       final mapped = mapConnectError(error) as FeatureDisabledException;
       expect(mapped.feature, 'media');
     });
+    test('MEDIA_NOT_READY carries metadata["media_id"]', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_MEDIA_NOT_READY,
+          message: 'not ready',
+          metadata: {'media_id': 'm7'}.entries,
+        ),
+      );
+
+      final mapped = mapConnectError(error) as MediaNotReadyException;
+      expect(mapped.mediaId, 'm7');
+    });
+
     test('maps ERROR_REASON_REAUTH_REQUIRED to ReauthRequiredException', () {
       final error = _withDetail(
         connect.Code.failedPrecondition,

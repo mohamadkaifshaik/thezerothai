@@ -18,6 +18,7 @@ import '../../timeline/data/timeline_repository.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
+import '../../moderation/domain/reports_feature_flag.dart';
 import '../domain/profile_edit_feature_flag.dart';
 import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
@@ -129,9 +130,7 @@ class _ReadyProfile extends StatelessWidget {
 /// header shows directly (no GetProfile re-read).
 Future<void> _editProfile(BuildContext context) async {
   final cubit = context.read<ProfileCubit>();
-  final saved = await context.push<identity.Profile>(
-    AppRouter.editProfilePath,
-  );
+  final saved = await context.push<identity.Profile>(AppRouter.editProfilePath);
   if (saved != null && !cubit.isClosed) cubit.profileUpdated(saved);
 }
 
@@ -146,6 +145,7 @@ ProfileHeader _header(
     graphEnabled: state.graphEnabled,
     relationship: state.relationship,
     showPostsCount: showPostsCount,
+    reportsEnabled: isFeatureEnabled(context, kFeatureReports),
     onRelationshipChanged: (relationship) =>
         context.read<ProfileCubit>().relationshipChanged(relationship),
     onEditProfile:

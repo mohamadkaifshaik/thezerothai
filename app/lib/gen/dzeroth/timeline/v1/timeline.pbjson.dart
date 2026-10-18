@@ -52,6 +52,7 @@ const GetHomeTimelineResponse$json = {
     {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
     {'1': 'since_token', '3': 3, '4': 1, '5': 9, '10': 'sinceToken'},
     {'1': 'gap_page_token', '3': 4, '4': 1, '5': 9, '10': 'gapPageToken'},
+    {'1': 'removed_ids', '3': 5, '4': 3, '5': 9, '10': 'removedIds'},
   ],
 };
 
@@ -60,7 +61,7 @@ final $typed_data.Uint8List getHomeTimelineResponseDescriptor = $convert.base64D
     'ChdHZXRIb21lVGltZWxpbmVSZXNwb25zZRIwCgVwb3N0cxgBIAMoCzIaLmR6ZXJvdGgucG9zdH'
     'MudjEuUG9zdFZpZXdSBXBvc3RzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4dFBhZ2VU'
     'b2tlbhIfCgtzaW5jZV90b2tlbhgDIAEoCVIKc2luY2VUb2tlbhIkCg5nYXBfcGFnZV90b2tlbh'
-    'gEIAEoCVIMZ2FwUGFnZVRva2Vu');
+    'gEIAEoCVIMZ2FwUGFnZVRva2VuEh8KC3JlbW92ZWRfaWRzGAUgAygJUgpyZW1vdmVkSWRz');
 
 @$core.Deprecated('Use getUserTimelineRequestDescriptor instead')
 const GetUserTimelineRequest$json = {
@@ -96,6 +97,7 @@ const GetUserTimelineResponse$json = {
     {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
     {'1': 'since_token', '3': 3, '4': 1, '5': 9, '10': 'sinceToken'},
     {'1': 'gap_page_token', '3': 4, '4': 1, '5': 9, '10': 'gapPageToken'},
+    {'1': 'removed_ids', '3': 5, '4': 3, '5': 9, '10': 'removedIds'},
   ],
 };
 
@@ -104,7 +106,7 @@ final $typed_data.Uint8List getUserTimelineResponseDescriptor = $convert.base64D
     'ChdHZXRVc2VyVGltZWxpbmVSZXNwb25zZRIwCgVwb3N0cxgBIAMoCzIaLmR6ZXJvdGgucG9zdH'
     'MudjEuUG9zdFZpZXdSBXBvc3RzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4dFBhZ2VU'
     'b2tlbhIfCgtzaW5jZV90b2tlbhgDIAEoCVIKc2luY2VUb2tlbhIkCg5nYXBfcGFnZV90b2tlbh'
-    'gEIAEoCVIMZ2FwUGFnZVRva2Vu');
+    'gEIAEoCVIMZ2FwUGFnZVRva2VuEh8KC3JlbW92ZWRfaWRzGAUgAygJUgpyZW1vdmVkSWRz');
 
 const $core.Map<$core.String, $core.dynamic> TimelineServiceBase$json = {
   '1': 'TimelineService',

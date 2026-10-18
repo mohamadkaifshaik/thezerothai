@@ -40,9 +40,8 @@ void main() {
     blocTest<AuthBloc, AuthState>(
       'emits authenticated when the repository reports a verified user',
       setUp: () {
-        when(
-          () => authRepository.authStateChanges(),
-        ).thenAnswer((_) => Stream.value(verifiedUser));
+        when(() => authRepository.authStateChanges())
+            .thenAnswer((_) => Stream.value(verifiedUser));
       },
       build: () => AuthBloc(authRepository: authRepository),
       act: (bloc) => bloc.add(const AuthSubscriptionRequested()),
@@ -54,9 +53,8 @@ void main() {
     blocTest<AuthBloc, AuthState>(
       'emits needsEmailVerification for an unverified password account',
       setUp: () {
-        when(
-          () => authRepository.authStateChanges(),
-        ).thenAnswer((_) => Stream.value(unverifiedUser));
+        when(() => authRepository.authStateChanges())
+            .thenAnswer((_) => Stream.value(unverifiedUser));
       },
       build: () => AuthBloc(authRepository: authRepository),
       act: (bloc) => bloc.add(const AuthSubscriptionRequested()),
@@ -71,9 +69,8 @@ void main() {
     blocTest<AuthBloc, AuthState>(
       'emits unauthenticated when signed out',
       setUp: () {
-        when(
-          () => authRepository.authStateChanges(),
-        ).thenAnswer((_) => Stream.value(null));
+        when(() => authRepository.authStateChanges())
+            .thenAnswer((_) => Stream.value(null));
       },
       build: () => AuthBloc(authRepository: authRepository),
       act: (bloc) => bloc.add(const AuthSubscriptionRequested()),
@@ -136,9 +133,8 @@ void main() {
       'email_verified',
       setUp: () {
         when(() => authRepository.reloadUser()).thenAnswer((_) async {});
-        when(
-          () => authRepository.getIdToken(forceRefresh: true),
-        ).thenAnswer((_) async => 'fresh-token');
+        when(() => authRepository.getIdToken(forceRefresh: true))
+            .thenAnswer((_) async => 'fresh-token');
         when(() => authRepository.currentUser).thenReturn(verifiedUser);
       },
       build: () => AuthBloc(authRepository: authRepository),
@@ -150,9 +146,7 @@ void main() {
       ],
       verify: (_) {
         verify(() => authRepository.reloadUser()).called(1);
-        verify(
-          () => authRepository.getIdToken(forceRefresh: true),
-        ).called(1);
+        verify(() => authRepository.getIdToken(forceRefresh: true)).called(1);
       },
     );
 
@@ -161,9 +155,8 @@ void main() {
       'force-refresh itself fails',
       setUp: () {
         when(() => authRepository.reloadUser()).thenAnswer((_) async {});
-        when(
-          () => authRepository.getIdToken(forceRefresh: true),
-        ).thenThrow(Exception('network blip'));
+        when(() => authRepository.getIdToken(forceRefresh: true))
+            .thenThrow(Exception('network blip'));
         when(() => authRepository.currentUser).thenReturn(verifiedUser);
       },
       build: () => AuthBloc(authRepository: authRepository),

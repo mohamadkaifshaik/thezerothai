@@ -154,8 +154,10 @@ type fakeDirectory struct {
 	profiles  map[string]identity.Profile
 	err       error
 	forgotten []string
-	cold      map[string]bool // uids evicted by Forget and not yet re-read
-	seenAt    time.Time
+	// forgottenUnread is what ForgetUnread was called with.
+	forgottenUnread []string
+	cold            map[string]bool // uids evicted by Forget and not yet re-read
+	seenAt          time.Time
 }
 
 func newDirectory(uids ...string) *fakeDirectory {
@@ -208,6 +210,11 @@ func (d *fakeDirectory) Forget(uids ...string) {
 	for _, u := range uids {
 		d.cold[u] = true
 	}
+}
+
+// ForgetUnread records the uids but, unlike Forget, leaves their profiles warm (the cold map is untouched).
+func (d *fakeDirectory) ForgetUnread(uids ...string) {
+	d.forgottenUnread = append(d.forgottenUnread, uids...)
 }
 
 // fakeSocial serves per-recipient graph snapshots.

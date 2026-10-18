@@ -32,6 +32,12 @@ type Deps struct {
 	Posts     posts.Reader
 	Graph     graph.Reader
 	Directory identity.Directory
+	// Viewer supplies the caller's liked/reposted flags (engagement, ADR-0018 D5). Nil, or FEATURE_ENGAGEMENT off
+	// for the caller, means every flag is false with no userLikes read.
+	Viewer posts.ViewerFlags
+	// Removals is the moderation removal log (ADR-0016 D10), consulted only by since_token refreshes. Nil disables
+	// removed_ids (no reads, no reset): tests and processes that do not wire the log.
+	Removals posts.Removals
 
 	// CursorKey seals tokens (config.CursorHMACKey).
 	CursorKey []byte
@@ -67,9 +73,13 @@ var _ timelinev1connect.TimelineServiceHandler = (*Server)(nil)
 //
 // Budget (ADR-0004, ADR-0010 D17), reads, counting the account-status interceptor's caller `users` read:
 // ceiling 2 + C + 2*page where C = ceil((F+1)/30), 269 at F = 5,000 and page 50 (2 = interceptor + caller
-// graph; +1 userLikes once engagement ships). Authors covered by a fresh author-recent entry are removed
+// graph; +1 userLikes with FEATURE_ENGAGEMENT on, cached 60 s). Authors covered by a fresh author-recent entry are removed
 // before chunking, so the queries are ceil(uncovered/30). Planning: refresh 4 + new posts, older page and cold
 // open 30 (F = 60, page 20). Writes 0.
+//
+// A since_token refresh also reads the moderation removal log (removed_ids, ADR-0016 D10): 0 reads on a warm
+// instance cache hit, +1 to +50 once per instance per CACHE_TTL, +100 worst (a full incremental page reloads the
+// newest 50). Cold, older and gap calls read nothing from it.
 //
 //nolint:dupl // mirrors GetUserTimeline over distinct generated proto types
 func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timelinev1.GetHomeTimelineRequest]) (*connect.Response[timelinev1.GetHomeTimelineResponse], error) {
@@ -96,6 +106,9 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 // 53 at page 50; +1 when the caller's blockedBy overflowed), 0 warm for a Posts-tab first page (<= 20) or an
 // empty refresh served by a fresh author-recent entry, 4 for a cold refresh with 0 new posts. Planning 11.
 // Writes 0.
+//
+// A since_token refresh also reads the removal log (removed_ids, ADR-0016 D10), same cost as GetHomeTimeline: 0 warm,
+// +1 to +50 once per instance per CACHE_TTL, +100 worst.
 //
 //nolint:dupl // mirrors GetHomeTimeline over distinct generated proto types
 func (s *Server) GetUserTimeline(ctx context.Context, req *connect.Request[timelinev1.GetUserTimelineRequest]) (*connect.Response[timelinev1.GetUserTimelineResponse], error) {

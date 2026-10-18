@@ -128,10 +128,10 @@ func TestJobsHandle(t *testing.T) {
 			wantOutcome: "dropped:invalid_message",
 		},
 		{
-			name:        "empty media list is dropped",
+			name:        "empty media list is a noop (P5: every deleted post publishes)",
 			data:        func(t *testing.T) []byte { return msg(t, PostDeleteMessage{UID: uidA, PostID: postP}) },
 			setup:       func(*fakeRepo, *fakeObjects) {},
-			wantOutcome: "dropped:invalid_message",
+			wantOutcome: "noop",
 		},
 		{
 			name:        "more than four ids is dropped",

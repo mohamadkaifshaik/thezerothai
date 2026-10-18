@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
@@ -38,7 +41,7 @@ func TestModerator_TakedownRestoreBudgets(t *testing.T) {
 	if err != nil || res.Before != ModerationNone || res.After != ModerationTakenDown || res.AuthorID != "u-a" {
 		t.Fatalf("takedown = %+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Takedown", c, budgettest.Budget{Reads: 1, Writes: 1})
+	budgettest.Assert(t, "Takedown", c, budgettest.Budget{Reads: 1, Writes: 2})
 	if got := storedModeration(t, repo, pid(1)); got != ModerationTakenDown {
 		t.Fatalf("stored = %q", got)
 	}
@@ -50,10 +53,10 @@ func TestModerator_TakedownRestoreBudgets(t *testing.T) {
 	budgettest.Assert(t, "Takedown again", c, budgettest.Budget{Reads: 1})
 
 	ctx, c = budget.WithCounter(context.Background())
-	if res, err = repo.Restore(ctx, pid(1)); err != nil || res.After != ModerationNone {
+	if res, err = repo.Restore(ctx, pid(1), time.Now()); err != nil || res.After != ModerationNone {
 		t.Fatalf("restore = %+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Restore", c, budgettest.Budget{Reads: 1, Writes: 1})
+	budgettest.Assert(t, "Restore", c, budgettest.Budget{Reads: 1, Writes: 2})
 	if got := storedModeration(t, repo, pid(1)); got != ModerationNone {
 		t.Fatalf("stored after restore = %q", got)
 	}
@@ -96,7 +99,7 @@ func TestModerator_HideAndRestoreAuthor(t *testing.T) {
 		t.Fatalf("hide: next=%+v done=%v err=%v", next, done, err)
 	}
 	// 4 posts paged, 3 changed (the TAKEN_DOWN one is skipped).
-	budgettest.Assert(t, "HideAuthor", c, budgettest.Budget{Reads: 4, Writes: 3})
+	budgettest.Assert(t, "HideAuthor", c, budgettest.Budget{Reads: 4, Writes: 6})
 
 	want := map[string]Moderation{pid(1): ModerationSuspendedAuthor, pid(2): ModerationTakenDown,
 		pid(3): ModerationSuspendedAuthor, pid(4): ModerationSuspendedAuthor, pid(9): ModerationNone}
@@ -123,15 +126,15 @@ func TestModerator_HideAndRestoreAuthor(t *testing.T) {
 	budgettest.Assert(t, "HideAuthor resume", c, budgettest.Budget{Reads: 2})
 
 	// restore-post must not undo a suspension; unsuspend restores exactly the suspension-hidden posts.
-	if res, err := repo.Restore(context.Background(), pid(1)); err != nil || res.After != ModerationSuspendedAuthor {
+	if res, err := repo.Restore(context.Background(), pid(1), time.Now()); err != nil || res.After != ModerationSuspendedAuthor {
 		t.Fatalf("restore of a suspended-author post = %+v err=%v", res, err)
 	}
 	ctx, c = budget.WithCounter(context.Background())
-	rn, done, err := repo.RestoreAuthor(ctx, "u-bad", ModerationCheckpoint{})
+	rn, done, err := repo.RestoreAuthor(ctx, "u-bad", ModerationCheckpoint{}, time.Now())
 	if err != nil || !done || rn.Changed != 3 {
 		t.Fatalf("restore author: next=%+v done=%v err=%v", rn, done, err)
 	}
-	budgettest.Assert(t, "RestoreAuthor", c, budgettest.Budget{Reads: 3, Writes: 3})
+	budgettest.Assert(t, "RestoreAuthor", c, budgettest.Budget{Reads: 3, Writes: 6})
 	if got := storedModeration(t, repo, pid(2)); got != ModerationTakenDown {
 		t.Errorf("TAKEN_DOWN post after unsuspend = %q, want it still taken down", got)
 	}
@@ -166,7 +169,7 @@ func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 		}
 		budgettest.Assert(t, "GetPost hidden", c, budgettest.Budget{Reads: 1})
 	}
-	if _, err := in.repo.Restore(context.Background(), p.ID); err != nil {
+	if _, err := in.repo.Restore(context.Background(), p.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	in3 := newCreateInstance(t, client, time.Nanosecond)
@@ -197,7 +200,7 @@ func TestModerator_HideAuthorSince(t *testing.T) {
 	if err != nil || !done || next.Changed != 1 {
 		t.Fatalf("settle pass: next=%+v done=%v err=%v", next, done, err)
 	}
-	budgettest.Assert(t, "HideAuthor since", c, budgettest.Budget{Reads: 1, Writes: 1})
+	budgettest.Assert(t, "HideAuthor since", c, budgettest.Budget{Reads: 1, Writes: 2})
 	if got := storedModeration(t, repo, pid(4)); got != ModerationSuspendedAuthor {
 		t.Errorf("late post moderation = %q", got)
 	}
@@ -242,10 +245,150 @@ func TestModerator_BatchFailsWhenAPostChangedAfterTheRead(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if _, _, err := repo.RestoreAuthor(context.Background(), "u-bad", ModerationCheckpoint{}); err == nil {
+	if _, _, err := repo.RestoreAuthor(context.Background(), "u-bad", ModerationCheckpoint{}, time.Now()); err == nil {
 		t.Fatal("RestoreAuthor committed over a post changed after its read")
 	}
 	if got := storedModeration(t, repo, pid(2)); got != ModerationTakenDown {
 		t.Errorf("post 2 after failed restore = %q, want TAKEN_DOWN", got)
+	}
+}
+
+func storedRemoval(t *testing.T, repo *FirestoreRepo, id string) (RemovalState, time.Time, bool) {
+	t.Helper()
+	snap, err := repo.removalRef(id).Get(context.Background())
+	if status.Code(err) == codes.NotFound {
+		return "", time.Time{}, false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d removalDoc
+	if err := snap.DataTo(&d); err != nil {
+		t.Fatal(err)
+	}
+	if !d.ExpireAt.After(d.CreatedAt) || d.ExpireAt.Sub(d.CreatedAt) < RemovalRetention-time.Hour {
+		t.Errorf("removal %s: expireAt %v is not about RemovalRetention after createdAt %v", id, d.ExpireAt, d.CreatedAt)
+	}
+	return RemovalState(d.State), d.CreatedAt, true
+}
+
+// TestModerator_RemovalLogFollowsEveryHideAndRestore (ADR-0016 D10): every hide and every un-hide writes the post's
+// postRemovals entry in the same transaction or batch as the moderation field; no-ops write nothing; a re-run of
+// suspend-user's hide writes nothing new; a restore overwrites with RESTORED and a later createdAt (a warm
+// instance's incremental query would never see a delete).
+func TestModerator_RemovalLogFollowsEveryHideAndRestore(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	base := int64(1_700_000_000_000)
+	now := time.Now()
+	seedPost(t, client, pid(1), "u-a", false, base+1000)
+
+	if st, _, ok := storedRemoval(t, repo, pid(1)); ok {
+		t.Fatalf("entry before any action: %q", st)
+	}
+	if _, err := repo.Takedown(context.Background(), pid(1), now); err != nil {
+		t.Fatal(err)
+	}
+	st, at1, ok := storedRemoval(t, repo, pid(1))
+	if !ok || st != RemovalRemoved || at1.IsZero() {
+		t.Fatalf("after takedown: state=%q at=%v ok=%v", st, at1, ok)
+	}
+	// A repeated takedown is a no-op: 0 writes, the entry is untouched.
+	ctx, c := budget.WithCounter(context.Background())
+	if _, err := repo.Takedown(ctx, pid(1), now); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "Takedown again", c, budgettest.Budget{Reads: 1})
+	if _, at, _ := storedRemoval(t, repo, pid(1)); !at.Equal(at1) {
+		t.Fatalf("a no-op takedown moved createdAt %v -> %v", at1, at)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	if _, err := repo.Restore(context.Background(), pid(1), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	st, at2, _ := storedRemoval(t, repo, pid(1))
+	if st != RemovalRestored || !at2.After(at1) {
+		t.Fatalf("after restore: state=%q at=%v (was %v), want RESTORED and later", st, at2, at1)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if _, err := repo.Takedown(context.Background(), pid(1), now); err != nil {
+		t.Fatal(err)
+	}
+	if st, at3, _ := storedRemoval(t, repo, pid(1)); st != RemovalRemoved || !at3.After(at2) {
+		t.Fatalf("re-takedown: state=%q at=%v (was %v)", st, at3, at2)
+	}
+}
+
+// TestModerator_HideAuthorLogsEveryPostInOneBatchAndIsIdempotent: 300 posts need two pages (hidePage = 250: two
+// operations per post stay inside the 500-operation batch), cost 2 writes per post, and a re-run writes nothing.
+func TestModerator_HideAuthorLogsEveryPostInOneBatchAndIsIdempotent(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	const n = 300
+	base := int64(1_700_000_000_000)
+	for i := 1; i <= n; i++ {
+		seedPost(t, client, pid(i), "u-bad", false, base+int64(i)*1000)
+	}
+	now := time.Now()
+
+	ctx, c := budget.WithCounter(context.Background())
+	cp := ModerationCheckpoint{}
+	pages := 0
+	for {
+		var done bool
+		var err error
+		if cp, done, err = repo.HideAuthor(ctx, "u-bad", cp, now); err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+		pages++
+		if done {
+			break
+		}
+	}
+	if pages != 2 || cp.Changed != n {
+		t.Fatalf("pages=%d changed=%d, want 2 pages and %d changed", pages, cp.Changed, n)
+	}
+	budgettest.Assert(t, "HideAuthor 300", c, budgettest.Budget{Reads: n, Writes: 2 * n})
+	for _, i := range []int{1, 250, 251, n} {
+		if st, _, ok := storedRemoval(t, repo, pid(i)); !ok || st != RemovalRemoved {
+			t.Errorf("post %d entry = %q ok=%v", i, st, ok)
+		}
+	}
+
+	// Re-run from the start: every post is already hidden and already logged.
+	ctx, c = budget.WithCounter(context.Background())
+	cp = ModerationCheckpoint{}
+	for {
+		var done bool
+		var err error
+		if cp, done, err = repo.HideAuthor(ctx, "u-bad", cp, now); err != nil {
+			t.Fatal(err)
+		}
+		if done {
+			break
+		}
+	}
+	if cp.Changed != 0 || c.Writes() != 0 {
+		t.Fatalf("re-run changed=%d writes=%d, want 0/0", cp.Changed, c.Writes())
+	}
+
+	// The reader sees the newest 50 of them, and unsuspend writes RESTORED over every entry.
+	ents, err := repo.Newest(context.Background(), time.Now().Add(-time.Hour), RemovalMaxIDs)
+	if err != nil || len(ents) != RemovalMaxIDs {
+		t.Fatalf("Newest: %d entries err=%v", len(ents), err)
+	}
+	cp = ModerationCheckpoint{}
+	for {
+		var done bool
+		if cp, done, err = repo.RestoreAuthor(context.Background(), "u-bad", cp, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if done {
+			break
+		}
+	}
+	if st, _, _ := storedRemoval(t, repo, pid(n)); st != RemovalRestored {
+		t.Fatalf("after unsuspend entry = %q, want RESTORED", st)
 	}
 }

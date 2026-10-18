@@ -6,11 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('shared fixture normalise rows (ADR-0010 D9/D21 G2/G4)', () {
-    final json =
-        jsonDecode(
-              File('../testdata/post_text_grammar.json').readAsStringSync(),
-            )
-            as Map<String, dynamic>;
+    final json = jsonDecode(
+      File('../testdata/post_text_grammar.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
     final rows = (json['normalise'] as List).cast<Map<String, dynamic>>();
 
     test('runs every row: stored text, or Post disabled on error', () {

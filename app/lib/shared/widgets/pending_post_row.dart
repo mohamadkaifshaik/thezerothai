@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 
@@ -20,6 +22,7 @@ class PendingPostRow extends StatelessWidget {
     this.author,
     this.createdAt,
     this.now,
+    this.thumbnails = const [],
     this.semanticsLabel = 'Sending your post',
   });
 
@@ -27,6 +30,10 @@ class PendingPostRow extends StatelessWidget {
   final common.AuthorSnapshot? author;
   final DateTime? createdAt;
   final DateTime? now;
+
+  /// On-device previews of attached photos, shown small under the text.
+  final List<Uint8List> thumbnails;
+
   /// Announced for the row; null leaves the card's own text and the
   /// "Posting..." line to speak for it.
   final String? semanticsLabel;
@@ -55,13 +62,53 @@ class PendingPostRow extends StatelessWidget {
             graphActionsEnabled: false,
             now: now,
           ),
+          if (thumbnails.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(
+                left: AppSpacing.md,
+                bottom: AppSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  for (final bytes in thumbnails)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        end: AppSpacing.sm,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        child: ExcludeSemantics(
+                          child: Image.memory(
+                            bytes,
+                            width: AppSpacing.xxl,
+                            height: AppSpacing.xxl,
+                            fit: BoxFit.cover,
+                            cacheWidth:
+                                (AppSpacing.xxl *
+                                        MediaQuery.devicePixelRatioOf(context))
+                                    .ceil(),
+                            gaplessPlayback: true,
+                            errorBuilder: (_, _, _) => const SizedBox.square(
+                              dimension: AppSpacing.xxl,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.only(
               left: AppSpacing.md,
               bottom: AppSpacing.sm,
             ),
             child: Text(
-              'Posting...',
+              thumbnails.isEmpty
+                  ? 'Posting...'
+                  : thumbnails.length == 1
+                  ? 'Posting with 1 photo...'
+                  : 'Posting with ${thumbnails.length} photos...',
               style: Theme.of(context).textTheme.labelSmall,
             ),
           ),

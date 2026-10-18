@@ -44,6 +44,12 @@ class PostsRepository {
   /// (Home under a profile or a post) hides them at once, with no refetch.
   Stream<String> get removedPosts => _removed.stream;
 
+  /// Whether the posts sub-feature [name] (`replies`, `quotes`, `media`) is
+  /// usable right now (the coarse flag is on and no FEATURE_DISABLED answer
+  /// has hidden it). Lets the composer skip uploads a CreatePost would
+  /// refuse.
+  bool subFeatureEnabled(String name) => _gate.subFeatureEnabled(name);
+
   /// Creates a post. [idempotencyKey] must be reused when retrying the same
   /// post (the server replays the stored result).
   Future<pb.PostView> createPost({

@@ -54,7 +54,10 @@ AppException mapConnectError(Object error) {
           retryAfter: retryAfter,
         );
       case common.ErrorReason.ERROR_REASON_MEDIA_NOT_READY:
-        return MediaNotReadyException(message);
+        return MediaNotReadyException(
+          message,
+          mediaId: detail.metadata['media_id'],
+        );
       case common.ErrorReason.ERROR_REASON_IDEMPOTENCY_KEY_REUSED:
         return IdempotencyKeyReusedException(message);
       case common.ErrorReason.ERROR_REASON_ACCOUNT_RESTRICTED:

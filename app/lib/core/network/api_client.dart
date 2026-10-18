@@ -5,6 +5,8 @@ import 'package:connectrpc/protocol/connect.dart' as protocol_connect;
 import '../../gen/dzeroth/graph/v1/graph.connect.client.dart';
 import '../../gen/dzeroth/identity/v1/identity.connect.client.dart';
 import '../../gen/dzeroth/media/v1/media.connect.client.dart';
+import '../../gen/dzeroth/moderation/v1/moderation.connect.client.dart';
+import '../../gen/dzeroth/notifications/v1/notifications.connect.client.dart';
 import '../../gen/dzeroth/posts/v1/posts.connect.client.dart';
 import '../../gen/dzeroth/timeline/v1/timeline.connect.client.dart';
 import 'app_exception.dart';
@@ -46,6 +48,8 @@ class ApiClient {
   late final media = MediaServiceClient(_transport);
   late final posts = PostServiceClient(_transport);
   late final timeline = TimelineServiceClient(_transport);
+  late final notifications = NotificationServiceClient(_transport);
+  late final moderation = ModerationServiceClient(_transport);
 }
 
 /// Runs [call], converting any thrown error into a typed [AppException].

@@ -98,7 +98,11 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
               labelText: 'Password',
               suffixIcon: IconButton(
                 tooltip: _obscure ? 'Show password' : 'Hide password',
-                icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                icon: Icon(
+                  _obscure
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),
             ),

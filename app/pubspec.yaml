@@ -31,6 +31,7 @@ dependencies:
   firebase_core: ^4.15.0
   firebase_auth: ^6.7.0
   firebase_app_check: ^0.4.8
+  firebase_messaging: ^16.7.0
   google_sign_in: ^7.2.0
   sign_in_with_apple: ^8.2.0
   crypto: ^3.0.7
@@ -52,6 +53,10 @@ dependencies:
   url_launcher: ^6.3.2
   # NFC for the composer's code-point counter (ADR-0010 D9 step 3). Pure Dart.
   unorm_dart: ^0.3.0
+  image: ^4.12.0
+  image_picker: ^1.2.4
+  blurhash_dart: ^1.2.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:
@@ -66,6 +71,7 @@ dev_dependencies:
   drift_dev: ^2.35.1
   bloc_test: ^10.0.0
   mocktail: ^1.0.5
+  fake_async: ^1.3.3
   # Fakes UrlLauncherPlatform.instance in privacy_policy_link_test.dart so
   # tests never hit a real platform channel.
   url_launcher_platform_interface: ^2.3.2

@@ -77,7 +77,7 @@ func DecodeWindowAt(key []byte, binding, token string, now time.Time, ttl time.D
 	if len(parts) != 5 || parts[2] == "" {
 		return Window{}, ErrInvalid
 	}
-	if err := checkIssued(parts[0], now, ttl); err != nil {
+	if _, err := checkIssued(parts[0], now, ttl); err != nil {
 		return Window{}, err
 	}
 	upperMicros, err := strconv.ParseInt(parts[1], 10, 64)

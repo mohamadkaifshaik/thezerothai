@@ -67,14 +67,22 @@ func (j *Jobs) PostDeleted(ctx context.Context, uid, postID string, mediaIDs []s
 	return j.pub.Publish(ctx, data)
 }
 
-// Handle implements identity.JobHandler. Reads: len(MediaIDs) + 1 (the post); deletes: len(MediaIDs) documents;
-// GCS: free deletes, 4 per image.
+// Handle implements identity.JobHandler. Reads: len(MediaIDs) + 1 (the post), 0 for a post without images
+// ("noop"); deletes: len(MediaIDs) documents; GCS: free deletes, up to 4 per image (2 public + 2 private upload).
 func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m PostDeleteMessage
 	if err := json.Unmarshal(data, &m); err != nil {
 		return "dropped:malformed_message", nil
 	}
-	if !ids.ValidUID(m.UID) || !ids.ValidPostID(m.PostID) || len(m.MediaIDs) == 0 || len(m.MediaIDs) > MaxPerPost {
+	if !ids.ValidUID(m.UID) || !ids.ValidPostID(m.PostID) {
+		return "dropped:invalid_message", nil
+	}
+	if len(m.MediaIDs) == 0 {
+		// Since P5 every deleted post publishes this job (ADR-0018 D10); a post without images has nothing
+		// here. Acknowledged before any read, so a post's likes/reposts clean-up costs media 0 reads.
+		return "noop", nil
+	}
+	if len(m.MediaIDs) > MaxPerPost {
 		return "dropped:invalid_message", nil
 	}
 	seen := make(map[string]struct{}, len(m.MediaIDs))

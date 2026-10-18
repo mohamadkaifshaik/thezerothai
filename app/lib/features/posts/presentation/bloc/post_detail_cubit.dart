@@ -70,6 +70,8 @@ class PostDetailCubit extends Cubit<PostDetailState> {
     final key = _deleteKey ??= _uuid.v4();
     await _repository.deletePost(postId: _postId, idempotencyKey: key);
     _deleteKey = null;
-    if (!isClosed) emit(const PostDetailState(status: PostDetailStatus.deleted));
+    if (!isClosed) {
+      emit(const PostDetailState(status: PostDetailStatus.deleted));
+    }
   }
 }

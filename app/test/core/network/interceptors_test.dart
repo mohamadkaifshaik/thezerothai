@@ -69,26 +69,30 @@ void main() {
 
     setUp(() => waits = []);
 
-    test('retries read_budget_inflight after retry_after, then succeeds',
-        () async {
-      var calls = 0;
-      final wrapped = make().call<String, String>((request) async {
-        calls++;
-        if (calls == 1) throw _rateLimited('read_budget_inflight', retrySeconds: 1);
-        return _echoResponse(request);
-      });
+    test(
+      'retries read_budget_inflight after retry_after, then succeeds',
+      () async {
+        var calls = 0;
+        final wrapped = make().call<String, String>((request) async {
+          calls++;
+          if (calls == 1) {
+            throw _rateLimited('read_budget_inflight', retrySeconds: 1);
+}
+          return _echoResponse(request);
+        });
 
-      await wrapped(_request());
+        await wrapped(_request());
 
-      expect(calls, 2);
-      expect(waits, hasLength(1));
-      // 1 s + jitter in [0, 250 ms].
-      expect(waits.single, greaterThanOrEqualTo(const Duration(seconds: 1)));
-      expect(
-        waits.single,
-        lessThanOrEqualTo(const Duration(milliseconds: 1250)),
-      );
-    });
+        expect(calls, 2);
+        expect(waits, hasLength(1));
+        // 1 s + jitter in [0, 250 ms].
+        expect(waits.single, greaterThanOrEqualTo(const Duration(seconds: 1)));
+        expect(
+          waits.single,
+          lessThanOrEqualTo(const Duration(milliseconds: 1250)),
+        );
+      },
+    );
 
     test('is bounded: surfaces the error after maxRetries', () async {
       var calls = 0;
@@ -117,7 +121,10 @@ void main() {
 
       await wrapped(_request());
 
-      expect(waits.single, lessThanOrEqualTo(const Duration(milliseconds: 3250)));
+      expect(
+        waits.single,
+        lessThanOrEqualTo(const Duration(milliseconds: 3250)),
+      );
     });
 
     test('defaults to 1 s when retry_after is absent', () async {
@@ -174,56 +181,53 @@ void main() {
       appCheckTokens = MockAppCheckTokenProvider();
     });
 
-    test('attaches both the ID token and the App Check token when available', () async {
-      when(() => authTokens.getIdToken()).thenAnswer((_) async => 'id-token');
-      when(
-        () => appCheckTokens.getAppCheckToken(),
-      ).thenAnswer((_) async => 'app-check-token');
-
-      final interceptor = AuthHeadersInterceptor(authTokens, appCheckTokens);
-      connect.Request<String, String>? captured;
-      final wrapped = interceptor.call<String, String>((request) async {
-        captured = request;
-        return _echoResponse(request);
-      });
-
-      await wrapped(_request());
-
-      expect(captured!.headers['authorization'], 'Bearer id-token');
-      expect(captured!.headers['x-firebase-appcheck'], 'app-check-token');
-    });
-
     test(
-      'still makes the call with no App Check header (rather than failing '
-      'it) when the App Check token fetch throws',
+      'attaches both the ID token and the App Check token when available',
       () async {
         when(() => authTokens.getIdToken()).thenAnswer((_) async => 'id-token');
-        when(
-          () => appCheckTokens.getAppCheckToken(),
-        ).thenThrow(Exception('attestation failed'));
+        when(() => appCheckTokens.getAppCheckToken())
+            .thenAnswer((_) async => 'app-check-token');
 
         final interceptor = AuthHeadersInterceptor(authTokens, appCheckTokens);
         connect.Request<String, String>? captured;
-        var called = false;
         final wrapped = interceptor.call<String, String>((request) async {
-          called = true;
           captured = request;
           return _echoResponse(request);
         });
 
         await wrapped(_request());
 
-        expect(called, isTrue);
         expect(captured!.headers['authorization'], 'Bearer id-token');
-        expect(captured!.headers.get('x-firebase-appcheck'), isNull);
+        expect(captured!.headers['x-firebase-appcheck'], 'app-check-token');
       },
     );
 
+    test('still makes the call with no App Check header (rather than failing '
+        'it) when the App Check token fetch throws', () async {
+      when(() => authTokens.getIdToken()).thenAnswer((_) async => 'id-token');
+      when(() => appCheckTokens.getAppCheckToken())
+          .thenThrow(Exception('attestation failed'));
+
+      final interceptor = AuthHeadersInterceptor(authTokens, appCheckTokens);
+      connect.Request<String, String>? captured;
+      var called = false;
+      final wrapped = interceptor.call<String, String>((request) async {
+        called = true;
+        captured = request;
+        return _echoResponse(request);
+      });
+
+      await wrapped(_request());
+
+      expect(called, isTrue);
+      expect(captured!.headers['authorization'], 'Bearer id-token');
+      expect(captured!.headers.get('x-firebase-appcheck'), isNull);
+    });
+
     test('does not set the Authorization header when signed out', () async {
       when(() => authTokens.getIdToken()).thenAnswer((_) async => null);
-      when(
-        () => appCheckTokens.getAppCheckToken(),
-      ).thenAnswer((_) async => 'app-check-token');
+      when(() => appCheckTokens.getAppCheckToken())
+          .thenAnswer((_) async => 'app-check-token');
 
       final interceptor = AuthHeadersInterceptor(authTokens, appCheckTokens);
       connect.Request<String, String>? captured;

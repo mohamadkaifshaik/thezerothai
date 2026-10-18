@@ -112,12 +112,14 @@ class GetHomeTimelineResponse extends $pb.GeneratedMessage {
     $core.String? nextPageToken,
     $core.String? sinceToken,
     $core.String? gapPageToken,
+    $core.Iterable<$core.String>? removedIds,
   }) {
     final result = GetHomeTimelineResponse._();
     if (posts != null) result.posts.addAll(posts);
     if (nextPageToken != null) result.nextPageToken = nextPageToken;
     if (sinceToken != null) result.sinceToken = sinceToken;
     if (gapPageToken != null) result.gapPageToken = gapPageToken;
+    if (removedIds != null) result.removedIds.addAll(removedIds);
     return result;
   }
 
@@ -140,6 +142,7 @@ class GetHomeTimelineResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
     ..aOS(3, _omitFieldNames ? '' : 'sinceToken')
     ..aOS(4, _omitFieldNames ? '' : 'gapPageToken')
+    ..pPS(5, _omitFieldNames ? '' : 'removedIds')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -199,6 +202,11 @@ class GetHomeTimelineResponse extends $pb.GeneratedMessage {
   $core.bool hasGapPageToken() => $_has(3);
   @$pb.TagNumber(4)
   void clearGapPageToken() => $_clearField(4);
+
+  /// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
+  /// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get removedIds => $_getList(4);
 }
 
 class GetUserTimelineRequest extends $pb.GeneratedMessage {
@@ -315,12 +323,14 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     $core.String? nextPageToken,
     $core.String? sinceToken,
     $core.String? gapPageToken,
+    $core.Iterable<$core.String>? removedIds,
   }) {
     final result = GetUserTimelineResponse._();
     if (posts != null) result.posts.addAll(posts);
     if (nextPageToken != null) result.nextPageToken = nextPageToken;
     if (sinceToken != null) result.sinceToken = sinceToken;
     if (gapPageToken != null) result.gapPageToken = gapPageToken;
+    if (removedIds != null) result.removedIds.addAll(removedIds);
     return result;
   }
 
@@ -343,6 +353,7 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
     ..aOS(3, _omitFieldNames ? '' : 'sinceToken')
     ..aOS(4, _omitFieldNames ? '' : 'gapPageToken')
+    ..pPS(5, _omitFieldNames ? '' : 'removedIds')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -398,6 +409,11 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
   $core.bool hasGapPageToken() => $_has(3);
   @$pb.TagNumber(4)
   void clearGapPageToken() => $_clearField(4);
+
+  /// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
+  /// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get removedIds => $_getList(4);
 }
 
 class TimelineServiceApi {
@@ -415,32 +431,27 @@ class TimelineServiceApi {
   /// Filtering (ADR-0010 D6): authors the caller blocks, who block the caller (even if a stale following list
   /// still names them) or whom the caller mutes are dropped; the caller's own posts are always kept. Authors
   /// who are SUSPENDED or DELETING are not filtered at Stage 0 (moderation takedown / purge removes their posts).
-  /// Viewer flags are false and userLikes is not read until engagement ships (ADR-0010 D3).
+  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT is off for the caller (ADR-0010 D3);
+  /// with it on, one cached userLikes read hydrates the page (P5). A REPOST or QUOTE whose embedded author the caller
+  /// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
+  /// describe its original.
   /// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
   /// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
   /// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
-  ///            account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
+  ///            account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT on) / planning: refresh
   ///            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
   ///            cold open 30 (F=60, page 20), writes 0.
+  /// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
+  /// 0 reads while that flag is off): 0 extra reads on a warm cache hit, +1 (empty or unchanged log) to +50 (a
+  /// changed log) once per instance per CACHE_TTL, +100 worst (a full incremental page of 50 reloads the newest 50),
+  /// so a refresh is bounded by 2 + C + 2 * page_size + 100 (= 369 at 5,000 following, page 50). Other modes read
+  /// nothing from the log. Suspending an account with 50 or more posts makes every client reset its cached feeds
+  /// once (see removed_ids in the token contract).
   /// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
   $async.Future<GetHomeTimelineResponse> getHomeTimeline(
           $pb.ClientContext? ctx, GetHomeTimelineRequest request) =>
       _client.invoke<GetHomeTimelineResponse>(ctx, 'TimelineService',
           'GetHomeTimeline', request, GetHomeTimelineResponse());
-
-  /// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
-  /// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-  /// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-  /// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
-  /// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
-  /// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
-  /// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache
-  /// (60 s). Pages use Limit(page_size); next_page_token is set whenever a page is full (ADR-0010 D16).
-  /// Reads: caller users (account-status interceptor) + user users (status) + caller graph (blocked-by), all
-  /// cached 60 s, + page; +1 user graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-  /// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
-  /// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
-  /// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
   $async.Future<GetUserTimelineResponse> getUserTimeline(
           $pb.ClientContext? ctx, GetUserTimelineRequest request) =>
       _client.invoke<GetUserTimelineResponse>(ctx, 'TimelineService',

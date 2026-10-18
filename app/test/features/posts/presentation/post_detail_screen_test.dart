@@ -131,18 +131,16 @@ void main() {
   });
 
   testWidgets('a network error offers Retry', (tester) async {
-    when(
-      () => posts.getPost(postId(1)),
-    ).thenAnswer((_) async => throw const NetworkException('offline'));
+    when(() => posts.getPost(postId(1)))
+        .thenAnswer((_) async => throw const NetworkException('offline'));
     await open(tester);
     expect(
       find.text('No connection. Check your network and try again.'),
       findsOneWidget,
     );
 
-    when(
-      () => posts.getPost(postId(1)),
-    ).thenAnswer((_) async => postView(1, text: 'back online'));
+    when(() => posts.getPost(postId(1)))
+        .thenAnswer((_) async => postView(1, text: 'back online'));
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('back online'), findsOneWidget);
@@ -151,9 +149,8 @@ void main() {
   testWidgets('deleting an own post calls DeletePost and leaves the screen', (
     tester,
   ) async {
-    when(
-      () => posts.getPost(postId(1)),
-    ).thenAnswer((_) async => postView(1, authorId: 'me', text: 'mine'));
+    when(() => posts.getPost(postId(1)))
+        .thenAnswer((_) async => postView(1, authorId: 'me', text: 'mine'));
     when(
       () => posts.deletePost(
         postId: postId(1),
@@ -181,12 +178,10 @@ void main() {
   testWidgets('a blocked author sits behind a "Show post" banner', (
     tester,
   ) async {
-    when(
-      () => posts.getPost(postId(1)),
-    ).thenAnswer((_) async => postView(1, text: 'hidden words'));
-    when(
-      () => graphRepository.cached('u1'),
-    ).thenReturn(graph.Relationship(userId: 'u1', blocking: true));
+    when(() => posts.getPost(postId(1)))
+        .thenAnswer((_) async => postView(1, text: 'hidden words'));
+    when(() => graphRepository.cached('u1'))
+        .thenReturn(graph.Relationship(userId: 'u1', blocking: true));
 
     await open(tester, features: const {'posts', 'graph'});
 
@@ -210,9 +205,8 @@ void main() {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    when(
-      () => posts.getPost(postId(1)),
-    ).thenAnswer((_) async => postView(1, text: 'wide'));
+    when(() => posts.getPost(postId(1)))
+        .thenAnswer((_) async => postView(1, text: 'wide'));
 
     await open(tester, theme: appDarkTheme);
 

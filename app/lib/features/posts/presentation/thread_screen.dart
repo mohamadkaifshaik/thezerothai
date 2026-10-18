@@ -18,6 +18,7 @@ import '../../../shared/widgets/pending_post_row.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../graph/domain/graph_feature_flag.dart';
+import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
 import '../domain/viewer_author_snapshot.dart';
@@ -206,6 +207,7 @@ class _ThreadList extends StatelessWidget {
   Widget build(BuildContext context) {
     final cubit = context.read<ThreadCubit>();
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
+    final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
     return BlocBuilder<ThreadCubit, ThreadState>(
       builder: (context, state) {
@@ -277,6 +279,7 @@ class _ThreadList extends StatelessWidget {
                           showFullImages: true,
                           viewerUserId: viewerUserId,
                           graphActionsEnabled: graphEnabled,
+                          reportsEnabled: reportsEnabled,
                           onDelete: cubit.deletePost,
                           onRelationshipChanged: onRelationship,
                         ),
@@ -311,6 +314,7 @@ class _ThreadList extends StatelessWidget {
                             view: view,
                             viewerUserId: viewerUserId,
                             graphActionsEnabled: graphEnabled,
+                            reportsEnabled: reportsEnabled,
                             onDelete: cubit.deletePost,
                             onRelationshipChanged: onRelationship,
                           ),
@@ -359,6 +363,7 @@ class _ContextPost extends StatelessWidget {
               view: view,
               viewerUserId: viewerUserId,
               graphActionsEnabled: graphEnabled,
+              reportsEnabled: isFeatureEnabled(context, kFeatureReports),
             ),
           ),
         ),

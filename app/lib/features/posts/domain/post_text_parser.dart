@@ -107,7 +107,10 @@ final _hashtagRe = RegExp(
   r'#([\p{L}\p{N}_][\p{L}\p{M}\p{N}_\u200c\u200d]{0,49})',
   unicode: true,
 );
-final _hashtagBodyRune = RegExp(r'[\p{L}\p{M}\p{N}_\u200c\u200d]', unicode: true);
+final _hashtagBodyRune = RegExp(
+  r'[\p{L}\p{M}\p{N}_\u200c\u200d]',
+  unicode: true,
+);
 final _letter = RegExp(r'\p{L}', unicode: true);
 final _letterMarkNumber = RegExp(r'[\p{L}\p{M}\p{N}]', unicode: true);
 

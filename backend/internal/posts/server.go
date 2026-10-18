@@ -46,13 +46,34 @@ func GuardFeature(ctx context.Context, fc FlagChecker) error {
 // Server adapts Service to postsv1connect.PostServiceHandler.
 type Server struct {
 	postsv1connect.UnimplementedPostServiceHandler
-	svc   Service
-	flags FlagChecker
+	svc    Service
+	flags  FlagChecker
+	viewer ViewerFlags
 }
 
+// ServerOption configures NewServer.
+type ServerOption func(*Server)
+
+// WithViewerFlags supplies the engagement implementation of viewer flags (liked/reposted by the caller). Without
+// it, or with FEATURE_ENGAGEMENT off for the caller, every flag is false and no userLikes read happens.
+func WithViewerFlags(v ViewerFlags) ServerOption { return func(s *Server) { s.viewer = v } }
+
 // NewServer builds the Connect handler. Use with postsv1connect.NewPostServiceHandler.
-func NewServer(svc Service, fc FlagChecker) *Server {
-	return &Server{svc: svc, flags: fc}
+func NewServer(svc Service, fc FlagChecker, opts ...ServerOption) *Server {
+	s := &Server{svc: svc, flags: fc}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// viewerSet is the caller's ViewerSet: one cached userLikes read when FEATURE_ENGAGEMENT is on for uid, else the
+// empty set with no read (ADR-0018 D5).
+func (s *Server) viewerSet(ctx context.Context, uid string) ViewerSet {
+	if s.viewer == nil || s.flags == nil || !s.flags.Enabled(uid, EngagementFlagName) {
+		return ViewerSet{}
+	}
+	return s.viewer.Viewer(ctx, uid)
 }
 
 var _ postsv1connect.PostServiceHandler = (*Server)(nil)
@@ -79,6 +100,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		QuoteOfPostID:  m.GetQuoteOfPostId(),
 		MediaEnabled:   s.mediaEnabled(uid),
 		RepliesEnabled: s.repliesEnabled(uid),
+		QuotesEnabled:  s.flags != nil && s.flags.Enabled(uid, EngagementFlagName),
 	})
 	if err != nil {
 		return nil, err
@@ -111,8 +133,8 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 	return connect.NewResponse(&postsv1.DeletePostResponse{}), nil
 }
 
-// GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags stay false until
-// engagement ships (ADR-0010 D3).
+// GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags come from one
+// cached userLikes read while FEATURE_ENGAGEMENT is on for the caller (ADR-0018 D5), else they are false.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -124,7 +146,7 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&postsv1.GetPostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
+	return connect.NewResponse(&postsv1.GetPostResponse{Post: ToView(post, s.viewerSet(ctx, uid))}), nil
 }
 
 // RepliesFlagName is the wire name of FEATURE_REPLIES (P3). It is independent of FEATURE_POSTS but needs it:
@@ -155,20 +177,21 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	if err != nil {
 		return nil, err
 	}
+	vs := s.viewerSet(ctx, uid)
 	out := &postsv1.GetThreadResponse{
-		Focal:             &postsv1.PostView{Post: ToProto(t.Focal)},
+		Focal:             ToView(t.Focal, vs),
 		ParentUnavailable: t.ParentUnavailable,
 		RootUnavailable:   t.RootUnavailable,
 		NextPageToken:     t.NextPageToken,
 	}
 	if t.Parent != nil {
-		out.Parent = &postsv1.PostView{Post: ToProto(t.Parent)}
+		out.Parent = ToView(t.Parent, vs)
 	}
 	if t.Root != nil {
-		out.Root = &postsv1.PostView{Post: ToProto(t.Root)}
+		out.Root = ToView(t.Root, vs)
 	}
 	for _, p := range t.Replies {
-		out.Replies = append(out.Replies, &postsv1.PostView{Post: ToProto(p)})
+		out.Replies = append(out.Replies, ToView(p, vs))
 	}
 	return connect.NewResponse(out), nil
 }

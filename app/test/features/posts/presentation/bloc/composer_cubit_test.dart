@@ -40,6 +40,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).thenAnswer((_) => answer());
   }
@@ -72,6 +74,8 @@ void main() {
           idempotencyKey: any(named: 'idempotencyKey'),
           text: 'hello',
           replyToPostId: any(named: 'replyToPostId'),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
         ),
       ).called(1);
     },
@@ -89,6 +93,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: 'hi',
         replyToPostId: postId(7),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).thenAnswer((_) async => postView(9));
 
@@ -142,6 +148,8 @@ void main() {
           idempotencyKey: captureAny(named: 'idempotencyKey'),
           text: 'hello',
           replyToPostId: any(named: 'replyToPostId'),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
         ),
       ).captured;
       expect(keys, hasLength(2));
@@ -164,6 +172,8 @@ void main() {
           idempotencyKey: captureAny(named: 'idempotencyKey'),
           text: any(named: 'text'),
           replyToPostId: any(named: 'replyToPostId'),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
         ),
       ).captured;
       expect(keys, hasLength(2));
@@ -185,6 +195,8 @@ void main() {
         idempotencyKey: captureAny(named: 'idempotencyKey'),
         text: any(named: 'text'),
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).captured;
     expect(keys, hasLength(3));
@@ -212,6 +224,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).called(1);
   });
@@ -224,6 +238,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     );
     expect(pending.state, isEmpty);

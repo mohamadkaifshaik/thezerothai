@@ -38,6 +38,9 @@ type Deps struct {
 	PostsPerDay           int64
 	NewAccountPostsPerDay int64
 	NewAccountWindow      time.Duration
+	// Links releases a deleted REPOST's reposts doc and counters (P5, engagement). Nil: a REPOST deleted through
+	// DeletePost leaves its reposts doc to the post_delete job's reconciliation. Wired late (SetRepostLinks).
+	Links RepostLinks
 	// CursorKey seals GetThread page tokens (config.CursorHMACKey). Required only for GetThread.
 	CursorKey []byte
 	// Now is overridable for tests; nil means time.Now.
@@ -49,6 +52,7 @@ type service struct {
 	cache     *Cache
 	events    PostEvents
 	jobs      PostDeleteJobs
+	links     RepostLinks
 	directory identity.Directory
 	graph     graph.Reader
 	now       func() time.Time
@@ -73,7 +77,7 @@ func WithAllowAnonymous(allow bool) Option {
 // New builds the posts service. A nil Events defaults to the no-op hook.
 func New(d Deps, opts ...Option) Service {
 	s := &service{
-		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, now: d.Now,
+		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, links: d.Links, now: d.Now,
 		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
 	}

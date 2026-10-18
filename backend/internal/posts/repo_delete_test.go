@@ -21,6 +21,7 @@ type countersStub struct{ client *firestore.Client }
 func (c countersStub) AddPostsCount(b store.Batch, uid string, _ int64) {
 	b.Update(c.client.Doc("users/"+uid), []firestore.Update{{Path: "postsCount", Value: 1}})
 }
+
 func (countersStub) AddFollowingCount(store.Batch, string, int64) {}
 func (countersStub) AddFollowersCount(store.Batch, string, int64) {}
 func (countersStub) AddCounts(store.Batch, string, int64, int64)  {}

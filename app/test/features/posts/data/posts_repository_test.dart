@@ -288,6 +288,51 @@ void main() {
       expect(transport.calledProcedures, [getThread, getHome]);
     });
 
+    test(
+      'writes still send while reads are held (create and delete)',
+      () async {
+        answer = (_) => daily();
+        await expectLater(
+          posts.getThread(postId(1)),
+          throwsA(isA<RateLimitedException>()),
+        );
+        expect(hold.check(), isNotNull);
+
+        answer = (p) => p == _create
+            ? pb.CreatePostResponse(post: postView(9, authorId: 'me'))
+            : pb.DeletePostResponse();
+        await posts.createPost(idempotencyKey: 'k1', text: 'hello');
+        await posts.deletePost(postId: postId(9), idempotencyKey: 'k2');
+
+        expect(transport.calledProcedures, [
+          getThread,
+          _create,
+          '/dzeroth.posts.v1.PostService/DeletePost',
+        ]);
+        // The write neither released nor extended the read hold.
+        expect(hold.check()?.retryAfter, const Duration(minutes: 5));
+      },
+    );
+
+    test('a read_budget_inflight answer leaves the hold empty', () async {
+      answer = (_) => serverError(
+        connect.Code.resourceExhausted,
+        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+        metadata: {'limit': 'read_budget_inflight'},
+      );
+      await expectLater(
+        posts.getThread(postId(1)),
+        throwsA(isA<RateLimitedException>()),
+      );
+      expect(hold.check(), isNull);
+      expect(timeline.rateLimitedFor(), isNull);
+
+      // Nothing is held back: the next read is sent.
+      answer = (_) => pb.GetThreadResponse(focal: postView(1));
+      await posts.getThread(postId(1));
+      expect(transport.calledProcedures, [getThread, getThread]);
+    });
+
     test('clearSession releases the hold for every repository', () async {
       answer = (_) => daily();
       await expectLater(

@@ -1,7 +1,7 @@
 # Reports, takedown and suspension (P7)
 Plan owner: P7 slice agent · Date: 2026-10-10 · Target release: v0.3.0 (UGC store requirement) · Stage 0 ($0)
 Inputs: CLAUDE.md, `docs/plans/phase1.md` P7, ADR-0008 (block), ADR-0010 D10, ADR-0011 Q1/Q10,
-`docs/adr/0016-reports-and-moderation-actions.md` (Proposed), `proto/dzeroth/moderation/v1/moderation.proto`.
+`docs/adr/0016-reports-and-moderation-actions.md` (Accepted by the founder 2026-10-17), `proto/dzeroth/moderation/v1/moderation.proto`.
 
 ## Goal
 Users can report a post or an account and block from where they see content. The founder can list and resolve
@@ -28,8 +28,8 @@ reports, take a post down and suspend a user, with suspended content leaving eve
 | ReportContent duplicate | <= 6 | 0 | report doc exists; no quota charge |
 | GetPost / timelines with filter | +0 | 0 | filter on documents already read |
 | `opsctl reports list` | 1 per report shown (<= 50, FIFO) | 0 | |
-| `opsctl takedown-post` | 1-2 (+1 `--report` check) | 1-2 | post, report |
-| `opsctl suspend-user` | P + 2, P + 4 with `--report` (+ the settle pass: posts of the last ~3 min) | P + 1, P + 2 with `--report` | P = the user's posts, once, batches of 500; waits ~75 s for instance caches, then one settle pass |
+| `opsctl takedown-post` | 1-2 (+1 `--report` check) | 2-3 | post, log entry, report |
+| `opsctl suspend-user` | P + 2, P + 4 with `--report` (+ the settle pass: posts of the last ~3 min) | 2P + 1, 2P + 2 with `--report` (post + removal-log entry per hidden post, ADR-0016 D10; `unsuspend-user` 2P + 1) | P = the user's posts, once, batches of 250; waits ~75 s for instance caches, then one settle pass |
 | ReportContent re-report after RESOLVED | 2 | 2 | reopens the report, charged like a new one |
 | ReportContent over quota (warm, remembered) | 1 | 0 | instance cache until IST midnight |
 | Reports Eraser (reporter) | R + 1 | R | R = reports filed by the account (<= 20/day) |
@@ -48,12 +48,12 @@ Storage: ~1 KB/report. **$0** at Stage 0: at 300 DAU about 6 reports/day against
 | T7 | reports Eraser + export section, T11 guard rows, residue allowlist, `account-deletion.md` retained-data lists | backend | backend | Done (backend PR; privacy.html line is a founder action) |
 | T8 | Go unit + emulator integration tests with budget assertions | tester | backend | Done (backend PR) |
 | T9 | `docs/runbooks/moderation.md` (SLA, procedures, cost) | backend | backend | Done (backend PR) |
-| T10 | Flutter: report sheet, PostCard overflow Report/Block, profile menu Report, widget tests | frontend | client | Todo |
-| T11 | Docs: ui-catalog, code-map, phase1 status, cost-model line | docs | docs | Todo |
+| T10 | Flutter: report sheet, PostCard overflow Report/Block, profile menu Report, widget tests | frontend | client (branch `feat/p67-ui`, PR not opened yet) | Done on branch (review changes applied; merges with the client PR) |
+| T11 | Docs: ui-catalog, code-map, phase1 status, cost-model line | docs | docs | In progress: ui-catalog Done on `feat/p67-ui`; code-map, phase1 status and cost-model line remain |
 | T12 | Copy `Post` media ids into `evidence.mediaIds` (done after P4 merged, 0 reads); P5/P6 consumers drop `Hidden()` posts (P5/P6 own that) | backend | backend | Done (media ids); consumers: with P5/P6 |
 | T13 | Security-auditor review of report abuse, oracle checks, opsctl | security | review | Todo |
 | T14 | `opsctl takedown-post --purge-media`: delete (or make private) the post's `evidence.mediaIds` objects and mark the `media/*` docs, with a dry run and the evidence kept as ids only. Today the runbook step "Media on takedown" does it by hand; P4's `post_delete` job destroys image evidence when the author deletes the post, so a report about an image post should be resolved before the author can delete it | backend | later | Todo (not built; ADR-0016 D6) |
-| T15 | Founder decision: D10 client bound (server-only vs additive `removed_ids` on the timeline `since` response), ADR-0016 "Open founder decision" | founder + architect | decision | Open |
+| T15 | D10 client bound: founder chose option 2 (founder approval 2026-10-17, ADR-0016 D10): additive `removed_ids` on `GetHomeTimelineResponse` / `GetUserTimelineResponse`, backed by one global moderation-event log (new small TTL'd collection written by opsctl, instance-cached, read incrementally: 0 reads on a warm hit, 1 per instance per CACHE_TTL after it, a 50-read cold load, 100 worst; a hide or restore writes the post plus its log entry = 2 writes, restore +1 write per post vs. no log, bounded log of 200 entries per instance; behind `FEATURE_REMOVED_IDS`; amended 2026-10-18). Tickets: (a) proto field; (b) opsctl writer + TTL policy + T11 guard row, bounded live window, retention vs the 30-day `since` token TTL; (c) server read-count test (incremental read); (d) Flutter drop-on-refresh + client test; (e) warm-instance fake-clock test | backend + frontend | later | **Server half built on `feat/removed-ids` (2026-10-17): (a) proto done, (b) writer + TTL policy edit (Terraform not applied) + T11 guard row done, (c) read-count tests done, (e) fake-clock test done (`removals_test.go`); (d) Flutter drop-on-refresh and replace-on-rejected-since still open** |
 
 ## Acceptance criteria
 1. `ReportContent` validates, enforces the quota, dedupes, copies evidence and writes `reports/{id}` within one
@@ -67,6 +67,7 @@ Storage: ~1 KB/report. **$0** at Stage 0: at 300 DAU about 6 reports/day against
 7. Flag off: RPC returns FEATURE_DISABLED with 0 reads and the client shows no Report entry.
 
 ## Open items for the founder
-- Accept ADR-0016.
-- Privacy policy: add "reports about an account are retained until 90 days after resolution" (D7).
+- ~~Accept ADR-0016~~: accepted 2026-10-17 (with the rule-4 bend of option C and D10 option 2).
+- Privacy policy: add "reports about an account are retained until 90 days after resolution" (D7). Gate for turning
+  `FEATURE_REPORTS` on, together with the media-public gap (T14 `--purge-media`, runbook step until built).
 - Decide the flag ramp (`FEATURE_REPORTS` allowlist then on) with `FEATURE_POSTS`.

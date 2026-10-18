@@ -4,8 +4,11 @@
 // every other opsctl command.
 //
 // Cost (printed at the end of every write command): suspend-user reads and writes one document per post of the
-// user, once, in batches of 500, then waits out the instance cache TTL and runs one settle pass over the posts of
-// the last suspendSkew (reads: the posts in that window, 1 when none); everything else is 1-3 reads and 1-2 writes.
+// user, once, in batches of 250. Each hidden post is two writes (the post and its postRemovals entry, ADR-0016 D10);
+// unsuspend-user and restore-post write a RESTORED entry the same way (+1 write per restored post). It then waits out
+// the instance cache TTL and runs one settle pass over the posts of the last suspendSkew
+// (reads: the posts in that window, 1 when none); everything else is 1-3 reads and 1-3 writes (takedown-post and
+// restore-post: 2 for the post and its log entry, +1 to resolve a report).
 package main
 
 import (
@@ -202,6 +205,9 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 		return err
 	}
 	fmt.Fprintf(out, "post %s: %s -> %s (hidden from GetPost, profile and Home within 60 s)\n", a.post, stateName(r.Before), stateName(r.After))
+	if err := cleanupCopies(cctx, b, a.post, out); err != nil {
+		return err
+	}
 	if a.report != "" {
 		if err := resolveReport(ctx, b, a.report, moderation.ResolutionTakedown, a.note, out, now); err != nil {
 			return err
@@ -211,8 +217,53 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 	return nil
 }
 
+// cleanupPageBudget bounds the pages one takedown processes of each kind (100 per page): a post with more copies
+// than that is finished by running takedown-post again, which is idempotent.
+const cleanupPageBudget = 50
+
+// cleanupCopies makes a taken-down post's copies disappear too (ADR-0018 D6, ADR-0016 follow-up T10): REPOST
+// posts of it are removed (with their reposts docs, the reposters' postsCount and the post's repostCount, because
+// the post still exists and the counter must stay exact) and the embeds of its quotes become a tombstone. Likes
+// stay. restore-post does not bring the copies back.
+func cleanupCopies(ctx context.Context, b *backends, postID string, out io.Writer) error {
+	if b.cleanup == nil {
+		return nil
+	}
+	reposts, quotes := 0, 0
+	for page := 0; ; page++ {
+		if page >= cleanupPageBudget {
+			fmt.Fprintf(out, "note: more reposts remain; run takedown-post again to finish\n")
+			break
+		}
+		n, more, err := b.cleanup.RemoveReposts(ctx, postID, true, posts.CleanupPage)
+		if err != nil {
+			return fmt.Errorf("remove reposts: %w", err)
+		}
+		reposts += n
+		if !more {
+			break
+		}
+	}
+	for page := 0; ; page++ {
+		if page >= cleanupPageBudget {
+			fmt.Fprintf(out, "note: more quotes remain; run takedown-post again to finish\n")
+			break
+		}
+		n, more, err := b.cleanup.TombstoneQuotes(ctx, postID, posts.CleanupPage)
+		if err != nil {
+			return fmt.Errorf("tombstone quotes: %w", err)
+		}
+		quotes += n
+		if !more {
+			break
+		}
+	}
+	fmt.Fprintf(out, "copies: reposts removed=%d quote embeds tombstoned=%d\n", reposts, quotes)
+	return nil
+}
+
 // restorePost is restore-post: it clears TAKEN_DOWN only.
-func restorePost(ctx context.Context, b *backends, a modArgs, out io.Writer) error {
+func restorePost(ctx context.Context, b *backends, a modArgs, out io.Writer, now func() time.Time) error {
 	if !postIDRe.MatchString(a.post) {
 		return usageErr("--post must be a 19-digit post id")
 	}
@@ -222,7 +273,7 @@ func restorePost(ctx context.Context, b *backends, a modArgs, out io.Writer) err
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	r, err := b.moderator.Restore(cctx, a.post)
+	r, err := b.moderator.Restore(cctx, a.post, now())
 	if err != nil {
 		return err
 	}
@@ -256,9 +307,15 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return err
 		}
 		fmt.Fprintf(out, "dry-run: status=%s posts=%d -> would set SUSPENDED and hide up to %d post(s), wait %s, then run the settle pass\n"+
-			"  reads~%d writes~%d (+1 read only when P is a multiple of 500, + the posts of the last few minutes for the settle pass;\n"+
+			"  reads~%d writes~%d (+1 read only when P is a multiple of 250, + the posts of the last few minutes for the settle pass;\n"+
 			"  with --report: reads~%d writes~%d) (nothing written)\n",
-			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, plan.Posts+1, plan.Posts+4, plan.Posts+2)
+			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, 2*plan.Posts+1, plan.Posts+4, 2*plan.Posts+2)
+		if plan.Posts >= posts.RemovalMaxIDs {
+			fmt.Fprintf(out, "WARNING: %d posts >= %d: the removal log cannot list them in one response, so every timeline client\n"+
+				"  will have its since_token rejected once and reset (cold-open) every cached feed, about DAU x 30 reads.\n"+
+				"  A token issued before the burst, or up to %s after it, is rejected. Run this off-peak\n"+
+				"  (docs/runbooks/moderation.md section 3b).\n", plan.Posts, posts.RemovalMaxIDs, posts.RemovalLag)
+		}
 		return nil
 	}
 	ctx, counter := budget.WithCounter(ctx)
@@ -340,7 +397,7 @@ func unsuspendUser(ctx context.Context, b *backends, uid string, out io.Writer, 
 	}
 	if err := driveLoop(ctx, out, posts.ModerationCheckpoint{},
 		func(ctx context.Context, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
-			return b.moderator.RestoreAuthor(ctx, uid, cp)
+			return b.moderator.RestoreAuthor(ctx, uid, cp, now())
 		},
 		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("restored=%d", cp.Changed) }, "restored"); err != nil {
 		return fmt.Errorf("%w (re-run unsuspend-user to resume)", err)

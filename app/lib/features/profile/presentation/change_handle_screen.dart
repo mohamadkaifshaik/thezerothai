@@ -121,74 +121,79 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
             ? 'You can change your handle again in ${coarseWait(cooldown)}.'
             : helper;
         final isProblem = cooldown != null || unavailable;
-        return Scaffold(
-          appBar: AppBar(title: const Text('Change handle')),
-          body: SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: AppBreakpoints.mobile,
-                ),
-                child: ListView(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  children: [
-                    Text(
-                      'Current handle: @${widget.currentHandle}',
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'You can change your handle once every 7 days. Your old '
-                      'handle becomes available to other people.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+        return PopScope(
+          // A save in flight cannot be abandoned: leaving now would drop the
+          // answer (and the profile update it carries) unseen.
+          canPop: !state.isSaving,
+          child: Scaffold(
+            appBar: AppBar(title: const Text('Change handle')),
+            body: SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: AppBreakpoints.mobile,
+                  ),
+                  child: ListView(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    children: [
+                      Text(
+                        'Current handle: @${widget.currentHandle}',
+                        style: theme.textTheme.titleMedium,
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    TextField(
-                      controller: _controller,
-                      enabled: !state.isSaving,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      textInputAction: TextInputAction.done,
-                      decoration: InputDecoration(
-                        labelText: 'New handle',
-                        prefixText: '@',
-                        helper: isProblem ? null : _FieldNote(text: note),
-                        helperMaxLines: 2,
-                        error: isProblem
-                            ? _FieldNote(text: note, isError: true)
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        'You can change your handle once every 7 days. Your old '
+                        'handle becomes available to other people.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      TextField(
+                        controller: _controller,
+                        enabled: !state.isSaving,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textInputAction: TextInputAction.done,
+                        decoration: InputDecoration(
+                          labelText: 'New handle',
+                          prefixText: '@',
+                          helper: isProblem ? null : _FieldNote(text: note),
+                          helperMaxLines: 2,
+                          error: isProblem
+                              ? _FieldNote(text: note, isError: true)
+                              : null,
+                          errorMaxLines: 2,
+                          suffixIcon: _StatusIcon(status: state.checkStatus),
+                        ),
+                        onChanged: cubit.handleChanged,
+                        onSubmitted: (_) {
+                          if (state.canSave) {
+                            _confirmAndSave(context, state.handle);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, AppSpacing.minTapTarget),
+                        ),
+                        onPressed: state.canSave
+                            ? () => _confirmAndSave(context, state.handle)
                             : null,
-                        errorMaxLines: 2,
-                        suffixIcon: _StatusIcon(status: state.checkStatus),
+                        child: state.isSaving
+                            ? const SizedBox(
+                                width: AppIconSize.md,
+                                height: AppIconSize.md,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  semanticsLabel: 'Saving',
+                                ),
+                              )
+                            : const Text('Change handle'),
                       ),
-                      onChanged: cubit.handleChanged,
-                      onSubmitted: (_) {
-                        if (state.canSave) {
-                          _confirmAndSave(context, state.handle);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, AppSpacing.minTapTarget),
-                      ),
-                      onPressed: state.canSave
-                          ? () => _confirmAndSave(context, state.handle)
-                          : null,
-                      child: state.isSaving
-                          ? const SizedBox(
-                              width: AppIconSize.md,
-                              height: AppIconSize.md,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                semanticsLabel: 'Saving',
-                              ),
-                            )
-                          : const Text('Change handle'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -190,6 +190,9 @@ type Directory interface {
 	// nothing; the caller leaves them as plain text. It does not check account status.
 	ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error)
 	Forget(uids ...string)
+	// ForgetUnread evicts only uid's cached unread count, leaving the profile cached (for a caller that just
+	// wrote a notification row: the profile is unchanged, the badge is not).
+	ForgetUnread(uids ...string)
 }
 
 // MaxResolveHandles is the most distinct handles one ResolveHandles call takes (one post carries at most 10

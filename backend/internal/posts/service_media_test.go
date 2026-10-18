@@ -134,10 +134,10 @@ func TestCreate_MediaIdempotency(t *testing.T) {
 // TestRequestHash_TextOnlyUnchanged pins the pre-P4 format, so idempotency records written before P4 still match.
 func TestRequestHash_TextOnlyUnchanged(t *testing.T) {
 	want := idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q", "hello", "", "", "", ""))
-	if got := requestHash("hello", "", nil, nil); got != want {
+	if got := requestHash("hello", "", "", nil, nil); got != want {
 		t.Fatalf("text-only hash changed: %s != %s", got, want)
 	}
-	if requestHash("hello", "", []string{mid1}, nil) == want || requestHash("hello", "", []string{mid1}, []string{"a"}) == requestHash("hello", "", []string{mid1}, []string{"b"}) {
+	if requestHash("hello", "", "", []string{mid1}, nil) == want || requestHash("hello", "", "", []string{mid1}, []string{"a"}) == requestHash("hello", "", "", []string{mid1}, []string{"b"}) {
 		t.Fatal("media ids and alt texts must change the hash")
 	}
 }
@@ -149,7 +149,7 @@ func TestDelete_PublishesPostDeleteJob(t *testing.T) {
 		jobsErr  error
 		wantJobs int
 	}{
-		{"no images: no job", nil, nil, 0},
+		{"no images: still one job (ADR-0018 D6: likes, reposts and quotes are cleaned up there)", nil, nil, 1},
 		{"two images: one job", []MediaRef{{ID: mid1}, {ID: mid2}}, nil, 1},
 		{"publish failure does not fail the delete", []MediaRef{{ID: mid1}}, errors.New("pubsub down"), 1},
 	}
@@ -171,7 +171,7 @@ func TestDelete_PublishesPostDeleteJob(t *testing.T) {
 			}
 			if tt.wantJobs == 1 {
 				got := jobs.calls[0]
-				if got.uid != testUID || got.postID != pidMine || len(got.mediaIDs) != len(tt.media) || got.mediaIDs[0] != mid1 {
+				if got.uid != testUID || got.postID != pidMine || len(got.mediaIDs) != len(tt.media) || (len(tt.media) > 0 && got.mediaIDs[0] != mid1) {
 					t.Fatalf("job = %+v", got)
 				}
 			}

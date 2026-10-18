@@ -1,7 +1,11 @@
 # 0017. Notifications: in-app list, FCM push and the device-token model
 Status: Proposed
-Date: 2026-10-10
+Date: 2026-10-10 (amended 2026-10-17: D6 payload, cost impact, delete budget; founder approval 2026-10-17)
 Deciders: lead (founder delegated product decisions 2026-10-10); founder accepts the ADR (CLAUDE.md)
+
+> Acceptance (founder approval 2026-10-17): the founder approved the recommendation to **accept after T11**. The
+> status stays Proposed until the security review T11 (`docs/plans/notifications.md`) passes and the P8 plan owner
+> signs off the delete-budget amendment (`docs/plans/account-deletion-export.md` T16).
 
 > Numbering: first drafted as 0016; renumbered to 0017 because P7's ADR-0016 (reports, PR 116) was opened first. 0012-0015 stay free for the slices running in parallel (P2-P5).
 
@@ -40,9 +44,10 @@ off the request path against the recipient's cached snapshot.
 ## Cost impact
 - FCM: $0 (no quota). Pub/Sub: a notification event is under 400 bytes, 6 per DAU per day is about 0.7 MB/day at 300
   DAU against a 10 GiB/month allowance. No new GCP resource, no fixed cost.
-- Firestore per DAU (derived in `docs/plans/notifications.md` section Cost): about 6.3 writes, 11.3 reads, 6 TTL
-  deletes. At 300 DAU: 1.9k writes/day (9% of free), 3.4k reads/day (7%), 1.8k deletes/day (9%). Reads stay inside the
-  ADR-0010 whole-product model (215 reads/DAU) with lever 6.1 applied.
+- Firestore per DAU (derived in `docs/plans/notifications.md` section Cost): about 6.3 writes, **~23 reads**, 6 TTL
+  deletes. At 300 DAU: 1.9k writes/day (9% of free), **~7k reads/day (~14%)**, 1.8k deletes/day (9%). Reads stay
+  inside the ADR-0010 whole-product model (215 reads/DAU) with lever 6.1 applied. (Corrected 2026-10-17: the first
+  draft said 11.3 reads/DAU, 3.4k/day, 7%; the figure was revised in the 2026-10-13 amendment, "Budgets".)
 - The `actorIds` collection-group index adds one index entry per notification (storage cents at Stage 0: about
   0.2 KB per notification, 90-day window).
 
@@ -89,9 +94,10 @@ is counted twice: `actor_count` beyond 50 is approximate by design.
 blocks actor), in `Muted`, or in `BlockedBy` (actor blocks recipient) => no notification and no push. Self => none.
 Matrix test in the plan (T10).
 
-**D6. Push payload.** FCM `data` only: `type`, `notificationId`, `postId`, `actorId`, a generic localized
-title/body chosen by type ("New follower", "You were mentioned", ...). **No post text, no handle in the body of the
-lock-screen notification**. Android channel `social`, iOS `apns-priority 5`. The app deep-links to `/post/:id` or the
+**D6. Push payload.** FCM `data` (`type`, `notificationId`, `postId`, `actorId`) **plus a
+`messaging.Notification{Title, Body}`** with generic text chosen by type (`pushText`: "New follower" / "Someone
+started following you", "New mention", ...) (amended 2026-10-17 to match `backend/internal/notifications/fcm.go:122`; the first draft said `data` only). **No post
+content, no handle in the title or body of the lock-screen notification**. Android channel `social`, iOS `apns-priority 5`. The app deep-links to `/post/:id` or the
 actor's profile. A send error `UNREGISTERED` or `SENDER_ID_MISMATCH` for the token deletes that device and its
 index doc (only if the stored token still matches). `INVALID_ARGUMENT` does **not** prune: it can be our payload or
 project misconfiguration, and pruning on it would silently delete every user's device. It is logged as
@@ -133,7 +139,7 @@ on post delete.
   milliseconds between that read and the `Create` against a purge that has already swept the same subtree: such a
   row (and an orphan row under a just-deleted recipient) lives until its 90-day TTL and the 14-day backup window.
   The account-lifecycle backstop keys on `users/{uid}`, which is deleted last and so is already gone by then; a
-  re-run of step 3 is therefore not available without a new data model, and this ADR accepts the window.
+  re-run of the purge's actor-row step (notifications step 2) is therefore not available without a new data model, and this ADR accepts the window.
 - The producer's flag and publish happen after commit, outside the transaction and its read budget.
 
 ## Handoff
@@ -158,7 +164,11 @@ on post delete.
   nothing to erase (devices, own rows, rows naming the user: an empty query bills 1 read), plus one read and one delete
   per document. The export gains a `notifications` section: 2 reads when empty. The reference-account budgets in
   `backend/internal/apiserver/account_lifecycle_*_integration_test.go` move from 509 to 512 reads (delete job; ADR-0011
-  formula 510 to 513 plus D) and from 703 to 705 reads (export job). At 300 DAU and roughly 1 deletion per day this is
+  formula 510 to 513 plus D) and from 703 to 705 reads (export job). These are P6-only values. With P7's `reports`
+  step (+1, ADR-0016 Implementation notes) the asserted delete-job bounds are the plan T16 criterion **513 + D**
+  (`planDeleteReads` = 509 + 3 + 1) and the ADR-0011 formula **514 + D** (`refDeleteReadsBase`), and the export is
+  707 (with P4's media section) in `account_lifecycle_reference_integration_test.go` (reconciled 2026-10-17; sign-off
+  by the P8 plan owner pending). At 300 DAU and roughly 1 deletion per day this is
   immaterial; the reference numbers in ADR-0011 are otherwise unchanged.
 - **Wiring.** graph gains `Deps.Events` (the `FollowEvents` implementation, nil = no-op); `Build` injects an adapter
   that calls `Emitter.Emit`. posts' `Events` is a mention adapter. Rate limits: the four RPCs use the 60/min default
@@ -188,7 +198,7 @@ on post delete.
   distinct actor per page).
 - **Fan-out ordering.** All rows of an event are committed (each with its own commit-time `createdAt`) before the
   first push, so FCM latency cannot push a row past the 5 s since-token settle window.
-- **D10 amendment.** Step 3 removes the erased user from collapsed rows with `ArrayRemove` and decrements `actorCount`
+- **D10 amendment.** Notifications purge step 2 (rows in other users' lists) removes the erased user from collapsed rows with `ArrayRemove` and decrements `actorCount`
   when other actors remain, repointing the displayed `actor` at the newest remaining one (one `GetProfiles` per page of
   <= 500 rows); a row with no remaining actor, or whose replacement actor is gone, is deleted.
 - **Budgets.** RegisterDevice worst case reads 8 to 9 (the evicted device's index is read so another account's index is
@@ -196,9 +206,9 @@ on post delete.
 - **Accepted behaviors (round 2).** (a) The GetMe unread badge counts rows by `createdAt > notificationsSeenAt` and
   does not apply the read-time filter, so it can exceed the visible rows after a block or mute; fixing it would add
   reads. (b) A collapsed row is hidden entirely when its newest (displayed) actor is blocked or muted, even if other
-  actors are not; a later like shows it again. (c) Purge step 3 writes are conditioned on the update time seen by its
+  actors are not; a later like shows it again. (c) Purge step 2 writes are conditioned on the update time seen by its
   query, so a like folding in concurrently fails that batch and the self-resuming step retries; a document liked
   continuously could delay the purge but never loses a fold. `Checkpoint.Deleted` counts documents processed
-  (deleted or unfolded in place). (d) The fan-out evicts each recipient again after their row commits so the unread
-  badge is recounted (no reads).
+  (deleted or unfolded in place). (d) After their row commits (a Create, or a like folded into an existing row via AddActor, which moves its createdAt forward), the fan-out evicts only each recipient's cached unread count
+  (`Directory.ForgetUnread`, no reads) so the badge is recounted; the freshly read profile stays cached.
 

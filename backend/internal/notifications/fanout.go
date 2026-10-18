@@ -224,6 +224,10 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			if e.Type == TypeLike {
 				if err := f.d.Repo.AddActor(ctx, r, n.ID, actor, now); err != nil {
 					errs = append(errs, err)
+				} else {
+					// AddActor moves the row's createdAt forward, so it counts as unread again: evict the cached
+					// unread count like a Create does (0 reads).
+					createdFor = append(createdFor, r)
 				}
 			}
 			continue // no second push: the call that created the row owns the push
@@ -232,10 +236,12 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		createdFor = append(createdFor, r)
 		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID}})
 	}
-	// The fresh status read above re-cached each recipient's profile with the unread count as of before this
-	// Create; evict again (no reads) so their next GetMe counts the new row instead of serving the old badge.
+	// A concurrent GetMe on this instance may have re-cached the recipient's unread count between the status read
+	// above and this write (it would then serve the pre-write badge until the cache TTL). Evict only the unread
+	// count (no reads) so the next GetMe counts the new row. The profile just read stays cached: it is current and
+	// a full Forget would re-read it on the next request.
 	if len(createdFor) > 0 {
-		f.d.Directory.Forget(createdFor...)
+		f.d.Directory.ForgetUnread(createdFor...)
 	}
 	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
 	// recipient's commit past the 5 s since-token settle window.
