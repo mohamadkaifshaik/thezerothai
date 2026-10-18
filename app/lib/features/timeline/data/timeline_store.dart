@@ -133,15 +133,19 @@ class TimelineStore {
   }
 
   /// Merges a `since_token` refresh response. A non-empty [gapPageToken]
-  /// persists a gap row directly below the oldest returned post.
+  /// persists a gap row directly below the oldest returned post. Posts in
+  /// [removedIds] (moderation removals, ADR-0016 D10) are deleted from the
+  /// feed first; empty while the server flag is off.
   Future<void> applyRefresh(
     FeedKey feed, {
     required List<pb.PostView> posts,
+    List<String> removedIds = const [],
     required String sinceToken,
     required String gapPageToken,
     required int session,
   }) {
     return _tx(session, () async {
+      if (removedIds.isNotEmpty) await _deletePosts(feed, removedIds);
       final valid = _valid(posts);
       await _upsertPosts(feed, valid);
       if (gapPageToken.isNotEmpty && valid.isNotEmpty) {
@@ -157,10 +161,12 @@ class TimelineStore {
   /// - [replace] false: the page is merged into the cache. If the cache was
   ///   empty its `next_page_token` becomes the scroll token. If it was not,
   ///   the page's `next_page_token` is stored as a gap row below the page
-  ///   unless the page already reached a cached post (nothing missing). The
-  ///   cached items stay visible throughout (rejected `since_token`, D14).
+  ///   unless the page already reached a cached post (nothing missing).
   /// - [replace] true: the feed is rebuilt from this page (a rejected
-  ///   `page_token`; the old gap tokens are unusable).
+  ///   `since_token` or `page_token`, ADR-0010 D14 amendment 2026-10-18; the
+  ///   old gap tokens are unusable and cached cards may be removed ones).
+  ///   Runs in one transaction after the fetch, so the old feed stays
+  ///   visible if the cold open fails.
   Future<void> applyColdOpen(
     FeedKey feed, {
     required List<pb.PostView> posts,
@@ -389,6 +395,16 @@ class TimelineStore {
   Future<void> _deleteItem(FeedKey feed, String itemKey) {
     return (_db.delete(_db.timelineItemEntries)..where(
           (t) => t.feedKey.equals(feed.value) & t.itemKey.equals(itemKey),
+        ))
+        .go();
+  }
+
+  Future<void> _deletePosts(FeedKey feed, List<String> postIds) {
+    return (_db.delete(_db.timelineItemEntries)..where(
+          (t) =>
+              t.feedKey.equals(feed.value) &
+              t.itemKey.isIn(postIds) &
+              t.payload.isNotNull(),
         ))
         .go();
   }

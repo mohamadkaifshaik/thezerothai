@@ -281,6 +281,14 @@ class TimelineCubit extends Cubit<TimelineState> {
       }
       _known.add(id);
     }
+    // A removed post (refresh `removed_ids`, or a replaced feed) can no
+    // longer be waiting behind the "N new posts" pill.
+    if (_held.isNotEmpty) {
+      _held.retainAll({
+        for (final e in snapshot.entries)
+          if (e.postView != null) e.postView!.post.postId,
+      });
+    }
     _snapshot = snapshot;
     _emitVisible();
   }
