@@ -3,8 +3,10 @@ Plan owner: planner · Date: 2026-09-30 · Stage: 0 (0 – ~300 DAU, $0 target) 
 Inputs: CLAUDE.md, ADR-0001…0009, `proto/dzeroth/**`, `backend/internal/**`, `app/lib/**`, `docs/reviews/cost-model.md`,
 `docs/reviews/security-audit-v0.1.0.md`, `docs/plans/graph.md`, `infra/terraform/**`.
 
-Detailed tickets exist only for the first build slice: `docs/plans/posts-and-timeline.md` (P0 + P1).
-Every other slice gets its own plan (same format as `docs/plans/graph.md`) when it starts.
+Each slice has its own plan with per-ticket status (as of 2026-10-18, `docs/plans/`): `posts-and-timeline.md` (P0 + P1),
+`profile-edit-snapshot.md` (P2), `replies-and-threads.md` (P3), `media-uploads.md` (P4), `engagement.md` (P5),
+`notifications.md` (P6), `reports.md` (P7), `account-deletion-export.md` (P8); `graph.md` is the pre-Phase-1 graph slice.
+P9 has no plan yet.
 
 ---
 
@@ -14,6 +16,22 @@ Every other slice gets its own plan (same format as `docs/plans/graph.md`) when 
 > timeline, profile Posts tab, delete; T1-T25) have been built on the PR #94 branch, so the posts, timeline and Flutter rows
 > below no longer hold for that branch. DeleteAccount/export, avatars and everything from P2 on are unchanged. Per-ticket
 > status is in `docs/plans/posts-and-timeline.md`.
+>
+> **Update 2026-10-18 (checked against files on `origin/main`; the table below is still the 2026-09-30 snapshot):**
+> - **Backend built and wired**, each behind its flag: posts, timeline, media, engagement, notifications and
+>   moderation (`backend/internal/<module>/server.go` exists for each; constructed and registered in
+>   `backend/internal/apiserver/apiserver.go:160-330`). **search and admin are still not built**
+>   (`apiserver.go:338`).
+> - **Account lifecycle:** DeleteAccount, RequestAccountExport and GetAccountExport are wired behind
+>   `account_lifecycle` (`identity.WithLifecycle`, `apiserver.go:289-335`; `identity/server.go:25,203-244`). They
+>   answer Unimplemented only when no lifecycle is wired.
+> - **Avatar:** `avatar_media_id` resolves through media (`identity.WithAvatarResolver`, `apiserver.go:181`).
+>   MEDIA_NOT_READY now means the upload is not ready (`identity/service.go:260-273`).
+> - **Protos:** `engagement.v1`, `notifications.v1` and `moderation.v1` now exist (`proto/dzeroth/*/v1/*.proto`).
+> - **Flutter features** now on main: posts (composer, post detail, thread), timeline, media, profile edit and
+>   change handle, notifications, moderation (report sheet), account (delete, data export)
+>   (`app/lib/features/*`).
+> - **Not on main as of 2026-10-18:** the engagement client (no `engagement` reference in `app/lib/features`).
 
 | Area | State | Evidence |
 |---|---|---|
@@ -135,7 +153,7 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   - Dev is deployed and prod runs behind `FEATURE_POSTS=allowlist`.
 
 ### P2 — Profile gaps  [size: S] [owners: architect (snapshot job + topic) → backend ‖ frontend → tester]
-> **Status 2026-10-11:** backend (snapshot job, flag `FEATURE_PROFILE_SNAPSHOT`) in `feat/p2-profile-edit`; Flutter screens open. See `docs/plans/profile-edit-snapshot.md`.
+> **Status 2026-10-18:** backend (snapshot job, flag `FEATURE_PROFILE_SNAPSHOT`) on main (`apiserver/profile_snapshot_wiring.go`, `identity/profile_snapshot.go`); Flutter screens on main (`app/lib/features/profile/presentation/edit_profile_screen.dart`, `change_handle_screen.dart`; P2-T5 Done). Terraform vars (P2-T6) are not done. See `docs/plans/profile-edit-snapshot.md`.
 - **Goal.** Users can edit their profile and rename themselves without leaving stale identity on their posts.
 - **Scope.**
   - Flutter: Edit profile (display name, bio) and Change handle screens. Both RPCs exist; there is no UI (Grep = 0 hits).
@@ -165,14 +183,17 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   195.5 reads/DAU = 58.7k/day, **117% of the free quota at 300 DAU**; the crossover is ≈ 256 DAU. That is ≈ $0.16/month
   over at 300 DAU (upper-bound price, `cost-model.md` §7), inside D1. The P3 ADR re-bases its own rows with the same
   convention: cold ceilings include the interceptor read.
-- **Status.** Backend done behind `FEATURE_REPLIES` (PR for `feat/p3-replies`); Flutter open. Plan: `docs/plans/replies-and-threads.md`.
+- **Status (2026-10-18).** Backend done behind `FEATURE_REPLIES`; Flutter thread screen on main
+  (`app/lib/features/posts/presentation/thread_screen.dart`; T7 Done). The flag ramp (T8) is still open. Plan: `docs/plans/replies-and-threads.md`.
 - **Done when.** Thread order is chronological. Replies from blocked or muted authors are dropped. Budget assertions
   pass. A delete of the parent renders a tombstone.
 
 ### P4 — Images (signed uploads, SafeSearch with cap, avatars) + post-delete job  [size: M/L] [owners: architect (ADR-0005 follow-ups, proto comment fix, topic) → backend ‖ frontend → tester → security-auditor → deployer]
 - **Status (2026-10-11).** Backend implemented behind `FEATURE_MEDIA` (default off) in `docs/plans/media-uploads.md`:
-  T1-T5 and T10 in one PR (`feat/p4-media-backend`), review #110 M2 (T6) in a second PR. Still open: Flutter
-  composer/avatar editor (T7: built on `feat/p4-media-ui`, in review), dev smoke on real GCS (T8), Terraform env vars and Vision API (T9). P5 reuses the
+  T1-T5 and T10 in one PR (`feat/p4-media-backend`), review #110 M2 (T6) in a second PR. **Update 2026-10-18:** the
+  backend is on main (`backend/internal/media`, `apiserver/media_wiring.go`), and so is the Flutter composer/avatar editor
+  (T7, merged via integration PR #135: `app/lib/features/media/*`, `profile/presentation/widgets/avatar_editor.dart`).
+  Still open: dev smoke on real GCS (T8), Terraform env vars and Vision API (T9). P5 reuses the
   `post_delete` job: interface in the plan.
 - **Goal.** Up to 4 images per post, and a profile avatar, all moderated before they become public.
 - **Scope.**
@@ -187,7 +208,8 @@ F = 60, 1 post/DAU/day, 5 likes, 0.2 images, ~50% cache hit rate). The **v0.2.0 
   - The **`post-delete` job**: this is the first slice where a deleted post leaves dependent data behind (public
     objects).
   - `media.Eraser` for account deletion.
-  - Flutter: `image_picker` + `flutter_image_compress`, BlurHash, upload with progress and retry, grid in `PostCard`,
+  - Flutter: `image_picker` + the pure-Dart `image` package in an isolate (`compute`; ADR-0005 Amendment 2026-10-17),
+    BlurHash, upload with progress and retry, grid in `PostCard`,
     avatar editor.
 - **Dependencies.** P1 (and P2 for the avatar UI placement). It can run in parallel with P3.
 - **Budget.**

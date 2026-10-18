@@ -59,7 +59,7 @@ class TimelineBloc extends Bloc<TimelineEvent, TimelineState> {
 - Responsive: `LayoutBuilder` breakpoints — mobile (<600) bottom nav, tablet (600–1200) nav rail, desktop (>1200) 3-column like X web.
 - Platform: adaptive widgets where it matters (dialogs, pickers), `kIsWeb` guarded features.
 - Every screen: widget test (loading/error/data), semantics, dark mode golden.
-- Packages baseline: flutter_bloc, bloc, go_router, freezed, json_serializable, connectrpc, firebase_auth, firebase_app_check, firebase_messaging, firebase_crashlytics, firebase_remote_config, cached_network_image, flutter_image_compress, image_picker, drift, intl.
+- Packages baseline: flutter_bloc, bloc, go_router, freezed, json_serializable, connectrpc, firebase_auth, firebase_app_check, firebase_messaging, firebase_crashlytics, firebase_remote_config, cached_network_image, image (pure Dart, run in an isolate via `compute`; not `flutter_image_compress`, see ADR-0005 Amendment 2026-10-17), image_picker, drift, intl.
 
 ## Cost-aware client rules (the client is our cheapest cache)
 
