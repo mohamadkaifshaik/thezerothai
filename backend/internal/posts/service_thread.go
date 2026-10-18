@@ -260,5 +260,6 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.ParentID = parent.ID
 	p.Draft.Kind, p.Draft.IsReply = KindReply, true
 	p.Draft.ReplyToID, p.Draft.ReplyToHandle = parent.ID, parent.Author.Handle
+	p.Draft.ReplyToAuthorID = parent.AuthorID // transient, for PostEvents.Created only (never persisted)
 	p.Draft.ConversationID = conv
 }
