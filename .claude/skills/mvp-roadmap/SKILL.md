@@ -19,9 +19,12 @@ Status (2026-10): **Phase 0 done** (v0.1.0). **Phase 1 in progress**: profiles, 
 - Images (≤ 4) via client compression + signed uploads + SafeSearch within quota.
 - Home timeline (pull + incremental refresh + caches), profile timeline, post detail with replies.
 - Likes, reposts, quote posts.
-- Notifications (in-app + FCM push).
+- Notifications (in-app + FCM push; **Android push only for now, iOS/APNs push paused until the Apple launch**).
 - Report + block flows, account deletion + export (store requirements).
 - Cost model doc with real numbers after first 100 users.
+
+## Later: Apple launch (paused, founder decision 2026-10-18)
+No macOS/Xcode access now. Deferred until a Mac is available: iOS build and TestFlight/App Store release, the APNs authentication key (.p8) uploaded to the dev and prod Firebase projects (Cloud Messaging), Push Notifications capability on the App ID, and on-device iOS verification (notifications plan T12). The repo already carries the client side (`Runner.entitlements`, `UIBackgroundModes`). Sign in with Apple stays in scope for that launch.
 
 ## Phase 2 — Growth — pay-per-use, a few $/month
 - Handle/hashtag search (Firestore prefix + array-contains), trending hashtags from a daily Scheduler job.

@@ -46,7 +46,7 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 | T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices; the seam, `notifications.Event` types and the id scheme are ready) |
 | T11 | Security review (token handling, payload, handler auth) | security-auditor | Done (findings N-1..N-5; N-1, N-2, N-3, N-5 fixed in `fix/notifications-hardening`, N-4 owned by the moderation/removal-log change) |
 | T14 | Hardening from the T11 audit: per-actor recipient cap (N-1), per-recipient push limit + collapse by type (N-2), no row id in the export (N-3), FCM dry-run token validation + devices cap 10/day (N-5) | backend | Done (#139 merged) |
-| T12 | **Manual:** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase; prerequisites below) |
+| T12 | **Manual (iOS half PAUSED until the Apple launch, 2026-10-18; Android half only for now):** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase; prerequisites below) |
 | T13 | Terraform: `runtime_publisher_topics` += `notifications-fanout`, `FEATURE_NOTIFICATIONS*` env on the api service | backend (declared) / deployer (apply) | Declared in PR 2, not applied (needs plan-then-OK) |
 
 ### Acceptance criteria
@@ -110,12 +110,13 @@ Each cell is the asserted ceiling (`budgettest.Assert`), not a single measuremen
 register/unregister are idempotent.
 
 ### T12 prerequisites (founder credentials; the client code is ready)
-- **iOS:** upload the APNs authentication key (.p8, key id, team id) to the Firebase project (Project settings -> Cloud Messaging). The client side is in the repo: `ios/Runner/Runner.entitlements` (`aps-environment`, referenced by all three Runner build configurations) and `UIBackgroundModes: remote-notification` in `Info.plist`. The Push Notifications capability must also be enabled on the App ID in the Apple developer account, and a provisioning profile regenerated.
+- **PAUSED (founder decision 2026-10-18): iOS push is deferred to the Apple launch.** No macOS/Xcode access is available now, so the APNs key is not created or uploaded and iOS push is not verified. Android push, the in-app list and the badge are unaffected. Resume with the Apple launch feature (see the roadmap, "Later: Apple launch").
+- **iOS (deferred, Apple launch):** upload the APNs authentication key (.p8, key id, team id) to the Firebase project (Project settings -> Cloud Messaging). The client side is in the repo: `ios/Runner/Runner.entitlements` (`aps-environment`, referenced by all three Runner build configurations) and `UIBackgroundModes: remote-notification` in `Info.plist`. The Push Notifications capability must also be enabled on the App ID in the Apple developer account, and a provisioning profile regenerated.
 - **Android:** `google-services.json` for the app id (Firebase public config, not a secret). The `social` notification channel the backend names (`fcm.go` ChannelID) is created at startup in `MainActivity`, and `default_notification_channel_id` points at it; `POST_NOTIFICATIONS` is declared for Android 13+.
 - **Both:** `FEATURE_NOTIFICATIONS` allowlisted for the tester account, a real device (simulators and emulators without Play services do not receive pushes).
 - **Known client behaviour:** on iOS without an APNs token the FCM token is unavailable; the client treats `apns-token-not-set` as "not registered yet" and registers on the next token refresh.
 
 ## Open risks
-- On-device push (T12) cannot be verified from CI; iOS needs the APNs auth key uploaded to the Firebase project.
+- On-device push (T12) cannot be verified from CI. iOS push is paused until the Apple launch (no macOS now; APNs key **pending**, not created or uploaded). Android push can be verified on a real device.
 - A like followed by an unlike leaves the notification (no retraction at Stage 0).
 - Post deletion does not remove notifications that point at it (tap shows "post unavailable"); TTL clears them.
