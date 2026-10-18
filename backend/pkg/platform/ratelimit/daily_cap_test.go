@@ -323,3 +323,33 @@ func TestDailyCap_FirstAccessRace(t *testing.T) {
 		}
 	}
 }
+
+func TestDailyCap_AllowN(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		limit int64
+		calls []int64
+		want  []bool
+	}{
+		{"exact fit then reject", 10, []int64{4, 6, 1}, []bool{true, true, false}},
+		{"over-limit batch counts nothing", 10, []int64{8, 5, 2}, []bool{true, false, true}},
+		{"zero and negative are free", 1, []int64{0, -3, 1, 1}, []bool{true, true, true, false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := NewDailyCap(tt.limit)
+			now := time.Now()
+			d.now = func() time.Time { return now }
+			for i, n := range tt.calls {
+				if got := d.AllowN("uid-1", n); got != tt.want[i] {
+					t.Errorf("call %d AllowN(%d) = %v, want %v", i, n, got, tt.want[i])
+				}
+			}
+			if d.AllowN("uid-2", tt.limit) != true {
+				t.Error("another key has its own allowance")
+			}
+		})
+	}
+}

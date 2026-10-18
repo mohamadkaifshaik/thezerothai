@@ -33,7 +33,7 @@ func TestLoad_Notifications(t *testing.T) {
 			if cfg.FeatureNotifications.Mode != flags.Off || cfg.FeatureNotifications.Name != "notifications" {
 				t.Errorf("flag = %+v, want notifications off", cfg.FeatureNotifications)
 			}
-			if cfg.NotificationsTopic != "notifications-fanout" || cfg.RateLimit.NotificationDevicesCallsPerDay != 50 {
+			if cfg.NotificationsTopic != "notifications-fanout" || cfg.RateLimit.NotificationDevicesCallsPerDay != 10 {
 				t.Errorf("topic %q cap %d", cfg.NotificationsTopic, cfg.RateLimit.NotificationDevicesCallsPerDay)
 			}
 			want := "pubsub"
@@ -84,6 +84,21 @@ func TestLoad_Notifications(t *testing.T) {
 		t.Setenv("NOTIFICATION_SEEN_CALLS_PER_DAY", "0")
 		if _, err := Load(); err == nil {
 			t.Fatal("a zero cap must be a startup error")
+		}
+	})
+	t.Run("the hardening caps default and must be positive", func(t *testing.T) {
+		clearEnv(t)
+		cfg, err := Load()
+		rl := cfg.RateLimit
+		if err != nil || rl.NotificationRecipientsPerActorPerDay != 200 || rl.NotificationRecipientsPerNewActorPerDay != 50 || rl.NotificationPushesPerRecipientPerHour != 10 {
+			t.Fatalf("caps = %d/%d/%d, err = %v", rl.NotificationRecipientsPerActorPerDay, rl.NotificationRecipientsPerNewActorPerDay, rl.NotificationPushesPerRecipientPerHour, err)
+		}
+		for _, name := range []string{"NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY", "NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY", "NOTIFICATION_PUSHES_PER_RECIPIENT_PER_HOUR"} {
+			clearEnv(t)
+			t.Setenv(name, "0")
+			if _, err := Load(); err == nil {
+				t.Errorf("%s=0 must be a startup error", name)
+			}
 		}
 	})
 	t.Run("rollout modes parse", func(t *testing.T) {

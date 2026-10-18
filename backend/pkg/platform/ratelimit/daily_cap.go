@@ -96,6 +96,22 @@ func (d *DailyCap) Allow(key string) bool {
 	return true
 }
 
+// AllowN reports whether n more units for key are permitted today (IST) and, if so, counts them, all or nothing:
+// when count + n would pass the limit nothing is counted and false is returned (so a rejected batch does not eat
+// the remaining allowance). n <= 0 is always allowed and counts nothing. Like Allow it ignores the in-flight count.
+func (d *DailyCap) AllowN(key string, n int64) bool {
+	if n <= 0 {
+		return true
+	}
+	c := d.lock(key)
+	defer c.mu.Unlock()
+	if c.count+n > d.limit {
+		return false
+	}
+	c.count += n
+	return true
+}
+
 // Reserve admits one call for key and reports the units spent today, for the ADR-0010 D5 unit budget
 // (Firestore reads): the check runs before the call and the actual cost is charged after by Release.
 //

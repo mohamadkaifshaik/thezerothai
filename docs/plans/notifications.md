@@ -44,7 +44,8 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 | T8 | Tests: unit, emulator integration with budget assertions, suppression matrix, idempotency, DLQ semantics | tester | In review (PR 2) |
 | T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | In review (client PR: branch `feat/p67-ui`, PR not opened yet, number TBD) |
 | T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices; the seam, `notifications.Event` types and the id scheme are ready) |
-| T11 | Security review (token handling, payload, handler auth) | security-auditor | Open |
+| T11 | Security review (token handling, payload, handler auth) | security-auditor | Done (findings N-1..N-5; N-1, N-2, N-3, N-5 fixed in `fix/notifications-hardening`, N-4 owned by the moderation/removal-log change) |
+| T14 | Hardening from the T11 audit: per-actor recipient cap (N-1), per-recipient push limit + collapse by type (N-2), no row id in the export (N-3), FCM dry-run token validation + devices cap 10/day (N-5) | backend | In review (`fix/notifications-hardening`) |
 | T12 | **Manual:** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase; prerequisites below) |
 | T13 | Terraform: `runtime_publisher_topics` += `notifications-fanout`, `FEATURE_NOTIFICATIONS*` env on the api service | backend (declared) / deployer (apply) | Declared in PR 2, not applied (needs plan-then-OK) |
 
@@ -66,11 +67,11 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 | ListNotifications, cold or older page (20) | 20 + graph snapshot (0-1) / 21 | 0 | `seen_at` profile comes from the account-status cache; rows hidden by block/mute are still read |
 | ListNotifications, `since` refresh | 1 + new / 1-5 | 0 | lever 6.1 (the 5 is the planning mean) |
 | MarkNotificationsSeen | 0 / 0 | 1 / 1 (0 within 10 s of the last mark) | + 1 profile read next GetMe (cache evicted) |
-| RegisterDevice | 9 / 2 | 5 / 2 | worst: device doc, token index, previous owner's device, device list of 5, evicted device's index |
+| RegisterDevice | 9 / 2 | 5 / 2 | worst: device doc, token index, previous owner's device, device list of 5, evicted device's index. N-5: the FCM dry run is a Google API call (0 Firestore ops, 2 s timeout) and a rejected token costs 0 reads and 0 writes; cap 10 calls/uid/day, so at most 90 reads and 50 writes per uid per day |
 | UnregisterDevice | 1 / 1 | 2 / 2 | device + index |
-| Fan-out, one recipient (follow/mention) | 1 + R + 5 devices / 4 | 1 / 1 | actor and recipients are evicted and re-read for a fresh ACTIVE check (1 + R, R <= 10, uncached by design), recipient graph (cached), devices <= 5 |
+| Fan-out, one recipient (follow/mention) | 1 + R + 5 devices / 4 | 1 / 1 | N-2: a recipient past 10 pushes/hour skips `Devices` (0 device reads) and the FCM send, the row is still written; actor and recipients are evicted and re-read for a fresh ACTIVE check (1 + R, R <= 10, uncached by design), recipient graph (cached), devices <= 5 |
 | Fan-out, collapsed like (not first) | (1 + R) + 2 / 4 | 1 / 1 (0 on redelivery) | fresh status reads, failed `Create` (1 read), fold transaction (1 read, 1 write only when the actor is new) |
-| Producer publish | 0 | 0 | one Pub/Sub publish, outside the request transaction |
+| Producer publish | 0 | 0 | one Pub/Sub publish, outside the request transaction. N-1: the per-actor daily recipient cap (200, 50 for new accounts) is in memory, 0 reads; it bounds one actor to about 600 fan-out reads and 200 writes a day (3 and 1 per recipient). An over-cap event is dropped before publish |
 | TTL | | | deletes, 6 per DAU, free |
 
 Per DAU (cost-model rows): 2 ListNotifications (1 cold 21 + 1 refresh 5) + mark seen + 6 delivered notifications

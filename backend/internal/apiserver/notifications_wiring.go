@@ -9,7 +9,40 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 )
+
+// maxTrackedAccountAges bounds the per-instance createdAt memo (about 40 bytes per entry plus the key).
+const maxTrackedAccountAges = 10_000
+
+// accountAges remembers recently authenticated accounts' createdAt so the notifications recipient cap can tell a new
+// account at emit time with 0 reads (N-1). Entries expire after an hour; the verdict is recomputed from createdAt
+// on every call, so an account ages out of the new-account tier on time.
+type accountAges struct {
+	window time.Duration
+	m      *cache.LRU[string, time.Time]
+	now    func() time.Time
+}
+
+func newAccountAges(window time.Duration) *accountAges {
+	return &accountAges{window: window, m: cache.New[string, time.Time](maxTrackedAccountAges, time.Hour), now: time.Now}
+}
+
+// Record stores uid's createdAt (a zero time is ignored).
+func (a *accountAges) Record(uid string, createdAt time.Time) {
+	if !createdAt.IsZero() {
+		a.m.Set(uid, createdAt)
+	}
+}
+
+// IsNew reports whether uid is younger than the window; known is false when the account was not recorded.
+func (a *accountAges) IsNew(uid string) (isNew, known bool) {
+	t, ok := a.m.Get(uid)
+	if !ok {
+		return false, false
+	}
+	return a.now().Sub(t) < a.window, true
+}
 
 // emitterSlot is a late-bound notifications.Emitter. graph is constructed before the module that needs graph (the
 // notifications fan-out reads graph.Reader), so graph receives the slot and Build fills it once, synchronously,

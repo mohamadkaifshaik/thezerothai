@@ -109,28 +109,36 @@ func NewFCMSender(app *firebase.App) *FCMSender {
 
 var _ PushSender = (*FCMSender)(nil)
 
-// Send implements PushSender. It returns ErrTokenUnregistered when FCM says the registration is dead.
-func (s *FCMSender) Send(ctx context.Context, token string, p Push) error {
-	client, err := s.messagingClient(ctx)
-	if err != nil {
-		return fmt.Errorf("notifications: fcm client: %w", err)
-	}
+// buildMessage is the FCM message for one push. The collapse key, Android tag and apns-collapse-id are the
+// notification TYPE, never the unique notification id (N-2): a burst of pushes of one type replaces itself on the
+// device instead of stacking one banner per row. The id stays in `data` so the app can deep-link.
+func buildMessage(token string, p Push) *messaging.Message {
 	title, body := pushText(p.Type)
 	ttl := fcmTTL
-	msg := &messaging.Message{
+	collapse := string(p.Type)
+	return &messaging.Message{
 		Token:        token, //nolint:staticcheck // SA1019: the client stores the FCM registration token (getToken()), which Token addresses; Fid is the installation id, a different identifier
 		Notification: &messaging.Notification{Title: title, Body: body},
 		Data: map[string]string{
 			"type": string(p.Type), "notificationId": p.NotificationID, "postId": p.PostID, "actorId": p.ActorID,
 		},
 		Android: &messaging.AndroidConfig{
-			Priority: "normal", TTL: &ttl, CollapseKey: p.NotificationID,
-			Notification: &messaging.AndroidNotification{ChannelID: "social", Tag: p.NotificationID},
+			Priority: "normal", TTL: &ttl, CollapseKey: collapse,
+			Notification: &messaging.AndroidNotification{ChannelID: "social", Tag: collapse},
 		},
 		APNS: &messaging.APNSConfig{
-			Headers: map[string]string{"apns-priority": "5", "apns-collapse-id": truncate(p.NotificationID, 64)},
+			Headers: map[string]string{"apns-priority": "5", "apns-collapse-id": truncate(collapse, 64)},
 		},
 	}
+}
+
+// Send implements PushSender. It returns ErrTokenUnregistered when FCM says the registration is dead.
+func (s *FCMSender) Send(ctx context.Context, token string, p Push) error {
+	client, err := s.messagingClient(ctx)
+	if err != nil {
+		return fmt.Errorf("notifications: fcm client: %w", err)
+	}
+	msg := buildMessage(token, p)
 	if _, err := client.Send(ctx, msg); err != nil {
 		code, prune := classifySendError(err, s.classes)
 		if prune {
@@ -147,6 +155,45 @@ func truncate(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// invalidTokenCodes are the FCM error codes that mean "this is not a valid registration token of this project".
+var invalidTokenCodes = map[string]bool{"INVALID_ARGUMENT": true, "UNREGISTERED": true, "SENDER_ID_MISMATCH": true}
+
+// dryRunMessage is the smallest message FCM accepts for a dry run: it carries no user content and is never delivered.
+func dryRunMessage(token string) *messaging.Message {
+	return &messaging.Message{
+		Token: token, //nolint:staticcheck // SA1019: see buildMessage
+		Data:  map[string]string{"type": "validate"},
+	}
+}
+
+var _ TokenValidator = (*FCMSender)(nil)
+
+// Validate implements TokenValidator with an FCM dry-run send (validation only, free, nothing delivered). It
+// returns ErrTokenInvalid for INVALID_ARGUMENT, UNREGISTERED and SENDER_ID_MISMATCH, a *PushError (fixed code, never
+// the token) for any other failure, and nil when FCM accepts the token.
+func (s *FCMSender) Validate(ctx context.Context, token string) error {
+	client, err := s.messagingClient(ctx)
+	if err != nil {
+		return fmt.Errorf("notifications: fcm client: %w", err)
+	}
+	if _, err := client.SendDryRun(ctx, dryRunMessage(token)); err != nil {
+		code, _ := classifySendError(err, s.classes)
+		if invalidTokenCodes[code] {
+			return fmt.Errorf("%w: %s", ErrTokenInvalid, code)
+		}
+		return &PushError{Code: code}
+	}
+	return nil
+}
+
+// NopValidator accepts every token (local dev and the emulator, where there is no FCM).
+type NopValidator struct{}
+
+// Validate implements TokenValidator.
+func (NopValidator) Validate(context.Context, string) error { return nil }
+
+var _ TokenValidator = NopValidator{}
 
 // LogSender records pushes to the log instead of sending them: local dev has no FCM.
 type LogSender struct{ Log *slog.Logger }

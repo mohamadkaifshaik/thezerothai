@@ -258,12 +258,19 @@ func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpo
 	return next, false, nil
 }
 
+// exportedNotification is one row of the user's export. It deliberately has no id: row ids embed other users' uids
+// (follow_{actorUid}, repost_{postId}_{actorUid}), and an export is the user's own data, not a directory of
+// strangers' account identifiers (N-3). The actor is identified by the handle the user already sees in the app.
 type exportedNotification struct {
-	ID          string    `json:"id"`
 	Type        string    `json:"type"`
 	ActorHandle string    `json:"actorHandle"`
 	PostID      string    `json:"postId,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+}
+
+// exportRow maps a stored row to its export form (pure, so the no-uid-leak rule is unit-testable).
+func exportRow(d notificationDoc) exportedNotification {
+	return exportedNotification{Type: d.Type, ActorHandle: d.Actor.Handle, PostID: d.PostID, CreatedAt: d.CreatedAt.UTC()}
 }
 
 type exportedDevice struct {
@@ -321,7 +328,7 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 				}
 			}
 			first = false
-			if err := enc.Encode(exportedNotification{ID: s.Ref.ID, Type: d.Type, ActorHandle: d.Actor.Handle, PostID: d.PostID, CreatedAt: d.CreatedAt.UTC()}); err != nil {
+			if err := enc.Encode(exportRow(d)); err != nil {
 				return fmt.Errorf("notifications: write export: %w", err)
 			}
 			last = s

@@ -140,6 +140,17 @@ type PushSender interface {
 	Send(ctx context.Context, token string, p Push) error
 }
 
+// ErrTokenInvalid is returned by TokenValidator.Validate when FCM definitively rejects the registration token
+// (INVALID_ARGUMENT, UNREGISTERED or SENDER_ID_MISMATCH): it is not a real token of this project.
+var ErrTokenInvalid = errors.New("notifications: fcm token invalid")
+
+// TokenValidator checks a registration token with FCM before it is stored (N-5). nil error = accept. An error that
+// is not ErrTokenInvalid means "could not tell" (FCM unconfigured, quota, network, permission): the caller fails
+// open, because the FCM IAM role may not be applied yet and a push outage must not block device registration.
+type TokenValidator interface {
+	Validate(ctx context.Context, token string) error
+}
+
 // Publisher publishes one Pub/Sub message (pkg/platform/pubsubpublish.Publisher).
 type Publisher interface {
 	Publish(ctx context.Context, data []byte) error
