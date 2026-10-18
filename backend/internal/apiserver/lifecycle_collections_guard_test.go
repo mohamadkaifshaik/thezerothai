@@ -88,6 +88,9 @@ var lifecycleCollections = []collectionRow{
 	{Name: "userLikes", Disposition: erasedByStep, Step: "engagement", ExportNote: "a cache of the likes and reposts sections (post ids only)", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
 	{Name: "media", Disposition: erasedByStep, Step: "media", Section: "media", Owner: "media", Cite: "ADR-0005, ADR-0011 Q1 (P4 media Eraser: objects first, then documents)"},
 	{Name: "reports", Disposition: erasedByStep, Step: "reports", Section: "reports", Owner: "moderation (P7)", Cite: "ADR-0016 D5 (reporterId cleared; reports about the user kept until resolved + 90 d), ADR-0011 Q1"},
+	// ADR-0016 D10: one global log keyed by post id (state, createdAt, expireAt only: no uid, no authorId), written by opsctl,
+	// TTL expireAt (Terraform ttl_fields). Nothing in it identifies a user, so the residue sweep needs no entry.
+	{Name: "postRemovals", Disposition: notPersonal, ExportNote: "moderation removal log: post id, state and timestamps only", Owner: "posts", Cite: "ADR-0016 D10 (no uid; 32-day TTL)"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 }
 

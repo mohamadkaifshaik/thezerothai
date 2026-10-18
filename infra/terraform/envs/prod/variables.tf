@@ -243,3 +243,31 @@ variable "feature_reports_percent" {
     error_message = "feature_reports_percent must be an integer 0-100."
   }
 }
+
+variable "feature_removed_ids" {
+  description = "FEATURE_REMOVED_IDS rollout mode for TimelineService removed_ids (ADR-0016 D10): off | allowlist | percent | on. Default off. Read docs/runbooks/moderation.md section 3b first: suspending an account with 50+ posts resets every client's cached feeds once."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_removed_ids)
+    error_message = "feature_removed_ids must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_removed_ids_allowlist" {
+  description = "FEATURE_REMOVED_IDS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_removed_ids_percent" {
+  description = "FEATURE_REMOVED_IDS_PERCENT: 0-100, only meaningful when feature_removed_ids = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_removed_ids_percent >= 0 && var.feature_removed_ids_percent <= 100 && floor(var.feature_removed_ids_percent) == var.feature_removed_ids_percent
+    error_message = "feature_removed_ids_percent must be an integer 0-100."
+  }
+}

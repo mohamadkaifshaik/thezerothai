@@ -101,6 +101,7 @@ func newInstanceAt(t *testing.T, client *firestore.Client, now func() time.Time)
 	})
 	srv := timeline.NewServer(timeline.Deps{
 		Flags: allOn{}, Posts: postsSvc, Graph: graphSvc, Directory: dir,
+		Removals:  posts.NewRemovalLog(repo, time.Minute, nil),
 		CursorKey: cursorKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: now,
 	})
 	key := func(a, b string) string { return fmt.Sprintf("k-%s-%s-0123456789abcdef", a, b) }
@@ -274,15 +275,16 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 	if len(ra.Posts) == 0 {
 		t.Fatal("the clamped since should re-deliver the recent posts")
 	}
-	// Refresh with 0 new posts on a fresh instance: author-recent empty, graph warm => exactly C.
+	// Refresh with 0 new posts on a fresh instance: author-recent empty, graph warm => exactly C, plus the one read of the
+	// instance's cold removal log (ADR-0016 D10; 0 once the instance is warm).
 	b := newInstanceAt(t, client, later)
 	b.warm(t, "me")
 	r0, c0, err := b.home(t, "me", ra.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c0.Reads() != 3 || len(r0.Posts) != 0 {
-		t.Fatalf("refresh with nothing new: reads = %d posts = %d, want C = 3 and 0 posts", c0.Reads(), len(r0.Posts))
+	if c0.Reads() != 3+1 || len(r0.Posts) != 0 {
+		t.Fatalf("refresh with nothing new: reads = %d posts = %d, want C = 3 + 1 (cold removal log) and 0 posts", c0.Reads(), len(r0.Posts))
 	}
 	t.Logf("BUDGET GetHomeTimeline refresh 0 new F=60 reads=%d (C=3, graph warm)", c0.Reads())
 
@@ -329,8 +331,8 @@ func TestHome_Integration_OwnPostUpdatesAuthorRecentInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c2.Reads() != 0 {
-		t.Fatalf("refresh after an own post: reads = %d, want 0", c2.Reads())
+	if c2.Reads() != 1 { // the cold removal log of this instance (ADR-0016 D10); the post itself costs 0
+		t.Fatalf("refresh after an own post: reads = %d, want 1 (cold removal log only)", c2.Reads())
 	}
 	hit := false
 	for _, id := range homeIDs(r2) {
@@ -522,7 +524,7 @@ func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
 	}
 
 	// A refresh on a cold instance whose clock is 5 minutes ahead (past the settle window): the clamped since
-	// re-delivers the recent posts; the next one has nothing new and costs users + graph + 1 empty query = 3 reads.
+	// re-delivers the recent posts; the next one has nothing new and costs users + graph + 1 empty query + 1 cold removal log read = 4 reads.
 	later := func() time.Time { return time.Now().Add(5 * time.Minute) }
 	a := newInstanceAt(t, client, later)
 	ra, _, err := a.user(t, "me", "bob", p1.SinceToken, "", 20)
@@ -534,7 +536,7 @@ func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "GetUserTimeline cold refresh, 0 new", c0, budgettest.Budget{Reads: 3})
+	budgettest.Assert(t, "GetUserTimeline cold refresh, 0 new (+1 cold removal log)", c0, budgettest.Budget{Reads: 4})
 	if len(r0.Posts) != 0 {
 		t.Fatalf("refresh with nothing new returned %d posts", len(r0.Posts))
 	}
@@ -795,14 +797,121 @@ func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testi
 		}
 	}
 
-	if _, err := mod.Restore(context.Background(), p11); err != nil {
+	if _, err := mod.Restore(context.Background(), p11, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}); err != nil || !done {
+	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
 		t.Fatalf("restore author: done=%v err=%v", done, err)
 	}
 	resp, _, err = newInstance(t, client).home(t, "me", "", "", 20)
 	if err != nil || len(homeIDs(resp)) != 4 {
 		t.Fatalf("home after restore: err=%v ids=%v", err, homeIDs(resp))
 	}
+}
+
+// TestModeration_Integration_RemovedIDsReachRefreshingClients is ADR-0016 D10 end to end on the emulator: a post
+// hidden by opsctl's writers (takedown, suspension) is listed in removed_ids of the next refresh of a client whose
+// since token was issued before the hide, on both timelines, and not for a client whose token was issued after
+// (beyond the lag that covers stale caches). A restored post is not listed. Cold opens and page calls never carry it.
+func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
+	client := newClient(t)
+	in := newInstance(t, client)
+	world(t, in, 2) // me follows f1, f2
+	p11, p12 := in.post(t, "f1", 1), in.post(t, "f1", 2)
+	p21 := in.post(t, "f2", 1)
+
+	// The client opens the feeds before the moderator acts: these are its since tokens.
+	coldHome, _, err := newInstance(t, client).home(t, "me", "", "", 20)
+	if err != nil || len(coldHome.GetRemovedIds()) != 0 || coldHome.GetSinceToken() == "" {
+		t.Fatalf("cold home: err=%v removed=%v", err, coldHome.GetRemovedIds())
+	}
+	coldUser, _, err := newInstance(t, client).user(t, "me", "f1", "", "", 20)
+	if err != nil || len(coldUser.GetRemovedIds()) != 0 {
+		t.Fatalf("cold user: err=%v removed=%v", err, coldUser.GetRemovedIds())
+	}
+
+	mod := posts.NewFirestoreRepo(client)
+	if _, err := mod.Takedown(context.Background(), p11, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, done, err := mod.HideAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
+		t.Fatalf("hide author: done=%v err=%v", done, err)
+	}
+
+	// A client whose token predates the hide: a fresh instance (cold log cache) lists both.
+	resp, _, err := newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resp.GetRemovedIds(); len(got) != 2 || !contains(got, p11) || !contains(got, p21) || contains(got, p12) {
+		t.Fatalf("home removed_ids = %v, want {%s, %s}", got, p11, p21)
+	}
+	uresp, _, err := newInstance(t, client).user(t, "me", "f1", coldUser.GetSinceToken(), "", 20)
+	if err != nil || !contains(uresp.GetRemovedIds(), p11) {
+		t.Fatalf("user removed_ids = %v err=%v, want it to list %s", uresp.GetRemovedIds(), err, p11)
+	}
+
+	// Other modes never carry removed_ids.
+	if page, _, err := newInstance(t, client).home(t, "me", "", "", 20); err != nil || len(page.GetRemovedIds()) != 0 {
+		t.Fatalf("cold open after the hide: err=%v removed=%v", err, page.GetRemovedIds())
+	}
+
+	// A client whose token was issued well after the hide (beyond the lag) is not told again. The timeline clocks
+	// of the instance that issues the token and of the one that serves the refresh are 10 and 11 minutes ahead.
+	later := func(d time.Duration) func() time.Time { return func() time.Time { return time.Now().Add(d) } }
+	issued, _, err := newInstanceAt(t, client, later(10*time.Minute)).home(t, "me", "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _, err := newInstanceAt(t, client, later(11*time.Minute)).home(t, "me", issued.GetSinceToken(), "", 20)
+	if err != nil || len(after.GetRemovedIds()) != 0 {
+		t.Fatalf("token issued after the hide: err=%v removed=%v, want none", err, after.GetRemovedIds())
+	}
+
+	// Restores overwrite the entries: a client with the old token is no longer told to drop the posts.
+	if _, err := mod.Restore(context.Background(), p11, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
+		t.Fatalf("restore author: done=%v err=%v", done, err)
+	}
+	resp, _, err = newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
+	if err != nil || len(resp.GetRemovedIds()) != 0 {
+		t.Fatalf("after restore: err=%v removed=%v, want none", err, resp.GetRemovedIds())
+	}
+}
+
+// TestModeration_Integration_RemovalLogReadsOnARefresh pins the documented cost: with an empty log a refresh adds
+// one read on a cold instance and none on a warm one (plus the post reads it would cost anyway).
+func TestModeration_Integration_RemovalLogReadsOnARefresh(t *testing.T) {
+	client := newClient(t)
+	in := newInstance(t, client)
+	world(t, in, 2)
+	in.post(t, "f1", 1)
+	cold, _, err := in.home(t, "me", "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := newInstance(t, client)
+	probe.warm(t, "me")
+	_, first, err := probe.home(t, "me", cold.GetSinceToken(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := probe.home(t, "me", cold.GetSinceToken(), "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Reads() != second.Reads()+1 {
+		t.Fatalf("cold-log refresh reads=%d, warm-log refresh reads=%d: want exactly the log's single read in between", first.Reads(), second.Reads())
+	}
+}
+
+func contains(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

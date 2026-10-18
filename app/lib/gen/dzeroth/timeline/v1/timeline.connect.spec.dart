@@ -30,6 +30,12 @@ abstract final class TimelineService {
   ///            account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT on) / planning: refresh
   ///            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
   ///            cold open 30 (F=60, page 20), writes 0.
+  /// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
+  /// 0 reads while that flag is off): 0 extra reads on a warm cache hit, +1 (empty or unchanged log) to +50 (a
+  /// changed log) once per instance per CACHE_TTL, +100 worst (a full incremental page of 50 reloads the newest 50),
+  /// so a refresh is bounded by 2 + C + 2 * page_size + 100 (= 369 at 5,000 following, page 50). Other modes read
+  /// nothing from the log. Suspending an account with 50 or more posts makes every client reset its cached feeds
+  /// once (see removed_ids in the token contract).
   /// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
   static const getHomeTimeline = connect.Spec(
     '/$name/GetHomeTimeline',
@@ -39,19 +45,6 @@ abstract final class TimelineService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
-  /// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-  /// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-  /// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
-  /// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
-  /// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
-  /// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache
-  /// (60 s). Pages use Limit(page_size); next_page_token is set whenever a page is full (ADR-0010 D16).
-  /// Reads: caller users (account-status interceptor) + user users (status) + caller graph (blocked-by), all
-  /// cached 60 s, + page; +1 user graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-  /// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
-  /// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
-  /// posts 4 cold / 0-1 warm; +1 userLikes (cold, cached 60 s) with FEATURE_ENGAGEMENT on. Writes 0.
   static const getUserTimeline = connect.Spec(
     '/$name/GetUserTimeline',
     connect.StreamType.unary,

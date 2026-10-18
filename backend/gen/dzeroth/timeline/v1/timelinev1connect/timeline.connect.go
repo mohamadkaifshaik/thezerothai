@@ -16,11 +16,22 @@
 //     cache, shows a "show more" gap row between the new items and the cached ones, and fills it by calling with
 //     page_token = gap_page_token (the token is bounded below by the old since_token, so it never re-reads the cache).
 //     Pages inside a gap keep that lower bound; next_page_token is "" once the gap is closed.
-//   - Every response returns since_token; persist it with the cached items.
+//   - Cold-open and since_token refresh responses return a fresh since_token; persist it with the cached items.
+//     Scroll (page_token) and gap-fill responses return no since_token: keep the one you have.
 //   - Tokens are bound to the caller, the feed (and for user timelines the target and tab) and the token kind,
 //     and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
-//     VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token, call with no
-//     token (cold open) and use its next_page_token to fill down to the cached items.
+//     VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token and call with no
+//     token (cold open). After a rejected page_token, or a rejected since_token (amended by ADR-0016 D10), REPLACE the
+//     cached feed with the cold open, do not merge into it: a since_token is also rejected when the server cannot list
+//     removed_ids completely (below), it answers exactly as for an expired token, so the client cannot tell the two
+//     apart. Scroll down from the cold open's next_page_token.
+//   - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
+//     account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
+//     Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
+//     token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
+//     expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
+//     the client replaces its cache for that feed with the cold open (see above). removed_ids is global, not per
+//     feed: on a user timeline it can name posts by other authors, so drop each id from every cached feed that holds it.
 //
 // The Stage 2 Memorystore design keeps this contract unchanged.
 package timelinev1connect
@@ -86,21 +97,14 @@ type TimelineServiceClient interface {
 	//	4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
 	//	cold open 30 (F=60, page 20), writes 0.
 	//
+	// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
+	// 0 reads while that flag is off): 0 extra reads on a warm cache hit, +1 (empty or unchanged log) to +50 (a
+	// changed log) once per instance per CACHE_TTL, +100 worst (a full incremental page of 50 reloads the newest 50),
+	// so a refresh is bounded by 2 + C + 2 * page_size + 100 (= 369 at 5,000 following, page 50). Other modes read
+	// nothing from the log. Suspending an account with 50 or more posts makes every client reset its cached feeds
+	// once (see removed_ids in the token contract).
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
-	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
-	// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-	// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-	// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
-	// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
-	// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
-	// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache
-	// (60 s). Pages use Limit(page_size); next_page_token is set whenever a page is full (ADR-0010 D16).
-	// Reads: caller users (account-status interceptor) + user users (status) + caller graph (blocked-by), all
-	// cached 60 s, + page; +1 user graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-	// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
-	// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
-	// posts 4 cold / 0-1 warm; +1 userLikes (cold, cached 60 s) with FEATURE_ENGAGEMENT on. Writes 0.
 	GetUserTimeline(context.Context, *connect.Request[v1.GetUserTimelineRequest]) (*connect.Response[v1.GetUserTimelineResponse], error)
 }
 
@@ -172,21 +176,14 @@ type TimelineServiceHandler interface {
 	//	4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
 	//	cold open 30 (F=60, page 20), writes 0.
 	//
+	// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
+	// 0 reads while that flag is off): 0 extra reads on a warm cache hit, +1 (empty or unchanged log) to +50 (a
+	// changed log) once per instance per CACHE_TTL, +100 worst (a full incremental page of 50 reloads the newest 50),
+	// so a refresh is bounded by 2 + C + 2 * page_size + 100 (= 369 at 5,000 following, page 50). Other modes read
+	// nothing from the log. Suspending an account with 50 or more posts makes every client reset its cached feeds
+	// once (see removed_ids in the token contract).
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
-	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
-	// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-	// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-	// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
-	// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
-	// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
-	// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache
-	// (60 s). Pages use Limit(page_size); next_page_token is set whenever a page is full (ADR-0010 D16).
-	// Reads: caller users (account-status interceptor) + user users (status) + caller graph (blocked-by), all
-	// cached 60 s, + page; +1 user graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-	// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
-	// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
-	// posts 4 cold / 0-1 warm; +1 userLikes (cold, cached 60 s) with FEATURE_ENGAGEMENT on. Writes 0.
 	GetUserTimeline(context.Context, *connect.Request[v1.GetUserTimelineRequest]) (*connect.Response[v1.GetUserTimelineResponse], error)
 }
 

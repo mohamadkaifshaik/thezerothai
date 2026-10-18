@@ -130,3 +130,38 @@ func TestDecode_EmptyDocIDFails(t *testing.T) {
 		t.Fatalf("Decode with empty doc id: err = %v, want ErrInvalid", err)
 	}
 }
+
+func TestDecodeIssuedAtTTL(t *testing.T) {
+	key := []byte("test-key")
+	issued := time.Date(2026, 10, 1, 12, 0, 0, 123_000, time.UTC)
+	pos := Cursor{CreatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), DocID: "0000000000000000001"}
+	token := EncodeAt(key, bind, pos, issued)
+	const ttl = 30 * 24 * time.Hour
+
+	tests := []struct {
+		name    string
+		token   string
+		now     time.Time
+		wantErr bool
+		want    time.Time
+	}{
+		{name: "issue time is the encode time, not the position", token: token, now: issued.Add(time.Hour), want: issued},
+		{name: "empty token has a zero issue time", token: "", now: issued},
+		{name: "expired", token: token, now: issued.Add(ttl + time.Second), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, got, err := DecodeIssuedAtTTL(key, bind, tt.token, tt.now, ttl)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !got.Equal(tt.want) {
+				t.Fatalf("issued = %v, want %v", got, tt.want)
+			}
+			if tt.token != "" && !tt.wantErr && (c.DocID != pos.DocID || !c.CreatedAt.Equal(pos.CreatedAt)) {
+				t.Fatalf("cursor = %+v, want %+v", c, pos)
+			}
+		})
+	}
+}

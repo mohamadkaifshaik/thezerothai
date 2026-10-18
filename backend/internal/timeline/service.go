@@ -59,6 +59,11 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 		return &timelinev1.GetHomeTimelineResponse{}, nil
 	}
 
+	removed, err := s.removedIDs(ctx, tok)
+	if err != nil {
+		return nil, err
+	}
+
 	snap, err := s.deps.Graph.Snapshot(ctx, uid)
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), uid)
@@ -78,7 +83,7 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	}
 	page := Merge(res.sources, limit, keep)
 
-	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, engaged, page.Items)}
+	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, engaged, page.Items), RemovedIds: removed}
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -349,6 +354,11 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 		return &timelinev1.GetUserTimelineResponse{}, nil
 	}
 
+	removed, err := s.removedIDs(ctx, tok)
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := s.userPage(ctx, target, req.GetIncludeReplies(), tok, limit, start)
 	if err != nil {
 		return nil, err
@@ -360,7 +370,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	if err != nil {
 		return nil, err
 	}
-	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, engaged, items)}
+	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, engaged, items), RemovedIds: removed}
 	it := s.tokens(f, md, tok, res.page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)

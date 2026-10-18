@@ -108,7 +108,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureRemovedIDs)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -256,8 +256,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	postsSvc.(interface{ SetRepostLinks(posts.RepostLinks) }).SetRepostLinks(engagementMod)
 	engagementServer := engagement.NewServer(engagementMod, featureFlags)
 	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod))
+	// The removal log is built only when FEATURE_REMOVED_IDS is not off: off means no instance cache, no reads and
+	// no reset of cached client feeds (timeline treats a nil Removals as "no removed_ids"). Allowlist and percent
+	// modes are enforced per caller in timeline.removedIDs.
+	var removals posts.Removals
+	if cfg.FeatureRemovedIDs.Mode != flags.Off {
+		removals = posts.NewRemovalLog(postsRepo, cfg.CacheTTL, nil)
+	}
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
+		Removals:  removals,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	})
 

@@ -116,6 +116,8 @@
       "indexes": [{ "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }]
     },
 
+    { "collectionGroup": "postRemovals", "fieldPath": "state", "indexes": [] },
+
     { "collectionGroup": "reports", "fieldPath": "evidence", "indexes": [] },
     { "collectionGroup": "reports", "fieldPath": "note", "indexes": [] },
     { "collectionGroup": "devices", "fieldPath": "token", "indexes": [] }

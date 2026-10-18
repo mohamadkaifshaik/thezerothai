@@ -36,6 +36,8 @@ func userFeed(caller, target string, includeReplies bool) feed {
 type request struct {
 	// Since is the refresh watermark (nil unless a since_token was sent).
 	Since *posts.Position
+	// SinceIssued is when that since_token was issued (sealed in the token; zero unless Since is set).
+	SinceIssued time.Time
 	// Upper and Lower are the page window of a page_token: resume strictly below Upper; stop strictly above
 	// Lower (a gap). Both nil without a page token.
 	Upper, Lower *posts.Position
@@ -93,11 +95,12 @@ func (c codec) parse(f feed, sinceToken, pageToken string) (request, error) {
 		return r, apierr.Validation(fieldPage, "send either since_token or page_token, not both")
 	}
 	if sinceToken != "" {
-		cur, err := cursor.DecodeAtTTL(c.key, f.since, sinceToken, c.now(), c.ttl)
+		cur, issued, err := cursor.DecodeIssuedAtTTL(c.key, f.since, sinceToken, c.now(), c.ttl)
 		if err != nil || cursor.IsFirstPage(cur) {
 			return r, apierr.Validation(fieldSince, "since_token is invalid or expired")
 		}
 		r.Since = &posts.Position{CreatedAt: cur.CreatedAt, ID: cur.DocID}
+		r.SinceIssued = issued
 		return r, nil
 	}
 	if pageToken != "" {
