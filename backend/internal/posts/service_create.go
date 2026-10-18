@@ -47,8 +47,11 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if in.ReplyToPostID != "" && !in.RepliesEnabled {
 		return nil, featureDisabled("replies")
 	}
-	if in.QuoteOfPostID != "" {
+	if in.QuoteOfPostID != "" && !in.QuotesEnabled {
 		return nil, featureDisabled("quotes")
+	}
+	if in.QuoteOfPostID != "" && in.ReplyToPostID != "" {
+		return nil, apierr.Validation("quote_of_post_id", "a post cannot both reply to and quote another post")
 	}
 	hasMedia := len(in.MediaIDs) > 0 || len(in.MediaAltTexts) > 0
 	if hasMedia && !in.MediaEnabled {
@@ -91,6 +94,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 			return nil, err
 		}
 	}
+	var quoted *Post
+	if in.QuoteOfPostID != "" {
+		if quoted, err = s.quoteTarget(ctx, uid, in.QuoteOfPostID); err != nil {
+			return nil, err
+		}
+	}
 	mentions, err := s.resolveMentions(ctx, uid, parsed.Mentions)
 	if err != nil {
 		return nil, err
@@ -110,7 +119,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.MediaIDs, in.MediaAltTexts),
+		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts),
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
 		MediaAlts:   in.MediaAltTexts,
@@ -127,6 +136,9 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	}
 	if parent != nil {
 		applyReply(&params, parent)
+	}
+	if quoted != nil {
+		applyQuote(&params, quoted)
 	}
 	res, err := s.repo.Create(ctx, params)
 	noteTxnAttempts(ctx, res.Attempts)
@@ -163,6 +175,9 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	// 4. After commit: instance caches from the written data, then the (no-op) hook. Never inside the txn.
 	post := res.Post
 	s.cache.SetPost(post)
+	if post.Kind == KindQuote {
+		s.cache.AdjustCounts(post.QuoteOfID, 0, 0, 1) // the quoted post's quoteCount moved in the same commit
+	}
 	if post.IsReply {
 		// Replies are not root posts: they stay out of the author-recent entry (the Posts tab and Home feed
 		// cache). The parent's cached copy has a stale replyCount.
@@ -214,11 +229,11 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 }
 
 // requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text, the
-// reply target, media ids and alt texts in request order and the quote field (always empty while rejected), in a
-// fixed order (D18). A text-only root post hashes exactly as it did before P3 and P4.
-func requestHash(normalisedText, replyTo string, mediaIDs, alts []string) string {
+// reply target, media ids and alt texts in request order and the quote target, in a fixed order (D18). A
+// text-only root post hashes exactly as it did before P3 and P4.
+func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string) string {
 	return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
-		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), replyTo, ""))
+		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), replyTo, quoteOf))
 }
 
 // maxAltTextRunes bounds one alt text (CreatePost proto: <= 1,000 chars).

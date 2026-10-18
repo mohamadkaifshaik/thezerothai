@@ -202,12 +202,60 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 		return err
 	}
 	fmt.Fprintf(out, "post %s: %s -> %s (hidden from GetPost, profile and Home within 60 s)\n", a.post, stateName(r.Before), stateName(r.After))
+	if err := cleanupCopies(cctx, b, a.post, out); err != nil {
+		return err
+	}
 	if a.report != "" {
 		if err := resolveReport(ctx, b, a.report, moderation.ResolutionTakedown, a.note, out, now); err != nil {
 			return err
 		}
 	}
 	fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes())
+	return nil
+}
+
+// cleanupPageBudget bounds the pages one takedown processes of each kind (100 per page): a post with more copies
+// than that is finished by running takedown-post again, which is idempotent.
+const cleanupPageBudget = 50
+
+// cleanupCopies makes a taken-down post's copies disappear too (ADR-0018 D6, ADR-0016 follow-up T10): REPOST
+// posts of it are removed (with their reposts docs, the reposters' postsCount and the post's repostCount, because
+// the post still exists and the counter must stay exact) and the embeds of its quotes become a tombstone. Likes
+// stay. restore-post does not bring the copies back.
+func cleanupCopies(ctx context.Context, b *backends, postID string, out io.Writer) error {
+	if b.cleanup == nil {
+		return nil
+	}
+	reposts, quotes := 0, 0
+	for page := 0; ; page++ {
+		if page >= cleanupPageBudget {
+			fmt.Fprintf(out, "note: more reposts remain; run takedown-post again to finish\n")
+			break
+		}
+		n, more, err := b.cleanup.RemoveReposts(ctx, postID, true, posts.CleanupPage)
+		if err != nil {
+			return fmt.Errorf("remove reposts: %w", err)
+		}
+		reposts += n
+		if !more {
+			break
+		}
+	}
+	for page := 0; ; page++ {
+		if page >= cleanupPageBudget {
+			fmt.Fprintf(out, "note: more quotes remain; run takedown-post again to finish\n")
+			break
+		}
+		n, more, err := b.cleanup.TombstoneQuotes(ctx, postID, posts.CleanupPage)
+		if err != nil {
+			return fmt.Errorf("tombstone quotes: %w", err)
+		}
+		quotes += n
+		if !more {
+			break
+		}
+	}
+	fmt.Fprintf(out, "copies: reposts removed=%d quote embeds tombstoned=%d\n", reposts, quotes)
 	return nil
 }
 

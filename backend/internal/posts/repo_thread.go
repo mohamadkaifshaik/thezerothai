@@ -21,7 +21,12 @@ import (
 // bumpReplyCount appends the replyCount increment to a batch or transaction. The Update has an implicit Exists
 // precondition, so a deleted parent fails the whole commit with NotFound (0 writes).
 func bumpReplyCount(b store.Batch, parent *firestore.DocumentRef, delta int64) {
-	b.Update(parent, []firestore.Update{{Path: "replyCount", Value: firestore.Increment(delta)}})
+	bumpCount(b, parent, "replyCount", delta)
+}
+
+// bumpCount appends a FieldValue.Increment on one counter field (the same implicit Exists precondition).
+func bumpCount(b store.Batch, ref *firestore.DocumentRef, field string, delta int64) {
+	b.Update(ref, []firestore.Update{{Path: field, Value: firestore.Increment(delta)}})
 }
 
 // Conversation implements Repo (Q-T). Reads: len(result), minimum 1.
@@ -55,13 +60,22 @@ func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string,
 // AddReplyCount implements Repo: one Update with FieldValue.Increment on the parent. A parent that no longer
 // exists is not an error (the counter died with it). Writes 1 (0 when the parent is gone).
 func (r *FirestoreRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
+	return r.addCount(ctx, parentID, "replyCount", delta)
+}
+
+// AddQuoteCount implements Repo: AddReplyCount for quoteCount.
+func (r *FirestoreRepo) AddQuoteCount(ctx context.Context, quotedID string, delta int64) error {
+	return r.addCount(ctx, quotedID, "quoteCount", delta)
+}
+
+func (r *FirestoreRepo) addCount(ctx context.Context, id, field string, delta int64) error {
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
-	bumpReplyCount(b, r.ref(parentID), delta)
+	bumpCount(b, r.ref(id), field, delta)
 	if err := b.Commit(ctx); err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil
 		}
-		return fmt.Errorf("posts: reply count: %w", err)
+		return fmt.Errorf("posts: %s: %w", field, err)
 	}
 	return nil
 }

@@ -20,11 +20,14 @@ abstract final class TimelineService {
   /// Filtering (ADR-0010 D6): authors the caller blocks, who block the caller (even if a stale following list
   /// still names them) or whom the caller mutes are dropped; the caller's own posts are always kept. Authors
   /// who are SUSPENDED or DELETING are not filtered at Stage 0 (moderation takedown / purge removes their posts).
-  /// Viewer flags are false and userLikes is not read until engagement ships (ADR-0010 D3).
+  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT is off for the caller (ADR-0010 D3);
+  /// with it on, one cached userLikes read hydrates the page (P5). A REPOST or QUOTE whose embedded author the caller
+  /// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
+  /// describe its original.
   /// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
   /// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
   /// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
-  ///            account-status interceptor + graph; +1 userLikes once engagement ships) / planning: refresh
+  ///            account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT on) / planning: refresh
   ///            4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
   ///            cold open 30 (F=60, page 20), writes 0.
   /// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
@@ -48,7 +51,7 @@ abstract final class TimelineService {
   /// cached 60 s, + page; +1 user graph if the caller's blocked-by list overflowed (ADR-0008 D2).
   /// Firestore: reads 3 + max(page_size, 20) cold (a cold Posts tab fills the 20-post author-recent entry, so
   /// page_size < 20 still reads 20; 53 at page 50) / 0 warm, planning 11; since_token refresh with 0 new
-  /// posts 4 cold / 0-1 warm; +1 (userLikes) once engagement ships. Writes 0.
+  /// posts 4 cold / 0-1 warm; +1 userLikes (cold, cached 60 s) with FEATURE_ENGAGEMENT on. Writes 0.
   static const getUserTimeline = connect.Spec(
     '/$name/GetUserTimeline',
     connect.StreamType.unary,

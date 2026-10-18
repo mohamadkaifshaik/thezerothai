@@ -56,20 +56,15 @@ type Thread struct {
 
 // replyParent validates a reply target for CreatePost: the id shape, then the GetPost visibility rules
 // (viewable). Every refusal is the one NOT_FOUND "post not found" answer, so the response reveals neither a
-// deleted parent nor a block. Reads: parent 1 + its author 1 + caller graph 1 cold, 0 warm.
+// deleted parent nor a block. A REPOST parent resolves to the original (ADR-0018 D17, shared resolver): the reply's
+// parent, conversationId and replyToHandle come from the original, which gets the replyCount; the REPOST's
+// counters stay 0. Reads: parent 1 + its author 1 + caller graph 1 cold, 0 warm; +2 cold for a REPOST (the
+// original and its author).
 func (s *service) replyParent(ctx context.Context, uid, parentID string) (*Post, error) {
 	if !ids.ValidPostID(parentID) {
 		return nil, apierr.Validation("reply_to_post_id", "reply_to_post_id must be a 19-digit post id")
 	}
-	p, err := s.viewable(ctx, uid, parentID)
-	if errors.Is(err, ErrNotFound) {
-		logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
-		return nil, postNotFound()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
+	return s.resolveTarget(ctx, uid, parentID)
 }
 
 // releaseParent decrements a deleted reply's parent counter. It runs after the reply's own delete committed
@@ -102,7 +97,8 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 //
 // Firestore, worst case with the interceptor's caller read: 1 + focal 1 + focal author 1 + caller graph 1 (+1
 // author graph on blockedBy overflow) + parent and root 2 + their authors <= 2 + one conversation query of
-// Limit(page) <= 30 => 38 cold; warm: the query only (1 .. 30). Writes 0.
+// Limit(page) <= 30 => 38 cold (+2 when the focal id is a REPOST: its original and that author => 40); warm: the query only (1 .. 30). Writes 0. A QUOTE or REPOST parent or root is
+// checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")
 	defer func() {
@@ -123,7 +119,7 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 		after = &Position{CreatedAt: cur.CreatedAt, ID: cur.DocID}
 	}
 
-	focal, err := s.viewable(ctx, callerUID, in.PostID)
+	focal, err := s.viewableResolved(ctx, callerUID, in.PostID) // a REPOST id opens the original's thread (D17)
 	if errors.Is(err, ErrNotFound) {
 		return nil, s.notFound(ctx)
 	}
@@ -216,6 +212,12 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 		if p.AuthorID != caller {
 			// Fail closed on a blockedBy overflow rather than spend an author-graph read per context row.
 			if snap.BlockedBy[p.AuthorID] || snap.Blocked[p.AuthorID] || snap.BlockedByOverflow {
+				return nil
+			}
+			// A QUOTE or REPOST copies another user's content: when that author blocks the caller the copy must
+			// not leak (ADR-0018 D13). A blockedBy overflow is already handled by the author check above. 0 extra
+			// reads. The caller's own posts are exempt, same as a direct post.
+			if emb := p.EmbeddedAuthor(); emb != "" && emb != caller && snap.BlockedBy[emb] {
 				return nil
 			}
 		}

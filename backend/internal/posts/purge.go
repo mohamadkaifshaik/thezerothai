@@ -49,6 +49,9 @@ func (r *FirestoreRepo) authorQuery(uid string) firestore.Query {
 // only carries the running count. There are no counter updates: the user doc is deleted anyway (runbook).
 // Reads: one per post returned (1 for an empty page); deletes: one per post.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
+	if cp.Phase >= 1 {
+		return r.purgeCopies(ctx, uid, cp)
+	}
 	docs, err := r.authorQuery(uid).Select().Limit(opsPage).Documents(ctx).GetAll()
 	reads := int64(len(docs))
 	if reads == 0 {
@@ -59,7 +62,7 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		return cp, false, fmt.Errorf("posts: purge %s: query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) == 0 {
-		return cp, true, nil
+		return Checkpoint{Deleted: cp.Deleted, Phase: 1}, false, nil
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, d := range docs {
@@ -70,8 +73,66 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	}
 	next := Checkpoint{Deleted: cp.Deleted + len(docs)}
 	slog.InfoContext(ctx, "posts_purge_batch", "uid_hash", logger.HashUID(uid), "posts", len(docs), "deleted_total", next.Deleted)
-	// A short page was the last one (the account is DELETING, so nothing new arrives).
-	return next, len(docs) < opsPage, nil
+	// A short page was the last one (the account is DELETING, so nothing new arrives): continue with the copies.
+	if len(docs) < opsPage {
+		next.Phase = 1
+	}
+	return next, false, nil
+}
+
+// purgeCopies is phase 1 of PurgeUser (ADR-0018 D14): the deleted user's text also lives inside other users'
+// REPOST docs (removed, with their reposts docs and the reposter's postsCount) and QUOTE docs (embed replaced by
+// a tombstone). One page of at most CleanupPage per call (Q-C, single equality, no index change). Reads one per
+// doc (minimum 1); writes <= 3 per doc.
+func (r *FirestoreRepo) purgeCopies(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
+	if r.w.Counters == nil || r.links == nil {
+		return cp, false, fmt.Errorf("posts: purge %s: repo has no Counters or RepostLinks configured", logger.HashUID(uid))
+	}
+	docs, err := r.pageDocs(ctx, "embeddedAuthorId", uid, CleanupPage)
+	if err != nil {
+		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
+	}
+	var rows []repostRow
+	var quotes []*firestore.DocumentSnapshot
+	for _, d := range docs {
+		var pd postDoc
+		if err := d.DataTo(&pd); err != nil {
+			return cp, false, fmt.Errorf("posts: purge decode %s: %w", d.Ref.ID, err)
+		}
+		switch Kind(pd.Kind) {
+		case KindRepost:
+			rows = append(rows, repostRow{id: d.Ref.ID, authorID: pd.AuthorID, originalID: pd.RepostOfID})
+		case KindQuote:
+			quotes = append(quotes, d)
+		}
+	}
+	// The original (the deleted user's post) is gone or going: no repostCount to keep exact.
+	removed, err := r.removeRepostRows(ctx, rows, false)
+	if err != nil {
+		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
+	}
+	items := make([]quoteItem, 0, len(quotes))
+	for _, q := range quotes {
+		var pd postDoc
+		if err := q.DataTo(&pd); err != nil {
+			return cp, false, fmt.Errorf("posts: purge decode %s: %w", q.Ref.ID, err)
+		}
+		items = append(items, quoteItem{ref: q.Ref, originalID: pd.QuoteOfID})
+	}
+	// One commit per page (CleanupPage <= 500 writes), not one per quote.
+	tombstoned, err := r.tombstoneItems(ctx, items)
+	if err != nil {
+		return cp, false, fmt.Errorf("posts: purge %s: %w", logger.HashUID(uid), err)
+	}
+	next := Checkpoint{Deleted: cp.Deleted, Phase: 1, Copies: cp.Copies + removed + tombstoned}
+	slog.InfoContext(ctx, "posts_purge_copies", "uid_hash", logger.HashUID(uid), "reposts", removed, "quotes", tombstoned)
+	// A full page that made no progress would repeat forever; stop and let the residue sweep name it.
+	stuck := len(docs) > 0 && removed+tombstoned == 0
+	if stuck {
+		// Error severity: this reaches Error Reporting; the residue sweep and the runbook name the way out.
+		slog.ErrorContext(ctx, "posts_purge_copies_stuck", "uid_hash", logger.HashUID(uid), "docs", len(docs))
+	}
+	return next, len(docs) < CleanupPage || stuck, nil
 }
 
 // PlanPurge counts the user's posts without writing anything (opsctl purge-posts --dry-run). Reads: one per
@@ -104,6 +165,11 @@ type exportedPost struct {
 	Mentions  []string  `json:"mentions"`
 	// ReplyToPostID is set for replies (P3); the parent's author is not exported (not the user's data).
 	ReplyToPostID string `json:"replyToPostId,omitempty"`
+	// Kind is set only for REPOST and QUOTE docs (P5), with the id of the post they copy, so plain posts export
+	// byte for byte as before. The copied text and its author are not the user's data and are not exported.
+	Kind       string `json:"kind,omitempty"`
+	RepostOfID string `json:"repostOfPostId,omitempty"`
+	QuoteOfID  string `json:"quoteOfPostId,omitempty"`
 }
 
 // ExportUser implements Exporter: it streams {"userId": ..., "posts": [...]} to w, newest first, in pages of
@@ -135,6 +201,9 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 				return fmt.Errorf("posts: export decode post %s: %w", s.Ref.ID, err)
 			}
 			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID}
+			if k := Kind(d.Kind); k == KindRepost || k == KindQuote {
+				ep.Kind, ep.RepostOfID, ep.QuoteOfID = d.Kind, d.RepostOfID, d.QuoteOfID
+			}
 			if ep.Hashtags == nil {
 				ep.Hashtags = []string{}
 			}

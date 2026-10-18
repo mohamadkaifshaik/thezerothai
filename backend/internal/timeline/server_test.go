@@ -82,11 +82,13 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 	allowedSel := map[string]map[string]bool{
 		"posts": {
 			"Reader": true, "Window": true, "Position": true, "Post": true, "Recent": true, "Mention": true,
-			"AuthorSnapshot": true, "Kind": true, "Visibility": true, "ErrNotFound": true, "ErrInvalidID": true,
+			"AuthorSnapshot": true, "Embedded": true, "Kind": true, "Visibility": true, "ErrNotFound": true, "ErrInvalidID": true,
 			"FlagChecker": true, "GuardFeature": true, "FlagName": true, "ToProto": true,
 			"MaxGetMany": true, "MaxByAuthors": true, "MaxLimit": true, "MaxRecent": true,
 			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
 			"VisibilityPublic": true, "VisibilityFollowers": true,
+			// P5 (ADR-0018 D5, D13): viewer flags are posts' ViewerFlags seam; ToView renders them.
+			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "EngagementFlagName": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
 		// identity: the Directory seam, its Profile value type, the one missing-user error and the uid predicate.

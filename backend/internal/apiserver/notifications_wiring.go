@@ -36,22 +36,38 @@ func (f followNotifier) Followed(ctx context.Context, followerUID, followeeUID s
 	})
 }
 
-// postNotifier implements posts.PostEvents: a created post notifies the users it mentions. Replies (P3) and quotes
-// (P5) will add their own Emit here when those slices write replyToId / quoteOfId.
+// postNotifier implements posts.PostEvents: a created post notifies the users it mentions, and a QUOTE (P5,
+// ADR-0018 D9) notifies the author of the quoted post. Replies (P3) will add their own Emit here when that slice
+// wires reply notifications.
 type postNotifier struct{ slot *emitterSlot }
 
 var _ posts.PostEvents = postNotifier{}
 
 func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
-	if post == nil || len(post.Mentions) == 0 {
+	if post == nil {
 		return
 	}
 	if post.Visibility != "" && post.Visibility != posts.VisibilityPublic {
 		return // never announce a post that is not publicly visible (moderation hold, followers-only)
 	}
+	quoted := ""
+	if post.Kind == posts.KindQuote && post.Embedded != nil && !post.Embedded.Unavailable {
+		quoted = post.Embedded.Author.UserID
+		if quoted != "" && quoted != post.AuthorID {
+			p.slot.emit(ctx, notifications.Event{
+				Type: notifications.TypeQuote, ActorID: post.AuthorID, RecipientIDs: []string{quoted}, PostID: post.ID, At: post.CreatedAt,
+			})
+		}
+	}
+	// A mention of the quoted author is covered by the quote notification: one row per user per post.
 	recipients := make([]string, 0, len(post.Mentions))
 	for _, m := range post.Mentions {
-		recipients = append(recipients, m.UserID)
+		if m.UserID != quoted {
+			recipients = append(recipients, m.UserID)
+		}
+	}
+	if len(recipients) == 0 {
+		return
 	}
 	p.slot.emit(ctx, notifications.Event{
 		Type: notifications.TypeMention, ActorID: post.AuthorID, RecipientIDs: recipients, PostID: post.ID, At: post.CreatedAt,

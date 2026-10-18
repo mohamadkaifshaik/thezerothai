@@ -35,7 +35,9 @@ const (
 	PostKind_POST_KIND_POST        PostKind = 1
 	PostKind_POST_KIND_REPLY       PostKind = 2
 	PostKind_POST_KIND_QUOTE       PostKind = 3
-	// Created by the engagement module (future RPC); stored as a post doc so pull timelines include it.
+	// Created by EngagementService.RepostPost (P5); stored as a post doc authored by the reposter, with an
+	// embedded snapshot of the original, so pull timelines include it with no extra query. Its own counters stay 0:
+	// like, repost and quote actions apply to embedded.post_id, the original.
 	PostKind_POST_KIND_REPOST PostKind = 4
 )
 
@@ -186,8 +188,10 @@ func (x *Mention) GetHandle() string {
 	return ""
 }
 
-// A one-level, denormalized copy of another post (quoted or reposted), frozen at write time.
-// Cleared by the post-delete job when the original is deleted.
+// A one-level, denormalized copy of another post (quoted or reposted), frozen at write time (the original's
+// author snapshot is not refreshed by the profile-snapshot job). Replaced by a tombstone (unavailable = true, only
+// post_id set) by the post-delete job when the original is deleted, and when its author deletes their account.
+// A REPOST whose original is deleted is removed outright instead.
 type EmbeddedPost struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	PostId    string                 `protobuf:"bytes,1,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
@@ -451,8 +455,9 @@ func (x *Post) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s).
-// Until the engagement slice ships, both flags are always false and no userLikes read happens (ADR-0010 D3).
+// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
+// FEATURE_ENGAGEMENT is on for the caller; otherwise both are false and no userLikes read happens (ADR-0010 D3).
+// For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
 type PostView struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Post             *Post                  `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`

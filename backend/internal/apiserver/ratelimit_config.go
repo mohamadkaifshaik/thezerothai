@@ -3,6 +3,7 @@ package apiserver
 import (
 	"time"
 
+	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
@@ -60,6 +61,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// ADR-0016: ReportContent 5/min per user; the daily bound is the reports quota (20, 5 for new accounts).
 	rlReport := ratelimit.NewLimiter(cfg.RateLimit.ReportPerMinute, idleBucketTTL)
 
+	// ADR-0018 D9: LikePost, UnlikePost, RepostPost and UndoRepost share one per-user bucket
+	// (RATE_LIMIT_LIKES_PER_MIN, 30/min). Likes are bounded per day by quota.Likes (500, 100 for new accounts),
+	// reposts by quota.Posts, and every read by the ADR-0010 D5 read budget.
+	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
+
 	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
 	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
 	// and Vision spend by VISION_MONTHLY_CAP.
@@ -73,6 +79,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			postsv1connect.PostServiceCreatePostProcedure:                     rlPostCreate,
 			postsv1connect.PostServiceDeletePostProcedure:                     rlPostDelete,
 			moderationv1connect.ModerationServiceReportContentProcedure:       rlReport,
+			engagementv1connect.EngagementServiceLikePostProcedure:            rlEngagement,
+			engagementv1connect.EngagementServiceUnlikePostProcedure:          rlEngagement,
+			engagementv1connect.EngagementServiceRepostPostProcedure:          rlEngagement,
+			engagementv1connect.EngagementServiceUndoRepostProcedure:          rlEngagement,
 			mediav1connect.MediaServiceCreateUploadProcedure:                  rlMedia,
 			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMedia,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,

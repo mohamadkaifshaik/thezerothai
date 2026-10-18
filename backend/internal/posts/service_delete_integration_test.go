@@ -307,6 +307,7 @@ func countByAuthor(t *testing.T, client *firestore.Client, uid string) int {
 func TestPurge_Integration_CrashResume(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
+	withCopyPhase(repo, client)
 	const uid = "uid-u"
 	seedMany(t, client, uid, 1203, 1)
 	seedMany(t, client, "uid-keep", 7, 5000)
@@ -343,8 +344,9 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 			t.Fatal("purge did not finish")
 		}
 	}
-	if cp.Deleted != 1203 || calls != 3 {
-		t.Fatalf("deleted=%d calls=%d, want 1203 in 3 calls", cp.Deleted, calls)
+	// 3 post batches (500, 500, 203) + 1 copy-phase call (ADR-0018 D14: an empty embeddedAuthorId page).
+	if cp.Deleted != 1203 || calls != 4 {
+		t.Fatalf("deleted=%d calls=%d, want 1203 in 4 calls", cp.Deleted, calls)
 	}
 	if got := countByAuthor(t, client, uid); got != 0 {
 		t.Fatalf("%d posts remain for the purged user", got)
@@ -353,15 +355,20 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 		t.Fatalf("another user's posts: %d, want 7", got)
 	}
 	// O(posts): one read and one delete per post, no counter writes (the user doc is deleted anyway).
-	budgettest.Assert(t, "purge-posts 1203", c, budgettest.Budget{Reads: 1203, Deletes: 1203})
+	budgettest.Assert(t, "purge-posts 1203", c, budgettest.Budget{Reads: 1204, Deletes: 1203})
 	if c.Writes() != 0 {
 		t.Fatalf("writes = %d, want 0 (no counter updates)", c.Writes())
 	}
 
-	// Purging a user with no posts finishes in one call and one read.
+	// Purging a user with no posts: the posts query (1 read) hands over to the copy phase, whose empty query
+	// (1 read) finishes it: two calls, two reads.
 	ectx, ec := budget.WithCounter(context.Background())
-	if _, done, err := repo.PurgeUser(ectx, uid, Checkpoint{}); err != nil || !done || ec.Reads() != 1 {
-		t.Fatalf("empty purge: done=%v err=%v reads=%d", done, err, ec.Reads())
+	ecp, done, err := repo.PurgeUser(ectx, uid, Checkpoint{})
+	if err != nil || done {
+		t.Fatalf("empty purge, posts phase: done=%v err=%v", done, err)
+	}
+	if _, done, err := repo.PurgeUser(ectx, uid, ecp); err != nil || !done || ec.Reads() != 2 {
+		t.Fatalf("empty purge, copy phase: done=%v err=%v reads=%d", done, err, ec.Reads())
 	}
 }
 

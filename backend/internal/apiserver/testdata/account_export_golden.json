@@ -8,6 +8,10 @@
       "password"
     ]
   },
+  "engagement": {
+    "likes": [],
+    "reposts": []
+  },
   "exportVersion": 1,
   "generatedAt": "<time>",
   "graph": {

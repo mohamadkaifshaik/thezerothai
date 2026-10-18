@@ -37,11 +37,13 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 var errInjectedDeath = errors.New("injected instance death")
@@ -171,6 +173,11 @@ func (o crashObjects) Delete(ctx context.Context, object string) error {
 	return err
 }
 
+// noIDs is the engagement IDGenerator of a chain that never creates a REPOST.
+type noIDs struct{}
+
+func (noIDs) Generate() string { return "" }
+
 // crashStep kills the instance after a registered Eraser's step call returned (its deletes are committed, its
 // checkpoint is not yet saved).
 type crashStep struct {
@@ -231,6 +238,10 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	graphRepo.SetCounters(idRepo)
 	graphRepo.SetProfiles(idRepo)
 	postsRepo := posts.NewFirestoreRepo(e.fs)
+	// The purge copy phase and the engagement step need the same collaborators as Build wires (P5).
+	postsRepo.SetWriters(posts.WriteDeps{Counters: idRepo})
+	engRepo := engagement.NewFirestoreRepo(e.fs, engagement.WriteDeps{Quotas: quota.New(e.fs), Writer: postsRepo, Counters: idRepo, IDs: noIDs{}})
+	postsRepo.SetRepostLinks(engRepo)
 	objs, err := objstore.New(e.bucket.BucketName())
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +257,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo)} {
+	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo)} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, crashStep{s, plan}); err != nil {
 			t.Fatal(err)
 		}

@@ -193,6 +193,98 @@ func TestCreateReply_IdempotencyKeyBindsTheParent(t *testing.T) {
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
+// --- ADR-0018 D17: replies to a REPOST resolve to the original --------------------------------------------
+
+const rRepost = "0000000000000000110" // by carol, a REPOST (its original is set per test)
+
+func withRepost(e *createEnv, of string) *Post {
+	rp := replyPost(rRepost, uCarol, "carol", "", rRepost)
+	rp.Kind, rp.RepostOfID = KindRepost, of
+	e.repo.docs[rRepost] = rp
+	return rp
+}
+
+func TestCreateReply_ToARepostResolvesToTheOriginal(t *testing.T) {
+	e := newThreadEnv()
+	rp := withRepost(e, rRoot)
+	_, direct, err := newThreadEnv().create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRoot, RepliesEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "good point", ReplyToPostID: rRepost, RepliesEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ReplyToID != rRoot || p.ReplyToHandle != "zed" || p.ConversationID != rRoot || !p.IsReply {
+		t.Fatalf("reply = %+v, want parent, handle and conversation of the original", p)
+	}
+	if got := e.repo.docs[rRoot].ReplyCount; got != 1 {
+		t.Fatalf("original replyCount = %d, want 1", got)
+	}
+	if rp.ReplyCount != 0 || rp.LikeCount != 0 || rp.RepostCount != 0 || rp.QuoteCount != 0 {
+		t.Fatalf("REPOST counters moved: %+v", rp)
+	}
+	// D17: +1 post read here; the original's author profile comes from the directory (+2 cold in Firestore).
+	if c.Writes() != direct.Writes() || c.Reads() < direct.Reads()+1 || c.Reads() > direct.Reads()+2 {
+		t.Fatalf("reads=%d writes=%d, direct reply reads=%d writes=%d; want +1..+2 reads, same writes",
+			c.Reads(), c.Writes(), direct.Reads(), direct.Writes())
+	}
+
+	// UndoRepost removes the REPOST doc; the reply's thread still renders from the original.
+	delete(e.repo.docs, rRepost)
+	th, _, err := e.thread(ThreadInput{PostID: p.ID})
+	if err != nil || th.Focal.ID != p.ID || th.Parent == nil || th.Parent.ID != rRoot || th.ParentUnavailable {
+		t.Fatalf("thread after UndoRepost: %+v err=%v", th, err)
+	}
+}
+
+func TestCreateReply_ToARepostNotFound(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(e *createEnv)
+	}{
+		{"original deleted", func(e *createEnv) { delete(e.repo.docs, rRoot) }},
+		{"original author blocks the caller", func(e *createEnv) { e.graph.snap.BlockedBy = map[string]bool{uZed: true} }},
+		{"original not public", func(e *createEnv) { e.repo.docs[rRoot].Visibility = VisibilityFollowers }},
+		{"repost without an original id", func(e *createEnv) { e.repo.docs[rRepost].RepostOfID = "" }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newThreadEnv()
+			withRepost(e, rRoot)
+			tc.setup(e)
+			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRepost, RepliesEnabled: true})
+			ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+			if ae.Message != postNotFoundText || c.Writes() != 0 {
+				t.Fatalf("message=%q writes=%d", ae.Message, c.Writes())
+			}
+		})
+	}
+}
+
+func TestGetThread_OnARepostIdOpensTheOriginalsThread(t *testing.T) {
+	e := newThreadEnv()
+	withRepost(e, rReply1)
+	th, c, err := e.thread(ThreadInput{PostID: rRepost})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Focal.ID != rReply1 || th.Parent == nil || th.Parent.ID != rRoot {
+		t.Fatalf("focal=%v parent=%v, want the original's thread", th.Focal.ID, th.Parent)
+	}
+	if c.Reads() > 40 {
+		t.Fatalf("reads = %d, want <= 40 (38 + 2 for the REPOST)", c.Reads())
+	}
+
+	delete(e.repo.docs, rReply1) // original gone: NOT_FOUND "post not found"
+	e.cache.DeletePost(rReply1)
+	_, _, err = e.thread(ThreadInput{PostID: rRepost})
+	if ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED); ae.Message != postNotFoundText {
+		t.Fatalf("message = %q", ae.Message)
+	}
+}
+
 // --- DeletePost of a reply ------------------------------------------------------------------------------
 
 func TestDeleteReply_ReleasesTheParentCounter(t *testing.T) {
@@ -491,5 +583,63 @@ func TestServer_GetThreadAndReplyMapping(t *testing.T) {
 		IdempotencyKey: key2, Text: "a root post",
 	})); err != nil {
 		t.Fatalf("root posts must not depend on FEATURE_REPLIES: %v", err)
+	}
+}
+
+// A QUOTE or REPOST used as the parent or root context row copies another user's content: when that author
+// blocks the caller (or the blockedBy set overflowed) the row is a tombstone, with no extra read (ADR-0018 D13).
+func TestGetThread_ContextCopyOfABlockingAuthorIsATombstone(t *testing.T) {
+	const uEmb = "uid-embedded"
+	copyOf := func(p *Post, kind Kind, author string) {
+		p.Kind = kind
+		p.Embedded = &Embedded{PostID: "9", Author: AuthorSnapshot{UserID: author}, Text: "secret"}
+		p.EmbeddedAuthorID = author
+	}
+	tests := []struct {
+		name                  string
+		focal                 string
+		copyID                string // the context row turned into a copy
+		kind                  Kind
+		embAuthor             string
+		snap                  graph.Snapshot
+		wantParentUnavailable bool
+		wantRootUnavailable   bool
+	}{
+		{"parent quote, embedded author blocks caller", rReply4, rReply1, KindQuote, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, true, false},
+		{"parent repost, embedded author blocks caller", rReply4, rReply1, KindRepost, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, true, false},
+		{"root quote, embedded author blocks caller", rReply4, rRoot, KindQuote, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, false, true},
+		{"parent is also the root", rReply1, rRoot, KindRepost, uEmb,
+			graph.Snapshot{BlockedBy: map[string]bool{uEmb: true}}, true, true},
+		{"overflow fails closed (every context row)", rReply4, rReply1, KindQuote, uEmb,
+			graph.Snapshot{BlockedByOverflow: true}, true, true},
+		{"clean copy is shown", rReply4, rReply1, KindQuote, uEmb, graph.Snapshot{}, false, false},
+		{"caller blocking the embedded author does not hide it", rReply4, rReply1, KindQuote, uEmb,
+			graph.Snapshot{Blocked: map[string]bool{uEmb: true}}, false, false},
+		{"embedded author is the caller", rReply4, rReply1, KindQuote, testUID,
+			graph.Snapshot{BlockedBy: map[string]bool{testUID: true}}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newThreadEnv()
+			copyOf(e.repo.docs[tt.copyID], tt.kind, tt.embAuthor)
+			e.graph.snap = tt.snap
+			th, c, err := e.thread(ThreadInput{PostID: tt.focal})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if th.ParentUnavailable != tt.wantParentUnavailable || th.RootUnavailable != tt.wantRootUnavailable {
+				t.Fatalf("parentUnavailable=%v rootUnavailable=%v, want %v / %v", th.ParentUnavailable, th.RootUnavailable,
+					tt.wantParentUnavailable, tt.wantRootUnavailable)
+			}
+			if (th.Parent == nil) != tt.wantParentUnavailable || (th.Root == nil) != tt.wantRootUnavailable {
+				t.Fatalf("copied content leaked: parent=%v root=%v", th.Parent, th.Root)
+			}
+			if c.Reads() > 38 {
+				t.Fatalf("reads = %d", c.Reads())
+			}
+		})
 	}
 }

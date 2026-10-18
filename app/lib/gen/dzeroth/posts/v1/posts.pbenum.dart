@@ -24,7 +24,9 @@ class PostKind extends $pb.ProtobufEnum {
   static const PostKind POST_KIND_QUOTE =
       PostKind._(3, _omitEnumNames ? '' : 'POST_KIND_QUOTE');
 
-  /// Created by the engagement module (future RPC); stored as a post doc so pull timelines include it.
+  /// Created by EngagementService.RepostPost (P5); stored as a post doc authored by the reposter, with an
+  /// embedded snapshot of the original, so pull timelines include it with no extra query. Its own counters stay 0:
+  /// like, repost and quote actions apply to embedded.post_id, the original.
   static const PostKind POST_KIND_REPOST =
       PostKind._(4, _omitEnumNames ? '' : 'POST_KIND_REPOST');
 

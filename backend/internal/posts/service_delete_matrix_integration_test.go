@@ -154,6 +154,7 @@ func TestGetPost_Integration_Own(t *testing.T) {
 func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
+	withCopyPhase(repo, client)
 	const uid = "uid-u"
 	seedMany(t, client, uid, 1203, 1) // pid(1) oldest .. pid(1203) newest
 	seedMany(t, client, "uid-keep", 7, 5000)

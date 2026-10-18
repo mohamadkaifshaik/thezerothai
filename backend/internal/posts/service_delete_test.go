@@ -295,3 +295,80 @@ func TestGetForViewer_DeletedPostIsNotFoundAfterCacheExpiry(t *testing.T) {
 	_, _, err := e.get(pidOther)
 	wantPostNotFound(t, err)
 }
+
+// TestGetForViewer_EmbeddedAuthorBlock: a QUOTE or REPOST is NOT_FOUND when the author of the post it copies
+// blocks the caller (ADR-0018 D13), including through the blockedBy overflow path; the caller's own embedded
+// posts, tombstones and a block the other way round never hide it.
+func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
+	const embUID = "uid-embedded"
+	embedded := &Embedded{PostID: "9", Author: AuthorSnapshot{UserID: embUID}}
+	overflow := graph.Snapshot{BlockedByOverflow: true}
+	tests := []struct {
+		name      string
+		kind      Kind
+		embedded  *Embedded
+		embAuthor string
+		snaps     map[string]graph.Snapshot
+		wantFound bool
+	}{
+		{"plain post is unaffected", KindPost, nil, "", nil, true},
+		{"repost, embedded author blocks the caller", KindRepost, embedded, embUID,
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, false},
+		{"quote, embedded author blocks the caller", KindQuote, embedded, embUID,
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, false},
+		{"repost, caller blocked the embedded author", KindRepost, embedded, embUID,
+			map[string]graph.Snapshot{testUID: {Blocked: map[string]bool{embUID: true}}}, true},
+		{"overflow, embedded author blocks the caller", KindQuote, embedded, embUID,
+			map[string]graph.Snapshot{testUID: overflow, embUID: {Blocked: map[string]bool{testUID: true}}}, false},
+		{"overflow, no block", KindQuote, embedded, embUID,
+			map[string]graph.Snapshot{testUID: overflow}, true},
+		{"embedded author is the caller", KindQuote, &Embedded{PostID: "9", Author: AuthorSnapshot{UserID: testUID}}, testUID,
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{testUID: true}}}, true},
+		{"tombstone has no author", KindRepost, &Embedded{PostID: "9", Unavailable: true}, "",
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, true},
+		{"nil embedded, top-level author id only", KindRepost, nil, embUID,
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, false},
+		{"top-level author id only", KindRepost, &Embedded{PostID: "9"}, embUID,
+			map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newDeleteEnv()
+			d := e.repo.docs[pidOther]
+			d.Kind, d.Embedded, d.EmbeddedAuthorID = tt.kind, tt.embedded, tt.embAuthor
+			if tt.snaps != nil {
+				e.graph.snaps = tt.snaps
+			}
+			_, p, err := e.get(pidOther)
+			if tt.wantFound {
+				if err != nil || p == nil {
+					t.Fatalf("p=%v err=%v", p, err)
+				}
+				return
+			}
+			wantPostNotFound(t, err)
+		})
+	}
+}
+
+// The caller's own QUOTE or REPOST is exempt from the embedded-author check (ADR-0018 D13, same as a direct post):
+// it stays viewable even when the copied author blocks the caller, and costs no caller-graph read.
+func TestGetForViewer_OwnCopyIsExempt(t *testing.T) {
+	const embUID = "uid-embedded"
+	e := newDeleteEnv()
+	d := e.repo.docs[pidOther]
+	d.AuthorID = testUID
+	d.Author = AuthorSnapshot{UserID: testUID}
+	d.Kind = KindQuote
+	d.Embedded = &Embedded{PostID: "9", Author: AuthorSnapshot{UserID: embUID}}
+	d.EmbeddedAuthorID = embUID
+	e.graph.snaps = map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}, BlockedByOverflow: true}}
+	e.dir.profiles[testUID] = identity.Profile{UserID: testUID, Handle: "alice", Status: identity.AccountStatusActive}
+	_, p, err := e.get(pidOther)
+	if err != nil || p == nil {
+		t.Fatalf("own copy hidden: p=%v err=%v", p, err)
+	}
+	if e.graph.calls != 0 {
+		t.Errorf("caller-graph reads = %d, want 0 for the caller's own copy", e.graph.calls)
+	}
+}

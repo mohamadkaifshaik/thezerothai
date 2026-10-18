@@ -26,20 +26,22 @@ const (
 	// ADR-0017 D10) and P7 reports +1 (reports the account filed, ADR-0016 D5). P4's media step is inside 509 + D.
 	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ +
 		3 /* P6 notifications step */ +
-		1 /* P7 reports step */
+		1 /* P7 reports step */ +
+		3 /* P5 engagement: likes, reposts and the posts copy-phase queries, one read each when empty (ADR-0018 D7, D14) */
 	refDeleteWrites  = refFollowing + 2*refFollowers
-	refDeleteDeletes = refPosts + refFollowing + refFollowers + 1 + 3 + 1
+	refDeleteDeletes = refPosts + refFollowing + refFollowers + 1 + 3 + 1 + 1 /* P5 userLikes doc */
 	// Plan T16 acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D;
 	// +3 R for the P6 notifications step (ADR-0017 D10) and +1 R for the P7 reports step (ADR-0016 D5): 513 R +
 	// job state. The P4 media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
 	// the account-deletion plan owner (docs/plans/account-deletion-export.md T16).
-	planDeleteReads = 509 + 3 + 1
+	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
 	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6
 	// notifications section (ADR-0017 D10: the devices query and one notifications page; an empty query bills 1
 	// read), + 1 for the P7 reports section (ADR-0016 D5: one read per page of reports the account filed, minimum 1
-	// for the empty page) = 707 (+ the lease claim and status writes of the L-4 amendment).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1
+	// for the empty page) = 707, + 2 for the P5 engagement section (ADR-0018 D7: the likes and reposts queries, one
+	// read each when empty) = 709 (+ the lease claim and status writes of the L-4 amendment).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2
 	refExportWrites = 2
 )
 

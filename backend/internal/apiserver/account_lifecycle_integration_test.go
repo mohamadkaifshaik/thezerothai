@@ -418,8 +418,10 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	// writes O+2I+B+Bb+(W-1) = 3, deletes P+O+I+1+3+E = 8 (D = 1 here: the gated delivery's read is a separate line).
 	// P6 (ADR-0017 D10) adds 3 reads: the notifications step's devices, own-rows and rows-naming-the-user queries
 	// (an empty query bills 1 read), so reads = 17.
-	if work["fs_reads"].(float64) > 17 || work["fs_writes"].(float64) > 3 || work["fs_deletes"].(float64) > 8 {
-		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 17, writes 3, deletes 8)", work)
+	// P5 (ADR-0018 D7, D14) adds 3 reads (likes, reposts and the posts copy-phase queries, empty = 1 read each) and
+	// 1 delete (the userLikes doc): reads = 20, deletes = 9.
+	if work["fs_reads"].(float64) > 20 || work["fs_writes"].(float64) > 3 || work["fs_deletes"].(float64) > 9 {
+		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 20, writes 3, deletes 9)", work)
 	}
 	for _, l := range e.jobLines() {
 		if l["uid_hash"] == a.uid || strings.Contains(fmt.Sprint(l), a.uid) {
