@@ -1,6 +1,6 @@
 # 0016. Reports, takedown and suspension (moderation.v1, P7)
 Status: Accepted (founder, 2026-10-17; includes the rule-4 bend in option C and the D10 decision below)
-Date: 2026-10-10 (amended 2026-10-17: D10 decided, D2/D3 corrections; founder approval 2026-10-17)
+Date: 2026-10-10 (amended 2026-10-17: D10 decided, D2/D3 corrections; founder approval 2026-10-17; D10 cost text amended 2026-10-18, founder approval 2026-10-18)
 Deciders: architect (proposed by the P7 slice agent), founder (decisions delegated to the lead 2026-10-10, recorded in
 `docs/plans/reports.md` "Decisions (delegated 2026-10-10)"; ADR accepted 2026-10-17).
 
@@ -42,7 +42,7 @@ $0 at Stage 0. Detail in the plan's cost line. Summary:
 - Read-path filtering: **0 additional reads** on GetPost, GetUserTimeline and Home. The filter runs on documents the
   query already returns. The cost is one extra byte-sized field per post doc and, for a hidden post, the read of a
   document the page then drops (one page may return fewer items; the timeline merge already handles filtered rows).
-- `opsctl suspend-user`: reads = writes = P (user's posts), once, in batches of 500, run by the founder from a laptop.
+- `opsctl suspend-user`: reads = writes = P (user's posts), once, in batches of 250, run by the founder from a laptop.
   A 5,000-post account is 5,000 reads + 5,000 writes (10,000 with the D10 removal-log entries; 25% of the 20k/day free writes before D10 and 10% of the 50k reads;
   run it off-peak). Typical: under 500.
 - Reports retention: Firestore TTL on `reports.expireAt` (free, ADR-0003 pattern) deletes 90 days after resolution.
@@ -51,6 +51,8 @@ $0 at Stage 0. Detail in the plan's cost line. Summary:
 - D10 `removed_ids` (decided 2026-10-17, not built): ~1 read per instance per TTL warm (incremental; at most ~4.3k
   reads/day, ~9% of free, with 3 instances busy all day), + the live entries once per cold start; writes +1 per
   hidden post (a suspension of P posts adds P); one more TTL policy ($0).
+  **Superseded 2026-10-18** by the Implementation notes and the Amendment 2026-10-18 at the end of this ADR: the cold load
+  is bounded to 50 reads, and a hide or restore costs 2 writes (the post and its log entry).
 
 ## Decision
 ### D1. API: `dzeroth.moderation.v1.ModerationService.ReportContent` (one RPC)
@@ -205,6 +207,8 @@ stays on screen after a takedown or suspension (D3). Options were:
   live entries once per cold start (a non-empty query bills 1 read per returned doc). Writes: +1 per hidden post, so
   a suspension of P posts adds P log writes on top of its P hide writes (a 5,000-post account: ~10k writes, 50% of
   the free daily writes; run off-peak, as D4). $0 fixed.
+  **The two cost sentences above ("the live entries once per cold start", "+1 per hidden post ... adds P") are superseded
+  2026-10-18 (founder approval); see the Amendment 2026-10-18 at the end of this ADR.**
 - Not built until these tickets land (plan T15): (a) proto field on both responses; (b) opsctl writer, with the
   collection's TTL policy and its ADR-0011 T11 lifecycle-guard row (`make ci` fails without it); the log's live
   window is bounded and its retention is set against the 30-day `since` token TTL (an entry must outlive any token
@@ -276,3 +280,26 @@ Where the build differs from the D10 text, and why. Client work (ticket d) is st
   unsuspend another 2P. `createdAt` is a server timestamp; the log write shares the transaction or batch with the
   `moderation` update (crash-safe resume), so `HideAuthor`/`RestoreAuthor` pages are 250 posts (2 operations each, 500 max).
 - Terraform: `ttl_fields.post_removals_expire_at` added to `infra/terraform/modules/firestore/variables.tf` (edited, not applied).
+
+## Amendment 2026-10-18 (D10 cost text; founder approval 2026-10-18)
+Review of the D10 server half (`feat/removed-ids`) corrected the D10 cost text. The decision (option 2, `removed_ids` backed by
+one global log) is unchanged. These numbers replace the D10 and Cost impact numbers above and refine the Implementation notes:
+- **Cold start:** one query for the newest 50 entries (1 read when the log is empty, never more than 50). The text "the live
+  entries once per cold start" is superseded.
+- **Warm:** 0 reads on a cache hit. After the TTL one incremental query ordered by `(createdAt, doc id)` and started strictly
+  after the last entry seen: 1 read when nothing changed, and it never re-reads an entry the instance holds, so a burst of
+  250 entries sharing one commit timestamp costs the 50-read cold load once and 1 read per TTL afterwards. (The first build
+  re-read 10 s behind `lastSeen` and cost about 100 reads per TTL after such a burst; fixed.)
+- **Worst case per refresh:** 100 reads (a full incremental page of 50, then the reload of the newest 50), once per instance
+  per TTL and only when 50 or more entries are new within one TTL. It is part of `config.ReadBudgetMaxCallReads` (269 + 100 = 369).
+- **Writes:** a hide or restore of one post is 2 writes (the `moderation` update and its log entry). `+P` writes is replaced by
+  suspend-user 2P + 1, unsuspend-user 2 P_hidden + 1, takedown-post and restore-post 2 each; batches are 250 posts (2 operations
+  each, 500 max). A 5,000-post account is 10,000 writes (50% of the free daily writes), as already stated under Cost impact.
+- **Reset cost of a large suspension:** with P >= 50, every client that refreshes has its since_token rejected once and replaces
+  its cached feeds with cold opens (about DAU x 30 reads); tokens issued up to `removalLag` (135 s) after the burst are rejected
+  too. `opsctl suspend-user --dry-run` warns; run it off-peak (`docs/runbooks/moderation.md` section 3b).
+- **Failure and rollout:** the log query has its own 2 s timeout, a waiting request gives up on its own context, and a failed
+  refresh on an instance that holds data serves the stale cache (ERROR log). The read is behind `FEATURE_REMOVED_IDS` (default
+  off; off means no log reads and no resets; the log is still written).
+- `removed_ids` is global (<= 50 ids per response, not per feed); it reveals the timing of moderator removals to every client
+  (security-auditor follow-up).
