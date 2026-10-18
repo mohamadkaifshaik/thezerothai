@@ -114,7 +114,7 @@ jobs:
           service_account: ${{ vars.PROD_CI_DEPLOY_SA_EMAIL }}
           create_credentials_file: true
 
-      - uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2.2.1
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
           # Exact Cloud SDK pin (issue #46 / L6); bump per docs/runbooks/dependency-updates.md.
           version: "587.0.0"
