@@ -34,7 +34,7 @@ class AppErrorView extends StatelessWidget {
     final (icon, title, canRetry) = switch (error) {
       DegradedModeException() => (
         Icons.cloud_off_outlined,
-        'dZeroth is in a limited mode right now. Some actions are paused '
+        'Dzeroth is in a limited mode right now. Some actions are paused '
             'to keep the service healthy. Please try again shortly.',
         false,
       ),

@@ -26,7 +26,7 @@ String deleteAccountErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now. Please try again shortly.',
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
     FeatureDisabledException() => "This feature isn't available yet.",
     NetworkException() => 'No connection. Check your network and try again.',
     AccountRestrictedException() =>

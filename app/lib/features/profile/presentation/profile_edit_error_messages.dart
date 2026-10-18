@@ -21,7 +21,7 @@ String updateProfileErrorMessage(AppException error) {
           '${retryAfter == null ? 'tomorrow' : 'in ${coarseWait(retryAfter)}'}.',
     final RateLimitedException e => rateLimitedMessage(e),
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now, so profile changes are '
+      'Dzeroth is in a limited mode right now, so profile changes are '
           'paused. Please try again shortly.',
     FeatureDisabledException() =>
       "Editing your profile isn't available right now.",
@@ -52,7 +52,7 @@ String changeHandleErrorMessage(AppException error) {
       "You've hit today's limit for this action. It resets "
           '${retryAfter == null ? 'tomorrow' : 'in about ${coarseWait(retryAfter)}'}.',
     DegradedModeException() =>
-      'dZeroth is in a limited mode right now, so profile changes are '
+      'Dzeroth is in a limited mode right now, so profile changes are '
           'paused. Please try again shortly.',
     FeatureDisabledException() =>
       "Changing your handle isn't available right now.",

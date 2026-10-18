@@ -191,7 +191,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.unreadBadgeCubit),
         ],
         child: MaterialApp.router(
-          title: 'dZeroth',
+          title: 'Dzeroth',
           debugShowCheckedModeBanner: false,
           theme: appLightTheme,
           darkTheme: appDarkTheme,

@@ -1,6 +1,6 @@
 name: dzeroth
-description: "dZeroth - text-first social app (Phase 0 shell)."
-publish_to: 'none' # Private app, not published to pub.dev.
+description: "Dzeroth - text-first social app (Phase 0 shell)."
+publish_to: "none" # Private app, not published to pub.dev.
 
 version: 1.0.0+1
 
