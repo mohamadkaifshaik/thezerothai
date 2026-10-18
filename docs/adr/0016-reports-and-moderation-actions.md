@@ -75,7 +75,7 @@ is the same NOT_FOUND. Reporting your own post/account is `VALIDATION target_id`
 | `targetOwnerId` | string | the post's author, or the account's uid |
 | `reason`, `note` | string | enum name; <= 500 code points |
 | `status` | string | `OPEN` or `RESOLVED` |
-| `evidence` | map | POST only: `text`, `authorHandle`, `mediaIds[]` (the post's image ids at report time, copied from the post already read: 0 reads), `postCreatedAt`. Copied at report time |
+| `evidence` | map | POST only: `text`, `authorHandle`, `mediaIds[]` (the post's image ids at report time, copied from the post already read: 0 reads), `postCreatedAt`; B2 adds optional `originalPostId` on repost reports, where the other fields are the original's (see docs/plans/reports.md T16). Copied at report time |
 | `createdAt` | timestamp | the first filing; a reopen keeps it, so a re-reported case is as old in the queue as its first report |
 | `resolvedAt`, `resolution`, `resolutionNote` | | `resolution`: `NO_ACTION`, `TAKEDOWN`, `SUSPENDED`, `DISMISSED` |
 | `expireAt` | timestamp | set at resolution: `resolvedAt + 90 d`. Firestore TTL deletes the doc. Absent while OPEN |

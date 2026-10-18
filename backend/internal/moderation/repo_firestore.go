@@ -96,6 +96,8 @@ type evidenceDoc struct {
 	AuthorHandle  string    `firestore:"authorHandle"`
 	MediaIDs      []string  `firestore:"mediaIds"`
 	PostCreatedAt time.Time `firestore:"postCreatedAt"`
+	// OriginalPostID is additive: present only on a repost report (the id of the original the other fields copy).
+	OriginalPostID string `firestore:"originalPostId,omitempty"`
 }
 
 type reportDoc struct {
@@ -124,7 +126,8 @@ func toDoc(r Report) reportDoc {
 		if ids == nil {
 			ids = []string{}
 		}
-		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt}
+		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt,
+			OriginalPostID: r.Evidence.OriginalPostID}
 	}
 	return d
 }
@@ -137,7 +140,8 @@ func (d reportDoc) toReport(id string) Report {
 	}
 	if d.Evidence != nil {
 		r.Evidence = &Evidence{Text: d.Evidence.Text, AuthorHandle: d.Evidence.AuthorHandle,
-			MediaIDs: d.Evidence.MediaIDs, PostCreatedAt: d.Evidence.PostCreatedAt.UTC()}
+			MediaIDs: d.Evidence.MediaIDs, PostCreatedAt: d.Evidence.PostCreatedAt.UTC(),
+			OriginalPostID: d.Evidence.OriginalPostID}
 	}
 	if d.ResolvedAt != nil {
 		r.ResolvedAt = d.ResolvedAt.UTC()

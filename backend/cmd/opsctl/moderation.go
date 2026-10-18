@@ -135,6 +135,9 @@ func printReport(out io.Writer, r moderation.Report) {
 		r.CreatedAt.Format(time.RFC3339), orDash(r.ReporterID), r.TargetType, r.TargetID, r.TargetOwnerID, r.Reason, r.Note)
 	if r.Evidence != nil {
 		fmt.Fprintf(out, "evidence post by @%s at %s: %q\n", r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
+		if r.Evidence.OriginalPostID != "" {
+			fmt.Fprintf(out, "evidence is the ORIGINAL post %s (the reported post is a repost; owner above is the reposter)\n", r.Evidence.OriginalPostID)
+		}
 		if len(r.Evidence.MediaIDs) > 0 {
 			fmt.Fprintf(out, "evidence media: %s\n", strings.Join(r.Evidence.MediaIDs, ", "))
 		}

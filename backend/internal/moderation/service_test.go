@@ -228,6 +228,65 @@ func TestReport_EvidenceCarriesMediaIDs(t *testing.T) {
 	}
 }
 
+// A REPOST report carries the original post as evidence (from the embedded snapshot, no extra read); the report is
+// still about the reposter. A tombstone or missing snapshot keeps the previous (empty) evidence, and a plain post
+// is unchanged.
+func TestReport_RepostEvidenceIsTheOriginal(t *testing.T) {
+	t.Parallel()
+	orig := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
+	emb := func(mut func(*posts.Embedded)) *posts.Embedded {
+		e := &posts.Embedded{PostID: "1111111111111111111", Author: posts.AuthorSnapshot{UserID: "orig-uid", Handle: "carol"},
+			Text: "original text", Media: []posts.MediaRef{{ID: "m9"}}, CreatedAt: orig}
+		if mut != nil {
+			mut(e)
+		}
+		return e
+	}
+	tests := []struct {
+		name string
+		kind posts.Kind
+		emb  *posts.Embedded
+		want *Evidence
+	}{
+		{name: "repost with snapshot", kind: posts.KindRepost, emb: emb(nil),
+			want: &Evidence{Text: "original text", AuthorHandle: "carol", PostCreatedAt: orig, MediaIDs: []string{"m9"}, OriginalPostID: "1111111111111111111"}},
+		{name: "repost tombstone", kind: posts.KindRepost, emb: emb(func(e *posts.Embedded) { e.Unavailable = true }),
+			want: &Evidence{AuthorHandle: "reposter", PostCreatedAt: time.Time{}}},
+		{name: "repost without snapshot", kind: posts.KindRepost,
+			want: &Evidence{AuthorHandle: "reposter"}},
+		{name: "quote keeps its own evidence", kind: posts.KindQuote, emb: emb(nil),
+			want: &Evidence{Text: "quote text", AuthorHandle: "reposter"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture()
+			text := ""
+			if tt.kind == posts.KindQuote {
+				text = "quote text"
+			}
+			f.posts.post = &posts.Post{ID: okPostID, AuthorID: author, Kind: tt.kind, Text: text,
+				Author: posts.AuthorSnapshot{Handle: "reposter"}, Embedded: tt.emb}
+			res, err := f.svc().Report(gctx(), reporter, okInput())
+			if err != nil || res.AlreadyReported || res.ReportID != ReportID(reporter, TargetPost, okPostID) {
+				t.Fatalf("res=%+v err=%v", res, err)
+			}
+			if f.posts.n != 1 || len(f.repo.calls) != 1 {
+				t.Fatalf("post reads=%d creates=%d, want 1/1", f.posts.n, len(f.repo.calls))
+			}
+			c := f.repo.calls[0]
+			if c.Report.TargetOwnerID != author || c.Report.TargetID != okPostID || c.QuotaLimit != 20 {
+				t.Errorf("report about=%q target=%q limit=%d", c.Report.TargetOwnerID, c.Report.TargetID, c.QuotaLimit)
+			}
+			got := c.Report.Evidence
+			if got == nil || got.Text != tt.want.Text || got.AuthorHandle != tt.want.AuthorHandle || !got.PostCreatedAt.Equal(tt.want.PostCreatedAt) ||
+				got.OriginalPostID != tt.want.OriginalPostID || strings.Join(got.MediaIDs, ",") != strings.Join(tt.want.MediaIDs, ",") {
+				t.Errorf("evidence = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 // A report reopened after RESOLVED is a new report to the caller (AlreadyReported false), not a dropped duplicate.
 func TestReport_ReopenedIsNotAlreadyReported(t *testing.T) {
 	t.Parallel()
