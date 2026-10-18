@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
+import 'package:dzeroth/core/feature_flags/quote_ui.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -92,6 +93,7 @@ void main() {
     String quote = '',
     double textScale = 1,
     double width = 400,
+    bool quoteUiEnabled = true,
   }) async {
     final router = GoRouter(
       routes: [
@@ -101,8 +103,11 @@ void main() {
         ),
         GoRoute(
           path: '/compose',
-          builder: (context, state) =>
-              ComposerScreen(quoteOfPostId: quote, quotePreview: withPreview),
+          builder: (context, state) => ComposerScreen(
+            quoteOfPostId: quote,
+            quotePreview: withPreview,
+            quoteUiEnabled: quoteUiEnabled,
+          ),
         ),
       ],
     );
@@ -235,6 +240,41 @@ void main() {
         quoteOfPostId: any(named: 'quoteOfPostId'),
       ),
     );
+  });
+
+  testWidgets('quote UI switch off (MVP): not available even with flags on', (
+    tester,
+  ) async {
+    features({'engagement'});
+    await open(
+      tester,
+      quote: quoted,
+      withPreview: preview,
+      quoteUiEnabled: false,
+    );
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Quote'), findsOneWidget);
+    verifyNever(
+      () => repo.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        quoteOfPostId: any(named: 'quoteOfPostId'),
+      ),
+    );
+  });
+
+  test('the shipped default keeps quote creation off', () {
+    expect(kQuoteUiEnabled, isFalse);
+  });
+
+  testWidgets('quote switch off leaves a plain /compose unchanged', (
+    tester,
+  ) async {
+    features({'engagement'});
+    await open(tester, quoteUiEnabled: false);
+
+    expect(find.text('New post'), findsOneWidget);
   });
 
   testWidgets('quotes sub-feature known off: not available', (tester) async {

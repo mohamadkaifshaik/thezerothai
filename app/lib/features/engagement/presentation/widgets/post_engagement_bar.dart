@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
+import '../../../../core/feature_flags/quote_ui.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
@@ -53,6 +54,7 @@ class PostEngagementBar extends StatelessWidget {
     required this.view,
     this.showReply = true,
     this.onQuote,
+    this.quoteUiEnabled = kQuoteUiEnabled,
   });
 
   final pb.PostView view;
@@ -64,6 +66,10 @@ class PostEngagementBar extends StatelessWidget {
   /// Opens the quote composer for [view]. Defaults to `/compose?quote=<id>`
   /// with the preview as `extra`.
   final VoidCallback? onQuote;
+
+  /// Whether the repost sheet may offer Quote (MVP build: off, see
+  /// [kQuoteUiEnabled]).
+  final bool quoteUiEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -124,9 +130,11 @@ class PostEngagementBar extends StatelessWidget {
     EngagementEntry current,
     EngagementEntry shown,
   ) async {
-    final canQuote = context.read<PostsRepository>().subFeatureEnabled(
-      kPostsSubFeatureQuotes,
-    );
+    final canQuote =
+        quoteUiEnabled &&
+        context.read<PostsRepository>().subFeatureEnabled(
+          kPostsSubFeatureQuotes,
+        );
     final choice = await showRepostSheet(
       context,
       reposted: current.reposted,

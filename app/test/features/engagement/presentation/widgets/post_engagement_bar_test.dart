@@ -112,6 +112,7 @@ void main() {
     double textScale = 1,
     bool showReply = true,
     Set<String> features = const {'engagement', 'replies'},
+    bool quoteUiEnabled = true,
   }) async {
     whenListen(
       onboarding,
@@ -129,7 +130,11 @@ void main() {
             body: Center(
               child: SizedBox(
                 width: width,
-                child: PostEngagementBar(view: view, showReply: showReply),
+                child: PostEngagementBar(
+                  view: view,
+                  showReply: showReply,
+                  quoteUiEnabled: quoteUiEnabled,
+                ),
               ),
             ),
           ),
@@ -348,6 +353,18 @@ void main() {
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
       );
+    });
+
+    testWidgets('Quote is not offered when the quote UI switch is off', (
+      tester,
+    ) async {
+      await pump(tester, _view(), quoteUiEnabled: false);
+
+      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Repost'), findsOneWidget);
+      expect(find.text('Quote'), findsNothing);
     });
 
     testWidgets('Quote is not offered when the quotes sub-feature is off', (
