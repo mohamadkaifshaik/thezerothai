@@ -11,6 +11,7 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
@@ -54,6 +55,8 @@ class MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
 
 class MockModerationRepository extends Mock implements ModerationRepository {}
+
+class MockEngagementRepository extends Mock implements EngagementRepository {}
 
 void main() {
   late MockAuthBloc authBloc;
@@ -133,6 +136,7 @@ void main() {
         mediaRepository: MockMediaRepository(),
         notificationsRepository: notifications,
         moderationRepository: MockModerationRepository(),
+        engagementRepository: MockEngagementRepository(),
         pushCubit: push,
         unreadBadgeCubit: badge,
       ),

@@ -6,20 +6,25 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../features/engagement/presentation/widgets/post_engagement_bar.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/graph_error_messages.dart';
 import '../../features/moderation/presentation/report_sheet.dart';
 import '../../features/posts/domain/post_text_parser.dart';
 import '../../features/profile/presentation/widgets/block_confirmation_dialog.dart';
+import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
     show ReportTargetType;
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../format/relative_time.dart';
 import 'app_avatar.dart';
+import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
+import 'unavailable_post_box.dart';
 
 /// Opens [uri] in the external browser (a new tab on web). Only ever called
 /// with an `http(s)` URL produced by [parsePostText]. Returns false when the
@@ -49,7 +54,15 @@ Future<bool> launchPostLink(Uri uri) async {
 ///   confirmation, via [onDelete]) and Block/Mute (or Unblock/Unmute, from
 ///   the relationship cache) on others' (reusing [RelationshipCubit] and
 ///   [showBlockConfirmationDialog]); it is absent when nothing applies.
-/// - The counts row stays hidden until engagement ships (P5).
+/// - Engagement (P5, ADR-0018): with [engagementEnabled] (the `engagement`
+///   flag; screens pass `isFeatureEnabled(context, kFeatureEngagement)`) the
+///   card shows the reply / repost / like row ([PostEngagementBar]); off, no
+///   row and no engagement code runs. A REPOST item renders as the original
+///   (from its frozen `embedded` snapshot) under a "X reposted" line, and a
+///   QUOTE renders its text followed by a compact embed of the quoted post.
+///   An embed that is deleted/hidden (`unavailable`), or whose author the
+///   viewer blocks or mutes (local relationship cache), is replaced by a
+///   placeholder that shows nothing of the snapshot (D12/D13).
 ///
 /// Display only: 0 RPCs of its own. Navigation and side effects are
 /// injectable so the card is testable without a router or platform channels.
@@ -68,6 +81,9 @@ class PostCard extends StatelessWidget {
     this.onRelationshipChanged,
     this.actions,
     this.showFullImages = false,
+    this.engagementEnabled = false,
+    this.showReply = true,
+    this.onOpenPost,
   });
 
   final pb.PostView view;
@@ -76,10 +92,22 @@ class PostCard extends StatelessWidget {
   /// list keeps the default (thumbnails, review #110 M2).
   final bool showFullImages;
 
-  /// Engagement callbacks. Null (the default) hides the action bar, which
-  /// stays hidden until engagement ships (P5). When set, the bar dispatches
-  /// these as events; the card holds no engagement state.
+  /// Low-level action callbacks (the bar dispatches them as events; the card
+  /// holds no state). Null (the default) leaves the bar to
+  /// [engagementEnabled].
   final PostActions? actions;
+
+  /// Whether the `engagement` flag is on: shows the like / repost / reply
+  /// row driven by the session's `EngagementCubit` (which must be provided
+  /// above). Off by default: a screen opts in.
+  final bool engagementEnabled;
+
+  /// Offer Reply in the engagement row (false on the focal post of a thread,
+  /// which has its own reply composer).
+  final bool showReply;
+
+  /// Opens a post by id (a quoted post). Defaults to pushing `/post/<id>`.
+  final void Function(String postId)? onOpenPost;
 
   /// The signed-in user's id; decides own-post vs other-post menu.
   final String? viewerUserId;
@@ -148,9 +176,31 @@ class PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final author = _post.author;
+    final isRepost =
+        _post.kind == PostKind.POST_KIND_REPOST &&
+        _post.hasEmbedded() &&
+        _post.embedded.postId.isNotEmpty;
+    final embedded = _post.hasEmbedded() ? _post.embedded : null;
+    final placeholder = embedded == null
+        ? null
+        : _placeholderFor(context, embedded);
+    if (isRepost && placeholder != null) {
+      return _RepostPlaceholder(
+        reposter: _post.author,
+        isOwn: _isOwn,
+        placeholder: placeholder,
+      );
+    }
+    // A REPOST shows the original it points to (its frozen snapshot).
+    final author = isRepost ? embedded!.author : _post.author;
+    final text = isRepost ? embedded!.text : _post.text;
+    final media = isRepost ? embedded!.media : _post.media;
+    final mentions = isRepost ? const <pb.Mention>[] : _post.mentions;
+    final createdAt = isRepost
+        ? (embedded!.hasCreatedAt() ? embedded.createdAt : null)
+        : (_post.hasCreatedAt() ? _post.createdAt : null);
     final reference = now ?? DateTime.now();
-    final created = _post.hasCreatedAt() ? _post.createdAt.toDateTime() : null;
+    final created = createdAt?.toDateTime();
     final shortTime = created == null
         ? ''
         : formatRelativeTime(created, reference);
@@ -168,6 +218,116 @@ class PostCard extends StatelessWidget {
       if (spokenTime.isNotEmpty) spokenTime,
     ].join(', ');
 
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          button: true,
+          label: 'Open profile of @${author.handle}',
+          excludeSemantics: true,
+          child: InkResponse(
+            onTap: () => _openProfile(context, author.userId),
+            radius: AppSpacing.minTapTarget / 2,
+            child: SizedBox(
+              width: AppSpacing.minTapTarget,
+              height: AppSpacing.minTapTarget,
+              child: Center(child: AppAvatar(url: author.avatarUrl)),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      button: true,
+                      label: authorLabel,
+                      excludeSemantics: true,
+                      child: InkWell(
+                        onTap: () => _openProfile(context, author.userId),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: AppSpacing.minTapTarget,
+                          ),
+                          child: Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: _AuthorLine(
+                              displayName: displayName,
+                              handle: author.handle,
+                              verified: author.verified,
+                              time: shortTime,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _PostMenu(
+                    post: _post,
+                    isOwn: _isOwn,
+                    graphActionsEnabled: graphActionsEnabled,
+                    reportsEnabled: reportsEnabled,
+                    onDelete: onDelete,
+                    onRelationshipChanged: onRelationshipChanged,
+                  ),
+                ],
+              ),
+              // An image-only post has empty text: no empty line above the images.
+              if (text.isNotEmpty)
+                PostRichText(
+                  text: text,
+                  mentions: mentions,
+                  style: theme.textTheme.bodyLarge,
+                  onOpenLink: (uri) => _openLink(context, uri),
+                  onOpenMention: (userId, handle) =>
+                      _openProfile(context, userId),
+                  onHashtagTap:
+                      onHashtagTap ??
+                      () => _showMessage(context, 'Hashtags are coming soon.'),
+                ),
+              if (media.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                PostMedia(media: media, useFullImage: showFullImages),
+              ],
+              if (!isRepost &&
+                  _post.kind == PostKind.POST_KIND_QUOTE &&
+                  embedded != null &&
+                  embedded.postId.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                EmbeddedPostCard(
+                  embedded: embedded,
+                  placeholder: placeholder,
+                  now: now,
+                  onTap: placeholder == null
+                      ? () => _openPost(context, embedded.postId)
+                      : null,
+                ),
+              ],
+              if (actions != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                PostActionBar(
+                  likeCount: _post.likeCount.toInt(),
+                  repostCount: _post.repostCount.toInt(),
+                  replyCount: _post.replyCount.toInt(),
+                  liked: view.likedByViewer,
+                  reposted: view.repostedByViewer,
+                  actions: actions!,
+                ),
+              ] else if (engagementEnabled) ...[
+                const SizedBox(height: AppSpacing.sm),
+                PostEngagementBar(view: view, showReply: showReply),
+              ] else
+                const SizedBox(height: AppSpacing.xs),
+            ],
+          ),
+        ),
+      ],
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
@@ -175,95 +335,134 @@ class PostCard extends StatelessWidget {
         AppSpacing.sm,
         AppSpacing.sm,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            button: true,
-            label: 'Open profile of @${author.handle}',
-            excludeSemantics: true,
-            child: InkResponse(
-              onTap: () => _openProfile(context, author.userId),
-              radius: AppSpacing.minTapTarget / 2,
-              child: SizedBox(
-                width: AppSpacing.minTapTarget,
-                height: AppSpacing.minTapTarget,
-                child: Center(child: AppAvatar(url: author.avatarUrl)),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
+      child: isRepost
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Semantics(
-                        button: true,
-                        label: authorLabel,
-                        excludeSemantics: true,
-                        child: InkWell(
-                          onTap: () => _openProfile(context, author.userId),
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(
-                              minHeight: AppSpacing.minTapTarget,
-                            ),
-                            child: Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: _AuthorLine(
-                                displayName: displayName,
-                                handle: author.handle,
-                                verified: author.verified,
-                                time: shortTime,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    _PostMenu(
-                      post: _post,
-                      isOwn: _isOwn,
-                      graphActionsEnabled: graphActionsEnabled,
-                      reportsEnabled: reportsEnabled,
-                      onDelete: onDelete,
-                      onRelationshipChanged: onRelationshipChanged,
-                    ),
-                  ],
-                ),
-                // An image-only post has empty text: no empty line above the images.
-                if (_post.text.isNotEmpty)
-                  PostRichText(
-                    text: _post.text,
-                    mentions: _post.mentions,
-                    style: theme.textTheme.bodyLarge,
-                    onOpenLink: (uri) => _openLink(context, uri),
-                    onOpenMention: (userId, handle) =>
-                        _openProfile(context, userId),
-                    onHashtagTap:
-                        onHashtagTap ??
-                        () =>
-                            _showMessage(context, 'Hashtags are coming soon.'),
-                  ),
-                if (_post.media.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  PostMedia(media: _post.media, useFullImage: showFullImages),
-                ],
-                if (actions != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  PostActionBar(
-                    likeCount: _post.likeCount.toInt(),
-                    repostCount: _post.repostCount.toInt(),
-                    replyCount: _post.replyCount.toInt(),
-                    liked: view.likedByViewer,
-                    reposted: view.repostedByViewer,
-                    actions: actions!,
-                  ),
-                ] else
-                  const SizedBox(height: AppSpacing.xs),
+                _RepostedBy(reposter: _post.author, isOwn: _isOwn),
+                row,
               ],
+            )
+          : row,
+    );
+  }
+
+  void _openPost(BuildContext context, String postId) {
+    final handler = onOpenPost;
+    if (handler != null) {
+      handler(postId);
+      return;
+    }
+    context.push(AppRouter.postPath(postId));
+  }
+
+  /// Why [embedded] must not be shown, if so: gone (`unavailable`), or its
+  /// author is blocked / muted by the viewer per the local relationship
+  /// cache (0 RPCs; the server already drops such copies from feeds, this
+  /// covers the ones that reach a detail view or were cached before the
+  /// block). The viewer's own posts are never hidden.
+  EmbedPlaceholder? _placeholderFor(
+    BuildContext context,
+    pb.EmbeddedPost embedded,
+  ) {
+    if (embedded.unavailable) return EmbedPlaceholder.unavailable;
+    final authorId = embedded.author.userId;
+    if (!graphActionsEnabled || authorId.isEmpty || authorId == viewerUserId) {
+      return null;
+    }
+    final relationship = context.read<GraphRepository>().cached(authorId);
+    if (relationship == null) return null;
+    if (relationship.blocking) return EmbedPlaceholder.blocked;
+    if (relationship.muting) return EmbedPlaceholder.muted;
+    return null;
+  }
+}
+
+String _repostedByLabel(common.AuthorSnapshot reposter, bool isOwn) {
+  if (isOwn) return 'You reposted';
+  final name = reposter.displayName.isEmpty
+      ? '@${reposter.handle}'
+      : reposter.displayName;
+  return '$name reposted';
+}
+
+/// The "X reposted" line above a REPOST item, aligned with the avatar
+/// column (the viewer's own repost reads "You reposted").
+class _RepostedBy extends StatelessWidget {
+  const _RepostedBy({required this.reposter, required this.isOwn});
+
+  final common.AuthorSnapshot reposter;
+  final bool isOwn;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final label = _repostedByLabel(reposter, isOwn);
+    return Semantics(
+      container: true,
+      label: label,
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+        child: Row(
+          children: [
+            SizedBox(
+              width: AppSpacing.minTapTarget,
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: Icon(Icons.repeat, size: AppIconSize.sm, color: muted),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A REPOST whose original cannot be shown (blocked / muted author, or
+/// already tombstoned): the "X reposted" line over a placeholder box, with
+/// nothing from the snapshot.
+class _RepostPlaceholder extends StatelessWidget {
+  const _RepostPlaceholder({
+    required this.reposter,
+    required this.isOwn,
+    required this.placeholder,
+  });
+
+  final common.AuthorSnapshot reposter;
+  final bool isOwn;
+  final EmbedPlaceholder placeholder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _RepostedBy(reposter: reposter, isOwn: isOwn),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(
+              start: AppSpacing.minTapTarget + AppSpacing.sm,
+            ),
+            child: UnavailablePostBox(
+              message: EmbeddedPostCard.placeholderMessage(placeholder),
             ),
           ),
         ],

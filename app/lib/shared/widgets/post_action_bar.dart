@@ -17,7 +17,7 @@ class PostActions {
 
 /// Reply / repost / like / share: outline icons with compact counts, spread
 /// evenly across the content column. Rendered by `PostCard` only when it is
-/// given [PostActions] (engagement ships in P5).
+/// given [PostActions] (the engagement bar, P5).
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -27,6 +27,7 @@ class PostActionBar extends StatelessWidget {
     this.likeCount = 0,
     this.liked = false,
     this.reposted = false,
+    this.showDisabled = true,
   });
 
   final PostActions actions;
@@ -36,39 +37,50 @@ class PostActionBar extends StatelessWidget {
   final bool liked;
   final bool reposted;
 
+  /// Show an action whose callback is null (greyed out). False hides it, so
+  /// a bar can offer only what the caller's flags allow (no Share until it
+  /// exists, no Reply while replies are off).
+  final bool showDisabled;
+
+  bool _shows(VoidCallback? callback) => showDisabled || callback != null;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _ActionButton(
-          icon: Icons.chat_bubble_outline,
-          label: 'Reply',
-          count: replyCount,
-          onPressed: actions.onReply,
-        ),
-        _ActionButton(
-          icon: Icons.repeat,
-          label: reposted ? 'Undo repost' : 'Repost',
-          count: repostCount,
-          active: reposted,
-          activeColor: colors.primary,
-          onPressed: actions.onRepost,
-        ),
-        _ActionButton(
-          icon: liked ? Icons.favorite : Icons.favorite_border,
-          label: liked ? 'Unlike' : 'Like',
-          count: likeCount,
-          active: liked,
-          activeColor: colors.error,
-          onPressed: actions.onLike,
-        ),
-        _ActionButton(
-          icon: Icons.ios_share,
-          label: 'Share',
-          onPressed: actions.onShare,
-        ),
+        if (_shows(actions.onReply))
+          _ActionButton(
+            icon: Icons.chat_bubble_outline,
+            label: 'Reply',
+            count: replyCount,
+            onPressed: actions.onReply,
+          ),
+        if (_shows(actions.onRepost))
+          _ActionButton(
+            icon: Icons.repeat,
+            label: reposted ? 'Undo repost' : 'Repost',
+            count: repostCount,
+            active: reposted,
+            activeColor: colors.primary,
+            onPressed: actions.onRepost,
+          ),
+        if (_shows(actions.onLike))
+          _ActionButton(
+            icon: liked ? Icons.favorite : Icons.favorite_border,
+            label: liked ? 'Unlike' : 'Like',
+            count: likeCount,
+            active: liked,
+            activeColor: colors.error,
+            onPressed: actions.onLike,
+          ),
+        if (_shows(actions.onShare))
+          _ActionButton(
+            icon: Icons.ios_share,
+            label: 'Share',
+            onPressed: actions.onShare,
+          ),
       ],
     );
   }
@@ -103,6 +115,7 @@ class _ActionButton extends StatelessWidget {
         button: true,
         label: shown > 0 ? '$label, $shown' : label,
         excludeSemantics: true,
+        onTap: onPressed,
         child: InkResponse(
           onTap: onPressed,
           radius: AppSpacing.lg,

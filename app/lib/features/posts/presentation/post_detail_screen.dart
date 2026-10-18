@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/blocked_post_gate.dart';
 import '../../../shared/widgets/post_card.dart';
+import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -152,6 +153,10 @@ class _ReadyPost extends StatelessWidget {
                   viewerUserId: viewerUserId,
                   graphActionsEnabled: graphEnabled,
                   reportsEnabled: reportsEnabled,
+                  engagementEnabled: isFeatureEnabled(
+                    context,
+                    kFeatureEngagement,
+                  ),
                   onDelete: (_) => context.read<PostDetailCubit>().deletePost(),
                   onRelationshipChanged: (_) => onRelationshipChanged(),
                 ),

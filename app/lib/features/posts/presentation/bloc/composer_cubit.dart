@@ -106,6 +106,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     required PostsRepository postsRepository,
     required PendingPostsCubit pending,
     required common.AuthorSnapshot author,
+    this.quoteOfPostId = '',
     AttachmentsCubit? attachments,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Uuid? uuid,
@@ -130,7 +131,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     required this.replyToPostId,
     Uuid? uuid,
     DateTime Function()? clock,
-  }) : _repository = postsRepository,
+  }) : quoteOfPostId = '',
+       _repository = postsRepository,
        _pending = null,
        _author = null,
        _attachments = null,
@@ -141,6 +143,11 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   /// The post being replied to; empty for a top-level post.
   final String replyToPostId;
+
+  /// The post being quoted (ADR-0018, `CreatePost.quote_of_post_id`); empty
+  /// for a plain post or a reply. A quote is a top-level post with the same
+  /// 280 limit, text or photos, and an embed of the original.
+  final String quoteOfPostId;
 
   final PostsRepository _repository;
   final PendingPostsCubit? _pending;
@@ -263,9 +270,11 @@ class ComposerCubit extends Cubit<ComposerState> {
       }
     }
 
-    final intent = mediaIds.isEmpty
+    final body = mediaIds.isEmpty
         ? text
         : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
+    // A quote and a plain post with the same body are different requests.
+    final intent = quoteOfPostId.isEmpty ? body : 'q:$quoteOfPostId\u0001$body';
     final key = _keys.putIfAbsent(intent, _uuid.v4);
     if (_keys.length > _maxRememberedKeys) _keys.remove(_keys.keys.first);
     _keyText = intent;
@@ -288,6 +297,7 @@ class ComposerCubit extends Cubit<ComposerState> {
         idempotencyKey: key,
         text: text,
         replyToPostId: replyToPostId,
+        quoteOfPostId: quoteOfPostId,
         mediaIds: mediaIds,
         mediaAltTexts: altTexts,
       );

@@ -17,6 +17,8 @@ import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/domain/engagement_feature_flag.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/media_feature_flag.dart';
@@ -156,6 +158,19 @@ Future<void> bootstrap() async {
     kFeatureReports,
     onUnexpectedError: reportUnexpectedError,
   );
+  // Engagement (ADR-0018): likes, reposts and quotes, 0 RPCs while the
+  // `engagement` flag is off. A success is also written into the cached
+  // feed rows (drift) so a restart keeps the caller's own likes.
+  final engagementGate = buildServiceGate(
+    onboardingBloc,
+    kFeatureEngagement,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  final engagementRepository = EngagementRepository(
+    apiClient: apiClient,
+    gate: engagementGate,
+    store: timelineStore,
+  );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,
     store: NotificationsStore(database),
@@ -217,6 +232,7 @@ Future<void> bootstrap() async {
       mediaRepository: mediaRepository,
       notificationsRepository: notificationsRepository,
       moderationRepository: moderationRepository,
+      engagementRepository: engagementRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
     ),
