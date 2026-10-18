@@ -163,9 +163,9 @@ cost:
 		echo "Set PROJECT_ID=<gcp-project> (and run 'gcloud auth login' first) to query live usage, e.g.:"; \
 		echo "  make cost PROJECT_ID=dzeroth-dev"; \
 	else \
-		gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="api"' \
+		echo "Firestore reads = sum(fs_reads) + sum(removal_log_reads). removal_log_reads is the detached shared removal-log"; 		echo "refresh (not in fs_reads). fanout_fs_reads equals fs_reads on its own line: do not add it again."; 		gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="api"' \
 			--project="$$PROJECT_ID" --freshness=1d --limit=50 \
-			--format='table(timestamp, jsonPayload.rpc, jsonPayload.fs_reads, jsonPayload.fs_writes, jsonPayload.fanout_fs_reads, jsonPayload.code)' \
+			--format='table(timestamp, jsonPayload.rpc, jsonPayload.fs_reads, jsonPayload.fs_writes, jsonPayload.removal_log_reads, jsonPayload.fanout_fs_reads, jsonPayload.code)' \
 		|| echo "gcloud query failed - check 'gcloud auth login' and PROJECT_ID=$$PROJECT_ID"; \
 	fi
 

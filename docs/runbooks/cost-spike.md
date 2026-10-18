@@ -11,7 +11,7 @@
    Firestore reads/writes, Cloud Run requests/instances, or GCS egress.
 2. Check Cloud Logging for the request path/RPC driving it (structured logs include `rpc`, `fs_reads`, `fs_writes` per
    the observability skill; add `removal_log_reads` on `since_token` timeline refreshes: the shared moderation-log refresh is
-   charged to a detached counter, so it is not in `fs_reads`, ADR-0016 amendment 2026-10-18 (b)) — is this real traffic, a retry storm, a bad deploy (e.g. an N+1 query), or abuse/scraping?
+   charged to a detached counter, so it is not in `fs_reads`, ADR-0016 amendment 2026-10-18 (b); total reads = `sum(fs_reads) + sum(removal_log_reads)`, and `fanout_fs_reads` repeats `fs_reads`, so do not add it) — is this real traffic, a retry storm, a bad deploy (e.g. an N+1 query), or abuse/scraping?
 3. Check for a spike in errors around the same time (a bug causing retries is a common cause). The Error Reporting API
    is not enabled yet, so use Logs Explorer: `resource.type="cloud_run_revision" AND severity>=ERROR`.
 
