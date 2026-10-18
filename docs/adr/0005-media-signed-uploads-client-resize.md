@@ -1,6 +1,6 @@
 # 0005. Images via client-side resize, V4 signed PUT to GCS (us-central1), SafeSearch on every image
 Status: Accepted
-Date: 2026-09-26 (amended 2026-09-27: founder chose paid screening past the free quota)
+Date: 2026-09-26 (amended 2026-09-27: founder chose paid screening past the free quota; amended 2026-10-17: client image library)
 Deciders: architect, founder
 
 ## Context
@@ -81,10 +81,23 @@ Option A:
 ## Handoff
 - backend-developer: `internal/media` with `Signer`, `ObjectStore`, `Moderator` interfaces (GCS/Vision impls + fakes);
   magic-byte check; policy knob; `media.Reader` interface for posts to verify ownership + READY in `CreatePost`.
-- frontend-developer: `image_picker` + `flutter_image_compress`, MD5 + BlurHash on device, upload with progress and
+- frontend-developer: `image_picker` + `flutter_image_compress` (superseded by Amendment 2026-10-17: the pure-Dart
+  `image` package), MD5 + BlurHash on device, upload with progress and
   retry (reuse the same idempotency key and URLs until they expire, then call `CreateUpload` again with a new key);
   lists render `thumb_url` via `cached_network_image`.
 - production-deployer: two buckets in us-central1 (lifecycle, CORS, IAM as above, `force_destroy = false`), Vision API
   enabled, runtime SA roles: objectAdmin on both buckets, tokenCreator on itself.
 - tester: emulator tests for oversize/wrong-type/MD5-mismatch rejects, Vision cap cut-over at `VISION_MONTHLY_CAP` (fake moderator),
   replayed Finalize, TTL cleanup of PENDING docs.
+
+## Amendment 2026-10-17 (client image library; founder approval 2026-10-17)
+Does not change the Decision above or this ADR's Accepted status; it records the library choice.
+- **Keep the pure-Dart `image` package** (already in `app/pubspec.yaml`; `IsolateImageProcessor` in
+  `app/lib/features/media/domain/image_processor.dart`, run through `compute`). No new dependency.
+- `flutter_image_compress` is **rejected** unless measured HEIC failure rates justify it (today HEIC/HEIF is reported
+  as unsupported; iOS' picker hands back JPEG). If it is ever chosen, it needs a security-auditor review of the
+  script it loads on web.
+- A web-only canvas processor is added only if web jank is measured (on web `compute` runs on the main thread).
+- Output today is JPEG only (`img.encodeJpg`): the Decision's "WebP (JPEG fallback)" runs on its fallback path.
+- Cost impact: $0 (no new dependency, no server change). Handoff line above and `.claude/skills/media-pipeline`
+  updated accordingly.

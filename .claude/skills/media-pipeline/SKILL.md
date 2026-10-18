@@ -44,4 +44,4 @@ clients cache with `cached_network_image` (disk cache) so repeat views cost noth
 - Deleting a post/account deletes its objects in the public bucket via the Pub/Sub delete job.
 - Blurhash computed on device and sent in FinalizeUpload (validated for length/charset).
 - Avatars use the same flow (1 image, 400 px, thumb 96 px).
-- Flutter: `image_picker` + `flutter_image_compress`, upload with progress + retry; background upload on mobile is a Stage 1 nicety.
+- Flutter: `image_picker` + the pure-Dart `image` package (decode/resize/encode via `compute`; ADR-0005 Amendment 2026-10-17), upload with progress + retry; background upload on mobile is a Stage 1 nicety. Do not add `flutter_image_compress` (rejected unless measured HEIC failure rates justify it; it would need a security-auditor review of its web script) or a web canvas processor (only if web jank is measured).

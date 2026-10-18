@@ -31,6 +31,7 @@ class PendingPostsSection extends StatelessWidget {
             text: p.text,
             author: p.author,
             createdAt: p.createdAt,
+            thumbnails: p.thumbnails,
             now: now,
           ),
       ],

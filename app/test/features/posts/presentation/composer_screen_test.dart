@@ -1,3 +1,5 @@
+import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
+
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
@@ -62,6 +64,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: any(named: 'text'),
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).thenAnswer((_) async => await answer());
   }
@@ -82,7 +86,12 @@ void main() {
     );
     await tester.pumpWidget(
       MultiRepositoryProvider(
-        providers: [RepositoryProvider<PostsRepository>.value(value: repo)],
+        providers: [
+          RepositoryProvider<PostsRepository>.value(value: repo),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (error, stack) {},
+          ),
+        ],
         child: MultiBlocProvider(
           providers: [
             BlocProvider<AuthBloc>.value(value: authBloc),
@@ -122,7 +131,9 @@ void main() {
     );
   });
 
-  testWidgets('decomposed input counts after NFC (0 remaining)', (tester) async {
+  testWidgets('decomposed input counts after NFC (0 remaining)', (
+    tester,
+  ) async {
     await open(tester);
     await tester.enterText(find.byType(TextField), 'e\u0301' * 280);
     await tester.pump();
@@ -159,6 +170,8 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         text: 'hello world',
         replyToPostId: any(named: 'replyToPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
       ),
     ).called(1);
     expect(pending.state, isEmpty);
@@ -202,7 +215,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Verify your email'), findsOneWidget);
-    expect(find.text('Please verify your email address to post.'), findsOneWidget);
+    expect(
+      find.text('Please verify your email address to post.'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();

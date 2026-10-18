@@ -347,6 +347,8 @@ void main() {
           idempotencyKey: any(named: 'idempotencyKey'),
           text: any(named: 'text'),
           replyToPostId: postId(1),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
         ),
       ).thenAnswer((_) => answer());
     }
@@ -398,6 +400,8 @@ void main() {
           idempotencyKey: any(named: 'idempotencyKey'),
           text: 'my reply',
           replyToPostId: postId(1),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
         ),
       ).called(1);
     });

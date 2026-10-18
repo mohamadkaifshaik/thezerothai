@@ -11,6 +11,9 @@ import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/graph/data/graph_repository.dart';
+import '../features/media/data/image_picker_service.dart';
+import '../features/media/data/media_repository.dart';
+import '../features/media/domain/image_processor.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/posts/data/posts_repository.dart';
@@ -34,6 +37,9 @@ class AppWidget extends StatefulWidget {
     required this.postsRepository,
     required this.timelineRepository,
     required this.postsGate,
+    required this.mediaRepository,
+    this.imagePicker,
+    this.imageProcessor = const IsolateImageProcessor(),
   });
 
   final AuthBloc authBloc;
@@ -47,6 +53,14 @@ class AppWidget extends StatefulWidget {
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
 
+  /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
+  final MediaRepository mediaRepository;
+
+  /// Photo picker and on-device resize/compress; injectable for tests.
+  /// Defaults to the platform picker.
+  final ImagePickerService? imagePicker;
+  final ImageProcessor imageProcessor;
+
   @override
   State<AppWidget> createState() => _AppWidgetState();
 }
@@ -55,6 +69,8 @@ class _AppWidgetState extends State<AppWidget> {
   // Optimistic posts live for the session only (T16); sign-out drops them.
   final PendingPostsCubit _pendingPosts = PendingPostsCubit();
   late final StreamSubscription<AuthState> _authSub;
+  late final ImagePickerService _imagePicker =
+      widget.imagePicker ?? PlatformImagePickerService();
 
   @override
   void initState() {
@@ -90,6 +106,9 @@ class _AppWidgetState extends State<AppWidget> {
         ),
         RepositoryProvider.value(value: widget.postsRepository),
         RepositoryProvider.value(value: widget.timelineRepository),
+        RepositoryProvider.value(value: widget.mediaRepository),
+        RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
+        RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
       ],
       child: MultiBlocProvider(
         providers: [
