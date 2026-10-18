@@ -37,6 +37,7 @@ void main() {
     String next = '',
     String since = '',
     String gap = '',
+    List<int> removed = const [],
   }) {
     script[_home]!.add(
       tl.GetHomeTimelineResponse(
@@ -44,6 +45,7 @@ void main() {
         nextPageToken: next,
         sinceToken: since,
         gapPageToken: gap,
+        removedIds: [for (final id in removed) postId(id)],
       ),
     );
   }
@@ -208,6 +210,64 @@ void main() {
     });
   });
 
+  group('removed_ids (ADR-0016 D10)', () {
+    setUp(() async {
+      giveHome([5, 4, 3], next: 'older1', since: 's1');
+      await repo.refresh(home);
+      requests.clear();
+    });
+
+    test('a since refresh drops the removed ids from the cache and adds new '
+        'posts, in one RPC', () async {
+      giveHome([6], since: 's2', removed: [4, 3]);
+
+      final snap = await repo.refresh(home);
+
+      expect(requests, hasLength(1), reason: 'no extra RPC');
+      expect(ids(snap), idsOf([6, 5]));
+      expect(snap.sinceToken, 's2');
+      expect(ids(await repo.cached(home)), idsOf([6, 5]));
+    });
+
+    test('ids of posts that are not cached are ignored', () async {
+      giveHome([], since: 's2', removed: [99, 98]);
+
+      final snap = await repo.refresh(home);
+
+      expect(ids(snap), idsOf([5, 4, 3]));
+    });
+
+    test('flag off (empty removed_ids): the cache is untouched', () async {
+      giveHome([6], since: 's2');
+
+      final snap = await repo.refresh(home);
+
+      expect(ids(snap), idsOf([6, 5, 4, 3]));
+      expect(requests, hasLength(1));
+    });
+
+    test('removals apply to the refreshed feed only', () async {
+      script[_user]!.add(
+        tl.GetUserTimelineResponse(
+          posts: [postView(4)],
+          nextPageToken: '',
+          sinceToken: 'u1',
+        ),
+      );
+      const other = FeedKey.user('u1');
+      await repo.refresh(other);
+      requests.clear();
+      script[_user]!.add(
+        tl.GetUserTimelineResponse(sinceToken: 'u2', removedIds: [postId(4)]),
+      );
+
+      final snap = await repo.refresh(other);
+
+      expect(ids(snap), isEmpty);
+      expect(ids(await repo.cached(home)), idsOf([5, 4, 3]));
+    });
+  });
+
   group('rejected tokens (ADR-0010 D14)', () {
     setUp(() async {
       giveHome([5, 4, 3], next: 'older1', since: 's1');
@@ -215,10 +275,10 @@ void main() {
       requests.clear();
     });
 
-    test('rejected since_token: cleared, exactly one cold open, cache stays '
-        'visible, cold next token becomes the gap filler', () async {
+    test('rejected since_token: cleared, exactly one cold open that REPLACES '
+        'the cache (ADR-0010 D14 amendment 2026-10-18)', () async {
       script[_home]!.add(rejectedToken('since_token'));
-      giveHome([30, 29], next: 'fillgap', since: 's9');
+      giveHome([30, 29], next: 'fresh', since: 's9');
 
       final snap = await repo.refresh(home);
 
@@ -229,34 +289,24 @@ void main() {
       expect(cold.sinceToken, isEmpty);
       expect(cold.pageToken, isEmpty);
       expect(snap.sinceToken, 's9');
-      expect(ids(snap), [
-        ...idsOf([30, 29]),
-        'gap',
-        ...idsOf([5, 4, 3]),
-      ]);
-      expect(snap.entries.firstWhere((e) => e.isGap).gapToken, 'fillgap');
+      // No merge with the cached 5/4/3 and no gap row: they may include a
+      // removed card.
+      expect(ids(snap), idsOf([30, 29]));
+      expect(snap.olderPageToken, 'fresh');
     });
 
-    test('cold open stops at the first cached post and merges only the new '
-        'items before it', () async {
-      script[_home]!.add(rejectedToken('since_token'));
-      // 5 is cached; 2 is NOT cached but sits below the overlap: ignored.
-      giveHome([7, 6, 5, 2], next: 'tok', since: 's9');
+    test(
+      'replace drops a cached card even when the cold page overlaps it',
+      () async {
+        script[_home]!.add(rejectedToken('since_token'));
+        // 4 (cached) was removed server-side; the cold page no longer has it.
+        giveHome([6, 5, 3], next: 'tok', since: 's9');
 
-      final snap = await repo.refresh(home);
+        final snap = await repo.refresh(home);
 
-      expect(ids(snap), idsOf([7, 6, 5, 4, 3]));
-      expect(snap.entries.any((e) => e.isGap), isFalse);
-    });
-
-    test('cold open that already reaches a cached post adds no gap', () async {
-      script[_home]!.add(rejectedToken('since_token'));
-      giveHome([6, 5], next: 'whatever', since: 's9');
-
-      final snap = await repo.refresh(home);
-
-      expect(ids(snap), idsOf([6, 5, 4, 3]));
-    });
+        expect(ids(snap), idsOf([6, 5, 3]));
+      },
+    );
 
     test('cached items stay visible when the cold open itself fails', () async {
       script[_home]!
