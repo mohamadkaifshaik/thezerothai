@@ -331,6 +331,34 @@ variable "feature_engagement_percent" {
   }
 }
 
+variable "feature_quotes" {
+  description = "FEATURE_QUOTES rollout mode for quote CREATION (additionally requires feature_engagement): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_quotes)
+    error_message = "feature_quotes must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_quotes_allowlist" {
+  description = "FEATURE_QUOTES_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_quotes_percent" {
+  description = "FEATURE_QUOTES_PERCENT: 0-100, only meaningful when feature_quotes = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_quotes_percent >= 0 && var.feature_quotes_percent <= 100 && floor(var.feature_quotes_percent) == var.feature_quotes_percent
+    error_message = "feature_quotes_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_replies" {
   description = "FEATURE_REPLIES rollout mode for replies and GetThread (P3): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

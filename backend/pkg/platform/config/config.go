@@ -302,6 +302,10 @@ type Config struct {
 	// FeatureEngagement is the P5 server flag (wire name `engagement`, ADR-0018 D8) gating EngagementService, the
 	// quote path of CreatePost and viewer-flag hydration. FEATURE_ENGAGEMENT[_ALLOWLIST|_PERCENT], default off.
 	FeatureEngagement flags.Spec
+	// FeatureQuotes is the quote-creation flag (wire name `quotes`, ADR-0018 amendment 2026-10-18) gating only the
+	// quote_of_post_id path of CreatePost, in addition to FEATURE_ENGAGEMENT. FEATURE_QUOTES[_ALLOWLIST|_PERCENT],
+	// default off in every environment. Existing quote posts keep displaying regardless.
+	FeatureQuotes flags.Spec
 
 	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
 	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
@@ -787,6 +791,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureQuotes, err := flags.LoadSpec("QUOTES", "quotes", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -858,6 +866,7 @@ func Load() (Config, error) {
 		FeatureAccountLifecycle:   featureAccountLifecycle,
 		FeatureReports:            featureReports,
 		FeatureEngagement:         featureEngagement,
+		FeatureQuotes:             featureQuotes,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,

@@ -173,4 +173,5 @@ pagination helper anywhere else — one already exists above.
 | engagement.Jobs (Handle) / PostGone / JobPublisher | backend/internal/engagement/jobs.go | Engagement half of the `post_delete` job (likes, REPOST posts, quote tombstones; pages bounded per delivery then republish, D11). apiserver `postDeleteChain` runs it with the media step |
 | engagement.Eraser (PurgeUser, Checkpoint) / Exporter (ExportUser) | backend/internal/engagement/purge.go | Account-deletion step `engagement` and the export `engagement` section (registered in `apiserver/engagement_wiring.go`) |
 | engagement.Events / NopEvents | backend/internal/engagement/api.go | Post-commit notification seam; `apiserver.engagementNotifier` adapts it to `notifications.Emitter` |
+| posts.QuotesFlagName `quotes`, Server.quotesEnabled | backend/internal/posts/server.go | FEATURE_QUOTES: quote CREATION only; `CreateInput.QuotesEnabled = engagement && quotes` (ADR-0018 amendment 2026-10-18). Display paths never consult it |
 | engagement.NewServer, FlagName `engagement` | backend/internal/engagement/server.go | EngagementService handler: FEATURE_POSTS then FEATURE_ENGAGEMENT guard, no logic |

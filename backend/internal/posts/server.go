@@ -100,7 +100,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		QuoteOfPostID:  m.GetQuoteOfPostId(),
 		MediaEnabled:   s.mediaEnabled(uid),
 		RepliesEnabled: s.repliesEnabled(uid),
-		QuotesEnabled:  s.flags != nil && s.flags.Enabled(uid, EngagementFlagName),
+		QuotesEnabled:  s.quotesEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
@@ -156,6 +156,16 @@ const RepliesFlagName = "replies"
 // repliesEnabled is the FEATURE_REPLIES decision for uid (off when no checker is wired).
 func (s *Server) repliesEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, RepliesFlagName)
+}
+
+// QuotesFlagName is the wire name of FEATURE_QUOTES (amendment 2026-10-18 to ADR-0018 D8). It gates only quote
+// CREATION; quote display (hydration, embeds) never consults it.
+const QuotesFlagName = "quotes"
+
+// quotesEnabled is the quote-creation decision for uid: the dedicated FEATURE_QUOTES flag AND FEATURE_ENGAGEMENT
+// (quote embeds, counters and notifications need engagement). Off when no checker is wired (fail closed).
+func (s *Server) quotesEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, EngagementFlagName) && s.flags.Enabled(uid, QuotesFlagName)
 }
 
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
