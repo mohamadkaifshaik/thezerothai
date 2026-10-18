@@ -218,3 +218,10 @@ func TestInvalidTokenCodes(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestNewRecipientCapNonPositiveIsUnlimited(t *testing.T) {
+	t.Parallel()
+	if NewRecipientCap(0, 5, nil) != nil || NewRecipientCap(5, 0, nil) != nil {
+		t.Error("a non-positive limit must mean no cap")
+	}
+}

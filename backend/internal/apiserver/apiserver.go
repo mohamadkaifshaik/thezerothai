@@ -198,10 +198,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		fcm := notifications.NewFCMSender(fbApp)
 		pushSender, tokenValidator = fcm, fcm // one lazily created messaging client for sends and dry runs
 	}
-	// N-1: the per-actor recipient cap. "New account" is a 0-read peek at the actor's cached profile (the request
-	// that produced the event loaded it through the account-status interceptor); on a cache miss the actor counts as
-	// established, so the stricter tier is best effort, never a read.
+	// N-1: the per-actor recipient cap. "New account" is decided with 0 reads from actorAges, which the account-status
+	// adapter fills on every authenticated request (graph Follow and post create evict the actor's cached profile just
+	// before they emit, so a cache peek at emit time would always miss), falling back to a profile cache peek. An
+	// unknown actor counts as established: the stricter tier is best effort, never a read.
+	actorAges := newAccountAges(cfg.Quota.NewAccountWindow)
 	isNewActor := func(uid string) bool {
+		if isNew, known := actorAges.IsNew(uid); known {
+			return isNew
+		}
 		p, ok := identityCache.GetProfile(uid)
 		return ok && !p.CreatedAt.IsZero() && time.Since(p.CreatedAt) < cfg.Quota.NewAccountWindow
 	}
@@ -333,7 +338,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// search and admin are not implemented yet; their Connect servers are not registered.
 
 	// --- interceptors (ADR-0006 §2 order) ---
-	accountStatusProvider := accountStatusAdapter{svc: identitySvc}
+	accountStatusProvider := accountStatusAdapter{svc: identitySvc, peek: identityCache.GetProfile, ages: actorAges}
 	profileExempt := profileExemptProcedures()
 
 	// M1: rate limit (and degraded mode, also a free in-memory check) now run *before* account status.
@@ -446,12 +451,21 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 // importing the other's concrete types (ADR-0002: modules/platform depend on interfaces only).
 type accountStatusAdapter struct {
 	svc identity.Service
+	// peek and ages (both optional) record the caller's createdAt after the status lookup has cached the profile:
+	// a 0-read cache peek that lets the notifications recipient cap tell a new account at emit time.
+	peek func(uid string) (identity.Profile, bool)
+	ages *accountAges
 }
 
 func (a accountStatusAdapter) AccountStatus(ctx context.Context, uid string) (bool, authn.AccountStatus, error) {
 	exists, status, err := a.svc.AccountStatus(ctx, uid)
 	if err != nil {
 		return false, authn.AccountStatusUnknown, err
+	}
+	if exists && a.ages != nil && a.peek != nil {
+		if p, ok := a.peek(uid); ok {
+			a.ages.Record(uid, p.CreatedAt)
+		}
 	}
 	switch status {
 	case identity.AccountStatusActive:

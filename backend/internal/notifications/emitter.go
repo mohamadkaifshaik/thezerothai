@@ -53,11 +53,15 @@ type RecipientCap struct {
 
 // NewRecipientCap builds the cap: established accounts get `established` recipients per day, accounts for which
 // isNew is true get `newAccount`. isNew must be a 0-read lookup (a cache peek); nil, or an answer of false for an
-// unknown account, means established. Non-positive limits are clamped to 1 by the underlying cap.
+// unknown account, means established. A non-positive limit returns nil (no cap), like NewPushLimiter: config.Load
+// rejects it in deployed builds, and a hand-built zero Config must not silently allow one recipient a day.
 func NewRecipientCap(established, newAccount int64, isNew func(uid string) bool) *RecipientCap {
+	if established <= 0 || newAccount <= 0 {
+		return nil
+	}
 	return &RecipientCap{
 		established: ratelimit.NewDailyCap(established), newAccount: ratelimit.NewDailyCap(newAccount),
-		establishedLimit: max(established, 1), newAccountLimit: max(newAccount, 1), isNew: isNew,
+		establishedLimit: established, newAccountLimit: newAccount, isNew: isNew,
 	}
 }
 
