@@ -69,9 +69,10 @@ func (f followNotifier) Followed(ctx context.Context, followerUID, followeeUID s
 	})
 }
 
-// postNotifier implements posts.PostEvents: a created post notifies the users it mentions, and a QUOTE (P5,
-// ADR-0018 D9) notifies the author of the quoted post. Replies (P3) will add their own Emit here when that slice
-// wires reply notifications.
+// postNotifier implements posts.PostEvents: a created post notifies the users it mentions, a QUOTE (P5, ADR-0018
+// D9) notifies the author of the quoted post, and a REPLY (P3, ADR-0017 T10) notifies the parent post's author
+// (Post.ReplyToAuthorID, already read by the reply validation: 0 extra reads). Precedence, one row per user per
+// post: quote/reply beats mention, so a mention of the quoted or parent author is dropped from the mention event.
 type postNotifier struct{ slot *emitterSlot }
 
 var _ posts.PostEvents = postNotifier{}
@@ -83,19 +84,23 @@ func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
 	if post.Visibility != "" && post.Visibility != posts.VisibilityPublic {
 		return // never announce a post that is not publicly visible (moderation hold, followers-only)
 	}
-	quoted := ""
-	if post.Kind == posts.KindQuote && post.Embedded != nil && !post.Embedded.Unavailable {
-		quoted = post.Embedded.Author.UserID
-		if quoted != "" && quoted != post.AuthorID {
-			p.slot.emit(ctx, notifications.Event{
-				Type: notifications.TypeQuote, ActorID: post.AuthorID, RecipientIDs: []string{quoted}, PostID: post.ID, At: post.CreatedAt,
-			})
-		}
+	covered := "" // the one user a quote or reply of this post already notifies
+	typ := notifications.Type("")
+	switch {
+	case post.Kind == posts.KindQuote && post.Embedded != nil && !post.Embedded.Unavailable:
+		covered, typ = post.Embedded.Author.UserID, notifications.TypeQuote
+	case post.IsReply && post.ReplyToAuthorID != "":
+		covered, typ = post.ReplyToAuthorID, notifications.TypeReply // a reply is never a quote
 	}
-	// A mention of the quoted author is covered by the quote notification: one row per user per post.
+	if covered != "" && covered != post.AuthorID { // quoting or replying to yourself notifies nobody
+		p.slot.emit(ctx, notifications.Event{
+			Type: typ, ActorID: post.AuthorID, RecipientIDs: []string{covered}, PostID: post.ID, At: post.CreatedAt,
+		})
+	}
+	// A mention of the quoted or parent author is covered by that notification: one row per user per post.
 	recipients := make([]string, 0, len(post.Mentions))
 	for _, m := range post.Mentions {
-		if m.UserID != quoted {
+		if m.UserID != covered {
 			recipients = append(recipients, m.UserID)
 		}
 	}

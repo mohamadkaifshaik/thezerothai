@@ -232,3 +232,20 @@ section records implementation facts only; the ADR status is unchanged (Proposed
 Residuals: the recipient and device caps are per Cloud Run instance lifetime (the accepted in-memory approximation); a
 new account first seen by another instance (or after the memo's one hour) gets the established-tier allowance; a client that re-registers on every foreground
 can now hit the 10/day devices cap (the runbook already asks for once per app start and on token refresh).
+
+### Replies producer (T10, 2026-10-18; facts only)
+
+- `postNotifier.Created` (`apiserver/notifications_wiring.go`) emits `TypeReply` to the parent post's author for a
+  `Kind == REPLY` post, through the same `PostEvents` hook and `emitterSlot` as mentions and quotes. Id
+  `reply_{replyPostId}` (D1), so a redelivery or an idempotent CreatePost replay (which never calls the hook) writes
+  nothing new. Self-replies, a non-PUBLIC reply and an unknown parent author emit nothing; block/mute/ACTIVE
+  suppression stays in the fan-out (D5). Replies to a REPOST resolve to the original, so its author is notified.
+- The parent author comes from `Post.ReplyToAuthorID`, a **transient** field set by `applyReply` from the parent the
+  reply validation already loaded. It is not persisted, not part of the data model and empty on any Post read back
+  from Firestore. CreatePost therefore costs 0 extra reads and 0 extra writes; the fan-out cost is charged to the actor
+  by the existing per-actor recipient cap (N-1: 1 recipient per reply).
+- Precedence when a reply also @mentions the parent author: the reply row only (like quote beats mention): the parent
+  author is removed from the mention event, other mentioned users still get `mention_{postId}`. A quote and a reply
+  are mutually exclusive on one post.
+- Tests: `TestPostNotifierReplies` (unit), `TestReplyNotifications` (emulator: reply row, replay, self, muted
+  recipient, reply+mention collapse, CreatePost request line unchanged at 5 writes and <= 15 reads).

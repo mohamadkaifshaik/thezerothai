@@ -75,17 +75,21 @@ type Mention struct {
 // visibility PUBLIC, all counters 0 (ADR-0010 D2), and the replies and engagement slices add their fields. Media
 // (P4) is the published image refs the post carries, in request order.
 type Post struct {
-	ID             string
-	AuthorID       string
-	Author         AuthorSnapshot
-	Kind           Kind
-	IsReply        bool
-	Text           string
-	ReplyToID      string
-	ReplyToHandle  string
-	ConversationID string
-	QuoteOfID      string
-	RepostOfID     string
+	ID            string
+	AuthorID      string
+	Author        AuthorSnapshot
+	Kind          Kind
+	IsReply       bool
+	Text          string
+	ReplyToID     string
+	ReplyToHandle string
+	// ReplyToAuthorID is the parent post's author (the reply's notification recipient, ADR-0017). It is TRANSIENT:
+	// set only on the *Post that CreatePost hands to PostEvents.Created (from the parent already read by the reply
+	// validation, 0 extra reads) and never persisted: a Post read back from Firestore leaves it empty.
+	ReplyToAuthorID string
+	ConversationID  string
+	QuoteOfID       string
+	RepostOfID      string
 	// Embedded is the snapshot of the quoted or reposted post (kind QUOTE / REPOST), nil otherwise. It is
 	// immutable like the Post that holds it.
 	Embedded *Embedded

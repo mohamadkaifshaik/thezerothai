@@ -118,6 +118,10 @@ func TestCreateReply_StoresReplyShapeAndBumpsParent(t *testing.T) {
 	if len(e.events.created) != 1 || !e.events.created[0].IsReply {
 		t.Fatal("PostEvents.Created must fire once with the reply")
 	}
+	// The hook gets the parent's author from the parent the validation already read (no extra read), transiently.
+	if got := e.events.created[0].ReplyToAuthorID; got != uZed {
+		t.Fatalf("Created got ReplyToAuthorID %q, want %q", got, uZed)
+	}
 }
 
 func TestCreateReply_ToAReplyJoinsTheSameConversation(t *testing.T) {
