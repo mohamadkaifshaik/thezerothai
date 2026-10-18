@@ -43,6 +43,13 @@ abstract class OnboardingState with _$OnboardingState {
     // keeps whatever was known from the previous fetch this session; a name
     // this set doesn't contain is treated as off.
     @Default(<String>{}) Set<String> enabledFeatures,
+    // `GetMe.unread_notification_count` (capped server-side at 100), seeded
+    // into the unread badge on every fresh GetMe; 0 extra reads.
+    @Default(0) int unreadNotificationCount,
+    // The caller's account is suspended or being deleted: every RPC but
+    // DeleteAccount answers ACCOUNT_RESTRICTED (ADR-0016), including GetMe.
+    // Cleared by the next successful GetMe.
+    @Default(false) bool accountRestricted,
   }) = _OnboardingState;
 
   const OnboardingState._();

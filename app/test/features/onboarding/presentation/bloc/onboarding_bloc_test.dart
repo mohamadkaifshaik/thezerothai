@@ -100,6 +100,47 @@ void main() {
     );
   });
 
+  group('account restriction (ADR-0016)', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'ACCOUNT_RESTRICTED from GetMe marks the account restricted',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const AccountRestrictedException('suspended'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      verify: (bloc) {
+        expect(bloc.state.accountRestricted, isTrue);
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a later successful GetMe clears the restriction',
+      setUp: () {
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+          ),
+        );
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(accountRestricted: true),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      verify: (bloc) {
+        expect(bloc.state.accountRestricted, isFalse);
+        expect(bloc.state.status, OnboardingStatus.ready);
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'sign-out clears the restriction for the next user',
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => const OnboardingState(accountRestricted: true),
+      act: (bloc) => bloc.add(const OnboardingUserSignedOut()),
+      verify: (bloc) => expect(bloc.state.accountRestricted, isFalse),
+    );
+  });
+
   group('handle check failures share one policy', () {
     blocTest<OnboardingBloc, OnboardingState>(
       'a generic probe error is unknown with friendly text (never e.message) '

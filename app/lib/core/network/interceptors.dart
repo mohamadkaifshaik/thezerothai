@@ -172,9 +172,7 @@ final class RetryInterceptor {
             rethrow;
           }
           final backoff = baseDelay * pow(2, attempt - 1).toInt();
-          final jitter = Duration(
-            milliseconds: Random().nextInt(100),
-          );
+          final jitter = Duration(milliseconds: Random().nextInt(100));
           await Future<void>.delayed(backoff + jitter);
         }
       }

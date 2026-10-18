@@ -7,12 +7,15 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
+    show ReportTargetType;
 import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/follow_button.dart';
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
 import '../../../graph/presentation/graph_error_messages.dart';
+import '../../../moderation/presentation/report_sheet.dart';
 import 'block_confirmation_dialog.dart';
 
 /// The profile header: avatar, display name, `@handle`, bio, follower/
@@ -32,10 +35,15 @@ class ProfileHeader extends StatelessWidget {
     this.onRelationshipChanged,
     this.showPostsCount = false,
     this.onEditProfile,
+    this.reportsEnabled = false,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// Offers "Report @handle" on other people's profiles (the `reports` flag,
+  /// ADR-0016). Works with or without the graph menu.
+  final bool reportsEnabled;
 
   /// Shows an "Edit profile" button on the viewer's own profile (P2-T5, only
   /// given when the `profile_snapshot` flag is on). Null hides it.
@@ -63,6 +71,7 @@ class ProfileHeader extends StatelessWidget {
         showActions: false,
         showPostsCount: showPostsCount,
         onEditProfile: isOwnProfile ? onEditProfile : null,
+        canReport: reportsEnabled && !isOwnProfile,
       );
     }
     return BlocProvider(
@@ -87,6 +96,7 @@ class ProfileHeader extends StatelessWidget {
           profile: profile,
           showActions: true,
           showPostsCount: showPostsCount,
+          canReport: reportsEnabled,
         ),
       ),
     );
@@ -99,11 +109,13 @@ class _ProfileHeaderBody extends StatelessWidget {
     required this.showActions,
     required this.showPostsCount,
     this.onEditProfile,
+    this.canReport = false,
   });
 
   final identity.Profile profile;
   final bool showActions;
   final bool showPostsCount;
+  final bool canReport;
   final VoidCallback? onEditProfile;
 
   @override
@@ -120,7 +132,10 @@ class _ProfileHeaderBody extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(url: profile.avatarUrl, radius: AppSpacing.xl + AppSpacing.sm),
+              AppAvatar(
+                url: profile.avatarUrl,
+                radius: AppSpacing.xl + AppSpacing.sm,
+              ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -144,11 +159,13 @@ class _ProfileHeaderBody extends StatelessWidget {
                   children: [
                     const FollowButton(),
                     const SizedBox(height: AppSpacing.xs),
-                    const _OverflowMenu(),
+                    _OverflowMenu(profile: profile, canReport: canReport),
                   ],
                 ),
               ] else if (showActions) ...[
-                const _OverflowMenu(),
+                _OverflowMenu(profile: profile, canReport: canReport),
+              ] else if (canReport) ...[
+                _ReportOnlyMenu(profile: profile),
               ] else if (onEditProfile != null) ...[
                 const SizedBox(width: AppSpacing.sm),
                 OutlinedButton(
@@ -231,9 +248,8 @@ class _PostsCount extends StatelessWidget {
             children: [
               TextSpan(
                 text: '$count ',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               TextSpan(text: label, style: _mutedLabel(context)),
             ],
@@ -245,10 +261,9 @@ class _PostsCount extends StatelessWidget {
 }
 
 /// Count labels ("Posts", "Followers") read secondary to the bold number.
-TextStyle? _mutedLabel(BuildContext context) => Theme.of(context)
-    .textTheme
-    .bodyMedium
-    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+TextStyle? _mutedLabel(BuildContext context) =>
+    Theme.of(context).textTheme.bodyMedium
+        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
 
 class _CountLink extends StatelessWidget {
   const _CountLink({
@@ -331,8 +346,56 @@ class _BlockedBanner extends StatelessWidget {
   }
 }
 
+/// Opens the report sheet for [profile]'s account.
+Future<ReportOutcome> _reportAccount(
+  BuildContext context,
+  identity.Profile profile, {
+  required bool offerBlock,
+}) {
+  return showReportSheet(
+    context,
+    targetType: ReportTargetType.REPORT_TARGET_TYPE_ACCOUNT,
+    targetId: profile.userId,
+    subject: '@${profile.handle}',
+    blockLabel: offerBlock ? 'Block @${profile.handle}' : null,
+  );
+}
+
+/// "Report" alone, for a profile with the graph flag off (no Block/Mute).
+class _ReportOnlyMenu extends StatelessWidget {
+  const _ReportOnlyMenu({required this.profile});
+
+  final identity.Profile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'More options',
+      child: PopupMenuButton<String>(
+        icon: Icon(
+          Icons.more_horiz,
+          size: AppIconSize.lg,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
+        onSelected: (_) => _reportAccount(context, profile, offerBlock: false),
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'report',
+            child: Text('Report @${profile.handle}'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _OverflowMenu extends StatelessWidget {
-  const _OverflowMenu();
+  const _OverflowMenu({required this.profile, required this.canReport});
+
+  final identity.Profile profile;
+  final bool canReport;
 
   @override
   Widget build(BuildContext context) {
@@ -361,6 +424,19 @@ class _OverflowMenu extends StatelessWidget {
                   if (confirmed) await cubit.block();
                 case 'unblock':
                   await cubit.unblock();
+                case 'report':
+                  final outcome = await _reportAccount(
+                    context,
+                    profile,
+                    offerBlock: !relationship.blocking,
+                  );
+                  if (outcome == ReportOutcome.blockRequested &&
+                      context.mounted) {
+                    final confirmed = await showBlockConfirmationDialog(
+                      context,
+                    );
+                    if (confirmed) await cubit.block();
+                  }
               }
             },
             itemBuilder: (context) => [
@@ -372,6 +448,11 @@ class _OverflowMenu extends StatelessWidget {
                 value: relationship.blocking ? 'unblock' : 'block',
                 child: Text(relationship.blocking ? 'Unblock' : 'Block'),
               ),
+              if (canReport)
+                PopupMenuItem(
+                  value: 'report',
+                  child: Text('Report @${profile.handle}'),
+                ),
             ],
           ),
         );

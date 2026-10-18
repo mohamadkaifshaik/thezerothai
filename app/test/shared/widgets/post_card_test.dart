@@ -825,4 +825,99 @@ void main() {
     );
     expect(image.imageUrl, 'https://m.test/full.webp');
   });
+
+  group('report entry (reports flag, AC7)', () {
+    Future<void> openMenu(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('flag on: a foreign post offers "Report post"', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(),
+            viewerUserId: 'me',
+            now: _now,
+            reportsEnabled: true,
+          ),
+        ),
+      );
+
+      await openMenu(tester);
+
+      expect(find.text('Report post'), findsOneWidget);
+      expect(find.text('Block @alice'), findsOneWidget);
+    });
+
+    testWidgets('flag off: no Report entry anywhere in the menu', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(PostCard(view: _view(), viewerUserId: 'me', now: _now)),
+      );
+
+      await openMenu(tester);
+
+      expect(find.textContaining('Report'), findsNothing);
+      expect(find.text('Block @alice'), findsOneWidget);
+    });
+
+    testWidgets('flag off and graph off: no menu at all', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(),
+            viewerUserId: 'me',
+            now: _now,
+            graphActionsEnabled: false,
+          ),
+        ),
+      );
+
+      expect(find.byTooltip('More options'), findsNothing);
+    });
+
+    testWidgets('flag on, graph off: the menu holds Report alone', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(),
+            viewerUserId: 'me',
+            now: _now,
+            graphActionsEnabled: false,
+            reportsEnabled: true,
+          ),
+        ),
+      );
+
+      await openMenu(tester);
+
+      expect(find.text('Report post'), findsOneWidget);
+      expect(find.textContaining('Block'), findsNothing);
+    });
+
+    testWidgets('own post never offers Report, even with the flag on', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          PostCard(
+            view: _view(authorId: 'me'),
+            viewerUserId: 'me',
+            now: _now,
+            reportsEnabled: true,
+            onDelete: (_) async {},
+          ),
+        ),
+      );
+
+      await openMenu(tester);
+
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.textContaining('Report'), findsNothing);
+    });
+  });
 }

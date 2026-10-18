@@ -20,6 +20,14 @@ import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/media_feature_flag.dart';
+import '../features/moderation/data/moderation_repository.dart';
+import '../features/moderation/domain/reports_feature_flag.dart';
+import '../features/notifications/data/notifications_repository.dart';
+import '../features/notifications/data/notifications_store.dart';
+import '../features/notifications/data/push_messaging.dart';
+import '../features/notifications/domain/notifications_feature_flag.dart';
+import '../features/notifications/presentation/bloc/push_cubit.dart';
+import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -91,8 +99,14 @@ Future<void> bootstrap() async {
   // "Following" instantly on a warm start (CLAUDE.md prime directive).
   await graphRepository.primeFromDatabase();
 
-  final authBloc = AuthBloc(authRepository: authRepository)
-    ..add(const AuthSubscriptionRequested());
+  // The push cubit is built before the auth bloc so sign-out can unregister
+  // the device while the ID token is still valid (ADR-0017); AppWidget gives
+  // it the router. It is wired to the notifications repository below.
+  late final PushCubit pushCubit;
+  final authBloc = AuthBloc(
+    authRepository: authRepository,
+    beforeSignOut: () => pushCubit.unregister(),
+  )..add(const AuthSubscriptionRequested());
   final onboardingBloc = OnboardingBloc(identityRepository: identityRepository);
 
   // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via
@@ -128,6 +142,37 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
   );
 
+  // Notifications (ADR-0017) and reports (ADR-0016): whole-service gates
+  // over `GetMe.enabled_features`, 0 RPCs while a flag is off. The read
+  // hold is shared: ListNotifications is a read against the same per-uid
+  // daily budget as the timeline.
+  final notificationsGate = buildServiceGate(
+    onboardingBloc,
+    kFeatureNotifications,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  final reportsGate = buildServiceGate(
+    onboardingBloc,
+    kFeatureReports,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  final notificationsRepository = NotificationsRepository(
+    apiClient: apiClient,
+    store: NotificationsStore(database),
+    gate: notificationsGate,
+    rateLimitHold: rateLimitHold,
+  );
+  final moderationRepository = ModerationRepository(
+    apiClient: apiClient,
+    gate: reportsGate,
+  );
+  final unreadBadgeCubit = UnreadBadgeCubit();
+  pushCubit = PushCubit(
+    messaging: FirebasePushMessaging(),
+    repository: notificationsRepository,
+    onUnexpectedError: reportUnexpectedError,
+  );
+
   // Bridge: OnboardingBloc reacts to sign-in/sign-out, but never talks to
   // AuthBloc directly (keeps the two features decoupled — see the
   // `flutter-feature` skill).
@@ -142,6 +187,7 @@ Future<void> bootstrap() async {
         wipeSessionData(
           database: database,
           timelineRepository: timelineRepository,
+          notificationsRepository: notificationsRepository,
         ),
       );
       graphRepository.clearCache();
@@ -169,6 +215,10 @@ Future<void> bootstrap() async {
       timelineRepository: timelineRepository,
       postsGate: postsGate,
       mediaRepository: mediaRepository,
+      notificationsRepository: notificationsRepository,
+      moderationRepository: moderationRepository,
+      pushCubit: pushCubit,
+      unreadBadgeCubit: unreadBadgeCubit,
     ),
   );
 }

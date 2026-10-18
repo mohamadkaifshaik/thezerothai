@@ -1,5 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
+import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -20,6 +21,7 @@ void main() {
     WidgetTester tester, {
     required Set<String> flags,
     String location = '/home',
+    UnreadBadgeCubit? badge,
   }) async {
     whenListen(
       onboardingBloc,
@@ -49,8 +51,11 @@ void main() {
       ],
     );
     await tester.pumpWidget(
-      BlocProvider<OnboardingBloc>.value(
-        value: onboardingBloc,
+      MultiBlocProvider(
+        providers: [
+          BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+          if (badge != null) BlocProvider<UnreadBadgeCubit>.value(value: badge),
+        ],
         child: MaterialApp.router(routerConfig: router),
       ),
     );
@@ -75,5 +80,50 @@ void main() {
   testWidgets('hides it on Settings', (tester) async {
     await pump(tester, flags: {'posts'}, location: '/settings');
     expect(find.byTooltip('New post'), findsNothing);
+  });
+
+  group('Notifications tab badge', () {
+    testWidgets('flag on: the tab exists and shows the unread count', (
+      tester,
+    ) async {
+      final badge = UnreadBadgeCubit(3);
+      addTearDown(badge.close);
+
+      await pump(tester, flags: {'notifications'}, badge: badge);
+
+      expect(find.text('3'), findsWidgets);
+    });
+
+    testWidgets('the count follows the cubit and caps at 99+', (tester) async {
+      final badge = UnreadBadgeCubit(3);
+      addTearDown(badge.close);
+      await pump(tester, flags: {'notifications'}, badge: badge);
+
+      badge.seed(250);
+      await tester.pumpAndSettle();
+
+      expect(find.text('99+'), findsWidgets);
+      expect(find.text('3'), findsNothing);
+    });
+
+    testWidgets('no badge at zero', (tester) async {
+      final badge = UnreadBadgeCubit(0);
+      addTearDown(badge.close);
+
+      await pump(tester, flags: {'notifications'}, badge: badge);
+
+      expect(find.textContaining('unread'), findsNothing);
+      expect(find.byType(Badge), findsNothing);
+    });
+
+    testWidgets('flag off: no Notifications tab and no badge', (tester) async {
+      final badge = UnreadBadgeCubit(5);
+      addTearDown(badge.close);
+
+      await pump(tester, flags: {}, badge: badge);
+
+      expect(find.text('Notifications'), findsNothing);
+      expect(find.text('5'), findsNothing);
+    });
   });
 }

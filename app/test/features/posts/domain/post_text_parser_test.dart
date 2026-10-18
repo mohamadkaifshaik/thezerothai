@@ -209,10 +209,7 @@ void main() {
     });
 
     test('a bidi control keeps span detection but drops every link', () {
-      final spans = parsePostText(
-        '؜ https://ex.com/?r=@bob',
-        [_m('bob')],
-      );
+      final spans = parsePostText('؜ https://ex.com/?r=@bob', [_m('bob')]);
       expect(_tappable(spans), isEmpty);
     });
   });
@@ -235,9 +232,7 @@ void main() {
         final wantLinks = strings(row['tappable_links']);
 
         // Feed the server's mentions back as resolved mentions.
-        final mentions = [
-          for (final h in wantMentions) _m(h, 'uid-$h'),
-        ];
+        final mentions = [for (final h in wantMentions) _m(h, 'uid-$h')];
         final spans = parsePostText(text, mentions);
         final reason = 'row: ${jsonEncode(text)}';
 

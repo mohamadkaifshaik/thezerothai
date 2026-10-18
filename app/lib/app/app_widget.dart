@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -14,8 +15,14 @@ import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
+import '../features/moderation/data/moderation_repository.dart';
+import '../features/notifications/data/notifications_repository.dart';
+import '../features/notifications/domain/notifications_feature_flag.dart';
+import '../features/notifications/presentation/bloc/push_cubit.dart';
+import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
@@ -40,6 +47,10 @@ class AppWidget extends StatefulWidget {
     required this.mediaRepository,
     this.imagePicker,
     this.imageProcessor = const IsolateImageProcessor(),
+    required this.notificationsRepository,
+    required this.moderationRepository,
+    required this.pushCubit,
+    required this.unreadBadgeCubit,
   });
 
   final AuthBloc authBloc;
@@ -52,6 +63,15 @@ class AppWidget extends StatefulWidget {
   final PostsRepository postsRepository;
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
+  final NotificationsRepository notificationsRepository;
+  final ModerationRepository moderationRepository;
+
+  /// Push registration and tap handling (P6); built in bootstrap so the
+  /// sign-out hook can unregister the device before the token is dropped.
+  final PushCubit pushCubit;
+
+  /// The unread badge, seeded from `GetMe` (P6).
+  final UnreadBadgeCubit unreadBadgeCubit;
 
   /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
   final MediaRepository mediaRepository;
@@ -71,18 +91,68 @@ class _AppWidgetState extends State<AppWidget> {
   late final StreamSubscription<AuthState> _authSub;
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
+  late final StreamSubscription<OnboardingState> _onboardingSub;
+  Set<String>? _lastFeatures;
+  int _lastUnread = 0;
 
   @override
   void initState() {
     super.initState();
     _authSub = widget.authBloc.stream.listen((state) {
-      if (state.status == AuthStatus.unauthenticated) _pendingPosts.clear();
+      if (state.status == AuthStatus.unauthenticated) {
+        _pendingPosts.clear();
+        widget.unreadBadgeCubit.seed(0);
+        _lastFeatures = null;
+        _lastUnread = 0;
+        unawaited(widget.pushCubit.stop());
+      }
     });
+    widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
+    widget.pushCubit.onForeground = _onForegroundPush;
+    // Every fresh GetMe (a new flag-set instance) seeds the badge, and
+    // starts push once the notifications flag is on. Never a GetMe of its
+    // own: the badge costs 0 extra reads.
+    _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
+    _onOnboarding(widget.onboardingBloc.state);
+  }
+
+  /// A push arrived in the foreground: bump the badge, unless the list is
+  /// open (it refreshes and marks everything seen itself, so the badge would
+  /// only flash and then stick).
+  void _onForegroundPush() {
+    final path = _appRouter.router.routeInformationProvider.value.uri.path;
+    if (path == AppRouter.notificationsPath) return;
+    widget.unreadBadgeCubit.increment();
+  }
+
+  void _onOnboarding(OnboardingState state) {
+    if (state.status != OnboardingStatus.ready) return;
+    // A fresh GetMe changes the flag set or the unread count. Compared by
+    // value: the state hands out a new set view on every read, so identity
+    // would re-seed (and undo a local mark-seen) on any later emission.
+    final last = _lastFeatures;
+    if (last != null &&
+        setEquals(last, state.enabledFeatures) &&
+        _lastUnread == state.unreadNotificationCount) {
+      return;
+    }
+    _lastFeatures = Set.of(state.enabledFeatures);
+    _lastUnread = state.unreadNotificationCount;
+    if (state.enabledFeatures.contains(kFeatureNotifications)) {
+      widget.unreadBadgeCubit.seed(state.unreadNotificationCount);
+      unawaited(widget.pushCubit.start());
+    } else {
+      // Flag turned off mid-session: no listeners, no badge. The token is
+      // kept (the same session may turn the flag back on).
+      widget.unreadBadgeCubit.seed(0);
+      unawaited(widget.pushCubit.stop(invalidateToken: false));
+    }
   }
 
   @override
   void dispose() {
     _authSub.cancel();
+    _onboardingSub.cancel();
     _pendingPosts.close();
     super.dispose();
   }
@@ -109,12 +179,16 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.mediaRepository),
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
+        RepositoryProvider.value(value: widget.notificationsRepository),
+        RepositoryProvider.value(value: widget.moderationRepository),
       ],
       child: MultiBlocProvider(
         providers: [
           BlocProvider.value(value: widget.authBloc),
           BlocProvider.value(value: widget.onboardingBloc),
           BlocProvider.value(value: _pendingPosts),
+          BlocProvider.value(value: widget.pushCubit),
+          BlocProvider.value(value: widget.unreadBadgeCubit),
         ],
         child: MaterialApp.router(
           title: 'dZeroth',

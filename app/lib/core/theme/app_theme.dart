@@ -25,6 +25,13 @@ abstract final class AppIconSize {
   static const double xl = 40;
 }
 
+/// Opacity levels for tints over a surface.
+abstract final class AppOpacity {
+  /// Tint of a highlighted (for example unread) row: a hint, never the only
+  /// signal.
+  static const double rowTint = 0.08;
+}
+
 abstract final class AppRadius {
   static const double sm = 8;
   static const double md = 12;

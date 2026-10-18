@@ -1,10 +1,24 @@
 import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 
+import '../core/feature_flags/service_feature_gate.dart';
 import '../core/storage/app_database.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
+import '../features/notifications/data/notifications_repository.dart';
 import '../features/timeline/data/timeline_repository.dart';
+
+/// Resets [gate] on every fresh `GetMe` (it emits a new flag-set instance),
+/// so a remembered FEATURE_DISABLED can never stick for the session.
+void _wireGateReset(OnboardingBloc onboardingBloc, ServiceFeatureGate gate) {
+  var last = onboardingBloc.state.enabledFeatures;
+  onboardingBloc.stream.listen((state) {
+    if (!identical(state.enabledFeatures, last)) {
+      last = state.enabledFeatures;
+      gate.reset();
+    }
+  });
+}
 
 /// Builds the posts flag gate wired to [onboardingBloc] (ADR-0010 D1/D2):
 ///
@@ -21,13 +35,28 @@ PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
     onWholeServiceDisabled: () =>
         onboardingBloc.add(const OnboardingRefreshRequested()),
   );
-  var last = onboardingBloc.state.enabledFeatures;
-  onboardingBloc.stream.listen((state) {
-    if (!identical(state.enabledFeatures, last)) {
-      last = state.enabledFeatures;
-      gate.reset();
-    }
-  });
+  _wireGateReset(onboardingBloc, gate);
+  return gate;
+}
+
+/// Builds the gate of one whole-service flag ([flagName]: `notifications`,
+/// `reports`) wired to [onboardingBloc], the same way [buildPostsGate] is:
+///
+/// - enabled iff `GetMe.enabled_features` contains [flagName];
+/// - FEATURE_DISABLED dispatches [OnboardingRefreshRequested] (ADR-0008 D6);
+/// - every fresh `GetMe` resets what earlier FEATURE_DISABLED answers taught.
+ServiceFeatureGate buildServiceGate(
+  OnboardingBloc onboardingBloc,
+  String flagName, {
+  void Function(Object error, StackTrace stack)? onUnexpectedError,
+}) {
+  final gate = ServiceFeatureGate(
+    isEnabled: () => onboardingBloc.state.enabledFeatures.contains(flagName),
+    onDisabledByServer: () =>
+        onboardingBloc.add(const OnboardingRefreshRequested()),
+    onUnexpectedError: onUnexpectedError,
+  );
+  _wireGateReset(onboardingBloc, gate);
   return gate;
 }
 
@@ -50,6 +79,7 @@ void reportUnexpectedError(Object error, StackTrace stack) {
 Future<void> wipeSessionData({
   required AppDatabase database,
   required TimelineRepository timelineRepository,
+  NotificationsRepository? notificationsRepository,
 }) async {
   // Ends the shared SessionEpoch and forgets in-flight and queued timeline
   // work (a new user must never be handed the old user's future).
@@ -58,5 +88,6 @@ Future<void> wipeSessionData({
   // in-flight maps (it ends the epoch again, which is harmless).
   database.sessionEpoch.end();
   timelineRepository.clearSession();
+  notificationsRepository?.clearSession();
   await database.clearAll();
 }

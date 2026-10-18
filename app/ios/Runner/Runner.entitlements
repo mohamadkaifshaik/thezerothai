@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push (FCM over APNs). "development" is rewritten to "production" by
+	     Xcode for App Store / TestFlight builds signed with a distribution
+	     profile. The APNs key itself is uploaded to Firebase by the founder
+	     (docs/plans/notifications.md T12 prerequisites). -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

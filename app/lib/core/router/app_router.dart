@@ -13,6 +13,8 @@ import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/notifications/domain/notifications_feature_flag.dart';
+import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
@@ -47,6 +49,8 @@ class AppRouter {
   static const homePath = '/home';
   static const composePath = '/compose';
   static const settingsPath = '/settings';
+  // P6: the Notifications tab, behind the `notifications` flag.
+  static const notificationsPath = '/notifications';
   // The Settings routes land with T15; the constants live here so
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
@@ -65,7 +69,8 @@ class AppRouter {
 
   /// Profile by user id: what post cards and mentions use, since handles can
   /// be changed and re-claimed (ADR-0010 D7).
-  static String profileByIdPath(String userId) => '/u/$userId';
+  static String profileByIdPath(String userId) =>
+      '/u/${Uri.encodeComponent(userId)}';
 
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
@@ -117,6 +122,11 @@ class AppRouter {
           GoRoute(
             path: homePath,
             builder: (context, state) => const AuthGate(child: HomeScreen()),
+          ),
+          GoRoute(
+            path: notificationsPath,
+            builder: (context, state) =>
+                const AuthGate(child: NotificationsScreen()),
           ),
           GoRoute(
             path: '/u/:userId',
@@ -231,7 +241,8 @@ class AppRouter {
         if (loc == onboardingDeletePath) return settingsPath;
         return _graphFlagRedirect(loc) ??
             _accountFlagRedirect(loc) ??
-            _profileEditFlagRedirect(loc);
+            _profileEditFlagRedirect(loc) ??
+            _notificationsFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
       case OnboardingStatus.error:
@@ -257,6 +268,14 @@ class AppRouter {
       return null;
     }
     return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
+  }
+
+  /// `/notifications` redirects Home when the flag is off for this caller.
+  String? _notificationsFlagRedirect(String loc) {
+    if (loc != notificationsPath) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureNotifications)
+        ? null
+        : homePath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');

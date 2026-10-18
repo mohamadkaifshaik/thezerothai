@@ -10,6 +10,7 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/blocked_post_gate.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../graph/domain/graph_feature_flag.dart';
+import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
 import '../domain/posts_feature_flag.dart';
@@ -128,6 +129,7 @@ class _ReadyPost extends StatelessWidget {
   Widget build(BuildContext context) {
     final view = state.view!;
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
+    final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     final author = view.post.author;
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
 
@@ -149,6 +151,7 @@ class _ReadyPost extends StatelessWidget {
                   showFullImages: true,
                   viewerUserId: viewerUserId,
                   graphActionsEnabled: graphEnabled,
+                  reportsEnabled: reportsEnabled,
                   onDelete: (_) => context.read<PostDetailCubit>().deletePost(),
                   onRelationshipChanged: (_) => onRelationshipChanged(),
                 ),
