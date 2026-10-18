@@ -264,7 +264,7 @@ type CreateInput struct {
 	// MediaEnabled is FEATURE_MEDIA for the caller (set by server.go from the flag registry). When false, media
 	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before P4.
 	MediaEnabled bool
-	// QuotesEnabled is the FEATURE_ENGAGEMENT decision for the caller, made by server.go (never from the request).
+	// QuotesEnabled is the FEATURE_QUOTES AND FEATURE_ENGAGEMENT decision for the caller, made by server.go (never from the request).
 	// A non-empty QuoteOfPostID with it false is FEATURE_DISABLED (metadata feature=quotes).
 	QuotesEnabled bool
 	// RepliesEnabled is the FEATURE_REPLIES decision for the caller, made by server.go (never from the request).

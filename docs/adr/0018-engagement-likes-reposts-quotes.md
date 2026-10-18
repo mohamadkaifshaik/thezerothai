@@ -1,6 +1,6 @@
 # 0018. Engagement: likes, reposts and quotes
 Status: Accepted (founder, 2026-10-17; includes the rule-4 bend in "Rule 4 (idempotency_key)" below)
-Date: 2026-10-11 (amended 2026-10-17: rule 4, D17, orphaned likes, numbering table; founder approval 2026-10-17)
+Date: 2026-10-11 (amended 2026-10-17: rule 4, D17, orphaned likes, numbering table; founder approval 2026-10-17; amended 2026-10-18: FEATURE_QUOTES gates quote creation)
 Deciders: lead (founder delegated product decisions 2026-10-10); founder (accepted 2026-10-17)
 
 > Numbering: next free number after 0017. 0012-0015 stay reserved for the slices that ran in parallel (P2-P4 did not need an ADR).
@@ -55,6 +55,15 @@ Pub/Sub: one < 200 byte message per deleted post. No new GCP resource, no fixed 
 new Terraform beyond `FEATURE_ENGAGEMENT` env vars.
 Amendment 2026-10-17: the rule-4 bend (below) avoids about 1.7k writes + 1.7k TTL deletes per day at 300 DAU; D17
 (replies to a REPOST) adds +2 cold reads per such reply (0 warm), immaterial at Stage 0 reply volumes.
+
+Amendment 2026-10-18 (founder decision): quote CREATION is additionally gated by its own flag, `FEATURE_QUOTES[_ALLOWLIST|_PERCENT]`
+(wire name `quotes`, default **off** in every environment), because the quote UI is hidden in the MVP build and
+`FEATURE_ENGAGEMENT` alone would let a direct API request create quotes. `CreatePost` with `quote_of_post_id` now needs
+`quotes` AND `engagement` on for the caller; otherwise `FAILED_PRECONDITION` `FEATURE_DISABLED`, `metadata["feature"]="quotes"`
+(sub-feature order replies, quotes, media unchanged). D8's text is otherwise unchanged: likes, reposts, viewer-flag hydration and
+quote DISPLAY (timelines, GetPost, GetThread, embeds, tombstones, notifications) never consult `quotes`, so existing quotes keep
+showing. Config/Terraform only: no proto, index, collection or fixed cost; Terraform `feature_quotes[_allowlist|_percent]`
+variables and env entries were added to dev and prod but nothing is applied.
 
 ## Decision
 **D1. Contract.** A new additive `dzeroth.engagement.v1.EngagementService` with `LikePost`, `UnlikePost`,

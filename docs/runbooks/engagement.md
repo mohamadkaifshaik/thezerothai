@@ -5,6 +5,15 @@ Owner module: `backend/internal/engagement` (ADR-0018, plan `docs/plans/engageme
 Everything user-visible is behind `FEATURE_ENGAGEMENT` (off | allowlist | percent | on, FEATURE_POSTS still required).
 Cleanup (the `post_delete` job, Eraser, export) is never flag-gated. Kill switch: `FEATURE_ENGAGEMENT=off`.
 
+| Flag (wire name) | Env vars / Terraform | Gates | Default |
+|---|---|---|---|
+| `engagement` | `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]` / `feature_engagement*` | LikePost, UnlikePost, RepostPost, UndoRepost, viewer flags; required by `quotes` | off |
+| `quotes` | `FEATURE_QUOTES[_ALLOWLIST\|_PERCENT]` / `feature_quotes*` | `CreatePost.quote_of_post_id` only (needs `engagement` on too; ADR-0018 amendment 2026-10-18) | off |
+
+Quote rollback: set `FEATURE_QUOTES=off` (or lower the percent) and deploy. New quotes are refused with `FEATURE_DISABLED`
+`feature=quotes`; existing quotes keep displaying (display never consults the flag), likes and reposts are unaffected.
+`enabled_features` lists `quotes` only for callers it is on for; clients treat the refusal as the sub-feature being off.
+
 ## 1. Likes or reposts of a deleted post remain (orphans)
 **What it is.** DeletePost publishes `post_delete` best effort. If the publish failed
 (`post_delete_job_publish_failed` in Error Reporting) the post is gone but its `likes/*`, `reposts/*` and REPOST posts

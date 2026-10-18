@@ -29,6 +29,13 @@ func engagementOn(c *config.Config) {
 	relaxLimits(c) // 10 concurrent likes from one user and loopback seeding would trip the abuse limits
 	c.RateLimit.LikesPerUserPerMinute = 1_000_000
 	c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On}
+	c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.On} // quote creation has its own flag (default off)
+}
+
+// engagementOnQuotesOff is engagementOn with FEATURE_QUOTES left at its default (off).
+func engagementOnQuotesOff(c *config.Config) {
+	engagementOn(c)
+	c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.Off}
 }
 
 const (
@@ -322,5 +329,63 @@ func TestEngagementChain_FlagOff(t *testing.T) {
 	wireError(t, err, connect.CodeFailedPrecondition)
 	if n := countWhere(t, e.fs, "likes", "postId", pid); n != 0 {
 		t.Errorf("flag off wrote %d likes", n)
+	}
+}
+
+// TestEngagementChain_QuotesFlagOff: FEATURE_ENGAGEMENT on for everyone, FEATURE_QUOTES allowlisted to one user.
+// A non-allowlisted caller cannot create a quote through the real handler (FEATURE_DISABLED feature=quotes, no
+// write) while like and repost still work; the allowlisted caller can, and the non-allowlisted viewer still sees
+// the existing quote with its embedded snapshot.
+func TestEngagementChain_QuotesFlagOff(t *testing.T) {
+	ctx := context.Background()
+	quoterTok, quoterUID := mintToken(t, "")
+	e := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
+		engagementOnQuotesOff(c)
+		c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.Allowlist, Allowlist: map[string]struct{}{quoterUID: {}}}
+	})
+	e.createProfile(t, quoterTok)
+	quoter := testUser{quoterTok, quoterUID}
+	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, e.url)
+	a, b := e.newUser(t), e.newUser(t)
+
+	created, err := e.posts.CreatePost(ctx, authed(a.token, &postsv1.CreatePostRequest{IdempotencyKey: "qf-create-key-000001", Text: "original"}))
+	if err != nil {
+		t.Fatalf("CreatePost: %v", err)
+	}
+	pid := created.Msg.GetPost().GetPost().GetPostId()
+
+	// Engagement on, quotes off for b: the quote is refused with no write.
+	_, err = e.posts.CreatePost(ctx, authed(b.token, &postsv1.CreatePostRequest{IdempotencyKey: "qf-quote-off-000001", Text: "take", QuoteOfPostId: pid}))
+	d := wireError(t, err, connect.CodeFailedPrecondition)
+	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || d.GetMetadata()["feature"] != "quotes" {
+		t.Fatalf("quote refusal = %v, want FEATURE_DISABLED feature=quotes", d)
+	}
+	if got := fsInt(t, e.fs, "posts/"+pid, "quoteCount"); got != 0 {
+		t.Errorf("quoteCount = %d after a refused quote, want 0", got)
+	}
+	if n := countWhere(t, e.fs, "posts", "authorId", b.uid); n != 0 {
+		t.Errorf("a refused quote wrote %d posts", n)
+	}
+
+	// Like and repost are unaffected.
+	if _, err := eng.LikePost(ctx, authed(b.token, &engagementv1.LikePostRequest{IdempotencyKey: "qf-like-key-0000001", PostId: pid})); err != nil {
+		t.Fatalf("LikePost with quotes off: %v", err)
+	}
+	if _, err := eng.RepostPost(ctx, authed(b.token, &engagementv1.RepostPostRequest{IdempotencyKey: "qf-repost-key-000001", PostId: pid})); err != nil {
+		t.Fatalf("RepostPost with quotes off: %v", err)
+	}
+
+	// The allowlisted quoter can create a quote; the non-allowlisted viewer still sees it, embed intact.
+	q, err := e.posts.CreatePost(ctx, authed(quoter.token, &postsv1.CreatePostRequest{IdempotencyKey: "qf-quote-on-0000001", Text: "my take", QuoteOfPostId: pid}))
+	if err != nil {
+		t.Fatalf("allowlisted quote: %v", err)
+	}
+	qid := q.Msg.GetPost().GetPost().GetPostId()
+	got, err := e.posts.GetPost(ctx, authed(b.token, &postsv1.GetPostRequest{PostId: qid}))
+	if err != nil {
+		t.Fatalf("GetPost of a quote with quotes off for the viewer: %v", err)
+	}
+	if p := got.Msg.GetPost().GetPost(); p.GetKind() != postsv1.PostKind_POST_KIND_QUOTE || p.GetEmbedded().GetPostId() != pid || p.GetEmbedded().GetUnavailable() {
+		t.Fatalf("quote did not display: %v", p)
 	}
 }

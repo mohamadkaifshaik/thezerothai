@@ -153,6 +153,49 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 		})
 	}
 
+	// FEATURE_QUOTES matrix through the real handler: quote creation needs quotes AND engagement for the caller.
+	t.Run("quotes matrix", func(t *testing.T) {
+		on := func(n string) flags.Spec { return flags.Spec{Name: n, Mode: flags.On} }
+		off := func(n string) flags.Spec { return flags.Spec{Name: n, Mode: flags.Off} }
+		cases := []struct {
+			name              string
+			engagement, quote func(string) flags.Spec
+		}{
+			{"engagement on, quotes off", on, off},
+			{"engagement off, quotes on", off, on},
+			{"both off", off, off},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				e := newChain(t, func(cfg *config.Config) {
+					cfg.FeatureEngagement, cfg.FeatureQuotes = c.engagement("engagement"), c.quote("quotes")
+				})
+				tok, _ := mintToken(t, "")
+				e.createProfile(t, tok)
+				_, err := e.posts.CreatePost(ctx, authed(tok, &postsv1.CreatePostRequest{
+					IdempotencyKey: contractKey("fd-q-" + c.name), Text: "q", QuoteOfPostId: "0000000000000000001"}))
+				d := wireError(t, err, connect.CodeFailedPrecondition)
+				assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
+				if got := d.GetMetadata()["feature"]; got != "quotes" {
+					t.Errorf("metadata feature = %q, want quotes (%v)", got, d.GetMetadata())
+				}
+			})
+		}
+		// Both on: the flag gate passes and the request reaches the quote-target check (a missing target is
+		// NOT_FOUND, never FEATURE_DISABLED).
+		e := newChain(t, func(cfg *config.Config) {
+			cfg.FeatureEngagement, cfg.FeatureQuotes = on("engagement"), on("quotes")
+		})
+		tok, _ := mintToken(t, "")
+		e.createProfile(t, tok)
+		_, err := e.posts.CreatePost(ctx, authed(tok, &postsv1.CreatePostRequest{
+			IdempotencyKey: contractKey("fd-q-both-on"), Text: "q", QuoteOfPostId: "0000000000000000001"}))
+		d := wireError(t, err, connect.CodeNotFound)
+		if d.GetReason() == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+			t.Errorf("both flags on still answered FEATURE_DISABLED: %v", d)
+		}
+	})
+
 	t.Run("whole service off", func(t *testing.T) {
 		off := newChain(t, func(cfg *config.Config) { cfg.FeaturePosts = flags.Spec{Name: "posts", Mode: flags.Off} })
 		_, err := off.posts.CreatePost(ctx, authed(token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("fd-off"), Text: "hi"}))
