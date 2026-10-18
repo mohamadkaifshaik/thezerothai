@@ -216,6 +216,8 @@ on post delete.
 
 
 ## Implementation notes / follow-ups
+**iOS push paused (founder decision 2026-10-18).** No macOS access is available, so the APNs authentication key is pending and iOS push is deferred to the Apple launch feature. The decision (FCM over APNs) is unchanged; Android push, the in-app list and the badge are unaffected. The client side (`Runner.entitlements`, `UIBackgroundModes`) is already in the repo. Resume steps are in `docs/plans/notifications.md` (T12 prerequisites).
+
 Security audit of the P6 backend (plan ticket T11, hardening ticket T14, branch `fix/notifications-hardening`). This
 section records implementation facts only; the ADR status is unchanged (Proposed).
 
