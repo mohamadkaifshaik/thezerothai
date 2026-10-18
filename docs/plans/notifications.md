@@ -6,7 +6,7 @@ FollowEvents), ADR-0003, ADR-0008 (D6, D11), ADR-0010, ADR-0011 (Q1, Q10), `back
 `backend/pkg/platform/{pubsubpush,pubsubpublish,cursor,flags,budget,store}`, `infra/terraform/modules/pubsub`,
 `free-tier-budget`, `flag-rollout`, `reuse-first` skills.
 
-New contracts: `proto/dzeroth/notifications/v1/notifications.proto` and **ADR-0017 (Proposed)**.
+New contracts: `proto/dzeroth/notifications/v1/notifications.proto` and **ADR-0017 (Accepted by the founder 2026-10-18)**.
 
 ## Decisions (delegated 2026-10-10)
 The founder delegated product decisions to the lead; these were pre-made and are recorded here.
@@ -45,7 +45,7 @@ Status values: Open, In review (PR), Done (merged), Blocked, Manual.
 | T9 | Flutter: tab, list with drift cache, badge, permission flow, `firebase_messaging` behind the flag, deep links | frontend | In review (client PR: branch `feat/p67-ui`, PR not opened yet, number TBD) |
 | T10 | Replies (P3) and likes/reposts/quotes (P5) call `Emitter.Emit` | P3/P5 owners | Blocked (their slices; the seam, `notifications.Event` types and the id scheme are ready) |
 | T11 | Security review (token handling, payload, handler auth) | security-auditor | Done (findings N-1..N-5; N-1, N-2, N-3, N-5 fixed in `fix/notifications-hardening`, N-4 owned by the moderation/removal-log change) |
-| T14 | Hardening from the T11 audit: per-actor recipient cap (N-1), per-recipient push limit + collapse by type (N-2), no row id in the export (N-3), FCM dry-run token validation + devices cap 10/day (N-5) | backend | In review (`fix/notifications-hardening`) |
+| T14 | Hardening from the T11 audit: per-actor recipient cap (N-1), per-recipient push limit + collapse by type (N-2), no row id in the export (N-3), FCM dry-run token validation + devices cap 10/day (N-5) | backend | Done (#139 merged) |
 | T12 | **Manual:** push arrives on a real Android and iOS device and tapping deep-links to `/post/:id` / profile | founder/QA | Manual (needs device + APNs key in Firebase; prerequisites below) |
 | T13 | Terraform: `runtime_publisher_topics` += `notifications-fanout`, `FEATURE_NOTIFICATIONS*` env on the api service | backend (declared) / deployer (apply) | Declared in PR 2, not applied (needs plan-then-OK) |
 

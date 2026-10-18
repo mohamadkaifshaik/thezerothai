@@ -31,7 +31,8 @@ func TestRemovalLog_SharedInstantBurstBudget(t *testing.T) {
 	seedSharedInstantRemovals(t, repo, 120)
 
 	now := time.Now()
-	log := NewRemovalLog(repo, time.Minute, func() time.Time { return now })
+	// The real clock may sit before defaultRemovalAuthorScopedFrom; move the cutover before the window.
+	log := NewRemovalLog(repo, time.Minute, func() time.Time { return now }, WithAuthorScopedFromForTest(now.Add(-24*time.Hour)))
 	cutoff := now.Add(-time.Hour)
 	call := func(authors ...string) (ids []string, trunc bool, reqReads, refresh int64) {
 		ictx, info := logger.WithRequestInfo(context.Background())

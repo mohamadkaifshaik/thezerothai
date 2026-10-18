@@ -107,8 +107,9 @@ type removalRig struct {
 
 const testTTL = 60 * time.Second
 
+// The rig clock sits after defaultRemovalAuthorScopedFrom (2026-10-25) so window queries are allowed; bump with it.
 func newRemovalRig() *removalRig {
-	r := &removalRig{src: newFakeRemovalSource(), now: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}
+	r := &removalRig{src: newFakeRemovalSource(), now: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)}
 	r.log = NewRemovalLog(r.src, testTTL, func() time.Time { return r.now })
 	return r
 }

@@ -87,7 +87,7 @@ answers `removed_ids` on `since_token` refreshes, so a client drops a card it al
   applied the log only grows (about 1 KB per hidden post), never wrong. Check with `gcloud firestore fields ttls list`.
 - Entries hold a post id, the author uid (pseudonymous link), a state and timestamps; no text. Account deletion deletes them by
   `authorId` (posts step, phase 2: +1 read when there are none); the 32-day TTL is only the backstop. Entries written before the
-  scoped log (no `authorId`) are treated as visible to every feed and expire within 32 days.
+  scoped log (no `authorId`) are treated as visible to every feed and expire within 32 days. Cutover date: `defaultRemovalAuthorScopedFrom` in `backend/internal/posts/removals.go` is 2026-10-25; windows reaching before it reset the feed instead of being queried. Bump it to the release-tag date when tagging; delete the constant 32 days after release.
 - **`suspend-user` also sweeps notifications (N-4).** After the settle pass it deletes (or unfolds) the notification rows other users
   hold about the suspended account: 1 read + 1 delete or update per row, 500 per page (1 read when there are none). It is not undone
   by `unsuspend-user`. Re-running `suspend-user` resumes it.

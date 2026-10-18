@@ -242,9 +242,9 @@ Recorded so the contract and the code agree; none of them changes D1-D6.
   step costs one read for the empty page.
   Delete job: the account-deletion plan's T16 criterion (`docs/plans/account-deletion-export.md`, 509 reads + job
   state) gains +1 for the `reports` step's empty page and +3 for P6's `notifications` step (ADR-0017 D10), so the
-  plan criterion is 509 + 3 + 1 = 513 + D (`planDeleteReads`); the ADR-0011 formula constant is 510 + 3 + 1 = 514 + D
+  plan criterion is 509 + 3 + 1 = 513 + D at this point (with P5's +3 and amendment (b)'s +1 it is 517 + D, `planDeleteReads`); the ADR-0011 formula constant is 510 + 3 + 1 = 514 + D at this point (518 + D with the same two additions, `refDeleteReadsBase`, corrected 2026-10-18)
   (`refDeleteReadsBase`); ADR-0017's 512 / 513 are the P6-only values. P4's media step read was already absorbed by main's 509 + D. The amendment is
-  the P8 plan owner's to sign off. Both are asserted in `account_lifecycle_reference_integration_test.go`.
+  the P8 plan owner's to sign off (the T16 amendment was approved by the founder 2026-10-18). Both are asserted in `account_lifecycle_reference_integration_test.go`.
 - **Re-report and replay.** A report resolved earlier is reopened by a new filing (D2). A reporter whose quota is
   spent is remembered per instance until IST midnight; a call then costs one point read of the report: an OPEN report
   is answered `already_reported` (the replay needed no quota), anything else is QUOTA_EXCEEDED.
@@ -321,7 +321,7 @@ not per feed") and of the 2026-10-18 cost amendment above, where they differ.
   2. more than 50 matching REMOVED ids for this feed;
   3. the cutoff is older than the cache's coverage **and** the window `(cutoff, coverFrom]` cannot be queried for this feed: the feed
      has more than 180 authors (6 chunks of 30), the window starts before authorId existed (`defaultRemovalAuthorScopedFrom`,
-     2026-10-18; delete the check 32 days after the release), or the window query itself returns more than the response can hold.
+     2026-10-25, moved from 2026-10-18 by the founder on 2026-10-18; delete the check 32 days after the release), or the window query itself returns more than the response can hold.
 
   Otherwise the window is read with one query per 30 authors, `authorId in [...] AND createdAt > cutoff AND createdAt <= coverFrom`
   ordered `createdAt DESC, __name__ DESC`, `Limit` = what is left of 51 (+ ties at `coverFrom`, which both views return), merged
@@ -363,9 +363,9 @@ author's post only as a repost or quote copy inside another account's post is no
 
 **Legacy-entry guarantee and the cutover date.** Entries written by an opsctl built before this change have no `authorId`. The cached view
 treats them as visible to every feed (exact, only less precise). The window query cannot find them, so a window that starts before
-`defaultRemovalAuthorScopedFrom` is rejected, never queried. That constant (2026-10-18, `backend/internal/posts/removals.go`) is only
+`defaultRemovalAuthorScopedFrom` is rejected, never queried. That constant (2026-10-25, `backend/internal/posts/removals.go`) is only
 correct if **no moderation action runs with an old opsctl after that date**: rebuild opsctl from this change before any `takedown-post`,
-`suspend-user` or `restore-post`, or move the date to the release tag. Delete the constant 32 days after the release.
+`suspend-user` or `restore-post`. Moving the date later is always safe (windows reaching before it reset the feed instead of being queried; `FEATURE_REMOVED_IDS` is off, so no cost today). Rule: bump it to the release-tag date when tagging; delete the constant 32 days after the release.
 
 **Flutter client contract: unchanged.** The client still drops each `removed_ids` id from every cached feed that holds it and
 replaces the feed with the cold open on a rejected `since_token`. No proto field changes (`buf breaking` clean; only comments).
