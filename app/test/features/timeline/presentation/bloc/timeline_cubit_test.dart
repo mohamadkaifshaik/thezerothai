@@ -138,6 +138,37 @@ void main() {
     });
   });
 
+  group('removed posts (refresh removed_ids / replaced feed)', () {
+    test('a removed post leaves the list and the new-posts pill', () async {
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([3, 2, 1], since: 's2'));
+      await cubit.load();
+      expect(cubit.state.newPosts, 1);
+
+      // Next refresh: 3 was removed server-side (dropped from the cache).
+      stubRefresh(snapshotOf([2], since: 's3'));
+      await cubit.refresh();
+
+      expect(ids(cubit.state), idsOf([2]));
+      expect(cubit.state.newPosts, 0);
+    });
+
+    test(
+      'a replaced feed shows only the cold page and costs one refresh',
+      () async {
+        stubCached(snapshotOf([2, 1]));
+        stubRefresh(snapshotOf([2, 1]));
+        await cubit.load();
+        stubRefresh(snapshotOf([9, 8], since: 's9'));
+
+        await cubit.refresh();
+
+        expect(ids(cubit.state), idsOf([9, 8]));
+        verify(() => timeline.refresh(feed)).called(2);
+      },
+    );
+  });
+
   group('refreshIfStale', () {
     setUp(() async {
       stubCached(snapshotOf([2, 1]));

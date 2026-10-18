@@ -264,6 +264,28 @@ void main() {
     expect(find.textContaining('new post'), findsNothing);
   });
 
+  testWidgets('a refresh that removed a post makes its card disappear', (
+    tester,
+  ) async {
+    stubCached(snapshotOf([3, 2, 1]));
+    stubRefresh(snapshotOf([3, 2, 1]));
+    await open(tester);
+    expect(find.text('post 2'), findsOneWidget);
+
+    // removed_ids dropped post 2 from the cache; no extra RPC beyond the pull.
+    stubRefresh(snapshotOf([3, 1], since: 's2'));
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 400),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('post 2'), findsNothing);
+    expect(find.text('post 3'), findsOneWidget);
+    verify(() => timeline.refresh(feed)).called(2);
+  });
+
   group('foreground refresh', () {
     testWidgets('resume refreshes only after the throttle, never in the '
         'background', (tester) async {

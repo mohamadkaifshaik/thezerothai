@@ -15,7 +15,13 @@ import 'timeline_store.dart';
 ///   dedupes by `post_id`, and persists a gap marker for `gap_page_token`.
 /// - A token the server rejects (INVALID_ARGUMENT + VALIDATION with
 ///   `field` = `since_token` / `page_token`) is dropped and exactly one cold
-///   open is sent; cached items stay visible (D14).
+///   open is sent that REPLACES the cached feed (ADR-0010 D14 amendment
+///   2026-10-18: a since_token is also rejected when the removal log cannot
+///   list `removed_ids`, so merging could keep a removed card). Cached items
+///   stay visible until that cold open succeeds.
+/// - A `since_token` refresh also drops the post ids in `removed_ids`
+///   (moderation removals, ADR-0016 D10) from the cached feed; the field is
+///   empty while `FEATURE_REMOVED_IDS` is off, so that is a no-op.
 /// - Every call goes through [PostsFeatureGate.run]: with the posts flag off
 ///   no timeline RPC is ever sent.
 ///
@@ -118,11 +124,13 @@ class TimelineRepository {
     );
     if (page == null) {
       await _store.clearSince(feed, session: session);
-      return _coldOpen(feed, session);
+      // Replace, never merge (ADR-0010 D14 amendment 2026-10-18).
+      return _coldOpen(feed, session, replace: true);
     }
     await _store.applyRefresh(
       feed,
       posts: page.posts,
+      removedIds: page.removedIds,
       sinceToken: page.sinceToken,
       gapPageToken: page.gapPageToken,
       session: session,
@@ -237,6 +245,7 @@ class TimelineRepository {
           r.nextPageToken,
           r.sinceToken,
           r.gapPageToken,
+          r.removedIds.toList(),
         );
       }
       final r = await _gate.run(
@@ -255,6 +264,7 @@ class TimelineRepository {
         r.nextPageToken,
         r.sinceToken,
         r.gapPageToken,
+        r.removedIds.toList(),
       );
     } on RateLimitedException catch (error) {
       _hold.record(error);
@@ -297,9 +307,16 @@ Duration Function() _stopwatchClock() {
 }
 
 class _Page {
-  _Page(this.posts, this.nextPageToken, this.sinceToken, this.gapPageToken);
+  _Page(
+    this.posts,
+    this.nextPageToken,
+    this.sinceToken,
+    this.gapPageToken, [
+    this.removedIds = const [],
+  ]);
   final List<pb.PostView> posts;
   final String nextPageToken;
   final String sinceToken;
   final String gapPageToken;
+  final List<String> removedIds;
 }
