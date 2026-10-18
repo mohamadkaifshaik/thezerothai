@@ -1,11 +1,13 @@
 # 0017. Notifications: in-app list, FCM push and the device-token model
-Status: Proposed
-Date: 2026-10-10 (amended 2026-10-17: D6 payload, cost impact, delete budget; founder approval 2026-10-17)
+Status: Accepted (2026-10-18, founder)
+Date: 2026-10-10 (amended 2026-10-17: D6 payload, cost impact, delete budget; founder approval 2026-10-17; accepted by the founder 2026-10-18)
 Deciders: lead (founder delegated product decisions 2026-10-10); founder accepts the ADR (CLAUDE.md)
 
 > Acceptance (founder approval 2026-10-17): the founder approved the recommendation to **accept after T11**. The
-> status stays Proposed until the security review T11 (`docs/plans/notifications.md`) passes and the P8 plan owner
-> signs off the delete-budget amendment (`docs/plans/account-deletion-export.md` T16).
+> status stayed Proposed until the security review T11 (`docs/plans/notifications.md`) passed and the delete-budget
+> amendment (`docs/plans/account-deletion-export.md` T16) was signed off. Both are done: T11 passed, the T16 amendment
+> was approved by the founder 2026-10-18, and the founder accepted this ADR on 2026-10-18. `FEATURE_NOTIFICATIONS` stays
+> off (flag-rollout skill) and the Terraform changes remain plan-then-OK; acceptance is not a rollout or an apply.
 
 > Numbering: first drafted as 0016; renumbered to 0017 because P7's ADR-0016 (reports, PR 116) was opened first. 0012-0015 stay free for the slices running in parallel (P2-P5).
 
@@ -166,9 +168,9 @@ on post delete.
   `backend/internal/apiserver/account_lifecycle_*_integration_test.go` move from 509 to 512 reads (delete job; ADR-0011
   formula 510 to 513 plus D) and from 703 to 705 reads (export job). These are P6-only values. With P7's `reports`
   step (+1, ADR-0016 Implementation notes) the asserted delete-job bounds are the plan T16 criterion **513 + D**
-  (`planDeleteReads` = 509 + 3 + 1) and the ADR-0011 formula **514 + D** (`refDeleteReadsBase`), and the export is
+  (`planDeleteReads` = 509 + 3 + 1 at that point) and the ADR-0011 formula **514 + D** (`refDeleteReadsBase`) at that point; with P5's +3 and ADR-0016 amendment (b)'s +1 the asserted values are now **517 + D** and **518 + D** (corrected 2026-10-18), and the export is
   707 (with P4's media section) in `account_lifecycle_reference_integration_test.go` (reconciled 2026-10-17; sign-off
-  by the P8 plan owner pending). At 300 DAU and roughly 1 deletion per day this is
+  the T16 amendment approved by the founder 2026-10-18). At 300 DAU and roughly 1 deletion per day this is
   immaterial; the reference numbers in ADR-0011 are otherwise unchanged.
 - **Wiring.** graph gains `Deps.Events` (the `FollowEvents` implementation, nil = no-op); `Build` injects an adapter
   that calls `Emitter.Emit`. posts' `Events` is a mention adapter. Rate limits: the four RPCs use the 60/min default
