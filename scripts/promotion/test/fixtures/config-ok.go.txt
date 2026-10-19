@@ -1,4 +1,7 @@
 	graphDefaultMode := flags.On
+	if env == "prod" {
+		graphDefaultMode = flags.Off
+	}
 	featureGraph, err := flags.LoadSpec("GRAPH", "graph", graphDefaultMode)
 	featurePosts, err := flags.LoadSpec("POSTS", "posts", graphDefaultMode)
 	featureAccountLifecycle, err := flags.LoadSpec("ACCOUNT_LIFECYCLE", "account_lifecycle", flags.Off)

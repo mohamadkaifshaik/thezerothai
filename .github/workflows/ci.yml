@@ -146,6 +146,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Exact release binaries, sha256-verified (same approach as osv-scanner above; bump per
       # docs/runbooks/dependency-updates.md). actionlint's hash matches the project's published checksums file;
@@ -158,15 +160,15 @@ jobs:
           ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSL -o /tmp/shellcheck.tar.xz \
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
             "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
-          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
-          cp "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/"
-          curl -fsSL -o /tmp/actionlint.tar.gz \
+          echo "${SHELLCHECK_SHA256}  ${RUNNER_TEMP}/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/"
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/actionlint.tar.gz -C "$RUNNER_TEMP/bin" actionlint
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/bin" actionlint
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: shellcheck

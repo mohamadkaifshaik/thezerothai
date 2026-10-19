@@ -17,9 +17,13 @@ target=$(jqr '[.status.traffic[] | select(.tag == "last-good")] | first | .revis
 [ -n "$target" ] || { echo "FAIL: no 'last-good' traffic tag; refusing to guess a rollback target" >&2; exit 1; }
 [ "$(jqr '.metadata.name // empty' "$rev")" = "$target" ] || { echo "FAIL: revision JSON is not for '$target'" >&2; exit 1; }
 
+serving=$(jqr '[.status.traffic[] | select((.percent // 0) == 100)] | first | .revisionName // empty' "$svc")
+[ "$target" != "$serving" ] || { echo "FAIL: last-good is the revision already serving; rolling back would be a no-op" >&2; exit 1; }
+
 image=$(jqr '.spec.containers[0].image // empty' "$rev")
 case $image in *@sha256:*) digest=sha256:${image##*@sha256:} ;; *) echo "FAIL: last-good image is not pinned by digest" >&2; exit 1 ;; esac
-[ "$(jqr --arg d "$digest" '[.[] | select(.version == $d)] | length' "$images")" -ge 1 ] \
+pkg=${image%@*}
+[ "$(jqr --arg d "$digest" --arg p "$pkg" '[.[] | select(.version == $d and .package == $p)] | length' "$images")" -ge 1 ] \
   || { echo "FAIL: image digest of '$target' is no longer in Artifact Registry" >&2; exit 1; }
 
 "$here/validate-revision.sh" "$rev" "$ceil" "$env" >&2 || { echo "FAIL: rollback target '$target' fails validation" >&2; exit 1; }

@@ -115,5 +115,27 @@ expect "terraform unknown flag" 1 "$G" "$fx/config-ok.go.txt" "$ceil" "$tmp/tf"
 echo 'x = [{ name = "FEATURE_QUOTES_PERCENT", value = "0" }]' >"$tmp/tf"
 expect "terraform known flag" 0 "$G" "$fx/config-ok.go.txt" "$ceil" "$tmp/tf"
 
+# --- review findings (PR #165 review): each was a fail-open path before the fix
+jq '.envs.dev.flags.ENGAGEMENT.mode = "Off"' "$ceil" >"$tmp/ceil-typo"
+mut '.spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' revision-ok.json r
+expect "ceiling mode typo (validator)" 1 "$V" "$tmp/r" "$tmp/ceil-typo" dev
+expect "ceiling mode typo (registry)" 1 "$G" "$fx/config-ok.go.txt" "$tmp/ceil-typo"
+sed 's/"QUOTES", "quotes", flags.Off/"QUOTES", quotesWire, flags.On/' "$fx/config-ok.go.txt" >"$tmp/cfg"
+expect "LoadSpec line the parser cannot read" 1 "$G" "$tmp/cfg" "$ceil"
+{ cat "$fx/config-ok.go.txt"; echo '	featureM2, err := flags.LoadSpec("MEDIA2", "media2", flags.On)'; } >"$tmp/cfg"
+expect "flag name with a digit" 1 "$G" "$tmp/cfg" "$ceil"
+grep -v 'graphDefaultMode = flags.Off' "$fx/config-ok.go.txt" >"$tmp/cfg"
+expect "graphDefaultMode without prod override" 1 "$G" "$tmp/cfg" "$ceil"
+mut '.status.observedGeneration = 4' service-ok.json s
+expect "stale status" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.conditions = [{"type":"Ready","status":"False"}]' service-ok.json s
+expect "service not ready" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
+jq 'map(.package = "example-docker.pkg.dev/other-proj/api/api")' "$fx/images-ok.json" >"$tmp/img-other"
+expect "images from another repository" 1 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/img-other" "$ceil" dev
+mut '.status.traffic[1].revisionName = "api-00001-aaa"' service-ok.json s
+mut '.metadata.name = "api-00001-aaa"' revision-ok.json lg6
+expect "last-good is the serving revision" 1 "$R" "$tmp/s" "$tmp/lg6" "$fx/images-ok.json" "$ceil" dev
+
 echo "promotion fixture tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

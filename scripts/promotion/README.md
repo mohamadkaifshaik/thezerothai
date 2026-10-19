@@ -48,3 +48,13 @@ scripts print flag names and entry counts, and `test/run.sh` fails if any fixtur
 `bash scripts/promotion/test/run.sh` (about 1 min on Windows because of process spawn; seconds on Linux).
 CI job `promotion-scripts` also runs shellcheck 0.10.0 (`-S warning`: the info-level SC2016 fires on every jq `$var`), actionlint 1.7.7 and the registry check.
 shellcheck is not installed on the founder's machine: CI is the only shellcheck gate.
+
+## Review fixes (PR #165 code-review, 2026-10-19)
+Fail-open paths found by the reviewer, each now covered by a fixture: an unknown mode in the ceiling (compared as "never exceeded");
+a `LoadSpec` line the registry parser could not read (skipped silently; now raw == parsed == names or fail); flag names with
+digits; `graphDefaultMode` trusted by name (now checks `config.go` still defines on + a prod override to off); a stale service
+status (now requires `observedGeneration == generation` and `Ready=True`); an images list from another repository (digest AND
+package must match); `last-good` being the revision already serving (a no-op rollback). `LC_ALL=C sort` for the name diff;
+`persist-credentials: false` and `$RUNNER_TEMP` in CI; `lib.sh` is no longer executable.
+Known limits (unchanged): only `containers[0]` is inspected (the service has one container); shellcheck's sha256 is
+trust-on-first-use; field names of live gcloud JSON were checked against the dev service and revision, not against every gcloud version.

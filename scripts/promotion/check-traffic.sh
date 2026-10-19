@@ -14,6 +14,12 @@ svc=$1 ceil=$2 env=$3 mode=$4
 need_file "$svc"; need_file "$ceil"
 jq -e '.status.traffic | type == "array"' "$svc" >/dev/null 2>&1 || { echo "FAIL: .status.traffic missing" >&2; exit 2; }
 
+# Freshness: a stale status (e.g. after a failed update-traffic) can still look valid.
+gen=$(jqr '.metadata.generation // empty' "$svc")
+obs=$(jqr '.status.observedGeneration // empty' "$svc")
+[ -n "$gen" ] && [ "$gen" = "$obs" ] || fail "status is stale or incomplete (generation '$gen', observedGeneration '$obs')"
+[ "$(jqr '[.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length' "$svc")" = "1" ] || fail "service is not Ready"
+
 holders=$(jqr '[.status.traffic[] | select((.percent // 0) > 0)] | length' "$svc")
 [ "$holders" = "1" ] || fail "expected exactly 1 revision with traffic, found $holders"
 total=$(jqr '[.status.traffic[] | (.percent // 0)] | add // 0' "$svc")

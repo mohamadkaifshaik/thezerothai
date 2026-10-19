@@ -43,6 +43,7 @@ while read -r flag; do
   mode=$(envval "FEATURE_$flag"); mode=${mode:-$default}
   cmode=$(jqr --arg e "$env" --arg f "$flag" '.envs[$e].flags[$f].mode // empty' "$ceil")
   if [ -z "$cmode" ]; then fail "flag $flag has no ceiling for env $env"; continue; fi
+  if [ "$(rank "$cmode")" -eq 99 ]; then fail "$flag ceiling mode '$cmode' is not off|allowlist|percent|on"; continue; fi
   if [ "$(rank "$mode")" -eq 99 ]; then fail "$flag has invalid mode '$mode'"; continue; fi
   if [ "$(rank "$mode")" -gt "$(rank "$cmode")" ]; then fail "$flag effective mode '$mode' exceeds ceiling '$cmode'"; continue; fi
 
