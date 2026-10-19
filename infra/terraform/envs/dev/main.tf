@@ -228,6 +228,7 @@ module "cloud_run_api" {
   runtime_service_account_email     = module.iam.runtime_service_account_email
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
   image                             = var.image
+  max_instance_count                = 1 # ADR-0007: dev max 1 (prod keeps the module default 3)
   degraded_mode                     = "off"
   app_check_mode                    = "monitor" # ADR-0006: monitor in both envs for now
   internal_oidc_audience            = local.api_url
