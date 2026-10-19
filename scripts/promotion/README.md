@@ -66,12 +66,16 @@ so that revision remains a valid rollback target; tighten it to 1 in a reviewed 
 `last-good` target.
 
 ## promote-dev.sh (PR 2a, UNWIRED: no workflow calls it yet)
-Orchestrates one dev promotion from validated pieces: validate serving state, deploy a 0% `candidate`, validate it (traffic shape, flag
-and scaling ceiling, image digest), smoke it (`/health` 200 and an unauthenticated `GetMe` refused with 401, both checked live on dev
-2026-10-19), check Firestore indexes are READY, then either stop (`DRY_RUN=true`: candidate tag removed, traffic untouched) or tag the
-previously serving revision/image `last-good`, promote, re-assert state (repairing a lost `last-good` tag once), soak, and roll back to
-`last-good` only on any failure. `test/promote-test.sh` runs it against a stateful fake gcloud/curl (28 checks: dry run, smoke failure,
-open auth, ceiling violation, index not ready, surprise tag, full promotion, tag loss, rollback, usage errors; two sabotaged copies of the
-script were confirmed to fail the suite). **Not verified against real gcloud:** `artifacts docker tags add` when the tag already exists
-(falls back to delete-then-add), and whether `update-traffic` keeps tags (the script re-asserts). The first live run should be a
-watched manual dispatch.
+Orchestrates one dev promotion from validated pieces: validate serving state and that the previous image still exists in Artifact
+Registry, deploy a 0% `candidate`, validate it (traffic shape, flag and scaling ceiling, image digest), smoke it (`/health` 200 and an
+unauthenticated `GetMe` refused with 401, both checked live on dev 2026-10-19), check Firestore indexes are READY, then either stop
+(`DRY_RUN=true`: candidate tag removed, traffic untouched, no `last-good` change) or **prove the rollback target is usable on a
+simulated copy of the state before touching any tag**, tag the previously serving revision/image `last-good`, promote, re-assert state
+(repairing a lost `last-good` tag once), soak without retries, and roll back to `last-good` only. The rollback runs from an EXIT trap
+armed just before traffic moves, so any failure, SIGTERM (cancellation) or timeout after that point rolls back. A failure before
+traffic moves removes the leftover `candidate` tag. `test/promote-test.sh` runs it against a stateful fake gcloud/curl (49 checks);
+sabotaged copies (rollback removed, candidate ceiling check removed, rollback trap not armed) were confirmed to fail the suite.
+**Not verified against real gcloud:** the error text of `artifacts docker tags add` for an existing tag (delete+add fallback only on
+"already exists"), and whether `update-traffic` keeps tags (re-asserted). Known limits: a dry run leaves the service template pointing at
+the unpromoted image (Terraform ignores `image`; a later Terraform apply makes a 0% revision from it); the soak checks `/health` and
+the 401 probe only, not Cloud Logging 5xx rates. The first live run should be a watched manual dispatch.

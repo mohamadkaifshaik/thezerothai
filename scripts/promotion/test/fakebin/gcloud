@@ -17,6 +17,7 @@ case "$1 $2" in
           jq --arg r "$r" 'if ([.status.traffic[]|select(.revisionName==$r)]|length)==0 then .status.traffic += [{revisionName:$r}] else . end
             | .status.traffic |= map(if .revisionName==$r then .percent=100 else del(.percent) end)
             | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
+          if [ -f "$st/fail-after-promote-apply" ]; then bump; echo "ERROR: simulated failure after the traffic change applied" >&2; exit 1; fi
           if [ -f "$st/drop-last-good-on-promote" ]; then
             jq '.status.traffic |= map(if .tag=="last-good" then del(.tag) else . end) | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
             rm -f "$st/drop-last-good-on-promote"
@@ -49,6 +50,8 @@ case "$1 $2" in
       images) cat "$st/images.json" ;;
       tags)
         if [ "$4" = add ]; then
+          [ ! -f "$st/tags-add-fail" ] || { echo "ERROR: not found" >&2; exit 1; }
+          if [ -f "$st/tags-add-exists-once" ]; then rm -f "$st/tags-add-exists-once"; echo "ERROR: ALREADY_EXISTS: tag last-good" >&2; exit 1; fi
           d=${5##*@}
           jq --arg d "$d" 'map(.tags |= map(select(. != "last-good"))) | map(if .version==$d then .tags += ["last-good"] else . end)' "$st/images.json" >"$st/i.tmp" && mv "$st/i.tmp" "$st/images.json"
         else
