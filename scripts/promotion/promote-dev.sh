@@ -21,6 +21,10 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
 . "$here/lib.sh"
+if [ "${RECOVER:-false}" = "true" ] && [ -n "${PROMOTE_MARKER:-}" ] && [ ! -f "$PROMOTE_MARKER" ]; then
+  echo "no unverified promotion recorded; nothing to roll back"
+  exit 0
+fi
 need_tool jq
 need_tool gcloud
 need_tool curl
@@ -31,6 +35,10 @@ for v in $required; do
   [ -n "${!v:-}" ] || { echo "FAIL: $v is required" >&2; exit 2; }
 done
 if [ "$recover" != "true" ]; then
+  if [ "$DRY_RUN" = "false" ] && [ -z "${PROMOTE_MARKER:-}" ]; then
+    echo "FAIL: PROMOTE_MARKER is required when promoting (it is what lets a cancelled run be rolled back)" >&2
+    exit 2
+  fi
   case $DRY_RUN in true | false) ;; *) echo "FAIL: DRY_RUN must be true or false" >&2; exit 2 ;; esac
   case $IMAGE in *@sha256:*) digest=sha256:${IMAGE##*@sha256:} ;; *) echo "FAIL: IMAGE must be pinned by digest" >&2; exit 2 ;; esac
 fi
