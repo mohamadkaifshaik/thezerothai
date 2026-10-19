@@ -14,8 +14,10 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 | PR | Content | Gate to start |
 |---|---|---|
 | 1 (#165) | validators, ceiling, fixtures | review + merge |
-| AR (#166) | KEEP `last-good`/`v` (applied in dev and prod) | merge before any `main`-based plan |
-| drift (#167) | ignore Cloud Run `template.revision` | review; no apply |
+| AR (#166) | KEEP `last-good`/`v` | **merged 2026-10-19 and applied in dev and prod**; plans from `main` now preserve it |
+| drift (#167) | ignore Cloud Run `template.revision` (cause unverified) | review; merge does not change any resource |
+| dev flags | explicit `off` for MEDIA/ENGAGEMENT/REPLIES/PROFILE_SNAPSHOT/QUOTES + 9 config vars equal to code defaults (plan from `main`) | founder approval of the exact plan; creates a 0% revision |
+| dev maxScale (#169) | dev `max_instance_count = 1` (ADR-0007) | separate approval; apply AFTER the flags apply (or the flags plan from `main` would carry it); then `flag-ceiling.json` dev `max_instances` 3 -> 1 |
 | 2 | `deploy-dev.yml` rewrite with `dry_run` input | items under "Before PR 2" |
 | 3 | docs: runbook, release-rollout skill, ADR-0007 amendment | PR 2 verified on dev |
 | 4 | smoke accounts + authenticated smoke | secret storage and owner confirmed |
@@ -43,8 +45,8 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 | Why prod's template pins `revision` (hypothesis: `--no-traffic`/`--tag`) | unverified | #167 ignores it; step 3 on dev will show whether dev gets pinned too |
 | Index readiness checkable with the CI identity | unknown | try read-only `gcloud firestore indexes composite list` from the CI SA on dev |
 | Unauthenticated probe vs API key / App Check config | unknown | test the 401 probe on the candidate URL in a dry run |
-| Dev TF apply for explicit `FEATURE_MEDIA/ENGAGEMENT/REPLIES/PROFILE_SNAPSHOT/QUOTES=off` | needs founder approval | until then the gate relies on code defaults (verified in CI) |
-| ADR-0007 says dev max instances 1; live is 3 (module default) | decision | amend the ADR or change Terraform (founder) |
+| Dev TF apply for explicit `FEATURE_MEDIA/ENGAGEMENT/REPLIES/PROFILE_SNAPSHOT/QUOTES=off` | plan prepared 2026-10-19, apply not yet approved | until then the gate relies on code defaults (verified in CI) |
+| ADR-0007 says dev max instances 1; live is 3 (module default) | decided 2026-10-19: change Terraform (#169), not the ADR | apply after review |
 | Prod-side equivalents (release-prod/promote-prod) | out of scope | prod is untouched by this plan |
 
 ## Out of scope / holds
