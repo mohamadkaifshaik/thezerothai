@@ -40,7 +40,9 @@ jobs:
     name: Build, validate, promote dev
     runs-on: ubuntu-latest
     environment: dev
-    timeout-minutes: 45
+    # Budget: builds + index wait (<= 12) + promote (<= 30) + recover (<= 8) must fit, so the step timeouts below always fire
+    # before this job-level timeout cuts the job off mid-promotion.
+    timeout-minutes: 90
     permissions:
       contents: read # checkout and the stale-commit check
       id-token: write # WIF to GCP; nothing else needs elevated perms
@@ -168,10 +170,11 @@ jobs:
 
       - name: Wait for Firestore indexes to be READY (before promotion)
         if: steps.mode.outputs.dry_run == 'false'
+        timeout-minutes: 12
         env:
           PROJECT: ${{ vars.DEV_PROJECT_ID }}
         run: |
-          for _ in $(seq 1 40); do
+          for _ in $(seq 1 40); do # 40 x 15 s = 10 min, inside the 12 min step timeout
             gcloud firestore indexes composite list --project="${PROJECT}" --format=json > "${RUNNER_TEMP}/indexes.json"
             not_ready=$(jq '[.[] | select(.state != "READY")] | length' "${RUNNER_TEMP}/indexes.json")
             if [ "${not_ready}" = "0" ]; then exit 0; fi

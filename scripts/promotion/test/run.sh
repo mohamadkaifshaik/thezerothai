@@ -158,6 +158,8 @@ if [ -f "$wf" ]; then
     # every live-change step must be gated on the effective mode, and the recover step must exist
     gated=$(grep -c "steps.mode.outputs.dry_run == 'false'" <<<"$code" || true)
     if [ "$gated" -ge 7 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: only $gated steps are gated on dry_run == 'false' (need install, indexes, wait, stale check, recover, rules, hosting)"; failed=$((failed+1)); fi
+    if [ "$(grep -c 'PROMOTE_MARKER:' <<<"$code")" -ge 2 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: both the promote step and the recover step must set PROMOTE_MARKER"; failed=$((failed+1)); fi
+    if [ "$(grep -n 'timeout-minutes:' <<<"$code" | wc -l)" -ge 4 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: job, index wait, promote and recover steps must each have a timeout-minutes"; failed=$((failed+1)); fi
     if grep -q 'RECOVER: "true"' <<<"$code" && grep -q 'always()' <<<"$code"; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run the always() recover step (RECOVER=true)"; failed=$((failed+1)); fi
   fi
 fi
