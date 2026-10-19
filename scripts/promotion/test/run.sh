@@ -61,6 +61,12 @@ mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS_PERCENT","value":"500"
 expect "percent over 100" 1 "$V" "$tmp/r" "$ceil" dev
 mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "10"' revision-ok.json r
 expect "max instances" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "1"' revision-ok.json r
+expect "tighter max instances is fine" 0 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "0"' revision-ok.json r
+expect "max instances 0 means unlimited" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "abc"' revision-ok.json r
+expect "max instances not a number" 1 "$V" "$tmp/r" "$ceil" dev
 mut 'del(.metadata.annotations["autoscaling.knative.dev/minScale"])' revision-ok.json r
 expect "min instances unset" 1 "$V" "$tmp/r" "$ceil" dev
 # graph/posts default to ON in dev when unset (config.go graphDefaultMode); the ceiling says on, so this passes.
