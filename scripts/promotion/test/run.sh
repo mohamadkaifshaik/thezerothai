@@ -146,11 +146,12 @@ expect "last-good is the serving revision" 1 "$R" "$tmp/s" "$tmp/lg6" "$fx/image
 # --- deploy-dev.yml invariants (static): additive indexes only, in the right order
 wf=$p/../../.github/workflows/deploy-dev.yml
 if [ -f "$wf" ]; then
-  if grep -q -- '--force' "$wf"; then echo "FAIL deploy-dev.yml must never pass --force to firebase deploy (it would delete indexes the serving backend may need)"; failed=$((failed+1)); else pass=$((pass+1)); fi
-  idx=$(grep -n 'firestore:indexes' "$wf" | head -1 | cut -d: -f1); prm=$(grep -n 'scripts/promotion/promote-dev.sh' "$wf" | head -1 | cut -d: -f1)
-  rul=$(grep -n 'firestore:rules' "$wf" | head -1 | cut -d: -f1); hos=$(grep -n -- '--only hosting' "$wf" | head -1 | cut -d: -f1)
+  code=$(grep -v '^[[:space:]]*#' "$wf") # commands only; comments may mention these words
+  if grep -q -- '--force' <<<"$code"; then echo "FAIL deploy-dev.yml must never pass --force to firebase deploy (it would delete indexes the serving backend may need)"; failed=$((failed+1)); else pass=$((pass+1)); fi
+  idx=$(grep -n 'firebase deploy --only firestore:indexes' <<<"$code" | head -1 | cut -d: -f1); prm=$(grep -n 'run: bash scripts/promotion/promote-dev.sh' <<<"$code" | head -1 | cut -d: -f1)
+  rul=$(grep -n 'firebase deploy --only firestore:rules' <<<"$code" | head -1 | cut -d: -f1); hos=$(grep -n 'firebase deploy --only hosting' <<<"$code" | head -1 | cut -d: -f1)
   if [ -z "$prm" ]; then pass=$((pass+1)) # not wired to the orchestrator yet (PR 2a): order is checked once it is
-  elif [ -n "$idx" ] && [ -n "$prm" ] && [ -n "$rul" ] && [ -n "$hos" ] && [ "$idx" -lt "$prm" ] && [ "$prm" -lt "$rul" ] && [ "$rul" -lt "$hos" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml order must be indexes < promote-dev.sh < rules < hosting"; failed=$((failed+1)); fi
+  elif [ -n "$idx" ] && [ -n "$rul" ] && [ -n "$hos" ] && [ "$idx" -lt "$prm" ] && [ "$prm" -lt "$rul" ] && [ "$rul" -lt "$hos" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml order must be indexes < promote-dev.sh < rules < hosting"; failed=$((failed+1)); fi
 fi
 
 echo "promotion fixture tests: $pass passed, $failed failed"
