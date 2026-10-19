@@ -15,7 +15,7 @@ failed=0
 expect() {
   local name=$1 want=$2
   shift 2
-  "$@" >"$tmp/out" 2>&1
+  bash "$@" >"$tmp/out" 2>&1
   local rc=$?
   if grep -q 'fake-uid' "$tmp/out"; then
     echo "FAIL $name: output leaked an allowlist uid"
