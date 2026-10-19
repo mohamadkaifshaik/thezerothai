@@ -1,0 +1,11 @@
+# Code owners for the files that act as safety gates. A ruleset with "require review from code owners" turns these into real
+# review gates; without that ruleset this file only requests reviews. See docs/runbooks/ci-enforcement.md.
+# The gate files themselves are listed so the gate cannot be weakened without the owner seeing it.
+
+# fieldOverrides acknowledgement and the check that enforces it (a new single-field exemption can remove indexing, not additive)
+/firebase/field-overrides.ack                  @mohamadkaifshaik
+/scripts/promotion/check-field-overrides.sh    @mohamadkaifshaik
+/firebase/firestore.indexes.json               @mohamadkaifshaik
+
+# ownership of this file itself
+/.github/CODEOWNERS                            @mohamadkaifshaik
