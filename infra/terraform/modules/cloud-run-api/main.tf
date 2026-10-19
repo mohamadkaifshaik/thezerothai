@@ -97,9 +97,10 @@ resource "google_cloud_run_v2_service" "api" {
       # image digest or the live traffic split (tagged-revision rollouts).
       template[0].containers[0].image,
       # Prod's service template carries an explicit revision name (template.metadata.name = the latest deployed
-      # revision, e.g. api-00010-zah) after the release workflow's `gcloud run deploy --no-traffic --tag`; dev's,
-      # deployed without those flags, has none. Without this, every refreshing prod plan wants to set it to null,
-      # which is a template update and would create an unplanned revision. Terraform never names revisions.
+      # revision, e.g. api-00010-zah); dev's has none. Likely cause (unverified): the release workflow's
+      # `gcloud run deploy --no-traffic --tag`, which dev's plain deploy does not use. Without this ignore, every
+      # refreshing prod plan wants to set it to null, an in-place template update that would create an unplanned
+      # revision. Terraform never names revisions.
       template[0].revision,
       traffic,
       # Service-level `scaling` is unset here; the API echoes back zero defaults, causing a permanent
