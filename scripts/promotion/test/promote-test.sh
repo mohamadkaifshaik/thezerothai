@@ -113,7 +113,7 @@ check "tag add failure: candidate tag removed" eq "$(tagrev candidate)" none
 # 7d. last-good already sits on a DIFFERENT image: tags add moves it (docs), no delete is ever issued
 setup; jq 'map(.tags |= map(select(. != "last-good"))) | map(if (.version|test("^sha256:2222")) then .tags += ["last-good"] else . end)' "$FAKE/images.json" >"$tmp/i" && cp "$tmp/i" "$FAKE/images.json"; run false
 check "tag move: run succeeds" eq "$rc" 0
-check "tag move: last-good now only on the previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '')" sha256:11111
+check "tag move: last-good now only on the previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d $'')" sha256:11111
 check "tag move: no tags delete issued" bash -c '! grep -q "tags delete" "$0"' "$FAKE/calls.log"
 
 # 8. update-traffic dropping the last-good tag is repaired, not ignored
@@ -173,8 +173,13 @@ setup; SOAK_SECONDS=abc DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$
 check "non-numeric SOAK_SECONDS is a usage error" eq "$rc" 2
 setup; SOAK_INTERVAL=0 DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "SOAK_INTERVAL=0 is a usage error" eq "$rc" 2
-setup; SOAK_INTERVAL=08 SOAK_SECONDS=30 DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
-check "SOAK_INTERVAL=08 is not read as octal" eq "$rc" 0
+setup; SOAK_INTERVAL=08 SOAK_SECONDS=30 DRY_RUN=false IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "SOAK_INTERVAL=08 is not read as octal (real soak runs)" eq "$rc" 0
+setup; env -u PROMOTE_MARKER DRY_RUN=false IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "promoting without PROMOTE_MARKER is a usage error" eq "$rc" 2
+check "promoting without PROMOTE_MARKER: nothing was touched" bash -c '[ ! -s "$0" ]' "$FAKE/calls.log"
+setup; env PATH="/usr/bin:/bin" RECOVER=true PROMOTE_MARKER="$tmp/none" PROJECT=p REGION=r SERVICE=s REPO=x bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "recover with no marker does not need any tool" eq "$rc" 0
 
 echo "promote-dev tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]
