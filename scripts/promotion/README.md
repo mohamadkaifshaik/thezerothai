@@ -64,3 +64,14 @@ trust-on-first-use; field names of live gcloud JSON were checked against the dev
 (#169, applied 2026-10-19; new revisions have 1) while the serving revision `api-00144-xt7` still has 3. The ceiling stays 3
 so that revision remains a valid rollback target; tighten it to 1 in a reviewed PR once no revision with maxScale 3 can be a
 `last-good` target.
+
+## promote-dev.sh (PR 2a, UNWIRED: no workflow calls it yet)
+Orchestrates one dev promotion from validated pieces: validate serving state, deploy a 0% `candidate`, validate it (traffic shape, flag
+and scaling ceiling, image digest), smoke it (`/health` 200 and an unauthenticated `GetMe` refused with 401, both checked live on dev
+2026-10-19), check Firestore indexes are READY, then either stop (`DRY_RUN=true`: candidate tag removed, traffic untouched) or tag the
+previously serving revision/image `last-good`, promote, re-assert state (repairing a lost `last-good` tag once), soak, and roll back to
+`last-good` only on any failure. `test/promote-test.sh` runs it against a stateful fake gcloud/curl (28 checks: dry run, smoke failure,
+open auth, ceiling violation, index not ready, surprise tag, full promotion, tag loss, rollback, usage errors; two sabotaged copies of the
+script were confirmed to fail the suite). **Not verified against real gcloud:** `artifacts docker tags add` when the tag already exists
+(falls back to delete-then-add), and whether `update-traffic` keeps tags (the script re-asserts). The first live run should be a
+watched manual dispatch.

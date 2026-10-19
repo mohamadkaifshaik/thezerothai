@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Stateful fake of the few gcloud commands promote-dev.sh uses. State lives in $FAKE (service.json, rev-<name>.json,
+# images.json, indexes.json); every call is appended to $FAKE/calls.log. Fixture data only: fake uids, no network.
+set -euo pipefail
+st=${FAKE:?}
+echo "$*" >>"$st/calls.log"
+arg() { local p=$1 a; shift; for a in "$@"; do case $a in "$p"=*) echo "${a#*=}"; return 0 ;; esac; done; return 1; }
+bump() { jq '.metadata.generation += 1 | .status.observedGeneration = .metadata.generation' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"; }
+
+case "$1 $2" in
+  "run services")
+    case $3 in
+      describe) cat "$st/service.json" ;;
+      update-traffic)
+        if v=$(arg --to-revisions "$@"); then
+          r=${v%=*}
+          jq --arg r "$r" 'if ([.status.traffic[]|select(.revisionName==$r)]|length)==0 then .status.traffic += [{revisionName:$r}] else . end
+            | .status.traffic |= map(if .revisionName==$r then .percent=100 else del(.percent) end)
+            | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
+          if [ -f "$st/drop-last-good-on-promote" ]; then
+            jq '.status.traffic |= map(if .tag=="last-good" then del(.tag) else . end) | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
+            rm -f "$st/drop-last-good-on-promote"
+          fi
+        elif v=$(arg --update-tags "$@"); then
+          t=${v%=*}; r=${v#*=}
+          jq --arg t "$t" --arg r "$r" '.status.traffic |= map(if .tag==$t then del(.tag) else . end)
+            | if ([.status.traffic[]|select(.revisionName==$r)]|length)==0 then .status.traffic += [{revisionName:$r}] else . end
+            | .status.traffic |= map(if .revisionName==$r then .tag=$t else . end)
+            | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
+        elif v=$(arg --remove-tags "$@"); then
+          jq --arg t "$v" '.status.traffic |= map(if .tag==$t then del(.tag) else . end) | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
+        fi
+        bump ;;
+    esac ;;
+  "run revisions") f="$st/rev-$4.json"; [ -f "$f" ] || exit 1; cat "$f" ;;
+  "run deploy")
+    img=$(arg --image "$@")
+    new=api-00002-new
+    jq --arg n "$new" --arg i "$img" '.metadata.name=$n | .spec.containers[0].image=$i' "$st/rev-api-00001-aaa.json" >"$st/rev-$new.json"
+    if [ -f "$st/candidate-engagement-on" ]; then
+      jq '.spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' "$st/rev-$new.json" >"$st/r.tmp" && mv "$st/r.tmp" "$st/rev-$new.json"
+    fi
+    jq --arg n "$new" '.status.traffic |= map(if .tag=="candidate" then del(.tag) else . end)
+      | .status.traffic += [{revisionName:$n, tag:"candidate", url:"https://candidate---fake.example"}]
+      | .status.traffic |= map(select(has("percent") or has("tag")))' "$st/service.json" >"$st/s.tmp" && mv "$st/s.tmp" "$st/service.json"
+    bump ;;
+  "artifacts docker")
+    case $3 in
+      images) cat "$st/images.json" ;;
+      tags)
+        if [ "$4" = add ]; then
+          d=${5##*@}
+          jq --arg d "$d" 'map(.tags |= map(select(. != "last-good"))) | map(if .version==$d then .tags += ["last-good"] else . end)' "$st/images.json" >"$st/i.tmp" && mv "$st/i.tmp" "$st/images.json"
+        else
+          jq 'map(.tags |= map(select(. != "last-good")))' "$st/images.json" >"$st/i.tmp" && mv "$st/i.tmp" "$st/images.json"
+        fi ;;
+    esac ;;
+  "firestore indexes") cat "$st/indexes.json" ;;
+  *) echo "fake gcloud: unhandled: $*" >&2; exit 99 ;;
+esac
