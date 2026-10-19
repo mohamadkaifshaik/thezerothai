@@ -108,10 +108,9 @@ check "tag add failure: serving unchanged" eq "$(serving)" api-00001-aaa
 check "tag add failure: no tag deleted, no promotion" bash -c '! grep -qE "tags delete|--to-revisions" "$0"' "$FAKE/calls.log"
 check "tag add failure: candidate tag removed" eq "$(tagrev candidate)" none
 
-# 7d. an "already exists" error is handled by delete + add and the run succeeds
-setup; touch "$FAKE/tags-add-exists-once"; run false
-check "existing last-good tag moved" eq "$rc" 0
-check "existing last-good tag: on the previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '')" sha256:11111
+# 7d. last-good already sits on another image: tags add moves it (docs), no delete is ever issued
+setup; run false
+check "tag move: no tags delete issued" bash -c '! grep -q "tags delete" "$0"' "$FAKE/calls.log"
 
 # 8. update-traffic dropping the last-good tag is repaired, not ignored
 setup; touch "$FAKE/drop-last-good-on-promote"; run false

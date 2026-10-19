@@ -12,8 +12,7 @@
 # tag -> only then tag the previously serving image/revision `last-good` -> promote -> re-assert state -> soak -> on ANY failure after
 # traffic moved (including cancellation or timeout) roll back to `last-good` only. Never prints revision JSON (allowlist uids).
 # Verified against the live dev service: GET /health and an unauthenticated GetMe (HTTP 401) behave as probed below.
-# NOT verified on Google's side: whether `--no-traffic`/`update-traffic` keep other tags, and the exact error text of
-# `artifacts docker tags add` for an existing tag (the script only falls back to delete+add on an "already exists" error).
+# NOT verified on Google's side: whether `--no-traffic`/`update-traffic` keep other tags (every operation is re-asserted).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
@@ -161,15 +160,11 @@ jq --arg d "$prev_digest" 'map(.tags |= map(select(. != "last-good"))) | map(if 
 PREFLIGHT=1 bash "$here/resolve-rollback.sh" "$work/sim-svc.json" "$work/prev.json" "$work/sim-images.json" "$ceil" "$env" >/dev/null 2>"$work/pre.err" \
   || { cat "$work/pre.err" >&2; die "rollback target is not usable; refusing to promote (no tag was changed)"; }
 
+# `tags add` MOVES an existing tag (Artifact Registry docs: tags are unique per repository), and the deploy identity has no
+# tag-delete permission (roles/artifactregistry.writer), so there is deliberately no delete fallback: a failure changes nothing.
 if ! gcloud artifacts docker tags add "$REPO@$prev_digest" "$REPO:last-good" --quiet >/dev/null 2>"$work/tag.err"; then
-  if grep -qiE 'already exists|ALREADY_EXISTS' "$work/tag.err"; then
-    gcloud artifacts docker tags delete "$REPO:last-good" --quiet >/dev/null 2>"$work/tag.err" || { head -n 1 "$work/tag.err" >&2; die "could not move the existing last-good tag (nothing was changed)"; }
-    gcloud artifacts docker tags add "$REPO@$prev_digest" "$REPO:last-good" --quiet >/dev/null 2>"$work/tag.err" \
-      || { head -n 1 "$work/tag.err" >&2; die "last-good was removed but could not be re-added; the Artifact Registry tag is missing, fix by hand before promoting"; }
-  else
-    head -n 1 "$work/tag.err" >&2
-    die "could not tag the previous image last-good (nothing was changed)"
-  fi
+  head -n 1 "$work/tag.err" >&2
+  die "could not tag the previous image last-good (nothing was changed)"
 fi
 traffic --update-tags="last-good=$prev"
 svc_json "$work/s3.json"
