@@ -66,7 +66,7 @@ jobs:
             want=$([ "$VAR_PROMOTE" = "true" ] && echo true || echo false)
           fi
           if [ "$want" = "true" ] && [ "$REF" != "refs/heads/main" ]; then
-            echo "::error::Promotion is only allowed from refs/heads/main (this run is on ${REF}). Re-run it as a dry run."
+            echo "::error::Promotion is only allowed from refs/heads/main (this run is on ${REF}). Note: runs from other refs cannot get GCP credentials at all (the WIF provider is pinned to deploy-dev.yml on main)."
             exit 1
           fi
           if [ "$want" = "true" ]; then mode="PROMOTE"; dry=false; else mode="DRY RUN"; dry=true; fi
