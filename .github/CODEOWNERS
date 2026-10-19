@@ -1,11 +1,15 @@
-# Code owners for the files that act as safety gates. A ruleset with "require review from code owners" turns these into real
-# review gates; without that ruleset this file only requests reviews. See docs/runbooks/ci-enforcement.md.
-# The gate files themselves are listed so the gate cannot be weakened without the owner seeing it.
+# Code owners for the files that act as safety gates. With the ruleset described in docs/runbooks/ci-enforcement.md (code-owner review
+# required, no bypass actors) a change to any of these needs approval from the owner, who must be a DIFFERENT identity from the PR author
+# (the assistant works through its own GitHub App identity). The gate files themselves are listed so a gate cannot be weakened unseen.
 
-# fieldOverrides acknowledgement and the check that enforces it (a new single-field exemption can remove indexing, not additive)
+# fieldOverrides acknowledgement and the check that enforces it (a new single-field exemption can remove indexing: not additive)
 /firebase/field-overrides.ack                  @mohamadkaifshaik
 /scripts/promotion/check-field-overrides.sh    @mohamadkaifshaik
 /firebase/firestore.indexes.json               @mohamadkaifshaik
 
-# ownership of this file itself
+# feature-flag and scaling ceilings that the promotion validators enforce
+/scripts/promotion/flag-ceiling.json           @mohamadkaifshaik
+
+# the only workflow that can change dev (traffic, rules, indexes, Hosting) and the ownership file itself
+/.github/workflows/deploy-dev.yml              @mohamadkaifshaik
 /.github/CODEOWNERS                            @mohamadkaifshaik
