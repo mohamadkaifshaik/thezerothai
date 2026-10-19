@@ -80,6 +80,16 @@ smoke() {
   [ "$code" = "401" ] || { echo "unauthenticated GetMe returned '$code', expected 401" >&2; return 1; }
 }
 
+# Moves the protective `serving` tag (see docs/plans/serving-image-retention.md). `tags add` moves an existing tag. Never fatal: the
+# promotion state is already verified; a failure only means the image is protected by keep-last-3 alone, so it warns loudly.
+move_serving_tag() {
+  local d=$1
+  if gcloud artifacts docker tags add "$REPO@$d" "$REPO:serving" --quiet >/dev/null 2>"$work/serving.err"; then
+    echo "serving tag is now on ${d:0:19}"
+  else
+    echo "::warning::could not move the serving tag to ${d:0:19} ($(head -n 1 "$work/serving.err" | cut -c1-120)); that image is protected only by keep-last-3 until it is tagged by hand"
+  fi
+}
 mark_unverified() { if [ -n "${PROMOTE_MARKER:-}" ]; then : >"$PROMOTE_MARKER"; fi; }
 clear_marker() { if [ -n "${PROMOTE_MARKER:-}" ]; then rm -f "$PROMOTE_MARKER"; fi; }
 
@@ -146,6 +156,11 @@ prev_digest=sha256:${prev_image##*@sha256:}
 gcloud artifacts docker images list "$REPO" --include-tags --format=json | tr -d '\r' >"$work/images.json"
 [ "$(jqr --arg d "$prev_digest" --arg p "$REPO" '[.[] | select(.version == $d and .package == $p)] | length' "$work/images.json")" -ge 1 ] \
   || die "the serving revision's image is no longer in Artifact Registry; nothing could be rolled back to. Refusing before any change"
+
+if [ "$DRY_RUN" = "false" ] && [ "$(jqr --arg d "$prev_digest" '[.[] | select(.version == $d and (.tags | index("serving")))] | length' "$work/images.json")" = "0" ]; then
+  echo "the serving image has no serving tag; tagging it now (promote mode only)"
+  move_serving_tag "$prev_digest"
+fi
 
 step "2/8 deploy a 0% candidate"
 cleanup_candidate=1
@@ -238,4 +253,5 @@ check "$work/s5.json" "$ceil" "$env" serving || die "final state check failed"
 [ "$(serving_of "$work/s5.json")" = "$cand" ] || die "final serving revision is not the candidate"
 moved=0 # verified end to end; nothing left to roll back
 clear_marker
+move_serving_tag "$digest"
 echo "promoted $cand (last-good = $prev)"

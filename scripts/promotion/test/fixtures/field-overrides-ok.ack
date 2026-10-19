@@ -1,0 +1,2 @@
+# fixture acknowledgement
+sha256=6e63c06ffcfd1b94f0274c07fa9aef53f870c53f53521941fc59c65cdfa2266e
