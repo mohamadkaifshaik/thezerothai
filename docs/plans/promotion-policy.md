@@ -25,6 +25,9 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 
 ## PR 2 design (deploy-dev, push to `main`)
 1. Build + push image (ko, tag = SHA). Build web with the dev `--dart-define`s. **Either failing stops here.**
+1b. (promote mode only, founder decision 2026-10-19) Deploy ADDITIVE indexes (`firebase deploy --only firestore:indexes`, never `--force`, which
+   would delete indexes missing from the file) and wait until every index is READY, so a candidate that needs a new composite index
+   never serves FAILED_PRECONDITION. A failure here promotes nothing; deployed indexes stay (additive, harmless to the previous backend).
 2. Auth via WIF; fetch service JSON and the serving revision JSON; `check-traffic.sh ... serving` (fail on any surprise).
 3. `gcloud run deploy --no-traffic --tag=candidate`; refetch; `check-traffic.sh ... staged <cand> <serving>`;
    `validate-revision.sh` on the candidate revision JSON (ceiling gate).
@@ -35,7 +38,7 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 6. `update-traffic --to-revisions=<cand>=100`; refetch; assert exactly one 100% named revision, tags in the allow-list.
 7. Post-promotion verification (`/health`, 401 probe, 5xx check from logs for N minutes). On any failure:
    `resolve-rollback.sh` (last-good only) then `update-traffic --to-revisions=<last-good>=100`, refetch, re-assert; the job still fails.
-8. Only after 7: `firebase deploy --only firestore:rules,firestore:indexes`, wait for indexes READY, then Hosting.
+8. Only after 7: `firebase deploy --only firestore:rules`, then Hosting.
 `dry_run=true` stops after step 4 and never changes traffic or tags.
 
 ## Before PR 2 (unverified or blocked; do not assume)
