@@ -66,7 +66,12 @@ want_max=$(jqr --arg e "$env" '.envs[$e].max_instances' "$ceil")
 want_min=$(jqr --arg e "$env" '.envs[$e].min_instances' "$ceil")
 got_max=$(jqr '.metadata.annotations["autoscaling.knative.dev/maxScale"] // "unset"' "$rev")
 got_min=$(jqr '.metadata.annotations["autoscaling.knative.dev/minScale"] // "unset"' "$rev")
-[ "$got_max" = "$want_max" ] || fail "maxScale is $got_max, expected $want_max"
+# maxScale is a cost cap: any positive integer at or below the ceiling is fine (a tighter cap is safer, and an older
+# revision with the previous cap must stay valid as a rollback target). 0 means unlimited on Cloud Run, so it fails.
+case $got_max in
+  ''|*[!0-9]*) fail "maxScale is '$got_max', expected an integer <= $want_max" ;;
+  *) if [ "$got_max" -lt 1 ] || [ "$got_max" -gt "$want_max" ]; then fail "maxScale is $got_max, expected 1..$want_max"; fi ;;
+esac
 [ "$got_min" = "$want_min" ] || fail "minScale is $got_min, expected $want_min"
 note "scaling min=$got_min max=$got_max"
 

@@ -6,7 +6,7 @@ logic is testable with no credentials.
 
 | Script | Input | Fails when |
 |---|---|---|
-| `validate-revision.sh <revision.json> <ceiling> <env>` | `gcloud run revisions describe --format=json` | unknown `FEATURE_*` name, `FEATURE_*` from `valueFrom`, duplicate var, bad mode/percent, effective mode above the ceiling, allowlist or percent above the ceiling, min/max instances differ |
+| `validate-revision.sh <revision.json> <ceiling> <env>` | `gcloud run revisions describe --format=json` | unknown `FEATURE_*` name, `FEATURE_*` from `valueFrom`, duplicate var, bad mode/percent, effective mode above the ceiling, allowlist or percent above the ceiling, minScale differs, maxScale is not an integer in 1..ceiling (0 means unlimited) |
 | `check-traffic.sh <service.json> <ceiling> <env> serving` | `gcloud run services describe --format=json` | not exactly one named revision at 100%, `latestRevision` routing, any other revision with a percent, tag outside the allow-list |
 | `check-traffic.sh ... staged <candidate> <serving>` | same | serving revision differs from the expected one, or the candidate lacks the 0% `candidate` tag |
 | `resolve-rollback.sh <service> <last-good-rev.json> <images.json> <ceiling> <env>` | + `gcloud artifacts docker images list --format=json` | no `last-good` tag, wrong revision JSON, image not pinned by digest, digest gone from Artifact Registry, or the target fails `validate-revision.sh` |
@@ -58,3 +58,9 @@ package must match); `last-good` being the revision already serving (a no-op rol
 `persist-credentials: false` and `$RUNNER_TEMP` in CI; `lib.sh` is no longer executable.
 Known limits (unchanged): only `containers[0]` is inspected (the service has one container); shellcheck's sha256 is
 trust-on-first-use; field names of live gcloud JSON were checked against the dev service and revision, not against every gcloud version.
+
+## Scaling ceiling (2026-10-19)
+`max_instances` is a cost cap, so it is checked as `1 <= maxScale <= ceiling`, not equality. Dev's Terraform now sets maxScale 1
+(#169, applied 2026-10-19; new revisions have 1) while the serving revision `api-00144-xt7` still has 3. The ceiling stays 3
+so that revision remains a valid rollback target; tighten it to 1 in a reviewed PR once no revision with maxScale 3 can be a
+`last-good` target.
