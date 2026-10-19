@@ -131,7 +131,7 @@ jobs:
 
       - name: checkov
         if: steps.gate.outputs.run == 'true'
-        uses: bridgecrewio/checkov-action@c13aafd679d3814a25067d10fcaf98c4f7594931 # v12.3131.0
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
         with:
           directory: infra/terraform/envs/${{ matrix.env }}
           soft_fail: true # don't block PRs on checkov MEDIUM+ findings yet; surfaced in the PR checks tab
