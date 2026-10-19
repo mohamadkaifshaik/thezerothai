@@ -28,7 +28,7 @@ setup() {
   jq '.metadata.name="api-00000-zzz"' "$fx/revision-ok.json" >"$FAKE/rev-api-00000-zzz.json"
   cp "$fx/service-ok.json" "$FAKE/service.json"
   jq '. + [{"package":"example-docker.pkg.dev/fake-proj/api/api","version":"sha256:3333333333333333333333333333333333333333333333333333333333333333","tags":["newbuild"]}]
-      | map(if .version|test("^sha256:1111") then .tags += ["last-good"] else . end)' "$fx/images-ok.json" >"$FAKE/images.json"
+      | map(if .version|test("^sha256:1111") then .tags += ["last-good", "serving"] else . end)' "$fx/images-ok.json" >"$FAKE/images.json"
   echo '[{"name":"i1","state":"READY"},{"name":"i2","state":"READY"}]' >"$FAKE/indexes.json"
   : >"$FAKE/calls.log"
 }
@@ -56,6 +56,7 @@ check "dry run: serving unchanged" eq "$(serving)" api-00001-aaa
 check "dry run: candidate tag removed" eq "$(tagrev candidate)" none
 check "dry run: never touched traffic" bash -c '! grep -q -- "--to-revisions" "$0"' "$FAKE/calls.log"
 check "dry run: no uid leak" noleak
+check "dry run: never touches the serving tag" bash -c '! grep -q ":serving" "$0"' "$FAKE/calls.log"
 check "dry run: never tags last-good (AR or traffic)" bash -c '! grep -qE "tags add|tags delete|--update-tags" "$0"' "$FAKE/calls.log"
 
 # 2. dry run refuses when the candidate smoke fails
@@ -93,6 +94,7 @@ check "promotion: serving is the candidate" eq "$(serving)" api-00002-new
 check "promotion: last-good traffic tag on previous" eq "$(tagrev last-good)" api-00001-aaa
 check "promotion: last-good AR tag on previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '\r')" sha256:11111
 check "promotion: no uid leak" noleak
+check "promotion: serving tag moved to the new image only" eq "$(jq -r '[.[] | select(.tags | index("serving"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d $'')" sha256:33333
 check "promotion: marker cleared after verification" bash -c '[ ! -e "$0" ]' "$PROMOTE_MARKER"
 
 # 7b. the previous image is gone from Artifact Registry: refuse BEFORE deploying anything or touching any tag
@@ -115,6 +117,19 @@ setup; jq 'map(.tags |= map(select(. != "last-good"))) | map(if (.version|test("
 check "tag move: run succeeds" eq "$rc" 0
 check "tag move: last-good now only on the previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d $'')" sha256:11111
 check "tag move: no tags delete issued" bash -c '! grep -q "tags delete" "$0"' "$FAKE/calls.log"
+
+# 7e. the serving tag cannot be moved after a verified promotion: warn, do not roll back
+setup; touch "$FAKE/tag-fail-serving"; run false
+check "serving tag failure does not fail a verified promotion" eq "$rc" 0
+check "serving tag failure: still promoted" eq "$(serving)" api-00002-new
+check "serving tag failure: loud warning" grep -q "could not move the serving tag" "$tmp/out"
+check "serving tag failure: marker cleared" bash -c '[ ! -e "$0" ]' "$PROMOTE_MARKER"
+
+# 7f. the serving image lost its serving tag: promote mode re-tags it before deploying (self-heal), and it ends on the new image
+setup; jq 'map(.tags |= map(select(. != "serving")))' "$FAKE/images.json" >"$tmp/i" && cp "$tmp/i" "$FAKE/images.json"; run false
+check "self-heal run succeeds" eq "$rc" 0
+check "self-heal: announced" grep -q "has no serving tag" "$tmp/out"
+check "self-heal: serving tag ends on the new image" eq "$(jq -r '[.[] | select(.tags | index("serving"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d $'')" sha256:33333
 
 # 8. update-traffic dropping the last-good tag is repaired, not ignored
 setup; touch "$FAKE/drop-last-good-on-promote"; run false
