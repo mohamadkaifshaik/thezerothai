@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0 # buf breaking needs history to diff against main
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.9"
@@ -99,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.9"
