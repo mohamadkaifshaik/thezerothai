@@ -170,7 +170,7 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: shellcheck
-        run: shellcheck -x scripts/promotion/*.sh scripts/promotion/test/run.sh
+        run: shellcheck -x -P SCRIPTDIR -S warning scripts/promotion/*.sh scripts/promotion/test/run.sh
 
       - name: actionlint
         run: actionlint

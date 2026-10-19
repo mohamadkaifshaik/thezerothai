@@ -46,5 +46,5 @@ scripts print flag names and entry counts, and `test/run.sh` fails if any fixtur
 
 ## Run
 `bash scripts/promotion/test/run.sh` (about 1 min on Windows because of process spawn; seconds on Linux).
-CI job `promotion-scripts` also runs shellcheck 0.10.0, actionlint 1.7.7 and the registry check.
+CI job `promotion-scripts` also runs shellcheck 0.10.0 (`-S warning`: the info-level SC2016 fires on every jq `$var`), actionlint 1.7.7 and the registry check.
 shellcheck is not installed on the founder's machine: CI is the only shellcheck gate.
