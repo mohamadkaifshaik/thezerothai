@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
-# No real waiting. With $FAKE/term-on-sleep it signals its parent (the script under test) like a cancelled job would.
+# No real waiting. With $FAKE/term-on-sleep it signals its parent (the script under test) like a cancelled job would;
+# with $FAKE/kill9-on-sleep it SIGKILLs the parent (a runner that gave up waiting): no trap can run.
+if [ -n "${FAKE:-}" ] && [ -f "$FAKE/kill9-on-sleep" ]; then kill -KILL "$PPID"; fi
 if [ -n "${FAKE:-}" ] && [ -f "$FAKE/term-on-sleep" ]; then kill -TERM "$PPID"; fi
 exit 0

@@ -16,12 +16,13 @@ failed=0
 
 IMG_NEW='example-docker.pkg.dev/fake-proj/api/api@sha256:3333333333333333333333333333333333333333333333333333333333333333'
 export PROJECT=fake-proj REGION=fake-region SERVICE=api REPO=example-docker.pkg.dev/fake-proj/api/api
+export PROMOTE_MARKER=$tmp/marker
 export SOAK_SECONDS=30 SOAK_INTERVAL=15 CHECK_INDEXES=true
 
 # setup: fresh state. api-00001-aaa serves (image 1111...), api-00000-zzz holds last-good, all indexes READY.
 setup() {
   export FAKE=$tmp/state
-  rm -rf "$FAKE"
+  rm -rf "$FAKE" "$PROMOTE_MARKER"
   mkdir -p "$FAKE"
   jq '.metadata.name="api-00001-aaa"' "$fx/revision-ok.json" >"$FAKE/rev-api-00001-aaa.json"
   jq '.metadata.name="api-00000-zzz"' "$fx/revision-ok.json" >"$FAKE/rev-api-00000-zzz.json"
@@ -92,6 +93,7 @@ check "promotion: serving is the candidate" eq "$(serving)" api-00002-new
 check "promotion: last-good traffic tag on previous" eq "$(tagrev last-good)" api-00001-aaa
 check "promotion: last-good AR tag on previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '\r')" sha256:11111
 check "promotion: no uid leak" noleak
+check "promotion: marker cleared after verification" bash -c '[ ! -e "$0" ]' "$PROMOTE_MARKER"
 
 # 7b. the previous image is gone from Artifact Registry: refuse BEFORE deploying anything or touching any tag
 setup; jq 'map(select(.version | test("^sha256:1111") | not))' "$FAKE/images.json" >"$tmp/i" && cp "$tmp/i" "$FAKE/images.json"; run false
@@ -108,8 +110,10 @@ check "tag add failure: serving unchanged" eq "$(serving)" api-00001-aaa
 check "tag add failure: no tag deleted, no promotion" bash -c '! grep -qE "tags delete|--to-revisions" "$0"' "$FAKE/calls.log"
 check "tag add failure: candidate tag removed" eq "$(tagrev candidate)" none
 
-# 7d. last-good already sits on another image: tags add moves it (docs), no delete is ever issued
-setup; run false
+# 7d. last-good already sits on a DIFFERENT image: tags add moves it (docs), no delete is ever issued
+setup; jq 'map(.tags |= map(select(. != "last-good"))) | map(if (.version|test("^sha256:2222")) then .tags += ["last-good"] else . end)' "$FAKE/images.json" >"$tmp/i" && cp "$tmp/i" "$FAKE/images.json"; run false
+check "tag move: run succeeds" eq "$rc" 0
+check "tag move: last-good now only on the previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '')" sha256:11111
 check "tag move: no tags delete issued" bash -c '! grep -q "tags delete" "$0"' "$FAKE/calls.log"
 
 # 8. update-traffic dropping the last-good tag is repaired, not ignored
@@ -134,6 +138,31 @@ check "cancellation exits non-zero" bash -c '[ "$0" != 0 ]' "$rc"
 check "cancellation: rolled back" eq "$(serving)" api-00001-aaa
 check "cancellation: last-good still on the previous revision" eq "$(tagrev last-good)" api-00001-aaa
 
+# 9d. update-traffic fails BEFORE applying (status may still look unchanged): rollback must still re-issue the idempotent command
+setup; touch "$FAKE/fail-before-promote-apply"; run false
+check "failure before apply exits 1" eq "$rc" 1
+check "failure before apply: serving is the previous revision" eq "$(serving)" api-00001-aaa
+check "failure before apply: rollback re-issued the traffic command" grep -q -- "--to-revisions=api-00001-aaa=100" "$FAKE/calls.log"
+check "failure before apply: marker cleared" bash -c '[ ! -e "$0" ]' "$PROMOTE_MARKER"
+
+# 9e. the script is SIGKILLed during the soak (runner gave up waiting): no trap runs, the marker survives, and the workflow's
+# always() recover step rolls back
+setup; touch "$FAKE/kill9-on-sleep"; run false
+check "kill -9: run did not finish" bash -c '[ "$0" != 0 ]' "$rc"
+check "kill -9: unverified candidate is serving" eq "$(serving)" api-00002-new
+check "kill -9: marker survived" bash -c '[ -e "$0" ]' "$PROMOTE_MARKER"
+rm -f "$FAKE/kill9-on-sleep"
+RECOVER=true bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "recover exits 0" eq "$rc" 0
+check "recover: rolled back to last-good" eq "$(serving)" api-00001-aaa
+check "recover: marker cleared" bash -c '[ ! -e "$0" ]' "$PROMOTE_MARKER"
+check "recover: no uid leak" noleak
+
+# 9f. recover with no marker does nothing at all (no cloud calls)
+setup; RECOVER=true bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "recover without marker exits 0" eq "$rc" 0
+check "recover without marker: no cloud call" bash -c '[ ! -s "$0" ]' "$FAKE/calls.log"
+
 # 10. usage errors
 setup; DRY_RUN=true IMAGE='example/api:latest' bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "tag-pinned image is a usage error" eq "$rc" 2
@@ -144,6 +173,8 @@ setup; SOAK_SECONDS=abc DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$
 check "non-numeric SOAK_SECONDS is a usage error" eq "$rc" 2
 setup; SOAK_INTERVAL=0 DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "SOAK_INTERVAL=0 is a usage error" eq "$rc" 2
+setup; SOAK_INTERVAL=08 SOAK_SECONDS=30 DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "SOAK_INTERVAL=08 is not read as octal" eq "$rc" 0
 
 echo "promote-dev tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

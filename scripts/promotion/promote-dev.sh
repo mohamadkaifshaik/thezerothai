@@ -4,6 +4,10 @@
 # Required env: PROJECT REGION SERVICE IMAGE (built image, pinned by @sha256 digest) REPO (Artifact Registry
 #   <host>/<project>/<repo>/<image>, no tag) DRY_RUN (true|false). Optional: CEILING (default flag-ceiling.json),
 #   SOAK_SECONDS (integer >= 0, default 120), SOAK_INTERVAL (integer >= 1, default 15), CHECK_INDEXES (default true).
+# RECOVER=true (needs PROJECT REGION SERVICE REPO and PROMOTE_MARKER; IMAGE/DRY_RUN not needed): used by a workflow step that runs
+#   `if: always()` AFTER the promote step. If the marker file written when traffic was pointed at the candidate still exists (the run was
+#   cancelled or timed out and never reached the end), it rolls back to last-good; otherwise it does nothing. A workflow step's shell is
+#   the only process the runner signals, so a trap inside this script alone cannot be relied on for cancellation.
 # Exit codes: 0 promoted (or dry run completed with traffic untouched), 1 refused or failed (after a rollback when traffic had
 # already moved), 2 usage.
 #
@@ -20,17 +24,24 @@ here=$(cd "$(dirname "$0")" && pwd)
 need_tool jq
 need_tool gcloud
 need_tool curl
-for v in PROJECT REGION SERVICE IMAGE REPO DRY_RUN; do
+recover=${RECOVER:-false}
+required="PROJECT REGION SERVICE REPO"
+if [ "$recover" = "true" ]; then required="$required PROMOTE_MARKER"; else required="$required IMAGE DRY_RUN"; fi
+for v in $required; do
   [ -n "${!v:-}" ] || { echo "FAIL: $v is required" >&2; exit 2; }
 done
-case $DRY_RUN in true | false) ;; *) echo "FAIL: DRY_RUN must be true or false" >&2; exit 2 ;; esac
-case $IMAGE in *@sha256:*) digest=sha256:${IMAGE##*@sha256:} ;; *) echo "FAIL: IMAGE must be pinned by digest" >&2; exit 2 ;; esac
+if [ "$recover" != "true" ]; then
+  case $DRY_RUN in true | false) ;; *) echo "FAIL: DRY_RUN must be true or false" >&2; exit 2 ;; esac
+  case $IMAGE in *@sha256:*) digest=sha256:${IMAGE##*@sha256:} ;; *) echo "FAIL: IMAGE must be pinned by digest" >&2; exit 2 ;; esac
+fi
 ceil=${CEILING:-$here/flag-ceiling.json}
 soak=${SOAK_SECONDS:-120}
 interval=${SOAK_INTERVAL:-15}
 check_indexes=${CHECK_INDEXES:-true}
 case $soak in '' | *[!0-9]*) echo "FAIL: SOAK_SECONDS must be an integer >= 0" >&2; exit 2 ;; esac
 case $interval in '' | *[!0-9]*) echo "FAIL: SOAK_INTERVAL must be an integer >= 1" >&2; exit 2 ;; esac
+soak=$((10#$soak))
+interval=$((10#$interval))
 [ "$interval" -ge 1 ] || { echo "FAIL: SOAK_INTERVAL must be an integer >= 1" >&2; exit 2; }
 env=dev
 work=$(mktemp -d)
@@ -61,29 +72,29 @@ smoke() {
   [ "$code" = "401" ] || { echo "unauthenticated GetMe returned '$code', expected 401" >&2; return 1; }
 }
 
+mark_unverified() { if [ -n "${PROMOTE_MARKER:-}" ]; then : >"$PROMOTE_MARKER"; fi; }
+clear_marker() { if [ -n "${PROMOTE_MARKER:-}" ]; then rm -f "$PROMOTE_MARKER"; fi; }
+
 # Every command is checked explicitly: this also runs from the EXIT trap, where `set -e` does not apply.
 rollback() {
   moved=0 # one attempt only; the exit trap must not repeat it
   step "ROLLBACK to the last-good revision"
-  local s r target serving
+  local s r target
   s=$work/rb-svc.json
   svc_json "$s" || die "rollback: cannot read the service"
   target=$(tag_revision "$s" last-good)
   [ -n "$target" ] || die "no last-good tag; cannot roll back automatically. Serving state needs manual review"
-  serving=$(serving_of "$s")
-  if [ "$serving" = "$target" ]; then
-    echo "traffic is already on last-good ($target); nothing to roll back"
-    traffic --remove-tags=candidate || true
-    return 0
-  fi
   rev_json "$work/rb-rev.json" "$target" || die "rollback: cannot read $target"
   gcloud artifacts docker images list "$REPO" --include-tags --format=json | tr -d '\r' >"$work/rb-images.json" || die "rollback: cannot list images"
-  r=$(bash "$here/resolve-rollback.sh" "$s" "$work/rb-rev.json" "$work/rb-images.json" "$ceil" "$env") || die "rollback target failed validation; manual review"
+  # PREFLIGHT=1: the target may already be serving (a previous attempt succeeded); the command below is idempotent and is
+  # ALWAYS re-issued and re-checked, because a status read right after a failed update-traffic can be stale.
+  r=$(PREFLIGHT=1 bash "$here/resolve-rollback.sh" "$s" "$work/rb-rev.json" "$work/rb-images.json" "$ceil" "$env") || die "rollback target failed validation; manual review"
   traffic --to-revisions="$r=100" || die "rollback: update-traffic failed; manual review"
   svc_json "$s" || die "rollback: cannot re-read the service"
   check "$s" "$ceil" "$env" serving || die "state after rollback is not the expected shape"
   [ "$(serving_of "$s")" = "$r" ] || die "rollback did not land on $r"
   traffic --remove-tags=candidate || true
+  clear_marker
   echo "rolled back to $r"
 }
 
@@ -104,6 +115,16 @@ on_exit() {
 trap on_exit EXIT
 trap 'exit 143' TERM # a cancelled/timed-out job still runs on_exit, so a moved candidate is rolled back
 trap 'exit 130' INT
+
+if [ "$recover" = "true" ]; then
+  if [ ! -f "$PROMOTE_MARKER" ]; then
+    echo "no unverified promotion recorded; nothing to roll back"
+    exit 0
+  fi
+  echo "an unverified promotion was interrupted (cancelled, timed out or killed)" >&2
+  rollback
+  exit 0
+fi
 
 step "1/8 validate the serving state"
 svc_json "$work/s0.json"
@@ -173,6 +194,7 @@ gcloud artifacts docker images list "$REPO" --include-tags --format=json | tr -d
 [ "$(jqr --arg d "$prev_digest" '[.[] | select(.version == $d and (.tags | index("last-good")))] | length' "$work/images2.json")" = "1" ] || die "last-good is not on the previous image in Artifact Registry"
 
 step "6/8 promote $cand"
+mark_unverified # persisted BEFORE traffic moves: survives a kill of this process (recover mode reads it)
 moved=1 # from here on any non-zero exit (error, cancel, timeout) triggers a rollback to last-good
 cleanup_candidate=0
 traffic --to-revisions="$cand=100"
@@ -207,4 +229,5 @@ svc_json "$work/s5.json"
 check "$work/s5.json" "$ceil" "$env" serving || die "final state check failed"
 [ "$(serving_of "$work/s5.json")" = "$cand" ] || die "final serving revision is not the candidate"
 moved=0 # verified end to end; nothing left to roll back
+clear_marker
 echo "promoted $cand (last-good = $prev)"
