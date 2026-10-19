@@ -71,11 +71,23 @@ Registry, deploy a 0% `candidate`, validate it (traffic shape, flag and scaling 
 unauthenticated `GetMe` refused with 401, both checked live on dev 2026-10-19), check Firestore indexes are READY, then either stop
 (`DRY_RUN=true`: candidate tag removed, traffic untouched, no `last-good` change) or **prove the rollback target is usable on a
 simulated copy of the state before touching any tag**, tag the previously serving revision/image `last-good`, promote, re-assert state
-(repairing a lost `last-good` tag once), soak without retries, and roll back to `last-good` only. The rollback runs from an EXIT trap
-armed just before traffic moves, so any failure, SIGTERM (cancellation) or timeout after that point rolls back. A failure before
-traffic moves removes the leftover `candidate` tag. `test/promote-test.sh` runs it against a stateful fake gcloud/curl (48 checks);
-sabotaged copies (rollback removed, candidate ceiling check removed, rollback trap not armed) were confirmed to fail the suite.
-**Not verified against real gcloud:** whether `update-traffic` keeps tags (re-asserted). `tags add` moves an existing tag (Artifact Registry
-docs) and the CI identity cannot delete tags, so there is no delete fallback. Known limits: a dry run leaves the service template pointing at
-the unpromoted image (Terraform ignores `image`; a later Terraform apply makes a 0% revision from it); the soak checks `/health` and
-the 401 probe only, not Cloud Logging 5xx rates. The first live run should be a watched manual dispatch.
+(repairing a lost `last-good` tag once), soak without retries, and roll back to `last-good` only.
+
+**Rollback coverage.** Failures the script itself sees (errors, a failed check or smoke) roll back from an EXIT trap armed just before
+traffic moves. A **cancellation or job timeout is different**: the Actions runner signals only the step's own shell, so a trap inside
+the script cannot be relied on. The script therefore writes a marker file (`PROMOTE_MARKER`) *before* traffic moves and deletes it only
+after final verification; the workflow runs `RECOVER=true bash promote-dev.sh` in an `if: always()` step after the promote step, which
+rolls back when the marker still exists and does nothing otherwise. The promote step has its own timeout shorter than the job's so this
+step is never cut off. The rollback always re-issues the (idempotent) `update-traffic` and re-checks, because a status read right
+after a failed `update-traffic` can be stale. Verified only against the fake gcloud (including a SIGKILL of the script followed by the
+recover step); the real runner's cancellation sequence (SIGINT, then SIGTERM about 7.5 s later, then SIGKILL) is from memory.
+A failure before traffic moves removes the leftover `candidate` tag. `test/promote-test.sh` runs everything against a stateful fake
+gcloud/curl (65 checks); sabotaged copies (rollback removed, candidate ceiling check removed, rollback trap not armed) were confirmed
+to fail the suite.
+
+**Not verified against real gcloud:** whether `update-traffic` keeps tags (re-asserted). `tags add` moves an existing tag (Artifact
+Registry docs) and the CI identity cannot delete tags, so there is no delete fallback. Known limits: a dry run leaves the service
+template pointing at the unpromoted image (Terraform ignores `image`; a later Terraform apply makes a 0% revision from it); the soak
+checks `/health` and the 401 probe only, not Cloud Logging 5xx rates; the serving image is protected from Artifact Registry cleanup only
+by `keep-last-3` until the `serving` tag lands (#174), so after enough dry-run pushes or 30 days every run refuses at step 1 until it is
+re-tagged by hand. The first live run should be a watched manual dispatch.
