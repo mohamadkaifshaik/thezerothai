@@ -81,6 +81,13 @@ jobs:
             if [ "$dry" = "true" ]; then echo "- a dry run never moves traffic, tags last-good, deploys rules or deploys Hosting"; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Fail closed BEFORE any cloud access or mutation (dry run included; it is a pure local check, no credentials): the indexes deploy
+      # also applies `fieldOverrides`, and a new/changed override can remove single-field indexing. Any change must be acknowledged
+      # in firebase/field-overrides.ack (CODEOWNERS-protected). A direct push to main reaches this workflow without PR checks, so
+      # CI alone is not enough.
+      - name: Fail closed on unacknowledged fieldOverrides changes
+        run: bash scripts/promotion/check-field-overrides.sh firebase/firestore.indexes.json firebase/field-overrides.ack
+
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:

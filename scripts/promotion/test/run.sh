@@ -201,6 +201,10 @@ if [ -f "$wf" ]; then
     idx=$(grep -n 'firebase deploy --only firestore:indexes' <<<"$code" | head -1 | cut -d: -f1); prm=$(grep -n 'promote-dev.sh' <<<"$code" | head -1 | cut -d: -f1)
     rul=$(grep -n 'firebase deploy --only firestore:rules' <<<"$code" | head -1 | cut -d: -f1); hos=$(grep -n 'firebase deploy --only hosting' <<<"$code" | head -1 | cut -d: -f1)
     if [ -n "$idx" ] && [ -n "$rul" ] && [ -n "$hos" ] && [ "$idx" -lt "$prm" ] && [ "$prm" -lt "$rul" ] && [ "$rul" -lt "$hos" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml order must be indexes < promote-dev.sh < rules < hosting"; failed=$((failed+1)); fi
+    # the fieldOverrides gate must run before any cloud access, and must not be conditional
+    fo=$(grep -n 'check-field-overrides.sh' <<<"$code" | head -1 | cut -d: -f1); auth=$(grep -n 'google-github-actions/auth@' <<<"$code" | head -1 | cut -d: -f1)
+    if [ -n "$fo" ] && [ -n "$auth" ] && [ "$fo" -lt "$auth" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run check-field-overrides.sh before the GCP auth step"; failed=$((failed+1)); fi
+    if grep -B4 'check-field-overrides.sh' <<<"$code" | grep -q 'if:'; then echo "FAIL deploy-dev.yml: the fieldOverrides gate must not be conditional (no if:)"; failed=$((failed+1)); else pass=$((pass+1)); fi
     # every live-change step must be gated on the effective mode, and the recover step must exist
     gated=$(grep -c "steps.mode.outputs.dry_run == 'false'" <<<"$code" || true)
     if [ "$gated" -ge 7 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: only $gated steps are gated on dry_run == 'false' (need install, indexes, wait, stale check, recover, rules, hosting)"; failed=$((failed+1)); fi
