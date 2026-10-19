@@ -86,6 +86,12 @@ check "promotion: last-good traffic tag on previous" eq "$(tagrev last-good)" ap
 check "promotion: last-good AR tag on previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '\r')" sha256:11111
 check "promotion: no uid leak" noleak
 
+# 7b. a rollback target that Artifact Registry cannot back (previous image digest gone) refuses before any traffic moves
+setup; jq 'map(select(.version | test("^sha256:1111") | not))' "$FAKE/images.json" >"$tmp/i" && cp "$tmp/i" "$FAKE/images.json"; run false
+check "missing rollback image refused" eq "$rc" 1
+check "missing rollback image: serving unchanged" eq "$(serving)" api-00001-aaa
+check "missing rollback image: no promotion call" bash -c '! grep -q -- "--to-revisions" "$0"' "$FAKE/calls.log"
+
 # 8. update-traffic dropping the last-good tag is repaired, not ignored
 setup; touch "$FAKE/drop-last-good-on-promote"; run false
 check "tag loss repaired" eq "$rc" 0

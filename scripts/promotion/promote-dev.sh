@@ -117,6 +117,11 @@ svc_json "$work/s3.json"
 gcloud artifacts docker images list "$REPO" --include-tags --format=json | tr -d '\r' >"$work/images.json"
 [ "$(jqr --arg d "$prev_digest" '[.[] | select(.version == $d and (.tags | index("last-good")))] | length' "$work/images.json")" = "1" ] || die "last-good is not on the previous image in Artifact Registry"
 
+# Prove the rollback target is usable BEFORE any traffic moves: same resolver, same validator, digest present in Artifact Registry.
+rev_json "$work/lg.json" "$prev"
+PREFLIGHT=1 bash "$here/resolve-rollback.sh" "$work/s3.json" "$work/lg.json" "$work/images.json" "$ceil" "$env" >/dev/null 2>"$work/pre.err" \
+  || { cat "$work/pre.err" >&2; die "rollback target is not usable; refusing to promote"; }
+
 step "6/8 promote $cand"
 traffic --to-revisions="$cand=100"
 svc_json "$work/s4.json"
