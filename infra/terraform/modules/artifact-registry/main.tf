@@ -11,13 +11,14 @@ resource "google_artifact_registry_repository" "api" {
   format        = "DOCKER"
   description   = "Container images for the ${var.env} api service (ko build output)."
 
-  cleanup_policy_dry_run = false
+  // true = Artifact Registry only LOGS what it would delete (needs Data Access audit logs, see the dev env); nothing is deleted.
+  cleanup_policy_dry_run = var.cleanup_policy_dry_run
 
   cleanup_policies {
-    id     = "keep-last-3"
+    id     = "keep-last-${var.keep_recent_versions}"
     action = "KEEP"
     most_recent_versions {
-      keep_count = 3
+      keep_count = var.keep_recent_versions
     }
   }
 
@@ -52,11 +53,11 @@ resource "google_artifact_registry_repository" "api" {
   // versions regardless of tag state, so this can't delete the images CI
   // (or a rollback) still needs.
   cleanup_policies {
-    id     = "delete-tagged-after-30d"
+    id     = "delete-tagged-after-${var.tagged_retention_days}d"
     action = "DELETE"
     condition {
       tag_state  = "TAGGED"
-      older_than = "2592000s" # 30 days
+      older_than = "${var.tagged_retention_days * 86400}s"
     }
   }
 
