@@ -21,6 +21,24 @@ resource "google_artifact_registry_repository" "api" {
     }
   }
 
+  // Rollback and release protection. Artifact Registry: "If an artifact matches the criteria in both the delete
+  // policy and the keep policy, the artifact is kept" (docs.cloud.google.com/artifact-registry/docs/repositories/
+  // cleanup-policy), so these beat both DELETE policies below regardless of age. `tag_prefixes` needs
+  // tag_state = TAGGED and matches by PREFIX: "v" covers every release tag vX.Y.Z (CI tags are 40-hex git SHAs and
+  // `sha256-<digest>.sbom` manifests; neither starts with "v"). The `.sbom` manifest of a protected image is NOT
+  // protected (its tag starts with "sha256-"); it is not needed to pull or roll back the image.
+  dynamic "cleanup_policies" {
+    for_each = var.protected_tag_prefixes
+    content {
+      id     = "keep-tag-${cleanup_policies.value}"
+      action = "KEEP"
+      condition {
+        tag_state    = "TAGGED"
+        tag_prefixes = [cleanup_policies.value]
+      }
+    }
+  }
+
   cleanup_policies {
     id     = "delete-untagged-after-1d"
     action = "DELETE"
