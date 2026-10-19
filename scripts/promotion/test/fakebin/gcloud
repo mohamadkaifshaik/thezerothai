@@ -51,7 +51,6 @@ case "$1 $2" in
       tags)
         if [ "$4" = add ]; then
           [ ! -f "$st/tags-add-fail" ] || { echo "ERROR: not found" >&2; exit 1; }
-          if [ -f "$st/tags-add-exists-once" ]; then rm -f "$st/tags-add-exists-once"; echo "ERROR: ALREADY_EXISTS: tag last-good" >&2; exit 1; fi
           d=${5##*@}
           jq --arg d "$d" 'map(.tags |= map(select(. != "last-good"))) | map(if .version==$d then .tags += ["last-good"] else . end)' "$st/images.json" >"$st/i.tmp" && mv "$st/i.tmp" "$st/images.json"
         else
