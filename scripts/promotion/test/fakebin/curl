@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Fake curl for promote-dev tests. /health succeeds unless $FAKE/health-fail exists, or $FAKE/health-fail-when-serving holds
+# the name of the revision currently at 100%. The unauthenticated probe prints the code in $FAKE/probe-code (default 401).
+st=${FAKE:?}
+args="$*"
+case $args in
+  *"%{http_code}"*) cat "$st/probe-code" 2>/dev/null || echo 401; exit 0 ;;
+  */health*)
+    [ ! -f "$st/health-fail" ] || exit 22
+    if [ -f "$st/health-fail-when-serving" ]; then
+      serving=$(jq -r '[.status.traffic[] | select((.percent // 0) == 100)] | first | .revisionName' "$st/service.json" | tr -d '\r')
+      [ "$serving" != "$(tr -d '\r\n' <"$st/health-fail-when-serving")" ] || exit 22
+    fi
+    echo ok; exit 0 ;;
+esac
+exit 0

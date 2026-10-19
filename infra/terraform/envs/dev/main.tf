@@ -52,9 +52,26 @@ module "artifact_registry" {
   region        = var.region
   repository_id = "api"
   env           = local.env
-  labels        = merge(local.labels, { module = "artifact-registry" })
+
+  // Shorter dev retention (founder-requested reduction), applied in DRY-RUN mode first: nothing is deleted until a later,
+  // separately approved change sets cleanup_policy_dry_run = false. Protected regardless: last-good, serving, v*, newest N versions.
+  keep_recent_versions   = 6
+  tagged_retention_days  = 3
+  cleanup_policy_dry_run = true
+  labels                 = merge(local.labels, { module = "artifact-registry" })
 
   depends_on = [module.project_services]
+}
+
+// Dry-run results of Artifact Registry cleanup policies appear only in Data Access audit logs (DATA_WRITE). Additive: it only turns on
+// logging for this one service (a few log entries per cleanup run, far below the 50 GiB/month free log quota).
+resource "google_project_iam_audit_config" "artifact_registry_cleanup_dry_run" {
+  project = var.project_id
+  service = "artifactregistry.googleapis.com"
+
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
 }
 
 module "firestore" {
@@ -228,6 +245,7 @@ module "cloud_run_api" {
   runtime_service_account_email     = module.iam.runtime_service_account_email
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
   image                             = var.image
+  max_instance_count                = 1 # ADR-0007: dev max 1 (prod keeps the module default 3)
   degraded_mode                     = "off"
   app_check_mode                    = "monitor" # ADR-0006: monitor in both envs for now
   internal_oidc_audience            = local.api_url

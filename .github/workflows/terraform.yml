@@ -131,7 +131,7 @@ jobs:
 
       - name: checkov
         if: steps.gate.outputs.run == 'true'
-        uses: bridgecrewio/checkov-action@c13aafd679d3814a25067d10fcaf98c4f7594931 # v12.3131.0
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
         with:
           directory: infra/terraform/envs/${{ matrix.env }}
           soft_fail: true # don't block PRs on checkov MEDIUM+ findings yet; surfaced in the PR checks tab
@@ -182,7 +182,7 @@ jobs:
 
       - name: Comment plan summary on PR
         if: steps.gate.outputs.run == 'true' && (github.event_name == 'pull_request')
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');

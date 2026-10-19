@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0 # buf breaking needs history to diff against main
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.9"
@@ -99,18 +99,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.9"
           check-latest: true
           cache: false
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "20"
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "21" # firebase-tools 15 requires Java >= 21
@@ -138,3 +138,54 @@ jobs:
       - name: (skip) Makefile or firebase.json not present yet
         if: hashFiles('Makefile') == '' || hashFiles('firebase.json') == ''
         run: echo "::warning::Makefile and/or firebase.json not present yet — skipping emulator integration tests."
+
+  # Release-process scripts (scripts/promotion). Pure shell + jq; no credentials, no GCP access: this job has the
+  # workflow's read-only `contents` permission and no id-token.
+  promotion-scripts:
+    name: promotion scripts (shellcheck, actionlint, fixture tests, flag registry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Exact release binaries, sha256-verified (same approach as osv-scanner above; bump per
+      # docs/runbooks/dependency-updates.md). actionlint's hash matches the project's published checksums file;
+      # shellcheck publishes no checksum file, so its hash was computed from the release asset when pinned.
+      - name: Install shellcheck + actionlint
+        env:
+          SHELLCHECK_VERSION: v0.10.0
+          SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  ${RUNNER_TEMP}/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/"
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/bin" actionlint
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: shellcheck
+        run: shellcheck -x -P SCRIPTDIR -S warning scripts/promotion/*.sh scripts/promotion/test/*.sh scripts/promotion/test/fakebin/*
+
+      - name: actionlint
+        run: actionlint
+
+      - name: Fixture tests
+        run: |
+          bash scripts/promotion/test/run.sh
+          bash scripts/promotion/test/promote-test.sh
+
+      - name: fieldOverrides changes are acknowledged
+        run: bash scripts/promotion/check-field-overrides.sh firebase/firestore.indexes.json firebase/field-overrides.ack
+
+      - name: Flag registry matches config.go, ceiling and Terraform
+        run: |
+          bash scripts/promotion/check-flag-registry.sh backend/pkg/platform/config/config.go \
+            scripts/promotion/flag-ceiling.json infra/terraform/envs/dev/main.tf infra/terraform/envs/prod/main.tf

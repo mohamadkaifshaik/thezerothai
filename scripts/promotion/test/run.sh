@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# Fixture tests for the promotion scripts. No network, no credentials. Variants are made from the committed
+# fixtures with jq, so the committed files stay small and contain only fake uids.
+set -uo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+p=$(dirname "$here")
+fx=$here/fixtures
+ceil=$p/flag-ceiling.json
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+pass=0
+failed=0
+
+# expect <name> <want-exit> <command...>   (stdout+stderr are checked for allowlist uid leaks)
+expect() {
+  local name=$1 want=$2
+  shift 2
+  bash "$@" >"$tmp/out" 2>&1
+  local rc=$?
+  if grep -q 'fake-uid' "$tmp/out"; then
+    echo "FAIL $name: output leaked an allowlist uid"
+    failed=$((failed + 1))
+    return
+  fi
+  if [ "$rc" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    echo "FAIL $name: exit $rc, want $want"
+    sed 's/^/    /' "$tmp/out"
+    failed=$((failed + 1))
+  fi
+}
+# mut <jq-filter> <fixture> <out-name>
+mut() { jq "$1" "$fx/$2" | tr -d '\r' >"$tmp/$3"; }
+V="$p/validate-revision.sh"
+T="$p/check-traffic.sh"
+R="$p/resolve-rollback.sh"
+G="$p/check-flag-registry.sh"
+
+# --- validate-revision
+expect "revision ok" 0 "$V" "$fx/revision-ok.json" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' revision-ok.json r
+expect "engagement on" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_MEDIA","value":"allowlist"}]' revision-ok.json r
+expect "media allowlist above off" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_FUTURE","value":"off"}]' revision-ok.json r
+expect "unknown flag" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_GRAPH_ALLOWLISTT","value":"x"}]' revision-ok.json r
+expect "misspelled suffix" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_QUOTES","valueSource":{"secretKeyRef":{"secret":"s","version":"1"}}}]' revision-ok.json r
+expect "valueFrom flag" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS","value":"off"}]' revision-ok.json r
+expect "duplicate env" 1 "$V" "$tmp/r" "$ceil" dev
+mut '(.spec.containers[0].env[] | select(.name=="FEATURE_GRAPH") | .value) = "enabled"' revision-ok.json r
+expect "bad mode" 1 "$V" "$tmp/r" "$ceil" dev
+mut '(.spec.containers[0].env[] | select(.name=="FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST") | .value) = "fake-uid-A,fake-uid-B"' revision-ok.json r
+expect "allowlist too big" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS_PERCENT","value":"5"}]' revision-ok.json r
+expect "percent over ceiling" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS_PERCENT","value":"500"}]' revision-ok.json r
+expect "percent over 100" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "10"' revision-ok.json r
+expect "max instances" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "1"' revision-ok.json r
+expect "tighter max instances is fine" 0 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "0"' revision-ok.json r
+expect "max instances 0 means unlimited" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.metadata.annotations["autoscaling.knative.dev/maxScale"] = "abc"' revision-ok.json r
+expect "max instances not a number" 1 "$V" "$tmp/r" "$ceil" dev
+mut 'del(.metadata.annotations["autoscaling.knative.dev/minScale"])' revision-ok.json r
+expect "min instances unset" 1 "$V" "$tmp/r" "$ceil" dev
+# graph/posts default to ON in dev when unset (config.go graphDefaultMode); the ceiling says on, so this passes.
+mut '.spec.containers[0].env |= map(select(.name != "FEATURE_GRAPH"))' revision-ok.json r
+expect "graph unset equals dev default on" 0 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env |= map(select(.name != "FEATURE_REPORTS"))' revision-ok.json r
+expect "reports unset equals off" 0 "$V" "$tmp/r" "$ceil" dev
+expect "not a revision" 2 "$V" "$fx/service-ok.json" "$ceil" dev
+expect "unknown env" 2 "$V" "$fx/revision-ok.json" "$ceil" prod
+
+# --- check-traffic
+expect "serving ok" 0 "$T" "$fx/service-ok.json" "$ceil" dev serving
+mut '.status.traffic[0].percent = 50' service-ok.json s
+expect "split traffic" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.traffic[0] |= (del(.revisionName) | .latestRevision = true)' service-ok.json s
+expect "latestRevision" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.traffic[0].tag = "surprise"' service-ok.json s
+expect "unexpected tag" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.traffic[1].percent = 5' service-ok.json s
+expect "two holders" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.traffic = []' service-ok.json s
+expect "no traffic" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.traffic += [{"revisionName":"api-00002-bbb","tag":"candidate"}]' service-ok.json s
+expect "staged ok" 0 "$T" "$tmp/s" "$ceil" dev staged api-00002-bbb api-00001-aaa
+expect "staged wrong serving" 1 "$T" "$tmp/s" "$ceil" dev staged api-00002-bbb api-00009-zzz
+expect "staged missing candidate" 1 "$T" "$fx/service-ok.json" "$ceil" dev staged api-00002-bbb api-00001-aaa
+
+# --- resolve-rollback (last-good is api-00000-zzz; its revision JSON is the ok revision renamed)
+mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
+expect "rollback ok" 0 "$R" "$fx/service-ok.json" "$tmp/lg" "$fx/images-ok.json" "$ceil" dev
+mut '.status.traffic |= map(select(.tag != "last-good"))' service-ok.json s
+expect "no last-good tag" 1 "$R" "$tmp/s" "$tmp/lg" "$fx/images-ok.json" "$ceil" dev
+mut '.metadata.name = "api-00005-xxx"' revision-ok.json lg2
+expect "wrong revision json" 1 "$R" "$fx/service-ok.json" "$tmp/lg2" "$fx/images-ok.json" "$ceil" dev
+echo '[]' >"$tmp/noimg"
+expect "image deleted" 1 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/noimg" "$ceil" dev
+jq '.metadata.name="api-00000-zzz" | .spec.containers[0].image = "example/api:latest"' "$fx/revision-ok.json" >"$tmp/lg4"
+expect "tag-pinned image" 1 "$R" "$fx/service-ok.json" "$tmp/lg4" "$fx/images-ok.json" "$ceil" dev
+jq '.metadata.name="api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' "$fx/revision-ok.json" >"$tmp/lg5"
+expect "rollback target over ceiling" 1 "$R" "$fx/service-ok.json" "$tmp/lg5" "$fx/images-ok.json" "$ceil" dev
+
+# --- check-flag-registry
+expect "registry ok" 0 "$G" "$fx/config-ok.go.txt" "$ceil"
+grep -v '"QUOTES"' "$fx/config-ok.go.txt" >"$tmp/cfg"
+expect "flag missing from code" 1 "$G" "$tmp/cfg" "$ceil"
+{ cat "$fx/config-ok.go.txt"; echo '	featureNew, err := flags.LoadSpec("NEWTHING", "newthing", flags.Off)'; } >"$tmp/cfg"
+expect "flag missing from ceiling" 1 "$G" "$tmp/cfg" "$ceil"
+sed 's/"QUOTES", "quotes", flags.Off/"QUOTES", "quotes", flags.On/' "$fx/config-ok.go.txt" >"$tmp/cfg"
+expect "code default on" 1 "$G" "$tmp/cfg" "$ceil"
+echo 'x = [{ name = "FEATURE_NOPE", value = "off" }]' >"$tmp/tf"
+expect "terraform unknown flag" 1 "$G" "$fx/config-ok.go.txt" "$ceil" "$tmp/tf"
+echo 'x = [{ name = "FEATURE_QUOTES_PERCENT", value = "0" }]' >"$tmp/tf"
+expect "terraform known flag" 0 "$G" "$fx/config-ok.go.txt" "$ceil" "$tmp/tf"
+
+# --- review findings (PR #165 review): each was a fail-open path before the fix
+jq '.envs.dev.flags.ENGAGEMENT.mode = "Off"' "$ceil" >"$tmp/ceil-typo"
+mut '.spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' revision-ok.json r
+expect "ceiling mode typo (validator)" 1 "$V" "$tmp/r" "$tmp/ceil-typo" dev
+expect "ceiling mode typo (registry)" 1 "$G" "$fx/config-ok.go.txt" "$tmp/ceil-typo"
+sed 's/"QUOTES", "quotes", flags.Off/"QUOTES", quotesWire, flags.On/' "$fx/config-ok.go.txt" >"$tmp/cfg"
+expect "LoadSpec line the parser cannot read" 1 "$G" "$tmp/cfg" "$ceil"
+{ cat "$fx/config-ok.go.txt"; echo '	featureM2, err := flags.LoadSpec("MEDIA2", "media2", flags.On)'; } >"$tmp/cfg"
+expect "flag name with a digit" 1 "$G" "$tmp/cfg" "$ceil"
+grep -v 'graphDefaultMode = flags.Off' "$fx/config-ok.go.txt" >"$tmp/cfg"
+expect "graphDefaultMode without prod override" 1 "$G" "$tmp/cfg" "$ceil"
+mut '.status.observedGeneration = 4' service-ok.json s
+expect "stale status" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.status.conditions = [{"type":"Ready","status":"False"}]' service-ok.json s
+expect "service not ready" 1 "$T" "$tmp/s" "$ceil" dev serving
+mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
+jq 'map(.package = "example-docker.pkg.dev/other-proj/api/api")' "$fx/images-ok.json" >"$tmp/img-other"
+expect "images from another repository" 1 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/img-other" "$ceil" dev
+mut '.status.traffic[1].revisionName = "api-00001-aaa"' service-ok.json s
+mut '.metadata.name = "api-00001-aaa"' revision-ok.json lg6
+expect "last-good is the serving revision" 1 "$R" "$tmp/s" "$tmp/lg6" "$fx/images-ok.json" "$ceil" dev
+
+# --- check-field-overrides.sh: any change to fieldOverrides must be acknowledged on purpose
+F="$p/check-field-overrides.sh"
+iok=$fx/indexes-ok.json
+aok=$fx/field-overrides-ok.ack
+expect "overrides unchanged" 0 "$F" "$iok" "$aok"
+jq '.fieldOverrides += [{"collectionGroup":"posts","fieldPath":"newfield","indexes":[]}]' "$iok" >"$tmp/i"
+expect "new exemption needs an ack" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides[0].indexes = [{"order":"ASCENDING","queryScope":"COLLECTION"}]' "$iok" >"$tmp/i"
+expect "changed override needs an ack" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides |= .[0:1]' "$iok" >"$tmp/i"
+expect "removed override needs an ack" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides |= reverse' "$iok" >"$tmp/i"
+expect "reordered overrides are the same set" 0 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides |= map({indexes, fieldPath, collectionGroup})' "$iok" | sed 's/$//' >"$tmp/i"
+expect "CRLF and key order inside overrides do not matter" 0 "$F" "$tmp/i" "$aok"
+jq '.indexes += [{"collectionGroup":"posts","queryScope":"COLLECTION","fields":[{"fieldPath":"x","order":"ASCENDING"}]}]' "$iok" >"$tmp/i"
+expect "adding a composite index needs no ack" 0 "$F" "$tmp/i" "$aok"
+printf '# no hash here
+' >"$tmp/a"
+expect "ack without a hash fails" 1 "$F" "$iok" "$tmp/a"
+printf 'sha256=%064d
+' 0 >"$tmp/a"
+expect "wrong ack hash fails" 1 "$F" "$iok" "$tmp/a"
+expect "missing ack file is a usage error" 2 "$F" "$iok" "$tmp/does-not-exist"
+echo '{"indexes":[]}' >"$tmp/i"
+expect "no fieldOverrides at all is checked too" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides += [.fieldOverrides[0]]' "$iok" >"$tmp/i"
+expect "duplicate overrides are rejected" 1 "$F" "$tmp/i" "$aok"
+echo '{"fieldOverrides":[{"collectionGroup":"x","fieldPath":"y","indexes":true}]}' >"$tmp/i"
+expect "odd override shapes fail with 1, not a jq crash" 1 "$F" "$tmp/i" "$aok"
+echo '{"fieldOverrides":"nope"}' >"$tmp/i"
+expect "non-array fieldOverrides is rejected" 1 "$F" "$tmp/i" "$aok"
+{ cat "$aok"; cat "$aok"; } >"$tmp/a"
+expect "two sha256 lines in the ack are rejected" 1 "$F" "$iok" "$tmp/a"
+tr 'a-f' 'A-F' <"$aok" | sed 's/SHA256=/sha256=/' >"$tmp/a"
+expect "uppercase hex in the ack is rejected" 1 "$F" "$iok" "$tmp/a"
+sed 's/$//' "$aok" >"$tmp/a"
+expect "a CRLF ack still works" 0 "$F" "$iok" "$tmp/a"
+# the file the gate checks must be the file firebase.json deploys
+fbj=$p/../../firebase.json
+if [ -f "$fbj" ]; then
+  if [ "$(jq -r '.firestore | if type == "object" then .indexes else "multi-database" end' "$fbj" | tr -d $'')" = "firebase/firestore.indexes.json" ]; then pass=$((pass+1)); else echo "FAIL firebase.json no longer deploys firebase/firestore.indexes.json as a single database file; the fieldOverrides gate would check the wrong file"; failed=$((failed+1)); fi
+fi
+# the real repository files must be consistent right now
+expect "repository fieldOverrides ack is current" 0 "$F" "$p/../../firebase/firestore.indexes.json" "$p/../../firebase/field-overrides.ack"
+
+# --- deploy-dev.yml invariants (static): additive indexes only, in the right order
+wf=$p/../../.github/workflows/deploy-dev.yml
+if [ -f "$wf" ]; then
+  code=$(grep -v '^[[:space:]]*#' "$wf" | tr -d '') # commands only; comments may mention these words
+  if grep -qE -- '--force|firebase deploy[^#]*[[:space:]]-f([[:space:]]|$)' <<<"$code"; then echo "FAIL deploy-dev.yml must never pass --force/-f to firebase deploy (it would delete indexes the serving backend may need)"; failed=$((failed+1)); else pass=$((pass+1)); fi
+  if ! grep -q 'promote-dev.sh' <<<"$code"; then
+    pass=$((pass+1)) # the workflow does not call the orchestrator yet (PR 2a): the wiring checks below apply once it does
+  else
+    # Any way of invoking the script counts (bash, exec, a run block): the first mention is the promote step.
+    idx=$(grep -n 'firebase deploy --only firestore:indexes' <<<"$code" | head -1 | cut -d: -f1); prm=$(grep -n 'promote-dev.sh' <<<"$code" | head -1 | cut -d: -f1)
+    rul=$(grep -n 'firebase deploy --only firestore:rules' <<<"$code" | head -1 | cut -d: -f1); hos=$(grep -n 'firebase deploy --only hosting' <<<"$code" | head -1 | cut -d: -f1)
+    if [ -n "$idx" ] && [ -n "$rul" ] && [ -n "$hos" ] && [ "$idx" -lt "$prm" ] && [ "$prm" -lt "$rul" ] && [ "$rul" -lt "$hos" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml order must be indexes < promote-dev.sh < rules < hosting"; failed=$((failed+1)); fi
+    # the fieldOverrides gate must run before any cloud access, and must not be conditional
+    fo=$(grep -n 'check-field-overrides.sh' <<<"$code" | head -1 | cut -d: -f1); auth=$(grep -n 'google-github-actions/auth@' <<<"$code" | head -1 | cut -d: -f1)
+    if [ -n "$fo" ] && [ -n "$auth" ] && [ "$fo" -lt "$auth" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run check-field-overrides.sh before the GCP auth step"; failed=$((failed+1)); fi
+    if grep -B4 'check-field-overrides.sh' <<<"$code" | grep -q 'if:'; then echo "FAIL deploy-dev.yml: the fieldOverrides gate must not be conditional (no if:)"; failed=$((failed+1)); else pass=$((pass+1)); fi
+    # every live-change step must be gated on the effective mode, and the recover step must exist
+    gated=$(grep -c "steps.mode.outputs.dry_run == 'false'" <<<"$code" || true)
+    if [ "$gated" -ge 7 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: only $gated steps are gated on dry_run == 'false' (need install, indexes, wait, stale check, recover, rules, hosting)"; failed=$((failed+1)); fi
+    if [ "$(grep -c 'PROMOTE_MARKER:' <<<"$code")" -ge 2 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: both the promote step and the recover step must set PROMOTE_MARKER"; failed=$((failed+1)); fi
+    if [ "$(grep -n 'timeout-minutes:' <<<"$code" | wc -l)" -ge 4 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: job, index wait, promote and recover steps must each have a timeout-minutes"; failed=$((failed+1)); fi
+    if grep -q 'RECOVER: "true"' <<<"$code" && grep -q 'always()' <<<"$code"; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run the always() recover step (RECOVER=true)"; failed=$((failed+1)); fi
+  fi
+fi
+
+echo "promotion fixture tests: $pass passed, $failed failed"
+[ "$failed" -eq 0 ]

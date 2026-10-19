@@ -11,13 +11,32 @@ resource "google_artifact_registry_repository" "api" {
   format        = "DOCKER"
   description   = "Container images for the ${var.env} api service (ko build output)."
 
-  cleanup_policy_dry_run = false
+  // true = Artifact Registry only LOGS what it would delete (needs Data Access audit logs, see the dev env); nothing is deleted.
+  cleanup_policy_dry_run = var.cleanup_policy_dry_run
 
   cleanup_policies {
-    id     = "keep-last-3"
+    id     = "keep-last-${var.keep_recent_versions}"
     action = "KEEP"
     most_recent_versions {
-      keep_count = 3
+      keep_count = var.keep_recent_versions
+    }
+  }
+
+  // Rollback and release protection. Artifact Registry: "If an artifact matches the criteria in both the delete
+  // policy and the keep policy, the artifact is kept" (docs.cloud.google.com/artifact-registry/docs/repositories/
+  // cleanup-policy), so these beat both DELETE policies below regardless of age. `tag_prefixes` needs
+  // tag_state = TAGGED and matches by PREFIX: "v" covers every release tag vX.Y.Z (CI tags are 40-hex git SHAs and
+  // `sha256-<digest>.sbom` manifests; neither starts with "v"). The `.sbom` manifest of a protected image is NOT
+  // protected (its tag starts with "sha256-"); it is not needed to pull or roll back the image.
+  dynamic "cleanup_policies" {
+    for_each = var.protected_tag_prefixes
+    content {
+      id     = "keep-tag-${cleanup_policies.value}"
+      action = "KEEP"
+      condition {
+        tag_state    = "TAGGED"
+        tag_prefixes = [cleanup_policies.value]
+      }
     }
   }
 
@@ -34,11 +53,11 @@ resource "google_artifact_registry_repository" "api" {
   // versions regardless of tag state, so this can't delete the images CI
   // (or a rollback) still needs.
   cleanup_policies {
-    id     = "delete-tagged-after-30d"
+    id     = "delete-tagged-after-${var.tagged_retention_days}d"
     action = "DELETE"
     condition {
       tag_state  = "TAGGED"
-      older_than = "2592000s" # 30 days
+      older_than = "${var.tagged_retention_days * 86400}s"
     }
   }
 
