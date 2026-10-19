@@ -1,5 +1,5 @@
 # Dev Artifact Registry retention reduction (PREPARED, NOT APPLIED)
-Status: prepared 2026-10-20 after the live dev promotion. **Nothing applied. Apply needs the founder's separate explicit approval, and a prerequisite below must be met first.**
+Status: **Step 1 (dry run) APPLIED to dzeroth-dev on 2026-10-19** (founder-approved; plan 1 add / 1 change / 0 destroy; post-apply plan shows no changes; `serving` tag set on `42be…79ef` beforehand). Nothing is deleted while `cleanup_policy_dry_run = true`. **Step 2 (live deletion) is NOT applied and needs the founder's separate approval after the real dry-run audit log is reviewed.**
 Cost: $0 (it reduces storage; dev repo is ~1.87 GB, free tier 0.5 GB, about $0.13/month over).
 
 ## Proposal (dev only; prod keeps the module defaults 3 versions / 30 days)
