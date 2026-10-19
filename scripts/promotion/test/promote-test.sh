@@ -5,6 +5,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 p=$(dirname "$here")
 fx=$here/fixtures
 export PATH="$here/fakebin:$PATH"
+# The fakes must be executable (git on Windows can drop the bit); otherwise PATH would skip them and the REAL gcloud/curl would run.
+for f in gcloud curl sleep; do
+  [ -x "$here/fakebin/$f" ] || { echo "FAIL: $here/fakebin/$f is not executable; refusing to run against real tools" >&2; exit 2; }
+done
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 pass=0
