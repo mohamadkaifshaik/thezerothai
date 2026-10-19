@@ -55,11 +55,13 @@ check "dry run: serving unchanged" eq "$(serving)" api-00001-aaa
 check "dry run: candidate tag removed" eq "$(tagrev candidate)" none
 check "dry run: never touched traffic" bash -c '! grep -q -- "--to-revisions" "$0"' "$FAKE/calls.log"
 check "dry run: no uid leak" noleak
+check "dry run: never tags last-good (AR or traffic)" bash -c '! grep -qE "tags add|tags delete|--update-tags" "$0"' "$FAKE/calls.log"
 
 # 2. dry run refuses when the candidate smoke fails
 setup; touch "$FAKE/health-fail"; run true
 check "smoke failure fails" eq "$rc" 1
 check "smoke failure: serving unchanged" eq "$(serving)" api-00001-aaa
+check "smoke failure: candidate tag removed" eq "$(tagrev candidate)" none
 
 # 3. unauthenticated probe answered 200 means auth is open: refuse
 setup; echo 200 >"$FAKE/probe-code"; run false
@@ -70,6 +72,7 @@ check "open auth: serving unchanged" eq "$(serving)" api-00001-aaa
 setup; touch "$FAKE/candidate-engagement-on"; run false
 check "ceiling violation refused" eq "$rc" 1
 check "ceiling violation: serving unchanged" eq "$(serving)" api-00001-aaa
+check "ceiling violation: candidate tag removed" eq "$(tagrev candidate)" none
 check "ceiling violation: no promotion call" bash -c '! grep -q -- "--to-revisions" "$0"' "$FAKE/calls.log"
 
 # 5. an index that is not READY blocks promotion
@@ -90,11 +93,25 @@ check "promotion: last-good traffic tag on previous" eq "$(tagrev last-good)" ap
 check "promotion: last-good AR tag on previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '\r')" sha256:11111
 check "promotion: no uid leak" noleak
 
-# 7b. a rollback target that Artifact Registry cannot back (previous image digest gone) refuses before any traffic moves
+# 7b. the previous image is gone from Artifact Registry: refuse BEFORE deploying anything or touching any tag
 setup; jq 'map(select(.version | test("^sha256:1111") | not))' "$FAKE/images.json" >"$tmp/i" && cp "$tmp/i" "$FAKE/images.json"; run false
 check "missing rollback image refused" eq "$rc" 1
 check "missing rollback image: serving unchanged" eq "$(serving)" api-00001-aaa
-check "missing rollback image: no promotion call" bash -c '! grep -q -- "--to-revisions" "$0"' "$FAKE/calls.log"
+check "missing rollback image: existing last-good untouched" eq "$(tagrev last-good)" api-00000-zzz
+check "missing rollback image: nothing deployed" bash -c '! grep -q "run deploy" "$0"' "$FAKE/calls.log"
+
+# 7c. AR tag add fails (not an "already exists" error): nothing changes, no tag is deleted, no promotion
+setup; touch "$FAKE/tags-add-fail"; run false
+check "tag add failure refused" eq "$rc" 1
+check "tag add failure: last-good untouched" eq "$(tagrev last-good)" api-00000-zzz
+check "tag add failure: serving unchanged" eq "$(serving)" api-00001-aaa
+check "tag add failure: no tag deleted, no promotion" bash -c '! grep -qE "tags delete|--to-revisions" "$0"' "$FAKE/calls.log"
+check "tag add failure: candidate tag removed" eq "$(tagrev candidate)" none
+
+# 7d. an "already exists" error is handled by delete + add and the run succeeds
+setup; touch "$FAKE/tags-add-exists-once"; run false
+check "existing last-good tag moved" eq "$rc" 0
+check "existing last-good tag: on the previous image" eq "$(jq -r '[.[] | select(.tags | index("last-good"))] | map(.version[0:12]) | join(",")' "$FAKE/images.json" | tr -d '')" sha256:11111
 
 # 8. update-traffic dropping the last-good tag is repaired, not ignored
 setup; touch "$FAKE/drop-last-good-on-promote"; run false
@@ -107,11 +124,27 @@ check "post-promotion failure exits 1" eq "$rc" 1
 check "post-promotion failure: rolled back" eq "$(serving)" api-00001-aaa
 check "post-promotion failure: rollback message" grep -q "rolled back to api-00001-aaa" "$tmp/out"
 
+# 9b. update-traffic applies the change and then errors (set -e path): must still roll back
+setup; touch "$FAKE/fail-after-promote-apply"; run false
+check "failure after traffic moved exits 1" eq "$rc" 1
+check "failure after traffic moved: rolled back" eq "$(serving)" api-00001-aaa
+
+# 9c. the job is cancelled (SIGTERM) during the soak: the exit trap rolls back
+setup; touch "$FAKE/term-on-sleep"; run false
+check "cancellation exits non-zero" bash -c '[ "$0" != 0 ]' "$rc"
+check "cancellation: rolled back" eq "$(serving)" api-00001-aaa
+check "cancellation: last-good still on the previous revision" eq "$(tagrev last-good)" api-00001-aaa
+
 # 10. usage errors
 setup; DRY_RUN=true IMAGE='example/api:latest' bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "tag-pinned image is a usage error" eq "$rc" 2
 setup; DRY_RUN=maybe IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "bad DRY_RUN is a usage error" eq "$rc" 2
+
+setup; SOAK_SECONDS=abc DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "non-numeric SOAK_SECONDS is a usage error" eq "$rc" 2
+setup; SOAK_INTERVAL=0 DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
+check "SOAK_INTERVAL=0 is a usage error" eq "$rc" 2
 
 echo "promote-dev tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

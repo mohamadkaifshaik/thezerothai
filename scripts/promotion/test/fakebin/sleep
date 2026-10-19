@@ -1,2 +1,4 @@
 #!/usr/bin/env bash
+# No real waiting. With $FAKE/term-on-sleep it signals its parent (the script under test) like a cancelled job would.
+if [ -n "${FAKE:-}" ] && [ -f "$FAKE/term-on-sleep" ]; then kill -TERM "$PPID"; fi
 exit 0
