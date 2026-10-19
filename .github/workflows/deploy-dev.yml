@@ -1,22 +1,35 @@
 name: Deploy dev
 
-# On every push to main: build the api image with ko, push to dev's
-# Artifact Registry, deploy it to Cloud Run dev at 100% traffic, then deploy
-# Firestore rules/indexes and the web app to Firebase Hosting (dev site).
-# See release-rollout skill. This never touches prod.
+# On every push to main: build the web client and the api image, then run scripts/promotion/promote-dev.sh, which deploys a
+# 0%-traffic `candidate`, validates it (serving state, traffic shape, flag/scaling ceiling, image digest), smokes it, checks
+# Firestore indexes, records the previously serving revision/image as `last-good` (and proves the rollback target is usable),
+# promotes, soaks and rolls back to `last-good` on any failure. Firestore rules/indexes and Hosting deploy only AFTER a
+# verified promotion. See docs/plans/promotion-policy.md and the release-rollout skill. This never touches prod.
+#
+# SAFE BY DEFAULT. The effective mode is decided in one place (the "Decide mode" step) and logged:
+#   - push to main:        PROMOTE only if the repository variable DEV_PROMOTE is exactly "true", otherwise DRY RUN.
+#   - workflow_dispatch:   PROMOTE only if the run sets promote=true (the variable is ignored), otherwise DRY RUN.
+#   - promotion is refused unless the run is on refs/heads/main AND its commit is still the current head of main.
+# A DRY RUN deploys a 0% candidate, validates and smokes it, removes the tag; it never moves traffic, tags last-good, deploys rules
+# or Hosting. Manual runs run exactly the same checks as push runs; there is no input that skips one.
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      promote:
+        description: "Really promote (default: dry run). Only allowed on main at its current head."
+        type: boolean
+        default: false
 
-permissions:
-  contents: read
-  id-token: write # required for WIF; nothing else needs elevated perms
+# Nothing is granted by default; the job asks for exactly what it needs.
+permissions: {}
 
+# One deploy at a time; a queued run is replaced by a newer one and a running one is never cancelled mid-flight.
 concurrency:
   group: deploy-dev
-  cancel-in-progress: false # never cancel a deploy mid-flight
+  cancel-in-progress: false
 
 env:
   # Not KO_GO_PATH: ko reads that variable as the path to the `go` binary.
@@ -24,14 +37,49 @@ env:
 
 jobs:
   deploy:
-    name: Build + deploy dev
+    name: Build, validate, promote dev
     runs-on: ubuntu-latest
     environment: dev
+    timeout-minutes: 45
+    permissions:
+      contents: read # checkout and the stale-commit check
+      id-token: write # WIF to GCP; nothing else needs elevated perms
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Decide mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_PROMOTE: ${{ inputs.promote }}
+          VAR_PROMOTE: ${{ vars.DEV_PROMOTE }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            decided_by="manual input promote=${INPUT_PROMOTE}"
+            want=$([ "$INPUT_PROMOTE" = "true" ] && echo true || echo false)
+          else
+            decided_by="repository variable DEV_PROMOTE='${VAR_PROMOTE}'"
+            want=$([ "$VAR_PROMOTE" = "true" ] && echo true || echo false)
+          fi
+          if [ "$want" = "true" ] && [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::Promotion is only allowed from refs/heads/main (this run is on ${REF}). Re-run it as a dry run."
+            exit 1
+          fi
+          if [ "$want" = "true" ]; then mode="PROMOTE"; dry=false; else mode="DRY RUN"; dry=true; fi
+          echo "dry_run=${dry}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Effective mode::${mode} (${decided_by}) commit ${SHA:0:7}"
+          {
+            echo "### Deploy dev: ${mode}"
+            echo "- decided by: ${decided_by}"
+            echo "- commit: ${SHA:0:7} on ${REF}"
+            if [ "$dry" = "true" ]; then echo "- a dry run never moves traffic, tags last-good, deploys rules or deploys Hosting"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Auth to GCP (WIF)
-        id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.DEV_DEPLOY_WORKLOAD_IDENTITY_PROVIDER }}
@@ -43,31 +91,40 @@ jobs:
           # Exact Cloud SDK pin (issue #46 / L6); bump per docs/runbooks/dependency-updates.md.
           version: "587.0.0"
 
-      - name: Skip if backend not buildable yet
-        id: gate
-        run: |
-          if [ ! -f backend/go.mod ]; then
-            echo "::warning::backend/go.mod not present yet — nothing to build. Skipping deploy."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        if: steps.gate.outputs.skip == 'false'
         with:
           # Latest 1.26 patch (stdlib security fixes); go.mod only states the minimum language version.
           go-version: "1.26.9"
           check-latest: true
 
       - uses: ko-build/setup-ko@61b4d1d396f5b2e7d6bb6fefdce3dc38d1a13445 # v0.10
-        if: steps.gate.outputs.skip == 'false'
         with:
           # Exact ko pin (issue #46 / L6); the input takes the tag with its leading "v".
           version: v0.19.1
 
+      - name: Setup Flutter
+        uses: ./.github/actions/setup-flutter
+        with:
+          version: "3.47.5"
+          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
+
+      # The web client builds BEFORE anything can be promoted: a failed client build stops the release.
+      - name: Build web (not deployed yet)
+        working-directory: app
+        env:
+          # Web calls the API via the Firebase Hosting `/api/**` rewrite, not the raw Cloud Run URL: same-origin, no CORS.
+          API_BASE_URL: /api
+          RECAPTCHA_SITE_KEY: ${{ vars.DEV_RECAPTCHA_SITE_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.DEV_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          flutter build web --release \
+            --dart-define=USE_EMULATORS=false \
+            --dart-define=FIREBASE_ENV=dev \
+            --dart-define=API_BASE_URL="${API_BASE_URL}" \
+            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
       - name: Build + push image with ko
-        if: steps.gate.outputs.skip == 'false'
         id: build
         working-directory: backend
         env:
@@ -77,58 +134,58 @@ jobs:
           digest=$(ko build "${API_MAIN_PKG}" --bare -t "${IMAGE_TAG}")
           echo "image=${digest}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy Firestore rules + indexes
-        if: steps.gate.outputs.skip == 'false' && hashFiles('firebase.json') != ''
-        run: |
-          npm install -g firebase-tools@15.32.0
-          firebase deploy --only firestore:rules,firestore:indexes \
-            --project "${{ vars.DEV_PROJECT_ID }}" --non-interactive
-
-      - name: Deploy Cloud Run revision (100% traffic — dev only)
-        if: steps.gate.outputs.skip == 'false'
-        run: |
-          gcloud run deploy "${{ vars.DEV_SERVICE_NAME }}" \
-            --project="${{ vars.DEV_PROJECT_ID }}" \
-            --region="${{ vars.DEV_REGION }}" \
-            --image="${{ steps.build.outputs.image }}" \
-            --quiet
-
-      - name: Smoke test dev (/health)
-        if: steps.gate.outputs.skip == 'false'
+      # A run that waited in the queue (or built slowly) must not promote an older commit after main has moved on.
+      - name: Refuse to promote a stale commit
+        if: steps.mode.outputs.dry_run == 'false'
         env:
-          SERVICE: ${{ vars.DEV_SERVICE_NAME }}
+          GH_TOKEN: ${{ github.token }}
+          REPO_SLUG: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          head=$(gh api "repos/${REPO_SLUG}/commits/main" --jq .sha)
+          if [ "$head" != "$SHA" ]; then
+            echo "::error::main has moved on (head ${head:0:7}, this run ${SHA:0:7}). Not promoting a stale commit; the newer run will."
+            exit 1
+          fi
+
+      - name: Validate, promote (or dry-run) and soak
+        env:
           PROJECT: ${{ vars.DEV_PROJECT_ID }}
           REGION: ${{ vars.DEV_REGION }}
-        run: |
-          url=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$url/health"
+          SERVICE: ${{ vars.DEV_SERVICE_NAME }}
+          IMAGE: ${{ steps.build.outputs.image }}
+          REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}/api
+          DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+        run: bash scripts/promotion/promote-dev.sh
 
-      - name: Setup Flutter
-        if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
-        uses: ./.github/actions/setup-flutter
-        with:
-          version: "3.47.5"
-          sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
-
-      - name: Build + deploy web (Firebase Hosting, dev)
-        if: steps.gate.outputs.skip == 'false' && hashFiles('app/pubspec.yaml') != '' && hashFiles('firebase.json') != ''
-        working-directory: app
+      # Everything below runs only after a verified promotion (the step above succeeded and this was not a dry run).
+      # Rules/indexes must stay backward-compatible with the previous backend (expand/contract, release-rollout skill).
+      - name: Deploy Firestore rules + indexes
+        if: success() && steps.mode.outputs.dry_run == 'false'
         env:
-          # Web calls the API via the Firebase Hosting `/api/**` rewrite, not
-          # the raw Cloud Run URL — same-origin, no CORS needed.
-          API_BASE_URL: /api
-          RECAPTCHA_SITE_KEY: ${{ vars.DEV_RECAPTCHA_SITE_KEY }}
-          GOOGLE_WEB_CLIENT_ID: ${{ vars.DEV_GOOGLE_WEB_CLIENT_ID }}
-          FIREBASE_PROJECT_ID: ${{ vars.DEV_PROJECT_ID }}
+          PROJECT: ${{ vars.DEV_PROJECT_ID }}
         run: |
-          flutter build web --release \
-            --dart-define=USE_EMULATORS=false \
-            --dart-define=FIREBASE_ENV=dev \
-            --dart-define=API_BASE_URL="${API_BASE_URL}" \
-            --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
-            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
           npm install -g firebase-tools@15.32.0
-          # Deploy from the repo root: app/firebase.json (flutterfire metadata only) would otherwise shadow the
-          # root firebase.json that defines hosting (public: app/build/web) and the /api/** rewrite.
-          cd "$GITHUB_WORKSPACE"
-          firebase deploy --only hosting --project "${FIREBASE_PROJECT_ID}" --non-interactive
+          firebase deploy --only firestore:rules,firestore:indexes --project "${PROJECT}" --non-interactive
+
+      - name: Wait for Firestore indexes to be READY
+        if: success() && steps.mode.outputs.dry_run == 'false'
+        env:
+          PROJECT: ${{ vars.DEV_PROJECT_ID }}
+        run: |
+          for _ in $(seq 1 40); do
+            gcloud firestore indexes composite list --project="${PROJECT}" --format=json > "${RUNNER_TEMP}/indexes.json"
+            not_ready=$(jq '[.[] | select(.state != "READY")] | length' "${RUNNER_TEMP}/indexes.json")
+            if [ "${not_ready}" = "0" ]; then exit 0; fi
+            sleep 15
+          done
+          echo "::error::Firestore indexes are still building; Hosting was not deployed"
+          exit 1
+
+      - name: Deploy Hosting (dev)
+        if: success() && steps.mode.outputs.dry_run == 'false'
+        env:
+          PROJECT: ${{ vars.DEV_PROJECT_ID }}
+        # Deploy from the repo root: app/firebase.json (flutterfire metadata only) would otherwise shadow the root
+        # firebase.json that defines hosting (public: app/build/web) and the /api/** rewrite.
+        run: firebase deploy --only hosting --project "${PROJECT}" --non-interactive

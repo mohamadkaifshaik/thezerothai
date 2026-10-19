@@ -18,7 +18,8 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 | drift (#167) | ignore Cloud Run `template.revision` (cause unverified) | review; merge does not change any resource |
 | dev flags | explicit `off` for MEDIA/ENGAGEMENT/REPLIES/PROFILE_SNAPSHOT/QUOTES + 9 config vars equal to code defaults (plan from `main`) | founder approval of the exact plan; creates a 0% revision |
 | dev maxScale (#169) | dev `max_instance_count = 1` (ADR-0007) | separate approval; apply AFTER the flags apply (or the flags plan from `main` would carry it); then `flag-ceiling.json` dev `max_instances` 3 -> 1 |
-| 2 | `deploy-dev.yml` rewrite with `dry_run` input | items under "Before PR 2" |
+| 2a | `promote-dev.sh` orchestrator + fake-gcloud tests (unwired) | review + merge |
+| 2b | `deploy-dev.yml` rewrite: dry run by default; promote only if `DEV_PROMOTE=true` (push) or `promote=true` (manual), only on main at its current head | review + separate merge approval; first live run is a watched manual dispatch |
 | 3 | docs: runbook, release-rollout skill, ADR-0007 amendment | PR 2 verified on dev |
 | 4 | smoke accounts + authenticated smoke | secret storage and owner confirmed |
 
