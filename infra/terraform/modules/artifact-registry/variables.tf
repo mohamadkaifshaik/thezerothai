@@ -32,3 +32,29 @@ variable "protected_tag_prefixes" {
     error_message = "protected_tag_prefixes must be distinct, non-empty tag prefixes (an empty prefix would keep every tagged image and disable delete-tagged-after-30d)."
   }
 }
+
+variable "keep_recent_versions" {
+  description = "keep-last-N: the N newest versions per package are always kept. ko pushes an image and its SBOM manifest as two versions, so N counts both."
+  type        = number
+  default     = 3
+  validation {
+    condition     = var.keep_recent_versions >= 3 && floor(var.keep_recent_versions) == var.keep_recent_versions
+    error_message = "keep_recent_versions must be an integer >= 3."
+  }
+}
+
+variable "tagged_retention_days" {
+  description = "Tagged versions older than this are deleted unless a KEEP policy matches (last-good, serving, v*, the newest N versions). 30 keeps the original behaviour."
+  type        = number
+  default     = 30
+  validation {
+    condition     = var.tagged_retention_days >= 1 && floor(var.tagged_retention_days) == var.tagged_retention_days
+    error_message = "tagged_retention_days must be an integer >= 1."
+  }
+}
+
+variable "cleanup_policy_dry_run" {
+  description = "When true, cleanup policies are evaluated and logged (audit log) but nothing is deleted."
+  type        = bool
+  default     = false
+}

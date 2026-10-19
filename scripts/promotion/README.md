@@ -88,9 +88,8 @@ to fail the suite.
 **Not verified against real gcloud:** whether `update-traffic` keeps tags (re-asserted). `tags add` moves an existing tag (Artifact
 Registry docs) and the CI identity cannot delete tags, so there is no delete fallback. Known limits: a dry run leaves the service
 template pointing at the unpromoted image (Terraform ignores `image`; a later Terraform apply makes a 0% revision from it); the soak
-checks `/health` and the 401 probe only, not Cloud Logging 5xx rates; the serving image is protected from Artifact Registry cleanup only
-by `keep-last-3` until the `serving` tag lands (#174), so after enough dry-run pushes or 30 days every run refuses at step 1 until it is
-re-tagged by hand. The first live run should be a watched manual dispatch.
+checks `/health` and the 401 probe only, not Cloud Logging 5xx rates; the `serving` tag (KEEP policy from #174) is moved to the new image after each verified promotion (a failure only warns), and a
+promote run re-tags a serving image that lost it before deploying; dry runs never touch it. The first live run should be a watched manual dispatch.
 
 ## check-field-overrides.sh (CI gate)
 `firebase deploy --only firestore:indexes` (used by deploy-dev.yml before promotion) also applies `fieldOverrides`: single-field index
