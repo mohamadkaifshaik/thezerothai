@@ -172,13 +172,15 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: shellcheck
-        run: shellcheck -x -P SCRIPTDIR -S warning scripts/promotion/*.sh scripts/promotion/test/run.sh
+        run: shellcheck -x -P SCRIPTDIR -S warning scripts/promotion/*.sh scripts/promotion/test/*.sh scripts/promotion/test/fakebin/*
 
       - name: actionlint
         run: actionlint
 
       - name: Fixture tests
-        run: bash scripts/promotion/test/run.sh
+        run: |
+          bash scripts/promotion/test/run.sh
+          bash scripts/promotion/test/promote-test.sh
 
       - name: Flag registry matches config.go, ceiling and Terraform
         run: |

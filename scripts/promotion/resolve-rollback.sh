@@ -18,7 +18,11 @@ target=$(jqr '[.status.traffic[] | select(.tag == "last-good")] | first | .revis
 [ "$(jqr '.metadata.name // empty' "$rev")" = "$target" ] || { echo "FAIL: revision JSON is not for '$target'" >&2; exit 1; }
 
 serving=$(jqr '[.status.traffic[] | select((.percent // 0) == 100)] | first | .revisionName // empty' "$svc")
-[ "$target" != "$serving" ] || { echo "FAIL: last-good is the revision already serving; rolling back would be a no-op" >&2; exit 1; }
+# PREFLIGHT=1 (set by promote-dev.sh before it moves traffic) proves the target would be usable later, so it may still be serving.
+if [ "${PREFLIGHT:-0}" != "1" ] && [ "$target" = "$serving" ]; then
+  echo "FAIL: last-good is the revision already serving; rolling back would be a no-op" >&2
+  exit 1
+fi
 
 image=$(jqr '.spec.containers[0].image // empty' "$rev")
 case $image in *@sha256:*) digest=sha256:${image##*@sha256:} ;; *) echo "FAIL: last-good image is not pinned by digest" >&2; exit 1 ;; esac
