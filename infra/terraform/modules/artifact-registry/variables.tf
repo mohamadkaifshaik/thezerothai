@@ -23,7 +23,12 @@ variable "labels" {
 }
 
 variable "protected_tag_prefixes" {
-  description = "Tag prefixes whose images are never deleted by cleanup (KEEP wins over DELETE). `last-good` is the rollback image the promotion workflow tags; `v` keeps release images (vX.Y.Z). Each kept image costs roughly 14-27 MB of the 0.5 GB free storage (dev average incl. SBOM: ~13.5 MB)."
+  description = "Tag prefixes whose images are never deleted by cleanup (KEEP wins over DELETE). `last-good` is reserved for the rollback image the Option C promotion workflow will tag (no workflow creates it yet, so that policy is inert until PR 2); `v` keeps release images (vX.Y.Z) forever, so prune old releases by hand when the repo nears the 0.5 GB free storage (measured dev average: ~13.5 MB per image incl. its SBOM manifest, i.e. roughly 35 kept releases)."
   type        = list(string)
   default     = ["last-good", "v"]
+
+  validation {
+    condition     = alltrue([for p in var.protected_tag_prefixes : can(regex("^[a-zA-Z0-9][a-zA-Z0-9._-]*$", p))]) && length(distinct(var.protected_tag_prefixes)) == length(var.protected_tag_prefixes)
+    error_message = "protected_tag_prefixes must be distinct, non-empty tag prefixes (an empty prefix would keep every tagged image and disable delete-tagged-after-30d)."
+  }
 }

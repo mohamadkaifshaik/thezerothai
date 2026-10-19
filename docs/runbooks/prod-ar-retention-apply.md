@@ -1,5 +1,8 @@
 # Runbook: applying Artifact Registry retention to prod without unrelated changes
 
+> **Executed 2026-10-19 and verified (see Record below). Do not reuse this procedure after `main`'s next prod apply or any
+> later change to the AR module:** applying from the old base commit would revert those changes. Re-derive the base then.
+
 Why this exists: `infra/terraform/envs/prod` on `main` carries merged-but-unapplied work (new Cloud Run env vars, Firestore
 TTLs, FCM IAM, `fcm.googleapis.com`, a Pub/Sub grant), three pending `moved` blocks for the monitoring alert policies
 (prod state still holds the old addresses, so deleting the blocks would destroy and recreate the policies), and a Cloud Run
@@ -10,21 +13,24 @@ Approach: plan and apply from the commit prod was last applied from (`28f32fa`, 
 this PR, so the plan contains nothing else. The module change is byte-identical on that base (`f0624fb`).
 
 ```bash
-git worktree add .claude/worktrees/ar-prod-base chore/prod-ar-retention-base   # 28f32fa + f0624fb
+git worktree add --detach .claude/worktrees/ar-prod-base f0624fb   # 28f32fa + the module change; a SHA, not a movable branch
 cd .claude/worktrees/ar-prod-base/infra/terraform/envs/prod
 cp <path-to>/terraform.tfvars .                      # gitignored; delete again after
 terraform init -reconfigure -backend-config="bucket=dzeroth-tfstate"
 terraform plan -input=false -target=module.artifact_registry -out=ar.tfplan
-terraform show -json ar.tfplan | jq '[.resource_changes[]|select(.change.actions!=["no-op"])|.address]'
-# must print exactly: ["module.artifact_registry.google_artifact_registry_repository.api"]
+terraform show ar.tfplan     # read it: only cleanup_policies change, 0 to add, 1 to change, 0 to destroy
+terraform show -json ar.tfplan | jq -e '[.resource_changes[]|select(.change.actions!=["no-op"])|{a:.address,x:.change.actions}]==[{"a":"module.artifact_registry.google_artifact_registry_repository.api","x":["update"]}]'
+# must print true (checks address AND action: a delete+create replace would wipe every image)
 # apply only after the founder approves this exact plan:
 terraform apply ar.tfplan
 ```
 
 After apply (read-only checks): `gcloud artifacts repositories describe api --project=dzeroth-prod --location=asia-south1`
 shows five policies (`keep-last-3`, `keep-tag-last-good`, `keep-tag-v`, two DELETE); the serving digest still carries `v0.4.0`.
-Policies run as a background job, within about a day. Rollback: re-apply the previous module (remove the two KEEP
-policies); no image is touched by the apply itself.
+Policies run as a background job, within about a day. Rollback uses the same isolated worktree and saved-plan flow with
+the two KEEP policies removed from the module there; never run `terraform apply` here without a reviewed `ar.tfplan`.
+Warning: without the KEEP policies, `v*` images older than 30 days become deletable (the serving `v0.4.0` image included).
+Afterwards delete `ar.tfplan`, `.terraform/` and the copied `terraform.tfvars` from the worktree.
 Do not use the same worktree for `main`'s prod plan: the later full prod apply (Cloud Run env vars, TTLs, FCM) is a separate
 approval and must first deal with the `template.revision` drift.
 
