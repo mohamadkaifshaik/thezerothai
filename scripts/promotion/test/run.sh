@@ -143,6 +143,52 @@ mut '.status.traffic[1].revisionName = "api-00001-aaa"' service-ok.json s
 mut '.metadata.name = "api-00001-aaa"' revision-ok.json lg6
 expect "last-good is the serving revision" 1 "$R" "$tmp/s" "$tmp/lg6" "$fx/images-ok.json" "$ceil" dev
 
+# --- check-field-overrides.sh: any change to fieldOverrides must be acknowledged on purpose
+F="$p/check-field-overrides.sh"
+iok=$fx/indexes-ok.json
+aok=$fx/field-overrides-ok.ack
+expect "overrides unchanged" 0 "$F" "$iok" "$aok"
+jq '.fieldOverrides += [{"collectionGroup":"posts","fieldPath":"newfield","indexes":[]}]' "$iok" >"$tmp/i"
+expect "new exemption needs an ack" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides[0].indexes = [{"order":"ASCENDING","queryScope":"COLLECTION"}]' "$iok" >"$tmp/i"
+expect "changed override needs an ack" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides |= .[0:1]' "$iok" >"$tmp/i"
+expect "removed override needs an ack" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides |= reverse' "$iok" >"$tmp/i"
+expect "reordered overrides are the same set" 0 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides |= map({indexes, fieldPath, collectionGroup})' "$iok" | sed 's/$//' >"$tmp/i"
+expect "CRLF and key order inside overrides do not matter" 0 "$F" "$tmp/i" "$aok"
+jq '.indexes += [{"collectionGroup":"posts","queryScope":"COLLECTION","fields":[{"fieldPath":"x","order":"ASCENDING"}]}]' "$iok" >"$tmp/i"
+expect "adding a composite index needs no ack" 0 "$F" "$tmp/i" "$aok"
+printf '# no hash here
+' >"$tmp/a"
+expect "ack without a hash fails" 1 "$F" "$iok" "$tmp/a"
+printf 'sha256=%064d
+' 0 >"$tmp/a"
+expect "wrong ack hash fails" 1 "$F" "$iok" "$tmp/a"
+expect "missing ack file is a usage error" 2 "$F" "$iok" "$tmp/does-not-exist"
+echo '{"indexes":[]}' >"$tmp/i"
+expect "no fieldOverrides at all is checked too" 1 "$F" "$tmp/i" "$aok"
+jq '.fieldOverrides += [.fieldOverrides[0]]' "$iok" >"$tmp/i"
+expect "duplicate overrides are rejected" 1 "$F" "$tmp/i" "$aok"
+echo '{"fieldOverrides":[{"collectionGroup":"x","fieldPath":"y","indexes":true}]}' >"$tmp/i"
+expect "odd override shapes fail with 1, not a jq crash" 1 "$F" "$tmp/i" "$aok"
+echo '{"fieldOverrides":"nope"}' >"$tmp/i"
+expect "non-array fieldOverrides is rejected" 1 "$F" "$tmp/i" "$aok"
+{ cat "$aok"; cat "$aok"; } >"$tmp/a"
+expect "two sha256 lines in the ack are rejected" 1 "$F" "$iok" "$tmp/a"
+tr 'a-f' 'A-F' <"$aok" | sed 's/SHA256=/sha256=/' >"$tmp/a"
+expect "uppercase hex in the ack is rejected" 1 "$F" "$iok" "$tmp/a"
+sed 's/$//' "$aok" >"$tmp/a"
+expect "a CRLF ack still works" 0 "$F" "$iok" "$tmp/a"
+# the file the gate checks must be the file firebase.json deploys
+fbj=$p/../../firebase.json
+if [ -f "$fbj" ]; then
+  if [ "$(jq -r '.firestore | if type == "object" then .indexes else "multi-database" end' "$fbj" | tr -d $'')" = "firebase/firestore.indexes.json" ]; then pass=$((pass+1)); else echo "FAIL firebase.json no longer deploys firebase/firestore.indexes.json as a single database file; the fieldOverrides gate would check the wrong file"; failed=$((failed+1)); fi
+fi
+# the real repository files must be consistent right now
+expect "repository fieldOverrides ack is current" 0 "$F" "$p/../../firebase/firestore.indexes.json" "$p/../../firebase/field-overrides.ack"
+
 # --- deploy-dev.yml invariants (static): additive indexes only, in the right order
 wf=$p/../../.github/workflows/deploy-dev.yml
 if [ -f "$wf" ]; then

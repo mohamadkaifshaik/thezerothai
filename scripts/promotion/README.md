@@ -90,3 +90,11 @@ Registry docs) and the CI identity cannot delete tags, so there is no delete fal
 template pointing at the unpromoted image (Terraform ignores `image`; a later Terraform apply makes a 0% revision from it); the soak
 checks `/health` and the 401 probe only, not Cloud Logging 5xx rates; the `serving` tag (KEEP policy from #174) is moved to the new image after each verified promotion (a failure only warns), and a
 promote run re-tags a serving image that lost it before deploying; dry runs never touch it. The first live run should be a watched manual dispatch.
+
+## check-field-overrides.sh (CI gate)
+`firebase deploy --only firestore:indexes` (used by deploy-dev.yml before promotion) also applies `fieldOverrides`: single-field index
+exemptions. Composite indexes are additive, but a new or changed override can remove single-field indexing and break queries the serving
+backend or the rollback target still needs. `firebase/field-overrides.ack` holds the sha256 of the canonicalised overrides (sorted,
+key-ordered); CI fails when `firebase/firestore.indexes.json` overrides stop matching it, so any such change must come with a visible,
+deliberate edit of the ack file in a reviewed PR. Adding or changing composite `indexes` needs no ack. This is a review gate, not a
+proof of safety: it cannot tell whether a given exemption is safe.

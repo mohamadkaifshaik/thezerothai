@@ -182,6 +182,9 @@ jobs:
           bash scripts/promotion/test/run.sh
           bash scripts/promotion/test/promote-test.sh
 
+      - name: fieldOverrides changes are acknowledged
+        run: bash scripts/promotion/check-field-overrides.sh firebase/firestore.indexes.json firebase/field-overrides.ack
+
       - name: Flag registry matches config.go, ceiling and Terraform
         run: |
           bash scripts/promotion/check-flag-registry.sh backend/pkg/platform/config/config.go \
