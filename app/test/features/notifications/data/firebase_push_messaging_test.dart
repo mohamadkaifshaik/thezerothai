@@ -1,3 +1,7 @@
+// firebase_messaging 17 deprecates getToken/onTokenRefresh/deleteToken in favour of the FID-based register()/onRegistered/unregister().
+// The backend stores the FCM token, so moving to FID registration is a behaviour change with its own ticket, not part of the dependency bump.
+// ignore_for_file: deprecated_member_use
+
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
