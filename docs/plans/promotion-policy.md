@@ -18,12 +18,16 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 | drift (#167) | ignore Cloud Run `template.revision` (cause unverified) | review; merge does not change any resource |
 | dev flags | explicit `off` for MEDIA/ENGAGEMENT/REPLIES/PROFILE_SNAPSHOT/QUOTES + 9 config vars equal to code defaults (plan from `main`) | founder approval of the exact plan; creates a 0% revision |
 | dev maxScale (#169) | dev `max_instance_count = 1` (ADR-0007) | separate approval; apply AFTER the flags apply (or the flags plan from `main` would carry it); then `flag-ceiling.json` dev `max_instances` 3 -> 1 |
-| 2 | `deploy-dev.yml` rewrite with `dry_run` input | items under "Before PR 2" |
+| 2a | `promote-dev.sh` orchestrator + fake-gcloud tests (unwired) | review + merge |
+| 2b | `deploy-dev.yml` rewrite: dry run by default; promote only if `DEV_PROMOTE=true` (push) or `promote=true` (manual), only on main at its current head | review + separate merge approval; first live run is a watched manual dispatch |
 | 3 | docs: runbook, release-rollout skill, ADR-0007 amendment | PR 2 verified on dev |
 | 4 | smoke accounts + authenticated smoke | secret storage and owner confirmed |
 
 ## PR 2 design (deploy-dev, push to `main`)
 1. Build + push image (ko, tag = SHA). Build web with the dev `--dart-define`s. **Either failing stops here.**
+1b. (promote mode only, founder decision 2026-10-19) Deploy ADDITIVE indexes (`firebase deploy --only firestore:indexes`, never `--force`, which
+   would delete indexes missing from the file) and wait until every index is READY, so a candidate that needs a new composite index
+   never serves FAILED_PRECONDITION. A failure here promotes nothing; deployed indexes stay (additive, harmless to the previous backend).
 2. Auth via WIF; fetch service JSON and the serving revision JSON; `check-traffic.sh ... serving` (fail on any surprise).
 3. `gcloud run deploy --no-traffic --tag=candidate`; refetch; `check-traffic.sh ... staged <cand> <serving>`;
    `validate-revision.sh` on the candidate revision JSON (ceiling gate).
@@ -34,7 +38,7 @@ Status: DRAFT for founder review, 2026-10-19. Nothing here is wired. Owner: prod
 6. `update-traffic --to-revisions=<cand>=100`; refetch; assert exactly one 100% named revision, tags in the allow-list.
 7. Post-promotion verification (`/health`, 401 probe, 5xx check from logs for N minutes). On any failure:
    `resolve-rollback.sh` (last-good only) then `update-traffic --to-revisions=<last-good>=100`, refetch, re-assert; the job still fails.
-8. Only after 7: `firebase deploy --only firestore:rules,firestore:indexes`, wait for indexes READY, then Hosting.
+8. Only after 7: `firebase deploy --only firestore:rules`, then Hosting.
 `dry_run=true` stops after step 4 and never changes traffic or tags.
 
 ## Before PR 2 (unverified or blocked; do not assume)
