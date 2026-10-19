@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "name": "api-00001-aaa",
+    "annotations": {
+      "autoscaling.knative.dev/maxScale": "3",
+      "autoscaling.knative.dev/minScale": "0"
+    }
+  },
+  "spec": {
+    "containerConcurrency": 80,
+    "containers": [
+      {
+        "image": "example-docker.pkg.dev/fake-proj/api/api@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "env": [
+          {"name": "FEATURE_GRAPH", "value": "on"},
+          {"name": "FEATURE_GRAPH_ALLOWLIST"},
+          {"name": "FEATURE_POSTS", "value": "on"},
+          {"name": "FEATURE_REPORTS", "value": "off"},
+          {"name": "FEATURE_ACCOUNT_LIFECYCLE", "value": "allowlist"},
+          {"name": "FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST", "value": "fake-uid-AAAA"},
+          {"name": "FEATURE_ACCOUNT_LIFECYCLE_PERCENT", "value": "0"},
+          {"name": "FEATURE_REMOVED_IDS", "value": "allowlist"},
+          {"name": "FEATURE_REMOVED_IDS_ALLOWLIST", "value": "fake-uid-BBBB"},
+          {"name": "FEATURE_NOTIFICATIONS", "value": "off"},
+          {"name": "OTHER_SETTING", "value": "x"}
+        ]
+      }
+    ]
+  }
+}

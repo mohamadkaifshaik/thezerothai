@@ -138,3 +138,49 @@ jobs:
       - name: (skip) Makefile or firebase.json not present yet
         if: hashFiles('Makefile') == '' || hashFiles('firebase.json') == ''
         run: echo "::warning::Makefile and/or firebase.json not present yet — skipping emulator integration tests."
+
+  # Release-process scripts (scripts/promotion). Pure shell + jq; no credentials, no GCP access: this job has the
+  # workflow's read-only `contents` permission and no id-token.
+  promotion-scripts:
+    name: promotion scripts (shellcheck, actionlint, fixture tests, flag registry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Exact release binaries, sha256-verified (same approach as osv-scanner above; bump per
+      # docs/runbooks/dependency-updates.md). actionlint's hash matches the project's published checksums file;
+      # shellcheck publishes no checksum file, so its hash was computed from the release asset when pinned.
+      - name: Install shellcheck + actionlint
+        env:
+          SHELLCHECK_VERSION: v0.10.0
+          SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  ${RUNNER_TEMP}/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/"
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/bin" actionlint
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: shellcheck
+        run: shellcheck -x -P SCRIPTDIR -S warning scripts/promotion/*.sh scripts/promotion/test/run.sh
+
+      - name: actionlint
+        run: actionlint
+
+      - name: Fixture tests
+        run: bash scripts/promotion/test/run.sh
+
+      - name: Flag registry matches config.go, ceiling and Terraform
+        run: |
+          bash scripts/promotion/check-flag-registry.sh backend/pkg/platform/config/config.go \
+            scripts/promotion/flag-ceiling.json infra/terraform/envs/dev/main.tf infra/terraform/envs/prod/main.tf
