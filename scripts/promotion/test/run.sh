@@ -146,12 +146,20 @@ expect "last-good is the serving revision" 1 "$R" "$tmp/s" "$tmp/lg6" "$fx/image
 # --- deploy-dev.yml invariants (static): additive indexes only, in the right order
 wf=$p/../../.github/workflows/deploy-dev.yml
 if [ -f "$wf" ]; then
-  code=$(grep -v '^[[:space:]]*#' "$wf") # commands only; comments may mention these words
-  if grep -q -- '--force' <<<"$code"; then echo "FAIL deploy-dev.yml must never pass --force to firebase deploy (it would delete indexes the serving backend may need)"; failed=$((failed+1)); else pass=$((pass+1)); fi
-  idx=$(grep -n 'firebase deploy --only firestore:indexes' <<<"$code" | head -1 | cut -d: -f1); prm=$(grep -n 'run: bash scripts/promotion/promote-dev.sh' <<<"$code" | head -1 | cut -d: -f1)
-  rul=$(grep -n 'firebase deploy --only firestore:rules' <<<"$code" | head -1 | cut -d: -f1); hos=$(grep -n 'firebase deploy --only hosting' <<<"$code" | head -1 | cut -d: -f1)
-  if [ -z "$prm" ]; then pass=$((pass+1)) # not wired to the orchestrator yet (PR 2a): order is checked once it is
-  elif [ -n "$idx" ] && [ -n "$rul" ] && [ -n "$hos" ] && [ "$idx" -lt "$prm" ] && [ "$prm" -lt "$rul" ] && [ "$rul" -lt "$hos" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml order must be indexes < promote-dev.sh < rules < hosting"; failed=$((failed+1)); fi
+  code=$(grep -v '^[[:space:]]*#' "$wf" | tr -d '') # commands only; comments may mention these words
+  if grep -qE -- '--force|firebase deploy[^#]*[[:space:]]-f([[:space:]]|$)' <<<"$code"; then echo "FAIL deploy-dev.yml must never pass --force/-f to firebase deploy (it would delete indexes the serving backend may need)"; failed=$((failed+1)); else pass=$((pass+1)); fi
+  if ! grep -q 'promote-dev.sh' <<<"$code"; then
+    pass=$((pass+1)) # the workflow does not call the orchestrator yet (PR 2a): the wiring checks below apply once it does
+  else
+    # Any way of invoking the script counts (bash, exec, a run block): the first mention is the promote step.
+    idx=$(grep -n 'firebase deploy --only firestore:indexes' <<<"$code" | head -1 | cut -d: -f1); prm=$(grep -n 'promote-dev.sh' <<<"$code" | head -1 | cut -d: -f1)
+    rul=$(grep -n 'firebase deploy --only firestore:rules' <<<"$code" | head -1 | cut -d: -f1); hos=$(grep -n 'firebase deploy --only hosting' <<<"$code" | head -1 | cut -d: -f1)
+    if [ -n "$idx" ] && [ -n "$rul" ] && [ -n "$hos" ] && [ "$idx" -lt "$prm" ] && [ "$prm" -lt "$rul" ] && [ "$rul" -lt "$hos" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml order must be indexes < promote-dev.sh < rules < hosting"; failed=$((failed+1)); fi
+    # every live-change step must be gated on the effective mode, and the recover step must exist
+    gated=$(grep -c "steps.mode.outputs.dry_run == 'false'" <<<"$code" || true)
+    if [ "$gated" -ge 7 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: only $gated steps are gated on dry_run == 'false' (need install, indexes, wait, stale check, recover, rules, hosting)"; failed=$((failed+1)); fi
+    if grep -q 'RECOVER: "true"' <<<"$code" && grep -q 'always()' <<<"$code"; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run the always() recover step (RECOVER=true)"; failed=$((failed+1)); fi
+  fi
 fi
 
 echo "promotion fixture tests: $pass passed, $failed failed"

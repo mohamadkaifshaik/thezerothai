@@ -148,11 +148,14 @@ jobs:
             exit 1
           fi
 
-      # Additive indexes go out BEFORE promotion so a candidate that needs a new composite index never serves FAILED_PRECONDITION.
-      # Safe for the serving backend: an index only adds capability, and `firebase deploy` in non-interactive mode without --force
-      # NEVER deletes indexes missing from the file (firebase-tools Firestore API: extra indexes are deleted only with --force;
-      # test/run.sh fails if --force ever appears in this workflow). If this or the wait below fails, nothing has been promoted; the
-      # indexes stay (additive, harmless to the previous backend). A dry run deploys no indexes.
+      # Composite indexes go out BEFORE promotion so a candidate that needs a new one never serves FAILED_PRECONDITION. They are
+      # additive: `firebase deploy` in non-interactive mode without --force never deletes indexes missing from the file (firebase-tools
+      # Firestore API: extra indexes are deleted only with --force; test/run.sh fails if --force appears in this workflow's commands).
+      # CAUTION: the same deploy also applies `fieldOverrides` (single-field index exemptions) from firebase/firestore.indexes.json,
+      # and a NEW exemption removes single-field indexing, which is NOT additive and could break the serving backend's queries and
+      # the rollback target's. Treat any fieldOverrides change as an expand/contract change reviewed on its own (never ship a new
+      # exemption in the same release as code that stops needing the index). The READY wait below covers composite indexes only.
+      # If this or the wait fails, nothing has been promoted; deployed composite indexes stay. A dry run deploys no indexes.
       - name: Install firebase-tools
         if: steps.mode.outputs.dry_run == 'false'
         run: npm install -g firebase-tools@15.32.0
@@ -177,7 +180,12 @@ jobs:
           echo "::error::Firestore indexes are still building; nothing was promoted (indexes already deployed are additive and stay)"
           exit 1
 
+      # The promote step has its own timeout, shorter than the job's, so the recover step below always has time to run. The runner
+      # signals only this step's shell on cancel/timeout, so the script persists PROMOTE_MARKER before traffic moves instead of
+      # relying on a trap.
       - name: Validate, promote (or dry-run) and soak
+        id: promote
+        timeout-minutes: 30
         env:
           PROJECT: ${{ vars.DEV_PROJECT_ID }}
           REGION: ${{ vars.DEV_REGION }}
@@ -185,6 +193,21 @@ jobs:
           IMAGE: ${{ steps.build.outputs.image }}
           REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}/api
           DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+          PROMOTE_MARKER: ${{ runner.temp }}/promote-unverified
+        run: bash scripts/promotion/promote-dev.sh
+
+      # Runs even after a cancel, a timeout or a failure. If the marker written just before traffic moved still exists, the promotion
+      # never finished verification and traffic goes back to last-good; otherwise it does nothing.
+      - name: Roll back an unverified promotion (cancel, timeout, failure)
+        if: always() && steps.mode.outputs.dry_run == 'false'
+        timeout-minutes: 8
+        env:
+          PROJECT: ${{ vars.DEV_PROJECT_ID }}
+          REGION: ${{ vars.DEV_REGION }}
+          SERVICE: ${{ vars.DEV_SERVICE_NAME }}
+          REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}/api
+          RECOVER: "true"
+          PROMOTE_MARKER: ${{ runner.temp }}/promote-unverified
         run: bash scripts/promotion/promote-dev.sh
 
       # Rules and Hosting run only after a verified promotion (the step above succeeded and this was not a dry run).
