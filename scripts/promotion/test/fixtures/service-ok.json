@@ -1,0 +1,8 @@
+{
+  "status": {
+    "traffic": [
+      {"revisionName": "api-00001-aaa", "percent": 100, "tag": "cand", "url": "https://cand---fake.example"},
+      {"revisionName": "api-00000-zzz", "tag": "last-good", "url": "https://last-good---fake.example"}
+    ]
+  }
+}
