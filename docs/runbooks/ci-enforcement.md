@@ -131,6 +131,7 @@ JSON
 3. Run the verification matrix tests 1-6 and 11.
 4. Owner applies the ruleset above; run tests 7-10.
 5. If anything is wrong: set `enforcement` to `disabled` (rollback), fix, retry.
+Ruleset applied 2026-10-20; matrix tests 1-6, 11 passed.
 
 ## 8. The `field-overrides.ack` hash
 The failing check prints the expected hash, so an author can paste it. With this setup that is fine: the ack is CODEOWNERS-protected,
