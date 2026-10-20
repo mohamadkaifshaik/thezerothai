@@ -14,3 +14,5 @@
 # deploy-dev.yml is the one that can change dev: traffic, rules, indexes, Hosting) and the ownership file itself
 /.github/workflows/                            @mohamadkaifshaik
 /.github/CODEOWNERS                            @mohamadkaifshaik
+
+# matrix test 8: comment-only line to exercise code-owner gating
