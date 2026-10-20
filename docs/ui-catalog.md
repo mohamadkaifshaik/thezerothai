@@ -24,6 +24,7 @@
 | AppConfig | app/lib/app/app_config.dart | --dart-define environment config (API base URL, emulator flags, App Check keys) |
 | AuthGate | app/lib/features/auth/presentation/widgets/auth_gate.dart | wraps protected routes; swaps in the email-verification prompt when needed |
 | EmailPasswordForm | app/lib/features/auth/presentation/widgets/email_password_form.dart | shared email/password fields + validation for sign-in and sign-up |
+| AuthFormLayout (`maxWidth` 440) | app/lib/features/auth/presentation/widgets/auth_form_layout.dart | the frame of sign-in and sign-up: heading (header semantics) over scrollable, centered children; an `AppSurface` card from `AppBreakpoints.mobile` up, edge to edge with gutters on phones |
 | SocialSignInButtons | app/lib/features/auth/presentation/widgets/social_sign_in_buttons.dart | Google + (platform-gated) Apple sign-in buttons |
 | VerifyEmailView | app/lib/features/auth/presentation/widgets/verify_email_view.dart | full-screen "verify your email" prompt (no dedicated route); reused by CreateProfileScreen (`banner`/`onBack`) for `ERROR_REASON_EMAIL_NOT_VERIFIED` from CreateProfile |
 | FollowButton | app/lib/shared/widgets/follow_button.dart | Follow/Following/Unblock/Requested action; reads a `RelationshipCubit` provided above it — one per profile header or list row |
