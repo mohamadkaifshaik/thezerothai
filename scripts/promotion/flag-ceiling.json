@@ -13,7 +13,7 @@
       "allowed_tags": ["cand", "p8-t1", "candidate", "last-good"],
       "flags": {
         "ACCOUNT_LIFECYCLE": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
-        "ENGAGEMENT": {"mode": "off"},
+        "ENGAGEMENT": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
         "GRAPH": {"mode": "on"},
         "MEDIA": {"mode": "off"},
         "NOTIFICATIONS": {"mode": "off"},
