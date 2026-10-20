@@ -1,11 +1,13 @@
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:bloc_test/bloc_test.dart';
@@ -251,6 +253,37 @@ void main() {
     expect(find.text('Follow'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     verifyNever(() => graphRepository.relationshipFor(any()));
+  });
+
+  testWidgets('wide screens cap the profile column to the feed width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        profile: identity.Profile(userId: 'viewer-uid', handle: 'viewer'),
+      ),
+    );
+    when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+      (_) async => identity.Profile(
+        userId: 'target-uid',
+        handle: 'kaif',
+        displayName: 'Kaif',
+      ),
+    );
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byType(ProfileHeader)).width,
+      AppBreakpoints.mobile,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a blocking relationship shows the "You blocked" banner and '
