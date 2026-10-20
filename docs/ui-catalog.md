@@ -100,6 +100,9 @@
 | PostUnavailableView | app/lib/features/posts/presentation/widgets/post_unavailable_view.dart | the final NOT_FOUND state ("This post isn't available" + Go to Home), shared by the post and thread screens |
 | PostListSkeleton | app/lib/shared/widgets/post_list_skeleton.dart | static post-shaped loading rows (`rows`, `semanticsLabel`); Home/profile feed and thread |
 | AppEmptyView | app/lib/shared/widgets/app_empty_view.dart | empty list state (icon, title, optional subtitle); feed and thread replies |
+| AppSurface (`elevated`) | app/lib/shared/widgets/app_surface.dart | a calm bordered panel on a theme surface (standard radius, low-contrast border); `elevated` lifts it one level for a panel on a panel; presentation only |
+| AppSectionHeader | app/lib/shared/widgets/app_section_header.dart | a section heading (title announced as a header, optional subtitle, optional text action `actionLabel` + `onAction` given together); presentation only |
+| AppGradientButton (`busy`) | app/lib/shared/widgets/app_gradient_button.dart | the primary CTA of a screen only (Post, Save): gradient pill, >= 48dp, announces its label once; `busy` or null `onPressed` ignores taps; the caller owns that state |
 | PendingPostRow | app/lib/shared/widgets/pending_post_row.dart | one dimmed optimistic post/reply row with "Posting..." (and on-device photo `thumbnails` when attached); used by `PendingPostsSection` and the thread's reply in flight |
 | BlockedPostGate | app/lib/shared/widgets/blocked_post_gate.dart | ADR-0010 D6 "You blocked @x - Show post" banner around a post of a blocked author (post detail and thread focal/context posts) |
 | viewerAuthorSnapshot | app/lib/features/posts/domain/viewer_author_snapshot.dart | the signed-in profile as an `AuthorSnapshot` for optimistic rows |
