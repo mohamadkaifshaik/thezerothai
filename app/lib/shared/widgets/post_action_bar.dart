@@ -15,8 +15,9 @@ class PostActions {
   final VoidCallback? onShare;
 }
 
-/// Reply / repost / like / share: outline icons with compact counts, spread
-/// evenly across the content column. Rendered by `PostCard` only when it is
+/// Reply / repost / like / share: outline icons with compact counts. Every
+/// visible action gets an equal, left-aligned slot, so two actions (replies
+/// off) sit next to each other instead of at opposite edges. Rendered by `PostCard` only when it is
 /// given [PostActions] (the engagement bar, P5).
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
@@ -48,42 +49,61 @@ class PostActionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         if (_shows(actions.onReply))
-          _ActionButton(
-            icon: Icons.chat_bubble_outline,
-            label: 'Reply',
-            count: replyCount,
-            onPressed: actions.onReply,
+          _ActionSlot(
+            child: _ActionButton(
+              icon: Icons.chat_bubble_outline,
+              label: 'Reply',
+              count: replyCount,
+              onPressed: actions.onReply,
+            ),
           ),
         if (_shows(actions.onRepost))
-          _ActionButton(
-            icon: Icons.repeat,
-            label: reposted ? 'Undo repost' : 'Repost',
-            count: repostCount,
-            active: reposted,
-            activeColor: colors.primary,
-            onPressed: actions.onRepost,
+          _ActionSlot(
+            child: _ActionButton(
+              icon: Icons.repeat,
+              label: reposted ? 'Undo repost' : 'Repost',
+              count: repostCount,
+              active: reposted,
+              activeColor: colors.primary,
+              onPressed: actions.onRepost,
+            ),
           ),
         if (_shows(actions.onLike))
-          _ActionButton(
-            icon: liked ? Icons.favorite : Icons.favorite_border,
-            label: liked ? 'Unlike' : 'Like',
-            count: likeCount,
-            active: liked,
-            activeColor: colors.error,
-            onPressed: actions.onLike,
+          _ActionSlot(
+            child: _ActionButton(
+              icon: liked ? Icons.favorite : Icons.favorite_border,
+              label: liked ? 'Unlike' : 'Like',
+              count: likeCount,
+              active: liked,
+              activeColor: colors.error,
+              onPressed: actions.onLike,
+            ),
           ),
         if (_shows(actions.onShare))
-          _ActionButton(
-            icon: Icons.ios_share,
-            label: 'Share',
-            onPressed: actions.onShare,
+          _ActionSlot(
+            child: _ActionButton(
+              icon: Icons.ios_share,
+              label: 'Share',
+              onPressed: actions.onShare,
+            ),
           ),
       ],
     );
   }
+}
+
+/// One equal-width, left-aligned slot of the bar.
+class _ActionSlot extends StatelessWidget {
+  const _ActionSlot({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Align(alignment: Alignment.centerLeft, child: child),
+  );
 }
 
 class _ActionButton extends StatelessWidget {
@@ -110,38 +130,36 @@ class _ActionButton extends StatelessWidget {
         ? activeColor ?? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
     final shown = count ?? 0;
-    return Flexible(
-      child: Semantics(
-        button: true,
-        label: shown > 0 ? '$label, $shown' : label,
-        excludeSemantics: true,
+    return Semantics(
+      button: true,
+      label: shown > 0 ? '$label, $shown' : label,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: InkResponse(
         onTap: onPressed,
-        child: InkResponse(
-          onTap: onPressed,
-          radius: AppSpacing.lg,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: AppSpacing.minTapTarget,
-              minHeight: AppSpacing.minTapTarget,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: AppIconSize.md, color: color),
-                if (shown > 0) ...[
-                  const SizedBox(width: AppSpacing.xs),
-                  Flexible(
-                    child: Text(
-                      NumberFormat.compact().format(shown),
-                      maxLines: 1,
-                      overflow: TextOverflow.fade,
-                      softWrap: false,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: color),
-                    ),
+        radius: AppSpacing.lg,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: AppSpacing.minTapTarget,
+            minHeight: AppSpacing.minTapTarget,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: AppIconSize.md, color: color),
+              if (shown > 0) ...[
+                const SizedBox(width: AppSpacing.xs),
+                Flexible(
+                  child: Text(
+                    NumberFormat.compact().format(shown),
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    softWrap: false,
+                    style: theme.textTheme.bodyMedium?.copyWith(color: color),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),
