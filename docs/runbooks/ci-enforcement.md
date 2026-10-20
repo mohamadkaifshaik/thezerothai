@@ -63,9 +63,10 @@ Installation: **only this repository**.
 
 ## 4. Review flow after the change
 1. The assistant (App identity) opens a PR; required check `promotion scripts (...)` must pass.
-2. Ordinary files: the owner says "merge" (as today) and either the owner or the assistant merges once the check is green.
-3. Gated files (CODEOWNERS): GitHub requires the owner's approval; the assistant cannot supply it and the ruleset has no bypass, so the
-   owner approves in the UI and then merges (or tells the assistant to).
+2. The owner approves every assistant PR in the UI (`require_last_push_approval`, see section 6 and test 9). Then the owner (or the
+   assistant, once approved) merges.
+3. An assistant PR can never be merged without that approval, and direct pushes to `main` are refused. Gated files (CODEOWNERS) need the
+   same owner approval; the assistant cannot supply it and the ruleset has no bypass.
 4. Owner-only operations (settings, secrets, environments, ruleset edits, tags/releases that need admin): the owner runs them, e.g. via
    `! gh api ...` in their own session, not through the assistant.
 5. Dependabot PRs are authored by Dependabot; the owner approves/merges as before.
@@ -86,7 +87,7 @@ Installation: **only this repository**.
 | 11 | the owner's token is not reachable from the assistant's process (`gh auth status`, Credential Manager entry absent) | confirmed |
 Test 11 is the one that makes the rest meaningful.
 
-## 6. Ruleset (final proposed JSON; NOT applied; replaces the disabled ruleset 24070946)
+## 6. Ruleset (applied 2026-10-20 by the owner as ruleset 24070946; JSON below is the proposal it was applied from)
 Verified read-only: the required check is reported under the exact name `promotion scripts (shellcheck, actionlint, fixture tests, flag
 registry)` by GitHub Actions (`app.id` 15368, from `GET /commits/{sha}/check-runs` on PR #175's head), so the rule pins that `integration_id`.
 ```bash
@@ -118,9 +119,11 @@ JSON
 - Scope: default branch only. PRs required (this also blocks direct pushes), non-fast-forward and deletion blocked, **no bypass actors**.
 - `require_last_push_approval: true`: the approver must not be the last pusher, so approve-then-push is impossible; stale approvals are
   dismissed on every push.
-- **Unverified semantics:** with `required_approving_review_count: 0`, whether GitHub still enforces `require_code_owner_review` for owned
-  paths is not documented clearly. Test #8 above decides it on a throwaway PR; if it is not enforced, set the count to 1 (then every PR needs the
-  owner's approval, a stricter but workable policy).
+- **Correction after testing (2026-10-20):** with `required_approving_review_count: 0`, `require_last_push_approval: true` makes GitHub
+  block **every** App PR until the owner approves (test 9: an ordinary docs PR with a green required check stayed `BLOCKED`, `reviewDecision`
+  empty). The effective policy is therefore "the owner approves every assistant PR". Code-owner enforcement on its own was **not isolated**:
+  test 8 was blocked, but test 9 shows the block does not depend on CODEOWNERS. To isolate it, drop `require_last_push_approval` later and
+  re-test 8 and 9 (8 should stay blocked, 9 should merge).
 - Not covered: tags, the `prod` environment's own tag policy, anything pushed with a token that has Administration.
 
 ## 7. Roll-out order (each step needs the owner)
@@ -136,3 +139,34 @@ Ruleset applied 2026-10-20; matrix tests 1-6, 11 passed.
 ## 8. The `field-overrides.ack` hash
 The failing check prints the expected hash, so an author can paste it. With this setup that is fine: the ack is CODEOWNERS-protected,
 the author is the App, and the owner sees and approves the ack diff. The hash is a tripwire; the approval is the control.
+
+## 9. Results (2026-10-20)
+Run by the assistant with the App installation token (owner authorized each step), after the ruleset was applied for tests 7-10.
+| # | Result | HTTP / evidence |
+|---|---|---|
+| 1 | Pass | `GET /user` is **403** as expected for installation tokens; the throwaway PR's author was `dzeroth-agent[bot]` (type `Bot`) |
+| 2 | Pass | branch pushed, draft PR opened |
+| 3 | Pass (refused) | ruleset read **200**; `PUT` of the unchanged ruleset body **403** |
+| 4 | Pass (refused) | `gh secret set X --env dev`: **403** on `environments/dev/secrets/public-key` |
+| 5 | Pass (refused) | `PUT environments/dev`: **403** |
+| 6 | Pass (refused) | approving its own PR: **422** "Review Can not approve your own pull request" |
+| 7 | Pass (refused) | `git push origin main` rejected for repository rule violations; required check expected |
+| 8 | Pass (refused) | PR #188 (`.github/CODEOWNERS`, required check green): merge refused, `mergeStateStatus` `BLOCKED` |
+| 9 | Refused until owner approval | PR #189 (ordinary docs file, required check green): `BLOCKED` until approved, see section 6 |
+| 10 | Pass | owner approval, then `CLEAN`, then merged (#188, #189) |
+| 11 | Pass | see below |
+Test 11 (the owner's credentials are not reachable from the assistant's process):
+- `gh auth status` reports "not logged into any GitHub hosts"; `cmdkey /list` has no GitHub entry (verified by the assistant).
+- Residual-credential check: no `~/.git-credentials`; no `~/.ssh`; no `GH_TOKEN`, `GITHUB_TOKEN` or `GH_ENTERPRISE_TOKEN` in the
+  user environment (user variables are only `OneDrive`, `Path`, `TEMP`, `TMP`) or the process environment; the global git config has no
+  `credential`, `insteadOf` or `url.*` keys.
+- Reported by the owner: `claude-agent` is not an administrator; the owner's home directory, `gh` config and repository ACLs exclude
+  `claude-agent`; `.dzeroth-agent` is denied to the owner.
+
+## 10. Operational notes
+- Git Bash rewrites leading-slash API paths (`/installation` becomes `C:/Program Files/Git/installation`): set `MSYS_NO_PATHCONV=1` or
+  omit the leading slash.
+- `scripts/mint-app-token.sh` converts `APP_KEY` with `cygpath -m`, so `openssl` can open the key when `MSYS_NO_PATHCONV=1` is set.
+- Installation tokens get **403** on `/user` and **404** on `/installation`; read installation details with `/app/installations/{id}`
+  and the App JWT instead.
+- `repository.permissions` from the API can show all `false` for an installation token; rely on the refusal tests (3-5), not that field.
