@@ -14,10 +14,15 @@ import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
+import 'package:dzeroth/shared/widgets/app_avatar.dart';
+import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/posts_fixtures.dart';
@@ -48,6 +53,21 @@ void main() {
 
   tearDown(() => pending.close());
 
+  TransitionBuilder scaled(double textScale) =>
+      (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      );
+
+  GoRouter homeRouter() => GoRouter(
+    initialLocation: '/home',
+    routes: [
+      GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+      GoRoute(path: '/compose', builder: (_, _) => const Text('compose page')),
+    ],
+  );
+
   void stubCached(TimelineSnapshot s) {
     when(() => timeline.cached(feed)).thenAnswer((_) async => s);
   }
@@ -61,13 +81,21 @@ void main() {
     Set<String> features = const {'posts'},
     ThemeData? theme,
     bool settle = true,
+    GoRouter? router,
+    String avatarThumbUrl = '',
+    Stream<OnboardingState> states = const Stream<OnboardingState>.empty(),
+    double textScale = 1,
   }) async {
     whenListen(
       onboardingBloc,
-      const Stream<OnboardingState>.empty(),
+      states,
       initialState: OnboardingState(
         enabledFeatures: features,
-        profile: identity.Profile(userId: 'me', handle: 'me'),
+        profile: identity.Profile(
+          userId: 'me',
+          handle: 'me',
+          avatarThumbUrl: avatarThumbUrl,
+        ),
       ),
     );
     await tester.pumpWidget(
@@ -81,10 +109,17 @@ void main() {
             BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
             BlocProvider<PendingPostsCubit>.value(value: pending),
           ],
-          child: MaterialApp(
-            theme: theme ?? appLightTheme,
-            home: const HomeScreen(),
-          ),
+          child: router == null
+              ? MaterialApp(
+                  theme: theme ?? appLightTheme,
+                  builder: scaled(textScale),
+                  home: const HomeScreen(),
+                )
+              : MaterialApp.router(
+                  theme: theme ?? appLightTheme,
+                  builder: scaled(textScale),
+                  routerConfig: router,
+                ),
         ),
       ),
     );
@@ -445,5 +480,177 @@ void main() {
     expect(tester.takeException(), isNull);
     final width = tester.getSize(find.byType(PostCard).first).width;
     expect(width, AppBreakpoints.mobile);
+  });
+
+  group('composer entry row', () {
+    const rowLabel = 'Write a post';
+
+    void stubFeed() {
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+    }
+
+    testWidgets('posts flag off: placeholder only, no row, no Post button', (
+      tester,
+    ) async {
+      await open(tester, features: const {});
+
+      expect(find.text(rowLabel), findsNothing);
+      expect(find.byType(AppGradientButton), findsNothing);
+      expect(find.text('Your timeline is coming soon.'), findsOneWidget);
+    });
+
+    testWidgets('posts flag on: the row, the avatar and the Post button show '
+        'above the feed', (tester) async {
+      stubFeed();
+      await open(tester);
+
+      expect(find.text(rowLabel), findsOneWidget);
+      expect(find.byType(AppAvatar), findsWidgets);
+      expect(find.widgetWithText(AppGradientButton, 'Post'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text(rowLabel)).dy,
+        lessThan(tester.getTopLeft(find.text('post 2')).dy),
+      );
+    });
+
+    testWidgets('tapping the prompt row opens the composer', (tester) async {
+      stubFeed();
+      await open(tester, router: homeRouter());
+
+      await tester.tap(find.text(rowLabel));
+      await tester.pumpAndSettle();
+
+      expect(find.text('compose page'), findsOneWidget);
+    });
+
+    testWidgets('tapping the Post button opens the composer', (tester) async {
+      stubFeed();
+      await open(tester, router: homeRouter());
+
+      await tester.tap(find.byType(AppGradientButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('compose page'), findsOneWidget);
+    });
+
+    testWidgets('the row makes no RPC of its own', (tester) async {
+      stubFeed();
+      await open(tester, router: homeRouter());
+      clearInteractions(timeline);
+      clearInteractions(posts);
+
+      await tester.tap(find.text(rowLabel));
+      await tester.pumpAndSettle();
+
+      verifyNoMoreInteractions(timeline);
+      verifyNoMoreInteractions(posts);
+    });
+
+    testWidgets('the row and the Post button are each announced once', (
+      tester,
+    ) async {
+      stubFeed();
+      final handle = tester.ensureSemantics();
+      await open(tester);
+
+      expect(find.bySemanticsLabel(rowLabel), findsOneWidget);
+      expect(find.bySemanticsLabel('Post'), findsOneWidget);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(rowLabel)),
+        matchesSemantics(
+          label: rowLabel,
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('targets are at least 48 dp, and the row takes keyboard '
+        'focus', (tester) async {
+      stubFeed();
+      await open(tester);
+
+      final rowInk = find.ancestor(
+        of: find.text(rowLabel),
+        matching: find.byType(InkWell),
+      );
+      expect(
+        tester.getSize(rowInk).height,
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
+      );
+      expect(
+        tester.getSize(find.byType(AppGradientButton)).height,
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
+      );
+
+      // Tabbing reaches the prompt row.
+      final rowFocus = Focus.of(tester.element(find.text(rowLabel)));
+      for (var i = 0; i < 8 && !rowFocus.hasPrimaryFocus; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+      }
+      expect(rowFocus.hasPrimaryFocus, isTrue);
+    });
+
+    for (final theme in {
+      'dark': appDarkTheme,
+      'light': appLightTheme,
+    }.entries) {
+      testWidgets(
+        '${theme.key}: header and row at 2.0 text scale and 320 dp do not '
+        'overflow',
+        (tester) async {
+          tester.view.physicalSize = const Size(320, 640);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          stubFeed();
+
+          await open(tester, theme: theme.value, textScale: 2);
+
+          expect(find.text(rowLabel), findsOneWidget);
+          expect(find.text('Home'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets('a new avatar rebuilds the row, not the feed', (tester) async {
+      stubFeed();
+      final states = StreamController<OnboardingState>();
+      addTearDown(states.close);
+      await open(tester, states: states.stream);
+      final cardBefore = tester.widget(find.byType(PostCard).first);
+      final feedBefore = tester.widget(find.byType(TimelineFeedView));
+
+      final updated = OnboardingState(
+        enabledFeatures: const {'posts'},
+        profile: identity.Profile(
+          userId: 'me',
+          handle: 'me',
+          avatarThumbUrl: 'https://example.test/new.jpg',
+        ),
+      );
+      when(() => onboardingBloc.state).thenReturn(updated);
+      states.add(updated);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester.widget<AppAvatar>(find.byType(AppAvatar).first).url,
+        'https://example.test/new.jpg',
+      );
+      expect(
+        identical(tester.widget(find.byType(PostCard).first), cardBefore),
+        isTrue,
+      );
+      expect(
+        identical(tester.widget(find.byType(TimelineFeedView)), feedBefore),
+        isTrue,
+      );
+    });
   });
 }

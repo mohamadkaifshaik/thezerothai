@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/router/app_router.dart';
+import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_state.dart';
@@ -12,6 +14,7 @@ import '../../timeline/data/timeline_repository.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
+import 'widgets/home_composer_entry.dart';
 
 /// The Home timeline (T17, ADR-0004 section 7): the cached feed renders at
 /// once, then one throttled refresh with `since_token`; pull-to-refresh,
@@ -28,6 +31,8 @@ class HomeScreen extends StatelessWidget {
     final viewerUserId = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.userId,
     );
+    // The same rule as the shell's "New post" button.
+    final canCompose = canComposeAt(context, AppRouter.homePath);
     return BlocProvider<TimelineCubit>(
       create: (context) => TimelineCubit(
         feed: const FeedKey.home(),
@@ -57,8 +62,17 @@ class HomeScreen extends StatelessWidget {
         child: Scaffold(
           body: TimelineFeedView(
             viewerUserId: viewerUserId,
-            headerSlivers: const [
-              SliverAppBar(title: Text('Home'), floating: true, snap: true),
+            headerSlivers: [
+              // The theme gives the app bar its weight and bottom hairline.
+              const SliverAppBar(
+                title: Text('Home'),
+                centerTitle: false,
+                titleSpacing: AppSpacing.md,
+                floating: true,
+                snap: true,
+              ),
+              if (canCompose)
+                const SliverToBoxAdapter(child: HomeComposerEntry()),
             ],
             emptyTitle: 'Your timeline is empty',
             emptySubtitle:
