@@ -53,8 +53,8 @@ Installation: **only this repository**.
 - Private key (`.pem`) generated once; stored **outside the repo and outside any synced folder**, in a directory only the assistant's
   Windows user can read (`icacls` to remove inheritance); never printed, committed, pasted into chat, or passed on a command line.
 - A small script mints the token: sign a JWT (`iat` now-60 s, `exp` <= 9 min, `iss` = App id) with `openssl`, call
-  `POST /app/installations/{id}/access_tokens` with `repositories` and the permission subset, export the result as `GH_TOKEN` for the
-  session only. The token is never written to disk or logs (it is masked in any output). The script is `scripts/mint-app-token.sh`
+  `POST /app/installations/{id}/access_tokens` (no body: the token carries the App's installed permissions on this repository only, and
+  scoping is done in the App settings), export the result as `GH_TOKEN` for the session only. The token is never written to disk or logs (it is masked in any output). The script is `scripts/mint-app-token.sh`
   (CODEOWNERS-protected, since it mints the assistant's credentials).
 - Commits use a bot identity (`<app>[bot]` noreply email) plus the existing `Co-Authored-By` trailer; git pushes over HTTPS with the token.
 - Rotation: generate a second private key in the App settings, switch, delete the old key (the App supports two at once). Every 90 days
