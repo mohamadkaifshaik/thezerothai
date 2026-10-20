@@ -96,12 +96,13 @@ resource "google_cloud_run_v2_service" "api" {
       # in CI (see release-rollout skill); Terraform owns shape/caps, not the
       # image digest or the live traffic split (tagged-revision rollouts).
       template[0].containers[0].image,
-      # Prod's service template carries an explicit revision name (template.metadata.name = the latest deployed
-      # revision, e.g. api-00010-zah); dev's has none. Likely cause (unverified): the release workflow's
-      # `gcloud run deploy --no-traffic --tag`, which dev's plain deploy does not use. Without this ignore, every
-      # refreshing prod plan wants to set it to null, an in-place template update that would create an unplanned
-      # revision. Terraform never names revisions.
-      template[0].revision,
+      # `template[0].revision` is deliberately NOT ignored. Deploys name revisions (prod since the release workflow's
+      # `--no-traffic --tag`; dev since the promotion pipeline), and Terraform never does. An ignored attribute is
+      # re-sent from state on every update, so the latest name (e.g. api-00190-lot) was sent again with a changed
+      # template and Cloud Run answered 409 "Revision named ... with different configuration already exists",
+      # blocking every env-var or cap change. Unignored, the config value (null) is sent and Cloud Run names the
+      # new revision itself. Trade-off: a plan with no other change still shows `revision -> null`, and applying it
+      # would create a revision, so apply only together with a real change (or skip it).
       traffic,
       # Service-level `scaling` is unset here; the API echoes back zero defaults, causing a permanent
       # no-op diff. The real caps are template.scaling (min 0 / max 3), which stays managed.

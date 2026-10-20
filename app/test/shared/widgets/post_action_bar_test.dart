@@ -52,9 +52,36 @@ void main() {
       expect(find.text('3'), findsOneWidget);
       expect(find.text('1.2K'), findsOneWidget);
       expect(find.text('2.5M'), findsOneWidget);
-      final row = tester.widget<Row>(find.byType(Row).first);
-      expect(row.mainAxisAlignment, MainAxisAlignment.spaceBetween);
       expect(find.byType(InkResponse), findsNWidgets(4));
+      final lefts = [
+        Icons.chat_bubble_outline,
+        Icons.repeat,
+        Icons.favorite_border,
+        Icons.ios_share,
+      ].map((icon) => tester.getTopLeft(find.byIcon(icon)).dx).toList();
+      // Equal slots: 360dp / 4 = 90dp apart, icons left-aligned in a slot.
+      for (var i = 1; i < lefts.length; i++) {
+        expect(lefts[i] - lefts[i - 1], closeTo(90, 1));
+      }
+    });
+
+    testWidgets('two visible actions share the left half, not the edges', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            showDisabled: false,
+            actions: PostActions(onLike: () {}, onRepost: () {}),
+          ),
+        ),
+      );
+
+      final repost = tester.getTopLeft(find.byIcon(Icons.repeat)).dx;
+      final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
+      final bar = tester.getRect(find.byType(PostActionBar));
+      expect(like - repost, closeTo(bar.width / 2, 1));
+      expect(like, lessThan(bar.left + bar.width * 0.6));
     });
 
     testWidgets('dispatches callbacks, has 48dp targets and semantics', (
