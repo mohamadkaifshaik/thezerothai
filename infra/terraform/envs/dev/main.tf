@@ -53,11 +53,12 @@ module "artifact_registry" {
   repository_id = "api"
   env           = local.env
 
-  // Shorter dev retention (founder-requested reduction), applied in DRY-RUN mode first: nothing is deleted until a later,
-  // separately approved change sets cleanup_policy_dry_run = false. Protected regardless: last-good, serving, v*, newest N versions.
+  // Shorter dev retention (founder-requested reduction). The dry run was verified on 2026-10-20 (14Z run: 211 candidates, none of serving 5bc60e89,
+  // last-good 1f661cec, last-good-prev 42be6c3b, p8-t1 c2048915 or the 3 newest); this change makes the cleanup live (cleanup_policy_dry_run = false).
+  // Protected regardless: last-good, serving, v*, newest N versions.
   keep_recent_versions   = 6
   tagged_retention_days  = 3
-  cleanup_policy_dry_run = true
+  cleanup_policy_dry_run = false
   // p8-t1 is the AR tag on the image behind the Cloud Run revision tagged p8-t1 (api-00089-wuw); without it the live cleanup would delete that image.
   protected_tag_prefixes = ["last-good", "v", "serving", "p8-t1"]
   labels                 = merge(local.labels, { module = "artifact-registry" })

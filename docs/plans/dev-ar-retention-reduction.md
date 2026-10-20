@@ -1,5 +1,5 @@
 # Dev Artifact Registry retention reduction (PREPARED, NOT APPLIED)
-Status: **Step 1 (dry run) APPLIED to dzeroth-dev on 2026-10-19** (founder-approved; plan 1 add / 1 change / 0 destroy; post-apply plan shows no changes; `serving` tag set on `42be…79ef` beforehand). Nothing is deleted while `cleanup_policy_dry_run = true`. **Step 2 (live deletion) is NOT applied and needs the founder's separate approval after the real dry-run audit log is reviewed.**
+Status: **Step 1 (dry run) APPLIED to dzeroth-dev on 2026-10-19** (founder-approved; plan 1 add / 1 change / 0 destroy; post-apply plan shows no changes; `serving` tag set on `42be…79ef` beforehand). Nothing is deleted while `cleanup_policy_dry_run = true`. **Step 2 (live deletion): PR open, apply pending founder-approved plan.**
 Cost: $0 (it reduces storage; dev repo is ~1.87 GB, free tier 0.5 GB, about $0.13/month over).
 
 ## Proposal (dev only; prod keeps the module defaults 3 versions / 30 days)
@@ -18,7 +18,7 @@ with its SBOM), above the 0.5 GB free tier; 3 days holds about 21 (~285 MB).
    results; dev has no audit configs today) and switches the repo to the new numbers with `cleanup_policy_dry_run = true`. Plan: **1 to add, 1 to change, 0 to destroy**
    (audit config; the repository's policies and dry-run flag). Policies after: `delete-tagged-after-3d, delete-untagged-after-1d, keep-last-6, keep-tag-last-good, keep-tag-serving, keep-tag-v`.
    Cleanup runs about daily; wait for at least one run, then inspect the audit log for the versions it WOULD delete and confirm the serving and rollback images are not in it.
-2. **Step 2 (later PR + approval): live.** Set `cleanup_policy_dry_run = false` only after the dry-run log shows the serving image (revision `api-00171-maf`, digest below) and the
+2. **Step 2 (PR open, apply pending founder-approved plan): live.** Set `cleanup_policy_dry_run = false` only after the dry-run log shows the serving image (revision `api-00171-maf`, digest below) and the
    `last-good` image (`api-00144-xt7`, `sha256:1f661cec...`) retained.
 
 ## PREREQUISITE (do not apply step 1 before this)
