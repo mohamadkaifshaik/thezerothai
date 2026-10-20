@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/app_gradient_button.dart';
 
 /// Shared email + password input used by both the sign-in and sign-up
 /// screens (see the `reuse-first` skill: one form, not two near-copies).
@@ -121,15 +122,10 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
-          FilledButton(
-            onPressed: widget.isSubmitting ? null : _submit,
-            child: widget.isSubmitting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(widget.submitLabel),
+          AppGradientButton(
+            label: widget.submitLabel,
+            busy: widget.isSubmitting,
+            onPressed: _submit,
           ),
         ],
       ),
