@@ -10,6 +10,7 @@ import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
     show ReportTargetType;
 import '../../../../shared/widgets/app_avatar.dart';
+import '../../../../shared/widgets/app_surface.dart';
 import '../../../../shared/widgets/follow_button.dart';
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
@@ -124,70 +125,184 @@ class _ProfileHeaderBody extends StatelessWidget {
         showActions &&
         context.select((RelationshipCubit c) => c.state.relationship.blocking);
 
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final theme = Theme.of(context);
+    // The avatar overlaps the bottom of the decorative band by half; the name
+    // and the actions start below the band.
+    const avatarRadius = AppSpacing.xl + AppSpacing.md;
+    const bandHeight = AppSpacing.xxl + AppSpacing.lg;
+    const belowBand = avatarRadius + AppSpacing.sm;
+    // The actions take at most this share of the row, so a long label wraps
+    // inside its button instead of squeezing the name out at large text.
+    const actionsShare = 0.4;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Stack(
+          children: [
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: bandHeight,
+              child: _CoverBand(),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(
+                top: bandHeight - avatarRadius,
+                left: AppSpacing.md,
+                right: AppSpacing.md,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final actionsMax = constraints.maxWidth * actionsShare;
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: theme.colorScheme.surface,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpacing.xs),
+                          child: AppAvatar(
+                            url: profile.avatarUrl,
+                            radius: avatarRadius,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: belowBand),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                profile.displayName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                '@${profile.handle}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (showActions && !isBlocking) ...[
+                        ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: actionsMax),
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: belowBand),
+                            child: Column(
+                              children: [
+                                const FollowButton(),
+                                const SizedBox(height: AppSpacing.xs),
+                                _OverflowMenu(
+                                  profile: profile,
+                                  canReport: canReport,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ] else if (showActions) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(top: belowBand),
+                          child: _OverflowMenu(
+                            profile: profile,
+                            canReport: canReport,
+                          ),
+                        ),
+                      ] else if (canReport) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(top: belowBand),
+                          child: _ReportOnlyMenu(profile: profile),
+                        ),
+                      ] else if (onEditProfile != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: actionsMax),
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: belowBand),
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(
+                                  0,
+                                  AppSpacing.minTapTarget,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.pill,
+                                  ),
+                                ),
+                              ),
+                              onPressed: onEditProfile,
+                              child: const Text('Edit profile'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(
-                url: profile.avatarUrl,
-                radius: AppSpacing.xl + AppSpacing.sm,
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      profile.displayName,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    Text(
-                      '@${profile.handle}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (showActions && !isBlocking) ...[
-                Column(
-                  children: [
-                    const FollowButton(),
-                    const SizedBox(height: AppSpacing.xs),
-                    _OverflowMenu(profile: profile, canReport: canReport),
-                  ],
-                ),
-              ] else if (showActions) ...[
-                _OverflowMenu(profile: profile, canReport: canReport),
-              ] else if (canReport) ...[
-                _ReportOnlyMenu(profile: profile),
-              ] else if (onEditProfile != null) ...[
-                const SizedBox(width: AppSpacing.sm),
-                OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, AppSpacing.minTapTarget),
-                  ),
-                  onPressed: onEditProfile,
-                  child: const Text('Edit profile'),
-                ),
+              if (profile.bio.isNotEmpty) ...[
+                Text(profile.bio, style: theme.textTheme.bodyLarge),
+                const SizedBox(height: AppSpacing.md),
               ],
+              if (isBlocking)
+                _BlockedBanner(handle: profile.handle)
+              else
+                _CountsRow(profile: profile, showPostsCount: showPostsCount),
             ],
           ),
-          if (profile.bio.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(profile.bio, style: Theme.of(context).textTheme.bodyLarge),
-          ],
-          const SizedBox(height: AppSpacing.md),
-          if (isBlocking)
-            _BlockedBanner(handle: profile.handle)
-          else
-            _CountsRow(profile: profile, showPostsCount: showPostsCount),
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+/// A purely decorative band behind the avatar: theme surfaces only, no image
+/// and no profile field, and hidden from assistive technology.
+class _CoverBand extends StatelessWidget {
+  const _CoverBand();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ExcludeSemantics(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [colors.surfaceContainerHigh, colors.surfaceContainerLow],
+          ),
+        ),
       ),
     );
   }
@@ -201,12 +316,11 @@ class _CountsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: AppSpacing.lg,
       children: [
-        if (showPostsCount) ...[
-          _PostsCount(count: profile.postsCount),
-          const SizedBox(width: AppSpacing.md),
-        ],
+        if (showPostsCount) _PostsCount(count: profile.postsCount),
         _CountLink(
           count: profile.followingCount.toInt(),
           label: 'Following',
@@ -215,7 +329,6 @@ class _CountsRow extends StatelessWidget {
             extra: profile.userId,
           ),
         ),
-        const SizedBox(width: AppSpacing.md),
         _CountLink(
           count: profile.followersCount.toInt(),
           label: 'Followers',
@@ -241,18 +354,22 @@ class _PostsCount extends StatelessWidget {
     return Semantics(
       label: '$count $label',
       excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: '$count ',
-                style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              TextSpan(text: label, style: _mutedLabel(context)),
-            ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          widthFactor: 1,
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$count ',
+                  style: Theme.of(context).textTheme.bodyLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(text: label, style: _mutedLabel(context)),
+              ],
+            ),
           ),
         ),
       ),
@@ -262,7 +379,7 @@ class _PostsCount extends StatelessWidget {
 
 /// Count labels ("Posts", "Followers") read secondary to the bold number.
 TextStyle? _mutedLabel(BuildContext context) =>
-    Theme.of(context).textTheme.bodyMedium
+    Theme.of(context).textTheme.bodyLarge
         ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
 
 class _CountLink extends StatelessWidget {
@@ -278,23 +395,33 @@ class _CountLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return Semantics(
+      button: true,
+      label: '$count $label',
       onTap: onTap,
-      child: Semantics(
-        button: true,
-        label: '$count $label',
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-          child: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text: '$count ',
-                  style: Theme.of(context).textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                TextSpan(text: label, style: _mutedLabel(context)),
-              ],
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: AppSpacing.minTapTarget,
+            minWidth: AppSpacing.minTapTarget,
+          ),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: 1,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$count ',
+                    style: Theme.of(context).textTheme.bodyLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(text: label, style: _mutedLabel(context)),
+                ],
+              ),
             ),
           ),
         ),
@@ -315,21 +442,13 @@ class _BlockedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<RelationshipCubit, RelationshipState>(
       builder: (context, state) {
-        return Container(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainer,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
+        return AppSurface(
           child: Row(
             children: [
               Expanded(
                 child: Text(
                   'You blocked @$handle',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
               ),
               TextButton(
