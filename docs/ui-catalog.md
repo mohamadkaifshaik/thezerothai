@@ -100,6 +100,7 @@
 | PostUnavailableView | app/lib/features/posts/presentation/widgets/post_unavailable_view.dart | the final NOT_FOUND state ("This post isn't available" + Go to Home), shared by the post and thread screens |
 | PostListSkeleton | app/lib/shared/widgets/post_list_skeleton.dart | static post-shaped loading rows (`rows`, `semanticsLabel`); Home/profile feed and thread |
 | AppEmptyView | app/lib/shared/widgets/app_empty_view.dart | empty list state (icon, title, optional subtitle); feed and thread replies |
+| canComposeAt | app/lib/core/router/compose_gate.dart | the one rule for offering a way to start a post (posts flag on, not on Settings): the shell's "New post" button and the Home composer entry row both use it; never re-state the condition |
 | AppSurface (`elevated`) | app/lib/shared/widgets/app_surface.dart | a calm bordered panel on a theme surface (standard radius, low-contrast border); `elevated` lifts it one level for a panel on a panel; presentation only |
 | AppSectionHeader | app/lib/shared/widgets/app_section_header.dart | a section heading (title announced as a header, optional subtitle, optional text action `actionLabel` + `onAction` given together); presentation only |
 | AppGradientButton (`busy`) | app/lib/shared/widgets/app_gradient_button.dart | the primary CTA of a screen only (Post, Save): gradient pill, >= 48dp, announces its label once; `busy` or null `onPressed` ignores taps; the caller owns that state |

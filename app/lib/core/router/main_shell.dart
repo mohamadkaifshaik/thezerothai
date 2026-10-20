@@ -5,9 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
-import '../../features/posts/domain/posts_feature_flag.dart';
 import '../feature_flags/feature_flags.dart';
 import 'app_router.dart';
+import 'compose_gate.dart';
 import '../widgets/responsive_scaffold.dart';
 
 /// The bottom-nav/rail chrome around the three authenticated top-level
@@ -72,11 +72,7 @@ class MainShell extends StatelessWidget {
       (OnboardingBloc bloc) => bloc.state.profile?.handle,
     );
 
-    // Compose is offered only with the posts flag on (ADR-0010 D1), and not
-    // on Settings.
-    final canCompose =
-        isFeatureEnabled(context, kFeaturePosts) &&
-        !location.startsWith('/settings');
+    final canCompose = canComposeAt(context, location);
 
     final notificationsEnabled = isFeatureEnabled(
       context,
