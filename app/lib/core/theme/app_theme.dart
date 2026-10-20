@@ -45,30 +45,48 @@ abstract final class AppBreakpoints {
   static const double tablet = 1200;
 }
 
-/// Brand seed color. Light mode derives everything from it via Material 3's
-/// `ColorScheme.fromSeed`; dark mode overlays the fixed palette below.
-const Color _seedColor = Color(0xFF1D74E8);
+/// Brand seed color (indigo; founder decision 2026-10-21). Light mode derives
+/// everything from it via Material 3's `ColorScheme.fromSeed`; dark mode
+/// overlays the fixed palette below. The fidelity variant keeps the primary
+/// close to the seed (the default tonal-spot variant would grey it to about
+/// 0xFF4F5B92).
+const Color _seedColor = Color(0xFF4263E8);
+
+/// Light tertiary: a violet, so the primary-to-tertiary gradient of
+/// `AppGradientButton` reads indigo to violet (the fidelity variant would
+/// derive a brown). White text on it is >= 4.5:1.
+const Color _lightTertiary = Color(0xFF6D4FD6);
+const Color _lightOnTertiary = Color(0xFFFFFFFF);
 
 /// Dark palette. The page is [_darkBackground]; surfaces layer lighter on top
 /// of it (never pure black), text is soft off-white, secondary text muted,
 /// borders barely lighter than the surface they sit on. Text colors are
 /// >= 4.5:1 on the background.
-const Color _darkBackground = Color(0xFF0F1419);
-const Color _darkSurfaceLow = Color(0xFF151B22);
-const Color _darkSurface = Color(0xFF1A222B);
-const Color _darkSurfaceHigh = Color(0xFF212B36);
-const Color _darkSurfaceHighest = Color(0xFF29343F);
-const Color _darkTextPrimary = Color(0xFFE7E9EA);
+const Color _darkBackground = Color(0xFF070A11);
+const Color _darkSurfaceLow = Color(0xFF0C101A);
+const Color _darkSurface = Color(0xFF101623);
+const Color _darkSurfaceHigh = Color(0xFF151C2C);
+const Color _darkSurfaceHighest = Color(0xFF1B2436);
+const Color _darkTextPrimary = Color(0xFFEDF3FF);
 const Color _darkTextSecondary = Color(0xFF8B98A5);
-const Color _darkBorder = Color(0xFF2A3541);
-const Color _darkAccent = Color(0xFF4DA3F5);
+const Color _darkBorder = Color(0xFF212A3A);
+const Color _darkAccent = Color(0xFF6A91FF);
+
+/// Violet end of the primary-to-tertiary CTA gradient (dark).
+const Color _darkTertiary = Color(0xFF9A7BFF);
 
 ColorScheme _colorScheme(Brightness brightness) {
   final base = ColorScheme.fromSeed(
     seedColor: _seedColor,
     brightness: brightness,
+    dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
   );
-  if (brightness == Brightness.light) return base;
+  if (brightness == Brightness.light) {
+    return base.copyWith(
+      tertiary: _lightTertiary,
+      onTertiary: _lightOnTertiary,
+    );
+  }
   return base.copyWith(
     surface: _darkBackground,
     surfaceDim: _darkBackground,
@@ -84,6 +102,8 @@ ColorScheme _colorScheme(Brightness brightness) {
     outlineVariant: _darkBorder,
     primary: _darkAccent,
     onPrimary: _darkBackground,
+    tertiary: _darkTertiary,
+    onTertiary: _darkBackground,
     surfaceTint: Colors.transparent,
   );
 }

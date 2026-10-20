@@ -19,7 +19,7 @@ This skill defines the **target design**. It does not authorize unrelated refact
 
 ## Tokens
 - Spacing: 8dp grid (4dp only for icon↔text micro-gaps). Use existing spacing tokens; add missing ones to `lib/core/theme/`, never inline magic numbers.
-- Dark palette: background `0xFF0F1419` (reference); surfaces slightly lighter; primary text soft off-white, secondary muted; never pure black text on light, never pure `#000` surfaces. Borders: 1dp, low-contrast divider color. All text ≥ AA contrast. Light theme must remain working.
+- Dark palette (founder decision 2026-10-21, ADR-free: tokens only): background `0xFF070A11`, surfaces layering lighter `0xFF0C101A` / `0xFF101623` / `0xFF151C2C` / `0xFF1B2436`, text `0xFFEDF3FF`, border `0xFF212A3A`, accent `0xFF6A91FF`, tertiary `0xFF9A7BFF` (all in `core/theme/app_theme.dart`, contrast asserted in `app_theme_test.dart`); primary text soft off-white, secondary muted; never pure black text on light, never pure `#000` surfaces. Borders: 1dp, low-contrast divider color. All text ≥ AA contrast. Light theme must remain working.
 - Typography: from `Theme.of(context).textTheme`/tokens only; respect dynamic type (no fixed-height text boxes).
 - Icons: one consistent outline set (the project's existing one); 20–24dp visuals inside 48dp targets.
 
