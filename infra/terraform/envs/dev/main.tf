@@ -58,6 +58,8 @@ module "artifact_registry" {
   keep_recent_versions   = 6
   tagged_retention_days  = 3
   cleanup_policy_dry_run = true
+  // p8-t1 is the AR tag on the image behind the Cloud Run revision tagged p8-t1 (api-00089-wuw); without it the live cleanup would delete that image.
+  protected_tag_prefixes = ["last-good", "v", "serving", "p8-t1"]
   labels                 = merge(local.labels, { module = "artifact-registry" })
 
   depends_on = [module.project_services]
