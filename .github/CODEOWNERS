@@ -10,6 +10,7 @@
 # feature-flag and scaling ceilings that the promotion validators enforce
 /scripts/promotion/flag-ceiling.json           @mohamadkaifshaik
 
-# the only workflow that can change dev (traffic, rules, indexes, Hosting) and the ownership file itself
-/.github/workflows/deploy-dev.yml              @mohamadkaifshaik
+# every workflow (the App identity holds Workflows: write, so any workflow file could otherwise change CI or deploys unseen;
+# deploy-dev.yml is the one that can change dev: traffic, rules, indexes, Hosting) and the ownership file itself
+/.github/workflows/                            @mohamadkaifshaik
 /.github/CODEOWNERS                            @mohamadkaifshaik

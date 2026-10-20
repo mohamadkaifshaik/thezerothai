@@ -125,7 +125,7 @@ JSON
 
 ## 7. Roll-out order (each step needs the owner)
 1. Owner reviews this document and PR #176 (CODEOWNERS covers the ack, the check script, `firestore.indexes.json`, `flag-ceiling.json`,
-   `deploy-dev.yml`, and CODEOWNERS itself).
+   every file under `.github/workflows/`, and CODEOWNERS itself).
 2. Owner creates the App (permissions in section 3), installs it on this repository only, stores the key per section 3, and sets up the
    separate Windows user (or removes their credential from the assistant's profile).
 3. Run the verification matrix tests 1-6 and 11.
