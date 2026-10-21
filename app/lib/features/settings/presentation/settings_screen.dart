@@ -4,12 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
+import 'widgets/settings_group.dart';
 
 /// Phase 0 settings: account info + sign out. Notification, privacy and
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
@@ -17,6 +19,9 @@ import '../../profile/domain/profile_edit_feature_flag.dart';
 /// plan) only appear when the graph feature flag is on (ADR-0008 D6) —
 /// there is deliberately no "private account" toggle: private accounts are
 /// deferred (ADR-0008 D1).
+///
+/// The rows are grouped into sections; a section whose rows are all gated
+/// off is not shown at all.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -24,79 +29,112 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = context.select((AuthBloc bloc) => bloc.state.user);
     final graphEnabled = isGraphEnabled(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        children: [
+    final profileEnabled = isFeatureEnabled(context, kFeatureProfileSnapshot);
+    final lifecycleEnabled = isAccountLifecycleEnabled(context);
+
+    final groups = <(String, List<Widget>)>[
+      (
+        'Account',
+        [
           if (user?.email != null)
-            ListTile(
-              leading: const Icon(Icons.email_outlined),
-              title: const Text('Email'),
-              subtitle: Text(user!.email!),
+            SettingsRow(
+              icon: Icons.email_outlined,
+              title: 'Email',
+              subtitle: user!.email!,
             ),
-          const Divider(height: 1),
-          if (isFeatureEnabled(context, kFeatureProfileSnapshot)) ...[
-            ListTile(
-              leading: const Icon(Icons.person_outline),
-              title: const Text('Edit profile'),
-              trailing: const Icon(Icons.chevron_right),
+          if (profileEnabled) ...[
+            SettingsRow(
+              icon: Icons.person_outline,
+              title: 'Edit profile',
               onTap: () => context.push(AppRouter.editProfilePath),
             ),
-            ListTile(
-              leading: const Icon(Icons.alternate_email),
-              title: const Text('Change handle'),
-              trailing: const Icon(Icons.chevron_right),
+            SettingsRow(
+              icon: Icons.alternate_email,
+              title: 'Change handle',
               onTap: () => context.push(AppRouter.changeHandlePath),
             ),
-            const Divider(height: 1),
           ],
+        ],
+      ),
+      (
+        'Privacy & safety',
+        [
           if (graphEnabled) ...[
-            ListTile(
-              leading: const Icon(Icons.block_outlined),
-              title: const Text('Blocked accounts'),
-              trailing: const Icon(Icons.chevron_right),
+            SettingsRow(
+              icon: Icons.block_outlined,
+              title: 'Blocked accounts',
               onTap: () => context.push(AppRouter.blockedAccountsPath),
             ),
-            ListTile(
-              leading: const Icon(Icons.volume_off_outlined),
-              title: const Text('Muted accounts'),
-              trailing: const Icon(Icons.chevron_right),
+            SettingsRow(
+              icon: Icons.volume_off_outlined,
+              title: 'Muted accounts',
               onTap: () => context.push(AppRouter.mutedAccountsPath),
             ),
-            const Divider(height: 1),
           ],
-          if (isAccountLifecycleEnabled(context)) ...[
-            ListTile(
-              leading: const Icon(Icons.download_outlined),
-              title: const Text('Download my data'),
-              trailing: const Icon(Icons.chevron_right),
+        ],
+      ),
+      (
+        'Your data',
+        [
+          if (lifecycleEnabled)
+            SettingsRow(
+              icon: Icons.download_outlined,
+              title: 'Download my data',
               onTap: () => context.push(AppRouter.exportDataPath),
             ),
-            const Divider(height: 1),
-          ],
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: const Text('Privacy Policy'),
-            trailing: const Icon(Icons.open_in_new, size: 18),
+        ],
+      ),
+      (
+        'About',
+        [
+          SettingsRow(
+            icon: Icons.privacy_tip_outlined,
+            title: 'Privacy Policy',
+            trailing: Icon(
+              Icons.open_in_new,
+              size: AppIconSize.md,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
             onTap: () => launchPrivacyPolicy(context),
           ),
-          const Divider(height: 1),
-          if (isAccountLifecycleEnabled(context)) ...[
-            ListTile(
-              leading: const Icon(Icons.delete_forever_outlined),
-              title: const Text('Delete account'),
-              trailing: const Icon(Icons.chevron_right),
+        ],
+      ),
+      (
+        'Session',
+        [
+          if (lifecycleEnabled)
+            SettingsRow(
+              icon: Icons.delete_forever_outlined,
+              title: 'Delete account',
+              destructive: true,
               onTap: () => context.push(AppRouter.deleteAccountPath),
             ),
-            const Divider(height: 1),
-          ],
-          ListTile(
-            leading: const Icon(Icons.logout),
-            title: const Text('Sign out'),
+          SettingsRow(
+            icon: Icons.logout,
+            title: 'Sign out',
+            showChevron: false,
             onTap: () =>
                 context.read<AuthBloc>().add(const AuthSignOutRequested()),
           ),
         ],
+      ),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      // The same ~600 dp column as the Home feed on wide screens.
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: AppBreakpoints.mobile),
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+            children: [
+              for (final (title, rows) in groups)
+                if (rows.isNotEmpty) SettingsGroup(title: title, rows: rows),
+            ],
+          ),
+        ),
       ),
     );
   }
