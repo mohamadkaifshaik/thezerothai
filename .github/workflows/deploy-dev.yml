@@ -16,6 +16,11 @@ name: Deploy dev
 on:
   push:
     branches: [main]
+    # A push is skipped only when EVERY changed file matches; one code file in the push still deploys. workflow_dispatch is unaffected.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
   workflow_dispatch:
     inputs:
       promote:
