@@ -12,6 +12,8 @@
 # Exit codes: those of authenticated-smoke.sh (0 pass, 1 smoke failure), or 2 for a usage or environment error here.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib.sh
+. "$here/lib.sh"
 
 die() { echo "FAIL: $*" >&2; exit 2; }
 
@@ -54,11 +56,7 @@ export SMOKE_EMAIL SMOKE_PASSWORD
 if [ -z "${FIREBASE_API_KEY:-}" ]; then
   opts=${FIREBASE_OPTIONS_FILE:-$here/../../app/lib/firebase_options_prod.dart}
   [ -r "$opts" ] || die "FIREBASE_API_KEY is unset and $opts is not readable"
-  # The apiKey inside `static const FirebaseOptions web = FirebaseOptions(` (the file also holds android and ios keys).
-  FIREBASE_API_KEY=$(tr -d '\r' <"$opts" | awk '
-    /static const FirebaseOptions web[[:space:]]*=/ { inweb = 1 }
-    inweb && /apiKey:/ { print; exit }
-    inweb && /\);/ { exit }' | sed -n "s/.*apiKey:[[:space:]]*'\([^']*\)'.*/\1/p")
+  FIREBASE_API_KEY=$(firebase_web_api_key "$opts")
   [ -n "$FIREBASE_API_KEY" ] || die "could not find the web apiKey in $opts; set FIREBASE_API_KEY"
 fi
 export FIREBASE_API_KEY

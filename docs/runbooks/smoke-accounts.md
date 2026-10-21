@@ -1,5 +1,5 @@
 # Runbook (PROPOSAL): dev smoke accounts, credentials lifecycle and environment restriction
-Status: **DRAFT for founder review, 2026-10-19. Nothing here has been executed.** No account, secret or environment setting exists yet.
+Status: **Implemented.** The two dev accounts and the `dev` Environment secrets (`SMOKE_A_EMAIL`, `SMOKE_A_PASSWORD`, `SMOKE_B_EMAIL`, `SMOKE_B_PASSWORD`) exist since 2026-10-19, with the environment limited to branch `main`. The dev deploy workflow now uses account A for the authenticated smoke (step `4b/8` of `promote-dev.sh`, fail closed on main; see `docs/runbooks/authenticated-smoke.md`, "Dev (CI)"). The text below is the original design proposal.
 Owner and incident responder: the founder (confirmed 2026-10-19). Store: GitHub Actions **`dev` Environment secrets** (confirmed).
 
 ## Purpose and limits

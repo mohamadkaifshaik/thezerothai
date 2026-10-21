@@ -3,6 +3,9 @@
 # the name of the revision currently at 100%. The unauthenticated probe prints the code in $FAKE/probe-code (default 401).
 st=${FAKE:?}
 args="$*"
+# The authenticated smoke (authenticated-smoke.sh) sends every body with --data-binary; the promote probes use -d. Those calls go to
+# the smoke fake (sign-in, GetMe, GetProfile; same $FAKE), which also records argv and stdin for the secrecy assertions.
+case $args in *--data-binary*) exec "$(dirname "$0")/../fakebin-smoke/curl" "$@" ;; esac
 case $args in
   *"%{http_code}"*) cat "$st/probe-code" 2>/dev/null || echo 401; exit 0 ;;
   */health*)

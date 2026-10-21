@@ -151,8 +151,39 @@ fi
 After the rename on Windows, check that `prod.env` is still readable by your user only (`icacls`). Then run `prod-smoke.sh` once against the live
 service URL as the final proof.
 
+## Dev (CI): the authenticated smoke in deploy-dev
+**What it does.** `scripts/promotion/promote-dev.sh` runs this smoke as step `4b/8`, right after the candidate smoke (`/health` and the
+unauthenticated 401) and before anything can move traffic: once per run, against the 0% `candidate` URL, signing in as dev smoke account A.
+It is not repeated in the soak and not run after promotion. A failure is handled exactly like a failed candidate smoke: the run stops before
+traffic moves, the `candidate` tag is removed, and nothing is tagged `last-good`.
+
+**Where the credentials come from.** The `dev` Environment secrets `SMOKE_A_EMAIL` and `SMOKE_A_PASSWORD` (the Environment is limited to
+branch `main`), passed as `SMOKE_EMAIL` / `SMOKE_PASSWORD` in the env of the one workflow step that runs `promote-dev.sh`, and nowhere else.
+`FIREBASE_API_KEY` is the web key read from `app/lib/firebase_options.dart` (public client config) and `SMOKE_REFERER` defaults to
+`https://dzeroth-dev.web.app/` (an allowed origin of the dev browser key, see "API key restrictions"). Account design and lifecycle:
+`docs/runbooks/smoke-accounts.md`.
+
+**Main versus branch.**
+- Run on `main` (push, or `workflow_dispatch` on main): the secrets exist, so the smoke runs in a dry run and in promote mode alike, and a
+  failure fails the run. **Promote mode fails closed**: with the secrets missing it stops with `authenticated smoke is required when
+  promoting: SMOKE_* secrets are missing`.
+- Dry run from a branch: the `dev` Environment secrets are not exposed, so the smoke is **skipped** with the notice `authenticated smoke
+  SKIPPED: the smoke secrets are unavailable in this run`, and the dry run completes. (Promotion is refused off `main` anyway.)
+
+**Recognizing a failure from the public log.** The log shows only step names, HTTP codes and the handle.
+
+| Log shows | Meaning | What to do |
+|---|---|---|
+| `FAIL at sign-in`, `HTTP 400` | the stored password does not match the account (`INVALID_LOGIN_CREDENTIALS`) | Reset the account password and update the secret. Set secrets from stdin or a file, never as a command-line argument, and verify with a dry run. |
+| `FAIL at sign-in`, `HTTP 403` | referrer or key restriction (`API_KEY_HTTP_REFERRER_BLOCKED`) | Check that `SMOKE_REFERER` is an allowed origin of the dev browser key (see "API key restrictions"). |
+| `FAIL at unauthenticated-getme` (status other than 401) | **auth is not enforced** on the candidate: serious | Do not promote. Treat as a security regression and investigate the candidate. |
+| `FAIL at getme` with a 4xx / `FAILED_PRECONDITION` | the smoke account has no profile | Create it with `CreateProfile` as that account (see `smoke-accounts.md`). |
+| `FAIL at getme` / `getprofile` with 5xx, or `HTTP 000` | the candidate is unhealthy (or unreachable after the 3 retries) | Look at the candidate revision's logs; this is the failure the step exists to catch. |
+
+**Disabling it temporarily.** Revert the PR that added it. There is deliberately no flag or input that skips the step on `main`.
+
 ## Why prod credentials are NOT in GitHub yet
 The bot GitHub App can push `v*` tags, and the `prod` environment accepts `v*` tags. Secrets placed in the `prod` environment would
 therefore be reachable by a workflow modified on a branch and run at a tag. Revisit after the public-repo ADR (required reviewers on the
-`prod` environment) and a `v*` tag ruleset. Until then the prod smoke is run by hand, by the founder; a dev equivalent in CI is a separate,
-later change (see `docs/runbooks/smoke-accounts.md` for the dev accounts' design).
+`prod` environment) and a `v*` tag ruleset. Until then the prod smoke is run by hand, by the founder; the dev equivalent runs in CI (see "Dev (CI)" above
+and `docs/runbooks/smoke-accounts.md` for the dev accounts' design).

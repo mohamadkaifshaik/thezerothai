@@ -4,6 +4,9 @@
 # Required env: PROJECT REGION SERVICE IMAGE (built image, pinned by @sha256 digest) REPO (Artifact Registry
 #   <host>/<project>/<repo>/<image>, no tag) DRY_RUN (true|false). Optional: CEILING (default flag-ceiling.json),
 #   SOAK_SECONDS (integer >= 0, default 120), SOAK_INTERVAL (integer >= 1, default 15), CHECK_INDEXES (default true).
+# Authenticated smoke env (docs/runbooks/authenticated-smoke.md): SMOKE_EMAIL, SMOKE_PASSWORD (both secrets; never arguments), optional
+#   FIREBASE_API_KEY (default: the web key of app/lib/firebase_options.dart, or FIREBASE_OPTIONS_FILE) and SMOKE_REFERER (default
+#   https://dzeroth-dev.web.app/). Missing secrets: a dry run skips it with a notice, promote mode FAILS CLOSED.
 # RECOVER=true (needs PROJECT REGION SERVICE REPO and PROMOTE_MARKER; IMAGE/DRY_RUN not needed): used by a workflow step that runs
 #   `if: always()` AFTER the promote step. If the marker file written when traffic was pointed at the candidate still exists (the run was
 #   cancelled or timed out and never reached the end), it rolls back to last-good; otherwise it does nothing. A workflow step's shell is
@@ -12,8 +15,8 @@
 # already moved), 2 usage.
 #
 # Order: validate serving state and that the previous image still exists -> deploy a 0% `candidate` -> validate it (traffic shape,
-# ceiling, digest) -> smoke -> [dry run stops here and removes the tag] -> prove the rollback target is usable WITHOUT touching any
-# tag -> only then tag the previously serving image/revision `last-good` -> promote -> re-assert state -> soak -> on ANY failure after
+# ceiling, digest) -> smoke -> authenticated smoke (signed ID token) -> [dry run stops here and removes the tag] -> prove the rollback
+# target is usable WITHOUT touching any tag -> only then tag the previously serving image/revision `last-good` -> promote -> re-assert state -> soak -> on ANY failure after
 # traffic moved (including cancellation or timeout) roll back to `last-good` only. Never prints revision JSON (allowlist uids).
 # Verified against the live dev service: GET /health and an unauthenticated GetMe (HTTP 401) behave as probed below.
 # NOT verified on Google's side: whether `--no-traffic`/`update-traffic` keep other tags (every operation is re-asserted).
@@ -182,6 +185,29 @@ smoke "$(tag_url "$work/s1.json" candidate)" retry || die "candidate smoke faile
 if [ "$check_indexes" = "true" ]; then
   gcloud firestore indexes composite list --project="$PROJECT" --format=json | tr -d '\r' >"$work/indexes.json" || die "cannot list Firestore indexes with this identity"
   [ "$(jqr '[.[] | select(.state != "READY")] | length' "$work/indexes.json")" = "0" ] || die "a Firestore index is not READY"
+fi
+
+# Authenticated smoke: a real signed ID token exercises the paths /health does not (JWKS fetch, Firestore reads over outbound TLS).
+# Once per run, before anything can move traffic (never in the soak, which must not sign in repeatedly). A failure here is handled
+# exactly like a failed step 4: die before traffic moves, and on_exit removes the candidate tag.
+# Secrets present -> run. Missing: a dry run skips with a notice (a run from a branch cannot read the `dev` Environment secrets);
+# promote mode fails closed. There is deliberately no flag that skips it.
+step "4b/8 authenticated smoke the candidate"
+if [ -n "${SMOKE_EMAIL:-}" ] && [ -n "${SMOKE_PASSWORD:-}" ]; then
+  if [ -z "${FIREBASE_API_KEY:-}" ]; then
+    opts=${FIREBASE_OPTIONS_FILE:-$here/../../app/lib/firebase_options.dart}
+    [ -r "$opts" ] || die "FIREBASE_API_KEY is unset and $opts is not readable"
+    FIREBASE_API_KEY=$(firebase_web_api_key "$opts")
+    [ -n "$FIREBASE_API_KEY" ] || die "could not find the web apiKey in $opts"
+  fi
+  # The dev browser key is restricted by HTTP referrer; this is one of its allowed origins.
+  SMOKE_REFERER=${SMOKE_REFERER:-https://dzeroth-dev.web.app/}
+  export SMOKE_EMAIL SMOKE_PASSWORD FIREBASE_API_KEY SMOKE_REFERER
+  bash "$here/authenticated-smoke.sh" "$(tag_url "$work/s1.json" candidate)" || die "authenticated smoke failed"
+elif [ "$DRY_RUN" = "true" ]; then
+  echo "::notice::authenticated smoke SKIPPED: the smoke secrets are unavailable in this run (expected for a dry run from a branch)"
+else
+  die "authenticated smoke is required when promoting: SMOKE_* secrets are missing"
 fi
 
 if [ "$DRY_RUN" = "true" ]; then

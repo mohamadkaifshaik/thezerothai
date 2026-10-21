@@ -99,9 +99,10 @@ key-ordered); CI fails when `firebase/firestore.indexes.json` overrides stop mat
 deliberate edit of the ack file in a reviewed PR. Adding or changing composite `indexes` needs no ack. This is a review gate, not a
 proof of safety: it cannot tell whether a given exemption is safe.
 
-## authenticated-smoke.sh and prod-smoke.sh (not wired into any workflow)
+## authenticated-smoke.sh and prod-smoke.sh
 `authenticated-smoke.sh <base_url>` signs in as a smoke account and calls GetMe (unauthenticated: must be 401; authenticated: 200 with a
 handle) and GetProfile, printing only step names, HTTP codes and the handle, and ending with `authenticated smoke: PASS` or
 `authenticated smoke: FAIL at <step>`. `prod-smoke.sh` is the founder's terminal wrapper for prod (credentials from
 `~/.dzeroth-smoke/prod.env`). The web API key is referrer-restricted, so sign-in sends `Referer: $SMOKE_REFERER` (`prod-smoke.sh` defaults it to `https://dzeroth.com/`). Why, usage, what it does not prove and the credential lifecycle: `docs/runbooks/authenticated-smoke.md`.
+**In deploy-dev:** `promote-dev.sh` runs `authenticated-smoke.sh` as step `4b/8` against the 0% candidate (dev smoke account A, secrets `SMOKE_A_EMAIL`/`SMOKE_A_PASSWORD` passed as `SMOKE_EMAIL`/`SMOKE_PASSWORD` to that one workflow step), once, before any traffic moves, never in the soak. Missing secrets: a dry run skips it with a notice; promote mode fails closed. `FIREBASE_API_KEY` comes from `app/lib/firebase_options.dart` (`firebase_web_api_key` in `lib.sh`, shared with `prod-smoke.sh`), `SMOKE_REFERER` defaults to `https://dzeroth-dev.web.app/`. Failure modes: "Dev (CI)" in the runbook.
 Tests: `test/smoke-test.sh` (run by `test/run.sh`, so by the required CI check), against a fake curl in `test/fakebin-smoke/`.
