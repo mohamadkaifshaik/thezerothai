@@ -30,6 +30,28 @@ abstract final class AppOpacity {
   /// Tint of a highlighted (for example unread) row: a hint, never the only
   /// signal.
   static const double rowTint = 0.08;
+
+  /// Tint of the selected navigation destination (the rail's indicator): a
+  /// soft indigo wash behind the icon; the label and icon carry the signal.
+  static const double navSelected = 0.14;
+}
+
+/// Page-level layout widths (dp) of the desktop/web shell.
+abstract final class AppLayout {
+  /// Widest the main (feed) column grows; wider windows centre it between
+  /// 1dp borders.
+  static const double mainColumnMaxWidth = 640;
+
+  /// Fixed width of the right-hand column shown from [AppBreakpoints.tablet].
+  static const double sideColumnWidth = 320;
+
+  /// Width of the extended navigation rail (labels visible).
+  static const double railExtendedWidth = 256;
+
+  /// Vertical padding around each rail destination. Flutter's destination is
+  /// 44dp tall (32dp indicator plus 12dp spacing); 2 + 44 + 2 reaches the
+  /// 48dp tap target.
+  static const double railItemVerticalPadding = 2;
 }
 
 abstract final class AppRadius {
@@ -219,7 +241,25 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     ).copyWith(backgroundColor: colorScheme.surface),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: colorScheme.surface,
-      indicatorColor: colorScheme.surfaceContainerHigh,
+      // Indigo wash behind the selected item. The icon turns primary (3:1 is
+      // enough for an icon); the label stays onSurface so its contrast does
+      // not depend on the wash (AA in light and dark).
+      useIndicator: true,
+      indicatorColor: colorScheme.primary.withValues(
+        alpha: AppOpacity.navSelected,
+      ),
+      indicatorShape: const StadiumBorder(),
+      minExtendedWidth: AppLayout.railExtendedWidth,
+      selectedIconTheme: IconThemeData(color: colorScheme.primary),
+      unselectedIconTheme: IconThemeData(color: colorScheme.onSurfaceVariant),
+      selectedLabelTextStyle: textTheme.titleSmall?.copyWith(
+        color: colorScheme.onSurface,
+        fontWeight: FontWeight.w800,
+      ),
+      unselectedLabelTextStyle: textTheme.titleSmall?.copyWith(
+        color: colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w500,
+      ),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: colorScheme.surfaceContainerHigh,
