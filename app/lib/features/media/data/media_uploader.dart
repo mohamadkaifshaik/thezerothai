@@ -202,12 +202,9 @@ class MediaUploader {
       // same retry replays and a changed set mints a new key.
       final intent =
           'c|${purpose.value}|'
-          '${[
-            for (final j in batch)
-              '${j.id}:${j.image.fullMd5}:${j.image.thumbMd5}:'
-                  '${j.image.fullBytes.length}:${j.image.thumbBytes.length}:'
-                  '${j.image.width}x${j.image.height}',
-          ].join(',')}';
+          '${[for (final j in batch) '${j.id}:${j.image.fullMd5}:${j.image.thumbMd5}:'
+                '${j.image.fullBytes.length}:${j.image.thumbBytes.length}:'
+                '${j.image.width}x${j.image.height}'].join(',')}';
       final targets = await _repository.createUpload(
         idempotencyKey: _key(intent),
         purpose: purpose,

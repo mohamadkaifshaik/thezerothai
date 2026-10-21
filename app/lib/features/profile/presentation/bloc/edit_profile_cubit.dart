@@ -94,9 +94,7 @@ class EditProfileState {
     isPreparingAvatar: isPreparingAvatar ?? this.isPreparingAvatar,
     avatarFailed: clearError ? false : (avatarFailed ?? this.avatarFailed),
     pickFailed: clearError ? false : (pickFailed ?? this.pickFailed),
-    avatarDropped: clearError
-        ? false
-        : (avatarDropped ?? this.avatarDropped),
+    avatarDropped: clearError ? false : (avatarDropped ?? this.avatarDropped),
   );
 }
 
