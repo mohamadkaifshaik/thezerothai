@@ -1,0 +1,24 @@
+// Fixture for prod-smoke.sh: the shape of app/lib/firebase_options_prod.dart with FAKE keys. The script must pick the WEB key.
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    return web;
+  }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'FAKE-WEB-KEY',
+    appId: '1:000:web:fake',
+    projectId: 'fake-proj',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'FAKE-ANDROID-KEY',
+    appId: '1:000:android:fake',
+    projectId: 'fake-proj',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'FAKE-IOS-KEY',
+    appId: '1:000:ios:fake',
+    projectId: 'fake-proj',
+  );
+}

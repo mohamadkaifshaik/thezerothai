@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Fake curl for the authenticated-smoke tests. Answers by URL, from files in $FAKE (all optional):
+#   signin-code / signin-body            sign-in answer (default 200 and {"idToken":"FAKE-ID-TOKEN-xyz"})
+#   getme-unauth-code                    answer to GetMe without a token (default 401)
+#   getme-codes                          one status per line, consumed one per authenticated GetMe call (default 200); "conn" = connection error
+#   getme-body / getprofile-body         default {"profile":{"handle":"smoke_a"}}
+#   getprofile-code                      default 200
+# Every call is recorded: the argument list in $FAKE/argv.log (the tests assert no secret is ever in it), and whatever curl is fed on
+# stdin in $FAKE/stdin.<n> (the sign-in body and the Authorization header travel there).
+st=${FAKE:?}
+n=$(($(cat "$st/calls" 2>/dev/null || echo 0) + 1))
+echo "$n" >"$st/calls"
+{ printf '%s\n' "--- call $n"; printf '%s\n' "$@"; } >>"$st/argv.log"
+stdin_used=0
+case " $* " in *" @- "*) stdin_used=1 ;; esac
+if [ "$stdin_used" = 1 ]; then cat >"$st/stdin.$n"; else : >"$st/stdin.$n"; fi
+url=${*: -1}
+pick() { # pick <file> <default>
+  if [ -f "$st/$1" ]; then tr -d '\r\n' <"$st/$1"; else printf '%s' "$2"; fi
+}
+body='{}'
+code=200
+case $url in
+  *accounts:signInWithPassword*)
+    code=$(pick signin-code 200)
+    body=$(pick signin-body '{"idToken":"FAKE-ID-TOKEN-xyz"}')
+    ;;
+  */GetMe)
+    if grep -q '^Authorization: Bearer ' "$st/stdin.$n"; then
+      if [ -s "$st/getme-codes" ]; then
+        code=$(head -n 1 "$st/getme-codes" | tr -d '\r')
+        tail -n +2 "$st/getme-codes" >"$st/getme-codes.tmp" && mv "$st/getme-codes.tmp" "$st/getme-codes"
+      fi
+      body=$(pick getme-body '{"profile":{"handle":"smoke_a"}}')
+    else
+      code=$(pick getme-unauth-code 401)
+      body='{"code":"unauthenticated"}'
+    fi
+    ;;
+  */GetProfile)
+    code=$(pick getprofile-code 200)
+    body=$(pick getprofile-body '{"profile":{"handle":"smoke_a"}}')
+    ;;
+esac
+if [ "$code" = "conn" ]; then exit 7; fi
+case " $* " in *'%{http_code}'*) printf '%s\n%s' "$body" "$code" ;; *) printf '%s' "$body" ;; esac
+exit 0
