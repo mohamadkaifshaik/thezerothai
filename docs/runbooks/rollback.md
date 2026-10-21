@@ -102,6 +102,6 @@ topic has **no pull subscription** (nothing to `pull`); the backstop (`/internal
 work from Firestore state, so nothing needs replaying by hand. See `account-deletion.md` section 6, "A deletion is stuck".
 
 ## After any rollback
-- Confirm `/healthz` and the uptime check are green, and Error Reporting is quiet for the restored revision.
+- Confirm `/health` (not `/healthz`: `*.run.app` reserves paths ending in `z`) and the uptime check are green, and Error Reporting is quiet for the restored revision.
 - Record what happened and the fix in `docs/reviews/` (or a runbook update if a new failure mode was discovered —
   CLAUDE.md Definition of Done requires runbook updates for new failure modes).
