@@ -103,5 +103,5 @@ proof of safety: it cannot tell whether a given exemption is safe.
 `authenticated-smoke.sh <base_url>` signs in as a smoke account and calls GetMe (unauthenticated: must be 401; authenticated: 200 with a
 handle) and GetProfile, printing only step names, HTTP codes and the handle, and ending with `authenticated smoke: PASS` or
 `authenticated smoke: FAIL at <step>`. `prod-smoke.sh` is the founder's terminal wrapper for prod (credentials from
-`~/.dzeroth-smoke/prod.env`). Why, usage, what it does not prove and the credential lifecycle: `docs/runbooks/authenticated-smoke.md`.
+`~/.dzeroth-smoke/prod.env`). The web API key is referrer-restricted, so sign-in sends `Referer: $SMOKE_REFERER` (`prod-smoke.sh` defaults it to `https://dzeroth.com/`). Why, usage, what it does not prove and the credential lifecycle: `docs/runbooks/authenticated-smoke.md`.
 Tests: `test/smoke-test.sh` (run by `test/run.sh`, so by the required CI check), against a fake curl in `test/fakebin-smoke/`.

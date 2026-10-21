@@ -5,12 +5,13 @@
 #   getme-codes                          one status per line, consumed one per authenticated GetMe call (default 200); "conn" = connection error
 #   getme-body / getprofile-body         default {"profile":{"handle":"smoke_a"}}
 #   getprofile-code                      default 200
-# Every call is recorded: the argument list in $FAKE/argv.log (the tests assert no secret is ever in it), and whatever curl is fed on
+# Every call is recorded: its own argument list (headers included) in $FAKE/argv.<n>, the argument list in $FAKE/argv.log (the tests assert no secret is ever in it), and whatever curl is fed on
 # stdin in $FAKE/stdin.<n> (the sign-in body and the Authorization header travel there).
 st=${FAKE:?}
 n=$(($(cat "$st/calls" 2>/dev/null || echo 0) + 1))
 echo "$n" >"$st/calls"
 { printf '%s\n' "--- call $n"; printf '%s\n' "$@"; } >>"$st/argv.log"
+printf '%s\n' "$@" >"$st/argv.$n"
 stdin_used=0
 case " $* " in *" @- "*) stdin_used=1 ;; esac
 if [ "$stdin_used" = 1 ]; then cat >"$st/stdin.$n"; else : >"$st/stdin.$n"; fi

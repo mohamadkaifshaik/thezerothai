@@ -43,6 +43,20 @@ refuses an env file that group or others can read (Linux and macOS; on Windows `
 
 **What to record** in the readiness or post-release note: just the `authenticated smoke: PASS` line and the date. Nothing else from the output.
 
+## API key restrictions (the sign-in Referer)
+The Firebase **web** (browser) API key is restricted by HTTP referrer to the app's own origins (prod: `https://dzeroth.com/*`,
+`https://www.dzeroth.com/*`, `https://dzeroth-prod.web.app/*`, `https://dzeroth-prod.firebaseapp.com/*`). A terminal sends no `Referer`,
+so Identity Toolkit refuses the sign-in call. The script therefore sends `Referer: $SMOKE_REFERER` on the **sign-in request only** (never on
+GetMe or GetProfile). `SMOKE_REFERER` is optional for `authenticated-smoke.sh` (unset: no Referer) and must be an https URL without spaces
+or `@`; `prod-smoke.sh` defaults it to `https://dzeroth.com/` (override by setting it). It is not a secret.
+- **Recognize the failure:** `FAIL at sign-in` with `HTTP 403`. The response (not printed by the script) carries
+  `error.message "Requests from referer <empty> are blocked."` and `reason API_KEY_HTTP_REFERRER_BLOCKED`. With a Referer for an allowed
+  origin, fake credentials reach credential checking instead (400 `INVALID_LOGIN_CREDENTIALS`).
+- **Dev:** needs the dev web origin as `SMOKE_REFERER`. Check the dev browser key's allowed referrers with
+  `gcloud services api-keys list --project=dzeroth-dev`, and do not print key values (do not use `--format` fields that include `keyString`).
+- **The Android key** currently has no application restriction, but do not rely on that: a future package or certificate restriction would
+  break it. Use the web key and the Referer.
+
 ## The two prod smoke accounts and their credentials
 - They are the two `FEATURE_GRAPH_ALLOWLIST` smoke accounts: throwaway identities, **no admin or custom claims**, never used for real
   people, and **never add real users** to them or to the allowlist because of this script.
