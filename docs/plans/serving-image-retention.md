@@ -18,8 +18,10 @@ service, and what protects it?
   (the orchestrator's delete fallback was removed for this reason).
   **Correction (deploy-dev run 39637856312, 2026-10-21):** *re-pointing an existing tag* also needs `artifactregistry.tags.delete`:
   `tags add ... :last-good` by `ci-deploy` failed with PERMISSION_DENIED on it, so `writer` alone is not enough to MOVE a tag (creating a
-  new one is). `ci-deploy` therefore gets a custom role `arTagMover` (that one permission) bound on the `api` repository
-  (`infra/terraform/modules/iam`); still no delete fallback and no `repoAdmin`.
+  new one is). Dev's `ci-deploy` therefore gets a custom role `arTagMover` (that one permission) bound on the `api` repository
+  (`infra/terraform/modules/iam`, `ci_deploy_can_move_ar_tags = true` in `envs/dev` only); still no delete fallback and no `repoAdmin`.
+  **Prod intentionally does not get it:** `promote-prod` only reads tags and `release-prod` only creates new ones, and `tags.delete` on
+  prod's `ci-deploy` would let it de-protect the `v*` release tags.
 - A KEEP cleanup policy with `tag_prefixes` protects any matching tagged version; KEEP beats DELETE (earlier verification, applied in dev and prod).
 
 ## Why a tag is still needed

@@ -32,7 +32,8 @@ module "iam" {
   env             = local.env
   github_repo     = var.github_repo
 
-  # ci-deploy re-points the last-good/serving tags: tags.delete on this one repository (arTagMover).
+  # promote-dev.sh re-points the last-good/serving tags: ci-deploy gets tags.delete on this one repository (arTagMover). Dev only.
+  ci_deploy_can_move_ar_tags      = true
   artifact_registry_repository_id = module.artifact_registry.repository_id
   artifact_registry_location      = var.region
 

@@ -51,12 +51,20 @@ variable "billing_account" {
   type        = string
 }
 
+variable "ci_deploy_can_move_ar_tags" {
+  description = "Give ci-deploy artifactregistry.tags.delete (custom role arTagMover) on the api repository so it can re-point the last-good/serving tags. Needed only where promote-dev.sh runs (dev). Default false: prod's ci-deploy only reads tags (promote-prod) or creates new ones (release-prod), and tags.delete would let it de-protect the v* release tags."
+  type        = bool
+  default     = false
+}
+
 variable "artifact_registry_repository_id" {
-  description = "Id of the `api` Artifact Registry repository (module.artifact_registry.repository_id). ci-deploy's tag-mover role is bound on this repository only."
+  description = "Id of the `api` Artifact Registry repository (module.artifact_registry.repository_id). Only used when ci_deploy_can_move_ar_tags is true; the tag-mover role is bound on this repository only."
   type        = string
+  default     = ""
 }
 
 variable "artifact_registry_location" {
-  description = "Location of that repository (the same region the artifact-registry module uses)."
+  description = "Location of that repository (the same region the artifact-registry module uses). Only used when ci_deploy_can_move_ar_tags is true."
   type        = string
+  default     = ""
 }

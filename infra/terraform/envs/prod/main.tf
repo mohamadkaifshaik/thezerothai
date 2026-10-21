@@ -32,9 +32,8 @@ module "iam" {
   env             = local.env
   github_repo     = var.github_repo
 
-  # ci-deploy re-points the last-good/serving tags: tags.delete on this one repository (arTagMover).
-  artifact_registry_repository_id = module.artifact_registry.repository_id
-  artifact_registry_location      = var.region
+  # ci_deploy_can_move_ar_tags is intentionally left at its default (false): prod's ci-deploy does not move AR tags (promote-prod only
+  # reads them, release-prod only creates new ones) and must not be able to delete the v* release tags.
 
   # prod deploys ONLY from version tags — see release-rollout skill
   # (tag v* -> --no-traffic --tag rc -> smoke -> manual GO -> traffic shift).
