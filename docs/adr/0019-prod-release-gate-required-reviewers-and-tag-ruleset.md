@@ -1,5 +1,5 @@
 # 0019. Enforce the prod release gate with environment required reviewers and a v* tag ruleset
-Status: Proposed (only the founder accepts ADRs; nothing here has been executed or changed on GitHub)
+Status: Accepted (founder, 2026-10-21). Rollout R1-R3 is owner-run and in progress; R4 follow-up docs PRs come after it.
 Date: 2026-10-21
 Deciders: architect, founder
 
@@ -76,6 +76,13 @@ Adopt option D.
    weaken the control against the assistant's App (it is not an admin), but it means the approval is **not unskippable for the owner**.
    The observed value is recorded in the R3 read-back and diff. If the owner ever wants the approval to be unskippable, the setting is
    `can_admins_bypass=false` where the plan offers it (**unverified**).
+
+## Acceptance record
+The founder accepted this ADR on 2026-10-21: option D, and explicitly these three points:
+- **Three approval clicks per release** (`release-prod` `build-and-stage`, `promote-prod` stage=10, `promote-prod` stage=100).
+- **"Prevent self-review" stays OFF.**
+- **The `prod` environment's `can_admins_bypass` stays at its default (true):** the approval is not unskippable for the owner, but the
+  assistant's App cannot bypass it.
 
 ## Consequences
 - **Approval clicks per release: 3.** `release-prod`'s `build-and-stage` job (declares `environment: prod`), `promote-prod` stage=10, and
@@ -268,3 +275,9 @@ Both are owner-only calls.
   `docs/reviews/release-v0.4.1-readiness.md` (H11, H12), `docs/runbooks/authenticated-smoke.md`.
 - **Unverified:** tag-ruleset availability on the Free plan (proved by R1), whether "prevent self-review" is offered on this plan, and the
   exact `gh` array-of-object grouping used in the older §6a command.
+
+## Rollout log
+Filled in as the owner reports results; nothing is recorded until it is reported.
+- R1 (prove the mechanism on `zz-adr-test-*`): pending
+- R2 (tag ruleset on `refs/tags/v*`): pending
+- R3 (required reviewer on `prod`): pending
