@@ -53,8 +53,8 @@ Installation: **only this repository**.
 - Private key (`.pem`) generated once; stored **outside the repo and outside any synced folder**, in a directory only the assistant's
   Windows user can read (`icacls` to remove inheritance); never printed, committed, pasted into chat, or passed on a command line.
 - A small script mints the token: sign a JWT (`iat` now-60 s, `exp` <= 9 min, `iss` = App id) with `openssl`, call
-  `POST /app/installations/{id}/access_tokens` with `repositories` and the permission subset, export the result as `GH_TOKEN` for the
-  session only. The token is never written to disk or logs (it is masked in any output). The script is `scripts/mint-app-token.sh`
+  `POST /app/installations/{id}/access_tokens` (no body: the token carries the App's installed permissions on this repository only, and
+  scoping is done in the App settings), export the result as `GH_TOKEN` for the session only. The token is never written to disk or logs (it is masked in any output). The script is `scripts/mint-app-token.sh`
   (CODEOWNERS-protected, since it mints the assistant's credentials).
 - Commits use a bot identity (`<app>[bot]` noreply email) plus the existing `Co-Authored-By` trailer; git pushes over HTTPS with the token.
 - Rotation: generate a second private key in the App settings, switch, delete the old key (the App supports two at once). Every 90 days
@@ -129,7 +129,7 @@ JSON
 
 ## 7. Roll-out order (each step needs the owner)
 1. Owner reviews this document and PR #176 (CODEOWNERS covers the ack, the check script, `firestore.indexes.json`, `flag-ceiling.json`,
-   every file under `.github/workflows/`, and CODEOWNERS itself).
+   every file under `.github/workflows/`, `scripts/mint-app-token.sh`, `/CLAUDE.md`, `/.claude/`, and CODEOWNERS itself).
 2. Owner creates the App (permissions in section 3), installs it on this repository only, stores the key per section 3, and sets up the
    separate Windows user (or removes their credential from the assistant's profile).
 3. Run the verification matrix tests 1-6 and 11.
