@@ -137,6 +137,43 @@ resource "google_project_iam_member" "ci_deploy_ar_writer" {
   member  = "serviceAccount:${google_service_account.ci_deploy.email}"
 }
 
+// Moving an existing Artifact Registry tag (`gcloud artifacts docker tags add ... :last-good` / `:serving` in promote-dev.sh) needs
+// artifactregistry.tags.delete, which roles/artifactregistry.writer does not carry (proven by deploy-dev run 39637856312, step 5/8:
+// PERMISSION_DENIED artifactregistry.tags.delete). Least privilege: a custom role with that ONE permission, bound on the `api`
+// repository only (not project-wide, not repoAdmin/admin), and ONLY where ci_deploy_can_move_ar_tags is true (dev). Prod
+// intentionally does not get it: promote-prod only reads tags and release-prod only creates new ones, and tags.delete on prod's
+// ci-deploy would let it de-protect the v* release tags. Emergency stop: remove the binding (tag moves fail, promotion refuses at
+// step 5/8 before any traffic change). Residual risk where it is granted: ci-deploy can delete ANY tag in that repo (an IAM
+// condition on the tag name was not verified, so none is used; see the PR that added this).
+resource "google_project_iam_custom_role" "ar_tag_mover" {
+  count = var.ci_deploy_can_move_ar_tags ? 1 : 0
+
+  project     = var.project_id
+  role_id     = "arTagMover"
+  title       = "Artifact Registry tag mover"
+  description = "Delete (and so re-point) an Artifact Registry tag. Nothing else."
+  permissions = [
+    "artifactregistry.tags.delete",
+  ]
+}
+
+resource "google_artifact_registry_repository_iam_member" "ci_deploy_ar_tag_mover" {
+  count = var.ci_deploy_can_move_ar_tags ? 1 : 0
+
+  project    = var.project_id
+  location   = var.artifact_registry_location
+  repository = var.artifact_registry_repository_id
+  role       = google_project_iam_custom_role.ar_tag_mover[0].id
+  member     = "serviceAccount:${google_service_account.ci_deploy.email}"
+
+  lifecycle {
+    precondition {
+      condition     = var.artifact_registry_repository_id != "" && var.artifact_registry_location != ""
+      error_message = "ci_deploy_can_move_ar_tags needs artifact_registry_repository_id and artifact_registry_location."
+    }
+  }
+}
+
 // Deploying a new Cloud Run revision that runs as `runtime` requires the
 // deployer to be able to actAs it. Scoped to that single SA, not project-wide.
 resource "google_service_account_iam_member" "ci_deploy_actas_runtime" {

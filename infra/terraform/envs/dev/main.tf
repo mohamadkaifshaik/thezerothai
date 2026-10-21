@@ -32,6 +32,11 @@ module "iam" {
   env             = local.env
   github_repo     = var.github_repo
 
+  # promote-dev.sh re-points the last-good/serving tags: ci-deploy gets tags.delete on this one repository (arTagMover). Dev only.
+  ci_deploy_can_move_ar_tags      = true
+  artifact_registry_repository_id = module.artifact_registry.repository_id
+  artifact_registry_location      = var.region
+
   # dev deploys on every push to main.
   deploy_ref_condition   = "assertion.ref == 'refs/heads/main'"
   deploy_ref_description = "push to main"
