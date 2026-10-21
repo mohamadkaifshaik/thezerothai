@@ -20,6 +20,15 @@ description: Test conventions, tooling and commands for Go and Flutter using the
 - `flutter test --coverage`; mock repos with `mocktail`; test blocs with `bloc_test` (`blocTest`: events in → states out) and widgets by supplying a mock bloc via `BlocProvider.value`.
 - Goldens with `alchemist`; update only intentionally.
 - `integration_test` against local API + emulators; run on Android emulator and `-d chrome`.
+- **Dates in tests.** A fixed absolute date (`DateTime.utc(2026, 10, 14)`, an ISO string, an epoch literal) must never be compared with the
+  real clock, directly or through a widget that calls `DateTime.now()`: the test passes on the day it is written and goes red later with no
+  code change. Cautionary example: the notification fixtures used a fixed date while the screen compared against the real clock, and the
+  spoken relative time stops saying "ago" after 7 days, so the suite failed a week later (2026-10-21). Two accepted patterns: **inject**
+  `now`/a clock (every `PostCard` in the tests gets `now: _now`), or build the date **relative to the real clock** once (`kNotifBase` in
+  `test/support/notifications_fixtures.dart`: `DateTime.now()` truncated to the second, `minutesAgo` subtracted from it). The guard test
+  `test/guards/fixed_date_guard_test.dart` enforces this: it scans `app/test` for fixed dates and fails for any file not in its allowlist,
+  where each entry carries the reason the date cannot meet the real clock (stale entries fail too). It finds fixed absolute dates only, not
+  every clock dependence.
 
 ## E2E / API
 - Go e2e suite in `backend/e2e`: runs against emulators in CI; against the prod `candidate` tagged URL as a < 100-request smoke with test accounts.
