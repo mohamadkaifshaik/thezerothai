@@ -7,6 +7,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 p=$(dirname "$here")
 fx=$here/fixtures
 export PATH="$here/fakebin-smoke:$here/fakebin:$PATH"
+# CI sets GITHUB_ACTIONS=true, which makes the script print its ::add-mask:: line. Only the dedicated Actions test below turns it on.
+unset GITHUB_ACTIONS
 # The fakes must be executable (git on Windows can drop the bit); otherwise PATH would skip them and the REAL curl would run.
 for f in "$here/fakebin-smoke/curl" "$here/fakebin/sleep"; do
   [ -x "$f" ] || { echo "FAIL: $f is not executable; refusing to run against real tools" >&2; exit 2; }
