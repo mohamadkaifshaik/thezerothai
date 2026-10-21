@@ -50,3 +50,13 @@ variable "billing_account" {
   description = "Billing account ID (XXXXXX-XXXXXX-XXXXXX); the plan SA gets billing.viewer on it."
   type        = string
 }
+
+variable "artifact_registry_repository_id" {
+  description = "Id of the `api` Artifact Registry repository (module.artifact_registry.repository_id). ci-deploy's tag-mover role is bound on this repository only."
+  type        = string
+}
+
+variable "artifact_registry_location" {
+  description = "Location of that repository (the same region the artifact-registry module uses)."
+  type        = string
+}

@@ -32,6 +32,10 @@ module "iam" {
   env             = local.env
   github_repo     = var.github_repo
 
+  # ci-deploy re-points the last-good/serving tags: tags.delete on this one repository (arTagMover).
+  artifact_registry_repository_id = module.artifact_registry.repository_id
+  artifact_registry_location      = var.region
+
   # prod deploys ONLY from version tags — see release-rollout skill
   # (tag v* -> --no-traffic --tag rc -> smoke -> manual GO -> traffic shift).
   deploy_ref_condition   = "assertion.ref.startsWith('refs/tags/v')"

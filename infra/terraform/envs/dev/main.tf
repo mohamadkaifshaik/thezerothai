@@ -32,6 +32,10 @@ module "iam" {
   env             = local.env
   github_repo     = var.github_repo
 
+  # ci-deploy re-points the last-good/serving tags: tags.delete on this one repository (arTagMover).
+  artifact_registry_repository_id = module.artifact_registry.repository_id
+  artifact_registry_location      = var.region
+
   # dev deploys on every push to main.
   deploy_ref_condition   = "assertion.ref == 'refs/heads/main'"
   deploy_ref_description = "push to main"
