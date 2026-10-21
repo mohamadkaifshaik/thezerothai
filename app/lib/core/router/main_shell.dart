@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
+import '../widgets/privacy_policy_link.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
 import '../widgets/responsive_scaffold.dart';
@@ -68,9 +70,10 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ownHandle = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.handle,
+    final ownProfile = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile,
     );
+    final ownHandle = ownProfile?.handle;
 
     final canCompose = canComposeAt(context, location);
 
@@ -98,15 +101,42 @@ class MainShell extends StatelessWidget {
           t.destination,
     ];
 
+    void openCompose() => context.push(AppRouter.composePath);
     return ResponsiveScaffold(
       selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
+      // Phone: the floating button. Tablet and desktop: the rail's own entry
+      // (icon, or the "Post" button when extended). All gated by canComposeAt.
       floatingActionButton: canCompose
           ? FloatingActionButton(
               tooltip: 'New post',
-              onPressed: () => context.push(AppRouter.composePath),
+              onPressed: openCompose,
               child: const Icon(Icons.edit_outlined),
             )
           : null,
+      onCompose: canCompose ? openCompose : null,
+      sideColumn: AppSideColumn(
+        // Only what is already loaded: no profile, no card (nothing is fetched).
+        profile: ownHandle == null || ownHandle.isEmpty
+            ? null
+            : AppSideProfile(
+                displayName: ownProfile?.displayName ?? '',
+                handle: ownHandle,
+                avatarUrl: ownProfile?.avatarThumbUrl ?? '',
+                onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+              ),
+        links: [
+          AppSideLink(
+            icon: Icons.settings_outlined,
+            label: 'Settings',
+            onTap: () => context.go(AppRouter.settingsPath),
+          ),
+          AppSideLink(
+            icon: Icons.privacy_tip_outlined,
+            label: 'Privacy Policy',
+            onTap: () => launchPrivacyPolicy(context),
+          ),
+        ],
+      ),
       destinations: destinations,
       onDestinationSelected: (index) {
         switch (tabs[index].tab) {

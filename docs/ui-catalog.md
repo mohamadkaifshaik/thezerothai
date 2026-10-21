@@ -2,9 +2,11 @@
 
 | Item | Location | Use it for |
 |---|---|---|
-| AppSpacing (incl. `minTapTarget`, `minButtonWidth`) / AppRadius / AppBreakpoints / AppOpacity (`rowTint`) | app/lib/core/theme/app_theme.dart | spacing, radius and responsive-breakpoint tokens — never hardcode sizes |
+| AppSpacing (incl. `minTapTarget`, `minButtonWidth`) / AppRadius / AppBreakpoints / AppOpacity (`rowTint`, `navSelected`) / AppLayout (`mainColumnMaxWidth` 640, `sideColumnWidth` 320, `railExtendedWidth` 256, `railItemVerticalPadding`) | app/lib/core/theme/app_theme.dart | spacing, radius and responsive-breakpoint tokens — never hardcode sizes |
 | appLightTheme / appDarkTheme / buildAppTheme | app/lib/core/theme/app_theme.dart | Material 3 ThemeData for MaterialApp.router |
-| ResponsiveScaffold / AppNavDestination (`badgeLabel`, `badgeSemanticLabel`) | app/lib/core/widgets/responsive_scaffold.dart | adaptive shell: bottom nav (phone) / rail (tablet) / rail + side column (desktop); `badgeLabel` (`3`, `99+`) puts a count badge over a destination icon, spoken as `badgeSemanticLabel` (`3 unread`) |
+| ResponsiveScaffold / AppNavDestination (`badgeLabel`, `badgeSemanticLabel`) | app/lib/core/widgets/responsive_scaffold.dart | adaptive shell: bottom nav + FAB (<600dp); rail (icons, brand, `onCompose` icon button) with the body centred in a column of at most `AppLayout.mainColumnMaxWidth` between 1dp borders (600-1200dp); extended rail with a gradient "Post" button and an optional `sideColumn` (>=1200dp); `badgeLabel` (`3`, `99+`) puts a count badge over a destination icon, spoken as `badgeSemanticLabel` (`3 unread`) |
+| AppRailBrand | app/lib/shared/widgets/app_rail_brand.dart | the rail's text-only brand mark: "Dzeroth" when extended, "D" when collapsed; one header semantics node |
+| AppSideColumn / AppSideProfile / AppSideLink | app/lib/shared/widgets/app_side_column.dart | the desktop shell's right column: the viewer's own profile card (omitted without a loaded profile) and quick links to routes that exist; purely presentational, no state, no fetch; scrolls when it does not fit |
 | AppErrorView | app/lib/core/widgets/app_error_view.dart | typed, friendly rendering of an AppException (degraded mode, quota, rate limit, network, etc.) |
 | SplashScreen | app/lib/core/widgets/splash_screen.dart | shown while the initial Firebase auth state is unknown |
 | PrivacyPolicyLink / launchPrivacyPolicy / privacyPolicyUri | app/lib/core/widgets/privacy_policy_link.dart | the tappable "Privacy Policy" link (sign-up, sign-in, Settings) and the one place that resolves/opens its URL |
@@ -19,7 +21,7 @@
 | AppDatabase / ProfileCacheEntries / FollowingCacheEntries / TimelineItemEntries / TimelineStateEntries | app/lib/core/storage/app_database.dart | drift local cache (profiles, own follows, timeline feeds; schema v3; add tables here, not a second database) |
 | SessionEpoch / AppDatabase.sessionEpoch | app/lib/core/storage/session_epoch.dart | the one session generation every cache writer (TimelineStore, GraphRepository, IdentityRepository) reads before an RPC and passes to guarded drift writes (`epoch:`); `end()` on sign-out drops stale in-flight writes (CLAUDE.md rule 10) |
 | AppRouter | app/lib/core/router/app_router.dart | the app's single go_router instance + auth/onboarding redirect logic; `profilePath(handle)` for typed handles, `profileByIdPath(userId)` (`/u/:userId`) for post cards and mentions |
-| MainShell | app/lib/core/router/main_shell.dart | bottom-nav/rail chrome around Home/Profile/Settings, used by AppRouter's ShellRoute |
+| MainShell | app/lib/core/router/main_shell.dart | bottom-nav/rail chrome around Home/Notifications/Profile/Settings, used by AppRouter's ShellRoute; gates compose with `canComposeAt` (FAB on phone, rail entry above) and fills the side column from the already-loaded `OnboardingBloc` profile (card to the own-profile route) plus Settings and Privacy Policy links |
 | GoRouterRefreshStream | app/lib/core/router/go_router_refresh_stream.dart | turns bloc streams into a Listenable for go_router's refreshListenable |
 | AppConfig | app/lib/app/app_config.dart | --dart-define environment config (API base URL, emulator flags, App Check keys) |
 | AuthGate | app/lib/features/auth/presentation/widgets/auth_gate.dart | wraps protected routes; swaps in the email-verification prompt when needed |
