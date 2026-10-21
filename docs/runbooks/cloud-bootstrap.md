@@ -139,6 +139,8 @@ Set each with `gh variable set NAME --body "value"`; the ones marked **secret** 
 
 ### 6a. Free-plan trust model for prod releases (no branch protection, no tag ruleset, no required reviewers)
 
+Update 2026-10-21: this repo is public; see ADR-0019 (Proposed) which supersedes this trust model once Accepted.
+
 **Founder decision, confirmed against the live repo 2026-09-27:** both the branch-protection API and the
 repository-rulesets API return `403 Upgrade to GitHub Pro or make this repository public` on this repo today —
 private repos on GitHub Free simply don't have these features, full stop. Environment *required reviewers* are
