@@ -290,5 +290,12 @@ Filled in as the owner reports results; nothing is recorded until it is reported
   the App created and deleted a tag (HTTP 201 / 204). (2) With the ruleset active, the identical App request was refused: HTTP 422,
   generic body `Reference update failed`, and no tag was created (`git ls-remote` empty). (3) The owner created and deleted a tag through the
   bypass. The test ruleset and its tag were then removed; only the branch ruleset 24070946 remained.
-- R2 (tag ruleset on `refs/tags/v*`): pending
-- R3 (required reviewer on `prod`): pending
+- R2 (tag ruleset on `refs/tags/v*`): **done 2026-10-21**. Ruleset `protect-version-tags` was created disabled, then activated. Read-back
+  OK: target tag, include `refs/tags/v*`, rules creation/update/deletion, one Admin-role bypass. Branch ruleset 24070946 is unchanged, and both
+  rulesets are active.
+- R3 (required reviewer on `prod`): **done 2026-10-21**. The before-state was read first: `can_admins_bypass` true; the only protection rule
+  was the branch policy; the deployment policy was `v*` of type tag. After the PUT the diff added **only** a `required_reviewers` rule (the
+  owner, `prevent_self_review` false). The `v*` tag policy survived. `can_admins_bypass` is true before and after.
+
+Behavioural confirmation is pending the next real release: `build-and-stage` must show "Waiting for review", and the owner tag push must still
+work through the Admin bypass. Never test with a `v*` tag or by dispatching `promote-prod.yml`.
