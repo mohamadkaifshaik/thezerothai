@@ -70,10 +70,11 @@ or `@`; `prod-smoke.sh` defaults it to `https://dzeroth.com/` (override by setti
 - **Recover:** reset the password again (rotate). The accounts hold test data only.
 
 ## Resetting and verifying the prod smoke passwords (Git Bash on Windows)
-**Why this section exists.** A first attempt passed the new password as a command-line argument to Windows programs (`jq --arg`,
-`curl -d @-` from Git Bash) and produced credentials that Google rejected with `INVALID_LOGIN_CREDENTIALS`, although the server-side reset had
-applied. On Windows never pass a secret as an argument: put it in the environment (`export PW=...`, then `jq -n '{...password:$ENV.PW...}'`),
-send it to curl with `--data-binary @-` from stdin, and never print it.
+**Why this section exists.** Sign-in rejections (`INVALID_LOGIN_CREDENTIALS`) appeared after a new password was passed as a command-line
+argument to Windows programs (`jq --arg`, `curl -d @-` from Git Bash), although the server-side reset had applied, and disappeared when the
+password was passed through the environment and stdin instead. The exact mechanism was not isolated. On Windows never pass a secret as an
+argument: put it in the environment (`export PW=...`, then `jq -n '{...password:$ENV.PW...}'`), send it to curl with `--data-binary @-` from
+stdin, and never print it.
 
 **Rules.**
 1. **Always verify a credential** by signing in right after setting it, and write it to `~/.dzeroth-smoke/prod.env` only after a verified OK:
@@ -85,6 +86,8 @@ send it to curl with `--data-binary @-` from stdin, and never print it.
 The block holds no secrets. It prints only `account <n>: reset HTTP <code> | web key+referer: OK|<message> | android key: OK|<message>`.
 The gcloud access token is short-lived and is the founder's own.
 ```bash
+(
+cd "$(git rev-parse --show-toplevel)" || exit 1
 P=dzeroth-prod
 IDT=https://identitytoolkit.googleapis.com
 OPTS=app/lib/firebase_options_prod.dart
@@ -143,6 +146,7 @@ if [ "$all_ok" = 1 ] && [ "$n" = 2 ]; then
 else
   rm -f "$NEW"; echo "NOT updated: not every account verified OK"
 fi
+)
 ```
 After the rename on Windows, check that `prod.env` is still readable by your user only (`icacls`). Then run `prod-smoke.sh` once against the live
 service URL as the final proof.
