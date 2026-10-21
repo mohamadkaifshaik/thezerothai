@@ -214,5 +214,8 @@ if [ -f "$wf" ]; then
   fi
 fi
 
+# --- authenticated-smoke.sh and prod-smoke.sh: their own fixture file (fake curl), run here so the required CI step covers it
+expect "authenticated smoke tests" 0 "$here/smoke-test.sh"
+
 echo "promotion fixture tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]
