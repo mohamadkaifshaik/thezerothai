@@ -1,5 +1,5 @@
 # 0019. Enforce the prod release gate with environment required reviewers and a v* tag ruleset
-Status: Accepted (founder, 2026-10-21). Rollout R1-R3 is owner-run and in progress; R4 follow-up docs PRs come after it.
+Status: Accepted (founder, 2026-10-21). Rollout R1-R3 done 2026-10-21 (see Rollout log); R4 follow-up docs PRs are pending.
 Date: 2026-10-21
 Deciders: architect, founder
 
@@ -162,7 +162,7 @@ out=$(GH_TOKEN=$TOKEN gh api -i -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-te
 status=$(printf '%s\n' "$out" | awk 'NR==1 {print $2}')
 printf 'status line: %s\n' "$(printf '%s\n' "$out" | head -n 1 | tr -d '\r')"
 printf 'body:\n%s\n' "$(printf '%s\n' "$out" | tr -d '\r' | awk 'f{print} /^$/{f=1}')"
-remaining=$(git ls-remote --tags origin 'zz-adr-test-1')
+remaining=$(git ls-remote --tags origin 'zz-adr-test-1') || { echo "INCONCLUSIVE: could not list remote tags"; exit 1; }
 case "$status" in
   201)
     echo "FAIL: the App created the tag (HTTP 201): the ruleset is NOT enforced for it. STOP, do not continue to R2."
@@ -296,6 +296,9 @@ Filled in as the owner reports results; nothing is recorded until it is reported
 - R3 (required reviewer on `prod`): **done 2026-10-21**. The before-state was read first: `can_admins_bypass` true; the only protection rule
   was the branch policy; the deployment policy was `v*` of type tag. After the PUT the diff added **only** a `required_reviewers` rule (the
   owner, `prevent_self_review` false). The `v*` tag policy survived. `can_admins_bypass` is true before and after.
+  Incident 2026-10-21: the reviewer rule was removed for a short window by a pasted rollback block (no release was running); it was
+  re-applied with the same PUT and verified (`required_reviewers` present, `can_admins_bypass` true, `v*` tag policy intact, tag ruleset
+  unchanged).
 
 Behavioural confirmation is pending the next real release: `build-and-stage` must show "Waiting for review", and the owner tag push must still
 work through the Admin bypass. Never test with a `v*` tag or by dispatching `promote-prod.yml`.
