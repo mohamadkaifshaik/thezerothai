@@ -1,5 +1,5 @@
 # 0019. Enforce the prod release gate with environment required reviewers and a v* tag ruleset
-Status: Proposed (only the founder accepts ADRs; nothing here has been executed or changed on GitHub)
+Status: Accepted (founder, 2026-10-21). Rollout R1-R3 done 2026-10-21 (see Rollout log); R4 follow-up docs PRs are pending.
 Date: 2026-10-21
 Deciders: architect, founder
 
@@ -77,6 +77,13 @@ Adopt option D.
    The observed value is recorded in the R3 read-back and diff. If the owner ever wants the approval to be unskippable, the setting is
    `can_admins_bypass=false` where the plan offers it (**unverified**).
 
+## Acceptance record
+The founder accepted this ADR on 2026-10-21: option D, and explicitly these three points:
+- **Three approval clicks per release** (`release-prod` `build-and-stage`, `promote-prod` stage=10, `promote-prod` stage=100).
+- **"Prevent self-review" stays OFF.**
+- **The `prod` environment's `can_admins_bypass` stays at its default (true):** the approval is not unskippable for the owner, but the
+  assistant's App cannot bypass it.
+
 ## Consequences
 - **Approval clicks per release: 3.** `release-prod`'s `build-and-stage` job (declares `environment: prod`), `promote-prod` stage=10, and
   `promote-prod` stage=100. A re-run or a re-dispatch needs its own approval. Mobile jobs are not gated; `dev` is unaffected.
@@ -139,8 +146,12 @@ R=repos/mohamadkaifshaik/thezerothai
 TEST_ID=$(gh api "$R/rulesets" --jq '.[] | select(.name=="zz-adr-test") | .id')
 echo '{"enforcement":"active"}' | gh api -X PUT "$R/rulesets/$TEST_ID" --input - --jq .enforcement
 ```
-**4. `claude-agent` session: the refusal check.** The call must fail **and** the error must mention the rule violation. Any other outcome
-(token mint failed, network error, 401/404, anything without a rule-violation message) is **INCONCLUSIVE**, never a pass.
+**4. `claude-agent` session: the refusal check (a differential check, not a text match).** GitHub answers a ruleset-blocked tag creation with
+HTTP 422 and the **generic** body `{"message":"Reference update failed"}`, with no rule-violation wording (observed 2026-10-21), so the
+message cannot be the evidence. The evidence is the before/after comparison: **PASS** = the App's create returns 422 or 403 **and** no tag
+exists afterwards (`git ls-remote`), **and** step 2 returned 201 for the identical request while the ruleset was disabled, **and** step 5
+shows the owner succeeds while the ruleset is active. A 201 here is **FAIL**. Anything else (token mint failed, network error, 401/404) is
+INCONCLUSIVE.
 ```bash
 (
 R=repos/mohamadkaifshaik/thezerothai
@@ -149,16 +160,19 @@ TOKEN=$(bash scripts/mint-app-token.sh) || { echo "INCONCLUSIVE: could not mint 
 [ -n "$TOKEN" ] || { echo "INCONCLUSIVE: empty App token"; exit 1; }
 out=$(GH_TOKEN=$TOKEN gh api -i -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-1 -f sha="$SHA" 2>&1) || true
 status=$(printf '%s\n' "$out" | awk 'NR==1 {print $2}')
+printf 'status line: %s\n' "$(printf '%s\n' "$out" | head -n 1 | tr -d '\r')"
+printf 'body:\n%s\n' "$(printf '%s\n' "$out" | tr -d '\r' | awk 'f{print} /^$/{f=1}')"
+remaining=$(git ls-remote --tags origin 'zz-adr-test-1') || { echo "INCONCLUSIVE: could not list remote tags"; exit 1; }
 case "$status" in
   201)
     echo "FAIL: the App created the tag (HTTP 201): the ruleset is NOT enforced for it. STOP, do not continue to R2."
     GH_TOKEN=$TOKEN gh api -X DELETE "$R/git/refs/tags/zz-adr-test-1" > /dev/null
     exit 1 ;;
   403 | 422)
-    if printf '%s\n' "$out" | grep -qiE 'rule violation|ruleset|repository rule'; then
-      echo "PASS: refused by the ruleset (HTTP $status, rule-violation message)"
+    if [ -z "$remaining" ]; then
+      echo "PASS (differential): refused with HTTP $status and no tag exists. Compare step 2 (201 while disabled) and step 5 (owner allowed while active)."
     else
-      echo "INCONCLUSIVE: HTTP $status but no rule-violation message; read the response by hand before continuing"
+      echo "FAIL: HTTP $status but a zz-adr-test-1 tag exists; investigate before continuing"
       exit 1
     fi ;;
   *)
@@ -176,9 +190,10 @@ gh api -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-1 -f sha="$SHA" --jq .
 gh api -X DELETE "$R/git/refs/tags/zz-adr-test-1"                                     # expect no error (204)
 if [ -n "$TEST_ID" ]; then gh api -X DELETE "$R/rulesets/$TEST_ID"; else echo "test ruleset id not found"; fi   # expect no error (204)
 ```
-Expected: step 1 accepted; step 2 `POSITIVE CONTROL OK`; step 3 `active`; step 4 `PASS: refused by the ruleset` (a 403 or 422 with a
-rule-violation message); step 5 succeeds. If step 4 prints `FAIL` or `INCONCLUSIVE`, or step 2 prints `CONTROL FAILED`, STOP: do not continue
-to R2.
+Expected: step 1 accepted; step 2 `POSITIVE CONTROL OK` (201/204); step 3 `active`; step 4 `PASS (differential)` (422 or 403, no tag
+exists); step 5 succeeds. The refusal message is generic; the evidence is the before/after comparison (201 while the ruleset was disabled,
+refusal while active, owner allowed through the bypass). If step 4 prints `FAIL` or `INCONCLUSIVE`, or step 2 prints `CONTROL FAILED`, STOP:
+do not continue to R2.
 
 ### R2. Create the real ruleset on `refs/tags/v*`
 The ready-to-run form in `cloud-bootstrap.md` §6a uses repeated `rules[][type]` fields; the JSON body below avoids relying on how `gh`
@@ -268,3 +283,22 @@ Both are owner-only calls.
   `docs/reviews/release-v0.4.1-readiness.md` (H11, H12), `docs/runbooks/authenticated-smoke.md`.
 - **Unverified:** tag-ruleset availability on the Free plan (proved by R1), whether "prevent self-review" is offered on this plan, and the
   exact `gh` array-of-object grouping used in the older §6a command.
+
+## Rollout log
+Filled in as the owner reports results; nothing is recorded until it is reported.
+- R1 (prove the mechanism on `zz-adr-test-*`): **done 2026-10-21**, three legs. (1) Positive control while the test ruleset was disabled:
+  the App created and deleted a tag (HTTP 201 / 204). (2) With the ruleset active, the identical App request was refused: HTTP 422,
+  generic body `Reference update failed`, and no tag was created (`git ls-remote` empty). (3) The owner created and deleted a tag through the
+  bypass. The test ruleset and its tag were then removed; only the branch ruleset 24070946 remained.
+- R2 (tag ruleset on `refs/tags/v*`): **done 2026-10-21**. Ruleset `protect-version-tags` was created disabled, then activated. Read-back
+  OK: target tag, include `refs/tags/v*`, rules creation/update/deletion, one Admin-role bypass. Branch ruleset 24070946 is unchanged, and both
+  rulesets are active.
+- R3 (required reviewer on `prod`): **done 2026-10-21**. The before-state was read first: `can_admins_bypass` true; the only protection rule
+  was the branch policy; the deployment policy was `v*` of type tag. After the PUT the diff added **only** a `required_reviewers` rule (the
+  owner, `prevent_self_review` false). The `v*` tag policy survived. `can_admins_bypass` is true before and after.
+  Incident 2026-10-21: the reviewer rule was removed for a short window by a pasted rollback block (no release was running); it was
+  re-applied with the same PUT and verified (`required_reviewers` present, `can_admins_bypass` true, `v*` tag policy intact, tag ruleset
+  unchanged).
+
+Behavioural confirmation is pending the next real release: `build-and-stage` must show "Waiting for review", and the owner tag push must still
+work through the Admin bypass. Never test with a `v*` tag or by dispatching `promote-prod.yml`.
