@@ -31,7 +31,7 @@ v0.4.0 and was deliberately not released.
   - P2.3: container config diff against `api-00010-zah` is empty except the image.
   - P2.4: base image digest annotation `sha256:52dcfbabb7457ea47c82f6e13af8c8a4a1d9f7b0145142b3ecab20f2b888411d` equals the recorded v0.4.0 base.
   - P2.5: 9 composite indexes READY and 4 `expireAt` TTLs ACTIVE.
-  - P2.6: authenticated smoke on the candidate: **SKIPPED** (see Deviations).
+  - P2.6: authenticated smoke on the candidate: **SKIPPED** at release time, **VERIFIED afterwards** on 2026-10-21 (see Deviations).
   - P2.7: candidate logs 0 errors / 0 5xx, and 0 lines containing x509, certificate or tls.
   - Extra: `/health` 200 three times on the candidate; unauthenticated GetMe 401, identical to the live service.
 - **P3** (stage 10, canary 07:17-07:33):
@@ -52,6 +52,15 @@ v0.4.0 and was deliberately not released.
   handler, and prod sees about 1.7k requests/day, mostly the uptime check, so the 10% canary carries almost no signal. Compensating
   evidence: the other gates and canary checks recorded above. **The first real authenticated traffic is what exercises
   the changed code**, and it is watched below.
+  **Resolved after the fact:** on 2026-10-21 at about 11:08 UTC (16:38 IST), about 3.5 hours after stage 100 finished (07:37), the founder
+  ran `scripts/promotion/prod-smoke.sh` (added in #209, `445649a`) from their own terminal against the LIVE prod service URL, once for each
+  of the two throwaway prod smoke accounts. Both printed `authenticated smoke: PASS`: sign-in HTTP 200, unauthenticated GetMe 401, GetMe 200
+  with a profile handle, GetProfile 200 with the same handle. Server-side evidence (Cloud Logging, read-only): prod was serving
+  `api-00013-qov` at 100%; in the 30 minutes around the run that revision served exactly the six smoke requests (per account: GetMe 401,
+  GetMe 200, GetProfile 200, between 11:08:38 and 11:08:43 UTC); since 10:50 UTC it logged 0 ERROR, 0 5xx and 0 lines containing x509,
+  certificate or `tls:`. **Proves:** a signed ID token is accepted on the live v0.4.1 build (the Google key fetch and signature verification
+  work) and Firestore reads over TLS work: exactly the path GO-2026-6809 and the Go 1.26.10 change touch. **Does not prove:** any write path,
+  App Check (monitor mode) or any flagged feature.
 - The 15-minute stage-10 watch was honored. The readiness file's "cold start < 1.5 s" and ">= 50 requests" style gates were replaced by the
   readiness §5 P3 wording.
 - **Preparation PR #204 was closed unmerged, with red CI.** The failure was the known `buf breaking` false positive (its baseline,
@@ -61,7 +70,23 @@ v0.4.0 and was deliberately not released.
     called, ignored in `osv-scanner.toml` until 2026-11-30);
   - CI under go1.26.10 passed the Go unit tests, `go vet`, the coverage gate (88%), the linter and `buf lint`.
 
+## Smoke tooling findings and fixes
+Running the P2.6 smoke after the release exposed three tooling gaps, all fixed. Runbook: `docs/runbooks/authenticated-smoke.md`.
+- **Referrer-restricted web key.** The web API key is restricted by HTTP referrer, so a sign-in from a terminal (no Referer) got 403
+  `API_KEY_HTTP_REFERRER_BLOCKED`; that run used the Android key (no application restriction). Fix: the script sends a Referer on the
+  sign-in request only (prod default `https://dzeroth.com/`). PR #210 (`9d284b9`); see "API key restrictions (the sign-in Referer)".
+- **Password reset from Git Bash.** A first reset passed the password as a command-line argument to Windows programs and produced credentials
+  Google rejected. Resetting through the environment and verifying by signing in before storing fixed it. The Windows-safe procedure is
+  documented since PR #210 (`9d284b9`); see "Resetting and verifying the prod smoke passwords (Git Bash on Windows)".
+- **No smoke tooling in the promotion path.** The dev promotion now runs the same authenticated smoke in CI as step 4b/8 of `promote-dev.sh`
+  against every 0% candidate, fail closed when promoting. PR #212 (`a45e73f`); its first run on main (deploy-dev run 39612975974) passed;
+  see "Dev (CI): the authenticated smoke in deploy-dev". Prod stays a manual, founder-run step (the script plus runbook) until the
+  public-repo ADR and a `v*` tag ruleset make prod secrets safe; see "Why prod credentials are NOT in GitHub yet".
+
+Unrelated, same day: CI exposed a time bomb in the notifications test fixtures (fixed in #211, `2d17ae4`).
+
 ## Watch (P5): check daily until 2026-10-28 (owner: founder; the lead can check)
+- The first authenticated traffic was exercised once on 2026-10-21 (see Deviations); the daily watch below continues to 2026-10-28.
 - Logs Explorer: `resource.type="cloud_run_revision" AND resource.labels.service_name="api" AND severity>=ERROR` on `api-00013-qov` → expect 0, and 0 5xx.
 - Zero log lines containing `x509`, `certificate` or `tls:`. **Any x509/TLS line means roll back immediately.**
 - Firestore reads < 10k/day. The uptime check stays green.
