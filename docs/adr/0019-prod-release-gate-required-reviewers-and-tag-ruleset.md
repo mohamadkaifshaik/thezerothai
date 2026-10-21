@@ -71,6 +71,11 @@ Adopt option D.
    environment OIDC claim is only minted once the job starts, which happens after approval, so a tag pushed by another actor cannot reach
    GCP credentials without the owner's approval. (By design of required reviewers; **unverified** experimentally until the first real
    release, see R3. Whether "prevent self-review" is offered on this plan is also **unverified**.)
+3. **Administrator bypass: leave the default.** The `prod` environment currently has `can_admins_bypass: true` (GitHub's default "Allow
+   administrators to bypass configured protection rules"). The owner, as the only admin, can therefore bypass the reviewer. This does not
+   weaken the control against the assistant's App (it is not an admin), but it means the approval is **not unskippable for the owner**.
+   The observed value is recorded in the R3 read-back and diff. If the owner ever wants the approval to be unskippable, the setting is
+   `can_admins_bypass=false` where the plan offers it (**unverified**).
 
 ## Consequences
 - **Approval clicks per release: 3.** `release-prod`'s `build-and-stage` job (declares `environment: prod`), `promote-prod` stage=10, and
@@ -79,21 +84,25 @@ Adopt option D.
   (the readiness doc's P0 diff checks) before approving. This is the control against a modified workflow at an owner-created tag.
 - **Unlocks (not decided here):** automating the prod authenticated smoke with `prod` Environment secrets becomes defensible only after
   this ADR is rolled out; that is a separate decision and ADR.
+- **The approval is skippable by the owner.** With `can_admins_bypass: true` (the default we keep, see Decision 3), the owner can bypass the
+  reviewer. The gate is aimed at non-owner actors such as the App; against the owner it relies on the owner's discipline.
 - **Residual risks:** the owner approving without looking; a compromised owner account (out of scope); a modified workflow at an
   owner-created tag (the approval screen and the readiness P0 diff are the control); GitHub changing free-plan features.
 - **Rollback (owner-only API calls):** delete the tag ruleset (`DELETE /repos/.../rulesets/<id>`) and remove the reviewer (PUT the
   environment with `"reviewers": []`); commands in R5.
 - **Revisit** when a second collaborator is added, or if GitHub changes the free-plan features.
 
-## Rollout (owner-only; each step has an expected result and a rollback)
+## Rollout (each step has an expected result and a rollback)
 **Never test with a tag matching `v*`: a `v*` tag push starts `release-prod.yml`, which stages a prod candidate.** Run in Git Bash from
-the repo root. The commands are proposals for the owner; the assistant does not run them (the App has no administration permission).
+the repo root. Every block says who runs it. The owner's `gh` login (administration rights) runs everything **except** two blocks in R1, the
+**positive control** and the **refusal check**: those need the App token from `scripts/mint-app-token.sh`, which only the `claude-agent` OS
+user can mint, so they run in the `claude-agent` session. The App has no administration permission, so it cannot run anything else here.
 `R=repos/mohamadkaifshaik/thezerothai` below.
 
 ### R1. Prove the mechanism on a harmless pattern (`zz-adr-test-*`)
+**1. Owner: create the test ruleset DISABLED.** Expect 201. A 403/422 here means the plan blocks tag rulesets: STOP and record it in this ADR.
 ```bash
 R=repos/mohamadkaifshaik/thezerothai
-# 1. create DISABLED. Expect 201. A 403/422 here means the plan blocks tag rulesets: STOP and record it in this ADR.
 gh api -X POST "$R/rulesets" --input - <<'JSON'
 {
   "name": "zz-adr-test",
@@ -104,20 +113,72 @@ gh api -X POST "$R/rulesets" --input - <<'JSON'
   "bypass_actors": [ { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" } ]
 }
 JSON
-TEST_ID=$(gh api "$R/rulesets" --jq '.[] | select(.name=="zz-adr-test") | .id')
-# 2. activate. Expect enforcement "active" in the read-back.
-echo '{"enforcement":"active"}' | gh api -X PUT "$R/rulesets/$TEST_ID" --input - --jq .enforcement
-# 3. the App must be REFUSED (run by the assistant session; expect 403 or 422, "Repository rule violations")
-SHA=$(git rev-parse origin/main)
-GH_TOKEN=$(bash scripts/mint-app-token.sh) gh api -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-1 -f sha="$SHA" || echo "refused, as expected"
-# 4. the owner must be ALLOWED (expect 201, then 204 on delete)
-gh api -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-1 -f sha="$SHA" --jq .ref
-gh api -X DELETE "$R/git/refs/tags/zz-adr-test-1"
-# 5. remove the test ruleset (rollback of R1). Expect 204.
-gh api -X DELETE "$R/rulesets/$TEST_ID"
 ```
-Expected: steps 1-2 accepted, step 3 refused, step 4 succeeds, step 5 204. If step 3 is **not** refused, the ruleset is not enforced for the
-App: STOP, do not continue to R2.
+**2. `claude-agent` session: positive control, while the ruleset is still disabled.** The App must be able to create and delete a tag at all
+(expect 201, then 204); otherwise the refusal in step 4 would prove nothing.
+```bash
+(
+R=repos/mohamadkaifshaik/thezerothai
+SHA=$(git rev-parse origin/main)
+TOKEN=$(bash scripts/mint-app-token.sh) || { echo "CONTROL FAILED: could not mint the App token"; exit 1; }
+[ -n "$TOKEN" ] || { echo "CONTROL FAILED: empty App token"; exit 1; }
+created=$(GH_TOKEN=$TOKEN gh api -i -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-0 -f sha="$SHA" 2>&1 | awk 'NR==1 {print $2}')
+deleted=$(GH_TOKEN=$TOKEN gh api -i -X DELETE "$R/git/refs/tags/zz-adr-test-0" 2>&1 | awk 'NR==1 {print $2}')
+echo "create zz-adr-test-0: HTTP ${created:-none} (expect 201); delete: HTTP ${deleted:-none} (expect 204)"
+if [ "$created" = 201 ] && [ "$deleted" = 204 ]; then
+  echo "POSITIVE CONTROL OK: the App can create and delete tags"
+else
+  echo "CONTROL FAILED: do not continue; the refusal check would be meaningless"
+  exit 1
+fi
+)
+```
+**3. Owner: activate the test ruleset.** Expect `active` in the read-back.
+```bash
+R=repos/mohamadkaifshaik/thezerothai
+TEST_ID=$(gh api "$R/rulesets" --jq '.[] | select(.name=="zz-adr-test") | .id')
+echo '{"enforcement":"active"}' | gh api -X PUT "$R/rulesets/$TEST_ID" --input - --jq .enforcement
+```
+**4. `claude-agent` session: the refusal check.** The call must fail **and** the error must mention the rule violation. Any other outcome
+(token mint failed, network error, 401/404, anything without a rule-violation message) is **INCONCLUSIVE**, never a pass.
+```bash
+(
+R=repos/mohamadkaifshaik/thezerothai
+SHA=$(git rev-parse origin/main)
+TOKEN=$(bash scripts/mint-app-token.sh) || { echo "INCONCLUSIVE: could not mint the App token"; exit 1; }
+[ -n "$TOKEN" ] || { echo "INCONCLUSIVE: empty App token"; exit 1; }
+out=$(GH_TOKEN=$TOKEN gh api -i -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-1 -f sha="$SHA" 2>&1) || true
+status=$(printf '%s\n' "$out" | awk 'NR==1 {print $2}')
+case "$status" in
+  201)
+    echo "FAIL: the App created the tag (HTTP 201): the ruleset is NOT enforced for it. STOP, do not continue to R2."
+    GH_TOKEN=$TOKEN gh api -X DELETE "$R/git/refs/tags/zz-adr-test-1" > /dev/null
+    exit 1 ;;
+  403 | 422)
+    if printf '%s\n' "$out" | grep -qiE 'rule violation|ruleset|repository rule'; then
+      echo "PASS: refused by the ruleset (HTTP $status, rule-violation message)"
+    else
+      echo "INCONCLUSIVE: HTTP $status but no rule-violation message; read the response by hand before continuing"
+      exit 1
+    fi ;;
+  *)
+    echo "INCONCLUSIVE: HTTP ${status:-none}; this is not a ruleset refusal"
+    exit 1 ;;
+esac
+)
+```
+**5. Owner: the owner must be ALLOWED** (bypass), then remove the test ruleset (the rollback of R1).
+```bash
+R=repos/mohamadkaifshaik/thezerothai
+SHA=$(git rev-parse origin/main)
+TEST_ID=$(gh api "$R/rulesets" --jq '.[] | select(.name=="zz-adr-test") | .id')
+gh api -X POST "$R/git/refs" -f ref=refs/tags/zz-adr-test-1 -f sha="$SHA" --jq .ref   # expect refs/tags/zz-adr-test-1
+gh api -X DELETE "$R/git/refs/tags/zz-adr-test-1"                                     # expect no error (204)
+if [ -n "$TEST_ID" ]; then gh api -X DELETE "$R/rulesets/$TEST_ID"; else echo "test ruleset id not found"; fi   # expect no error (204)
+```
+Expected: step 1 accepted; step 2 `POSITIVE CONTROL OK`; step 3 `active`; step 4 `PASS: refused by the ruleset` (a 403 or 422 with a
+rule-violation message); step 5 succeeds. If step 4 prints `FAIL` or `INCONCLUSIVE`, or step 2 prints `CONTROL FAILED`, STOP: do not continue
+to R2.
 
 ### R2. Create the real ruleset on `refs/tags/v*`
 The ready-to-run form in `cloud-bootstrap.md` §6a uses repeated `rules[][type]` fields; the JSON body below avoids relying on how `gh`
@@ -161,8 +222,13 @@ gh api "$R/environments/prod" > "${TMPDIR:-/tmp}/prod-env-after.json"
 diff <(jq -S 'del(.updated_at)' "${TMPDIR:-/tmp}/prod-env-before.json") <(jq -S 'del(.updated_at)' "${TMPDIR:-/tmp}/prod-env-after.json") || true
 # the v* tag policy must still be there (expect: v*  tag)
 gh api "$R/environments/prod/deployment-branch-policies" --jq '.branch_policies[] | [.name, .type] | @tsv'
+# record the administrator-bypass setting before and after (observed today: true; the decision is to leave the default)
+echo "can_admins_bypass before: $(jq .can_admins_bypass "${TMPDIR:-/tmp}/prod-env-before.json")"
+echo "can_admins_bypass after:  $(jq .can_admins_bypass "${TMPDIR:-/tmp}/prod-env-after.json")"
 ```
-Expected: the diff adds only the `required_reviewers` rule (and `prevent_self_review: false`); the policy list still shows `v*` of type `tag`.
+Expected: the diff adds only the `required_reviewers` rule (and `prevent_self_review: false`); the policy list still shows `v*` of type `tag`;
+`can_admins_bypass` is `true` before and after (the default, left as is: the owner, as the only admin, can bypass the reviewer; see Decision 3).
+If the PUT changed it, record the new value here and decide whether that is acceptable.
 If the diff shows anything else removed or changed, restore from `prod-env-before.json` (R5). **Behavioural check, at the next real release
 only:** `release-prod`'s `build-and-stage` job must show "Waiting for review" and start only after the owner approves. Do **not** test by
 dispatching `promote-prod.yml`: after approval it would shift traffic.
@@ -175,7 +241,12 @@ step before tagging and promoting).
 ### R5. Rollback
 ```bash
 R=repos/mohamadkaifshaik/thezerothai
-gh api -X DELETE "$R/rulesets/$TAG_RULESET_ID"
+TAG_RULESET_ID=$(gh api "$R/rulesets" --jq '.[] | select(.name=="protect-version-tags") | .id')
+if [ -z "$TAG_RULESET_ID" ]; then
+  echo "no ruleset named protect-version-tags found; nothing to delete (list them with: gh api $R/rulesets)"
+else
+  gh api -X DELETE "$R/rulesets/$TAG_RULESET_ID" && echo "tag ruleset $TAG_RULESET_ID deleted"
+fi
 jq -n '{ wait_timer: 0, prevent_self_review: false, reviewers: [], deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } }' |
   gh api -X PUT "$R/environments/prod" --input - > /dev/null
 ```
@@ -184,7 +255,8 @@ Both are owner-only calls.
 ## Handoff
 - backend-developer: none.
 - frontend-developer: none.
-- production-deployer: the owner runs R1-R3 (the assistant's App cannot: no administration permission); follow-up PRs per R4.
+- production-deployer: the owner runs R1-R3, except the two App-token blocks in R1 (positive control and refusal check), which run in the
+  `claude-agent` session (the App has no administration permission); follow-up PRs per R4.
 - tester: after rollout, confirm at the next release that the tag push by the owner succeeds and `build-and-stage` waits for review.
 
 ## Sources
