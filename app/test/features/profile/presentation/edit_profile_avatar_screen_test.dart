@@ -181,9 +181,7 @@ void main() {
     expect(saveButton(tester).onPressed, isNull);
   });
 
-  testWidgets('a picker failure shows the pick-failed message', (
-    tester,
-  ) async {
+  testWidgets('a picker failure shows the pick-failed message', (tester) async {
     picker.failWith = StateError('denied');
     await open(tester);
 

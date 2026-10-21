@@ -22,10 +22,8 @@ String uploadErrorMessage(AppException error) {
     ValidationException() =>
       "These photos can't be uploaded. Remove them and try again.",
     // Upload step: the server could not find an object we just PUT.
-    MediaNotReadyException() =>
-      "A photo didn't finish uploading. Try again.",
-    UploadInterruptedException() =>
-      "The upload didn't finish. Try again.",
+    MediaNotReadyException() => "A photo didn't finish uploading. Try again.",
+    UploadInterruptedException() => "The upload didn't finish. Try again.",
     EmailNotVerifiedException() => 'Please verify your email address to post.',
     _ => "Couldn't upload your photos. Please try again.",
   };
@@ -46,16 +44,15 @@ String avatarErrorMessage(AppException error) {
       'No connection. Your photo was not saved; check your network and try '
           'again.',
     ValidationException(field: 'media', :final message) => message,
-    MediaNotReadyException() =>
-      "The photo didn't finish uploading. Try again.",
-    UploadInterruptedException() =>
-      "The upload didn't finish. Try again.",
+    MediaNotReadyException() => "The photo didn't finish uploading. Try again.",
+    UploadInterruptedException() => "The upload didn't finish. Try again.",
     _ => "Couldn't update your photo. Please try again.",
   };
 }
 
 /// The uploaded avatar was discarded server-side; it must be chosen again.
-const kAvatarGoneMessage = 'That photo is no longer available. Choose it again.';
+const kAvatarGoneMessage =
+    'That photo is no longer available. Choose it again.';
 
 /// Snackbar text when the photo picker could not open or read the choice
 /// (permission denied, or the platform picker failed).

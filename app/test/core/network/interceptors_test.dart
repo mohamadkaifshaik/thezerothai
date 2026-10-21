@@ -77,7 +77,7 @@ void main() {
           calls++;
           if (calls == 1) {
             throw _rateLimited('read_budget_inflight', retrySeconds: 1);
-}
+          }
           return _echoResponse(request);
         });
 

@@ -1,4 +1,3 @@
-
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/data/media_uploader.dart';
@@ -355,32 +354,35 @@ void main() {
     verify(() => repo.putObject(any(), any())).called(2); // full + thumb, once
   });
 
-  test('a storage 403 drops the URLs and re-signs under the same key', () async {
-    final keys = <String>[];
-    stubCreateRecording(keys);
-    var refuse = true;
-    when(() => repo.putObject(any(), any())).thenAnswer((_) async {
-      if (refuse) {
-        refuse = false;
-        throw const StorageRefusedException(403);
-      }
-    });
-    stubFinalize(readyResult);
+  test(
+    'a storage 403 drops the URLs and re-signs under the same key',
+    () async {
+      final keys = <String>[];
+      stubCreateRecording(keys);
+      var refuse = true;
+      when(() => repo.putObject(any(), any())).thenAnswer((_) async {
+        if (refuse) {
+          refuse = false;
+          throw const StorageRefusedException(403);
+        }
+      });
+      stubFinalize(readyResult);
 
-    final first = await uploader.upload(
-      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-      jobs: jobs(['a']),
-    );
-    expect(first.single.status, UploadOutcomeStatus.failed);
+      final first = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a']),
+      );
+      expect(first.single.status, UploadOutcomeStatus.failed);
 
-    final second = await uploader.upload(
-      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-      jobs: jobs(['a']),
-    );
+      final second = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a']),
+      );
 
-    expect(second.single.status, UploadOutcomeStatus.ready);
-    expect(keys, ['key-1', 'key-1']);
-  });
+      expect(second.single.status, UploadOutcomeStatus.ready);
+      expect(keys, ['key-1', 'key-1']);
+    },
+  );
 
   group('a finished sibling does not break the replayed group', () {
     late List<String> keys;
@@ -499,20 +501,21 @@ void main() {
     });
   });
 
-  test('a PUT 5xx and a refusal are non-Unknown (never double-reported)',
-      () async {
-    stubCreate(['m1']);
-    when(
-      () => repo.putObject(any(), any()),
-    ).thenThrow(const UnknownApiException('Upload refused (503).'));
+  test(
+    'a PUT 5xx and a refusal are non-Unknown (never double-reported)',
+    () async {
+      stubCreate(['m1']);
+      when(() => repo.putObject(any(), any()))
+          .thenThrow(const UnknownApiException('Upload refused (503).'));
 
-    final out = await uploader.upload(
-      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-      jobs: jobs(['a']),
-    );
+      final out = await uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: jobs(['a']),
+      );
 
-    expect(out.single.error, isA<UploadInterruptedException>());
-  });
+      expect(out.single.error, isA<UploadInterruptedException>());
+    },
+  );
 
   test('forget drops the remembered result of a removed image', () async {
     stubCreate(['m1']);
@@ -554,59 +557,69 @@ void main() {
       });
     }
 
-    test('the named image is PUT again; the retry replays the same keys',
-        () async {
-      failFinalizeOnce(const MediaNotReadyException('x', mediaId: 'm1'));
-      await expectLater(
-        uploader.upload(
+    test(
+      'the named image is PUT again; the retry replays the same keys',
+      () async {
+        failFinalizeOnce(const MediaNotReadyException('x', mediaId: 'm1'));
+        await expectLater(
+          uploader.upload(
+            purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+            jobs: jobs(['a', 'b']),
+          ),
+          throwsA(isA<MediaNotReadyException>()),
+        );
+        verify(() => repo.putObject(any(), any())).called(4);
+        clearInteractions(repo);
+
+        final out = await uploader.upload(
           purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
           jobs: jobs(['a', 'b']),
-        ),
-        throwsA(isA<MediaNotReadyException>()),
-      );
-      verify(() => repo.putObject(any(), any())).called(4);
-      clearInteractions(repo);
+        );
 
-      final out = await uploader.upload(
-        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-        jobs: jobs(['a', 'b']),
-      );
+        expect(
+          out.map((o) => o.status),
+          everyElement(UploadOutcomeStatus.ready),
+        );
+        final puts = verify(() => repo.putObject(captureAny(), any())).captured
+            .cast<pb.SignedUpload>();
+        expect(puts, hasLength(2), reason: 'full + thumb of m1 only');
+        expect(puts.every((p) => p.url.contains('/m1')), isTrue);
+        final createKeys = verify(
+          () => repo.createUpload(
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+            purpose: any(named: 'purpose'),
+            images: any(named: 'images'),
+          ),
+        ).captured;
+        expect(createKeys, ['key-1'], reason: 'replayed under the same key');
+      },
+    );
 
-      expect(out.map((o) => o.status), everyElement(UploadOutcomeStatus.ready));
-      final puts = verify(() => repo.putObject(captureAny(), any())).captured
-          .cast<pb.SignedUpload>();
-      expect(puts, hasLength(2), reason: 'full + thumb of m1 only');
-      expect(puts.every((p) => p.url.contains('/m1')), isTrue);
-      final createKeys = verify(
-        () => repo.createUpload(
-          idempotencyKey: captureAny(named: 'idempotencyKey'),
-          purpose: any(named: 'purpose'),
-          images: any(named: 'images'),
-        ),
-      ).captured;
-      expect(createKeys, ['key-1'], reason: 'replayed under the same key');
-    });
+    test(
+      'an unknown media id resets every image in the finalize set',
+      () async {
+        failFinalizeOnce(const MediaNotReadyException('x'));
+        await expectLater(
+          uploader.upload(
+            purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+            jobs: jobs(['a', 'b']),
+          ),
+          throwsA(isA<MediaNotReadyException>()),
+        );
+        clearInteractions(repo);
 
-    test('an unknown media id resets every image in the finalize set',
-        () async {
-      failFinalizeOnce(const MediaNotReadyException('x'));
-      await expectLater(
-        uploader.upload(
+        final out = await uploader.upload(
           purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
           jobs: jobs(['a', 'b']),
-        ),
-        throwsA(isA<MediaNotReadyException>()),
-      );
-      clearInteractions(repo);
+        );
 
-      final out = await uploader.upload(
-        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-        jobs: jobs(['a', 'b']),
-      );
-
-      expect(out.map((o) => o.status), everyElement(UploadOutcomeStatus.ready));
-      verify(() => repo.putObject(any(), any())).called(4);
-    });
+        expect(
+          out.map((o) => o.status),
+          everyElement(UploadOutcomeStatus.ready),
+        );
+        verify(() => repo.putObject(any(), any())).called(4);
+      },
+    );
   });
 
   group('contract anomalies are reported once', () {
