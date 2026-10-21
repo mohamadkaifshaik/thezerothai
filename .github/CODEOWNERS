@@ -18,4 +18,7 @@
 # mints the assistant's GitHub App credentials (signs a JWT with the App key and exchanges it for an installation token)
 /scripts/mint-app-token.sh                     @mohamadkaifshaik
 
-# matrix test 8: comment-only line to exercise code-owner gating
+# the assistant's own instructions: CLAUDE.md and everything under .claude/ (agent definitions, skills, hooks, settings) define its rules,
+# so changing them always needs the owner's code-owner review, even if the ruleset is ever relaxed
+/CLAUDE.md                                     @mohamadkaifshaik
+/.claude/                                      @mohamadkaifshaik
