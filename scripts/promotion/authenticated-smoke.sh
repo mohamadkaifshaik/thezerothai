@@ -7,6 +7,8 @@
 # Usage: authenticated-smoke.sh <base_url> [--handle <handle>]
 # Env (never arguments): SMOKE_EMAIL, SMOKE_PASSWORD, FIREBASE_API_KEY (public client config, not a secret).
 #   Optional IDENTITY_TOOLKIT_URL (default https://identitytoolkit.googleapis.com) so the tests can point at a fake.
+#   Optional SMOKE_REFERER (an https URL, e.g. https://dzeroth.com/): sent as `Referer:` on the SIGN-IN request only. The web API key is
+#   restricted by HTTP referrer, and a terminal sends none, so without it sign-in is refused with 403 API_KEY_HTTP_REFERRER_BLOCKED.
 # Steps: sign in -> unauthenticated GetMe must be 401 (auth is enforced) -> GetMe 200 with a profile handle -> GetProfile 200, same handle.
 # Transient answers (502/503/504, connection errors: a cold start) are retried up to 3 times with a short backoff, on every call.
 # Exit codes: 0 pass, 1 smoke failure, 2 usage or environment error.
@@ -55,19 +57,23 @@ idt=${IDENTITY_TOOLKIT_URL:-https://identitytoolkit.googleapis.com}
 idt=${idt%/}
 check_url "$base" "base_url"
 check_url "$idt" "IDENTITY_TOOLKIT_URL"
+if [ -n "${SMOKE_REFERER:-}" ]; then check_url "$SMOKE_REFERER" "SMOKE_REFERER"; fi
 
 code=""
 body=""
 # call <url> <json-body> [bearer-token]: sets $code and $body (never printed). Retries only transient answers.
+# A non-empty $referer_hdr (set by the sign-in step alone) is sent as an extra header.
+referer_hdr=""
 call() {
-  local url=$1 payload=$2 token=${3:-} attempt resp
+  local url=$1 payload=$2 token=${3:-} attempt resp extra=()
+  [ -z "$referer_hdr" ] || extra=(-H "$referer_hdr")
   for attempt in 1 2 3; do
     if [ -n "$token" ]; then
       resp=$(printf 'Authorization: Bearer %s\n' "$token" |
-        curl -s --max-time 15 -w '\n%{http_code}' -X POST -H 'content-type: application/json' -H @- --data-binary "$payload" "$url") || resp=$'\n000'
+        curl -s --max-time 15 -w '\n%{http_code}' -X POST -H 'content-type: application/json' "${extra[@]}" -H @- --data-binary "$payload" "$url") || resp=$'\n000'
     else
       resp=$(printf '%s' "$payload" |
-        curl -s --max-time 15 -w '\n%{http_code}' -X POST -H 'content-type: application/json' --data-binary @- "$url") || resp=$'\n000'
+        curl -s --max-time 15 -w '\n%{http_code}' -X POST -H 'content-type: application/json' "${extra[@]}" --data-binary @- "$url") || resp=$'\n000'
     fi
     code=${resp##*$'\n'}
     body=${resp%$'\n'*}
@@ -84,7 +90,9 @@ fail_at() {
 echo "== sign-in"
 # $ENV keeps the credentials out of jq's command line.
 payload=$(jq -n '{email: $ENV.SMOKE_EMAIL, password: $ENV.SMOKE_PASSWORD, returnSecureToken: true}')
+if [ -n "${SMOKE_REFERER:-}" ]; then referer_hdr="Referer: $SMOKE_REFERER"; fi
 call "$idt/v1/accounts:signInWithPassword?key=$FIREBASE_API_KEY" "$payload"
+referer_hdr=""
 unset payload
 echo "   HTTP $code"
 [ "$code" = "200" ] || fail_at sign-in

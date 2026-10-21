@@ -9,6 +9,8 @@ fx=$here/fixtures
 export PATH="$here/fakebin-smoke:$here/fakebin:$PATH"
 # CI sets GITHUB_ACTIONS=true, which makes the script print its ::add-mask:: line. Only the dedicated Actions test below turns it on.
 unset GITHUB_ACTIONS
+# SMOKE_REFERER is opt-in; an inherited value would change what the tests below see.
+unset SMOKE_REFERER
 # The fakes must be executable (git on Windows can drop the bit); otherwise PATH would skip them and the REAL curl would run.
 for f in "$here/fakebin-smoke/curl" "$here/fakebin/sleep"; do
   [ -x "$f" ] || { echo "FAIL: $f is not executable; refusing to run against real tools" >&2; exit 2; }
@@ -251,6 +253,37 @@ case $(uname -s) in
     chmod 600 "$envfile"
     ;;
 esac
+
+# --- SMOKE_REFERER: the referrer-restricted web key needs the app's origin as Referer, on the sign-in request ONLY
+REF=https://dzeroth.com/
+setup; SMOKE_REFERER=$REF run
+check "SMOKE_REFERER set: passes" eq "$rc" 0
+check "SMOKE_REFERER: sign-in carries exactly that Referer" eq "$(grep -c '^Referer: ' "$FAKE/argv.1")" 1
+check "SMOKE_REFERER: sign-in Referer value" in_file "Referer: $REF" "$FAKE/argv.1"
+check "SMOKE_REFERER: unauthenticated GetMe has no Referer" not_in_file "Referer" "$FAKE/argv.2"
+check "SMOKE_REFERER: GetMe has no Referer" not_in_file "Referer" "$FAKE/argv.3"
+check "SMOKE_REFERER: GetProfile has no Referer" not_in_file "Referer" "$FAKE/argv.4"
+check "SMOKE_REFERER: still 4 calls" eq "$(calls)" 4
+secrecy "referer"
+setup; run
+check "SMOKE_REFERER unset: passes" eq "$rc" 0
+check "SMOKE_REFERER unset: no Referer on any call" not_in_file "Referer" "$FAKE/argv.log"
+setup; SMOKE_REFERER='' run
+check "SMOKE_REFERER empty: no Referer on any call" not_in_file "Referer" "$FAKE/argv.log"
+for bad in http://dzeroth.com/ "https://dzeroth.com/ x" https://user@dzeroth.com/ dzeroth.com; do
+  setup; SMOKE_REFERER=$bad run
+  check "invalid SMOKE_REFERER '$bad' exits 2" eq "$rc" 2
+  check "invalid SMOKE_REFERER '$bad': names the variable" has 'SMOKE_REFERER'
+  check "invalid SMOKE_REFERER '$bad': no call is made" eq "$(calls)" 0
+done
+setup; prod http://127.0.0.1:2
+check "prod-smoke defaults SMOKE_REFERER to https://dzeroth.com/" in_file "Referer: https://dzeroth.com/" "$FAKE/argv.1"
+check "prod-smoke default: GetMe has no Referer" not_in_file "Referer" "$FAKE/argv.3"
+setup; SMOKE_REFERER=https://www.dzeroth.com/ prod http://127.0.0.1:2
+check "prod-smoke honours a SMOKE_REFERER override" in_file "Referer: https://www.dzeroth.com/" "$FAKE/argv.1"
+check "prod-smoke override: the default is not sent" not_in_file "Referer: https://dzeroth.com/" "$FAKE/argv.1"
+setup; SMOKE_REFERER=http://dzeroth.com/ prod http://127.0.0.1:2
+check "prod-smoke with an invalid SMOKE_REFERER exits 2" eq "$rc" 2
 
 echo "authenticated smoke tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]
