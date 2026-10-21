@@ -35,8 +35,8 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
-          go-version: "1.26.9"
+          # Pinned patch: 1.26.10 fixes GO-2026-6809 (crypto/x509). Bump with each 1.26 security release; go.mod only states the minimum language version.
+          go-version: "1.26.10"
           check-latest: true
           cache: false
 
@@ -101,8 +101,8 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # Pinned patch: setup-go's manifest lagged behind 1.26.9 (GO-2026-6611..6617). Bump with each 1.26 security release; go.mod only states the minimum language version.
-          go-version: "1.26.9"
+          # Pinned patch: 1.26.10 fixes GO-2026-6809 (crypto/x509). Bump with each 1.26 security release; go.mod only states the minimum language version.
+          go-version: "1.26.10"
           check-latest: true
           cache: false
 
