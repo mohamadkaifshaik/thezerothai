@@ -6,8 +6,22 @@ import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
-/// Fixed reference time of the notification fixtures.
-final DateTime kNotifBase = DateTime.utc(2026, 10, 14, 12);
+/// Reference time of the notification fixtures: the real clock, captured once
+/// (UTC, truncated to the second) when the fixtures are first used.
+///
+/// It must not be a fixed date: the screen stamps rows against `DateTime.now()`,
+/// and a fixed date ages past the 7-day relative-time cutoff, where the spoken
+/// label turns into a calendar date without "ago". Every `minutesAgo` row is
+/// therefore the intended number of minutes before the "now" the screen uses,
+/// plus the time the test file has been running (drift). Drift only matters
+/// against the cutoffs of the labels asserted: the smallest asserted row is
+/// 5 minutes old, so "... ago" holds for any drift below 7 days.
+final DateTime kNotifBase = _captureBase();
+
+DateTime _captureBase() {
+  final n = DateTime.now().toUtc();
+  return DateTime.utc(n.year, n.month, n.day, n.hour, n.minute, n.second);
+}
 
 ts.Timestamp _stamp(DateTime t) => ts.Timestamp.fromDateTime(t);
 
