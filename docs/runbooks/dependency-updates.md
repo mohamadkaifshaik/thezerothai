@@ -61,6 +61,30 @@ gcloud or firebase-tools, watch the next `main` deploy-dev run, and for prod, a 
 Still floating: `go 1.26.x` (deliberately, for stdlib security patches), `node 20`, `java 21`. Already exact: terraform
 1.16.2, tflint v0.53.0, golangci-lint v2.14.0, buf 1.47.2, flutter 3.47.5.
 
+## ko base image (distroless static-debian12)
+Pinned by digest in `backend/.ko.yaml` (`defaultBaseImage`), not by the floating `:nonroot` tag, so a rebuild cannot silently pick up
+different CA roots, tzdata or libc.
+- **Current pin:** multi-arch **index** digest `sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab`, the `:nonroot`
+  tag as of **2026-10-21**. Its linux/amd64 child (the one Cloud Run runs) is
+  `sha256:52dcfbabb7457ea47c82f6e13af8c8a4a1d9f7b0145142b3ecab20f2b888411d`.
+- **Who bumps it:** the assistant prepares a PR; the founder approves it.
+- **When:** before each release cut; on any Go stdlib, CA, tzdata or distroless advisory; when `govulncheck` or `osv-scanner` flags the
+  base; and at least monthly.
+- **How:**
+  1. Get the new index digest: a token from `https://gcr.io/v2/token?service=gcr.io&scope=repository:distroless/static-debian12:pull`,
+     then `GET https://gcr.io/v2/distroless/static-debian12/manifests/nonroot` with `Accept: application/vnd.oci.image.index.v1+json` and
+     read the `Docker-Content-Digest` header (same call as in the v0.4.1 readiness review, H7).
+  2. In the index JSON, note the linux/amd64 child digest.
+  3. Local build test (CI does not run ko; only `deploy-dev` after a merge and `release-prod` at a tag do): `GOBIN=<tmp> go install
+     github.com/google/ko@v0.19.1`, then from `backend/`: `KO_DOCKER_REPO=example.invalid/test ko build ./cmd/api --push=false --bare
+     --tarball <tmp>.tar -t t`. It must succeed. Nothing is pushed.
+  4. Update the digest, the amd64 child and the date in `backend/.ko.yaml`, update the "Current pin" above, and open a PR.
+- **Trade-off:** Dependabot's docker ecosystem does not read `.ko.yaml` (`dependabot.yml` has `gomod`, `pub`, `github-actions` and
+  `terraform` only), so **nothing bumps this automatically**, and base security patches no longer arrive by themselves. Pinning trades
+  automatic patches for reproducible builds, which is why the bump is a scheduled chore.
+- **Release gate:** readiness P2.4 compares the built image's `org.opencontainers.image.base.digest` annotation with the linux/amd64 child of
+  the **pinned** index digest (above), not with a freshly resolved tag.
+
 ## osv-scanner
 Step "osv-scanner (go.mod + pubspec.lock)" in `ci.yml` scans `backend/go.mod` and `app/pubspec.lock` against osv.dev and
 **fails on any finding** not listed in `osv-scanner.toml`. It is fail-on-any because OSV frequently has no CVSS score for
