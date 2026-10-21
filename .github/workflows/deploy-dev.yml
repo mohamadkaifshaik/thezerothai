@@ -204,6 +204,10 @@ jobs:
           REPO: ${{ vars.DEV_ARTIFACT_REGISTRY_URL }}/api
           DRY_RUN: ${{ steps.mode.outputs.dry_run }}
           PROMOTE_MARKER: ${{ runner.temp }}/promote-unverified
+          # Authenticated smoke (account A only). Empty when the run cannot read the `dev` Environment secrets (a run from a branch):
+          # a dry run then skips it with a notice, promote mode fails closed.
+          SMOKE_EMAIL: ${{ secrets.SMOKE_A_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_A_PASSWORD }}
         run: bash scripts/promotion/promote-dev.sh
 
       # Runs even after a cancel, a timeout or a failure. If the marker written just before traffic moved still exists, the promotion
