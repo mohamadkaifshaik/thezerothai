@@ -41,8 +41,8 @@ G="$p/check-flag-registry.sh"
 expect "revision ok" 0 "$V" "$fx/revision-ok.json" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' revision-ok.json r
 expect "engagement on" 1 "$V" "$tmp/r" "$ceil" dev
-mut '.spec.containers[0].env += [{"name":"FEATURE_MEDIA","value":"allowlist"}]' revision-ok.json r
-expect "media allowlist above off" 1 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_MEDIA","value":"percent"}]' revision-ok.json r
+expect "media percent above allowlist" 1 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_FUTURE","value":"off"}]' revision-ok.json r
 expect "unknown flag" 1 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_GRAPH_ALLOWLISTT","value":"x"}]' revision-ok.json r
@@ -53,7 +53,7 @@ mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS","value":"off"}]' revi
 expect "duplicate env" 1 "$V" "$tmp/r" "$ceil" dev
 mut '(.spec.containers[0].env[] | select(.name=="FEATURE_GRAPH") | .value) = "enabled"' revision-ok.json r
 expect "bad mode" 1 "$V" "$tmp/r" "$ceil" dev
-mut '(.spec.containers[0].env[] | select(.name=="FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST") | .value) = "fake-uid-A,fake-uid-B"' revision-ok.json r
+mut '(.spec.containers[0].env[] | select(.name=="FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST") | .value) = "fake-uid-A,fake-uid-B,fake-uid-C,fake-uid-D"' revision-ok.json r
 expect "allowlist too big" 1 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS_PERCENT","value":"5"}]' revision-ok.json r
 expect "percent over ceiling" 1 "$V" "$tmp/r" "$ceil" dev
