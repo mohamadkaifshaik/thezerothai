@@ -1,5 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
+import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -157,8 +158,59 @@ void main() {
     expect(find.text('post 1'), findsOneWidget);
     // Someone else's profile never shows the viewer's pending posts.
     expect(find.text('my pending post'), findsNothing);
-    // The Replies tab stays hidden until P3.
+    // The Replies tab needs the `replies` sub-feature.
     expect(find.text('Replies'), findsNothing);
+  });
+
+  testWidgets('replies flag on: a Replies tab loads the include_replies feed '
+      '(0 extra RPCs until tapped), without pending posts', (tester) async {
+    final repliesFeed = FeedKey.user('viewer-uid', includeReplies: true);
+    arrange(profileUserId: 'viewer-uid', features: {'posts', 'replies'});
+    stubFeed(ownFeed, snapshotOf([2, 1], authorId: 'viewer-uid'));
+    stubFeed(repliesFeed, snapshotOf([9], authorId: 'viewer-uid'));
+    pending.add(
+      PendingPost(
+        localId: 'k',
+        text: 'my pending post',
+        author: common.AuthorSnapshot(userId: 'viewer-uid', handle: 'viewer'),
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    await open(tester);
+
+    expect(find.text('Replies'), findsOneWidget);
+    expect(find.text('post 2'), findsOneWidget);
+    verifyNever(() => timeline.refresh(repliesFeed));
+
+    await tester.tap(find.text('Replies'));
+    await tester.pumpAndSettle();
+
+    verify(() => timeline.refresh(repliesFeed)).called(1);
+    expect(find.text('post 9'), findsOneWidget);
+    expect(find.text('post 2'), findsNothing);
+    expect(find.text('my pending post'), findsNothing);
+
+    await tester.tap(find.text('Posts'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('post 2'), findsOneWidget);
+    expect(find.text('my pending post'), findsOneWidget);
+  });
+
+  testWidgets('the tabs are equal-width, labelled as one group', (
+    tester,
+  ) async {
+    arrange(profileUserId: 'viewer-uid', features: {'posts', 'replies'});
+    stubFeed(ownFeed, snapshotOf([1], authorId: 'viewer-uid'));
+    await open(tester);
+
+    final posts = tester.getRect(find.text('Posts').first);
+    final replies = tester.getRect(find.text('Replies'));
+    final bar = tester.getRect(find.byType(AppTabBar));
+    // Label centres at 1/4 and 3/4 of the bar.
+    expect(posts.center.dx, closeTo(bar.left + bar.width / 4, 1));
+    expect(replies.center.dx, closeTo(bar.left + bar.width * 3 / 4, 1));
   });
 
   testWidgets('own profile: pending post above the feed, count shown', (

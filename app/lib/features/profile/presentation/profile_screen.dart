@@ -6,6 +6,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/widgets/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../graph/data/graph_repository.dart';
@@ -220,7 +221,9 @@ class _ScrollColumn extends StatelessWidget {
   }
 }
 
-/// Header + the Posts tab (the Replies tab stays hidden until P3). When the
+/// Header + the Posts and Replies tabs (Replies only with the `replies`
+/// sub-feature on: the same `GetUserTimeline` with `include_replies`, cursor
+/// paged like Posts). When the
 /// viewer blocks the author the feed is not even requested: a banner offers
 /// "Show posts" (ADR-0010 D6, computed from the local relationship).
 class _ProfilePosts extends StatefulWidget {
@@ -234,6 +237,7 @@ class _ProfilePosts extends StatefulWidget {
 
 class _ProfilePostsState extends State<_ProfilePosts> {
   bool _showBlockedPosts = false;
+  int _tab = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -242,13 +246,21 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
     final header = _header(context, state, showPostsCount: true);
     final blocked = state.relationship?.blocking ?? false;
+    final showReplies = isFeatureEnabled(context, kPostsSubFeatureReplies);
+    final tab = showReplies ? _tab : 0;
+    final replies = tab == 1;
+    final tabs = _ProfileTabs(
+      selected: tab,
+      showReplies: showReplies,
+      onChanged: (index) => setState(() => _tab = index),
+    );
 
     if (blocked && !_showBlockedPosts) {
       return _ScrollColumn(
         children: [
           header,
           const Divider(height: 1),
-          const _PostsTabHeader(),
+          tabs,
           _BlockedPostsBanner(
             handle: profile.handle,
             onShow: () => setState(() => _showBlockedPosts = true),
@@ -259,9 +271,9 @@ class _ProfilePostsState extends State<_ProfilePosts> {
 
     final profileCubit = context.read<ProfileCubit>();
     return BlocProvider<TimelineCubit>(
-      key: ValueKey('profile-posts-${profile.userId}'),
+      key: ValueKey('profile-posts-${profile.userId}-$tab'),
       create: (context) => TimelineCubit(
-        feed: FeedKey.user(profile.userId),
+        feed: FeedKey.user(profile.userId, includeReplies: replies),
         timeline: context.read<TimelineRepository>(),
         posts: context.read<PostsRepository>(),
         viewerUserId: viewerUserId,
@@ -273,10 +285,12 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       )..load(),
       child: TimelineFeedView(
         viewerUserId: viewerUserId,
-        emptyTitle: state.isOwnProfile
-            ? "You haven't posted yet"
-            : '@${profile.handle} hasn\'t posted yet',
-        showPending: state.isOwnProfile,
+        emptyTitle: _emptyTitle(
+          own: state.isOwnProfile,
+          handle: profile.handle,
+          replies: replies,
+        ),
+        showPending: state.isOwnProfile && !replies,
         pendingAuthorId: viewerUserId,
         hideAuthorsOnRelationship: false,
         // The request can outlive this screen: guard the cubit, not context.
@@ -288,33 +302,47 @@ class _ProfilePostsState extends State<_ProfilePosts> {
         headerSlivers: [
           SliverToBoxAdapter(child: header),
           const SliverToBoxAdapter(child: Divider(height: 1)),
-          const SliverToBoxAdapter(child: _PostsTabHeader()),
+          SliverToBoxAdapter(child: tabs),
         ],
       ),
     );
   }
 }
 
-/// The single "Posts" tab label with its selected underline.
-class _PostsTabHeader extends StatelessWidget {
-  const _PostsTabHeader();
+String _emptyTitle({
+  required bool own,
+  required String handle,
+  required bool replies,
+}) {
+  if (replies) {
+    return own ? "You haven't replied yet" : "@$handle hasn't replied yet";
+  }
+  return own ? "You haven't posted yet" : "@$handle hasn't posted yet";
+}
+
+/// Posts (and, with the `replies` sub-feature, Replies) as equal-width tabs.
+class _ProfileTabs extends StatelessWidget {
+  const _ProfileTabs({
+    required this.selected,
+    required this.showReplies,
+    required this.onChanged,
+  });
+
+  final int selected;
+  final bool showReplies;
+  final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      header: true,
-      selected: true,
-      child: Container(
-        height: AppSpacing.minTapTarget,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: theme.colorScheme.primary, width: 2),
-          ),
-        ),
-        child: Text('Posts', style: theme.textTheme.titleSmall),
-      ),
+    return AppTabBar(
+      equalWidth: true,
+      semanticLabel: 'Profile timelines',
+      selectedIndex: selected,
+      onChanged: onChanged,
+      tabs: [
+        const AppTab(label: 'Posts'),
+        if (showReplies) const AppTab(label: 'Replies'),
+      ],
     );
   }
 }
