@@ -201,6 +201,49 @@ void main() {
     );
   });
 
+  group('responsive matrix (W1-9)', () {
+    for (final entry in {
+      'dark': appDarkTheme,
+      'light': appLightTheme,
+    }.entries) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${entry.key} ${width.toInt()}dp x$scale: tabs and rows do not '
+            'overflow; both tabs render',
+            (tester) async {
+              stubList(
+                snapshotOfNotifs([
+                  notif('a', minutesAgo: 1),
+                  notif(
+                    'b',
+                    minutesAgo: 5,
+                    type: NotificationType.NOTIFICATION_TYPE_MENTION,
+                    postId: '7',
+                    displayName: 'A rather long display name for a mention',
+                    actorId: 'u5',
+                  ),
+                ], seenAt: kNotifBase),
+              );
+              await open(
+                tester,
+                theme: entry.value,
+                size: Size(width, 1200),
+                textScale: scale,
+              );
+              expect(tester.takeException(), isNull);
+
+              await tester.tap(find.text('Mentions'));
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              expect(find.textContaining('mentioned you'), findsOneWidget);
+            },
+          );
+        }
+      }
+    }
+  });
+
   group('All / Mentions tabs (W1-6)', () {
     List<pb.Notification> mixed() => [
       notif('f', minutesAgo: 1),
