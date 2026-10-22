@@ -5,6 +5,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_state.dart';
 import '../../posts/data/posts_repository.dart';
@@ -63,14 +64,9 @@ class HomeScreen extends StatelessWidget {
           body: TimelineFeedView(
             viewerUserId: viewerUserId,
             headerSlivers: [
-              // The theme gives the app bar its weight and bottom hairline.
-              const SliverAppBar(
-                title: Text('Home'),
-                centerTitle: false,
-                titleSpacing: AppSpacing.md,
-                floating: true,
-                snap: true,
-              ),
+              // 53dp top bar: the avatar button (narrow layouts, opens the
+              // drawer) and the title, over the theme's bottom hairline.
+              AppTopBar.sliver(title: 'Home'),
               if (canCompose)
                 const SliverToBoxAdapter(child: HomeComposerEntry()),
             ],

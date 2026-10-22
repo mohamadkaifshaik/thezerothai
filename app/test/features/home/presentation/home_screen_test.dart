@@ -16,7 +16,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/widgets/app_avatar.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -496,7 +496,7 @@ void main() {
       await open(tester, features: const {});
 
       expect(find.text(rowLabel), findsNothing);
-      expect(find.byType(AppGradientButton), findsNothing);
+      expect(find.byType(AppPillButton), findsNothing);
       expect(find.text('Your timeline is coming soon.'), findsOneWidget);
     });
 
@@ -507,7 +507,7 @@ void main() {
 
       expect(find.text(rowLabel), findsOneWidget);
       expect(find.byType(AppAvatar), findsWidgets);
-      expect(find.widgetWithText(AppGradientButton, 'Post'), findsOneWidget);
+      expect(find.widgetWithText(AppPillButton, 'Post'), findsOneWidget);
       expect(
         tester.getTopLeft(find.text(rowLabel)).dy,
         lessThan(tester.getTopLeft(find.text('post 2')).dy),
@@ -528,7 +528,7 @@ void main() {
       stubFeed();
       await open(tester, router: homeRouter());
 
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       await tester.pumpAndSettle();
 
       expect(find.text('compose page'), findsOneWidget);
@@ -583,7 +583,7 @@ void main() {
         greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
       expect(
-        tester.getSize(find.byType(AppGradientButton)).height,
+        tester.getSize(find.byType(AppPillButton)).height,
         greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
 
