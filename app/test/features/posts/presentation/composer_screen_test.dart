@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -109,8 +110,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  FilledButton postButton(WidgetTester tester) =>
-      tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'));
+  AppGradientButton postButton(WidgetTester tester) =>
+      tester.widget<AppGradientButton>(
+        find.widgetWithText(AppGradientButton, 'Post'),
+      );
 
   testWidgets('starts empty: Post disabled, counter 280', (tester) async {
     await open(tester);
@@ -162,7 +165,7 @@ void main() {
     await open(tester);
     await tester.enterText(find.byType(TextField), '  hello world  ');
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     verify(
@@ -185,7 +188,7 @@ void main() {
     await open(tester);
     await tester.enterText(find.byType(TextField), 'hello');
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining("reached today's limit"), findsOneWidget);
@@ -199,7 +202,7 @@ void main() {
     await open(tester);
     await tester.enterText(find.byType(TextField), 'hello');
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
     expect(find.textContaining('limited mode'), findsOneWidget);
   });
@@ -211,7 +214,7 @@ void main() {
     await open(tester);
     await tester.enterText(find.byType(TextField), 'hello');
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.text('Verify your email'), findsOneWidget);
@@ -227,10 +230,10 @@ void main() {
 
   testWidgets('works in dark mode with 48dp targets', (tester) async {
     await open(tester, theme: appDarkTheme);
-    final size = tester.getSize(find.widgetWithText(FilledButton, 'Post'));
+    final size = tester.getSize(find.widgetWithText(AppGradientButton, 'Post'));
     expect(size.height, greaterThanOrEqualTo(48));
-    final close = tester.getSize(find.widgetWithIcon(IconButton, Icons.close));
-    expect(close.height, greaterThanOrEqualTo(48));
-    expect(close.width, greaterThanOrEqualTo(48));
+    final cancel = tester.getSize(find.widgetWithText(TextButton, 'Cancel'));
+    expect(cancel.height, greaterThanOrEqualTo(48));
+    expect(cancel.width, greaterThanOrEqualTo(48));
   });
 }

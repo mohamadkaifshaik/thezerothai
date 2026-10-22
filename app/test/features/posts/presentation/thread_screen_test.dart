@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -359,8 +360,8 @@ void main() {
       );
     });
 
-    FilledButton replyButton(WidgetTester tester) =>
-        tester.widget(find.widgetWithText(FilledButton, 'Reply'));
+    AppGradientButton replyButton(WidgetTester tester) =>
+        tester.widget(find.widgetWithText(AppGradientButton, 'Reply'));
 
     testWidgets('starts disabled; sends a reply to the open post and shows '
         'it', (tester) async {
@@ -373,7 +374,7 @@ void main() {
       await tester.pump();
       expect(replyButton(tester).onPressed, isNotNull);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Reply'));
       await tester.pump();
       // In flight: the optimistic row.
       expect(find.text('Posting...'), findsOneWidget);
@@ -412,7 +413,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'my reply');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Reply'));
       await tester.pumpAndSettle();
 
       expect(
@@ -434,7 +435,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'my reply');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Reply'));
       await tester.pumpAndSettle();
 
       expect(find.text("Replies aren't available right now."), findsOneWidget);
