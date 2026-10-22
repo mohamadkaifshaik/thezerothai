@@ -12,18 +12,18 @@
       "min_instances": 0,
       "allowed_tags": ["cand", "p8-t1", "candidate", "last-good"],
       "flags": {
-        "ACCOUNT_LIFECYCLE": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
-        "ENGAGEMENT": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
+        "ACCOUNT_LIFECYCLE": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "ENGAGEMENT": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
         "GRAPH": {"mode": "on"},
-        "MEDIA": {"mode": "off"},
-        "NOTIFICATIONS": {"mode": "off"},
+        "MEDIA": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "NOTIFICATIONS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
         "POSTS": {"mode": "on"},
-        "PROFILE_SNAPSHOT": {"mode": "off"},
-        "QUOTES": {"mode": "off"},
-        "REMOVED_IDS": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
-        "REPLIES": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
-        "REPORTS": {"mode": "off"},
-        "UI_SHELL": {"mode": "off"}
+        "PROFILE_SNAPSHOT": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "QUOTES": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "REMOVED_IDS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "REPLIES": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "REPORTS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "UI_SHELL": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}
       }
     }
   }
