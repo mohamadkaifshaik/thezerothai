@@ -31,3 +31,4 @@ go.work.sum
 
 # firebase auth:export dumps contain user PII; never commit
 users.json
+docs/x_research/
