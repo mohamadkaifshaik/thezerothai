@@ -375,9 +375,9 @@ class PostCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
-        AppSpacing.sm,
-        AppSpacing.sm,
-        AppSpacing.sm,
+        AppSpacing.smd,
+        AppSpacing.md,
+        AppSpacing.smd,
       ),
       child: isRepost
           ? Column(

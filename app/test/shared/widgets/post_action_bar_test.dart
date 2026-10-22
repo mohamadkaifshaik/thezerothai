@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post_action_bar.dart';
@@ -35,9 +37,8 @@ void main() {
       expect(find.byIcon(Icons.ios_share), findsNothing);
     });
 
-    testWidgets('shows compact counts and spreads four actions evenly', (
-      tester,
-    ) async {
+    testWidgets('shows compact counts; counted actions are evenly spaced and '
+        'Share is right-aligned', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -57,12 +58,36 @@ void main() {
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
-        Icons.ios_share,
       ].map((icon) => tester.getTopLeft(find.byIcon(icon)).dx).toList();
-      // Equal slots: 360dp / 4 = 90dp apart, icons left-aligned in a slot.
-      for (var i = 1; i < lefts.length; i++) {
-        expect(lefts[i] - lefts[i - 1], closeTo(90, 1));
-      }
+      // Equal slots: the 3 counted actions share the width left of Share.
+      expect(lefts[1] - lefts[0], closeTo(lefts[2] - lefts[1], 1));
+      final bar = tester.getRect(find.byType(PostActionBar));
+      final share = tester.getRect(find.byIcon(Icons.ios_share));
+      // Share's icon is flush with the right edge (the card's padding).
+      expect(bar.right - share.right, closeTo(0, 1));
+      expect(share.width, 16);
+    });
+
+    testWidgets('liked and reposted use the like / repost colours and are '
+        'announced as selected', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            actions: PostActions(onLike: () {}, onRepost: () {}),
+            liked: true,
+            reposted: true,
+            likeCount: 1,
+          ),
+        ),
+      );
+
+      final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+      expect(icons.map((i) => i.color), contains(AppColors.dark.like));
+      expect(icons.map((i) => i.color), contains(AppColors.dark.repost));
+      final like = tester.getSemantics(find.bySemanticsLabel('Unlike, 1'));
+      expect(like.flagsCollection.isSelected, ui.Tristate.isTrue);
+      handle.dispose();
     });
 
     testWidgets('two visible actions share the left half, not the edges', (
