@@ -8,7 +8,7 @@ Branches are stacked (`feat/ui-w1-N-<slug>` off the previous one); one ticket pe
 | W1-1 | PostCard: padding 16/12/16/12, action row (3 counted slots + right-aligned Share), 16dp icons in 48dp targets, like/repost colours, selected semantics | frontend-developer | S | **Done** (`post_card.dart`, `post_action_bar.dart`, tests) |
 | W1-2 | "Show more" clamp (~6 lines) in `PostRichText`; tap expands in place; links stay tappable | frontend-developer | S | **Done** (`PostRichText.maxLines`, `kPostTextClampLines`; detail view unclamped) |
 | W1-3 | Profile header: banner 3:1 placeholder band, avatar 133/88dp + ring, Edit pill 36dp, sticky header | frontend-developer | M | **Done** (3:1 banner, 133/88dp avatar + 4dp ring, 36dp Edit pill, actions below banner, sticky title = name + post count; search icon deferred until search exists) |
-| W1-4 | Profile tabs Posts · Replies via `AppTabBar` (existing `GetUserTimeline`, cursor + limit 20) | frontend-developer | M | Todo |
+| W1-4 | Profile tabs Posts · Replies via `AppTabBar` (existing `GetUserTimeline`, cursor + limit 20) | frontend-developer | M | **Done** (`_ProfileTabs` over `AppTabBar`, equal width; Replies only with the `replies` sub-feature; per-tab `TimelineCubit`, own pending posts on Posts only) |
 | W1-5 | Home header = `AppTabBar` with one tab "Following"; inline "N new posts" bar; drop duplicate composer Post button | frontend-developer | M | Todo |
 | W1-6 | Notifications All / Mentions tabs (client filter of the loaded page), type colours, 3-line clamp | frontend-developer | M | Todo |
 | W1-7 | Settings master-detail >= 1200dp; mobile unchanged; deep-linkable nested routes | frontend-developer | M | Todo |
