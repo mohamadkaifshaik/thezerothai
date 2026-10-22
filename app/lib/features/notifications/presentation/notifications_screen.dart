@@ -7,13 +7,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
-import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/app_empty_view.dart';
+import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../../shared/widgets/timeline_gap_row.dart';
@@ -149,7 +149,14 @@ class _NotificationsViewState extends State<_NotificationsView>
                         _inset(
                           inset,
                           SliverToBoxAdapter(
-                            child: _NoticeBanner(error: state.notice!),
+                            child: AppNoticeBanner(
+                              message: notificationsNoticeMessage(
+                                state.notice!,
+                              ),
+                              onRetry: noticeCanRetry(state.notice!)
+                                  ? cubit.refresh
+                                  : null,
+                            ),
                           ),
                         ),
                       ..._body(context, cubit, state, inset),
@@ -361,36 +368,6 @@ class _PushPrompt extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _NoticeBanner extends StatelessWidget {
-  const _NoticeBanner({required this.error});
-
-  final AppException error;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
-        ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Text(
-          notificationsNoticeMessage(error),
-          style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(color: colors.onSurface),
-        ),
-      ),
     );
   }
 }

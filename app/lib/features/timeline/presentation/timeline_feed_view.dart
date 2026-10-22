@@ -6,13 +6,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
-import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/app_empty_view.dart';
+import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/pending_posts_section.dart';
 import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
@@ -47,6 +47,7 @@ class TimelineFeedView extends StatefulWidget {
     required this.viewerUserId,
     required this.emptyTitle,
     this.emptySubtitle,
+    this.emptyAction,
     this.headerSlivers = const [],
     this.showPending = true,
     this.pendingAuthorId,
@@ -58,6 +59,9 @@ class TimelineFeedView extends StatefulWidget {
   final String? viewerUserId;
   final String emptyTitle;
   final String? emptySubtitle;
+
+  /// An optional call to action under the empty state (a pill button).
+  final Widget? emptyAction;
 
   /// Slivers shown above the posts (they scroll with the feed).
   final List<Widget> headerSlivers;
@@ -195,7 +199,12 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                         _inset(
                           inset,
                           SliverToBoxAdapter(
-                            child: _NoticeBanner(error: state.notice!),
+                            child: AppNoticeBanner(
+                              message: timelineNoticeMessage(state.notice!),
+                              onRetry: noticeCanRetry(state.notice!)
+                                  ? cubit.refresh
+                                  : null,
+                            ),
                           ),
                         ),
                       if (widget.showPending)
@@ -264,6 +273,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
           icon: Icons.dynamic_feed_outlined,
           title: widget.emptyTitle,
           subtitle: widget.emptySubtitle,
+          action: widget.emptyAction,
         );
       }
       return [_inset(inset, SliverToBoxAdapter(child: child))];
@@ -342,35 +352,5 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
       );
     }
     return const SizedBox(height: AppSpacing.lg);
-  }
-}
-
-class _NoticeBanner extends StatelessWidget {
-  const _NoticeBanner({required this.error});
-
-  final AppException error;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Semantics(
-      liveRegion: true,
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
-        ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Text(
-          timelineNoticeMessage(error),
-          style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(color: colors.onSurface),
-        ),
-      ),
-    );
   }
 }

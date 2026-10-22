@@ -213,6 +213,28 @@ void main() {
     expect(replies.center.dx, closeTo(bar.left + bar.width * 3 / 4, 1));
   });
 
+  testWidgets('own empty Posts tab offers a Write a post action', (
+    tester,
+  ) async {
+    arrange(profileUserId: 'viewer-uid', postsCount: 0);
+    stubFeed(ownFeed, snapshotOf([], authorId: 'viewer-uid'));
+    await open(tester);
+
+    expect(find.text("You haven't posted yet"), findsOneWidget);
+    expect(find.text('Write a post'), findsOneWidget);
+  });
+
+  testWidgets("another profile's empty Posts tab has no action", (
+    tester,
+  ) async {
+    arrange(profileUserId: 'target-uid', postsCount: 0);
+    stubFeed(targetFeed, snapshotOf([], authorId: 'target-uid'));
+    await open(tester);
+
+    expect(find.text("@kaif hasn't posted yet"), findsOneWidget);
+    expect(find.text('Write a post'), findsNothing);
+  });
+
   testWidgets('own profile: pending post above the feed, count shown', (
     tester,
   ) async {
