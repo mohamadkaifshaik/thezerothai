@@ -83,15 +83,13 @@ Needs the Apple Developer Program ($99/yr, which is outside GCP).
 
 ## 6. GitHub (repo `mohamadkaifshaik/thezerothai`)
 
-**Founder decision, GitHub Free plan (binding):** this repo is private on the GitHub Free plan, which does not offer
-environment *required reviewers* or *tag protection rulesets* for private repos (both need GitHub Pro/Team/Enterprise).
-There is exactly one collaborator (the founder) at Stage 0, so prod promotion is a **manual `workflow_dispatch`
-workflow that the founder runs deliberately** (`promote-prod.yml`) instead of a required-reviewer-gated job —
-clicking "Run workflow" and picking a stage **is** the approval. See §6a below and the `release-rollout` skill
-("Manual-approval model on GitHub Free") for the full trust model and what to do when a second collaborator joins.
+**Superseded by ADR-0019 (2026-10-21):** the original premise below (a private repo on GitHub Free, so no required reviewers and no tag
+ruleset) no longer holds, because the repository is public. Prod promotion is still a **manual `workflow_dispatch` workflow**
+(`promote-prod.yml`), now behind a tag ruleset and a required reviewer on `prod`. See §6a below and the `release-rollout` skill
+("Approval model") for the current trust model.
 
 Only two environments are needed — `dev` and `prod`. Do not create `production-traffic-10` / `production-traffic-100`
-(they would need required reviewers, which this plan doesn't have — see the cleanup note in §6a if they already exist
+(approvals are done by the required reviewer on `prod` itself, see §6a; see the cleanup note in §6a if they already exist
 from an earlier setup):
 
 ```bash
@@ -137,67 +135,35 @@ Repo variables come from `terraform output` in each env. Use `DEV_*` and `PROD_*
 
 Set each with `gh variable set NAME --body "value"`; the ones marked **secret** with `gh secret set NAME` (the public repo's logs must never show them; `terraform.yml` reads them from secrets and masks them). Dependabot and fork PRs get no plan credentials.
 
-### 6a. Free-plan trust model for prod releases (no branch protection, no tag ruleset, no required reviewers)
+### 6a. Trust model for prod releases (tag ruleset and required reviewer, ADR-0019)
 
-Update 2026-10-21: this repo is public; see ADR-0019 (Proposed) which supersedes this trust model once Accepted.
+This replaces the 2026-09-27 Free-plan model ("no branch protection, no tag ruleset, no required reviewers"), which assumed a private
+repository. The repository is public, and `docs/adr/0019-prod-release-gate-required-reviewers-and-tag-ruleset.md` (Accepted 2026-10-21,
+rollout R1-R3 done) adopted option D. The controls, in the order a release meets them (the ADR has the rationale, the exact settings,
+the rollout log and the rollback):
 
-**Founder decision, confirmed against the live repo 2026-09-27:** both the branch-protection API and the
-repository-rulesets API return `403 Upgrade to GitHub Pro or make this repository public` on this repo today —
-private repos on GitHub Free simply don't have these features, full stop. Environment *required reviewers* are
-likewise a Pro/Team/Enterprise feature. None of that is a config mistake to fix; it's the plan we're on. Prod
-promotion is redesigned around what Free **does** give private repos (Environments + deployment branch/tag
-policies) plus a manual human step, not an approximation of the paid controls:
+1. **Tag ruleset `protect-version-tags`** on `refs/tags/v*` (creation, update and deletion restricted; bypass for the repository Admin role
+   only). The `claude-agent` GitHub App can therefore **not** create, move or delete a `v*` tag; only the founder can cut a release tag.
+2. **The founder as required reviewer on the `prod` environment.** Every job that declares `environment: prod` waits for approval before it
+   starts, so before any job gets cloud credentials. A release needs **3 approvals**: `release-prod` `build-and-stage`, `promote-prod`
+   `stage=10`, `promote-prod` `stage=100`. The approval screen shows the tag and the commit: compare the commit with the one the readiness
+   review covered before approving.
+3. **The `prod` environment's deployment tag policy** (tags matching `v*` only, set up in step 6 above): which ref can start a job that
+   declares `environment: prod`.
+4. **The WIF pin.** The prod WIF provider's `attribute_condition` (see `infra/terraform/envs/prod/main.tf`, `modules/iam`) requires
+   `assertion.job_workflow_ref` to start with `release-prod.yml@refs/tags/v` or `promote-prod.yml@refs/tags/v`, and
+   `assertion.environment == 'prod'`.
+5. **`promote-prod.yml` is `workflow_dispatch`-only and re-validates on every run**: the ref must be a tag matching
+   `^v[0-9]+\.[0-9]+\.[0-9]+$`, `docs/reviews/release-<tag>-readiness.md` must contain `VERDICT: GO` for that exact tag, and the revision
+   behind the `candidate` traffic tag must be provably built from that tag before any `gcloud run services update-traffic` runs.
 
-1. **The `prod` Environment's deployment branch/tag policy** (tags matching `v*` only, set up in step 6 above) — the
-   one machine-enforced gate on *which ref* can even start a job that declares `environment: prod`.
-2. **The WIF pin.** The prod WIF provider's `attribute_condition` (see `infra/terraform/envs/prod/main.tf`,
-   `modules/iam`) requires `assertion.job_workflow_ref` to start with `release-prod.yml@refs/tags/v` or
-   `promote-prod.yml@refs/tags/v`, and `assertion.environment == 'prod'`. This constrains *which workflow file, at
-   which ref pattern, declaring which environment* can ever exchange its OIDC token for GCP credentials — it stops a
-   different workflow, or the same file copied/modified onto a branch, a PR, or a fork, from minting a usable deploy
-   token.
-3. **`promote-prod.yml` is `workflow_dispatch`-only and re-validates on every run**: the ref must be a tag matching
-   `^v[0-9]+\.[0-9]+\.[0-9]+$`, `docs/reviews/release-<tag>-readiness.md` must contain `VERDICT: GO` for that exact
-   tag, and the revision behind the `candidate` traffic tag must be provably built from that tag (its Artifact Registry
-   image tag) before any `gcloud run services update-traffic` runs.
-4. **The founder is the only collaborator.** Running `promote-prod.yml` — choosing a stage and clicking "Run
-   workflow" — **is** the approval; there is no other human available to review it, and GitHub Free has no feature
-   that would insert one.
+**What this does not catch.** The WIF pin matches on file path and ref, not file *contents*: a modified `release-prod.yml` at a `v*` tag
+created by the founder would still start a job. The required reviewer and the readiness diff checks are the control for that. The
+approval is also not unskippable for the founder (ADR-0019 Decision 3 and its Acceptance record). The gate is aimed at other actors such
+as the App.
 
-**What this does not catch.** The WIF pin matches on file path + ref, not file *contents* — someone who could get a
-modified `release-prod.yml`/`promote-prod.yml` onto a commit and then push a `v*` tag pointing at it would still get
-a usable token; nothing here re-vets the workflow's contents at the tagged commit the way branch protection + a tag
-ruleset would. The only reason that's an acceptable risk at Stage 0 is that there is one collaborator with push
-access, so there's no one else's compromised or careless push to defend against yet.
-
-**Revisit via an ADR before adding a second collaborator to this repo.** Upgrade to GitHub Pro or Team, then:
-- Add required reviewers on the `prod` environment (Settings → Environments → `prod`) — a human distinct from
-  whoever pushed the tag / dispatched the workflow must approve before the job runs.
-- Add branch protection on `main` (required PR review + status checks) so `release-prod.yml`/`promote-prod.yml` can
-  only change via a reviewed PR.
-- Add a **tag protection ruleset** so `v*` tags can only be created/updated by people you trust to cut a release,
-  with a **bypass actor** for repository admins (so the owner isn't locked out of cutting a release themselves —
-  `actor_type=RepositoryRole` + `actor_id=5` is the built-in "Admin" repository role; `bypass_mode=always` lets that
-  role bypass the ruleset in any context, not just pull requests). This call 403s today; keep it for after the
-  upgrade:
-
-  ```bash
-  gh api -X POST repos/mohamadkaifshaik/thezerothai/rulesets \
-    -f name='protect-version-tags' \
-    -f target='tag' \
-    -f enforcement='active' \
-    -f 'conditions[ref_name][include][]=refs/tags/v*' \
-    -f 'rules[][type]=creation' \
-    -f 'rules[][type]=update' \
-    -f 'rules[][type]=deletion' \
-    -f 'bypass_actors[][actor_id]=5' \
-    -f 'bypass_actors[][actor_type]=RepositoryRole' \
-    -f 'bypass_actors[][bypass_mode]=always'
-  ```
-
-  (Or Settings → Rules → Rulesets → New tag ruleset → target `v*` → restrict who can create/update/delete matching
-  tags, with "Repository admin" added as a bypass so admins can still tag releases directly, in the GitHub UI — the
-  API call above is equivalent.)
+The behaviour at a real release (the "Waiting for review" screen, and the founder's tag push going through) is confirmed at the first
+release after the rollout (ADR-0019 Rollout log). To roll the gate back, see ADR-0019 R5 (owner-only API calls; do not run them casually).
 
 **Cleanup done (2026-09-27):** the `production-traffic-10` and `production-traffic-100` GitHub Environments were
 created by accident by a failed required-reviewers call (Free plan). Before deletion they were verified empty: no

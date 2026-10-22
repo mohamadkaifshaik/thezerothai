@@ -26,34 +26,64 @@ class UserListRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = item.user;
-    return ListTile(
-      minVerticalPadding: AppSpacing.sm,
-      leading: AppAvatar(url: user.avatarUrl),
-      title: Text(
-        user.displayName.isEmpty ? '@${user.handle}' : user.displayName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        '@${user.handle}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing:
-          trailing ??
-          BlocProvider(
-            create: (context) => RelationshipCubit(
-              graphRepository: context.read<GraphRepository>(),
+    final theme = Theme.of(context);
+    final control =
+        trailing ??
+        BlocProvider(
+          create: (context) => RelationshipCubit(
+            graphRepository: context.read<GraphRepository>(),
+            userId: user.userId,
+            initial: graph.Relationship(
               userId: user.userId,
-              initial: graph.Relationship(
-                userId: user.userId,
-                followState: item.relationship.followState,
-                blocking: item.relationship.blocking,
-                muting: item.relationship.muting,
-              ),
+              followState: item.relationship.followState,
+              blocking: item.relationship.blocking,
+              muting: item.relationship.muting,
             ),
-            child: const FollowButton(),
           ),
+          child: const FollowButton(),
+        );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              ExcludeSemantics(child: AppAvatar(url: user.avatarUrl)),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.displayName.isEmpty
+                          ? '@${user.handle}'
+                          : user.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    Text(
+                      '@${user.handle}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              control,
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+      ],
     );
   }
 }

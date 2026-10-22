@@ -8,6 +8,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../../shared/widgets/app_form_header.dart';
+import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
@@ -117,6 +119,16 @@ class _EditProfileViewState extends State<_EditProfileView> {
     return discard ?? false;
   }
 
+  /// Cancel acts like Back: nothing to discard leaves at once, edits ask
+  /// first, and a save in flight cannot be abandoned.
+  Future<void> _cancel(BuildContext context) async {
+    final cubit = context.read<EditProfileCubit>();
+    if (cubit.state.isSaving) return;
+    if (!cubit.hasChanges || await _confirmDiscard(context)) {
+      if (context.mounted) _leave(context);
+    }
+  }
+
   void _onState(BuildContext context, EditProfileState state) {
     final saved = state.saved;
     if (state.status == EditProfileStatus.saved && saved != null) {
@@ -169,99 +181,81 @@ class _EditProfileViewState extends State<_EditProfileView> {
             }
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('Edit profile'),
-              actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.sm),
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(
-                        AppSpacing.minButtonWidth,
-                        AppSpacing.minTapTarget,
+            body: SafeArea(
+              child: AppMainColumn(
+                child: Column(
+                  children: [
+                    AppFormHeader(
+                      title: 'Edit profile',
+                      busy: state.isSaving,
+                      busySemanticsLabel: 'Saving',
+                      onCancel: () => _cancel(context),
+                      actionLabel: 'Save',
+                      onAction: cubit.canSave ? cubit.save : null,
+                    ),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        children: [
+                          Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: AvatarEditor(
+                              url: widget.avatarUrl,
+                              previewBytes: state.avatarPreview,
+                              busy: state.isPreparingAvatar || state.isSaving,
+                              preparing: state.isPreparingAvatar,
+                              onChange: cubit.canChangeAvatar
+                                  ? cubit.pickAvatar
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          TextField(
+                            controller: _name,
+                            enabled: !state.isSaving,
+                            textInputAction: TextInputAction.next,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: InputDecoration(
+                              labelText: 'Display name',
+                              helperText:
+                                  'Also updates on your recent posts shortly. '
+                                  'Name changes are limited each day.',
+                              helperMaxLines: 3,
+                              counter: CharacterCounter(
+                                remaining: state.displayNameRemaining,
+                              ),
+                              errorText: nameOver
+                                  ? 'At most $kMaxDisplayNameLength characters.'
+                                  : (state.displayName.trim().isEmpty
+                                        ? 'Your name cannot be empty.'
+                                        : null),
+                            ),
+                            onChanged: cubit.displayNameChanged,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          TextField(
+                            controller: _bio,
+                            enabled: !state.isSaving,
+                            minLines: 3,
+                            maxLines: 6,
+                            keyboardType: TextInputType.multiline,
+                            textCapitalization: TextCapitalization.sentences,
+                            decoration: InputDecoration(
+                              labelText: 'Bio',
+                              alignLabelWithHint: true,
+                              counter: CharacterCounter(
+                                remaining: state.bioRemaining,
+                              ),
+                              errorText: bioOver
+                                  ? 'At most $kMaxBioLength characters.'
+                                  : null,
+                            ),
+                            onChanged: cubit.bioChanged,
+                          ),
+                        ],
                       ),
                     ),
-                    onPressed: cubit.canSave ? cubit.save : null,
-                    child: state.isSaving
-                        ? const SizedBox(
-                            width: AppIconSize.md,
-                            height: AppIconSize.md,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              semanticsLabel: 'Saving',
-                            ),
-                          )
-                        : const Text('Save'),
-                  ),
-                ),
-              ],
-            ),
-            body: SafeArea(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: AppBreakpoints.mobile,
-                  ),
-                  child: ListView(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    children: [
-                      Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: AvatarEditor(
-                          url: widget.avatarUrl,
-                          previewBytes: state.avatarPreview,
-                          busy: state.isPreparingAvatar || state.isSaving,
-                          preparing: state.isPreparingAvatar,
-                          onChange: cubit.canChangeAvatar
-                              ? cubit.pickAvatar
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      TextField(
-                        controller: _name,
-                        enabled: !state.isSaving,
-                        textInputAction: TextInputAction.next,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: InputDecoration(
-                          labelText: 'Display name',
-                          helperText:
-                              'Also updates on your recent posts shortly. '
-                              'Name changes are limited each day.',
-                          helperMaxLines: 3,
-                          counter: CharacterCounter(
-                            remaining: state.displayNameRemaining,
-                          ),
-                          errorText: nameOver
-                              ? 'At most $kMaxDisplayNameLength characters.'
-                              : (state.displayName.trim().isEmpty
-                                    ? 'Your name cannot be empty.'
-                                    : null),
-                        ),
-                        onChanged: cubit.displayNameChanged,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      TextField(
-                        controller: _bio,
-                        enabled: !state.isSaving,
-                        minLines: 3,
-                        maxLines: 6,
-                        keyboardType: TextInputType.multiline,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: InputDecoration(
-                          labelText: 'Bio',
-                          alignLabelWithHint: true,
-                          counter: CharacterCounter(
-                            remaining: state.bioRemaining,
-                          ),
-                          errorText: bioOver
-                              ? 'At most $kMaxBioLength characters.'
-                              : null,
-                        ),
-                        onChanged: cubit.bioChanged,
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
             ),

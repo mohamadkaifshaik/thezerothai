@@ -7,40 +7,53 @@ description: Release process for the Cloud Run API (tagged zero-traffic revision
 
 ## Backend (Cloud Run)
 1. Merge to main → GitHub Actions: `make ci` → `ko build` → push to Artifact Registry (tag = git SHA) → deploy to **dev** (100%).
-2. Tag `vX.Y.Z` (push, or `workflow_dispatch` run picking that tag) → `.github/workflows/release-prod.yml` deploys to
+2. Tag `vX.Y.Z` (the founder pushes it, or runs `workflow_dispatch` picking that tag; the tag ruleset refuses anyone else,
+   including the assistant's App) → `.github/workflows/release-prod.yml` waits for the founder's approval (**approval 1 of 3**,
+   see "Approval model" below), then deploys to
    **prod** as a new revision with **no traffic**: `gcloud run deploy api --image=<img>@<digest> --no-traffic --tag=candidate
    --region=asia-south1`, smoke tests `/health` on the `candidate` URL, and builds mobile release artifacts (Android AAB,
    iOS `--no-codesign`) with prod `--dart-define`s. It never shifts traffic and never deploys Firebase Hosting.
 3. `production-reviewer` writes `VERDICT: GO` in `docs/reviews/release-vX.Y.Z-readiness.md`.
 4. **Manual promotion — `.github/workflows/promote-prod.yml`, `workflow_dispatch` only, run from the `vX.Y.Z` tag
-   ref, input `stage` = `10` or `100`.** The founder runs it once with `stage=10`, watches ~15 min (5xx ratio, p95,
-   Error Reporting), then runs it again with `stage=100`. Each run independently re-checks the `VERDICT: GO` file and
+   ref, input `stage` = `10` or `100`.** The founder runs it once with `stage=10` (**approval 2 of 3**), watches ~15 min
+   (5xx ratio, p95, Error Reporting), then runs it again with `stage=100` (**approval 3 of 3**). Each run independently re-checks the `VERDICT: GO` file and
    that the revision currently behind the `candidate` traffic tag was actually built from *this* tag (checked via that
    image's Artifact Registry tag, since Cloud Run always pins a revision to a resolved digest) before touching
    traffic — `gcloud run services update-traffic api --to-revisions=<rc-revision>=10`, then later `...=100`. Always
    `--to-revisions`, never `--to-latest` (a newer tag could have been staged as a fresh `candidate` in the meantime).
    `stage=100` also builds the web bundle fresh from the tag *before* shifting traffic, then runs
    `firebase deploy --only hosting,firestore:rules,firestore:indexes` — Hosting is never deployed before 100%.
-5. Rollback: `gcloud run services update-traffic api --to-revisions=<previous>=100` (seconds). Turn feature flags off first if feature-related.
+5. Something wrong, or a need to undo a step: see "Rollback" below (kept apart from these forward steps).
 
-### Manual-approval model on GitHub Free (private repo, single collaborator)
-GitHub Free gives private repos Environments with deployment branch/tag policies, but **not** required reviewers,
-and no tag protection rulesets (both need GitHub Pro/Team/Enterprise). So at Stage 0:
-- The `prod` Environment's deployment policy (tags matching `v*` only) is the one machine-enforced gate on *which
-  ref* can run `release-prod.yml` / `promote-prod.yml` with GCP credentials — both declare `environment: prod` on
-  every job that authenticates via WIF, and the prod WIF provider's `attribute_condition` additionally pins
-  `job_workflow_ref` to those two exact workflow files at a `refs/tags/v*` ref (`infra/terraform/envs/prod/main.tf`,
-  `modules/iam`) so a modified copy of either file on another ref can never mint a usable deploy token.
-- There is no second human required to click approve — GitHub Free has nothing that provides one. **The founder
-  running `promote-prod.yml` (picking a stage and clicking "Run workflow") is itself the approval.** The
-  `VERDICT: GO` file check inside the workflow is a recorded, reviewable artifact that the approval was informed by,
-  not a second machine-enforced gate.
-- Anyone who can push to the repo can create a `v*` tag (nothing restricts that) and dispatch `promote-prod.yml`. With
-  one collaborator (the founder) this is an accepted risk, not a gap.
-- **Revisit with an ADR before adding a second collaborator**: upgrade to GitHub Pro/Team to add required reviewers
-  on the `prod` environment and a tag protection ruleset on `v*` (see the ready-to-run commands kept in
-  `docs/runbooks/cloud-bootstrap.md` §6a) rather than trying to approximate either control in workflow logic — both
-  need a human distinct from whoever pushed the tag or dispatched the workflow.
+### Approval model (ADR-0019: tag ruleset and required reviewer)
+The repository is public, so the earlier "no required reviewers, no tag ruleset" model no longer applies. The decision, settings and
+rollout log are in `docs/adr/0019-prod-release-gate-required-reviewers-and-tag-ruleset.md`; the trust model is in
+`docs/runbooks/cloud-bootstrap.md` §6a. In short:
+- `v*` tags are covered by the tag ruleset `protect-version-tags` (Admin role bypass only): the assistant's App cannot create, move or
+  delete one. Only the founder cuts a release tag.
+- The `prod` environment has the founder as required reviewer, so a release needs **3 approvals**, in this order:
+  1. `release-prod` → `build-and-stage` (after the tag push);
+  2. `promote-prod` with `stage=10`;
+  3. `promote-prod` with `stage=100`.
+  A re-run or a re-dispatch needs its own approval. Mobile build jobs are not gated by this, and `dev` is unaffected.
+- **What the founder clicks, and when.** After each trigger the run page shows the job as **"Waiting for review"**, with a **Review deployments**
+  button (GitHub's exact wording can vary). Open it, tick `prod`, and click **Approve and deploy**.
+  Before approving the first one, compare the tag's commit with the commit the readiness review covered
+  (`docs/reviews/release-vX.Y.Z-readiness.md`, its P0 diff checks): this is the control against a modified workflow at a tag. Approve
+  `stage=10` only when the candidate is smoke-tested, and `stage=100` only after the ~15 minutes of watching.
+- The assistant never approves and never needs to: it has no Administration or Actions-write permission, and it cannot dispatch
+  `promote-prod.yml`.
+- **Tests never use a `v*` tag and never dispatch `promote-prod.yml`.** A `v*` tag push starts `release-prod.yml`, which stages a prod
+  candidate, and an approved `promote-prod` run shifts traffic. To test the mechanism use a different tag pattern (ADR-0019 R1 used
+  `zz-adr-test-*`), and check the real behaviour only at the next real release.
+- The `VERDICT: GO` file check inside `promote-prod.yml` is a recorded artifact that the approval was informed by, not a second
+  machine-enforced human gate.
+
+### Rollback (separate from the forward steps; only when something is wrong)
+- **Traffic back to the previous revision** (seconds): `gcloud run services update-traffic api --to-revisions=<previous>=100`. Turn
+  feature flags off first if the problem is feature-related.
+- **The approval gate itself** (the tag ruleset and the required reviewer): ADR-0019 R5 has the owner-only API calls. They remove the
+  controls above, so they are for the owner to run deliberately, not part of a release.
 
 ## Firestore indexes & rules
 `firebase deploy --only firestore:indexes,firestore:rules --project <env>` in CI **before** the code that needs them.

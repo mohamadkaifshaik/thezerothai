@@ -44,6 +44,16 @@ abstract final class AppOpacity {
   static const double rowTint = 0.08;
 }
 
+/// Page-level layout widths (dp) of the desktop/web shell.
+abstract final class AppLayout {
+  /// Widest the main (feed) column grows; wider windows centre it between
+  /// 1dp borders.
+  static const double mainColumnMaxWidth = AppSize.contentMax;
+
+  /// Fixed width of the right-hand column shown from [AppBreakpoints.tablet].
+  static const double sideColumnWidth = AppSize.sideColumn;
+}
+
 abstract final class AppRadius {
   static const double sm = 8;
   static const double md = 12;

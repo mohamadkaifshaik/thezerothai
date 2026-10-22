@@ -15,6 +15,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/app_side_column.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,7 +34,10 @@ void main() {
   late _MockOnboardingBloc onboarding;
   late _MockAuthBloc auth;
 
-  setUpAll(() => registerFallbackValue(const AuthSignOutRequested()));
+  setUpAll(() {
+    registerFallbackValue(const AuthSignOutRequested());
+    registerFallbackValue(const OnboardingUserSignedOut());
+  });
 
   setUp(() {
     onboarding = _MockOnboardingBloc();
@@ -159,7 +163,13 @@ void main() {
       await pump(tester, width: 1300, newShell: false);
 
       expect(find.byType(AppAccountChip), findsNothing);
-      expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.byIcon(Icons.settings_outlined),
+        ),
+        findsOneWidget,
+      );
     });
   });
 
@@ -321,6 +331,15 @@ void main() {
   });
 
   group('desktop (1400dp)', () {
+    // The side column repeats the viewer's name and a Settings link, so the
+    // rail and its chip menu are looked up on their own.
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(NavigationRail), matching: f);
+    Finder menuItem(String label) => find.descendant(
+      of: find.byWidgetPredicate((w) => w is PopupMenuItem),
+      matching: find.text(label),
+    );
+
     testWidgets('labelled rail, Post pill, account chip with name', (
       tester,
     ) async {
@@ -330,8 +349,8 @@ void main() {
       expect(rail.extended, isTrue);
       expect(find.text('Home'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Post'), findsOneWidget);
-      expect(find.text('Alice A'), findsOneWidget);
-      expect(find.text('@alice'), findsOneWidget);
+      expect(inRail(find.text('Alice A')), findsOneWidget);
+      expect(inRail(find.text('@alice')), findsOneWidget);
     });
 
     testWidgets('the chip menu offers Profile, Settings and Sign out', (
@@ -341,11 +360,11 @@ void main() {
 
       await tester.tap(find.byType(AppAccountChip));
       await tester.pumpAndSettle();
-      expect(find.text('Profile'), findsWidgets);
-      expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('Sign out'), findsOneWidget);
+      expect(menuItem('Profile'), findsOneWidget);
+      expect(menuItem('Settings'), findsOneWidget);
+      expect(menuItem('Sign out'), findsOneWidget);
 
-      await tester.tap(find.text('Settings'));
+      await tester.tap(menuItem('Settings'));
       await tester.pumpAndSettle();
       expect(find.text('settings body'), findsOneWidget);
     });
@@ -379,6 +398,72 @@ void main() {
 
       expect(find.byType(AppAccountChip), findsOneWidget);
       expect(find.text('Alice A'), findsNothing);
+    });
+  });
+
+  group('side column (desktop)', () {
+    testWidgets('absent below 1200dp', (tester) async {
+      await pump(tester, width: 1199);
+      expect(find.byType(AppSideColumn), findsNothing);
+      expect(find.text('@alice'), findsNothing);
+    });
+
+    for (final width in [1200.0, 1280.0, 1440.0]) {
+      testWidgets('present at ${width.toInt()}dp with the profile card and '
+          'real links only', (tester) async {
+        await pump(tester, width: width);
+        expect(find.byType(AppSideColumn), findsOneWidget);
+        expect(find.text('Alice A'), findsWidgets);
+        expect(find.text('@alice'), findsWidgets);
+        expect(
+          find.descendant(
+            of: find.byType(AppSideColumn),
+            matching: find.text('Privacy Policy'),
+          ),
+          findsOneWidget,
+        );
+        // No placeholder for a feature that has no route.
+        for (final text in ['Trends', 'Who to follow', 'Premium', 'Terms']) {
+          expect(find.textContaining(text), findsNothing, reason: text);
+        }
+      });
+    }
+
+    testWidgets('the profile card opens the own profile', (tester) async {
+      await pump(tester, width: 1280);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppSideColumn),
+          matching: find.text('@alice'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('profile body'), findsOneWidget);
+    });
+
+    testWidgets('no loaded profile: no card, nothing fetched', (tester) async {
+      await pump(tester, width: 1280, profile: false);
+      expect(find.byType(AppSideColumn), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AppSideColumn),
+          matching: find.textContaining('@'),
+        ),
+        findsNothing,
+      );
+      verifyNever(() => onboarding.add(any()));
+    });
+
+    testWidgets('quick link Settings navigates to /settings', (tester) async {
+      await pump(tester, width: 1280);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppSideColumn),
+          matching: find.text('Settings'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('settings body'), findsOneWidget);
     });
   });
 

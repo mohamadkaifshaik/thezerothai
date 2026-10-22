@@ -5,11 +5,13 @@ import 'package:go_router/go_router.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
 import '../widgets/app_account_chip.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/responsive_scaffold.dart';
+import '../widgets/privacy_policy_link.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
 
@@ -86,9 +88,10 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ownHandle = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.handle,
+    final ownProfile = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile,
     );
+    final ownHandle = ownProfile?.handle;
 
     final canCompose = canComposeAt(context, location);
     final newShell = isFeatureEnabled(context, kFeatureUiShell);
@@ -124,16 +127,40 @@ class MainShell extends StatelessWidget {
           t.destination,
     ];
 
+    void openCompose() => context.push(AppRouter.composePath);
     return ResponsiveScaffold(
       selectedIndex: selectedIndex == null || selectedIndex < 0
           ? null
           : selectedIndex,
-      onCompose: canCompose ? () => context.push(AppRouter.composePath) : null,
+      onCompose: canCompose ? openCompose : null,
       showFab: showFab,
       drawer: newShell ? const AppDrawer() : null,
       accountChipBuilder: newShell
           ? (extended) => AppAccountChip(extended: extended)
           : null,
+      sideColumn: AppSideColumn(
+        // Only what is already loaded: no profile, no card (nothing is fetched).
+        profile: ownHandle == null || ownHandle.isEmpty
+            ? null
+            : AppSideProfile(
+                displayName: ownProfile?.displayName ?? '',
+                handle: ownHandle,
+                avatarUrl: ownProfile?.avatarThumbUrl ?? '',
+                onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+              ),
+        links: [
+          AppSideLink(
+            icon: Icons.settings_outlined,
+            label: 'Settings',
+            onTap: () => context.go(AppRouter.settingsPath),
+          ),
+          AppSideLink(
+            icon: Icons.privacy_tip_outlined,
+            label: 'Privacy Policy',
+            onTap: () => launchPrivacyPolicy(context),
+          ),
+        ],
+      ),
       destinations: destinations,
       onDestinationSelected: (index) {
         switch (tabs[index].tab) {

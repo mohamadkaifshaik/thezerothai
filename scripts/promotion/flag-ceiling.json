@@ -21,7 +21,7 @@
         "PROFILE_SNAPSHOT": {"mode": "off"},
         "QUOTES": {"mode": "off"},
         "REMOVED_IDS": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
-        "REPLIES": {"mode": "off"},
+        "REPLIES": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
         "REPORTS": {"mode": "off"},
         "UI_SHELL": {"mode": "off"}
       }

@@ -134,37 +134,29 @@ class _ReadyPost extends StatelessWidget {
     final author = view.post.author;
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= AppBreakpoints.mobile;
-        return SingleChildScrollView(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: isWide ? AppBreakpoints.mobile : double.infinity,
-              ),
-              child: BlockedPostGate(
-                authorId: author.userId,
-                handle: author.handle,
-                graphEnabled: graphEnabled,
-                child: PostCard(
-                  view: view,
-                  showFullImages: true,
-                  viewerUserId: viewerUserId,
-                  graphActionsEnabled: graphEnabled,
-                  reportsEnabled: reportsEnabled,
-                  engagementEnabled: isFeatureEnabled(
-                    context,
-                    kFeatureEngagement,
-                  ),
-                  onDelete: (_) => context.read<PostDetailCubit>().deletePost(),
-                  onRelationshipChanged: (_) => onRelationshipChanged(),
-                ),
-              ),
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: AppLayout.mainColumnMaxWidth,
+          ),
+          child: BlockedPostGate(
+            authorId: author.userId,
+            handle: author.handle,
+            graphEnabled: graphEnabled,
+            child: PostCard(
+              view: view,
+              showFullImages: true,
+              viewerUserId: viewerUserId,
+              graphActionsEnabled: graphEnabled,
+              reportsEnabled: reportsEnabled,
+              engagementEnabled: isFeatureEnabled(context, kFeatureEngagement),
+              onDelete: (_) => context.read<PostDetailCubit>().deletePost(),
+              onRelationshipChanged: (_) => onRelationshipChanged(),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

@@ -23,6 +23,7 @@ class AppPillButton extends StatelessWidget {
     this.icon,
     this.busy = false,
     this.compact = false,
+    this.busySemanticsLabel,
   });
 
   final String label;
@@ -31,11 +32,16 @@ class AppPillButton extends StatelessWidget {
   final bool busy;
   final bool compact;
 
+  /// While [busy], announced instead of [label] as a live region ("Sending
+  /// reply"); the visible text stays [label].
+  final String? busySemanticsLabel;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = context.appColors;
     final enabled = !busy && onPressed != null;
+    final announceBusy = busy && busySemanticsLabel != null;
     final radius = BorderRadius.circular(AppRadius.pill);
     final fill = enabled ? colors.strongPillFill : colors.disabledPillFill;
     final labelColor = enabled
@@ -51,7 +57,8 @@ class AppPillButton extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: enabled,
-      label: label,
+      liveRegion: announceBusy,
+      label: announceBusy ? busySemanticsLabel : label,
       onTap: enabled ? onPressed : null,
       excludeSemantics: true,
       child: ConstrainedBox(

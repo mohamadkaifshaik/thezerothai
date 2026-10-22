@@ -11,6 +11,9 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/app_form_header.dart';
+import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
@@ -136,21 +139,30 @@ class ComposerScreen extends StatelessWidget {
               child: _ComposerView(
                 mediaEnabled: mediaEnabled,
                 quotePreview: quotePreview,
+                avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
               ),
             )
           : _ComposerView(
               mediaEnabled: mediaEnabled,
               quotePreview: quotePreview,
+              avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
             ),
     );
   }
 }
 
 class _ComposerView extends StatefulWidget {
-  const _ComposerView({required this.mediaEnabled, this.quotePreview});
+  const _ComposerView({
+    required this.mediaEnabled,
+    required this.avatarUrl,
+    this.quotePreview,
+  });
 
   final bool mediaEnabled;
   final pb.EmbeddedPost? quotePreview;
+
+  /// The viewer's avatar (empty: the person icon).
+  final String avatarUrl;
 
   @override
   State<_ComposerView> createState() => _ComposerViewState();
@@ -262,98 +274,101 @@ class _ComposerViewState extends State<_ComposerView> {
             if (!didPop) _requestClose(context, state);
           },
           child: Scaffold(
-            appBar: AppBar(
-              leading: IconButton(
-                tooltip: 'Close',
-                icon: const Icon(Icons.close),
-                onPressed: state.isSubmitting
-                    ? null
-                    : () => _requestClose(context, state),
-              ),
-              title: Text(isQuote ? 'Quote' : 'New post'),
-              actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.sm),
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(72, AppSpacing.minTapTarget),
-                    ),
-                    onPressed: state.canSubmit ? cubit.submit : null,
-                    child: state.isSubmitting
-                        ? const SizedBox(
-                            width: AppIconSize.md,
-                            height: AppIconSize.md,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Post'),
-                  ),
-                ),
-              ],
-            ),
+            // The keyboard shrinks the body, so the field and the bottom bar
+            // (photos, counter) stay above it.
             body: SafeArea(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: TextField(
-                        controller: _controller,
-                        autofocus: true,
-                        enabled: !state.isSubmitting,
-                        expands: true,
-                        maxLines: null,
-                        minLines: null,
-                        textAlignVertical: TextAlignVertical.top,
-                        keyboardType: TextInputType.multiline,
-                        textCapitalization: TextCapitalization.sentences,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(kComposerInputCap),
-                        ],
-                        style: Theme.of(context).textTheme.bodyLarge
-                            ?.copyWith(fontSize: 18),
-                        decoration: InputDecoration(
-                          hintText: isQuote
-                              ? 'Add a comment'
-                              : "What's happening?",
-                          hintStyle: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                fontSize: 18,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+              child: AppMainColumn(
+                child: Column(
+                  children: [
+                    AppFormHeader(
+                      title: isQuote ? 'Quote' : 'New post',
+                      busy: state.isSubmitting,
+                      onCancel: () => _requestClose(context, state),
+                      actionLabel: 'Post',
+                      onAction: state.canSubmit ? cubit.submit : null,
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ExcludeSemantics(
+                              child: AppAvatar(url: widget.avatarUrl),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: TextField(
+                                controller: _controller,
+                                autofocus: true,
+                                enabled: !state.isSubmitting,
+                                expands: true,
+                                maxLines: null,
+                                minLines: null,
+                                textAlignVertical: TextAlignVertical.top,
+                                keyboardType: TextInputType.multiline,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                inputFormatters: [
+                                  LengthLimitingTextInputFormatter(
+                                    kComposerInputCap,
+                                  ),
+                                ],
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(fontSize: 18),
+                                decoration: InputDecoration(
+                                  hintText: isQuote
+                                      ? 'Add a comment'
+                                      : "What's happening?",
+                                  hintStyle: Theme.of(context)
+                                      .textTheme
+                                      .bodyLarge
+                                      ?.copyWith(
+                                        fontSize: 18,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                  filled: false,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  disabledBorder: InputBorder.none,
+                                ),
+                                onChanged: cubit.textChanged,
                               ),
-                          filled: false,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
+                            ),
+                          ],
                         ),
-                        onChanged: cubit.textChanged,
                       ),
                     ),
-                  ),
-                  if (isQuote) _QuotePreview(preview: widget.quotePreview),
-                  if (widget.mediaEnabled)
-                    AttachmentGrid(enabled: !state.isSubmitting),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
+                    if (isQuote) _QuotePreview(preview: widget.quotePreview),
+                    if (widget.mediaEnabled)
+                      AttachmentGrid(enabled: !state.isSubmitting),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsetsDirectional.fromSTEB(
+                        AppSpacing.sm,
+                        AppSpacing.xs,
+                        AppSpacing.md,
+                        AppSpacing.xs,
+                      ),
+                      // Photos at the start, the counter at the end; the hint
+                      // (when there is one) takes the space between.
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          if (widget.mediaEnabled)
+                            const _AddPhotoButton()
+                          else
+                            const SizedBox.shrink(),
+                          DraftProblemHint(problem: state.draft.problem),
+                          CharacterCounter(remaining: state.draft.remaining),
+                        ],
+                      ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (widget.mediaEnabled)
-                          const _AddPhotoButton()
-                        else
-                          const SizedBox(width: AppSpacing.sm),
-                        DraftProblemHint(problem: state.draft.problem),
-                        CharacterCounter(remaining: state.draft.remaining),
-                        const SizedBox(width: AppSpacing.sm),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

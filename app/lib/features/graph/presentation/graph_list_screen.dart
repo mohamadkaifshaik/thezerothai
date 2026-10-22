@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
+import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/widgets/app_back_header.dart';
+import '../../../shared/widgets/app_main_column.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../data/graph_repository.dart';
 import 'bloc/user_list_cubit.dart';
@@ -69,18 +74,41 @@ class _GraphListScreenState extends State<GraphListScreen> {
     }
   }
 
+  /// Back to where the user came from; with no history (a deep link) to
+  /// the profile whose people these are.
+  void _back() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRouter.profilePath(widget.handle));
+    }
+  }
+
+  /// The page frame: main-column width, the back header and [body].
+  Widget _frame({required Widget body, Widget? tabs}) {
+    return Scaffold(
+      body: SafeArea(
+        child: AppMainColumn(
+          child: Column(
+            children: [
+              AppBackHeader(title: '@${widget.handle}', onBack: _back),
+              ?tabs,
+              Expanded(child: body),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_resolving) {
-      return Scaffold(
-        appBar: AppBar(title: Text('@${widget.handle}')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return _frame(body: const Center(child: CircularProgressIndicator()));
     }
     final error = _resolveError;
     if (error != null) {
-      return Scaffold(
-        appBar: AppBar(title: Text('@${widget.handle}')),
+      return _frame(
         body: AppErrorView(error: error, onRetry: _resolveUserId),
       );
     }
@@ -90,16 +118,8 @@ class _GraphListScreenState extends State<GraphListScreen> {
     return DefaultTabController(
       length: 2,
       initialIndex: widget.initialTab == GraphListTab.followers ? 0 : 1,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('@${widget.handle}'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Followers'),
-              Tab(text: 'Following'),
-            ],
-          ),
-        ),
+      child: _frame(
+        tabs: const _GraphTabBar(),
         body: TabBarView(
           children: [
             _GraphTab(
@@ -125,6 +145,37 @@ class _GraphListScreenState extends State<GraphListScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The Followers / Following switch. The selected tab is told apart by more
+/// than colour: a bold label and a primary underline (the tab itself is
+/// announced as selected).
+class _GraphTabBar extends StatelessWidget {
+  const _GraphTabBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return TabBar(
+      tabs: const [
+        Tab(text: 'Followers'),
+        Tab(text: 'Following'),
+      ],
+      labelColor: theme.colorScheme.onSurface,
+      unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+      labelStyle: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+      ),
+      unselectedLabelStyle: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w500,
+      ),
+      indicatorColor: theme.colorScheme.primary,
+      indicatorWeight: AppSpacing.xs,
+      indicatorSize: TabBarIndicatorSize.tab,
+      dividerColor: theme.colorScheme.outlineVariant,
+      dividerHeight: 1,
     );
   }
 }
