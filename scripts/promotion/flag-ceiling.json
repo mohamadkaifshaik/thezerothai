@@ -1,6 +1,6 @@
 {
   "_comment": "Per-env ceiling for server feature flags and Cloud Run shape. A revision may be promoted only if every flag's EFFECTIVE mode is <= the ceiling. Raising a ceiling is a reviewed PR. Allowlist uids are never stored here, only counts. Order: off < allowlist < percent < on.",
-  "flags": ["ACCOUNT_LIFECYCLE", "ENGAGEMENT", "GRAPH", "MEDIA", "NOTIFICATIONS", "POSTS", "PROFILE_SNAPSHOT", "QUOTES", "REMOVED_IDS", "REPLIES", "REPORTS"],
+  "flags": ["ACCOUNT_LIFECYCLE", "ENGAGEMENT", "GRAPH", "MEDIA", "NOTIFICATIONS", "POSTS", "PROFILE_SNAPSHOT", "QUOTES", "REMOVED_IDS", "REPLIES", "REPORTS", "UI_SHELL"],
   "unset_default": {
     "_comment": "Mode when FEATURE_<N> is unset, from backend/pkg/platform/config/config.go (graph/posts: on in dev, off in prod; all others off). check-flag-registry.sh re-derives this from config.go.",
     "dev": {"GRAPH": "on", "POSTS": "on"},
@@ -22,7 +22,8 @@
         "QUOTES": {"mode": "off"},
         "REMOVED_IDS": {"mode": "allowlist", "max_allowlist": 1, "max_percent": 0},
         "REPLIES": {"mode": "off"},
-        "REPORTS": {"mode": "off"}
+        "REPORTS": {"mode": "off"},
+        "UI_SHELL": {"mode": "off"}
       }
     }
   }
