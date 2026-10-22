@@ -42,6 +42,10 @@ Future<bool> launchPostLink(Uri uri) async {
   }
 }
 
+/// Lines of post text a list card shows before "Show more" (the post
+/// detail view shows all of it).
+const kPostTextClampLines = 6;
+
 /// One post in any list (Home, profile tabs, detail): author row, relative
 /// time, rich text and an overflow menu (T15, ADR-0010 D7).
 ///
@@ -323,6 +327,7 @@ class PostCard extends StatelessWidget {
               // An image-only post has empty text: no empty line above the images.
               if (text.isNotEmpty)
                 PostRichText(
+                  maxLines: showFullImages ? null : kPostTextClampLines,
                   text: text,
                   mentions: mentions,
                   style: theme.textTheme.bodyLarge,
@@ -603,7 +608,12 @@ class PostRichText extends StatefulWidget {
     required this.onOpenMention,
     required this.onHashtagTap,
     this.style,
+    this.maxLines,
   });
+
+  /// Clamp the text to this many lines with a "Show more" control when it is
+  /// longer; null shows all of it (the post detail view).
+  final int? maxLines;
 
   final String text;
   final List<pb.Mention> mentions;
@@ -618,6 +628,7 @@ class PostRichText extends StatefulWidget {
 
 class _PostRichTextState extends State<PostRichText> {
   late List<PostSpan> _spans;
+  bool _expanded = false;
   final List<TapGestureRecognizer> _recognizers = [];
 
   @override
@@ -632,6 +643,7 @@ class _PostRichTextState extends State<PostRichText> {
     if (old.text != widget.text ||
         !_sameMentions(old.mentions, widget.mentions)) {
       _spans = parsePostText(widget.text, widget.mentions);
+      _expanded = false;
     }
   }
 
@@ -704,7 +716,55 @@ class _PostRichTextState extends State<PostRichText> {
         },
     ];
 
-    return Text.rich(TextSpan(style: widget.style, children: children));
+    final span = TextSpan(style: widget.style, children: children);
+    final limit = _expanded ? null : widget.maxLines;
+    if (limit == null) return Text.rich(span);
+
+    // Measure first: the control exists only when the text really overflows.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(
+            style: DefaultTextStyle.of(context).style.merge(widget.style),
+            children: children,
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: limit,
+        )..layout(maxWidth: constraints.maxWidth);
+        final overflows = painter.didExceedMaxLines;
+        painter.dispose();
+        if (!overflows) return Text.rich(span);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text.rich(span, maxLines: limit, overflow: TextOverflow.clip),
+            Semantics(
+              button: true,
+              label: 'Show more',
+              excludeSemantics: true,
+              onTap: () => setState(() => _expanded = true),
+              child: InkWell(
+                onTap: () => setState(() => _expanded = true),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minHeight: AppSpacing.minTapTarget,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: 1,
+                    child: Text(
+                      'Show more',
+                      style: tappableStyle.merge(widget.style),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
