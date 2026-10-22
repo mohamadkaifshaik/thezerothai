@@ -529,6 +529,39 @@ void main() {
     expect(width, AppBreakpoints.mobile);
   });
 
+  group('responsive matrix (W1-9)', () {
+    for (final entry in {
+      'dark': appDarkTheme,
+      'light': appLightTheme,
+    }.entries) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${entry.key} ${width.toInt()}dp x$scale: header, tab, row and '
+            'posts do not overflow; feed <= 600dp',
+            (tester) async {
+              tester.view.physicalSize = Size(width, 1600);
+              tester.view.devicePixelRatio = 1;
+              addTearDown(tester.view.reset);
+              stubCached(snapshotOf([3, 2, 1]));
+              stubRefresh(snapshotOf([3, 2, 1]));
+
+              await open(tester, theme: entry.value, textScale: scale);
+
+              expect(tester.takeException(), isNull);
+              expect(find.text('Following'), findsOneWidget);
+              expect(find.text('post 3'), findsOneWidget);
+              expect(
+                tester.getSize(find.byType(PostCard).first).width,
+                lessThanOrEqualTo(AppBreakpoints.mobile),
+              );
+            },
+          );
+        }
+      }
+    }
+  });
+
   group('composer entry row', () {
     const rowLabel = 'Write a post';
 

@@ -95,12 +95,19 @@ void main() {
     when(() => timeline.refresh(key)).thenAnswer((_) async => snapshot);
   }
 
-  Future<void> open(WidgetTester tester, {ThemeData? theme}) async {
+  Future<void> open(
+    WidgetTester tester, {
+    ThemeData? theme,
+    double textScale = 1,
+    bool keepSize = false,
+  }) async {
     // The 3:1 banner and the taller header (W1-3) need a taller screen to
     // build the first posts of the lazy list.
-    tester.view.physicalSize = const Size(800, 1600);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    if (!keepSize) {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
     await tester.pumpWidget(
       MultiRepositoryProvider(
         providers: [
@@ -118,6 +125,11 @@ void main() {
           ],
           child: MaterialApp(
             theme: theme ?? appLightTheme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
             home: const ProfileScreen(handle: 'kaif'),
           ),
         ),
@@ -212,6 +224,38 @@ void main() {
     expect(posts.center.dx, closeTo(bar.left + bar.width / 4, 1));
     expect(replies.center.dx, closeTo(bar.left + bar.width * 3 / 4, 1));
   });
+
+  for (final entry in {'dark': appDarkTheme, 'light': appLightTheme}.entries) {
+    for (final width in const [360.0, 600.0, 1200.0]) {
+      for (final scale in const [1.0, 1.3, 2.0]) {
+        testWidgets(
+          'responsive matrix (W1-9): ${entry.key} ${width.toInt()}dp x$scale '
+          'header, tabs and posts do not overflow',
+          (tester) async {
+            arrange(
+              profileUserId: 'viewer-uid',
+              features: {'posts', 'replies'},
+            );
+            stubFeed(ownFeed, snapshotOf([2, 1], authorId: 'viewer-uid'));
+            tester.view.physicalSize = Size(width, 2400);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.reset);
+
+            await open(
+              tester,
+              theme: entry.value,
+              textScale: scale,
+              keepSize: true,
+            );
+
+            expect(tester.takeException(), isNull);
+            expect(find.text('Replies'), findsOneWidget);
+            expect(find.text('post 2'), findsOneWidget);
+          },
+        );
+      }
+    }
+  }
 
   testWidgets('own empty Posts tab offers a Write a post action', (
     tester,

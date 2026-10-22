@@ -498,6 +498,34 @@ void main() {
     });
   });
 
+  group('responsive matrix (W1-9)', () {
+    for (final brightness in Brightness.values) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${brightness.name} ${width.toInt()}dp x$scale: no overflow, '
+            'column <= 600dp',
+            (tester) async {
+              await open(
+                tester,
+                flags: {'profile_snapshot', 'graph', 'account_lifecycle'},
+                brightness: brightness,
+                size: Size(width, 1600),
+                textScale: scale,
+              );
+
+              expect(tester.takeException(), isNull);
+              expect(
+                tester.getSize(find.byType(ListView)).width,
+                lessThanOrEqualTo(AppBreakpoints.mobile),
+              );
+            },
+          );
+        }
+      }
+    }
+  });
+
   group('themes and widths', () {
     for (final brightness in Brightness.values) {
       for (final size in const [Size(390, 844), Size(1440, 900)]) {
