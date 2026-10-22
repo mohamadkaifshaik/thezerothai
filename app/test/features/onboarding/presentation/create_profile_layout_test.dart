@@ -12,7 +12,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/create_profile_screen.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,8 +101,8 @@ void main() {
     }
   }
 
-  AppGradientButton continueButton(WidgetTester tester) =>
-      tester.widget(find.widgetWithText(AppGradientButton, 'Continue'));
+  AppPillButton continueButton(WidgetTester tester) =>
+      tester.widget(find.widgetWithText(AppPillButton, 'Continue'));
 
   const empty = OnboardingState(status: OnboardingStatus.profileRequired);
   const ready = OnboardingState(
@@ -158,7 +158,7 @@ void main() {
     ) async {
       await open(tester, ready, size: const Size(1440, 900));
       expect(
-        tester.getSize(find.byType(AppGradientButton)).width,
+        tester.getSize(find.byType(AppPillButton)).width,
         lessThanOrEqualTo(440),
       );
     });
@@ -232,7 +232,7 @@ void main() {
       await open(tester, ready);
       expect(continueButton(tester).onPressed, isNotNull);
       expect(find.text('kaif is available.'), findsOneWidget);
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Continue'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Continue'));
       verify(() => bloc.add(any(that: isA<OnboardingProfileSubmitted>())))
           .called(1);
 
@@ -263,7 +263,7 @@ void main() {
       await open(tester, ready.copyWith(isSubmitting: true));
       expect(continueButton(tester).busy, isTrue);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       verifyNever(() => bloc.add(any(that: isA<OnboardingProfileSubmitted>())));
     });
 
@@ -306,7 +306,7 @@ void main() {
       final handle = tester.ensureSemantics();
       await open(tester, empty);
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Continue', isButton: true, isEnabled: false),
       );
       expect(

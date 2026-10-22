@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/app_avatar.dart';
-import '../../../../shared/widgets/app_gradient_button.dart';
+import '../../../../shared/widgets/app_pill_button.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 
 /// The entry row under the Home app bar: the viewer's avatar, a "Write a
@@ -78,8 +78,9 @@ class HomeComposerEntry extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            AppGradientButton(
+            AppPillButton(
               label: postLabel,
+              compact: true,
               onPressed: () => _openComposer(context),
             ),
           ],

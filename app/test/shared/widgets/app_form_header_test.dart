@@ -1,6 +1,6 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/app_form_header.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/app_main_column.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,7 +42,7 @@ void main() {
       );
       expect(find.text('Edit profile'), findsOneWidget);
       await tester.tap(find.text('Cancel'));
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       expect((cancelled, acted), (1, 1));
     });
 
@@ -52,7 +52,7 @@ void main() {
       await tester.pumpWidget(
         _host(AppFormHeader(title: 'Change handle', onCancel: () {})),
       );
-      expect(find.byType(AppGradientButton), findsNothing);
+      expect(find.byType(AppPillButton), findsNothing);
       expect(find.text('Cancel'), findsOneWidget);
     });
 
@@ -61,9 +61,7 @@ void main() {
         _host(AppFormHeader(title: 'T', onCancel: () {}, actionLabel: 'Save')),
       );
       expect(
-        tester
-            .widget<AppGradientButton>(find.byType(AppGradientButton))
-            .onPressed,
+        tester.widget<AppPillButton>(find.byType(AppPillButton)).onPressed,
         isNull,
       );
     });
@@ -87,7 +85,7 @@ void main() {
         isNull,
       );
       expect(
-        tester.widget<AppGradientButton>(find.byType(AppGradientButton)).busy,
+        tester.widget<AppPillButton>(find.byType(AppPillButton)).busy,
         isTrue,
       );
       expect(find.bySemanticsLabel('Saving'), findsOneWidget);

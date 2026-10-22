@@ -6,7 +6,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/app_surface.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -121,7 +121,7 @@ void main() {
 
               expect(find.text(screen.heading), findsOneWidget);
               expect(
-                find.widgetWithText(AppGradientButton, screen.submit),
+                find.widgetWithText(AppPillButton, screen.submit),
                 findsOneWidget,
               );
               expect(find.text('Privacy Policy'), findsOneWidget);
@@ -141,7 +141,7 @@ void main() {
       testWidgets('the primary action fills the form width', (tester) async {
         await open(tester, screen.screen);
 
-        final button = tester.getSize(find.byType(AppGradientButton)).width;
+        final button = tester.getSize(find.byType(AppPillButton)).width;
         final field = tester
             .getSize(find.widgetWithText(TextFormField, 'Email'))
             .width;
@@ -154,7 +154,7 @@ void main() {
         await open(tester, screen.screen);
 
         await fillForm(tester, confirm: isSignUp);
-        await tester.tap(find.byType(AppGradientButton));
+        await tester.tap(find.byType(AppPillButton));
         await tester.pump();
 
         final event =
@@ -194,10 +194,10 @@ void main() {
 
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
         expect(
-          find.widgetWithText(AppGradientButton, screen.submit),
+          find.widgetWithText(AppPillButton, screen.submit),
           findsOneWidget,
         );
-        await tester.tap(find.byType(AppGradientButton));
+        await tester.tap(find.byType(AppPillButton));
         await tester.pump();
         verifyNever(() => bloc.add(any()));
         expect(
@@ -234,7 +234,7 @@ void main() {
 
         expect(find.bySemanticsLabel(screen.submit), findsOneWidget);
         expect(
-          tester.getSemantics(find.byType(AppGradientButton)),
+          tester.getSemantics(find.byType(AppPillButton)),
           matchesSemantics(
             label: screen.submit,
             isButton: true,
@@ -257,7 +257,7 @@ void main() {
           matchesSemantics(label: screen.heading, isHeader: true),
         );
         expect(
-          tester.getSize(find.byType(AppGradientButton)).height,
+          tester.getSize(find.byType(AppPillButton)).height,
           greaterThanOrEqualTo(AppSpacing.minTapTarget),
         );
         handle.dispose();
@@ -279,11 +279,11 @@ void main() {
             addTearDown(tester.view.resetViewInsets);
             await tester.pumpAndSettle();
 
-            await tester.ensureVisible(find.byType(AppGradientButton));
+            await tester.ensureVisible(find.byType(AppPillButton));
             await tester.pumpAndSettle();
 
             expect(tester.takeException(), isNull);
-            final rect = tester.getRect(find.byType(AppGradientButton));
+            final rect = tester.getRect(find.byType(AppPillButton));
             expect(rect.bottom, lessThanOrEqualTo(640 - 300));
             expect(rect.top, greaterThanOrEqualTo(0));
           },

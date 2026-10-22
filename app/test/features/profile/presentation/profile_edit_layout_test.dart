@@ -13,7 +13,7 @@ import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
 import 'package:dzeroth/features/profile/presentation/edit_profile_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,8 +113,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  AppGradientButton gradient(WidgetTester tester) =>
-      tester.widget(find.byType(AppGradientButton));
+  AppPillButton gradient(WidgetTester tester) =>
+      tester.widget(find.byType(AppPillButton));
 
   TextButton cancel(WidgetTester tester) =>
       tester.widget(find.widgetWithText(TextButton, 'Cancel'));
@@ -179,7 +179,7 @@ void main() {
         greaterThanOrEqualTo(gutter),
       );
       expect(
-        tester.getTopRight(find.byType(AppGradientButton)).dx,
+        tester.getTopRight(find.byType(AppPillButton)).dx,
         lessThanOrEqualTo(1440 - gutter),
       );
       expect(
@@ -245,7 +245,7 @@ void main() {
       await open(tester, '/settings/profile');
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       await tester.pump();
 
       expect(gradient(tester).busy, isTrue);
@@ -271,7 +271,7 @@ void main() {
       await open(tester, '/settings/profile');
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       await tester.pumpAndSettle();
 
       expect(find.byType(SnackBar), findsOneWidget);
@@ -299,7 +299,7 @@ void main() {
         isSemantics(label: 'Cancel', isButton: true, isEnabled: true),
       );
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Save', isButton: true, isEnabled: false),
       );
       expect(
@@ -331,12 +331,12 @@ void main() {
               expect(find.text('New handle'), findsOneWidget);
               // At large text the action sits below the fold of the list.
               await tester.scrollUntilVisible(
-                find.widgetWithText(AppGradientButton, 'Change handle'),
+                find.widgetWithText(AppPillButton, 'Change handle'),
                 100,
                 scrollable: find.byType(Scrollable).first,
               );
               expect(
-                find.widgetWithText(AppGradientButton, 'Change handle'),
+                find.widgetWithText(AppPillButton, 'Change handle'),
                 findsOneWidget,
               );
               expect(tester.takeException(), isNull);
@@ -354,7 +354,7 @@ void main() {
         greaterThanOrEqualTo(gutter),
       );
       expect(
-        tester.getSize(find.byType(AppGradientButton)).width,
+        tester.getSize(find.byType(AppPillButton)).width,
         lessThanOrEqualTo(AppLayout.mainColumnMaxWidth),
       );
     });
@@ -416,7 +416,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'new_one');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
       // Let the confirmation close; the spinner never settles, so frames
@@ -451,7 +451,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'new_one');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
       await tester.pumpAndSettle();

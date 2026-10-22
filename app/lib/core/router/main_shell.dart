@@ -7,23 +7,36 @@ import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
+import '../feature_flags/ui_shell_feature_flag.dart';
+import '../widgets/app_account_chip.dart';
+import '../widgets/app_drawer.dart';
+import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
-import '../widgets/responsive_scaffold.dart';
 
-/// The bottom-nav/rail chrome around the three authenticated top-level
-/// destinations: Home, (own) Profile, Settings. Wired as a `ShellRoute`
-/// builder in [AppRouter] so it persists navigation state across pushes.
+/// The navigation chrome around the authenticated top-level destinations.
+///
+/// With the `ui_shell` flag on (decision D3): Home, Notifications (flag) and
+/// the own Profile in the bottom bar / rail; Settings and Sign out live in the
+/// avatar drawer (phones) and the account chip menu (wide screens), like X.
+/// With it off: the legacy chrome, Settings as a fourth destination, no
+/// drawer, no account chip, and the compose button wherever posting is
+/// offered. The flag gates the navigation structure only, not the colours.
+/// Wired as a `ShellRoute` builder in
+/// [AppRouter] so it persists navigation state across pushes.
 class MainShell extends StatelessWidget {
   const MainShell({super.key, required this.location, required this.child});
 
   final String location;
   final Widget child;
 
-  /// The top-level destinations, in order. Notifications sits second and
-  /// exists only with the `notifications` flag on (P6).
-  static List<_Destination> _destinationsFor({required bool notifications}) => [
+  /// The destinations, in order. Notifications sits second and exists only
+  /// with the `notifications` flag on (P6).
+  static List<_Destination> _destinationsFor({
+    required bool notifications,
+    required bool settings,
+  }) => [
     const _Destination(
       _Tab.home,
       AppNavDestination(
@@ -49,22 +62,27 @@ class MainShell extends StatelessWidget {
         label: 'Profile',
       ),
     ),
-    const _Destination(
-      _Tab.settings,
-      AppNavDestination(
-        icon: Icons.settings_outlined,
-        selectedIcon: Icons.settings,
-        label: 'Settings',
+    if (settings)
+      const _Destination(
+        _Tab.settings,
+        AppNavDestination(
+          icon: Icons.settings_outlined,
+          selectedIcon: Icons.settings,
+          label: 'Settings',
+        ),
       ),
-    ),
   ];
 
-  _Tab get _selectedTab {
+  /// The selected tab, or null on screens that belong to no tab (Settings in
+  /// the new shell, where it is not a destination).
+  _Tab? _selectedTab({required bool settingsTab}) {
     if (location.startsWith('/notifications')) return _Tab.notifications;
     if (location.startsWith('/profile') || location.startsWith('/u/')) {
       return _Tab.profile;
     }
-    if (location.startsWith('/settings')) return _Tab.settings;
+    if (location.startsWith('/settings')) {
+      return settingsTab ? _Tab.settings : null;
+    }
     return _Tab.home;
   }
 
@@ -76,6 +94,8 @@ class MainShell extends StatelessWidget {
     final ownHandle = ownProfile?.handle;
 
     final canCompose = canComposeAt(context, location);
+    final newShell = isFeatureEnabled(context, kFeatureUiShell);
+    final showFab = newShell ? showComposeFabAt(context, location) : canCompose;
 
     final notificationsEnabled = isFeatureEnabled(
       context,
@@ -85,8 +105,14 @@ class MainShell extends StatelessWidget {
     final unread = notificationsEnabled
         ? context.select((UnreadBadgeCubit cubit) => cubit.state)
         : 0;
-    final tabs = _destinationsFor(notifications: notificationsEnabled);
-    final selectedIndex = tabs.indexWhere((t) => t.tab == _selectedTab);
+    final tabs = _destinationsFor(
+      notifications: notificationsEnabled,
+      settings: !newShell,
+    );
+    final selected = _selectedTab(settingsTab: !newShell);
+    final selectedIndex = selected == null
+        ? null
+        : tabs.indexWhere((t) => t.tab == selected);
     final destinations = [
       for (final t in tabs)
         if (t.tab == _Tab.notifications && unread > 0)
@@ -103,17 +129,15 @@ class MainShell extends StatelessWidget {
 
     void openCompose() => context.push(AppRouter.composePath);
     return ResponsiveScaffold(
-      selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
-      // Phone: the floating button. Tablet and desktop: the rail's own entry
-      // (icon, or the "Post" button when extended). All gated by canComposeAt.
-      floatingActionButton: canCompose
-          ? FloatingActionButton(
-              tooltip: 'New post',
-              onPressed: openCompose,
-              child: const Icon(Icons.edit_outlined),
-            )
-          : null,
+      selectedIndex: selectedIndex == null || selectedIndex < 0
+          ? null
+          : selectedIndex,
       onCompose: canCompose ? openCompose : null,
+      showFab: showFab,
+      drawer: newShell ? const AppDrawer() : null,
+      accountChipBuilder: newShell
+          ? (extended) => AppAccountChip(extended: extended)
+          : null,
       sideColumn: AppSideColumn(
         // Only what is already loaded: no profile, no card (nothing is fetched).
         profile: ownHandle == null || ownHandle.isEmpty
@@ -144,14 +168,14 @@ class MainShell extends StatelessWidget {
             context.go('/home');
           case _Tab.notifications:
             context.go(AppRouter.notificationsPath);
+          case _Tab.settings:
+            context.go(AppRouter.settingsPath);
           case _Tab.profile:
             context.go(
               ownHandle == null || ownHandle.isEmpty
                   ? '/home'
                   : '/profile/$ownHandle',
             );
-          case _Tab.settings:
-            context.go('/settings');
         }
       },
       body: child,

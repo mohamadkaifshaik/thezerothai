@@ -668,11 +668,13 @@ class _PostRichTextState extends State<PostRichText> {
   @override
   Widget build(BuildContext context) {
     _disposeRecognizers();
-    final colors = Theme.of(context).colorScheme;
-    final tappableStyle = TextStyle(color: colors.primary);
+    // Mentions, hashtags and links are small accent text: the contrast-safe
+    // accent text colour (darker blue on light), not the fill accent.
+    final accentText = context.appColors.accentText;
+    final tappableStyle = TextStyle(color: accentText);
     final linkStyle = tappableStyle.copyWith(
       decoration: TextDecoration.underline,
-      decorationColor: colors.primary,
+      decorationColor: accentText,
     );
 
     final children = <InlineSpan>[

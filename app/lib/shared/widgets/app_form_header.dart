@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-import 'app_gradient_button.dart';
+import 'app_pill_button.dart';
 
 /// Share of the header row one of its buttons (Cancel, the action) may take.
 const double _kHeaderButtonShare = 0.4;
@@ -74,7 +74,7 @@ class AppFormHeader extends StatelessWidget {
                   if (action != null)
                     ConstrainedBox(
                       constraints: cap,
-                      child: AppGradientButton(
+                      child: AppPillButton(
                         label: action,
                         busy: busy,
                         busySemanticsLabel: busySemanticsLabel,

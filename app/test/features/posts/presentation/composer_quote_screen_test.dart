@@ -5,7 +5,7 @@ import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/quote_ui.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -175,7 +175,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'my take');
     await tester.pump();
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
     verify(
@@ -200,7 +200,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'my take');
     await tester.pump();
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(
@@ -220,8 +220,8 @@ void main() {
     expect(find.text('-1'), findsOneWidget);
     expect(
       tester
-          .widget<AppGradientButton>(
-            find.widgetWithText(AppGradientButton, 'Post'),
+          .widget<AppPillButton>(
+            find.widgetWithText(AppPillButton, 'Post'),
           )
           .onPressed,
       isNull,

@@ -307,6 +307,12 @@ type Config struct {
 	// default off in every environment. Existing quote posts keep displaying regardless.
 	FeatureQuotes flags.Spec
 
+	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
+	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
+	// navigation. No RPC is gated by it, it only reaches clients through GetMe.enabled_features. FEATURE_UI_SHELL
+	// [_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureUIShell flags.Spec
+
 	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
 	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
 	// off in every environment: off means no log reads and no suspension-reset cost (docs/runbooks/moderation.md 3b).
@@ -795,6 +801,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -867,6 +877,7 @@ func Load() (Config, error) {
 		FeatureReports:            featureReports,
 		FeatureEngagement:         featureEngagement,
 		FeatureQuotes:             featureQuotes,
+		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,

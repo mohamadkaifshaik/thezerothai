@@ -169,6 +169,20 @@ class NotificationStateEntries extends Table {
   Set<Column> get primaryKey => {stateKey};
 }
 
+/// A device-level setting (key -> value text), e.g. the appearance choice.
+///
+/// Unlike every other table this one is **not** wiped on sign-out
+/// ([AppDatabase.clearAll]): it describes the device, not the account, and
+/// holds no personal data (CLAUDE.md rule 10 is about user data).
+@DataClassName('DeviceSetting')
+class AppSettingEntries extends Table {
+  TextColumn get settingKey => text()();
+  TextColumn get settingValue => text()();
+
+  @override
+  Set<Column> get primaryKey => {settingKey};
+}
+
 @DriftDatabase(
   tables: [
     ProfileCacheEntries,
@@ -178,6 +192,7 @@ class NotificationStateEntries extends Table {
     AccountExportEntries,
     NotificationEntries,
     NotificationStateEntries,
+    AppSettingEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -191,7 +206,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -214,6 +229,10 @@ class AppDatabase extends _$AppDatabase {
       if (from < 5) {
         await m.createTable(notificationEntries);
         await m.createTable(notificationStateEntries);
+      }
+      // v5 -> v6 (UI wave W0-8): device-level settings (appearance).
+      if (from < 6) {
+        await m.createTable(appSettingEntries);
       }
     },
   );
@@ -320,9 +339,25 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  /// The device setting [key], or null when it was never set.
+  Future<String?> readSetting(String key) async {
+    final row = await (select(
+      appSettingEntries,
+    )..where((t) => t.settingKey.equals(key))).getSingleOrNull();
+    return row?.settingValue;
+  }
+
+  /// Sets the device setting [key]. Unguarded on purpose: it is not account
+  /// data, so a sign-out in between cannot leak anything.
+  Future<void> writeSetting(String key, String value) {
+    return into(appSettingEntries).insertOnConflictUpdate(
+      AppSettingEntriesCompanion.insert(settingKey: key, settingValue: value),
+    );
+  }
+
   /// Wipes all cached data. Called on sign-out so the next user on a shared
   /// device never sees a stale profile or follow list (privacy: CLAUDE.md
-  /// rule 10).
+  /// rule 10). Device settings ([AppSettingEntries]) are kept on purpose.
   Future<void> clearAll() async {
     await transaction(() async {
       await delete(profileCacheEntries).go();

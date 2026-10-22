@@ -4,7 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -122,8 +122,8 @@ void main() {
       ).thenAnswer((_) => answer());
     }
 
-    AppGradientButton save(WidgetTester tester) =>
-        tester.widget(find.widgetWithText(AppGradientButton, 'Save'));
+    AppPillButton save(WidgetTester tester) =>
+        tester.widget(find.widgetWithText(AppPillButton, 'Save'));
 
     testWidgets('shows the current values with Save disabled', (tester) async {
       await open(tester, '/settings/profile');
@@ -146,7 +146,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
       expect(save(tester).onPressed, isNotNull);
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       await tester.pump();
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
@@ -183,7 +183,7 @@ void main() {
       await open(tester, '/settings/profile');
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       await tester.pump();
 
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
@@ -239,7 +239,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(
@@ -266,7 +266,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('or try again in 6 hours.'), findsOneWidget);
@@ -297,7 +297,7 @@ void main() {
           'Kaif S',
         );
         await tester.pump();
-        await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+        await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
         await tester.pumpAndSettle();
 
         expect(reported.single, isA<StateError>());
@@ -317,7 +317,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       await tester.pump();
 
       expect(find.bySemanticsLabel('Saving'), findsOneWidget);
@@ -351,7 +351,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(
@@ -411,8 +411,8 @@ void main() {
       );
     }
 
-    AppGradientButton change(WidgetTester tester) => tester.widget(
-      find.widgetWithText(AppGradientButton, 'Change handle').first,
+    AppPillButton change(WidgetTester tester) => tester.widget(
+      find.widgetWithText(AppPillButton, 'Change handle').first,
     );
 
     Future<void> type(WidgetTester tester, String value) async {
@@ -446,7 +446,7 @@ void main() {
       expect(find.bySemanticsLabel('Handle is available'), findsOneWidget);
       expect(change(tester).onPressed, isNotNull);
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Change handle'));
       await tester.pumpAndSettle();
       expect(find.text('Change your handle to @new_one?'), findsOneWidget);
       expect(
@@ -482,7 +482,7 @@ void main() {
       ).thenAnswer((_) => done.future);
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pump();
@@ -505,7 +505,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
       await tester.pumpAndSettle();
@@ -561,7 +561,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pumpAndSettle();
@@ -595,7 +595,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pumpAndSettle();
@@ -648,7 +648,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pumpAndSettle();

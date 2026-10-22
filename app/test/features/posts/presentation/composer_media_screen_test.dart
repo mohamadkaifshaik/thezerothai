@@ -4,7 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -137,9 +137,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  AppGradientButton postButton(WidgetTester tester) =>
-      tester.widget<AppGradientButton>(
-        find.widgetWithText(AppGradientButton, 'Post'),
+  AppPillButton postButton(WidgetTester tester) =>
+      tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Post'),
       );
 
   Future<void> addPhotos(WidgetTester tester, List<String> tags) async {
@@ -202,7 +202,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'two cats');
     await tester.pump();
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
     verify(
@@ -225,7 +225,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pump();
     await tester.pump();
 
@@ -252,7 +252,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pump();
     await tester.pump();
 
@@ -307,7 +307,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.text('Not allowed'), findsOneWidget);
@@ -339,14 +339,14 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('photos were not sent'), findsOneWidget);
     expect(postButton(tester).onPressed, isNotNull);
 
     fail = false;
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
     expect(find.text('home page'), findsOneWidget);
   });
@@ -365,7 +365,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Photo uploads are paused'), findsOneWidget);

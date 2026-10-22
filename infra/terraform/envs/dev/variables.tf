@@ -359,6 +359,34 @@ variable "feature_quotes_percent" {
   }
 }
 
+variable "feature_ui_shell" {
+  description = "FEATURE_UI_SHELL rollout mode for the new app shell (client-only; bottom bar + avatar drawer, account chip, rail): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_ui_shell)
+    error_message = "feature_ui_shell must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_ui_shell_allowlist" {
+  description = "FEATURE_UI_SHELL_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_ui_shell_percent" {
+  description = "FEATURE_UI_SHELL_PERCENT: 0-100, only meaningful when feature_ui_shell = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_ui_shell_percent >= 0 && var.feature_ui_shell_percent <= 100 && floor(var.feature_ui_shell_percent) == var.feature_ui_shell_percent
+    error_message = "feature_ui_shell_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_replies" {
   description = "FEATURE_REPLIES rollout mode for replies and GetThread (P3): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

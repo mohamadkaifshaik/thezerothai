@@ -13,7 +13,7 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_empty_view.dart';
-import '../../../shared/widgets/app_gradient_button.dart';
+import '../../../shared/widgets/app_pill_button.dart';
 import '../../../shared/widgets/app_section_header.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/blocked_post_gate.dart';
@@ -617,7 +617,7 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
-                    AppGradientButton(
+                    AppPillButton(
                       label: 'Reply',
                       busy: state.isSubmitting,
                       busySemanticsLabel: 'Sending reply',

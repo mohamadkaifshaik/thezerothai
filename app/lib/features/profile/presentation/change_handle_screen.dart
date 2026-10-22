@@ -8,7 +8,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/format/coarse_wait.dart';
 import '../../../shared/widgets/app_form_header.dart';
-import '../../../shared/widgets/app_gradient_button.dart';
+import '../../../shared/widgets/app_pill_button.dart';
 import '../../../shared/widgets/app_main_column.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/domain/handle_rules.dart';
@@ -190,7 +190,7 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
                             },
                           ),
                           const SizedBox(height: AppSpacing.lg),
-                          AppGradientButton(
+                          AppPillButton(
                             label: 'Change handle',
                             busy: state.isSaving,
                             busySemanticsLabel: 'Saving',

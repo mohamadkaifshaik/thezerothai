@@ -15,7 +15,7 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/features/posts/presentation/composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -126,8 +126,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  AppGradientButton post(WidgetTester tester) =>
-      tester.widget(find.widgetWithText(AppGradientButton, 'Post'));
+  AppPillButton post(WidgetTester tester) =>
+      tester.widget(find.widgetWithText(AppPillButton, 'Post'));
 
   TextButton cancel(WidgetTester tester) =>
       tester.widget(find.widgetWithText(TextButton, 'Cancel'));
@@ -157,7 +157,7 @@ void main() {
                 find.widgetWithText(TextButton, 'Cancel'),
               );
               expect(cancelSize.height, greaterThanOrEqualTo(48));
-              final postSize = tester.getSize(find.byType(AppGradientButton));
+              final postSize = tester.getSize(find.byType(AppPillButton));
               expect(postSize.height, greaterThanOrEqualTo(48));
             },
           );
@@ -170,7 +170,7 @@ void main() {
     ) async {
       await open(tester, size: const Size(320, 640), textScale: 2);
       expect(tester.takeException(), isNull);
-      expect(find.byType(AppGradientButton), findsOneWidget);
+      expect(find.byType(AppPillButton), findsOneWidget);
     });
 
     testWidgets('wide screens keep the composer in the main column', (
@@ -184,7 +184,7 @@ void main() {
         greaterThanOrEqualTo(gutter),
       );
       expect(
-        tester.getTopRight(find.byType(AppGradientButton)).dx,
+        tester.getTopRight(find.byType(AppPillButton)).dx,
         lessThanOrEqualTo(1440 - gutter),
       );
       expect(
@@ -197,7 +197,7 @@ void main() {
       await open(tester);
       expect(tester.getTopLeft(find.text('Cancel')).dx, lessThan(32));
       expect(
-        tester.getTopRight(find.byType(AppGradientButton)).dx,
+        tester.getTopRight(find.byType(AppPillButton)).dx,
         greaterThan(390 - 32),
       );
     });
@@ -290,7 +290,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'hello');
       await tester.pump();
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
       await tester.pump();
 
       expect(post(tester).busy, isTrue);
@@ -301,7 +301,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // A second tap while sending sends nothing.
-      await tester.tap(find.byType(AppGradientButton), warnIfMissed: false);
+      await tester.tap(find.byType(AppPillButton), warnIfMissed: false);
       await tester.pump();
       verify(
         () => repo.createPost(
@@ -324,7 +324,7 @@ void main() {
       await open(tester);
       await tester.enterText(find.byType(TextField), 'hello');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining("reached today's limit"), findsOneWidget);
@@ -356,7 +356,7 @@ void main() {
         isSemantics(label: 'Cancel', isButton: true, isEnabled: true),
       );
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Post', isButton: true, isEnabled: true),
       );
       expect(find.bySemanticsLabel('Post'), findsOneWidget);
@@ -373,7 +373,7 @@ void main() {
       final handle = tester.ensureSemantics();
       await open(tester);
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Post', isButton: true, isEnabled: false),
       );
       handle.dispose();

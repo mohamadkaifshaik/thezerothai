@@ -4,7 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
@@ -125,9 +125,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  AppGradientButton saveButton(WidgetTester tester) =>
-      tester.widget<AppGradientButton>(
-        find.widgetWithText(AppGradientButton, 'Save'),
+  AppPillButton saveButton(WidgetTester tester) =>
+      tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Save'),
       );
 
   testWidgets('media off: the avatar is read-only', (tester) async {
@@ -154,7 +154,7 @@ void main() {
       isA<ResizeImage>(),
     );
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
     await tester.pumpAndSettle();
 
     verify(
@@ -177,7 +177,7 @@ void main() {
     await tester.tap(find.byType(AvatarEditor));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
     await tester.pumpAndSettle();
 
     expect(find.text('Not allowed'), findsOneWidget);
@@ -210,7 +210,7 @@ void main() {
     await tester.tap(find.byType(AvatarEditor));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
     await tester.pumpAndSettle();
 
     expect(find.text(kAvatarGoneMessage), findsOneWidget);
@@ -229,7 +229,7 @@ void main() {
     await tester.tap(find.byType(AvatarEditor));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining("limit for photo uploads"), findsOneWidget);

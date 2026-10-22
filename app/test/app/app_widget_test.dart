@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/app/app_widget.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -26,6 +27,7 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -267,5 +269,60 @@ void main() {
     await tester.pump();
 
     expect(badge.state, 0);
+  });
+
+  group('appearance (W0-8)', () {
+    ThemeMode themeMode(WidgetTester tester) =>
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode!;
+
+    // The drift read completes on the real event loop, not in fake async.
+    Future<void> settle(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('follows the system theme by default', (tester) async {
+      await pump(tester, onboarding: ready());
+      await settle(tester);
+
+      expect(themeMode(tester), ThemeMode.system);
+    });
+
+    testWidgets('applies the choice saved on the device at start', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () => database.writeSetting(DatabaseThemeModeStore.key, 'dark'),
+      );
+      await pump(tester, onboarding: ready());
+      await settle(tester);
+
+      expect(themeMode(tester), ThemeMode.dark);
+    });
+
+    testWidgets('choosing a mode switches the whole app at once', (
+      tester,
+    ) async {
+      await pump(tester, onboarding: ready());
+      await settle(tester);
+      final cubit = BlocProvider.of<ThemeModeCubit>(
+        tester.element(find.byType(MaterialApp)),
+      );
+
+      await cubit.select(ThemeMode.light);
+      await tester.pump();
+
+      expect(themeMode(tester), ThemeMode.light);
+    });
+
+    testWidgets('the app theme is X light / X dark', (tester) async {
+      await pump(tester, onboarding: ready());
+      final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+
+      expect(app.theme!.colorScheme.surface, const Color(0xFFFFFFFF));
+      expect(app.darkTheme!.colorScheme.surface, const Color(0xFF000000));
+    });
   });
 }

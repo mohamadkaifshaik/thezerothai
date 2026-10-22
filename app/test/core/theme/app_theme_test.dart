@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,13 +6,22 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dzeroth/core/theme/app_theme.dart';
 
-double _luminance(Color c) => c.computeLuminance();
-
 double _contrast(Color a, Color b) {
-  final l1 = _luminance(a);
-  final l2 = _luminance(b);
+  final l1 = a.computeLuminance();
+  final l2 = b.computeLuminance();
   return (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05);
 }
+
+/// Source files under `lib/` that must obey the colour rules (everything
+/// except generated code and the theme file itself).
+Iterable<File> _appSources() => Directory('lib')
+    .listSync(recursive: true)
+    .whereType<File>()
+    .where((f) => f.path.endsWith('.dart'))
+    .where((f) {
+      final p = f.path.replaceAll('\\', '/');
+      return !p.startsWith('lib/gen/') && p != 'lib/core/theme/app_theme.dart';
+    });
 
 void main() {
   for (final entry in {'light': appLightTheme, 'dark': appDarkTheme}.entries) {
@@ -28,10 +38,10 @@ void main() {
 
   for (final entry in {'light': appLightTheme, 'dark': appDarkTheme}.entries) {
     final name = entry.key;
-    final colors = entry.value.colorScheme;
-    final layers = {
-      'surface': colors.surface,
-      'surfaceContainerLowest': colors.surfaceContainerLowest,
+    final theme = entry.value;
+    final colors = theme.colorScheme;
+    final app = theme.extension<AppColors>()!;
+    final raised = {
       'surfaceContainerLow': colors.surfaceContainerLow,
       'surfaceContainer': colors.surfaceContainer,
       'surfaceContainerHigh': colors.surfaceContainerHigh,
@@ -40,7 +50,7 @@ void main() {
 
     group('$name palette', () {
       test('builds a Material 3 theme of the right brightness', () {
-        expect(entry.value.useMaterial3, isTrue);
+        expect(theme.useMaterial3, isTrue);
         expect(
           colors.brightness,
           name == 'dark' ? Brightness.dark : Brightness.light,
@@ -51,62 +61,94 @@ void main() {
         );
       });
 
-      test('onSurface and onSurfaceVariant are >= 4.5:1 on every surface', () {
-        for (final layer in layers.entries) {
+      test('onSurface is >= 4.5:1 on every surface step', () {
+        expect(_contrast(colors.onSurface, colors.surface), greaterThan(4.5));
+        for (final layer in raised.entries) {
           expect(
             _contrast(colors.onSurface, layer.value),
             greaterThanOrEqualTo(4.5),
             reason: 'onSurface on ${layer.key}',
           );
+        }
+      });
+
+      test('onSurfaceVariant is >= 4.5:1 on the page surface', () {
+        expect(
+          _contrast(colors.onSurfaceVariant, colors.surface),
+          greaterThanOrEqualTo(4.5),
+        );
+      });
+
+      test('secondary text on a raised surface uses secondaryOnRaised '
+          '(>= 4.5:1 on every step)', () {
+        for (final layer in raised.entries) {
           expect(
-            _contrast(colors.onSurfaceVariant, layer.value),
+            _contrast(app.secondaryOnRaised, layer.value),
             greaterThanOrEqualTo(4.5),
-            reason: 'onSurfaceVariant on ${layer.key}',
+            reason: 'secondaryOnRaised on ${layer.key}',
           );
         }
       });
 
-      test('onPrimary is >= 4.5:1 on primary, tertiary and the disabled '
-          'gradient fill', () {
+      test('accentText is >= 4.5:1 on the page surface', () {
         expect(
-          _contrast(colors.onPrimary, colors.primary),
-          greaterThanOrEqualTo(4.5),
-        );
-        expect(
-          _contrast(colors.onPrimary, colors.tertiary),
-          greaterThanOrEqualTo(4.5),
-        );
-        expect(
-          _contrast(colors.onPrimary, colors.onSurfaceVariant),
-          greaterThanOrEqualTo(4.5),
-        );
-        expect(
-          _contrast(colors.onTertiary, colors.tertiary),
+          _contrast(app.accentText, colors.surface),
           greaterThanOrEqualTo(4.5),
         );
       });
 
-      test('the border stays visible on the lowest raised surface', () {
+      test('the strong pill label is >= 4.5:1 on its fill', () {
         expect(
-          _contrast(colors.outlineVariant, colors.surfaceContainerLow),
-          greaterThanOrEqualTo(1.3),
+          _contrast(app.strongPillLabel, app.strongPillFill),
+          greaterThanOrEqualTo(4.5),
         );
       });
 
-      test('primary is >= 3:1 against the background (non-text UI)', () {
+      test('the accent fill is >= 3:1 against the page (non-text UI) and '
+          'the FAB glyph on it too', () {
+        // Dark 7.0:1; light 3.0:1 (X's own blue on white). Used for fills,
+        // indicators and icons; small text uses accentText instead.
         expect(
           _contrast(colors.primary, colors.surface),
           greaterThanOrEqualTo(3.0),
         );
+        expect(
+          _contrast(colors.onPrimary, colors.primary),
+          greaterThanOrEqualTo(3.0),
+        );
       });
 
-      test('the gradient stops differ (indigo to violet)', () {
-        expect(colors.tertiary, isNot(colors.primary));
+      test('the hairline stays visible and is not heavier than 3:1', () {
+        final ratio = _contrast(colors.outlineVariant, colors.surface);
+        expect(ratio, greaterThanOrEqualTo(1.1));
+        expect(ratio, lessThan(3.0));
+      });
+
+      test('there is no separate tertiary: no gradient any more', () {
+        expect(colors.tertiary, colors.primary);
+      });
+
+      test('the accent is X blue in both themes', () {
+        expect(colors.primary, const Color(0xFF1D9BF0));
+      });
+
+      test('semantic colours are the X state colours', () {
+        expect(app.like, const Color(0xFFF91880));
+        expect(app.repost, const Color(0xFF00BA7C));
+        expect(app.live, const Color(0xFFF91880));
+        expect(app.recommendation, const Color(0xFF794BC4));
+      });
+
+      test('modal barriers use the theme scrim', () {
+        expect(theme.dialogTheme.barrierColor, app.scrim);
+        expect(theme.bottomSheetTheme.modalBarrierColor, app.scrim);
+        expect(theme.drawerTheme.scrimColor, app.scrim);
+        expect(theme.drawerTheme.width, AppSize.drawerWidth);
       });
     });
   }
 
-  test('dark surfaces layer strictly lighter, never pure black', () {
+  test('dark surfaces layer strictly lighter, starting at pure black', () {
     final colors = appDarkTheme.colorScheme;
     final ladder = [
       colors.surface,
@@ -122,15 +164,111 @@ void main() {
         reason: 'layer $i is lighter than layer ${i - 1}',
       );
     }
-    expect(colors.surface, isNot(const Color(0xFF000000)));
+    expect(colors.surface, const Color(0xFF000000));
   });
 
-  test('dark palette tokens (founder decision 2026-10-21)', () {
+  test('dark palette tokens (founder decision 2026-10-22: X colours)', () {
     final colors = appDarkTheme.colorScheme;
-    expect(colors.surface, const Color(0xFF070A11));
-    expect(colors.onSurface, const Color(0xFFEDF3FF));
-    expect(colors.primary, const Color(0xFF6A91FF));
-    expect(colors.tertiary, const Color(0xFF9A7BFF));
-    expect(colors.outlineVariant, const Color(0xFF212A3A));
+    expect(colors.surface, const Color(0xFF000000));
+    expect(colors.onSurface, const Color(0xFFE7E9EA));
+    expect(colors.onSurfaceVariant, const Color(0xFF71767B));
+    expect(colors.outlineVariant, const Color(0xFF2F3336));
+    expect(colors.outline, const Color(0xFF333639));
+    expect(colors.primary, const Color(0xFF1D9BF0));
+    final app = appDarkTheme.extension<AppColors>()!;
+    expect(app.strongPillFill, const Color(0xFFEFF3F4));
+    expect(app.strongPillLabel, const Color(0xFF0F1419));
+    expect(app.scrim, const Color(0x665B7083));
+  });
+
+  test('light palette tokens (founder decision 2026-10-22: X colours)', () {
+    final colors = appLightTheme.colorScheme;
+    expect(colors.surface, const Color(0xFFFFFFFF));
+    expect(colors.onSurface, const Color(0xFF0F1419));
+    expect(colors.onSurfaceVariant, const Color(0xFF536471));
+    expect(colors.outlineVariant, const Color(0xFFEFF3F4));
+    expect(colors.outline, const Color(0xFFCFD9DE));
+    expect(colors.primary, const Color(0xFF1D9BF0));
+    final app = appLightTheme.extension<AppColors>()!;
+    expect(app.strongPillFill, const Color(0xFF0F1419));
+    expect(app.strongPillLabel, const Color(0xFFFFFFFF));
+    expect(app.accentText, const Color(0xFF1478BD));
+    expect(app.scrim, const Color(0x26000000));
+  });
+
+  test('the default FilledButton is the strong inverse pill', () {
+    for (final theme in [appLightTheme, appDarkTheme]) {
+      final app = theme.extension<AppColors>()!;
+      final style = theme.filledButtonTheme.style!;
+      expect(style.backgroundColor!.resolve({}), app.strongPillFill);
+      expect(style.foregroundColor!.resolve({}), app.strongPillLabel);
+      expect(
+        style.backgroundColor!.resolve({WidgetState.disabled}),
+        app.disabledPillFill,
+      );
+    }
+  });
+
+  test('the type scale (founder decision 2026-10-22)', () {
+    final text = appLightTheme.textTheme;
+    expect(text.bodyLarge!.fontSize, 15);
+    expect(text.bodyLarge!.height, closeTo(1.33, 0.001));
+    expect(text.titleSmall!.fontSize, 15);
+    expect(text.titleSmall!.fontWeight, FontWeight.w700);
+    expect(text.titleLarge!.fontSize, 20);
+    expect(text.titleLarge!.fontWeight, FontWeight.w700);
+    expect(text.headlineSmall!.fontSize, 22);
+  });
+
+  test('size tokens match the research values', () {
+    expect(AppSpacing.smd, 12);
+    expect(AppSize.tabIndicator, 4);
+    expect(AppSize.headerRow * 2, 106);
+    expect(AppSize.contentMax, 600);
+    expect(AppSize.sideColumn, 350);
+    expect(AppSize.drawerWidth, 277);
+    expect(AppSize.drawerRow, 56);
+    expect(AppSize.avatarMd, 40);
+    expect(AppSize.avatarSm, 32);
+    expect(AppIconSize.action, 16);
+    expect(AppBreakpoints.mobile, 600);
+    expect(AppBreakpoints.tablet, 1200);
+  });
+
+  group('colour rules hold across lib/ (decision 2026-10-22)', () {
+    test('no gradient, no seed colour and no tertiary slot in use', () {
+      final offenders = <String>[];
+      for (final file in _appSources()) {
+        final text = file.readAsStringSync();
+        for (final banned in [
+          'LinearGradient',
+          'RadialGradient',
+          'SweepGradient',
+          'fromSeed',
+          'colors.tertiary',
+          'colorScheme.tertiary',
+        ]) {
+          if (text.contains(banned)) offenders.add('${file.path}: $banned');
+        }
+      }
+      expect(offenders, isEmpty);
+    });
+
+    test('no raw colour literal outside app_theme.dart', () {
+      final literal = RegExp(r'Color\(\s*0x');
+      final named = RegExp(r'(?<![A-Za-z])Colors\.(?!transparent\b)\w+');
+      final offenders = <String>[];
+      for (final file in _appSources()) {
+        final lines = file.readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i];
+          if (line.trimLeft().startsWith('//')) continue;
+          if (literal.hasMatch(line) || named.hasMatch(line)) {
+            offenders.add('${file.path}:${i + 1}: ${line.trim()}');
+          }
+        }
+      }
+      expect(offenders, isEmpty);
+    });
   });
 }

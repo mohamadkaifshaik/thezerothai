@@ -62,11 +62,14 @@ class PrivacyPolicyLink extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final baseStyle = Theme.of(context).textTheme.bodySmall
         ?.copyWith(color: colorScheme.onSurfaceVariant);
+    // Small accent text: the contrast-safe accent text colour, not the fill
+    // accent (3:1 on white).
+    final accentText = context.appColors.accentText;
     final linkStyle = baseStyle?.copyWith(
-      color: colorScheme.primary,
+      color: accentText,
       fontWeight: FontWeight.w600,
       decoration: TextDecoration.underline,
-      decorationColor: colorScheme.primary,
+      decorationColor: accentText,
     );
     final leading = leadingText;
     return Wrap(

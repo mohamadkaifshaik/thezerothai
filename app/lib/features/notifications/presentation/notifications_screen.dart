@@ -10,6 +10,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/app_empty_view.dart';
@@ -123,11 +124,7 @@ class _NotificationsViewState extends State<_NotificationsView>
                     controller: _controller,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
-                      const SliverAppBar(
-                        title: Text('Notifications'),
-                        floating: true,
-                        snap: true,
-                      ),
+                      AppTopBar.sliver(title: 'Notifications'),
                       _inset(inset, const _PushPrompt()),
                       if (state.notice != null)
                         _inset(

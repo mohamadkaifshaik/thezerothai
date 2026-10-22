@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_gradient_button.dart';
+import '../../../shared/widgets/app_pill_button.dart';
 import '../../account/presentation/widgets/delete_account_link.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
@@ -145,7 +145,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              AppGradientButton(
+              AppPillButton(
                 label: 'Continue',
                 busy: state.isSubmitting,
                 onPressed: state.canSubmit

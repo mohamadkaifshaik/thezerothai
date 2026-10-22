@@ -12,7 +12,7 @@ import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -132,8 +132,8 @@ void main() {
     }
   }
 
-  AppGradientButton replyButton(WidgetTester tester) =>
-      tester.widget(find.widgetWithText(AppGradientButton, 'Reply'));
+  AppPillButton replyButton(WidgetTester tester) =>
+      tester.widget(find.widgetWithText(AppPillButton, 'Reply'));
 
   group('data, in every size, theme and text scale', () {
     for (final size in const [Size(390, 844), Size(1440, 900)]) {
@@ -174,7 +174,7 @@ void main() {
               expect(find.text('Post your reply'), findsOneWidget);
               expect(tester.takeException(), isNull);
               expect(
-                tester.getSize(find.byType(AppGradientButton)).height,
+                tester.getSize(find.byType(AppPillButton)).height,
                 greaterThanOrEqualTo(48),
               );
             },
@@ -212,7 +212,7 @@ void main() {
 
       const gutter = (1440 - AppLayout.mainColumnMaxWidth) / 2;
       expect(
-        tester.getTopRight(find.byType(AppGradientButton)).dx,
+        tester.getTopRight(find.byType(AppPillButton)).dx,
         lessThanOrEqualTo(1440 - gutter),
       );
       expect(
@@ -345,7 +345,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'my reply');
       await tester.pump();
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Reply'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Reply'));
       await tester.pump();
 
       expect(replyButton(tester).busy, isTrue);
@@ -353,7 +353,7 @@ void main() {
       expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
       expect(find.text('Posting...'), findsOneWidget);
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Sending reply', isButton: true, isLiveRegion: true),
       );
 
@@ -378,7 +378,7 @@ void main() {
       await open(tester);
       expect(find.bySemanticsLabel('Reply'), findsOneWidget);
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Reply', isButton: true, isEnabled: false),
       );
       handle.dispose();

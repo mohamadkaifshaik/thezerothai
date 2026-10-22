@@ -6,7 +6,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,7 +52,7 @@ void main() {
     testWidgets('shows validation errors for an empty form', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Sign in'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign in'));
       await tester.pump();
 
       expect(find.text('Enter your email'), findsOneWidget);
@@ -83,7 +83,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Password'),
         'password1',
       );
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Sign in'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign in'));
       await tester.pumpAndSettle();
 
       verify(
@@ -130,7 +130,7 @@ void main() {
 
       // The gradient button keeps its label next to the spinner.
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.widgetWithText(AppGradientButton, 'Sign in'), findsOneWidget);
+      expect(find.widgetWithText(AppPillButton, 'Sign in'), findsOneWidget);
     });
 
     testWidgets('shows a failure message and dismisses it', (tester) async {

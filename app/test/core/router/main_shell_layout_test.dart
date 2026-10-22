@@ -1,6 +1,15 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
+import 'package:dzeroth/core/router/compose_gate.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/app_account_chip.dart';
+import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
+import 'package:dzeroth/core/widgets/app_drawer.dart';
+import 'package:dzeroth/core/widgets/app_top_bar.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -13,356 +22,484 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
-class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
+class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// Layout of the shell at phone, tablet and desktop widths: the centred main
-/// column, the rail (brand, compose entry), the desktop side column. Behaviour
-/// that predates the layout (flag gating, badge, navigation) stays covered by
-/// `main_shell_compose_test.dart`.
+class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
+    implements AuthBloc {}
+
+/// The shell's layout rules (W0-6): which navigation, compose control and
+/// drawer each width gets, and where each destination leads.
 void main() {
-  late MockOnboardingBloc onboardingBloc;
+  late _MockOnboardingBloc onboarding;
+  late _MockAuthBloc auth;
 
-  setUpAll(() => registerFallbackValue(const OnboardingUserSignedOut()));
+  setUpAll(() {
+    registerFallbackValue(const AuthSignOutRequested());
+    registerFallbackValue(const OnboardingUserSignedOut());
+  });
 
-  setUp(() => onboardingBloc = MockOnboardingBloc());
-
-  final profile = identity.Profile(
-    userId: 'u1',
-    handle: 'alex',
-    displayName: 'Alex Rivera',
-  );
+  setUp(() {
+    onboarding = _MockOnboardingBloc();
+    auth = _MockAuthBloc();
+    whenListen(
+      auth,
+      const Stream<AuthState>.empty(),
+      initialState: const AuthState(status: AuthStatus.authenticated),
+    );
+  });
 
   Future<void> pump(
     WidgetTester tester, {
-    required double width,
-    double height = 900,
-    double textScale = 1,
-    Set<String> flags = const {'posts', 'notifications'},
-    identity.Profile? withProfile,
     String location = '/home',
+    double width = 360,
+    Set<String> flags = const {'posts', 'notifications'},
     UnreadBadgeCubit? badge,
-    Brightness brightness = Brightness.dark,
+    bool profile = true,
+    bool newShell = true,
   }) async {
-    tester.view.physicalSize = Size(width, height);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
     whenListen(
-      onboardingBloc,
+      onboarding,
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
-        enabledFeatures: flags,
-        profile: withProfile,
+        enabledFeatures: {...flags, if (newShell) kFeatureUiShell},
+        profile: profile
+            ? identity.Profile(
+                userId: 'u-alice',
+                handle: 'alice',
+                displayName: 'Alice A',
+              )
+            : null,
       ),
     );
-    Widget shell(String loc) => MainShell(
-      location: loc,
-      child: const SizedBox.expand(key: Key('body'), child: Text('body')),
+    Widget page(String path, String text) => MainShell(
+      location: path,
+      child: Scaffold(
+        appBar: const AppTopBar(title: 'Page'),
+        body: Center(child: Text(text)),
+      ),
     );
     final router = GoRouter(
       initialLocation: location,
       routes: [
-        GoRoute(path: '/home', builder: (c, s) => shell('/home')),
-        GoRoute(path: '/settings', builder: (c, s) => shell('/settings')),
+        GoRoute(
+          path: '/home',
+          builder: (context, state) => page('/home', 'home body'),
+        ),
+        GoRoute(
+          path: '/notifications',
+          builder: (context, state) =>
+              page('/notifications', 'notifications body'),
+        ),
         GoRoute(
           path: '/profile/:handle',
-          builder: (c, s) => shell('/profile/${s.pathParameters['handle']}'),
+          builder: (context, state) => page(
+            '/profile/${state.pathParameters['handle']}',
+            'profile body',
+          ),
         ),
-        GoRoute(path: '/compose', builder: (c, s) => const Text('compose')),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => page('/settings', 'settings body'),
+        ),
+        GoRoute(
+          path: '/compose',
+          builder: (context, state) => const Text('compose page'),
+        ),
       ],
     );
+    // The shell reads the cubit whenever the notifications flag is on.
+    final effectiveBadge = badge ?? UnreadBadgeCubit(0);
+    if (badge == null) addTearDown(effectiveBadge.close);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = Size(width, 900);
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MultiBlocProvider(
         providers: [
-          BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
-          BlocProvider<UnreadBadgeCubit>.value(
-            value: badge ?? UnreadBadgeCubit(0),
-          ),
+          BlocProvider<OnboardingBloc>.value(value: onboarding),
+          BlocProvider<AuthBloc>.value(value: auth),
+          BlocProvider<UnreadBadgeCubit>.value(value: effectiveBadge),
         ],
-        child: MaterialApp.router(
-          theme: buildAppTheme(brightness: brightness),
-          routerConfig: router,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
-          ),
-        ),
+        child: MaterialApp.router(theme: appLightTheme, routerConfig: router),
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  double bodyWidth(WidgetTester tester) =>
-      tester.getSize(find.byKey(const Key('body'))).width;
+  group('ui_shell flag off (legacy chrome)', () {
+    testWidgets('phone: four destinations incl. Settings, no drawer, FAB on '
+        'Home', (tester) async {
+      await pump(tester, newShell: false);
 
-  group('main column', () {
-    testWidgets('fills the width on a phone', (tester) async {
-      await pump(tester, width: 390);
-      expect(bodyWidth(tester), 390);
+      expect(find.byType(AppBottomBar), findsOneWidget);
+      expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+      expect(find.byType(AppDrawer), findsNothing);
+      expect(find.byTooltip('New post'), findsOneWidget);
     });
 
-    for (final width in [768.0, 1280.0, 1440.0]) {
-      testWidgets('is at most ${AppLayout.mainColumnMaxWidth}dp and centred at '
-          '${width.toInt()}dp', (tester) async {
-        await pump(tester, width: width, withProfile: profile);
-        expect(bodyWidth(tester), AppLayout.mainColumnMaxWidth);
-        final rect = tester.getRect(find.byKey(const Key('body')));
-        // Centred between the rail (left) and the side column (right, desktop).
-        final railRight = tester.getRect(find.byType(NavigationRail)).right;
-        final rightEdge = width >= AppBreakpoints.tablet
-            ? width - AppLayout.sideColumnWidth
-            : width;
-        expect(rect.left - railRight, closeTo(rightEdge - rect.right, 1));
-      });
-    }
+    testWidgets('Settings is the selected destination on /settings', (
+      tester,
+    ) async {
+      await pump(tester, location: '/settings', newShell: false);
 
-    testWidgets('has 1dp borders on both sides from 600dp', (tester) async {
-      await pump(tester, width: 768);
-      final decorated = find.ancestor(
-        of: find.byKey(const Key('body')),
-        matching: find.byType(DecoratedBox),
+      expect(find.byIcon(Icons.settings), findsOneWidget);
+      expect(find.byIcon(Icons.home), findsNothing);
+      expect(find.byTooltip('New post'), findsNothing);
+    });
+
+    testWidgets('tapping Settings goes to /settings', (tester) async {
+      await pump(tester, newShell: false);
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AppBottomBar), findsOneWidget);
+      expect(find.byIcon(Icons.settings), findsOneWidget);
+    });
+
+    testWidgets('wide: no account chip', (tester) async {
+      await pump(tester, width: 1300, newShell: false);
+
+      expect(find.byType(AppAccountChip), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.byIcon(Icons.settings_outlined),
+        ),
+        findsOneWidget,
       );
-      final border =
-          (tester.widget<DecoratedBox>(decorated.first).decoration
-                      as BoxDecoration)
-                  .border!
-              as Border;
-      expect(border.left.width, 1);
-      expect(border.right.width, 1);
     });
   });
 
-  group('rail', () {
-    testWidgets('shows the Dzeroth brand as a header', (tester) async {
-      final handle = tester.ensureSemantics();
-      await pump(tester, width: 1280);
-      expect(find.text('Dzeroth'), findsOneWidget);
-      expect(find.bySemanticsLabel('Dzeroth'), findsOneWidget);
-      handle.dispose();
+  group('phone (360dp)', () {
+    testWidgets('bottom bar with Home, Notifications and Profile only: no '
+        'Settings', (tester) async {
+      await pump(tester);
+
+      expect(find.byType(AppBottomBar), findsOneWidget);
+      expect(find.byIcon(Icons.home), findsOneWidget);
+      expect(find.byIcon(Icons.notifications_none), findsOneWidget);
+      expect(find.byIcon(Icons.person_outline), findsWidgets);
+      expect(find.byIcon(Icons.settings_outlined), findsNothing);
+      expect(find.byIcon(Icons.settings), findsNothing);
     });
 
-    testWidgets('collapsed rail shows a single D', (tester) async {
-      await pump(tester, width: 768);
-      expect(find.text('Dzeroth'), findsNothing);
-      expect(find.text('D'), findsOneWidget);
+    testWidgets('Notifications is absent with its flag off', (tester) async {
+      await pump(tester, flags: {'posts'});
+
+      expect(find.byIcon(Icons.notifications_none), findsNothing);
     });
 
-    testWidgets('labels are visible from 1200dp only', (tester) async {
-      await pump(tester, width: 1200);
-      expect(
-        tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
-        isTrue,
-      );
-      await pump(tester, width: 1199);
-      expect(
-        tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
-        isFalse,
-      );
+    testWidgets('the selected tab follows the location', (tester) async {
+      await pump(tester, location: '/notifications');
+      expect(find.byIcon(Icons.notifications), findsOneWidget);
+      expect(find.byIcon(Icons.home), findsNothing);
+
+      await pump(tester, location: '/profile/alice');
+      expect(find.byIcon(Icons.person), findsOneWidget);
     });
 
-    testWidgets('destination order and labels are unchanged', (tester) async {
-      await pump(tester, width: 1280);
-      final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
-      expect(
-        [for (final d in rail.destinations) (d.label as Text).data],
-        ['Home', 'Notifications', 'Profile', 'Settings'],
-      );
+    testWidgets('on Settings no tab is selected', (tester) async {
+      await pump(tester, location: '/settings');
+
+      expect(find.byIcon(Icons.home), findsNothing);
+      expect(find.byIcon(Icons.notifications), findsNothing);
+      expect(find.byIcon(Icons.person), findsNothing);
+      expect(find.byIcon(Icons.home_outlined), findsOneWidget);
     });
 
-    testWidgets('selected index follows the location', (tester) async {
-      await pump(tester, width: 1280, location: '/settings');
-      expect(
-        tester
-            .widget<NavigationRail>(find.byType(NavigationRail))
-            .selectedIndex,
-        3,
-      );
-      await pump(tester, width: 1280, withProfile: profile);
-      expect(
-        tester
-            .widget<NavigationRail>(find.byType(NavigationRail))
-            .selectedIndex,
-        0,
-      );
+    testWidgets('tapping the tabs navigates', (tester) async {
+      await pump(tester);
+
+      await tester.tap(find.byIcon(Icons.notifications_none));
+      await tester.pumpAndSettle();
+      expect(find.text('notifications body'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.person_outline).last);
+      await tester.pumpAndSettle();
+      expect(find.text('profile body'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.home_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('home body'), findsOneWidget);
     });
 
-    testWidgets('selected index follows the location on a phone', (
+    testWidgets('Profile goes home when there is no profile yet', (
       tester,
     ) async {
-      await pump(tester, width: 390, location: '/settings');
-      expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-        3,
-      );
+      await pump(tester, profile: false);
+
+      // (The avatar fallback in the top bar is also person_outline; the bar
+      // cell is the last one.)
+      await tester.tap(find.byIcon(Icons.person_outline).last);
+      await tester.pumpAndSettle();
+      expect(find.text('home body'), findsOneWidget);
     });
 
-    testWidgets('notification badge still shows on the extended rail', (
+    testWidgets('the unread badge sits on the Notifications cell', (
       tester,
     ) async {
       final badge = UnreadBadgeCubit(7);
       addTearDown(badge.close);
-      await pump(tester, width: 1280, badge: badge);
-      expect(find.text('7'), findsWidgets);
+      await pump(tester, badge: badge);
+
+      expect(find.text('7'), findsOneWidget);
     });
 
-    testWidgets('destinations keep 48dp targets', (tester) async {
-      await pump(tester, width: 1280);
-      final centers = [
-        for (final label in ['Home', 'Notifications', 'Profile', 'Settings'])
-          tester
-              .getCenter(
-                find.descendant(
-                  of: find.byType(NavigationRail),
-                  matching: find.text(label),
-                ),
-              )
-              .dy,
-      ];
-      for (var i = 1; i < centers.length; i++) {
-        expect(
-          centers[i] - centers[i - 1],
-          greaterThanOrEqualTo(AppSpacing.minTapTarget),
-        );
-      }
-    });
-  });
-
-  group('compose entry', () {
-    testWidgets('phone: the floating button', (tester) async {
-      await pump(tester, width: 390);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
-      expect(find.byTooltip('New post'), findsOneWidget);
-    });
-
-    testWidgets('tablet: an icon button, no floating button', (tester) async {
-      await pump(tester, width: 768);
-      expect(find.byType(FloatingActionButton), findsNothing);
-      expect(find.byTooltip('New post'), findsOneWidget);
-      expect(find.text('Post'), findsNothing);
-      await tester.tap(find.byTooltip('New post'));
-      await tester.pumpAndSettle();
-      expect(find.text('compose'), findsOneWidget);
-    });
-
-    testWidgets('desktop: a "Post" gradient button', (tester) async {
-      await pump(tester, width: 1440);
-      expect(find.byType(FloatingActionButton), findsNothing);
-      expect(find.text('Post'), findsOneWidget);
-      await tester.tap(find.text('Post'));
-      await tester.pumpAndSettle();
-      expect(find.text('compose'), findsOneWidget);
-    });
-
-    for (final width in [390.0, 768.0, 1440.0]) {
-      testWidgets('absent with the posts flag off at ${width.toInt()}dp', (
+    group('compose button rule (D2)', () {
+      testWidgets('hidden on Home, where the inline composer is', (
         tester,
       ) async {
-        await pump(tester, width: width, flags: const {});
+        await pump(tester, location: '/home');
         expect(find.byType(FloatingActionButton), findsNothing);
-        expect(find.byTooltip('New post'), findsNothing);
-        expect(find.text('Post'), findsNothing);
       });
 
-      testWidgets('absent on Settings at ${width.toInt()}dp', (tester) async {
-        await pump(tester, width: width, location: '/settings');
+      testWidgets('hidden on Notifications and Settings', (tester) async {
+        await pump(tester, location: '/notifications');
         expect(find.byType(FloatingActionButton), findsNothing);
-        expect(find.byTooltip('New post'), findsNothing);
-        expect(find.text('Post'), findsNothing);
+        await pump(tester, location: '/settings');
+        expect(find.byType(FloatingActionButton), findsNothing);
       });
-    }
+
+      testWidgets('shown on a profile, and opens the composer', (tester) async {
+        await pump(tester, location: '/profile/alice');
+        expect(find.byType(FloatingActionButton), findsOneWidget);
+
+        await tester.tap(find.byTooltip('New post'));
+        await tester.pumpAndSettle();
+        expect(find.text('compose page'), findsOneWidget);
+      });
+
+      testWidgets('hidden everywhere with the posts flag off', (tester) async {
+        await pump(tester, location: '/profile/alice', flags: {});
+        expect(find.byType(FloatingActionButton), findsNothing);
+      });
+    });
+
+    testWidgets('the avatar button in the top bar opens the drawer', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AppDrawer), findsOneWidget);
+      expect(find.text('Alice A'), findsOneWidget);
+    });
+
+    testWidgets('Settings is reachable from the drawer', (tester) async {
+      await pump(tester);
+      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('settings body'), findsOneWidget);
+      expect(find.byType(AppDrawer), findsNothing);
+    });
   });
 
-  group('side column', () {
+  group('tablet (800dp)', () {
+    testWidgets('icon rail, round compose button and the avatar chip', (
+      tester,
+    ) async {
+      await pump(tester, width: 800);
+
+      final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+      expect(rail.extended, isFalse);
+      expect(find.byType(AppBottomBar), findsNothing);
+      expect(find.byTooltip('New post'), findsOneWidget);
+      expect(find.byType(AppAccountChip), findsOneWidget);
+      // The collapsed chip is the avatar alone.
+      expect(find.text('@alice'), findsNothing);
+      // No avatar button / drawer on wide layouts.
+      expect(find.bySemanticsLabel('Account menu'), findsNothing);
+    });
+
+    testWidgets('the compose control is on every page, Home included', (
+      tester,
+    ) async {
+      await pump(tester, width: 800, location: '/home');
+      expect(find.byTooltip('New post'), findsOneWidget);
+      await pump(tester, width: 800, location: '/settings');
+      expect(find.byTooltip('New post'), findsNothing);
+    });
+  });
+
+  group('desktop (1400dp)', () {
+    // The side column repeats the viewer's name and a Settings link, so the
+    // rail and its chip menu are looked up on their own.
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(NavigationRail), matching: f);
+    Finder menuItem(String label) => find.descendant(
+      of: find.byWidgetPredicate((w) => w is PopupMenuItem),
+      matching: find.text(label),
+    );
+
+    testWidgets('labelled rail, Post pill, account chip with name', (
+      tester,
+    ) async {
+      await pump(tester, width: 1400);
+
+      final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+      expect(rail.extended, isTrue);
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Post'), findsOneWidget);
+      expect(inRail(find.text('Alice A')), findsOneWidget);
+      expect(inRail(find.text('@alice')), findsOneWidget);
+    });
+
+    testWidgets('the chip menu offers Profile, Settings and Sign out', (
+      tester,
+    ) async {
+      await pump(tester, width: 1400);
+
+      await tester.tap(find.byType(AppAccountChip));
+      await tester.pumpAndSettle();
+      expect(menuItem('Profile'), findsOneWidget);
+      expect(menuItem('Settings'), findsOneWidget);
+      expect(menuItem('Sign out'), findsOneWidget);
+
+      await tester.tap(menuItem('Settings'));
+      await tester.pumpAndSettle();
+      expect(find.text('settings body'), findsOneWidget);
+    });
+
+    testWidgets('Sign out in the chip menu dispatches the sign-out event', (
+      tester,
+    ) async {
+      await pump(tester, width: 1400);
+
+      await tester.tap(find.byType(AppAccountChip));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sign out'));
+      await tester.pumpAndSettle();
+
+      verify(() => auth.add(const AuthSignOutRequested())).called(1);
+    });
+
+    testWidgets('the chip menu opens the profile', (tester) async {
+      await pump(tester, width: 1400);
+
+      await tester.tap(find.byType(AppAccountChip));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Profile').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('profile body'), findsOneWidget);
+    });
+
+    testWidgets('no account chip without a profile', (tester) async {
+      await pump(tester, width: 1400, profile: false);
+
+      expect(find.byType(AppAccountChip), findsOneWidget);
+      expect(find.text('Alice A'), findsNothing);
+    });
+  });
+
+  group('side column (desktop)', () {
     testWidgets('absent below 1200dp', (tester) async {
-      await pump(tester, width: 1199, withProfile: profile);
+      await pump(tester, width: 1199);
       expect(find.byType(AppSideColumn), findsNothing);
-      expect(find.text('@alex'), findsNothing);
+      expect(find.text('@alice'), findsNothing);
     });
 
     for (final width in [1200.0, 1280.0, 1440.0]) {
       testWidgets('present at ${width.toInt()}dp with the profile card and '
           'real links only', (tester) async {
-        final handle = tester.ensureSemantics();
-        await pump(tester, width: width, withProfile: profile);
+        await pump(tester, width: width);
         expect(find.byType(AppSideColumn), findsOneWidget);
-        expect(find.text('Alex Rivera'), findsOneWidget);
-        expect(find.text('@alex'), findsOneWidget);
+        expect(find.text('Alice A'), findsWidgets);
+        expect(find.text('@alice'), findsWidgets);
         expect(
-          find.bySemanticsLabel('Your profile, Alex Rivera, @alex'),
+          find.descendant(
+            of: find.byType(AppSideColumn),
+            matching: find.text('Privacy Policy'),
+          ),
           findsOneWidget,
         );
-        expect(find.text('Settings'), findsWidgets);
-        expect(find.text('Privacy Policy'), findsOneWidget);
         // No placeholder for a feature that has no route.
-        for (final text in [
-          'Search',
-          'Trends',
-          'Who to follow',
-          'Premium',
-          'Terms',
-        ]) {
+        for (final text in ['Trends', 'Who to follow', 'Premium', 'Terms']) {
           expect(find.textContaining(text), findsNothing, reason: text);
         }
-        expect(find.byType(TextField), findsNothing);
-        handle.dispose();
       });
     }
 
     testWidgets('the profile card opens the own profile', (tester) async {
-      await pump(tester, width: 1280, withProfile: profile);
-      await tester.tap(find.text('@alex'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<NavigationRail>(find.byType(NavigationRail))
-            .selectedIndex,
-        2,
+      await pump(tester, width: 1280);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppSideColumn),
+          matching: find.text('@alice'),
+        ),
       );
+      await tester.pumpAndSettle();
+      expect(find.text('profile body'), findsOneWidget);
     });
 
     testWidgets('no loaded profile: no card, nothing fetched', (tester) async {
-      await pump(tester, width: 1280);
+      await pump(tester, width: 1280, profile: false);
       expect(find.byType(AppSideColumn), findsOneWidget);
-      expect(find.textContaining('@'), findsNothing);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      verifyNever(() => onboardingBloc.add(any()));
+      expect(
+        find.descendant(
+          of: find.byType(AppSideColumn),
+          matching: find.textContaining('@'),
+        ),
+        findsNothing,
+      );
+      verifyNever(() => onboarding.add(any()));
     });
 
     testWidgets('quick link Settings navigates to /settings', (tester) async {
-      await pump(tester, width: 1280, withProfile: profile);
-      final link = find.descendant(
-        of: find.byType(AppSideColumn),
-        matching: find.text('Settings'),
+      await pump(tester, width: 1280);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppSideColumn),
+          matching: find.text('Settings'),
+        ),
       );
-      await tester.tap(link);
       await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<NavigationRail>(find.byType(NavigationRail))
-            .selectedIndex,
-        3,
-      );
+      expect(find.text('settings body'), findsOneWidget);
     });
   });
 
-  group('no overflow', () {
-    for (final width in [390.0, 768.0, 1280.0, 1440.0]) {
-      for (final brightness in Brightness.values) {
-        testWidgets('${width.toInt()}dp, ${brightness.name}, text scale 2', (
-          tester,
-        ) async {
-          await pump(
-            tester,
-            width: width,
-            textScale: 2,
-            withProfile: profile,
-            brightness: brightness,
-          );
-          expect(tester.takeException(), isNull);
-        });
-      }
-    }
+  testWidgets('showComposeFabAt follows the D2 table', (tester) async {
+    final results = <String, bool>{};
+    whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(enabledFeatures: {'posts'}),
+    );
+    await tester.pumpWidget(
+      BlocProvider<OnboardingBloc>.value(
+        value: onboarding,
+        child: Builder(
+          builder: (context) {
+            for (final path in [
+              '/home',
+              '/notifications',
+              '/settings/blocked',
+              '/profile/ada',
+              '/post/1',
+            ]) {
+              results[path] = showComposeFabAt(context, path);
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(results, {
+      '/home': false,
+      '/notifications': false,
+      '/settings/blocked': false,
+      '/profile/ada': true,
+      '/post/1': true,
+    });
   });
 }

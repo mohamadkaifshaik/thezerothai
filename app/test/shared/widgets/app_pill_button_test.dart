@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -24,12 +24,12 @@ double _contrast(Color a, Color b) {
 }
 
 void main() {
-  group('AppGradientButton', () {
+  group('AppPillButton', () {
     testWidgets('renders in dark and light', (tester) async {
       for (final brightness in Brightness.values) {
         await tester.pumpWidget(
           _host(
-            AppGradientButton(label: 'Post', onPressed: () {}),
+            AppPillButton(label: 'Post', onPressed: () {}),
             brightness: brightness,
           ),
         );
@@ -41,10 +41,10 @@ void main() {
     testWidgets('taps work when enabled', (tester) async {
       var taps = 0;
       await tester.pumpWidget(
-        _host(AppGradientButton(label: 'Post', onPressed: () => taps++)),
+        _host(AppPillButton(label: 'Post', onPressed: () => taps++)),
       );
 
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       expect(taps, 1);
     });
 
@@ -52,21 +52,21 @@ void main() {
       var taps = 0;
       await tester.pumpWidget(
         _host(
-          AppGradientButton(label: 'Post', busy: true, onPressed: () => taps++),
+          AppPillButton(label: 'Post', busy: true, onPressed: () => taps++),
         ),
       );
 
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       expect(taps, 0);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
     testWidgets('ignores taps when onPressed is null', (tester) async {
       await tester.pumpWidget(
-        _host(const AppGradientButton(label: 'Post', onPressed: null)),
+        _host(const AppPillButton(label: 'Post', onPressed: null)),
       );
 
-      await tester.tap(find.byType(AppGradientButton));
+      await tester.tap(find.byType(AppPillButton));
       expect(tester.takeException(), isNull);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
@@ -76,10 +76,10 @@ void main() {
     ) async {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(
-        _host(AppGradientButton(label: 'Post', onPressed: () {})),
+        _host(AppPillButton(label: 'Post', onPressed: () {})),
       );
 
-      final node = tester.getSemantics(find.byType(AppGradientButton));
+      final node = tester.getSemantics(find.byType(AppPillButton));
       expect(node.label, 'Post');
       expect(
         node,
@@ -100,13 +100,13 @@ void main() {
     ) async {
       final handle = tester.ensureSemantics();
       for (final button in [
-        const AppGradientButton(label: 'Post', onPressed: null),
-        AppGradientButton(label: 'Post', busy: true, onPressed: () {}),
+        const AppPillButton(label: 'Post', onPressed: null),
+        AppPillButton(label: 'Post', busy: true, onPressed: () {}),
       ]) {
         await tester.pumpWidget(_host(button));
 
         expect(
-          tester.getSemantics(find.byType(AppGradientButton)),
+          tester.getSemantics(find.byType(AppPillButton)),
           matchesSemantics(
             label: 'Post',
             isButton: true,
@@ -123,7 +123,7 @@ void main() {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(
         _host(
-          AppGradientButton(
+          AppPillButton(
             label: 'Reply',
             busySemanticsLabel: 'Sending reply',
             onPressed: () {},
@@ -135,7 +135,7 @@ void main() {
 
       await tester.pumpWidget(
         _host(
-          AppGradientButton(
+          AppPillButton(
             label: 'Reply',
             busy: true,
             busySemanticsLabel: 'Sending reply',
@@ -146,7 +146,7 @@ void main() {
       expect(find.bySemanticsLabel('Sending reply'), findsOneWidget);
       expect(find.bySemanticsLabel('Reply'), findsNothing);
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isSemantics(label: 'Sending reply', isButton: true, isLiveRegion: true),
       );
       expect(find.text('Reply'), findsOneWidget);
@@ -157,10 +157,10 @@ void main() {
         'region', (tester) async {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(
-        _host(AppGradientButton(label: 'Post', busy: true, onPressed: () {})),
+        _host(AppPillButton(label: 'Post', busy: true, onPressed: () {})),
       );
       expect(
-        tester.getSemantics(find.byType(AppGradientButton)),
+        tester.getSemantics(find.byType(AppPillButton)),
         isNot(isSemantics(isLiveRegion: true)),
       );
       handle.dispose();
@@ -170,32 +170,95 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        _host(AppGradientButton(label: 'Go', onPressed: () {})),
+        _host(AppPillButton(label: 'Go', onPressed: () {})),
       );
 
-      final size = tester.getSize(find.byType(AppGradientButton));
+      final size = tester.getSize(find.byType(AppPillButton));
       expect(size.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
       expect(size.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
     });
 
-    testWidgets('label text is readable on the gradient (>= 4.5:1)', (
+    testWidgets('the strong pill label is readable on its fill (>= 4.5:1), '
+        'enabled in both themes', (tester) async {
+      for (final brightness in Brightness.values) {
+        final colors = buildAppTheme(brightness: brightness)
+            .extension<AppColors>()!;
+        expect(
+          _contrast(colors.strongPillLabel, colors.strongPillFill),
+          greaterThanOrEqualTo(4.5),
+          reason: '$brightness strong pill',
+        );
+      }
+    });
+
+    testWidgets('is the inverse pill: light on dark, dark on light, flat '
+        '(no gradient)', (tester) async {
+      for (final brightness in Brightness.values) {
+        await tester.pumpWidget(
+          _host(
+            AppPillButton(label: 'Post', onPressed: () {}),
+            brightness: brightness,
+          ),
+        );
+        await tester.pumpAndSettle(); // the theme change animates
+        final ink = tester.widget<Ink>(find.byType(Ink));
+        final decoration = ink.decoration! as BoxDecoration;
+        expect(decoration.gradient, isNull, reason: '$brightness');
+        expect(
+          decoration.color,
+          brightness == Brightness.dark
+              ? const Color(0xFFEFF3F4)
+              : const Color(0xFF0F1419),
+        );
+      }
+    });
+
+    testWidgets('disabled and busy show the flat disabled fill', (
       tester,
     ) async {
-      for (final brightness in Brightness.values) {
-        final colors = buildAppTheme(brightness: brightness).colorScheme;
-        // Enabled: primary -> tertiary; disabled/busy: flat onSurfaceVariant.
-        for (final stop in [
-          colors.primary,
-          colors.tertiary,
-          colors.onSurfaceVariant,
-        ]) {
-          expect(
-            _contrast(colors.onPrimary, stop),
-            greaterThanOrEqualTo(4.5),
-            reason: '$brightness onPrimary on $stop',
-          );
-        }
+      final colors = buildAppTheme(brightness: Brightness.dark)
+          .extension<AppColors>()!;
+      for (final button in [
+        const AppPillButton(label: 'Post', onPressed: null),
+        AppPillButton(label: 'Post', busy: true, onPressed: () {}),
+      ]) {
+        await tester.pumpWidget(_host(button));
+        final ink = tester.widget<Ink>(find.byType(Ink));
+        expect(
+          (ink.decoration! as BoxDecoration).color,
+          colors.disabledPillFill,
+        );
       }
+    });
+
+    testWidgets('compact draws a 36dp pill inside a 48dp tap target', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(AppPillButton(label: 'Post', compact: true, onPressed: () {})),
+      );
+
+      expect(
+        tester.getSize(find.byType(AppPillButton)).height,
+        AppSpacing.minTapTarget,
+      );
+      expect(tester.getSize(find.byType(Ink)).height, AppSize.pillCompact);
+    });
+
+    testWidgets('the regular pill fills the width a form gives it', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          SizedBox(
+            width: 300,
+            child: AppPillButton(label: 'Continue', onPressed: () {}),
+          ),
+        ),
+      );
+
+      expect(tester.getSize(find.byType(Ink)).width, 300);
+      expect(tester.getSize(find.byType(Ink)).height, AppSpacing.minTapTarget);
     });
 
     testWidgets('long label with icon at 2.0 scale and 320 dp does not '
@@ -210,7 +273,7 @@ void main() {
             _host(
               SizedBox(
                 width: 280,
-                child: AppGradientButton(
+                child: AppPillButton(
                   label: 'Post to everyone who follows you',
                   icon: Icons.send,
                   busy: busy,
@@ -228,7 +291,7 @@ void main() {
 
     testWidgets('can be built with const', (tester) async {
       // Compiles only while the constructor stays const.
-      const button = AppGradientButton(
+      const button = AppPillButton(
         label: 'const',
         icon: Icons.send,
         onPressed: null,

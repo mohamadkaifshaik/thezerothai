@@ -37,9 +37,8 @@ class TimelineGapRow extends StatelessWidget {
                   )
                 : Text(
                     'Show more $noun',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    style: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(color: context.appColors.accentText),
                   ),
           ),
         ),
