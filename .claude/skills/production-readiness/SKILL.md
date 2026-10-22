@@ -30,6 +30,8 @@ description: The GO/NO-GO production readiness checklist used by the production-
 ### Clients
 - [ ] Mobile builds on TestFlight / Play internal tested on real devices (a low-end Android included)
 - [ ] Crashlytics on; forced-upgrade path works; web initial bundle < 3 MB
+### Approvals (ADR-0019)
+- [ ] Founder approvals recorded for this release, **3 expected**: `release-prod` `build-and-stage`, `promote-prod` `stage=10`, `promote-prod` `stage=100`. Link each run; the first was approved only after comparing the tag's commit with the commit this review covers (a release is not complete with fewer)
 ### Compliance
 - [ ] Privacy review for new PII; delete/export covers new collections (DPDP Act / GDPR)
 - [ ] Store policies: UGC report + block present; privacy policy + account deletion in-app (required by App Store/Play)

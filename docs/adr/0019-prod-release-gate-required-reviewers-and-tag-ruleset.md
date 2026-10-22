@@ -299,6 +299,7 @@ Filled in as the owner reports results; nothing is recorded until it is reported
   Incident 2026-10-21: the reviewer rule was removed for a short window by a pasted rollback block (no release was running); it was
   re-applied with the same PUT and verified (`required_reviewers` present, `can_admins_bypass` true, `v*` tag policy intact, tag ruleset
   unchanged).
+- R4 (follow-up docs): **done 2026-10-22**, landed with PR #225 (`cloud-bootstrap.md` §6a, the `release-rollout` skill, `ci-enforcement.md`, the `production-readiness` checklist).
 
 Behavioural confirmation is pending the next real release: `build-and-stage` must show "Waiting for review", and the owner tag push must still
 work through the Admin bypass. Never test with a `v*` tag or by dispatching `promote-prod.yml`.
