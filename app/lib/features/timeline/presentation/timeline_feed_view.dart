@@ -52,6 +52,7 @@ class TimelineFeedView extends StatefulWidget {
     this.pendingAuthorId,
     this.hideAuthorsOnRelationship = true,
     this.onRelationshipChanged,
+    this.newPostsPillTop = kToolbarHeight + AppSpacing.sm,
   });
 
   final String? viewerUserId;
@@ -74,6 +75,10 @@ class TimelineFeedView extends StatefulWidget {
 
   /// Also told about every Block/Mute/Unblock/Unmute result.
   final ValueChanged<graph.Relationship>? onRelationshipChanged;
+
+  /// Where the floating "N new posts" pill sits, from the top: just under the
+  /// screen's header. It floats, so it never shifts the list.
+  final double newPostsPillTop;
 
   @override
   State<TimelineFeedView> createState() => _TimelineFeedViewState();
@@ -216,7 +221,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                 ),
                 if (state.newPosts > 0)
                   Positioned(
-                    top: kToolbarHeight + AppSpacing.sm,
+                    top: widget.newPostsPillTop,
                     left: 0,
                     right: 0,
                     child: Center(

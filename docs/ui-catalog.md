@@ -129,7 +129,7 @@
 | replyErrorMessage | app/lib/features/posts/presentation/post_error_messages.dart | friendly snackbar text for a failed reply (parent gone, replies off, else `createPostErrorMessage`) |
 | PostsRepository.getThread | app/lib/features/posts/data/posts_repository.dart | `GetThread` through the gate (`requires: replies`); NOT_FOUND prunes the focal post from cached feeds |
 | AppRouter.postPath | app/lib/core/router/app_router.dart | the `/post/:id` deep link |
-| HomeScreen | app/lib/features/home/presentation/home_screen.dart | Home timeline (`TimelineFeedView` + `TimelineCubit`); placeholder with the posts flag off |
+| HomeScreen | app/lib/features/home/presentation/home_screen.dart | Home timeline (`TimelineFeedView` + `TimelineCubit`) under the top bar and a one-tab "Following" `AppTabBar`, then the "Write a post" row (no separate Post button); the new-posts pill floats under the header (`newPostsPillTop`); placeholder with the posts flag off |
 | ProfileHeader.showPostsCount / ProfileCubit.postDeleted | app/lib/features/profile/ | "N Posts" in the header and its local decrement after a delete |
 | AppIconSize | app/lib/core/theme/app_theme.dart | icon size tokens (sm 16 / md 20 / lg 24 / xl 40); visuals sit inside 48dp targets |
 | PostMedia | app/lib/shared/widgets/post_media.dart | a post's 1-4 images: rounded, bordered, aspect-clamped, thumb-decoded; alt text as semantics |
