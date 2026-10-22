@@ -253,6 +253,45 @@ void main() {
     verify(() => timeline.refresh(feed)).called(1);
   });
 
+  testWidgets('offline over cached posts: banner with Retry that refreshes', (
+    tester,
+  ) async {
+    stubCached(snapshotOf([2, 1]));
+    var calls = 0;
+    when(() => timeline.refresh(feed)).thenAnswer((_) async {
+      calls++;
+      if (calls == 1) throw const NetworkException('offline');
+      return snapshotOf([2, 1]);
+    });
+
+    await open(tester);
+
+    expect(find.text("You're offline. Showing saved posts."), findsOneWidget);
+    expect(find.text('post 2'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.text("You're offline. Showing saved posts."), findsNothing);
+  });
+
+  testWidgets('a rate limit banner offers no Retry', (tester) async {
+    stubCached(snapshotOf([2, 1]));
+    when(() => timeline.refresh(feed)).thenAnswer(
+      (_) async => throw const RateLimitedException(
+        'limited',
+        retryAfter: Duration(hours: 3),
+        limitName: 'read_budget_daily',
+      ),
+    );
+
+    await open(tester);
+
+    expect(find.textContaining("today's refresh limit"), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Retry'), findsNothing);
+  });
+
   testWidgets('a gap row loads once with its token and is replaced', (
     tester,
   ) async {

@@ -6,7 +6,9 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/widgets/app_pill_button.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
+import '../../../core/router/compose_gate.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../graph/data/graph_repository.dart';
@@ -247,6 +249,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final header = _header(context, state, showPostsCount: true);
     final blocked = state.relationship?.blocking ?? false;
     final showReplies = isFeatureEnabled(context, kPostsSubFeatureReplies);
+    final canCompose = canComposeAt(context, AppRouter.homePath);
     final tab = showReplies ? _tab : 0;
     final replies = tab == 1;
     final tabs = _ProfileTabs(
@@ -290,6 +293,13 @@ class _ProfilePostsState extends State<_ProfilePosts> {
           handle: profile.handle,
           replies: replies,
         ),
+        emptyAction: state.isOwnProfile && !replies && canCompose
+            ? AppPillButton(
+                label: 'Write a post',
+                compact: true,
+                onPressed: () => context.push(AppRouter.composePath),
+              )
+            : null,
         showPending: state.isOwnProfile && !replies,
         pendingAuthorId: viewerUserId,
         hideAuthorsOnRelationship: false,
