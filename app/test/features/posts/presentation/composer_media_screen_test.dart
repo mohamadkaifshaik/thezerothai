@@ -4,6 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -136,8 +137,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  FilledButton postButton(WidgetTester tester) =>
-      tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'));
+  AppGradientButton postButton(WidgetTester tester) =>
+      tester.widget<AppGradientButton>(
+        find.widgetWithText(AppGradientButton, 'Post'),
+      );
 
   Future<void> addPhotos(WidgetTester tester, List<String> tags) async {
     picker.next = [for (final t in tags) imageBytes(t)];
@@ -199,7 +202,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'two cats');
     await tester.pump();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     verify(
@@ -222,7 +225,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pump();
     await tester.pump();
 
@@ -241,7 +244,7 @@ void main() {
     expect(find.text('home page'), findsOneWidget);
   });
 
-  testWidgets('Close is disabled and back is blocked while sending', (
+  testWidgets('Cancel is disabled and back is blocked while sending', (
     tester,
   ) async {
     final gate = Completer<void>();
@@ -249,14 +252,14 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pump();
     await tester.pump();
 
-    final close = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.close).first,
+    final cancel = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, 'Cancel'),
     );
-    expect(close.onPressed, isNull);
+    expect(cancel.onPressed, isNull);
     await tester.binding.handlePopRoute();
     await tester.pump();
     expect(find.text('New post'), findsOneWidget);
@@ -266,13 +269,13 @@ void main() {
     expect(find.text('home page'), findsOneWidget);
   });
 
-  testWidgets('Close with photos attached asks before discarding', (
+  testWidgets('Cancel with photos attached asks before discarding', (
     tester,
   ) async {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.byTooltip('Close'));
+    await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.text('Discard this post?'), findsOneWidget);
 
@@ -280,7 +283,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('New post'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Close'));
+    await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
@@ -304,7 +307,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.text('Not allowed'), findsOneWidget);
@@ -336,14 +339,14 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('photos were not sent'), findsOneWidget);
     expect(postButton(tester).onPressed, isNotNull);
 
     fail = false;
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
     expect(find.text('home page'), findsOneWidget);
   });
@@ -362,7 +365,7 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+    await tester.tap(find.widgetWithText(AppGradientButton, 'Post'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Photo uploads are paused'), findsOneWidget);

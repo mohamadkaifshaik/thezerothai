@@ -21,6 +21,7 @@ import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../format/relative_time.dart';
 import 'app_avatar.dart';
+import 'app_menu_item_row.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
@@ -828,24 +829,41 @@ class _PostMenuState extends State<_PostMenu> {
           if (canDelete)
             const PopupMenuItem(
               value: _MenuAction.delete,
-              child: Text('Delete'),
+              child: AppMenuItemRow(
+                icon: Icons.delete_outline,
+                label: 'Delete',
+                destructive: true,
+              ),
             ),
           if (canReport)
             PopupMenuItem(
               value: _MenuAction.report,
-              child: Text(target.reportLabel),
+              child: AppMenuItemRow(
+                icon: Icons.flag_outlined,
+                label: target.reportLabel,
+              ),
             ),
           if (relationship != null) ...[
             PopupMenuItem(
               value: _MenuAction.block,
-              child: Text(
-                relationship.blocking ? 'Unblock @$handle' : 'Block @$handle',
+              child: AppMenuItemRow(
+                icon: relationship.blocking
+                    ? Icons.lock_open_outlined
+                    : Icons.block,
+                label: relationship.blocking
+                    ? 'Unblock @$handle'
+                    : 'Block @$handle',
               ),
             ),
             PopupMenuItem(
               value: _MenuAction.mute,
-              child: Text(
-                relationship.muting ? 'Unmute @$handle' : 'Mute @$handle',
+              child: AppMenuItemRow(
+                icon: relationship.muting
+                    ? Icons.volume_up_outlined
+                    : Icons.volume_off_outlined,
+                label: relationship.muting
+                    ? 'Unmute @$handle'
+                    : 'Mute @$handle',
               ),
             ),
           ],

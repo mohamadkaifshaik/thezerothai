@@ -11,7 +11,11 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_empty_view.dart';
+import '../../../shared/widgets/app_gradient_button.dart';
+import '../../../shared/widgets/app_section_header.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/blocked_post_gate.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/pending_post_row.dart';
@@ -30,10 +34,6 @@ import 'composer_screen.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/post_unavailable_view.dart';
-
-/// Width of the reply button: wide enough that "Reply" and the sending
-/// spinner do not make the field jump.
-const double _kReplyButtonWidth = AppSpacing.xxl + AppSpacing.lg;
 
 /// `/post/:id` with FEATURE_REPLIES on: the post, its parent/root context
 /// (or "This post is unavailable" tombstones), its replies and an inline
@@ -158,7 +158,7 @@ class _ThreadView extends StatelessWidget {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(
-                    maxWidth: AppBreakpoints.mobile,
+                    maxWidth: AppLayout.mainColumnMaxWidth,
                   ),
                   child: switch (state.status) {
                     ThreadStatus.loading ||
@@ -267,33 +267,41 @@ class _ThreadList extends StatelessWidget {
                 for (final widget in contextSlots)
                   SliverToBoxAdapter(child: widget),
                 SliverToBoxAdapter(
-                  child: Column(
-                    key: ValueKey('focal-${focal.post.postId}'),
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (focal.post.replyToHandle.isNotEmpty)
-                        _ReplyingTo(handle: focal.post.replyToHandle),
-                      BlockedPostGate(
-                        authorId: focal.post.author.userId,
-                        handle: focal.post.author.handle,
-                        graphEnabled: graphEnabled,
-                        child: PostCard(
-                          view: focal,
-                          showFullImages: true,
-                          viewerUserId: viewerUserId,
-                          graphActionsEnabled: graphEnabled,
-                          reportsEnabled: reportsEnabled,
-                          engagementEnabled: engagementEnabled,
-                          // The reply composer is right below.
-                          showReply: false,
-                          onDelete: cubit.deletePost,
-                          onRelationshipChanged: onRelationship,
+                  // The open post sits on a calm tint, apart from its replies.
+                  child: ColoredBox(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    child: Column(
+                      key: ValueKey('focal-${focal.post.postId}'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (focal.post.replyToHandle.isNotEmpty)
+                          _ReplyingTo(handle: focal.post.replyToHandle),
+                        BlockedPostGate(
+                          authorId: focal.post.author.userId,
+                          handle: focal.post.author.handle,
+                          graphEnabled: graphEnabled,
+                          child: PostCard(
+                            view: focal,
+                            showFullImages: true,
+                            viewerUserId: viewerUserId,
+                            graphActionsEnabled: graphEnabled,
+                            reportsEnabled: reportsEnabled,
+                            engagementEnabled: engagementEnabled,
+                            // The reply composer is right below.
+                            showReply: false,
+                            onDelete: cubit.deletePost,
+                            onRelationshipChanged: onRelationship,
+                          ),
                         ),
-                      ),
-                      const Divider(height: 1),
-                    ],
+                        const Divider(height: 1),
+                      ],
+                    ),
                   ),
                 ),
+                if (replies.isNotEmpty)
+                  const SliverToBoxAdapter(
+                    child: AppSectionHeader(title: 'Replies'),
+                  ),
                 SliverList.builder(
                   itemCount: replies.length,
                   findChildIndexCallback: (key) {
@@ -564,54 +572,56 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        enabled: !state.isSubmitting,
-                        minLines: 1,
-                        maxLines: 5,
-                        keyboardType: TextInputType.multiline,
-                        textCapitalization: TextCapitalization.sentences,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(kComposerInputCap),
-                        ],
-                        style: theme.textTheme.bodyLarge,
-                        decoration: InputDecoration(
-                          hintText: 'Post your reply',
-                          hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          filled: false,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          disabledBorder: InputBorder.none,
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: AppSpacing.xs,
+                        right: AppSpacing.sm,
+                      ),
+                      child: ExcludeSemantics(
+                        child: AppAvatar(
+                          url: viewerAuthorSnapshot(
+                            context.read<OnboardingBloc>().state.profile,
+                          ).avatarUrl,
                         ),
-                        onChanged: cubit.textChanged,
+                      ),
+                    ),
+                    Expanded(
+                      child: AppSurface(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        child: TextField(
+                          controller: _controller,
+                          enabled: !state.isSubmitting,
+                          minLines: 1,
+                          maxLines: 5,
+                          keyboardType: TextInputType.multiline,
+                          textCapitalization: TextCapitalization.sentences,
+                          inputFormatters: [
+                            LengthLimitingTextInputFormatter(kComposerInputCap),
+                          ],
+                          style: theme.textTheme.bodyLarge,
+                          decoration: InputDecoration(
+                            hintText: 'Post your reply',
+                            hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            filled: false,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                          ),
+                          onChanged: cubit.textChanged,
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(
-                          _kReplyButtonWidth,
-                          AppSpacing.minTapTarget,
-                        ),
-                      ),
+                    AppGradientButton(
+                      label: 'Reply',
+                      busy: state.isSubmitting,
+                      busySemanticsLabel: 'Sending reply',
                       onPressed: state.canSubmit ? cubit.submit : null,
-                      child: state.isSubmitting
-                          ? Semantics(
-                              label: 'Sending reply',
-                              liveRegion: true,
-                              child: const SizedBox(
-                                width: AppIconSize.md,
-                                height: AppIconSize.md,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          : const Text('Reply'),
                     ),
                   ],
                 ),

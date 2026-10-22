@@ -118,6 +118,54 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('busySemanticsLabel is announced, as a live region, only '
+        'while busy; the visible text stays', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        _host(
+          AppGradientButton(
+            label: 'Reply',
+            busySemanticsLabel: 'Sending reply',
+            onPressed: () {},
+          ),
+        ),
+      );
+      expect(find.bySemanticsLabel('Reply'), findsOneWidget);
+      expect(find.bySemanticsLabel('Sending reply'), findsNothing);
+
+      await tester.pumpWidget(
+        _host(
+          AppGradientButton(
+            label: 'Reply',
+            busy: true,
+            busySemanticsLabel: 'Sending reply',
+            onPressed: () {},
+          ),
+        ),
+      );
+      expect(find.bySemanticsLabel('Sending reply'), findsOneWidget);
+      expect(find.bySemanticsLabel('Reply'), findsNothing);
+      expect(
+        tester.getSemantics(find.byType(AppGradientButton)),
+        isSemantics(label: 'Sending reply', isButton: true, isLiveRegion: true),
+      );
+      expect(find.text('Reply'), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('without busySemanticsLabel a busy button is not a live '
+        'region', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        _host(AppGradientButton(label: 'Post', busy: true, onPressed: () {})),
+      );
+      expect(
+        tester.getSemantics(find.byType(AppGradientButton)),
+        isNot(isSemantics(isLiveRegion: true)),
+      );
+      handle.dispose();
+    });
+
     testWidgets('meets the minimum tap target, even with a short label', (
       tester,
     ) async {

@@ -8,7 +8,9 @@ import '../../core/theme/app_theme.dart';
 ///
 /// Whether it is [busy] or disabled (`onPressed == null`) is the caller's
 /// decision, from its own bloc state. Both ignore taps. It announces
-/// [label] exactly once, as an enabled or disabled button.
+/// [label] exactly once, as an enabled or disabled button. With
+/// [busySemanticsLabel] it announces that instead while [busy], as a live
+/// region ("Sending reply"); the visible text stays [label].
 class AppGradientButton extends StatelessWidget {
   const AppGradientButton({
     super.key,
@@ -16,12 +18,14 @@ class AppGradientButton extends StatelessWidget {
     required this.onPressed,
     this.icon,
     this.busy = false,
+    this.busySemanticsLabel,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
   final bool busy;
+  final String? busySemanticsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -31,10 +35,12 @@ class AppGradientButton extends StatelessWidget {
     final radius = BorderRadius.circular(AppRadius.pill);
     // The visual subtree is excluded from semantics and replaced by this one
     // node, so the label is spoken once (not once here and once from the Text).
+    final announceBusy = busy && busySemanticsLabel != null;
     return Semantics(
       button: true,
       enabled: enabled,
-      label: label,
+      liveRegion: announceBusy,
+      label: announceBusy ? busySemanticsLabel : label,
       onTap: enabled ? onPressed : null,
       excludeSemantics: true,
       child: Material(

@@ -11,6 +11,8 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/app_gradient_button.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
@@ -36,6 +38,9 @@ import 'widgets/draft_problem_hint.dart';
 /// the counter can go negative (the user sees how much to cut), while a huge
 /// paste never makes every keystroke expensive.
 const kComposerInputCap = 1000;
+
+/// Share of the header row one of its buttons (Cancel, Post) may take.
+const double _kHeaderButtonShare = 0.4;
 
 /// `/compose` (T16): write a text post. 280 code points counted after NFC
 /// (ADR-0010 D9), at most 10 lines; Post is disabled otherwise. The server
@@ -136,21 +141,30 @@ class ComposerScreen extends StatelessWidget {
               child: _ComposerView(
                 mediaEnabled: mediaEnabled,
                 quotePreview: quotePreview,
+                avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
               ),
             )
           : _ComposerView(
               mediaEnabled: mediaEnabled,
               quotePreview: quotePreview,
+              avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
             ),
     );
   }
 }
 
 class _ComposerView extends StatefulWidget {
-  const _ComposerView({required this.mediaEnabled, this.quotePreview});
+  const _ComposerView({
+    required this.mediaEnabled,
+    required this.avatarUrl,
+    this.quotePreview,
+  });
 
   final bool mediaEnabled;
   final pb.EmbeddedPost? quotePreview;
+
+  /// The viewer's avatar (empty: the person icon).
+  final String avatarUrl;
 
   @override
   State<_ComposerView> createState() => _ComposerViewState();
@@ -262,103 +276,206 @@ class _ComposerViewState extends State<_ComposerView> {
             if (!didPop) _requestClose(context, state);
           },
           child: Scaffold(
-            appBar: AppBar(
-              leading: IconButton(
-                tooltip: 'Close',
-                icon: const Icon(Icons.close),
-                onPressed: state.isSubmitting
-                    ? null
-                    : () => _requestClose(context, state),
-              ),
-              title: Text(isQuote ? 'Quote' : 'New post'),
-              actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.sm),
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(72, AppSpacing.minTapTarget),
-                    ),
-                    onPressed: state.canSubmit ? cubit.submit : null,
-                    child: state.isSubmitting
-                        ? const SizedBox(
-                            width: AppIconSize.md,
-                            height: AppIconSize.md,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Post'),
-                  ),
-                ),
-              ],
-            ),
+            // The keyboard shrinks the body, so the field and the bottom bar
+            // (photos, counter) stay above it.
             body: SafeArea(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: TextField(
-                        controller: _controller,
-                        autofocus: true,
-                        enabled: !state.isSubmitting,
-                        expands: true,
-                        maxLines: null,
-                        minLines: null,
-                        textAlignVertical: TextAlignVertical.top,
-                        keyboardType: TextInputType.multiline,
-                        textCapitalization: TextCapitalization.sentences,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(kComposerInputCap),
-                        ],
-                        style: Theme.of(context).textTheme.bodyLarge
-                            ?.copyWith(fontSize: 18),
-                        decoration: InputDecoration(
-                          hintText: isQuote
-                              ? 'Add a comment'
-                              : "What's happening?",
-                          hintStyle: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                fontSize: 18,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+              child: _MainColumn(
+                child: Column(
+                  children: [
+                    _ComposerHeader(
+                      title: isQuote ? 'Quote' : 'New post',
+                      submitting: state.isSubmitting,
+                      onCancel: () => _requestClose(context, state),
+                      onPost: state.canSubmit ? cubit.submit : null,
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ExcludeSemantics(
+                              child: AppAvatar(url: widget.avatarUrl),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: TextField(
+                                controller: _controller,
+                                autofocus: true,
+                                enabled: !state.isSubmitting,
+                                expands: true,
+                                maxLines: null,
+                                minLines: null,
+                                textAlignVertical: TextAlignVertical.top,
+                                keyboardType: TextInputType.multiline,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                inputFormatters: [
+                                  LengthLimitingTextInputFormatter(
+                                    kComposerInputCap,
+                                  ),
+                                ],
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(fontSize: 18),
+                                decoration: InputDecoration(
+                                  hintText: isQuote
+                                      ? 'Add a comment'
+                                      : "What's happening?",
+                                  hintStyle: Theme.of(context)
+                                      .textTheme
+                                      .bodyLarge
+                                      ?.copyWith(
+                                        fontSize: 18,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                  filled: false,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  disabledBorder: InputBorder.none,
+                                ),
+                                onChanged: cubit.textChanged,
                               ),
-                          filled: false,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
+                            ),
+                          ],
                         ),
-                        onChanged: cubit.textChanged,
                       ),
                     ),
-                  ),
-                  if (isQuote) _QuotePreview(preview: widget.quotePreview),
-                  if (widget.mediaEnabled)
-                    AttachmentGrid(enabled: !state.isSubmitting),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
+                    if (isQuote) _QuotePreview(preview: widget.quotePreview),
+                    if (widget.mediaEnabled)
+                      AttachmentGrid(enabled: !state.isSubmitting),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsetsDirectional.fromSTEB(
+                        AppSpacing.sm,
+                        AppSpacing.xs,
+                        AppSpacing.md,
+                        AppSpacing.xs,
+                      ),
+                      // Photos at the start, the counter at the end; the hint
+                      // (when there is one) takes the space between.
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          if (widget.mediaEnabled)
+                            const _AddPhotoButton()
+                          else
+                            const SizedBox.shrink(),
+                          DraftProblemHint(problem: state.draft.problem),
+                          CharacterCounter(remaining: state.draft.remaining),
+                        ],
+                      ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (widget.mediaEnabled)
-                          const _AddPhotoButton()
-                        else
-                          const SizedBox(width: AppSpacing.sm),
-                        DraftProblemHint(problem: state.draft.problem),
-                        CharacterCounter(remaining: state.draft.remaining),
-                        const SizedBox(width: AppSpacing.sm),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// The composer's header: Cancel (off while the post is being sent), the
+/// title as a header, and the gradient Post action. The Post state is the
+/// caller's: a null [onPost] is disabled, [submitting] shows the spinner.
+class _ComposerHeader extends StatelessWidget {
+  const _ComposerHeader({
+    required this.title,
+    required this.submitting,
+    required this.onCancel,
+    required this.onPost,
+  });
+
+  final String title;
+  final bool submitting;
+  final VoidCallback onCancel;
+  final VoidCallback? onPost;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          // Each button may take at most [_kHeaderButtonShare] of the row,
+          // so at large text on a small phone its label ellipsizes and the
+          // title yields; nothing overflows.
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final cap = BoxConstraints(
+                maxWidth: constraints.maxWidth * _kHeaderButtonShare,
+              );
+              return Row(
+                children: [
+                  ConstrainedBox(
+                    constraints: cap,
+                    child: TextButton(
+                      onPressed: submitting ? null : onCancel,
+                      child: const Text(
+                        'Cancel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ),
+                  ConstrainedBox(
+                    constraints: cap,
+                    child: AppGradientButton(
+                      label: 'Post',
+                      busy: submitting,
+                      onPressed: onPost,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        const Divider(height: 1),
+      ],
+    );
+  }
+}
+
+/// Keeps the composer in the main-column width of the shell on wide screens
+/// (centred between 1dp borders); on a phone it is edge to edge.
+class _MainColumn extends StatelessWidget {
+  const _MainColumn({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final border = Theme.of(context).colorScheme.outlineVariant;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: AppLayout.mainColumnMaxWidth,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.symmetric(vertical: BorderSide(color: border)),
+          ),
+          child: child,
+        ),
+      ),
     );
   }
 }
