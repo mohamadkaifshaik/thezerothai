@@ -35,6 +35,24 @@ IconData notificationIcon(NotificationType type) => switch (type) {
   _ => Icons.notifications_none,
 };
 
+/// The type icon's colour (X's: like pink, repost green, the rest the accent).
+Color notificationIconColor(BuildContext context, NotificationType type) {
+  final colors = context.appColors;
+  return switch (type) {
+    NotificationType.NOTIFICATION_TYPE_LIKE => colors.like,
+    NotificationType.NOTIFICATION_TYPE_REPOST => colors.repost,
+    _ => Theme.of(context).colorScheme.primary,
+  };
+}
+
+/// Whether [type] belongs to the Mentions tab (mentions and replies to you).
+bool isMentionType(NotificationType type) =>
+    type == NotificationType.NOTIFICATION_TYPE_MENTION ||
+    type == NotificationType.NOTIFICATION_TYPE_REPLY;
+
+/// Lines of "Name action" a row shows before it ends in an ellipsis.
+const kNotificationTextLines = 3;
+
 /// One notification in the list: type icon, actor avatar, "Name action" and a
 /// muted time. A full-width, 48dp+ tap target (no ListTile); unread rows get
 /// a subtle primary tint and say "unread" to screen readers.
@@ -100,7 +118,7 @@ class NotificationRow extends StatelessWidget {
                     child: Icon(
                       notificationIcon(notification.type),
                       size: AppIconSize.lg,
-                      color: colors.primary,
+                      color: notificationIconColor(context, notification.type),
                     ),
                   ),
                 ),
@@ -141,6 +159,8 @@ class NotificationRow extends StatelessWidget {
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       Text.rich(
+                        maxLines: kNotificationTextLines,
+                        overflow: TextOverflow.ellipsis,
                         TextSpan(
                           children: [
                             TextSpan(

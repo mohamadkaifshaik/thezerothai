@@ -14,6 +14,7 @@ import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/app_empty_view.dart';
+import '../../../shared/widgets/app_tab_bar.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
 import '../../../shared/widgets/timeline_gap_row.dart';
 import '../data/notifications_repository.dart';
@@ -67,6 +68,9 @@ class _NotificationsViewState extends State<_NotificationsView>
     with WidgetsBindingObserver {
   final ScrollController _controller = ScrollController();
   late DateTime _now = DateTime.now();
+
+  /// 0 = All, 1 = Mentions: a filter of the loaded rows, no extra RPC.
+  int _tab = 0;
 
   @override
   void initState() {
@@ -125,6 +129,21 @@ class _NotificationsViewState extends State<_NotificationsView>
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
                       AppTopBar.sliver(title: 'Notifications'),
+                      _inset(
+                        inset,
+                        SliverToBoxAdapter(
+                          child: AppTabBar(
+                            equalWidth: true,
+                            semanticLabel: 'Notifications timelines',
+                            selectedIndex: _tab,
+                            onChanged: (index) => setState(() => _tab = index),
+                            tabs: const [
+                              AppTab(label: 'All'),
+                              AppTab(label: 'Mentions'),
+                            ],
+                          ),
+                        ),
+                      ),
                       _inset(inset, const _PushPrompt()),
                       if (state.notice != null)
                         _inset(
@@ -172,7 +191,43 @@ class _NotificationsViewState extends State<_NotificationsView>
       }
       return [_inset(inset, SliverToBoxAdapter(child: child))];
     }
-    final entries = state.entries;
+    final mentions = _tab == 1;
+    // The Mentions tab filters the loaded rows (gap markers stay so a gap
+    // can still be filled); it asks the server for nothing extra.
+    final entries = mentions
+        ? [
+            for (final e in state.entries)
+              if (e.isGap || isMentionType(e.value!.type)) e,
+          ]
+        : state.entries;
+    if (mentions && !entries.any((e) => !e.isGap)) {
+      return [
+        _inset(
+          inset,
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                const AppEmptyView(
+                  icon: Icons.alternate_email,
+                  title: 'No mentions yet',
+                  subtitle:
+                      'When someone mentions you or replies to you, it will '
+                      'show up here.',
+                ),
+                if (state.hasMore)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, AppSpacing.minTapTarget),
+                    ),
+                    onPressed: state.loadingMore ? null : cubit.loadMore,
+                    child: const Text('Look through older notifications'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ];
+    }
     final since = state.highlightSince;
     return [
       _inset(
