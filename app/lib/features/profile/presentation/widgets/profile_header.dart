@@ -286,7 +286,7 @@ class _ProfileHeaderBody extends StatelessWidget {
   }
 }
 
-/// A purely decorative band behind the avatar: theme surfaces only, no image
+/// A purely decorative band behind the avatar: a flat theme surface, no image
 /// and no profile field, and hidden from assistive technology.
 class _CoverBand extends StatelessWidget {
   const _CoverBand();
@@ -294,16 +294,9 @@ class _CoverBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    // Flat, like X's empty banner (no gradient anywhere in the app).
     return ExcludeSemantics(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [colors.surfaceContainerHigh, colors.surfaceContainerLow],
-          ),
-        ),
-      ),
+      child: ColoredBox(color: colors.surfaceContainerHigh),
     );
   }
 }

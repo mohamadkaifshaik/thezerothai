@@ -121,13 +121,13 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           ),
-                          HandleCheckStatus.available => const Icon(
+                          HandleCheckStatus.available => Icon(
                             Icons.check_circle,
-                            color: Colors.green,
+                            color: context.appColors.positive,
                           ),
-                          HandleCheckStatus.unavailable => const Icon(
+                          HandleCheckStatus.unavailable => Icon(
                             Icons.error,
-                            color: Colors.red,
+                            color: Theme.of(context).colorScheme.error,
                           ),
                           HandleCheckStatus.unknown => const Icon(
                             Icons.help_outline,

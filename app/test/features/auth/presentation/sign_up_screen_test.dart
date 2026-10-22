@@ -6,7 +6,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
-import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,7 +66,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Confirm password'),
         'password2',
       );
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Sign up'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
       await tester.pump();
 
       expect(find.text('Passwords do not match'), findsOneWidget);
@@ -102,7 +102,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Confirm password'),
         'password1',
       );
-      await tester.tap(find.widgetWithText(AppGradientButton, 'Sign up'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
       await tester.pumpAndSettle();
 
       verify(
