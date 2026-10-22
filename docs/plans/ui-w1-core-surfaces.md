@@ -19,4 +19,4 @@ Cost line: 0 reads/writes per ticket (render and local filtering only); Replies 
 Definition of done per ticket: widget tests in light and dark at 360/600/1200 via `test/support/theme_harness.dart`, `make ci` green, `docs/ui-catalog.md` and this table updated in the PR.
 
 ## Notes
-- W1-1: Share is not offered yet (no handler), so the right-aligned slot is exercised by tests only.
+- W1-1: Share is not offered yet (no handler), so the right-aligned slot is exercised by tests only (branch refreshed for review).
