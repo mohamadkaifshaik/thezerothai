@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -13,6 +14,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+class _MemoryThemeStore implements ThemeModeStore {
+  @override
+  Future<String?> read() async => null;
+
+  @override
+  Future<void> write(String value) async {}
+}
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
@@ -42,6 +51,9 @@ void main() {
     return MultiBlocProvider(
       providers: [
         BlocProvider<AuthBloc>.value(value: authBloc),
+        BlocProvider<ThemeModeCubit>(
+          create: (_) => ThemeModeCubit(_MemoryThemeStore()),
+        ),
         BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
       ],
       child: const MaterialApp(home: SettingsScreen()),

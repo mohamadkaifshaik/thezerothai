@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/router/app_router.dart';
 import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/theme_mode_cubit.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -100,6 +102,10 @@ class _AppWidgetState extends State<AppWidget> {
     onUnexpectedError: reportUnexpectedError,
   );
   late final StreamSubscription<AuthState> _authSub;
+  // The appearance choice (System / Light / Dark), saved on the device.
+  late final ThemeModeCubit _themeMode = ThemeModeCubit(
+    DatabaseThemeModeStore(widget.database),
+  );
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
   late final StreamSubscription<OnboardingState> _onboardingSub;
@@ -109,6 +115,7 @@ class _AppWidgetState extends State<AppWidget> {
   @override
   void initState() {
     super.initState();
+    unawaited(_themeMode.load());
     _authSub = widget.authBloc.stream.listen((state) {
       if (state.status == AuthStatus.unauthenticated) {
         _pendingPosts.clear();
@@ -167,6 +174,7 @@ class _AppWidgetState extends State<AppWidget> {
     _onboardingSub.cancel();
     _pendingPosts.close();
     _engagement.close();
+    _themeMode.close();
     super.dispose();
   }
 
@@ -204,14 +212,39 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: _engagement),
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: widget.unreadBadgeCubit),
+          BlocProvider.value(value: _themeMode),
         ],
-        child: MaterialApp.router(
-          title: 'Dzeroth',
-          debugShowCheckedModeBanner: false,
-          theme: appLightTheme,
-          darkTheme: appDarkTheme,
-          themeMode: ThemeMode.system,
-          routerConfig: _appRouter.router,
+        child: BlocBuilder<ThemeModeCubit, ThemeMode>(
+          builder: (context, mode) => MaterialApp.router(
+            title: 'Dzeroth',
+            debugShowCheckedModeBanner: false,
+            theme: appLightTheme,
+            darkTheme: appDarkTheme,
+            themeMode: mode,
+            routerConfig: _appRouter.router,
+            builder: (context, child) {
+              final dark = Theme.of(context).brightness == Brightness.dark;
+              final surface = Theme.of(context).colorScheme.surface;
+              // The web theme colour and the status-bar icons follow the
+              // theme (a top bar that is not an `AppBar` sets neither).
+              return Title(
+                title: 'Dzeroth',
+                color: surface,
+                child: AnnotatedRegion<SystemUiOverlayStyle>(
+                  value: SystemUiOverlayStyle(
+                    statusBarColor: Colors.transparent,
+                    statusBarIconBrightness: dark
+                        ? Brightness.light
+                        : Brightness.dark,
+                    statusBarBrightness: dark
+                        ? Brightness.dark
+                        : Brightness.light,
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              );
+            },
+          ),
         ),
       ),
     );

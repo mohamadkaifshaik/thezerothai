@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -22,6 +23,16 @@ class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
+
+class _MemoryThemeStore implements ThemeModeStore {
+  String? value;
+
+  @override
+  Future<String?> read() async => value;
+
+  @override
+  Future<void> write(String value) async => this.value = value;
+}
 
 class _FakeUrlLauncherPlatform extends UrlLauncherPlatform {
   String? lastUrl;
@@ -230,7 +241,7 @@ void main() {
     Set<String> flags = const {},
     String? email = _email,
     Brightness brightness = Brightness.dark,
-    Size size = const Size(390, 844),
+    Size size = const Size(390, 1100),
     double textScale = 1,
   }) async {
     tester.view.physicalSize = size;
@@ -274,6 +285,9 @@ void main() {
       MultiBlocProvider(
         providers: [
           BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<ThemeModeCubit>(
+            create: (_) => ThemeModeCubit(_MemoryThemeStore()),
+          ),
           BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
         ],
         child: MaterialApp.router(
@@ -291,13 +305,17 @@ void main() {
     return router;
   }
 
+  /// The rows, without the Appearance row of the Display group (W0-8): this
+  /// parity table predates it and is about the account rows.
   List<String> rows(WidgetTester tester) => [
     for (final row in tester.widgetList<SettingsRow>(find.byType(SettingsRow)))
-      [row.title, if (row.subtitle != null) '(${row.subtitle})'].join(' '),
+      if (row.title != 'Appearance')
+        [row.title, if (row.subtitle != null) '(${row.subtitle})'].join(' '),
   ];
 
   const groupTitles = [
     'Account',
+    'Display',
     'Privacy & safety',
     'Your data',
     'About',
@@ -324,20 +342,21 @@ void main() {
     }
   });
 
-  testWidgets('everything gated off: only About and Session show', (
+  testWidgets('everything gated off: only Display, About and Session show', (
     tester,
   ) async {
     await open(tester, email: null);
 
+    expect(find.text('Display'), findsOneWidget);
     expect(find.text('About'), findsOneWidget);
     expect(find.text('Session'), findsOneWidget);
     for (final hidden in ['Account', 'Privacy & safety', 'Your data']) {
       expect(find.text(hidden), findsNothing);
     }
-    expect(find.byType(SettingsGroup), findsNWidgets(2));
+    expect(find.byType(SettingsGroup), findsNWidgets(3));
   });
 
-  testWidgets('everything on: the five groups, in order, with their rows', (
+  testWidgets('everything on: the six groups, in order, with their rows', (
     tester,
   ) async {
     await open(
@@ -349,7 +368,7 @@ void main() {
       for (final t in groupTitles) tester.getTopLeft(find.text(t)).dy,
     ];
     expect([...tops]..sort(), tops);
-    expect(find.byType(SettingsGroup), findsNWidgets(5));
+    expect(find.byType(SettingsGroup), findsNWidgets(6));
   });
 
   group('taps do what they did before', () {
