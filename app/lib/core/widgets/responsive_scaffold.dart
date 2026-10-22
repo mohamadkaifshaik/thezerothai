@@ -35,6 +35,7 @@ class ResponsiveScaffold extends StatefulWidget {
     this.showFab = true,
     this.drawer,
     this.accountChipBuilder,
+    this.masterPane,
   });
 
   /// The selected destination, or null when none is (Settings).
@@ -58,6 +59,11 @@ class ResponsiveScaffold extends StatefulWidget {
 
   /// Builds the account chip of the rail (`extended`: with the name block).
   final Widget Function(bool extended)? accountChipBuilder;
+
+  /// A list pane shown only at desktop widths, between the rail and the
+  /// [body] (master-detail: Settings). It takes the place of the
+  /// [sideColumn].
+  final Widget? masterPane;
 
   @override
   State<ResponsiveScaffold> createState() => _ResponsiveScaffoldState();
@@ -106,7 +112,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
 
   Widget _wide(BuildContext context, {required bool isDesktop}) {
     final colors = Theme.of(context).colorScheme;
-    final side = widget.sideColumn;
+    final master = isDesktop ? widget.masterPane : null;
+    final side = master == null ? widget.sideColumn : null;
     final compose = widget.onCompose;
     final accountChip = widget.accountChipBuilder?.call(isDesktop);
     return Scaffold(
@@ -150,6 +157,18 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                   ),
               ],
             ),
+            if (master != null)
+              SizedBox(
+                width: AppSize.sideColumn,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: colors.outlineVariant),
+                    ),
+                  ),
+                  child: master,
+                ),
+              ),
             // The feed column: at most 600dp, between two hairlines.
             Flexible(
               child: ConstrainedBox(

@@ -3,6 +3,7 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/compose_gate.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_account_chip.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
@@ -24,6 +25,14 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
+
+class _MemoryThemeStore implements ThemeModeStore {
+  @override
+  Future<String?> read() async => null;
+
+  @override
+  Future<void> write(String value) async {}
+}
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
@@ -104,6 +113,15 @@ void main() {
           builder: (context, state) => page('/settings', 'settings body'),
         ),
         GoRoute(
+          path: '/settings/blocked',
+          builder: (context, state) =>
+              page('/settings/blocked', 'blocked body'),
+        ),
+        GoRoute(
+          path: '/settings/handle',
+          builder: (context, state) => page('/settings/handle', 'handle body'),
+        ),
+        GoRoute(
           path: '/compose',
           builder: (context, state) => const Text('compose page'),
         ),
@@ -121,6 +139,9 @@ void main() {
           BlocProvider<OnboardingBloc>.value(value: onboarding),
           BlocProvider<AuthBloc>.value(value: auth),
           BlocProvider<UnreadBadgeCubit>.value(value: effectiveBadge),
+          BlocProvider<ThemeModeCubit>(
+            create: (_) => ThemeModeCubit(_MemoryThemeStore()),
+          ),
         ],
         child: MaterialApp.router(theme: appLightTheme, routerConfig: router),
       ),
@@ -366,7 +387,7 @@ void main() {
 
       await tester.tap(menuItem('Settings'));
       await tester.pumpAndSettle();
-      expect(find.text('settings body'), findsOneWidget);
+      expect(find.text('Select a setting'), findsOneWidget);
     });
 
     testWidgets('Sign out in the chip menu dispatches the sign-out event', (
@@ -463,6 +484,73 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.text('Select a setting'), findsOneWidget);
+    });
+  });
+
+  group('Settings master-detail (W1-7)', () {
+    testWidgets('>= 1200dp: the list beside an empty detail pane', (
+      tester,
+    ) async {
+      await pump(tester, width: 1400, location: '/settings');
+
+      expect(find.text('Select a setting'), findsOneWidget);
+      expect(find.text('Appearance'), findsOneWidget);
+      final list = tester.getRect(find.text('Appearance'));
+      final detail = tester.getRect(find.text('Select a setting'));
+      expect(list.right, lessThan(detail.left));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a row opens its page in the detail pane, the list stays, '
+        'its row is selected', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(
+        tester,
+        width: 1400,
+        location: '/settings',
+        flags: {'posts', 'graph'},
+      );
+
+      await tester.tap(find.text('Blocked accounts'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('blocked body'), findsOneWidget);
+      expect(find.text('Appearance'), findsOneWidget);
+      expect(find.text('Select a setting'), findsNothing);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Blocked accounts')),
+        isSemantics(isButton: true, isSelected: true),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a deep link opens the page with the list beside it', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        width: 1400,
+        location: '/settings/blocked',
+        flags: {'posts', 'graph'},
+      );
+
+      expect(find.text('blocked body'), findsOneWidget);
+      expect(find.text('Appearance'), findsOneWidget);
+    });
+
+    testWidgets('< 1200dp: no master pane, the page is the page', (
+      tester,
+    ) async {
+      await pump(tester, width: 1100, location: '/settings');
+
+      expect(find.text('settings body'), findsOneWidget);
+      expect(find.text('Select a setting'), findsNothing);
+    });
+
+    testWidgets('flag off: the page, never a master pane', (tester) async {
+      await pump(tester, width: 1400, location: '/settings', newShell: false);
+
       expect(find.text('settings body'), findsOneWidget);
     });
   });

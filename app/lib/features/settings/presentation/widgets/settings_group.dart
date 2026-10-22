@@ -58,6 +58,7 @@ class SettingsRow extends StatelessWidget {
     this.trailing,
     this.showChevron = true,
     this.destructive = false,
+    this.selected = false,
   });
 
   final IconData icon;
@@ -72,6 +73,9 @@ class SettingsRow extends StatelessWidget {
   /// for an action that does not open another page (Sign out).
   final bool showChevron;
   final bool destructive;
+
+  /// The row whose page is open in the detail pane (master-detail layout).
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -148,10 +152,14 @@ class SettingsRow extends StatelessWidget {
     return Semantics(
       container: true,
       button: true,
+      selected: selected ? true : null,
       label: label,
       onTap: onTap,
       excludeSemantics: true,
-      child: InkWell(onTap: onTap, child: content),
+      child: Material(
+        color: selected ? context.appColors.selectedRow : Colors.transparent,
+        child: InkWell(onTap: onTap, child: content),
+      ),
     );
   }
 }
