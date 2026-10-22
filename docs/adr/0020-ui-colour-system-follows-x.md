@@ -1,5 +1,5 @@
 # 0020. The UI colour system follows X's palette (dark and light); no brand gradient
-Status: Proposed (the founder gave the decision on 2026-10-22; Accepted once the founder signs this ADR)
+Status: Accepted (founder, 2026-10-22)
 Date: 2026-10-22
 Deciders: founder, architect
 
@@ -39,8 +39,9 @@ marked "to confirm" in the theme file.
 - Negative: the brand identity of 2026-10-21 is gone; accent text on light is not X-exact (accessibility wins); X may change its colours.
 - Existing widgets that used the primary-to-tertiary pair (`AppGradientButton`, the profile cover band) are replaced by a flat pill and
   a flat band.
-- Follow-ups: confirm the light disabled/selected colours when captured; golden baselines on Linux CI; the accent-text choice (D1) may
-  be revisited if the founder prefers X's exact blue.
+- Accent text on light (plan decision D1) confirmed by the founder on 2026-10-22: `#1478bd` for small text, X blue `#1d9bf0` for fills,
+  indicators, icons and large bold text.
+- Follow-ups: confirm the light disabled/selected colours when captured; golden baselines on Linux CI.
 
 ## Handoff
-frontend-developer (done in W0-1 of `docs/plans/ui-w0-foundations.md`) → tester (theme tests) → code-reviewer; founder to Accept.
+frontend-developer (done in W0-1 of `docs/plans/ui-w0-foundations.md`) → tester (theme tests) → code-reviewer. Accepted by the founder 2026-10-22.
