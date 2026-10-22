@@ -19,19 +19,21 @@ Single place for everything deferred from the X-research UI programme (W0 `docs/
 ## B. Rollout and release gates (founder / deployer)
 | ID | Item | Notes |
 | --- | --- | --- |
-| B-20 | Ramp the `ui_shell` flag: dev allowlist -> percent -> on | `FEATURE_UI_SHELL` is default off everywhere; ceiling in `scripts/promotion/flag-ceiling.json` is `off` (raise by reviewed PR). Roll back by setting it off. See `docs/runbooks/ui-shell.md` |
+| B-20 | Ramp the `ui_shell` flag: dev allowlist -> percent -> on | `FEATURE_UI_SHELL` is default off everywhere; dev ceiling in `scripts/promotion/flag-ceiling.json` is `allowlist` with 3 uids (#240); prod is not raised (raise by reviewed PR). Roll back by setting it off. See `docs/runbooks/ui-shell.md` |
 | B-21 | Terraform: apply the new `feature_ui_shell*` variables in dev, later prod | Plan first, apply only on explicit founder "yes"; no prod apply without approval |
-| B-22 | Decide whether ADR-0020 follow-ups need their own ADR (light-state colours) | ADR-0020 is Accepted (2026-10-22) |
+| B-22 | Amend ADR-0020: accent text on light becomes X's `#1d9bf0` (founder 2026-10-23, replaces `#1478bd`); then a small theme ticket. `#1d9bf0` on white is about 3:1, below AA for small text: keep underline/weight cues and record the accessibility exception | ADR-0020 is Accepted (2026-10-22) |
 
-## C. Later waves (from `14_mvp_structured_plan.md`; each needs plan + server flag, ADRs where noted)
+## C. Later waves (numbering follows `docs/plans/roadmap.md`, which follows `14_mvp_structured_plan.md`; each needs plan + server flag, ADRs where noted)
 | ID | Wave | Scope | Gate |
 | --- | --- | --- | --- |
-| B-30 | W2-W3 | Explore/search (handle prefix, hashtags, trends from own data), quote UI, hashtag UI, media on profile (Media tab) | Reverses the 2026-10-18 deferrals (confirmed 2026-10-22); backend budgets per `free-tier-budget` |
-| B-31 | W4 | Bookmarks, lists, history, notifications settings | Plan + Firestore model |
-| B-32 | W5 | Custom list tabs on Home, communities | Plan + ADR |
-| B-33 | W6 | Direct messages v1: server-mediated pull + push, **no E2E** | ADR (cost math); E2E encryption is a future ADR |
-| B-34 | W7 | GIFs: device GIF upload now; Klipy search picker only after its terms are verified (Tenor API shut down 2026-06-30, Giphy is paid in production) | Terms check |
-| B-35 | W8 | Creator studio, premium, ads, calls: **UI shells only** | Payments, ads and video each need a future approved ADR before any real implementation |
+| B-29 | W1.5 | Capture post detail, composer modal and another user's profile on x.com, then a client-only conformance plan | Founder opens each tab for REA; no spec is invented for unobserved states |
+| B-30 | W2 | Bookmarks, share, alt text, quote UI, hashtag tap-through, push opt-in card | Reverses the 2026-10-18 deferrals (confirmed 2026-10-22); ADR + budgets per `free-tier-budget` |
+| B-31 | W3 | Cover image, Media / Reposts / Likes tabs, pinned post, who-to-follow, follow-requests UI, "Follows you" | ADR for cover and likes list; read cap for suggestions |
+| B-32 | W4 | Search (handle prefix, hashtags), suggestions, Explore, trends from own hashtag counters | Search module ADR; one scheduled sweep; no external news feed |
+| B-33 | W5 | Lists, custom Home tabs from lists, communities | Plan + ADR; moderation story for communities |
+| B-34 | W6 | Polls, scheduled posts (one sweep job), drafts, GIFs (device upload now; Klipy picker only after terms are verified; Tenor API shut down 2026-06-30, Giphy is paid in production), reply audience | Terms check for GIF |
+| B-35 | W7 | Direct messages v1: server-mediated pull + push, **no E2E** | ADR (cost math); E2E is a future ADR |
+| B-36 | W8 | Creator studio, premium, ads, calls: **UI shells only** (Spaces dropped by the founder 2026-10-23) | Payments, ads and video each need a future approved ADR |
 
 ## D. Process
 - One ticket per PR, behind a server flag when user-facing, `make ci` green, ui-catalog and plan statuses updated in the PR.
