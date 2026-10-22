@@ -4,6 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_error_view.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../../shared/widgets/app_empty_view.dart';
+import '../../../../shared/widgets/user_list_skeleton.dart';
 import '../bloc/user_list_cubit.dart';
 import '../bloc/user_list_state.dart';
 import 'user_list_row.dart';
@@ -20,11 +22,15 @@ class PagedUserList extends StatefulWidget {
     super.key,
     required this.cubit,
     required this.emptyMessage,
+    this.emptyIcon = Icons.people_outline,
     this.rowBuilder,
   });
 
   final UserListCubit cubit;
   final String emptyMessage;
+
+  /// The icon above [emptyMessage] in the empty state.
+  final IconData emptyIcon;
 
   /// Overrides the default [UserListRow] rendering (e.g. Settings' managed-
   /// accounts screens, which show an Unblock/Unmute action instead of a
@@ -67,7 +73,11 @@ class _PagedUserListState extends State<PagedUserList> {
       child: BlocBuilder<UserListCubit, UserListState>(
         builder: (context, state) {
           if (state.status == UserListStatus.loading) {
-            return const Center(child: CircularProgressIndicator());
+            // Never scrolls: a few static rows, clipped on a short screen.
+            return const SingleChildScrollView(
+              physics: NeverScrollableScrollPhysics(),
+              child: UserListSkeleton(),
+            );
           }
           if (state.status == UserListStatus.error ||
               state.status == UserListStatus.rateLimited) {
@@ -78,12 +88,10 @@ class _PagedUserListState extends State<PagedUserList> {
           }
           if (state.items.isEmpty) {
             return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: Text(
-                  widget.emptyMessage,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
+              child: SingleChildScrollView(
+                child: AppEmptyView(
+                  icon: widget.emptyIcon,
+                  title: widget.emptyMessage,
                 ),
               ),
             );
@@ -100,8 +108,8 @@ class _PagedUserListState extends State<PagedUserList> {
                     padding: EdgeInsets.all(AppSpacing.md),
                     child: Center(
                       child: SizedBox(
-                        width: 20,
-                        height: 20,
+                        width: AppIconSize.md,
+                        height: AppIconSize.md,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
