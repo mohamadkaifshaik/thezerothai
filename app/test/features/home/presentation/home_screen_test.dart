@@ -17,6 +17,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/widgets/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -156,11 +157,18 @@ void main() {
     expect(find.text('post 2'), findsOneWidget);
     expect(find.text('post 1'), findsOneWidget);
     expect(find.textContaining('new post'), findsNothing);
+    final before = tester.getTopLeft(find.text('post 2'));
 
     refreshed.complete(snapshotOf([3, 2, 1], since: 's2'));
     await tester.pumpAndSettle();
 
     expect(find.text('1 new post'), findsOneWidget);
+    // The pill floats under the two header rows: no layout shift.
+    expect(tester.getTopLeft(find.text('post 2')), before);
+    expect(
+      tester.getRect(find.text('1 new post')).top,
+      greaterThan(AppSize.headerRow * 2),
+    );
     expect(find.text('post 3'), findsNothing);
 
     await tester.tap(find.text('1 new post'));
@@ -490,24 +498,26 @@ void main() {
       stubRefresh(snapshotOf([2, 1]));
     }
 
-    testWidgets('posts flag off: placeholder only, no row, no Post button', (
+    testWidgets('posts flag off: placeholder only, no row, no tabs', (
       tester,
     ) async {
       await open(tester, features: const {});
 
       expect(find.text(rowLabel), findsNothing);
-      expect(find.byType(AppPillButton), findsNothing);
+      expect(find.byType(AppTabBar), findsNothing);
       expect(find.text('Your timeline is coming soon.'), findsOneWidget);
     });
 
-    testWidgets('posts flag on: the row, the avatar and the Post button show '
-        'above the feed', (tester) async {
+    testWidgets('posts flag on: the Following tab, the row and the avatar '
+        'show above the feed; no separate Post button', (tester) async {
       stubFeed();
       await open(tester);
 
       expect(find.text(rowLabel), findsOneWidget);
       expect(find.byType(AppAvatar), findsWidgets);
-      expect(find.widgetWithText(AppPillButton, 'Post'), findsOneWidget);
+      expect(find.byType(AppTabBar), findsOneWidget);
+      expect(find.text('Following'), findsOneWidget);
+      expect(find.byType(AppPillButton), findsNothing);
       expect(
         tester.getTopLeft(find.text(rowLabel)).dy,
         lessThan(tester.getTopLeft(find.text('post 2')).dy),
@@ -519,16 +529,6 @@ void main() {
       await open(tester, router: homeRouter());
 
       await tester.tap(find.text(rowLabel));
-      await tester.pumpAndSettle();
-
-      expect(find.text('compose page'), findsOneWidget);
-    });
-
-    testWidgets('tapping the Post button opens the composer', (tester) async {
-      stubFeed();
-      await open(tester, router: homeRouter());
-
-      await tester.tap(find.byType(AppPillButton));
       await tester.pumpAndSettle();
 
       expect(find.text('compose page'), findsOneWidget);
@@ -547,7 +547,7 @@ void main() {
       verifyNoMoreInteractions(posts);
     });
 
-    testWidgets('the row and the Post button are each announced once', (
+    testWidgets('the row is announced once, the tab as one selected group', (
       tester,
     ) async {
       stubFeed();
@@ -555,7 +555,7 @@ void main() {
       await open(tester);
 
       expect(find.bySemanticsLabel(rowLabel), findsOneWidget);
-      expect(find.bySemanticsLabel('Post'), findsOneWidget);
+      expect(find.bySemanticsLabel('Following'), findsOneWidget);
       expect(
         tester.getSemantics(find.bySemanticsLabel(rowLabel)),
         matchesSemantics(
@@ -580,10 +580,6 @@ void main() {
       );
       expect(
         tester.getSize(rowInk).height,
-        greaterThanOrEqualTo(AppSpacing.minTapTarget),
-      );
-      expect(
-        tester.getSize(find.byType(AppPillButton)).height,
         greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
 

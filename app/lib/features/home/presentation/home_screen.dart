@@ -6,6 +6,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
+import '../../../shared/widgets/app_tab_bar.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_state.dart';
 import '../../posts/data/posts_repository.dart';
@@ -63,10 +64,21 @@ class HomeScreen extends StatelessWidget {
         child: Scaffold(
           body: TimelineFeedView(
             viewerUserId: viewerUserId,
+            // Under the two header rows (top bar + tab bar).
+            newPostsPillTop: AppSize.headerRow * 2 + AppSpacing.sm,
             headerSlivers: [
               // 53dp top bar: the avatar button (narrow layouts, opens the
               // drawer) and the title, over the theme's bottom hairline.
               AppTopBar.sliver(title: 'Home'),
+              // One tab for now: custom list tabs arrive with the Lists wave.
+              SliverToBoxAdapter(
+                child: AppTabBar(
+                  semanticLabel: 'Home timelines',
+                  selectedIndex: 0,
+                  onChanged: (_) {},
+                  tabs: const [AppTab(label: 'Following')],
+                ),
+              ),
               if (canCompose)
                 const SliverToBoxAdapter(child: HomeComposerEntry()),
             ],

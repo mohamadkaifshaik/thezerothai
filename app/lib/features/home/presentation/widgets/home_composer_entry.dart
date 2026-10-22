@@ -5,12 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/app_avatar.dart';
-import '../../../../shared/widgets/app_pill_button.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 
-/// The entry row under the Home app bar: the viewer's avatar, a "Write a
-/// post" prompt and a Post button. It only navigates: every tap target opens
-/// the existing composer (`/compose`); nothing is typed here.
+/// The entry row under the Home tab bar: the viewer's avatar and a "Write a
+/// post" prompt. It only navigates: the row opens the existing composer
+/// (`/compose`); nothing is typed here. There is no separate Post button: the
+/// rail's Post control (wide) and this row (narrow) are the entries.
 ///
 /// Shown by [HomeScreen] under the same rule as the shell's "New post"
 /// button (`canComposeAt`). Rebuilds only when the viewer's avatar changes.
@@ -18,7 +18,6 @@ class HomeComposerEntry extends StatelessWidget {
   const HomeComposerEntry({super.key});
 
   static const promptLabel = 'Write a post';
-  static const postLabel = 'Post';
 
   static void _openComposer(BuildContext context) =>
       context.push(AppRouter.composePath);
@@ -76,12 +75,6 @@ class HomeComposerEntry extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            AppPillButton(
-              label: postLabel,
-              compact: true,
-              onPressed: () => _openComposer(context),
             ),
           ],
         ),
