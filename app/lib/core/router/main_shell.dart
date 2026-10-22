@@ -8,7 +8,9 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_account_chip.dart';
+import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
@@ -128,7 +130,16 @@ class MainShell extends StatelessWidget {
     ];
 
     void openCompose() => context.push(AppRouter.composePath);
+    // Settings is master-detail from 1200dp (the list beside the open page),
+    // only in the new shell.
+    final onSettings = location.startsWith(AppRouter.settingsPath);
+    final masterDetail =
+        newShell &&
+        onSettings &&
+        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+
     return ResponsiveScaffold(
+      masterPane: masterDetail ? _SettingsMaster(selectedPath: location) : null,
       selectedIndex: selectedIndex == null || selectedIndex < 0
           ? null
           : selectedIndex,
@@ -178,7 +189,45 @@ class MainShell extends StatelessWidget {
             );
         }
       },
-      body: child,
+      body: masterDetail && location == AppRouter.settingsPath
+          ? const SettingsDetailPlaceholder()
+          : child,
+    );
+  }
+}
+
+/// The master pane of the desktop Settings: a title row over the list.
+class _SettingsMaster extends StatelessWidget {
+  const _SettingsMaster({required this.selectedPath});
+
+  final String selectedPath;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          height: AppSize.headerRow,
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+          ),
+          child: Semantics(
+            header: true,
+            child: Text(
+              'Settings',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+        ),
+        Expanded(child: SettingsList(selectedPath: selectedPath)),
+      ],
     );
   }
 }

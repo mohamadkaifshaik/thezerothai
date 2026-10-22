@@ -29,6 +29,50 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      // The same ~600 dp column as the Home feed on wide screens.
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: AppBreakpoints.mobile),
+          child: const SettingsList(),
+        ),
+      ),
+    );
+  }
+}
+
+/// The empty detail pane of the master-detail layout (>= 1200dp, no page
+/// chosen yet).
+class SettingsDetailPlaceholder extends StatelessWidget {
+  const SettingsDetailPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text('Select a setting', textAlign: TextAlign.center),
+    );
+  }
+}
+
+/// The grouped Settings rows. On phones and tablets a row pushes its page; in
+/// the master-detail layout ([AppBreakpoints.tablet] and up, where the shell
+/// shows this list beside the page) it replaces the detail pane instead, and
+/// the row of the open page ([selectedPath]) is highlighted.
+class SettingsList extends StatelessWidget {
+  const SettingsList({super.key, this.selectedPath});
+
+  final String? selectedPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final masterDetail =
+        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+    void open(String path) =>
+        masterDetail ? context.go(path) : context.push(path);
+    bool selected(String path) => masterDetail && selectedPath == path;
+
     final user = context.select((AuthBloc bloc) => bloc.state.user);
     final graphEnabled = isGraphEnabled(context);
     final profileEnabled = isFeatureEnabled(context, kFeatureProfileSnapshot);
@@ -48,12 +92,14 @@ class SettingsScreen extends StatelessWidget {
             SettingsRow(
               icon: Icons.person_outline,
               title: 'Edit profile',
-              onTap: () => context.push(AppRouter.editProfilePath),
+              selected: selected(AppRouter.editProfilePath),
+              onTap: () => open(AppRouter.editProfilePath),
             ),
             SettingsRow(
               icon: Icons.alternate_email,
               title: 'Change handle',
-              onTap: () => context.push(AppRouter.changeHandlePath),
+              selected: selected(AppRouter.changeHandlePath),
+              onTap: () => open(AppRouter.changeHandlePath),
             ),
           ],
         ],
@@ -78,12 +124,14 @@ class SettingsScreen extends StatelessWidget {
             SettingsRow(
               icon: Icons.block_outlined,
               title: 'Blocked accounts',
-              onTap: () => context.push(AppRouter.blockedAccountsPath),
+              selected: selected(AppRouter.blockedAccountsPath),
+              onTap: () => open(AppRouter.blockedAccountsPath),
             ),
             SettingsRow(
               icon: Icons.volume_off_outlined,
               title: 'Muted accounts',
-              onTap: () => context.push(AppRouter.mutedAccountsPath),
+              selected: selected(AppRouter.mutedAccountsPath),
+              onTap: () => open(AppRouter.mutedAccountsPath),
             ),
           ],
         ],
@@ -95,7 +143,8 @@ class SettingsScreen extends StatelessWidget {
             SettingsRow(
               icon: Icons.download_outlined,
               title: 'Download my data',
-              onTap: () => context.push(AppRouter.exportDataPath),
+              selected: selected(AppRouter.exportDataPath),
+              onTap: () => open(AppRouter.exportDataPath),
             ),
         ],
       ),
@@ -122,7 +171,8 @@ class SettingsScreen extends StatelessWidget {
               icon: Icons.delete_forever_outlined,
               title: 'Delete account',
               destructive: true,
-              onTap: () => context.push(AppRouter.deleteAccountPath),
+              selected: selected(AppRouter.deleteAccountPath),
+              onTap: () => open(AppRouter.deleteAccountPath),
             ),
           SettingsRow(
             icon: Icons.logout,
@@ -135,22 +185,12 @@ class SettingsScreen extends StatelessWidget {
       ),
     ];
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      // The same ~600 dp column as the Home feed on wide screens.
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: AppBreakpoints.mobile),
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-            children: [
-              for (final (title, rows) in groups)
-                if (rows.isNotEmpty) SettingsGroup(title: title, rows: rows),
-            ],
-          ),
-        ),
-      ),
+    return ListView(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      children: [
+        for (final (title, rows) in groups)
+          if (rows.isNotEmpty) SettingsGroup(title: title, rows: rows),
+      ],
     );
   }
 }
