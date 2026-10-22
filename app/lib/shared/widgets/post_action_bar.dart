@@ -15,10 +15,13 @@ class PostActions {
   final VoidCallback? onShare;
 }
 
-/// Reply / repost / like / share: outline icons with compact counts. Every
-/// visible action gets an equal, left-aligned slot, so two actions (replies
-/// off) sit next to each other instead of at opposite edges. Rendered by `PostCard` only when it is
-/// given [PostActions] (the engagement bar, P5).
+/// Reply / repost / like / share: 16dp outline icons (in 48dp tap boxes) with
+/// compact counts. Every visible counted action (reply, repost, like) gets an
+/// equal, left-aligned slot, so two actions (replies off) sit next to each
+/// other instead of at opposite edges; Share, when offered, is right-aligned
+/// after them. The liked / reposted state uses the like / repost colours and
+/// is announced as `selected`. Rendered by `PostCard` only when it is given
+/// [PostActions] (the engagement bar, P5).
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -47,7 +50,7 @@ class PostActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final colors = context.appColors;
     return Row(
       children: [
         if (_shows(actions.onReply))
@@ -66,7 +69,7 @@ class PostActionBar extends StatelessWidget {
               label: reposted ? 'Undo repost' : 'Repost',
               count: repostCount,
               active: reposted,
-              activeColor: colors.primary,
+              activeColor: colors.repost,
               onPressed: actions.onRepost,
             ),
           ),
@@ -77,17 +80,16 @@ class PostActionBar extends StatelessWidget {
               label: liked ? 'Unlike' : 'Like',
               count: likeCount,
               active: liked,
-              activeColor: colors.error,
+              activeColor: colors.like,
               onPressed: actions.onLike,
             ),
           ),
         if (_shows(actions.onShare))
-          _ActionSlot(
-            child: _ActionButton(
-              icon: Icons.ios_share,
-              label: 'Share',
-              onPressed: actions.onShare,
-            ),
+          _ActionButton(
+            icon: Icons.ios_share,
+            label: 'Share',
+            alignEnd: true,
+            onPressed: actions.onShare,
           ),
       ],
     );
@@ -114,6 +116,7 @@ class _ActionButton extends StatelessWidget {
     this.count,
     this.active = false,
     this.activeColor,
+    this.alignEnd = false,
   });
 
   final IconData icon;
@@ -122,6 +125,10 @@ class _ActionButton extends StatelessWidget {
   final bool active;
   final Color? activeColor;
   final VoidCallback? onPressed;
+
+  /// A 48dp-wide box with the icon at its right edge (Share, flush with the
+  /// card's right padding) instead of a left-aligned one.
+  final bool alignEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -132,6 +139,7 @@ class _ActionButton extends StatelessWidget {
     final shown = count ?? 0;
     return Semantics(
       button: true,
+      selected: active,
       label: shown > 0 ? '$label, $shown' : label,
       excludeSemantics: true,
       onTap: onPressed,
@@ -139,14 +147,18 @@ class _ActionButton extends StatelessWidget {
         onTap: onPressed,
         radius: AppSpacing.lg,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
+          constraints: BoxConstraints(
             minWidth: AppSpacing.minTapTarget,
+            maxWidth: alignEnd ? AppSpacing.minTapTarget : double.infinity,
             minHeight: AppSpacing.minTapTarget,
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: alignEnd ? MainAxisSize.max : MainAxisSize.min,
+            mainAxisAlignment: alignEnd
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
             children: [
-              Icon(icon, size: AppIconSize.md, color: color),
+              Icon(icon, size: AppIconSize.action, color: color),
               if (shown > 0) ...[
                 const SizedBox(width: AppSpacing.xs),
                 Flexible(
