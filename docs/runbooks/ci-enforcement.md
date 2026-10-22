@@ -2,6 +2,8 @@
 Status: draft for founder review, 2026-10-20. **No GitHub setting, ruleset, App or credential has been changed or created.**
 Decision (founder, 2026-10-20): technical separation with a dedicated GitHub App or bot identity and **no bypass actors**; code owner
 `@mohamadkaifshaik`. The solo-owner bypass option is rejected.
+Update 2026-10-22: sections 6-9 were applied (see section 9); sections 11-12 below describe the current required checks, the tag ruleset
+and how bot PRs are approved.
 
 ## 1. State today (read-only checks)
 - Ruleset `main - Production protection` (id 24070946): **enforcement disabled**, targets `~DEFAULT_BRANCH` **and `~ALL`**, 1 approving
@@ -125,7 +127,8 @@ JSON
   empty). The effective policy is therefore "the owner approves every assistant PR". Code-owner enforcement on its own was **not isolated**:
   test 8 was blocked, but test 9 shows the block does not depend on CODEOWNERS. To isolate it, drop `require_last_push_approval` later and
   re-test 8 and 9 (8 should stay blocked, 9 should merge).
-- Not covered: tags, the `prod` environment's own tag policy, anything pushed with a token that has Administration.
+- Not covered by this ruleset: tags (now a separate ruleset, see section 11), the `prod` environment's own tag policy, anything pushed
+  with a token that has Administration.
 
 ## 7. Roll-out order (each step needs the owner)
 1. Owner reviews this document and PR #176 (CODEOWNERS covers the ack, the check script, `firestore.indexes.json`, `flag-ceiling.json`,
@@ -171,3 +174,30 @@ Test 11 (the owner's credentials are not reachable from the assistant's process)
 - Installation tokens get **403** on `/user` and **404** on `/installation`; read installation details with `/app/installations/{id}`
   and the App JWT instead.
 - `repository.permissions` from the API can show all `false` for an installation token; rely on the refusal tests (3-5), not that field.
+
+## 11. Required checks, make test-int and tags (current)
+- **Required status checks** of the main ruleset (24070946): `make ci (lint, vet, unit tests, buf breaking, flutter analyze/test)` and
+  `promotion scripts (shellcheck, actionlint, fixture tests, flag registry)`, both reported by GitHub Actions. (Section 6 shows the original
+  proposal, which listed only the second.)
+- **`make test-int (Firebase emulators)` runs on every PR but is not a required check**: a red `make test-int` does not block a merge by
+  itself, so read it. It can flake on an App Check key fetch in CI: rerun **only the failed job**, and say so in the PR (do not silently
+  retry or ignore it).
+- **Tags:** `v*` tags are covered by the separate tag ruleset `protect-version-tags` (Admin-role bypass only), see ADR-0019
+  (`docs/adr/0019-prod-release-gate-required-reviewers-and-tag-ruleset.md`); the assistant's App cannot create, move or delete them.
+- **Promotion ceilings:** raising a ceiling in `scripts/promotion/flag-ceiling.json` is a reviewed PR (CODEOWNERS-protected) and must merge
+  **before** the matching `FEATURE_<NAME>` is applied through Terraform; otherwise dev promotes refuse the revision, because the flag's
+  effective mode would exceed the ceiling.
+
+## 12. Bot PRs and the approval rule
+- **The rule (intended configuration, section 6):** the main ruleset requires approval of the most recent push by someone other than the
+  pusher (`require_last_push_approval`) and dismisses stale approvals on every push. Check the live ruleset before relying on this
+  text: this document does not assert its current state.
+- **So every commit of a bot PR must be authored and committed by `dzeroth-agent[bot]`, from the first commit.** Set the repo-local git
+  identity (`user.name` `dzeroth-agent[bot]`, `user.email` the App's `...[bot]@users.noreply.github.com` address that earlier bot commits
+  carry, see `git log`) **before** the first commit, then check `git log --format='%an <%ae> | %cn <%ce>'` shows the bot on every commit
+  before pushing. Push and open the PR with a token minted per command (`scripts/mint-app-token.sh`), never stored or printed.
+- **A PR the founder opens, or whose last push is the founder's, cannot be approved by the founder**, because the founder is then the last
+  pusher. Do not "fix" that with an empty commit or a re-authored commit: the assistant's harness rightly refuses it. Open a new PR from
+  a bot-authored branch instead.
+- **A second open PR for the same head and base branch is not allowed by GitHub.** To replace a PR, close the old one first, or push the
+  same commit under a new branch name; do not rebase, amend or force-push a branch that already has a PR.
