@@ -68,7 +68,13 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Kaif'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ProfileHeader),
+        matching: find.text('Kaif'),
+      ),
+      findsOneWidget,
+    );
     // No graph UI at all: the flag is off.
     expect(find.text('Follow'), findsNothing);
   });
@@ -176,14 +182,26 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Old name'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ProfileHeader),
+          matching: find.text('Old name'),
+        ),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Edit profile'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('finish edit'));
       await tester.pumpAndSettle();
 
-      expect(find.text('New name'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ProfileHeader),
+          matching: find.text('New name'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Old name'), findsNothing);
       verify(() => identityRepository.getProfile(handle: 'kaif')).called(1);
     },

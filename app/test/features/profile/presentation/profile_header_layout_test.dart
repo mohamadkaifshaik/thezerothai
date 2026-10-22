@@ -4,6 +4,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
+import 'package:dzeroth/shared/widgets/app_avatar.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:fixnum/fixnum.dart';
@@ -241,19 +242,20 @@ void main() {
       final handle = tester.ensureSemantics();
       await open(tester);
 
-      // Captured from origin/main: name, handle, the Follow button, the
-      // overflow menu, bio, then the counts. The count links used to be
+      // Identity first (name, handle, bio, counts), then the actions: the
+      // overflow menu and the Follow button (W1-3 moved them below the
+      // banner). The count links used to be
       // announced twice ("54 Following | 54 Following"); now once.
       expect(semanticLabels(tester), [
         'Alice Archer',
         '@alice',
-        'Follow',
-        'Follow',
-        'More options',
         'Designer. Walks, coffee and typography.',
         '12 Posts',
         '54 Following',
         '128 Followers',
+        'More options',
+        'Follow',
+        'Follow',
       ]);
       handle.dispose();
     });
@@ -265,11 +267,11 @@ void main() {
       expect(semanticLabels(tester), [
         'Alice Archer',
         '@alice',
-        'Edit profile',
         'Designer. Walks, coffee and typography.',
         '12 Posts',
         '54 Following',
         '128 Followers',
+        'Edit profile',
       ]);
       handle.dispose();
     });
@@ -281,10 +283,10 @@ void main() {
       expect(semanticLabels(tester), [
         'Alice Archer',
         '@alice',
-        'More options',
         'Designer. Walks, coffee and typography.',
         'You blocked @alice',
         'Unblock',
+        'More options',
       ]);
       handle.dispose();
     });
@@ -303,6 +305,63 @@ void main() {
         findsWidgets,
       );
       handle.dispose();
+    });
+  });
+
+  group('banner and avatar (W1-3)', () {
+    for (final brightness in Brightness.values) {
+      for (final (width, diameter) in const [(390.0, 88.0), (1000.0, 133.0)]) {
+        testWidgets(
+          '${brightness.name} at ${width.toInt()}: $diameter dp avatar centred '
+          'on the bottom edge of a 3:1 banner',
+          (tester) async {
+            await open(
+              tester,
+              brightness: brightness,
+              size: Size(width, 900),
+              isOwnProfile: true,
+              onEditProfile: () {},
+            );
+
+            final header = tester.getTopLeft(find.byType(ProfileHeader));
+            final avatar = tester.getRect(find.byType(AppAvatar));
+            expect(avatar.width, diameter);
+            expect(avatar.height, diameter);
+            // The ring is 4dp, so the avatar's centre is the banner's edge.
+            expect(avatar.center.dy - header.dy, closeTo(width / 3, 0.5));
+            expect(avatar.left - header.dx, 16 + 4);
+          },
+        );
+      }
+    }
+
+    testWidgets('Edit profile is a 36dp pill in a 48dp tap target', (
+      tester,
+    ) async {
+      await open(tester, isOwnProfile: true, onEditProfile: () {});
+
+      final button = find.byType(OutlinedButton);
+      expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+      final ink = find.descendant(of: button, matching: find.byType(Material));
+      expect(tester.getSize(ink.first).height, 36);
+      // Right-aligned with the 16dp page padding, below the banner.
+      final header = tester.getRect(find.byType(ProfileHeader));
+      expect(tester.getRect(ink.first).right, header.right - 16);
+      expect(
+        tester.getRect(ink.first).top,
+        greaterThan(header.top + header.width / 3),
+      );
+    });
+
+    testWidgets('the name and handle sit below the avatar', (tester) async {
+      await open(tester);
+
+      final avatar = tester.getRect(find.byType(AppAvatar));
+      expect(
+        tester.getTopLeft(find.text('Alice Archer')).dy,
+        greaterThan(avatar.bottom),
+      );
+      expect(tester.getTopLeft(find.text('Alice Archer')).dx, 16);
     });
   });
 

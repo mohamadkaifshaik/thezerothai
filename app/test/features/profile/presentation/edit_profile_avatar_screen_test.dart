@@ -126,9 +126,7 @@ void main() {
   }
 
   AppPillButton saveButton(WidgetTester tester) =>
-      tester.widget<AppPillButton>(
-        find.widgetWithText(AppPillButton, 'Save'),
-      );
+      tester.widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Save'));
 
   testWidgets('media off: the avatar is read-only', (tester) async {
     await open(tester, mediaOn: false);

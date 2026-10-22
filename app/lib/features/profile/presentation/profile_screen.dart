@@ -65,13 +65,47 @@ class _ProfileView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        // The sticky header: the display name over the post count once the
+        // profile is loaded (X), the requested @handle until then.
         title: BlocBuilder<ProfileCubit, ProfileState>(
-          buildWhen: (a, b) => a.profile?.handle != b.profile?.handle,
+          buildWhen: (a, b) =>
+              a.profile?.handle != b.profile?.handle ||
+              a.profile?.displayName != b.profile?.displayName ||
+              a.profile?.postsCount != b.profile?.postsCount,
           builder: (context, state) {
-            final handle =
-                state.profile?.handle ??
-                context.read<ProfileCubit>().requestedHandle;
-            return Text(handle == null || handle.isEmpty ? '' : '@$handle');
+            final profile = state.profile;
+            if (profile == null || profile.displayName.isEmpty) {
+              final handle =
+                  profile?.handle ??
+                  context.read<ProfileCubit>().requestedHandle;
+              return Text(handle == null || handle.isEmpty ? '' : '@$handle');
+            }
+            final theme = Theme.of(context);
+            final showCount = isFeatureEnabled(context, kFeaturePosts);
+            final count = profile.postsCount.toInt();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  profile.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (showCount)
+                  Text(
+                    count == 1 ? '1 post' : '$count posts',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            );
           },
         ),
       ),
