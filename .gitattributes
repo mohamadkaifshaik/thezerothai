@@ -4,9 +4,6 @@ Makefile  text eol=lf
 *.go      text eol=lf
 
 # Flutter regenerates these as LF on every pub get/analyze/test; keep them LF on Windows checkouts so they never show as modified.
-app/linux/flutter/generated_plugin*   text eol=lf
-app/macos/Flutter/GeneratedPluginRegistrant.swift text eol=lf
-app/windows/flutter/generated_plugin*   text eol=lf
 
 # Promotion scripts, ceiling and fixtures: LF always, or CRLF breaks bash string comparisons and jq output diffs.
 scripts/promotion/** text eol=lf
