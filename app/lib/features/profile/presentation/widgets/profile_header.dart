@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -126,163 +128,139 @@ class _ProfileHeaderBody extends StatelessWidget {
         context.select((RelationshipCubit c) => c.state.relationship.blocking);
 
     final theme = Theme.of(context);
-    // The avatar overlaps the bottom of the decorative band by half; the name
-    // and the actions start below the band.
-    const avatarRadius = AppSpacing.xl + AppSpacing.md;
-    const bandHeight = AppSpacing.xxl + AppSpacing.lg;
-    const belowBand = avatarRadius + AppSpacing.sm;
-    // The actions take at most this share of the row, so a long label wraps
-    // inside its button instead of squeezing the name out at large text.
-    const actionsShare = 0.4;
+    final actions = _actions(context, isBlocking: isBlocking);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Stack(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        // X's profile: a 3:1 banner, the avatar (133dp, 88dp on phones) in a
+        // surface-coloured ring hanging half over the banner's bottom edge,
+        // the actions on the right of the strip below the banner.
+        final narrow = width < AppBreakpoints.mobile;
+        final diameter = narrow
+            ? AppSize.avatarProfileNarrow
+            : AppSize.avatarProfileWide;
+        final outer = diameter + 2 * AppSpacing.xs;
+        final overlap = outer / 2;
+        final bannerHeight = width / 3;
+        // The strip between the banner and the name holds the avatar's lower
+        // half and the actions (36dp pill in a 48dp target, 12dp below the
+        // banner).
+        const actionsTop = AppSpacing.smd;
+        final strip = math.max(
+          overlap + AppSpacing.sm,
+          actionsTop + AppSpacing.minTapTarget,
+        );
+        // Stack order is reading order: the identity first, then the actions.
+        return Stack(
           children: [
-            const Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: bandHeight,
-              child: _CoverBand(),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(
-                top: bandHeight - avatarRadius,
-                left: AppSpacing.md,
-                right: AppSpacing.md,
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final actionsMax = constraints.maxWidth * actionsShare;
-                  return Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: bannerHeight, child: const _CoverBand()),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    strip,
+                    AppSpacing.md,
+                    AppSpacing.md,
+                  ),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: theme.colorScheme.surface,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.xs),
-                          child: AppAvatar(
-                            url: profile.avatarUrl,
-                            radius: avatarRadius,
-                          ),
+                      Text(
+                        profile.displayName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: belowBand),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                profile.displayName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              Text(
-                                '@${profile.handle}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
+                      Text(
+                        '@${profile.handle}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      if (showActions && !isBlocking) ...[
-                        ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: actionsMax),
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: belowBand),
-                            child: Column(
-                              children: [
-                                const FollowButton(),
-                                const SizedBox(height: AppSpacing.xs),
-                                _OverflowMenu(
-                                  profile: profile,
-                                  canReport: canReport,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ] else if (showActions) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(top: belowBand),
-                          child: _OverflowMenu(
-                            profile: profile,
-                            canReport: canReport,
-                          ),
-                        ),
-                      ] else if (canReport) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(top: belowBand),
-                          child: _ReportOnlyMenu(profile: profile),
-                        ),
-                      ] else if (onEditProfile != null) ...[
-                        const SizedBox(width: AppSpacing.sm),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: actionsMax),
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: belowBand),
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(
-                                  0,
-                                  AppSpacing.minTapTarget,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.pill,
-                                  ),
-                                ),
-                              ),
-                              onPressed: onEditProfile,
-                              child: const Text('Edit profile'),
-                            ),
-                          ),
-                        ),
+                      const SizedBox(height: AppSpacing.md),
+                      if (profile.bio.isNotEmpty) ...[
+                        Text(profile.bio, style: theme.textTheme.bodyLarge),
+                        const SizedBox(height: AppSpacing.md),
                       ],
+                      if (isBlocking)
+                        _BlockedBanner(handle: profile.handle)
+                      else
+                        _CountsRow(
+                          profile: profile,
+                          showPostsCount: showPostsCount,
+                        ),
                     ],
-                  );
-                },
+                  ),
+                ),
+              ],
+            ),
+            Positioned(
+              left: AppSpacing.md,
+              top: bannerHeight - overlap,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: theme.colorScheme.surface,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.xs),
+                  child: AppAvatar(
+                    url: profile.avatarUrl,
+                    radius: diameter / 2,
+                  ),
+                ),
               ),
             ),
+            if (actions != null)
+              Positioned(
+                top: bannerHeight + actionsTop,
+                left: AppSpacing.md + outer + AppSpacing.sm,
+                right: AppSpacing.md,
+                child: Align(alignment: Alignment.topRight, child: actions),
+              ),
           ],
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.md,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (profile.bio.isNotEmpty) ...[
-                Text(profile.bio, style: theme.textTheme.bodyLarge),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              if (isBlocking)
-                _BlockedBanner(handle: profile.handle)
-              else
-                _CountsRow(profile: profile, showPostsCount: showPostsCount),
-            ],
-          ),
-        ),
-      ],
+        );
+      },
     );
+  }
+
+  /// The controls on the right of the strip below the banner, or null.
+  Widget? _actions(BuildContext context, {required bool isBlocking}) {
+    if (showActions && !isBlocking) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _OverflowMenu(profile: profile, canReport: canReport),
+          const SizedBox(width: AppSpacing.xs),
+          const Flexible(child: FollowButton()),
+        ],
+      );
+    }
+    if (showActions) {
+      return _OverflowMenu(profile: profile, canReport: canReport);
+    }
+    if (canReport) return _ReportOnlyMenu(profile: profile);
+    if (onEditProfile != null) {
+      return OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, AppSize.pillCompact),
+          tapTargetSize: MaterialTapTargetSize.padded,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+        ),
+        onPressed: onEditProfile,
+        child: const Text('Edit profile'),
+      );
+    }
+    return null;
   }
 }
 

@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -94,6 +95,11 @@ void main() {
   }
 
   Future<void> open(WidgetTester tester, {ThemeData? theme}) async {
+    // The 3:1 banner and the taller header (W1-3) need a taller screen to
+    // build the first posts of the lazy list.
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MultiRepositoryProvider(
         providers: [
@@ -135,7 +141,13 @@ void main() {
 
     await open(tester);
 
-    expect(find.text('Kaif'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ProfileHeader),
+        matching: find.text('Kaif'),
+      ),
+      findsOneWidget,
+    );
     expect(
       find.text('Posts'),
       findsOneWidget,

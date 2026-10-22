@@ -78,7 +78,7 @@
 | GraphRepository / GraphPage | app/lib/features/graph/data/graph_repository.dart | `GraphService` client + session relationship cache (primed from list rows and the drift `following` cache); follow/unfollow/block/unblock/mute/unmute + paged lists |
 | RelationshipCubit / RelationshipState | app/lib/features/graph/presentation/bloc/relationship_cubit.dart | optimistic follow/block/mute state for one (viewer, target) pair, with rollback |
 | relationshipErrorMessage | app/lib/features/graph/presentation/graph_error_messages.dart | friendly snackbar text for graph-action `AppException`s |
-| ProfileHeader | app/lib/features/profile/presentation/widgets/profile_header.dart | avatar/name/handle/bio/counts/FollowButton/block-mute menu for `ProfileScreen` (ADR-0008 D13: the posts plan owns the tabs/body below it) |
+| ProfileHeader | app/lib/features/profile/presentation/widgets/profile_header.dart | 3:1 flat banner, 133dp (88dp < 600) ring avatar centred on its bottom edge, actions (36dp Edit pill / menu + Follow) right of the strip below it, then name/handle/bio/counts/FollowButton/block-mute menu for `ProfileScreen` (ADR-0008 D13: the posts plan owns the tabs/body below it) |
 | showBlockConfirmationDialog | app/lib/features/profile/presentation/widgets/block_confirmation_dialog.dart | the "Block this account?" confirmation sheet |
 | ProfileCubit / ProfileState | app/lib/features/profile/presentation/bloc/profile_cubit.dart | loads `GetProfile` + the viewer's relationship for one handle |
 | UserListCubit / UserListState | app/lib/features/graph/presentation/bloc/user_list_cubit.dart | pages any `FetchGraphPage` (followers/following/blocked/muted) with load-more, pull-to-refresh, and optimistic remove/restore |
