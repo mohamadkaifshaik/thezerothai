@@ -12,7 +12,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/app_avatar.dart';
-import '../../../shared/widgets/app_gradient_button.dart';
+import '../../../shared/widgets/app_form_header.dart';
+import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
@@ -38,9 +39,6 @@ import 'widgets/draft_problem_hint.dart';
 /// the counter can go negative (the user sees how much to cut), while a huge
 /// paste never makes every keystroke expensive.
 const kComposerInputCap = 1000;
-
-/// Share of the header row one of its buttons (Cancel, Post) may take.
-const double _kHeaderButtonShare = 0.4;
 
 /// `/compose` (T16): write a text post. 280 code points counted after NFC
 /// (ADR-0010 D9), at most 10 lines; Post is disabled otherwise. The server
@@ -279,14 +277,15 @@ class _ComposerViewState extends State<_ComposerView> {
             // The keyboard shrinks the body, so the field and the bottom bar
             // (photos, counter) stay above it.
             body: SafeArea(
-              child: _MainColumn(
+              child: AppMainColumn(
                 child: Column(
                   children: [
-                    _ComposerHeader(
+                    AppFormHeader(
                       title: isQuote ? 'Quote' : 'New post',
-                      submitting: state.isSubmitting,
+                      busy: state.isSubmitting,
                       onCancel: () => _requestClose(context, state),
-                      onPost: state.canSubmit ? cubit.submit : null,
+                      actionLabel: 'Post',
+                      onAction: state.canSubmit ? cubit.submit : null,
                     ),
                     Expanded(
                       child: Padding(
@@ -375,107 +374,6 @@ class _ComposerViewState extends State<_ComposerView> {
           ),
         );
       },
-    );
-  }
-}
-
-/// The composer's header: Cancel (off while the post is being sent), the
-/// title as a header, and the gradient Post action. The Post state is the
-/// caller's: a null [onPost] is disabled, [submitting] shows the spinner.
-class _ComposerHeader extends StatelessWidget {
-  const _ComposerHeader({
-    required this.title,
-    required this.submitting,
-    required this.onCancel,
-    required this.onPost,
-  });
-
-  final String title;
-  final bool submitting;
-  final VoidCallback onCancel;
-  final VoidCallback? onPost;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          // Each button may take at most [_kHeaderButtonShare] of the row,
-          // so at large text on a small phone its label ellipsizes and the
-          // title yields; nothing overflows.
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final cap = BoxConstraints(
-                maxWidth: constraints.maxWidth * _kHeaderButtonShare,
-              );
-              return Row(
-                children: [
-                  ConstrainedBox(
-                    constraints: cap,
-                    child: TextButton(
-                      onPressed: submitting ? null : onCancel,
-                      child: const Text(
-                        'Cancel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Semantics(
-                      header: true,
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                  ),
-                  ConstrainedBox(
-                    constraints: cap,
-                    child: AppGradientButton(
-                      label: 'Post',
-                      busy: submitting,
-                      onPressed: onPost,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        const Divider(height: 1),
-      ],
-    );
-  }
-}
-
-/// Keeps the composer in the main-column width of the shell on wide screens
-/// (centred between 1dp borders); on a phone it is edge to edge.
-class _MainColumn extends StatelessWidget {
-  const _MainColumn({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final border = Theme.of(context).colorScheme.outlineVariant;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: AppLayout.mainColumnMaxWidth,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.symmetric(vertical: BorderSide(color: border)),
-          ),
-          child: child,
-        ),
-      ),
     );
   }
 }

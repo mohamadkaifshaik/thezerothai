@@ -11,6 +11,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/create_profile_screen.dart';
+import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,8 +63,8 @@ void main() {
 
     await tester.pumpWidget(wrap());
 
-    final continueButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Continue'),
+    final continueButton = tester.widget<AppGradientButton>(
+      find.widgetWithText(AppGradientButton, 'Continue'),
     );
     expect(continueButton.onPressed, isNull);
   });
@@ -120,8 +121,8 @@ void main() {
 
     await tester.pumpWidget(wrap());
 
-    final continueButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Continue'),
+    final continueButton = tester.widget<AppGradientButton>(
+      find.widgetWithText(AppGradientButton, 'Continue'),
     );
     expect(continueButton.onPressed, isNotNull);
   });
@@ -143,8 +144,8 @@ void main() {
 
       await tester.pumpWidget(wrap());
 
-      final continueButton = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Continue'),
+      final continueButton = tester.widget<AppGradientButton>(
+        find.widgetWithText(AppGradientButton, 'Continue'),
       );
       expect(continueButton.onPressed, isNotNull);
       expect(find.textContaining("Couldn't check this handle"), findsOneWidget);
@@ -209,7 +210,7 @@ void main() {
       expect(find.text('please verify your email'), findsOneWidget);
       // The create-profile form is gone, not just covered.
       expect(find.text('Create your profile'), findsNothing);
-      expect(find.widgetWithText(FilledButton, 'Continue'), findsNothing);
+      expect(find.widgetWithText(AppGradientButton, 'Continue'), findsNothing);
     },
   );
 
