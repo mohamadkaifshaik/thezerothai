@@ -19,7 +19,7 @@ Cost line: 0 reads/writes per ticket (render and local filtering only); Replies 
 Definition of done per ticket: widget tests in light and dark at 360/600/1200 via `test/support/theme_harness.dart`, `make ci` green, `docs/ui-catalog.md` and this table updated in the PR.
 
 ## Notes
-- W1-1: Share is not offered yet (no handler), so the right-aligned slot is exercised by tests only.
+- W1-1: Share is not offered yet (no handler), so the right-aligned slot is exercised by tests only (branch refreshed for review).
 - W1-3: the profile app bar shows the display name and post count; the search icon waits for search. The name is also in the header (X fades it in on scroll; we keep it always visible).
 - W1-5: the "N new posts" pill stays a floating overlay under the header (no layout shift) rather than an inline bar.
 - W1-6: the Mentions tab filters the loaded pages (mention + reply rows); older pages are reachable with "Look through older notifications".
