@@ -12,3 +12,14 @@ import 'app_router.dart';
 bool canComposeAt(BuildContext context, String location) =>
     isFeatureEnabled(context, kFeaturePosts) &&
     !location.startsWith(AppRouter.settingsPath);
+
+/// Whether the narrow layout shows the floating compose button at [location]
+/// (decision D2 of `docs/plans/ui-w0-foundations.md`): wherever a way to post
+/// is offered ([canComposeAt]) except where the screen has its own entry or
+/// no use for one: Home (the inline composer row) and Notifications.
+///
+/// Wide layouts always show the rail's Post control instead of the button.
+bool showComposeFabAt(BuildContext context, String location) =>
+    canComposeAt(context, location) &&
+    !location.startsWith(AppRouter.homePath) &&
+    !location.startsWith(AppRouter.notificationsPath);

@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -22,13 +23,14 @@ void main() {
     required Set<String> flags,
     String location = '/home',
     UnreadBadgeCubit? badge,
+    bool newShell = true,
   }) async {
     whenListen(
       onboardingBloc,
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
-        enabledFeatures: flags,
+        enabledFeatures: {...flags, if (newShell) kFeatureUiShell},
       ),
     );
     final router = GoRouter(

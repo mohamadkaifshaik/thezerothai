@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
 import 'package:dzeroth/features/account/presentation/data_export_screen.dart';
@@ -34,6 +35,14 @@ class MockIdentityRepository extends Mock implements IdentityRepository {}
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
+
+class _NoThemeStore implements ThemeModeStore {
+  @override
+  Future<String?> read() async => null;
+
+  @override
+  Future<void> write(String value) async {}
+}
 
 void main() {
   late MockAuthBloc authBloc;
@@ -75,6 +84,10 @@ void main() {
           providers: [
             BlocProvider<AuthBloc>.value(value: authBloc),
             BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+            // Settings (reached by some redirects) shows the Appearance row.
+            BlocProvider<ThemeModeCubit>(
+              create: (_) => ThemeModeCubit(_NoThemeStore()),
+            ),
           ],
           child: MaterialApp.router(routerConfig: appRouter.router),
         ),
