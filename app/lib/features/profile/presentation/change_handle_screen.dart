@@ -7,6 +7,9 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/format/coarse_wait.dart';
+import '../../../shared/widgets/app_form_header.dart';
+import '../../../shared/widgets/app_gradient_button.dart';
+import '../../../shared/widgets/app_main_column.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/domain/handle_rules.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -83,6 +86,14 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
     if (confirmed == true) await cubit.save();
   }
 
+  void _leave(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRouter.settingsPath);
+    }
+  }
+
   void _onState(BuildContext context, ChangeHandleState state) {
     final saved = state.saved;
     if (state.status == ChangeHandleStatus.saved && saved != null) {
@@ -126,74 +137,71 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
           // answer (and the profile update it carries) unseen.
           canPop: !state.isSaving,
           child: Scaffold(
-            appBar: AppBar(title: const Text('Change handle')),
             body: SafeArea(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: AppBreakpoints.mobile,
-                  ),
-                  child: ListView(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    children: [
-                      Text(
-                        'Current handle: @${widget.currentHandle}',
-                        style: theme.textTheme.titleMedium,
+              child: AppMainColumn(
+                child: Column(
+                  children: [
+                    AppFormHeader(
+                      title: 'Change handle',
+                      busy: state.isSaving,
+                      onCancel: () => _leave(context),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        children: [
+                          Text(
+                            'Current handle: @${widget.currentHandle}',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            'You can change your handle once every 7 days. Your old '
+                            'handle becomes available to other people.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          TextField(
+                            controller: _controller,
+                            enabled: !state.isSaving,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            textInputAction: TextInputAction.done,
+                            decoration: InputDecoration(
+                              labelText: 'New handle',
+                              prefixText: '@',
+                              helper: isProblem ? null : _FieldNote(text: note),
+                              helperMaxLines: 2,
+                              error: isProblem
+                                  ? _FieldNote(text: note, isError: true)
+                                  : null,
+                              errorMaxLines: 2,
+                              suffixIcon: _StatusIcon(
+                                status: state.checkStatus,
+                              ),
+                            ),
+                            onChanged: cubit.handleChanged,
+                            onSubmitted: (_) {
+                              if (state.canSave) {
+                                _confirmAndSave(context, state.handle);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          AppGradientButton(
+                            label: 'Change handle',
+                            busy: state.isSaving,
+                            busySemanticsLabel: 'Saving',
+                            onPressed: state.canSave
+                                ? () => _confirmAndSave(context, state.handle)
+                                : null,
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        'You can change your handle once every 7 days. Your old '
-                        'handle becomes available to other people.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      TextField(
-                        controller: _controller,
-                        enabled: !state.isSaving,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        textInputAction: TextInputAction.done,
-                        decoration: InputDecoration(
-                          labelText: 'New handle',
-                          prefixText: '@',
-                          helper: isProblem ? null : _FieldNote(text: note),
-                          helperMaxLines: 2,
-                          error: isProblem
-                              ? _FieldNote(text: note, isError: true)
-                              : null,
-                          errorMaxLines: 2,
-                          suffixIcon: _StatusIcon(status: state.checkStatus),
-                        ),
-                        onChanged: cubit.handleChanged,
-                        onSubmitted: (_) {
-                          if (state.canSave) {
-                            _confirmAndSave(context, state.handle);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, AppSpacing.minTapTarget),
-                        ),
-                        onPressed: state.canSave
-                            ? () => _confirmAndSave(context, state.handle)
-                            : null,
-                        child: state.isSaving
-                            ? const SizedBox(
-                                width: AppIconSize.md,
-                                height: AppIconSize.md,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  semanticsLabel: 'Saving',
-                                ),
-                              )
-                            : const Text('Change handle'),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),

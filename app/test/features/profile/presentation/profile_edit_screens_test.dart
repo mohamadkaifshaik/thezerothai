@@ -4,6 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/shared/widgets/app_gradient_button.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -121,8 +122,8 @@ void main() {
       ).thenAnswer((_) => answer());
     }
 
-    FilledButton save(WidgetTester tester) =>
-        tester.widget(find.widgetWithText(FilledButton, 'Save'));
+    AppGradientButton save(WidgetTester tester) =>
+        tester.widget(find.widgetWithText(AppGradientButton, 'Save'));
 
     testWidgets('shows the current values with Save disabled', (tester) async {
       await open(tester, '/settings/profile');
@@ -145,7 +146,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
       expect(save(tester).onPressed, isNotNull);
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
       await tester.pump();
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
@@ -182,10 +183,10 @@ void main() {
       await open(tester, '/settings/profile');
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
       await tester.pump();
 
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pump(
         const Duration(milliseconds: 500),
       ); // spinner: no settle
@@ -238,7 +239,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(
@@ -265,7 +266,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('or try again in 6 hours.'), findsOneWidget);
@@ -296,7 +297,7 @@ void main() {
           'Kaif S',
         );
         await tester.pump();
-        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
         await tester.pumpAndSettle();
 
         expect(reported.single, isA<StateError>());
@@ -316,7 +317,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
       await tester.pump();
 
       expect(find.bySemanticsLabel('Saving'), findsOneWidget);
@@ -350,7 +351,7 @@ void main() {
 
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Save'));
       await tester.pumpAndSettle();
 
       expect(
@@ -366,7 +367,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
       await tester.pump();
 
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
       expect(find.text('Discard changes?'), findsOneWidget);
 
@@ -374,7 +375,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Edit profile'), findsOneWidget);
 
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Discard'));
       await tester.pumpAndSettle();
@@ -410,8 +411,9 @@ void main() {
       );
     }
 
-    FilledButton change(WidgetTester tester) =>
-        tester.widget(find.widgetWithText(FilledButton, 'Change handle').first);
+    AppGradientButton change(WidgetTester tester) => tester.widget(
+      find.widgetWithText(AppGradientButton, 'Change handle').first,
+    );
 
     Future<void> type(WidgetTester tester, String value) async {
       await tester.enterText(find.byType(TextField), value);
@@ -444,7 +446,7 @@ void main() {
       expect(find.bySemanticsLabel('Handle is available'), findsOneWidget);
       expect(change(tester).onPressed, isNotNull);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
       await tester.pumpAndSettle();
       expect(find.text('Change your handle to @new_one?'), findsOneWidget);
       expect(
@@ -480,12 +482,12 @@ void main() {
       ).thenAnswer((_) => done.future);
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
-      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pump();
 
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel').first);
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Change handle'), findsWidgets);
       expect(find.text('settings'), findsNothing);
@@ -503,9 +505,9 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
       await tester.pumpAndSettle();
 
       verifyNever(
@@ -559,7 +561,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pumpAndSettle();
@@ -593,7 +595,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pumpAndSettle();
@@ -646,7 +648,7 @@ void main() {
       await open(tester, '/settings/handle');
       await type(tester, 'new_one');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
+      await tester.tap(find.widgetWithText(AppGradientButton, 'Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle').last);
       await tester.pumpAndSettle();

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/app_gradient_button.dart';
 import '../../account/presentation/widgets/delete_account_link.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
+import '../../auth/presentation/widgets/auth_form_layout.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../domain/handle_rules.dart' show HandleCheckStatus;
 import 'bloc/onboarding_bloc.dart';
@@ -82,95 +84,79 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
             ..showSnackBar(SnackBar(content: Text(error.message)));
         },
         builder: (context, state) {
-          return Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Pick a handle and a name. You can change these later.',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    TextField(
-                      controller: _handleController,
-                      textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
-                        labelText: 'Handle',
-                        prefixText: '@',
-                        helperText: state.handleCheckMessage.isEmpty
-                            ? '3-20 characters: lowercase letters, numbers, underscore.'
-                            : state.handleCheckMessage,
-                        helperMaxLines: 2,
-                        errorText:
-                            state.handleCheckStatus ==
-                                HandleCheckStatus.unavailable
-                            ? (state.handleCheckMessage.isEmpty
-                                  ? 'That handle is taken.'
-                                  : null)
-                            : null,
-                        suffixIcon: switch (state.handleCheckStatus) {
-                          HandleCheckStatus.checking => const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ),
-                          HandleCheckStatus.available => const Icon(
-                            Icons.check_circle,
-                            color: Colors.green,
-                          ),
-                          HandleCheckStatus.unavailable => const Icon(
-                            Icons.error,
-                            color: Colors.red,
-                          ),
-                          HandleCheckStatus.unknown => const Icon(
-                            Icons.help_outline,
-                          ),
-                          HandleCheckStatus.idle => null,
-                        },
-                      ),
-                      onChanged: (value) => context.read<OnboardingBloc>().add(
-                        OnboardingHandleChanged(value),
+          final colors = Theme.of(context).colorScheme;
+          return AuthFormLayout(
+            title: 'Welcome to Dzeroth',
+            children: [
+              Text(
+                'Pick a handle and a name. You can change these later.',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              TextField(
+                controller: _handleController,
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText: 'Handle',
+                  prefixText: '@',
+                  helperText: state.handleCheckMessage.isEmpty
+                      ? '3-20 characters: lowercase letters, numbers, underscore.'
+                      : state.handleCheckMessage,
+                  helperMaxLines: 2,
+                  errorText:
+                      state.handleCheckStatus == HandleCheckStatus.unavailable
+                      ? (state.handleCheckMessage.isEmpty
+                            ? 'That handle is taken.'
+                            : null)
+                      : null,
+                  suffixIcon: switch (state.handleCheckStatus) {
+                    HandleCheckStatus.checking => const Padding(
+                      padding: EdgeInsets.all(AppSpacing.sm + AppSpacing.xs),
+                      child: SizedBox(
+                        width: AppIconSize.sm,
+                        height: AppIconSize.sm,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    TextField(
-                      controller: _displayNameController,
-                      textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(
-                        labelText: 'Display name',
-                      ),
-                      onChanged: (value) => context.read<OnboardingBloc>().add(
-                        OnboardingDisplayNameChanged(value),
-                      ),
+                    HandleCheckStatus.available => Icon(
+                      Icons.check_circle,
+                      color: colors.primary,
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    FilledButton(
-                      onPressed: state.canSubmit
-                          ? () => context.read<OnboardingBloc>().add(
-                              const OnboardingProfileSubmitted(),
-                            )
-                          : null,
-                      child: state.isSubmitting
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Continue'),
+                    HandleCheckStatus.unavailable => Icon(
+                      Icons.error,
+                      color: colors.error,
                     ),
-                    const SizedBox(height: AppSpacing.sm),
-                    const DeleteAccountLink(),
-                  ],
+                    HandleCheckStatus.unknown => const Icon(Icons.help_outline),
+                    HandleCheckStatus.idle => null,
+                  },
+                ),
+                onChanged: (value) => context.read<OnboardingBloc>().add(
+                  OnboardingHandleChanged(value),
                 ),
               ),
-            ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _displayNameController,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(labelText: 'Display name'),
+                onChanged: (value) => context.read<OnboardingBloc>().add(
+                  OnboardingDisplayNameChanged(value),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              AppGradientButton(
+                label: 'Continue',
+                busy: state.isSubmitting,
+                onPressed: state.canSubmit
+                    ? () => context.read<OnboardingBloc>().add(
+                        const OnboardingProfileSubmitted(),
+                      )
+                    : null,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              const DeleteAccountLink(),
+            ],
           );
         },
       ),
