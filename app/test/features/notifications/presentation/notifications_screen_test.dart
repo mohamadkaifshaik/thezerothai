@@ -12,7 +12,10 @@ import 'package:dzeroth/features/notifications/presentation/notifications_screen
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pb.dart'
+    as pb;
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
+import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -196,6 +199,92 @@ void main() {
       find.bySemanticsLabel(RegExp('Bob and 2 others liked your post.*unread')),
       findsNothing,
     );
+  });
+
+  group('All / Mentions tabs (W1-6)', () {
+    List<pb.Notification> mixed() => [
+      notif('f', minutesAgo: 1),
+      notif(
+        'm',
+        minutesAgo: 2,
+        type: NotificationType.NOTIFICATION_TYPE_MENTION,
+        postId: '7',
+        displayName: 'Mia',
+        actorId: 'u5',
+      ),
+      notif(
+        'r',
+        minutesAgo: 3,
+        type: NotificationType.NOTIFICATION_TYPE_REPLY,
+        postId: '8',
+        displayName: 'Rae',
+        actorId: 'u6',
+      ),
+      notif(
+        'l',
+        minutesAgo: 4,
+        type: NotificationType.NOTIFICATION_TYPE_LIKE,
+        postId: '9',
+        displayName: 'Lou',
+        actorId: 'u7',
+      ),
+    ];
+
+    testWidgets('All shows everything; Mentions filters the loaded rows with '
+        'no extra RPC', (tester) async {
+      stubList(snapshotOfNotifs(mixed(), seenAt: kNotifBase));
+      await open(tester);
+
+      expect(find.text('All'), findsOneWidget);
+      expect(find.text('Mentions'), findsOneWidget);
+      expect(find.text('Alice followed you'), findsOneWidget);
+      clearInteractions(repo);
+
+      await tester.tap(find.text('Mentions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mia mentioned you'), findsOneWidget);
+      expect(find.text('Rae replied to your post'), findsOneWidget);
+      expect(find.text('Alice followed you'), findsNothing);
+      expect(find.text('Lou liked your post'), findsNothing);
+      verifyNoMoreInteractions(repo);
+
+      await tester.tap(find.text('All'));
+      await tester.pumpAndSettle();
+      expect(find.text('Lou liked your post'), findsOneWidget);
+    });
+
+    testWidgets('Mentions with none loaded: empty state, and a way to look '
+        'further back when older pages exist', (tester) async {
+      stubList(snapshotOfNotifs([notif('f')], older: 'p1', seenAt: kNotifBase));
+      await open(tester);
+
+      await tester.tap(find.text('Mentions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No mentions yet'), findsOneWidget);
+      expect(find.text('Look through older notifications'), findsOneWidget);
+    });
+
+    testWidgets('the tabs are equal-width and announced as a group', (
+      tester,
+    ) async {
+      stubList(snapshotOfNotifs(mixed(), seenAt: kNotifBase));
+      final handle = tester.ensureSemantics();
+      await open(tester);
+
+      final bar = tester.getRect(find.byType(AppTabBar));
+      expect(
+        tester.getCenter(find.text('All')).dx,
+        closeTo(bar.left + bar.width / 4, 1),
+      );
+      expect(
+        tester.getCenter(find.text('Mentions')).dx,
+        closeTo(bar.left + bar.width * 3 / 4, 1),
+      );
+      expect(find.bySemanticsLabel('Notifications timelines'), findsOneWidget);
+      handle.dispose();
+    });
   });
 
   testWidgets('opening marks seen and clears the badge', (tester) async {
