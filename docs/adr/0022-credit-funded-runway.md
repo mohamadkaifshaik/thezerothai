@@ -1,7 +1,7 @@
 # 0022. Credit-funded runway (time-boxed exception to the $0 rule)
-Status: Proposed
+Status: Accepted (founder, 2026-10-23; includes the five founder decisions below and the time-boxed bend of the prime directive; every prod apply and traffic shift still goes through ADR-0019 and the founder's plan-then-OK rule)
 Date: 2026-10-23
-Deciders: architect (proposal); founder (decisions 1-5 stated 2026-10-23; acceptance of the ADR still pending; this ADR adds a time-boxed fixed cost and bends the prime directive, so it needs the founder's explicit acceptance)
+Deciders: architect (proposal); founder (decisions 1-5 stated 2026-10-23; accepted 2026-10-23; this ADR adds a time-boxed fixed cost and bends the prime directive, so it needs the founder's explicit acceptance)
 
 Related: ADR-0001 (free-tier-first), ADR-0005 (Vision cap), ADR-0006 (abuse controls), ADR-0007 (budgets, regions, alerts),
 ADR-0010 (read budget), ADR-0019 (prod gate), ADR-0021 (scheduler sweep). Cost model with the arithmetic:
@@ -316,7 +316,7 @@ a paid (upgraded) account.
   The `until:` markers sit on committed lines in `envs/prod/main.tf` (D6), not in the gitignored tfvars, so the CI check
   can see them; the Terraform precondition only fires in the founder's local plan.
 
-### Founder decisions (stated 2026-10-23; the ADR itself is still Proposed until the founder explicitly accepts it)
+### Founder decisions (stated and accepted 2026-10-23)
 1. **Credit facts.** The founder checked: the account is Firebase Blaze on a Google Cloud trial, the credit expires on 2026-12-26,
    and the credit applies to free-tier-eligible services. Still to read from Billing > Credits before the first paid change:
    the exact remaining amount (pool 20k vs 25k INR was stated both ways), which services the credit covers, and whether a
