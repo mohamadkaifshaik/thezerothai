@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/app_widget.dart';
+import 'package:dzeroth/core/network/service_paused_cubit.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/widgets/service_paused_view.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
@@ -116,6 +118,7 @@ void main() {
     WidgetTester tester, {
     required OnboardingState onboarding,
     AuthState auth = const AuthState(status: AuthStatus.unauthenticated),
+    ServicePausedCubit? servicePaused,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -141,10 +144,37 @@ void main() {
         engagementRepository: MockEngagementRepository(),
         pushCubit: push,
         unreadBadgeCubit: badge,
+        servicePausedCubit: servicePaused,
       ),
     );
     await tester.pump();
   }
+
+  testWidgets('a paused service replaces the app with the paused screen and '
+      'Retry brings it back (ADR-0022)', (tester) async {
+    var stillPaused = true;
+    final servicePaused = ServicePausedCubit(probe: () async => stillPaused);
+    addTearDown(servicePaused.close);
+    await pump(tester, onboarding: ready(), servicePaused: servicePaused);
+    expect(find.byType(ServicePausedView), findsNothing);
+
+    servicePaused.markPaused();
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ServicePausedView), findsOneWidget);
+    expect(find.text(ServicePausedView.title), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ServicePausedView), findsOneWidget);
+
+    stillPaused = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ServicePausedView), findsNothing);
+  });
 
   testWidgets('a ready GetMe with the flag on seeds the badge and starts push '
       '(never asking the OS)', (tester) async {

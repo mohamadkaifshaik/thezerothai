@@ -113,11 +113,26 @@ common.ErrorDetail? _findErrorDetail(connect.ConnectException error) {
   return null;
 }
 
+/// True when [error] is connect-dart's own fallback for an HTTP 403 whose body
+/// was not a Connect error (Google's front end answers an HTML page or an
+/// empty body when the public invoker is removed; ADR-0022 pause).
+///
+/// connect-dart 2.0.0 builds `ConnectException(permissionDenied, 'HTTP 403')`
+/// (no details, no cause) for that case (`ResponseValidation.validate`). A real
+/// server PERMISSION_DENIED carries the server's own message and, for this
+/// API, an `ErrorDetail`, so it never matches.
+bool isServicePausedFailure(connect.ConnectException error) =>
+    error.code == connect.Code.permissionDenied &&
+    error.message == 'HTTP 403' &&
+    error.details.isEmpty &&
+    error.cause == null;
+
 AppException _mapByCode(connect.ConnectException error) {
   switch (error.code) {
     case connect.Code.unauthenticated:
       return UnauthenticatedException(error.message);
     case connect.Code.permissionDenied:
+      if (isServicePausedFailure(error)) return const ServicePausedException();
       return AccountRestrictedException(error.message);
     case connect.Code.notFound:
       return NotFoundException(error.message);

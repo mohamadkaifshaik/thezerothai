@@ -27,6 +27,29 @@ final class RequestMetadataInterceptor {
   }
 }
 
+/// Tells [onServicePaused] when a call fails with connect-dart's HTTP 403
+/// fallback (`isServicePausedFailure`), then rethrows unchanged. This is the
+/// one place every API call passes, so the root can show the "service paused"
+/// screen without any feature screen knowing about it.
+final class ServicePausedInterceptor {
+  const ServicePausedInterceptor(this._onServicePaused);
+
+  final void Function() _onServicePaused;
+
+  connect.AnyFn<I, O> call<I extends Object, O extends Object>(
+    connect.AnyFn<I, O> next,
+  ) {
+    return (request) async {
+      try {
+        return await next(request);
+      } on connect.ConnectException catch (e) {
+        if (isServicePausedFailure(e)) _onServicePaused();
+        rethrow;
+      }
+    };
+  }
+}
+
 /// Attaches the Firebase ID token and the Firebase App Check token to every
 /// outgoing call (ADR-0006 §2). Both are refreshed lazily by the providers,
 /// which cache the underlying platform tokens for their own TTL.

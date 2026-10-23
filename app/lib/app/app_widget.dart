@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
 import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_mode_cubit.dart';
+import '../core/widgets/service_paused_view.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -56,6 +58,7 @@ class AppWidget extends StatefulWidget {
     required this.engagementRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
+    this.servicePausedCubit,
   });
 
   final AuthBloc authBloc;
@@ -81,6 +84,10 @@ class AppWidget extends StatefulWidget {
   /// The unread badge, seeded from `GetMe` (P6).
   final UnreadBadgeCubit unreadBadgeCubit;
 
+  /// Drives the full-screen "service paused" state (ADR-0022); bootstrap
+  /// shares it with the API client. Null (tests) means never paused.
+  final ServicePausedCubit? servicePausedCubit;
+
   /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
   final MediaRepository mediaRepository;
 
@@ -101,6 +108,8 @@ class _AppWidgetState extends State<AppWidget> {
     repository: widget.engagementRepository,
     onUnexpectedError: reportUnexpectedError,
   );
+  late final ServicePausedCubit _servicePaused =
+      widget.servicePausedCubit ?? ServicePausedCubit();
   late final StreamSubscription<AuthState> _authSub;
   // The appearance choice (System / Light / Dark), saved on the device.
   late final ThemeModeCubit _themeMode = ThemeModeCubit(
@@ -213,6 +222,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: widget.unreadBadgeCubit),
           BlocProvider.value(value: _themeMode),
+          BlocProvider.value(value: _servicePaused),
         ],
         child: BlocBuilder<ThemeModeCubit, ThemeMode>(
           builder: (context, mode) => MaterialApp.router(
@@ -240,13 +250,44 @@ class _AppWidgetState extends State<AppWidget> {
                         ? Brightness.dark
                         : Brightness.light,
                   ),
-                  child: child ?? const SizedBox.shrink(),
+                  child: _PausedOverlay(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 ),
               );
             },
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Shows [ServicePausedView] over the app while the API is paused (ADR-0022).
+/// The app underneath stays mounted (hidden and out of semantics), so the
+/// current screen is exactly where it was when the service comes back.
+class _PausedOverlay extends StatelessWidget {
+  const _PausedOverlay({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<ServicePausedCubit, ServicePauseStatus>(
+      builder: (context, status) {
+        final paused = status != ServicePauseStatus.running;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Offstage(offstage: paused, child: child),
+            if (paused)
+              ServicePausedView(
+                checking: status == ServicePauseStatus.checking,
+                onRetry: () => context.read<ServicePausedCubit>().recheck(),
+              ),
+          ],
+        );
+      },
     );
   }
 }
