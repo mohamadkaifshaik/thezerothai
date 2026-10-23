@@ -29,6 +29,9 @@ func ToProto(p *Post) *postsv1.Post {
 		QuoteCount:     p.QuoteCount,
 		Visibility:     visibilityToProto(p.Visibility),
 		CreatedAt:      timestamppb.New(p.CreatedAt),
+
+		PaidPartnership: p.PaidPartnership,
+		MadeWithAi:      p.MadeWithAI,
 	}
 	if e := p.Embedded; e != nil {
 		out.Embedded = embeddedToProto(e)
@@ -55,6 +58,7 @@ func embeddedToProto(e *Embedded) *postsv1.EmbeddedPost {
 		AvatarUrl: e.Author.AvatarURL, Verified: e.Author.Verified,
 	}
 	out.Text = e.Text
+	out.PaidPartnership, out.MadeWithAi = e.PaidPartnership, e.MadeWithAI
 	out.CreatedAt = timestamppb.New(e.CreatedAt)
 	for _, m := range e.Media {
 		out.Media = append(out.Media, &commonv1.MediaRef{

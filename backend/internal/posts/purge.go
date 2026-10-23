@@ -202,6 +202,9 @@ type exportedPost struct {
 	Kind       string `json:"kind,omitempty"`
 	RepostOfID string `json:"repostOfPostId,omitempty"`
 	QuoteOfID  string `json:"quoteOfPostId,omitempty"`
+	// The author's own disclosure labels (ADR-0021 D3); omitted when false so older exports are byte-identical.
+	PaidPartnership bool `json:"paidPartnership,omitempty"`
+	MadeWithAI      bool `json:"madeWithAi,omitempty"`
 }
 
 // ExportUser implements Exporter: it streams {"userId": ..., "posts": [...]} to w, newest first, in pages of
@@ -232,7 +235,8 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 			if err := s.DataTo(&d); err != nil {
 				return fmt.Errorf("posts: export decode post %s: %w", s.Ref.ID, err)
 			}
-			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID}
+			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID,
+				PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI}
 			if k := Kind(d.Kind); k == KindRepost || k == KindQuote {
 				ep.Kind, ep.RepostOfID, ep.QuoteOfID = d.Kind, d.RepostOfID, d.QuoteOfID
 			}
