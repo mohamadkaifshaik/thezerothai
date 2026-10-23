@@ -206,15 +206,16 @@ locals {
 // Media, engagement, replies and profile snapshot (P3/P4/P5, ADR-0005). All four flags are off in every
 // environment until the founder ramps them via var.feature_*; nothing here turns one on. The non-flag values below
 // are the config.go defaults written out so they are reviewed as code (caps are code); changing one needs a cost note.
-// VISION_MONTHLY_CAP is the runaway-bill guard (ADR-0005). vision.googleapis.com is already enabled in
+// VISION_MONTHLY_CAP is the runaway-bill guard (ADR-0005); it and VISION_EXHAUSTED_POLICY are variables since ADR-0022
+// (credit mode: 20000 and reject until 2026-12-22; the committed defaults are the Stage 0 values). vision.googleapis.com is already enabled in
 // modules/project-services.
 locals {
   media_engagement_env_vars = [
     { name = "FEATURE_MEDIA", value = var.feature_media },
     { name = "FEATURE_MEDIA_ALLOWLIST", value = var.feature_media_allowlist },
     { name = "FEATURE_MEDIA_PERCENT", value = tostring(var.feature_media_percent) },
-    { name = "VISION_MONTHLY_CAP", value = "10000" },
-    { name = "VISION_EXHAUSTED_POLICY", value = "unscreened_established" },
+    { name = "VISION_MONTHLY_CAP", value = tostring(var.vision_monthly_cap) }, # ADR-0022 until:2026-12-22 (default 10000 = Stage 0)
+    { name = "VISION_EXHAUSTED_POLICY", value = var.vision_exhausted_policy }, # ADR-0022 until:2026-12-22 (default unscreened_established = Stage 0)
     { name = "VISION_SCREEN_THUMB", value = "true" },
     { name = "MEDIA_PUBLIC_BASE_URL", value = "https://storage.googleapis.com/${module.media_buckets.media_bucket_name}" },
     { name = "QUOTA_MEDIA_PER_DAY", value = "20" },
@@ -260,6 +261,9 @@ module "cloud_run_api" {
   internal_oidc_audience            = local.api_url
   internal_oidc_allowed_emails      = [module.iam.pubsub_push_service_account_email]
   labels                            = merge(local.labels, { module = "cloud-run-api" })
+
+  # ADR-0022: SERVICE-level minimum instances (never revision-level). Default 0 = Stage 0; the real tfvars sets 1 in credit mode.
+  min_instance_count = var.min_instance_count # cost-approved: ADR-0022 until:2026-12-22
 
   secret_env_vars = [
     { name = "CURSOR_HMAC_KEY", secret = module.secrets.generated_secret_ids["cursor-hmac-key"] },
@@ -332,6 +336,11 @@ module "monitoring" {
   enable_auth_admin_alert = true # cost-approved: ADR-0011
   enable_ops_alerts       = true # R4: prod keeps uptime, 5xx and Firestore-reads alerts (ADR-0007 amendment 2026-10-10)
 
+  # ADR-0022: credit-mode detectors. Stage 0 values by default (flood alert off, reads threshold 40k).
+  enable_request_flood_alert    = var.enable_request_flood_alert    # ADR-0022 until:2026-12-26
+  request_flood_per_hour        = var.request_flood_per_hour        # ADR-0022 until:2026-12-26
+  firestore_reads_alert_per_day = var.firestore_reads_alert_per_day # ADR-0022 until:2026-12-22
+
   depends_on = [module.cloud_run_api]
 }
 
@@ -343,6 +352,56 @@ module "budget" {
   billing_account          = var.billing_account
   amount                   = var.budget_amount
   currency_code            = var.budget_currency_code
+  notification_channel_ids = module.monitoring.notification_channel_ids
+  labels                   = merge(local.labels, { module = "budget" })
+
+  depends_on = [module.project_services, module.monitoring]
+}
+
+// ADR-0022 credit-runway budgets. Both are OFF by default (var.enable_credit_budgets = false), so CI's plan shows no
+// new resource. The founder turns them on in the real tfvars after the credit checklist. Both module blocks are deleted
+// (which destroys the budget: the founder confirms) once their until: date has passed.
+//
+// 1. Whole-billing-account GROSS view of the credit window: only Always Free is subtracted, so spend paid by the
+//    promotional credit is visible and can alert. No project filter (dev and account-level charges included).
+module "credit_runway_budget" { # ADR-0022 until:2026-12-26
+  count                    = var.enable_credit_budgets ? 1 : 0
+  source                   = "../../modules/budget"
+  project_id               = var.project_id
+  project_number           = data.google_project.this.number
+  env                      = local.env
+  billing_account          = var.billing_account
+  display_name             = "ADR-0022 credit runway gross ${var.credit_spend_cap_inr} ${var.budget_currency_code}" # API limit: 60 chars
+  amount                   = var.credit_spend_cap_inr
+  currency_code            = var.budget_currency_code
+  actual_thresholds        = [0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+  projects                 = []
+  credit_types_treatment   = "INCLUDE_SPECIFIED_CREDITS"
+  credit_types             = ["FREE_TIER"]
+  custom_period            = { start = "2026-10-23", end = "2026-12-26" } # ADR-0022 until:2026-12-26
+  pubsub_topic_id          = module.budget.billing_alerts_topic
+  notification_channel_ids = module.monitoring.notification_channel_ids
+  labels                   = merge(local.labels, { module = "budget" })
+
+  depends_on = [module.project_services, module.monitoring]
+}
+
+// 2. Prod monthly GROSS budget: the tighter detector (about the 1k-DAU profile). Any alert means spend above that profile.
+//    The existing net budget (module "budget", INR 500) stays: it detects charges the credit does not cover.
+module "prod_gross_budget" { # ADR-0022 until:2026-12-26
+  count                    = var.enable_credit_budgets ? 1 : 0
+  source                   = "../../modules/budget"
+  project_id               = var.project_id
+  project_number           = data.google_project.this.number
+  env                      = local.env
+  billing_account          = var.billing_account
+  display_name             = "ADR-0022 prod monthly gross ${var.prod_gross_budget_inr} ${var.budget_currency_code}"
+  amount                   = var.prod_gross_budget_inr
+  currency_code            = var.budget_currency_code
+  actual_thresholds        = [0.5, 0.9, 1.0]
+  credit_types_treatment   = "INCLUDE_SPECIFIED_CREDITS"
+  credit_types             = ["FREE_TIER"]
+  pubsub_topic_id          = module.budget.billing_alerts_topic
   notification_channel_ids = module.monitoring.notification_channel_ids
   labels                   = merge(local.labels, { module = "budget" })
 

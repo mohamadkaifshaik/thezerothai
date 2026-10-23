@@ -33,3 +33,21 @@ variable "enable_ops_alerts" {
   type        = bool
   default     = true
 }
+
+variable "enable_request_flood_alert" {
+  description = "ADR-0022 D3: create the request-count flood alert (> request_flood_per_hour requests per hour). Prod, credit mode only; false keeps Stage 0 plans unchanged. Alerting is free before 2027-09-01."
+  type        = bool
+  default     = false
+}
+
+variable "request_flood_per_hour" {
+  description = "Requests per rolling hour above which the flood alert fires (50,000 = about 14 req/s). Raise it as DAU grows."
+  type        = number
+  default     = 50000
+}
+
+variable "firestore_reads_alert_per_day" {
+  description = "Daily Firestore reads above which the near-quota alert fires. 40000 = 80% of the free 50k (Stage 0). ADR-0022 D2 raises it to 250000 in credit mode until 2026-12-22."
+  type        = number
+  default     = 40000
+}

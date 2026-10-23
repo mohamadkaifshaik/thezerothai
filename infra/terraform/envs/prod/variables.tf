@@ -495,3 +495,81 @@ variable "feature_profile_snapshot_percent" {
     error_message = "feature_profile_snapshot_percent must be an integer 0-100."
   }
 }
+
+# ---- ADR-0022 credit mode (time-boxed, prod only). The defaults below are the Stage 0 values: CI plan (prod) runs
+# with them and must show no change from this block. The credit values go only in the real, gitignored terraform.tfvars
+# (see terraform.tfvars.example). Dates and the cap: docs/adr/0022-credit-funded-runway.md.
+
+variable "min_instance_count" {
+  description = "Cloud Run SERVICE-level minimum instances (ADR-0022). 0 = Stage 0. 1 = credit mode only, until 2026-12-22 (about INR 936/month idle, paid by the credit). The module refuses 1 after credit_mode_until in a local plan."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.min_instance_count == 0 || var.min_instance_count == 1
+    error_message = "min_instance_count must be 0 or 1."
+  }
+}
+
+variable "vision_monthly_cap" {
+  description = "VISION_MONTHLY_CAP: SafeSearch units per calendar month (ADR-0005). 10000 = Stage 0. ADR-0022 credit mode: 20000, then 40000 once DAU > 1,300 (R4). Each image costs 2 units while VISION_SCREEN_THUMB=true."
+  type        = number
+  default     = 10000
+
+  validation {
+    condition     = var.vision_monthly_cap >= 0 && var.vision_monthly_cap <= 40000 && floor(var.vision_monthly_cap) == var.vision_monthly_cap
+    error_message = "vision_monthly_cap must be an integer 0-40000 (0 disables screening spend; above 40000 needs an ADR amendment)."
+  }
+}
+
+variable "vision_exhausted_policy" {
+  description = "VISION_EXHAUSTED_POLICY (ADR-0005): what an upload becomes once the cap is spent. unscreened_established (Stage 0) | reject (credit mode: no unscreened image is ever published)."
+  type        = string
+  default     = "unscreened_established"
+
+  validation {
+    condition     = contains(["unscreened_established", "reject"], var.vision_exhausted_policy)
+    error_message = "vision_exhausted_policy must be one of: unscreened_established, reject (backend/pkg/platform/config/config.go)."
+  }
+}
+
+variable "enable_credit_budgets" {
+  description = "Create the ADR-0022 credit-runway budget (whole billing account, gross, custom period) and the prod monthly gross budget. false = Stage 0 (no new resource)."
+  type        = bool
+  default     = false
+}
+
+variable "credit_spend_cap_inr" {
+  description = "ADR-0022 gross spend cap for the credit window, in budget_currency_code units (INR). Rule: min(23000, remaining credit on the Billing > Credits page minus the 2000 reserve). Only used when enable_credit_budgets = true. The default is the conservative low figure (20,000 pool minus the 2,000 reserve): a lower cap alerts earlier. Changing it is a founder decision."
+  type        = number
+  default     = 18000
+
+  validation {
+    condition     = var.credit_spend_cap_inr > 0 && var.credit_spend_cap_inr <= 23000 && floor(var.credit_spend_cap_inr) == var.credit_spend_cap_inr
+    error_message = "credit_spend_cap_inr must be a whole number 1-23000 (ADR-0022 hard limit; raising it means amending the ADR)."
+  }
+}
+
+variable "prod_gross_budget_inr" {
+  description = "ADR-0022 D3 prod monthly gross budget (about the 1k-DAU profile). Only used when enable_credit_budgets = true."
+  type        = number
+  default     = 3000
+}
+
+variable "enable_request_flood_alert" {
+  description = "ADR-0022 D3: alert when Cloud Run requests exceed request_flood_per_hour in an hour. false = Stage 0."
+  type        = bool
+  default     = false
+}
+
+variable "request_flood_per_hour" {
+  description = "Requests per hour for the flood alert (50,000 is about 14 req/s). Raise as DAU grows."
+  type        = number
+  default     = 50000
+}
+
+variable "firestore_reads_alert_per_day" {
+  description = "Firestore reads/day alert threshold. 40000 = Stage 0 (80% of the free quota). ADR-0022 credit mode: 250000 until 2026-12-22 (about 1,070 DAU)."
+  type        = number
+  default     = 40000
+}

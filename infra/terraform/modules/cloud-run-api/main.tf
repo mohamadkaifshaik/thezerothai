@@ -10,9 +10,15 @@ resource "google_cloud_run_v2_service" "api" {
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
 
-  # cost-guard: min_instance_count must stay 0 at Stage 0 (see gcp-terraform skill).
-  # Bumping this to 1+ is the documented Stage 1 trigger and needs an ADR +
-  # `# cost-approved: ADR-NNNN` on this block.
+  # ADR-0022 (credit mode): SERVICE-level minimum instances, never revision-level. A revision-level minimum starts
+  # every revision that holds a traffic tag (prod tags `candidate`) and keeps it warm; a service-level minimum is split
+  # across the revisions that are in the traffic split (Cloud Run min-instances doc, "Apply minimum instances at
+  # service-level versus revision-level"). Default 0 = Stage 0: cost-guard (gcp-terraform skill) blocks raising it
+  # without `# cost-approved: ADR-NNNN`, and the caller carries that marker on the line that passes a non-zero value.
+  scaling {
+    min_instance_count = var.min_instance_count
+  }
+
   template {
     service_account = var.runtime_service_account_email
     timeout         = "${var.request_timeout_seconds}s"
@@ -20,7 +26,7 @@ resource "google_cloud_run_v2_service" "api" {
     max_instance_request_concurrency = var.concurrency
 
     scaling {
-      min_instance_count = 0
+      min_instance_count = 0 # revision-level: stays 0 (see the service-level scaling block above)
       max_instance_count = var.max_instance_count
     }
 
@@ -91,6 +97,12 @@ resource "google_cloud_run_v2_service" "api" {
   labels = var.labels
 
   lifecycle {
+    # Local-plan guard only: CI plans prod with the variables.tf defaults (min 0), so it never fires there.
+    precondition {
+      condition     = var.min_instance_count == 0 || timecmp(plantimestamp(), var.credit_mode_until) < 0
+      error_message = "Service-level min_instance_count > 0 is only allowed until credit_mode_until (ADR-0022, 2026-12-22). Set min_instance_count back to 0."
+    }
+
     ignore_changes = [
       # Deploys happen via `gcloud run deploy` / `google-github-actions/deploy-cloudrun`
       # in CI (see release-rollout skill); Terraform owns shape/caps, not the
@@ -104,9 +116,10 @@ resource "google_cloud_run_v2_service" "api" {
       # new revision itself. Trade-off: a plan with no other change still shows `revision -> null`, and applying it
       # would create a revision, so apply only together with a real change (or skip it).
       traffic,
-      # Service-level `scaling` is unset here; the API echoes back zero defaults, causing a permanent
-      # no-op diff. The real caps are template.scaling (min 0 / max 3), which stays managed.
-      scaling,
+      # Service-level `scaling` is managed since ADR-0022 (it used to be ignored because it was unset and the API echoed
+      # zero defaults back). min/max/manual_instance_count are Optional+Computed, so the echoed values cause no diff;
+      # scaling_mode is Optional only, so it stays ignored in case the API echoes a mode string (UNVERIFIED until a plan).
+      scaling[0].scaling_mode,
       # Stamped by every `gcloud run deploy` (client = "gcloud"); pure metadata, would show as drift forever.
       client,
       client_version,

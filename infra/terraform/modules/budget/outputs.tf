@@ -1,5 +1,5 @@
 output "billing_alerts_topic" {
-  value = google_pubsub_topic.billing_alerts.id
+  value = local.topic_id
 }
 
 output "budget_name" {

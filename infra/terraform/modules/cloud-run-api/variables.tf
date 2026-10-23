@@ -132,3 +132,29 @@ variable "labels" {
   type    = map(string)
   default = {}
 }
+
+variable "min_instance_count" {
+  description = <<-EOT
+    SERVICE-level minimum instances (ADR-0022). 0 = scale to zero (Stage 0, the only value allowed without an ADR).
+    1 = no cold start on the first instance, about INR 936/month idle, credit mode only until credit_mode_until.
+    Never set a revision-level minimum: it warms every tagged revision. Changing it needs a PR note with the cost impact.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.min_instance_count >= 0 && var.min_instance_count <= 1 && floor(var.min_instance_count) == var.min_instance_count
+    error_message = "min_instance_count must be 0 or 1 (ADR-0022 allows at most one service-level instance)."
+  }
+}
+
+variable "credit_mode_until" {
+  description = "RFC 3339 instant after which a non-zero min_instance_count fails the plan (ADR-0022: heavy items off 2026-12-22). Local-plan guard only; the CI until: check is the committed one."
+  type        = string
+  default     = "2026-12-22T00:00:00Z"
+
+  validation {
+    condition     = can(timecmp(var.credit_mode_until, "2026-01-01T00:00:00Z"))
+    error_message = "credit_mode_until must be an RFC 3339 timestamp such as 2026-12-22T00:00:00Z."
+  }
+}

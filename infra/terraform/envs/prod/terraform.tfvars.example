@@ -38,3 +38,34 @@ budget_currency_code = "INR"
 browser_key_uid = "00000000-0000-0000-0000-000000000000" # Browser key (auto created by Firebase)
 android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto created by Firebase)
 ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created by Firebase)
+
+# ---------------------------------------------------------------------------------------------------------------------
+# ADR-0022 CREDIT MODE (time-boxed, prod only). Leave all of this commented out for Stage 0. The committed defaults are
+# the Stage 0 values. Uncomment ONLY after the founder has done the credit checklist in
+# docs/adr/0022-credit-funded-runway.md (Billing > Credits: remaining amount, covered services, payment method) and has
+# reviewed `terraform plan -out=tfplan`.
+#
+# What each line does, in plain words:
+#   min_instance_count       keep ONE Cloud Run instance always warm so nobody waits for a cold start (about INR 936 a
+#                            month, paid by the credit). Service-level, never revision-level.
+#   vision_monthly_cap       image-safety checks (units; one image = 2 units) allowed per month before the stop. 20000
+#                            now; 40000 only once DAU stays above 1,300 for 3 days (ADR-0022 R4).
+#   vision_exhausted_policy  "reject" = at the cap, uploads fail instead of publishing an unchecked image.
+#   enable_credit_budgets    turn on the two gross-spend budgets (they show credit-paid spend, which the normal INR 500
+#                            net budget hides).
+#   credit_spend_cap_inr     the gross spend ceiling = min(23000, remaining credit on the Credits page - 2000 reserve).
+#   enable_request_flood_alert, firestore_reads_alert_per_day   the flood detector and the raised reads alert.
+#
+# SUNSET (ADR-0022): on 2026-12-22 set min_instance_count = 0, vision_monthly_cap = 10000,
+# vision_exhausted_policy = "unscreened_established", firestore_reads_alert_per_day = 40000 (or delete these lines), plan,
+# review, apply. On 2026-12-24 the services are paused. CI fails from 2026-12-23 while any until: marker in
+# infra/terraform is older than today.
+#
+# min_instance_count            = 1          # cost-approved: ADR-0022 until:2026-12-22
+# vision_monthly_cap            = 20000      # until 2026-12-22 (then 10000)
+# vision_exhausted_policy       = "reject"   # until 2026-12-22 (then "unscreened_established")
+# enable_credit_budgets         = true       # until 2026-12-26
+# credit_spend_cap_inr          = 23000      # founder sets: min(23000, remaining - 2000); never above 23000
+# prod_gross_budget_inr         = 3000
+# enable_request_flood_alert    = true       # until 2026-12-26 (request_flood_per_hour = 50000 by default)
+# firestore_reads_alert_per_day = 250000     # until 2026-12-22 (then 40000)
