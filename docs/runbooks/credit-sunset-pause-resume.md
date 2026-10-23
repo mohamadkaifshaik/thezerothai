@@ -271,6 +271,14 @@ Always set the shell block at the top first. The first command is the fastest sa
 
 ---
 
+### If the Cloud Run spend cap tripped (prod API is down, data is safe) - ADR-0022 decision 3
+Usage of the capped service is paused, not deleted; Firestore data, media and config are untouched. To bring the API back:
+1. Console > Billing > Budgets & alerts > open the spend-cap budget for `dzeroth-prod` > **Lift spend cap**. (Budget settings cannot be edited while the cap is enforced, so lift first.)
+2. Wait up to one hour for services to fully return to normal (Google documents this delay).
+3. Decide why it tripped (flood, abuse, a real traffic jump) with `docs/runbooks/cost-spike.md` and `abuse-spike.md`. A manually lifted cap does **not** trigger again in the same monthly period unless you raise the target, so if the cause is not fixed, close public access (L2 above) or lower the target before lifting.
+4. Do **not** run `terraform apply` while the cap is on or before checking `allUsers` and `DEGRADED_MODE`. No redeploy is needed to resume, so there is no revision or traffic-pin conflict.
+5. The cap lifts by itself at the start of the next monthly period. Source: https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps (read 2026-10-23). UNVERIFIED: whether a Free Trial account can use spend caps and whether Terraform can manage them.
+
 ## 7. What I could not verify
 
 - Account type and credit terms: Free-Trial vs promotional vs paid, behaviour after expiry (resources stopped/deleted? grace period?), exact expiry time and zone. **No gcloud/Console access was available.**

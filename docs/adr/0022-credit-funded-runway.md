@@ -1,7 +1,7 @@
 # 0022. Credit-funded runway (time-boxed exception to the $0 rule)
 Status: Proposed
 Date: 2026-10-23
-Deciders: architect (proposal); founder (pending; this ADR adds a time-boxed fixed cost and bends the prime directive, so it needs the founder's explicit acceptance)
+Deciders: architect (proposal); founder (decisions 1-5 stated 2026-10-23; acceptance of the ADR still pending; this ADR adds a time-boxed fixed cost and bends the prime directive, so it needs the founder's explicit acceptance)
 
 Related: ADR-0001 (free-tier-first), ADR-0005 (Vision cap), ADR-0006 (abuse controls), ADR-0007 (budgets, regions, alerts),
 ADR-0010 (read budget), ADR-0019 (prod gate), ADR-0021 (scheduler sweep). Cost model with the arithmetic:
@@ -316,16 +316,31 @@ a paid (upgraded) account.
   The `until:` markers sit on committed lines in `envs/prod/main.tf` (D6), not in the gitignored tfvars, so the CI check
   can see them; the Terraform precondition only fires in the founder's local plan.
 
-### Not decided / needs the founder (max 5)
-1. Credit facts from the checklist (pool 20k vs 25k, **remaining** amount, trial vs paid, eligible services, payment
-   method). They set `credit_spend_cap_inr`.
-2. `VISION_EXHAUSTED_POLICY=reject` during credit mode (no unscreened image ever; uploads fail at the cap) versus keeping
-   `unscreened_established`.
-3. K3 native Cloud Run spend cap on prod as a backstop (outage at the cap), if eligible.
-4. Post-expiry fallback when not funded: FREE-TIER as configured (Vision paid, INR ≈ 434/month at 300 DAU), FREE-TIER
-   strict (INR ≈ 56), or stay PAUSED.
-5. If it is a Free Trial: upgrade to paid before 12-26 (keeps data; card exposed, PAUSED ≈ INR 0-15/month) or export
-   everything and accept the deletion risk.
+### Founder decisions (stated 2026-10-23; the ADR itself is still Proposed until the founder explicitly accepts it)
+1. **Credit facts.** The founder checked: the account is Firebase Blaze on a Google Cloud trial, the credit expires on 2026-12-26,
+   and the credit applies to free-tier-eligible services. Still to read from Billing > Credits before the first paid change:
+   the exact remaining amount (pool 20k vs 25k INR was stated both ways), which services the credit covers, and whether a
+   payment method is attached. They set `credit_spend_cap_inr` (the lower of INR 23,000 and remaining minus INR 2,000).
+2. **Vision at the cap: `VISION_EXHAUSTED_POLICY=reject`** during credit mode (no unscreened image is ever published; uploads
+   fail at the cap).
+3. **K3 native Cloud Run spend cap on prod as a backstop: yes, if the account is eligible.** What Google documents
+   ([spend caps](https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps), read 2026-10-23): usage of the
+   capped service is paused, **not deleted**; resources and data stay; in-flight requests finish; fixed costs of persistent
+   resources continue; enforcement is not instant and overages are billed. **To bring the API back:** Billing > Budgets > edit
+   the budget > **Lift spend cap**; services may take up to one hour to fully return; a manually lifted cap does not trigger
+   again in the same monthly period unless the target is raised; budget settings cannot be edited while the cap is enforced
+   (lift first); the cap lifts automatically at the start of the next monthly period. No Terraform apply or redeploy is needed to
+   resume, so there is no revision or traffic-pin conflict, but **do not run `terraform apply` while the cap is on** (it cannot
+   change the budget then, and an apply from `envs/prod` also re-adds the public invoker). Caveats: the cap counts gross cost
+   excluding credits, so set the target as a gross amount; it covers one project and one service per budget; whether Free Trial
+   accounts and whether Terraform can manage a spend-cap budget are UNVERIFIED (the console may be the only way); it is a
+   backstop for the monthly period, not a replacement for the manual public-access kill switch.
+4. **If no funding arrives at expiry:** run **FREE-TIER as configured for the first month** (about INR 434 at 300 DAU, less at
+   fewer users), then **stay PAUSED** until funded or until subscriptions pay. Re-decide earlier if a month of real traffic
+   shows a different bill.
+5. **Upgrade the account to paid before 2026-12-26**, with minimal usage, so data is kept and PAUSED costs about INR 0-15 a
+   month. The card is exposed only to that minimal usage plus whatever runs after expiry, so the sunset must still pause or
+   reduce services before expiry.
 
 ### D6. Proposed edits (apply only after acceptance; this ADR changes none of them)
 **CLAUDE.md**
