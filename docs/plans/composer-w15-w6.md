@@ -32,7 +32,7 @@ Cost line: 0 reads/writes.
 ### Gate ticket
 | ID | Ticket | Owner | Size | Status |
 | --- | --- | --- | --- | --- |
-| CMP-A1 | **ADR-00NN "Composer extras: reply audience, disclosure, scheduled posts"** with proto diff, Firestore model, index list, reads/writes table, flag names, and the scheduling decision below. Founder accepts before CMP-B/C/D start. | architect | M | Not started |
+| CMP-A1 | **ADR-00NN "Composer extras: reply audience, disclosure, scheduled posts"** with proto diff, Firestore model, index list, reads/writes table, flag names, and the scheduling decision below. Founder accepts before CMP-B/C/D start. | architect | M | **Done 2026-10-23:** `docs/adr/0021-composer-extras-reply-audience-disclosure-scheduling.md` **Accepted** by the founder (security review: `docs/reviews/security-review-adr-0021.md`). Tickets B, C and D are unblocked; proto and backend work follows the ADR, not this plan, wherever they differ. |
 
 Scheduling decision the ADR must make (options, recommendation first):
 1. **Sweep job** (roadmap default: "scheduling stays on one sweep job"). One Cloud Scheduler job every 5 minutes hits `/internal/cron/publish-scheduled`. Publish lateness up to 5 min. **Free-tier check required:** Cloud Scheduler allows 3 free jobs per *billing account* and dev + prod share it; `daily-maintenance` already uses one. The ADR must count existing jobs in `infra/terraform` for both envs before adding one, and either fold the sweep into an existing job or get founder approval for a paid job (a fixed cost, so it needs ADR + milestone per CLAUDE.md).

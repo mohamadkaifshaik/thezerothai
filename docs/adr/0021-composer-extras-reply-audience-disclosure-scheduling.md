@@ -1,7 +1,7 @@
 # 0021. Composer extras: reply audience, content disclosure, scheduled posts
-Status: Proposed (draft; the founder accepts ADRs. Nothing here is binding until Accepted)
+Status: Accepted (founder, 2026-10-23; includes the five founder decisions recorded in "Founder decisions" below, and the rule-4 bend in item 3)
 Date: 2026-10-23 (revised the same day after `docs/reviews/security-review-adr-0021.md`; see §Security review)
-Deciders: architect (proposal); founder (pending). Product defaults below were proposed by the founder's delegate in
+Deciders: architect (proposal); founder (accepted 2026-10-23). Product defaults below were proposed by the founder's delegate in
 `docs/plans/composer-w15-w6.md` "Answers to the open questions" (2026-10-23).
 
 Plan: `docs/plans/composer-w15-w6.md` (gate ticket CMP-A1; tickets CMP-B1..B4, C1..C4, D1..D8).
@@ -780,7 +780,10 @@ Source: `docs/reviews/security-review-adr-0021.md` (2026-10-23, APPROVE WITH CHA
 | I-6 | applied in D2 "Viewer hint", D3 "Rendering", tests |
 | I-7 | applied in the RPC rules, §Security and abuse "Authz", tests |
 
-## Not decided / needs founder
+## Founder decisions
+Recorded 2026-10-23: the founder accepted this ADR and accepted all five items below **as written in this ADR** (the
+proposals, not the alternatives). Where an item names a condition, the condition still stands.
+
 1. **Approve the second Cloud Scheduler job in prod** (2 of 3 free), and confirm that no other project on the billing
    account uses Scheduler jobs. Only then is the fixed cost $0.
 2. **Reply policy together with a schedule.** This ADR allows it; X disables the control while a schedule is set.
@@ -796,6 +799,21 @@ Source: `docs/reviews/security-review-adr-0021.md` (2026-10-23, APPROVE WITH CHA
 5. **Scheduled images public by link before publish** (review L-9). Accept at Stage 0 with the dialog copy (this ADR's
    proposal), or ask for an ADR-0005 amendment that keeps unattached images private until attach (new signed-read
    path and more Class A/B operations).
+
+Resolution of each item:
+1. **Approved**: the `publish-scheduled` job (2 of 3 free) goes ahead in prod only. Condition kept: the billing account
+   must have no other Scheduler jobs outside this repo. If a third job exists elsewhere, this one becomes a paid job
+   (about $0.10 a month) and needs a `# cost-approved: ADR-0021` marker before apply. The deployer checks the billing
+   account's jobs before `terraform apply`.
+2. **As written**: reply policy is allowed together with a schedule. Mirroring X (reject the combination) stays a
+   cheap follow-up: a client change plus one VALIDATION rule, with no proto change.
+3. **Approved**: the rule-4 bend for SchedulePost and CancelScheduledPost.
+4. **Approved**: the per-author window cap (3 posts within +/-4 min, +1 read per SchedulePost).
+5. **Approved**: scheduled images stay public by link before publish at Stage 0, with the dialog copy. An ADR-0005
+   private-until-attach amendment is not requested.
+
+Accepting this ADR does not approve any apply or traffic shift: prod applies, flag ramps and releases still go through
+the normal gates (ADR-0019).
 
 ## Handoff
 - **architect (on Accept):** the proto diff; the index, fieldOverride and TTL entries; a `firestore-data-model` skill
