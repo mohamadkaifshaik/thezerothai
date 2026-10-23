@@ -232,8 +232,8 @@ func TestCreate_ReplyPolicy_Setting(t *testing.T) {
 	}
 }
 
-// TestCreate_ReplyPolicy_OldStyleRequestHashesIdentically: a request that sets no policy (or EVERYONE) is stored
-// under the legacy hash, so a retry across the deploy replays; a different policy under the same key is a reuse.
+// TestCreate_ReplyPolicy_Idempotency: a request that sets no policy (or EVERYONE) is stored under the legacy hash,
+// so a retry across the deploy replays; a different policy under the same key is a reuse.
 func TestCreate_ReplyPolicy_Idempotency(t *testing.T) {
 	e := newCreateEnv()
 	in := CreateInput{IdempotencyKey: key1, Text: "hello", ReplyPolicy: 2, ReplyAudienceEnabled: true}
@@ -275,19 +275,24 @@ func TestCreateReply_InheritsPolicy(t *testing.T) {
 		t.Run(string(policy), func(t *testing.T) {
 			e := restrictedEnv(policy, testUID)
 			e.graph.snaps = map[string]graph.Snapshot{uZed: {Following: map[string]bool{testUID: true}}}
-			p, _, err := e.replyTo(rReply1) // deeper reply: the parent is a reply carrying the policy
+			// Deeper reply: the parent is a reply carrying the policy. The text mentions bob; the root mentions the caller.
+			p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply to @bob", ReplyToPostID: rReply1, RepliesEnabled: true})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if p.ReplyPolicy != policy || e.repo.docs[p.ID].ReplyPolicy != policy {
 				t.Fatalf("reply policy %q stored %q, want %q", p.ReplyPolicy, e.repo.docs[p.ID].ReplyPolicy, policy)
 			}
-			if got, want := e.repo.lastCreate.RequestHash, requestHash("reply", rReply1, "", nil, nil, ReplyPolicyEveryone, false, false); got != want {
+			if got, want := e.repo.lastCreate.RequestHash, requestHash("reply to @bob", rReply1, "", nil, nil, ReplyPolicyEveryone, false, false); got != want {
 				t.Fatalf("a reply's hash must not include the inherited policy")
 			}
 			d := toDoc(p)
-			if d.ReplyPolicy != string(policy) || len(d.Mentions) != 0 {
-				t.Fatalf("doc = %+v: only the policy name may be inherited, never a user id", d)
+			if d.ReplyPolicy != string(policy) {
+				t.Fatalf("doc = %+v: the policy name must be inherited", d)
+			}
+			// Only the reply's own mentions are stored, never the root's (the policy carries no user id).
+			if !reflect.DeepEqual(p.Mentions, []Mention{{UserID: "uid-bob", Handle: "bob"}}) || len(d.Mentions) != 1 || d.Mentions[0].UserID != "uid-bob" {
+				t.Fatalf("mentions = %+v / doc %+v, want only the reply's own @bob", p.Mentions, d.Mentions)
 			}
 		})
 	}
@@ -491,6 +496,10 @@ func TestEnforceReplyPolicy_Following(t *testing.T) {
 			follows(uZed, testUID), rReply4, "ok", []string{testUID, uZed}},
 		{"deep, follower but blocked by the root author", ReplyPolicyFollowing,
 			both(follows(uZed, testUID), func(e *createEnv) { e.graph.snap.BlockedBy = map[string]bool{uZed: true} }), rReply1, "notfound", nil},
+		{"deep, follower but the caller blocked the root author", ReplyPolicyFollowing,
+			both(follows(uZed, testUID), func(e *createEnv) { e.graph.snap.Blocked = map[string]bool{uZed: true} }), rReply1, "notfound", nil},
+		{"deep, follower but the caller's blockedBy overflowed", ReplyPolicyFollowing,
+			both(follows(uZed, testUID), func(e *createEnv) { e.graph.snap.BlockedByOverflow = true }), rReply1, "notfound", nil},
 		{"deep, root deleted", ReplyPolicyFollowing,
 			both(follows(uZed, testUID), func(e *createEnv) { delete(e.repo.docs, rRoot) }), rReply1, "notfound", nil},
 		{"deep, root author suspended", ReplyPolicyFollowing,
@@ -829,8 +838,19 @@ func TestGetThread_ContextUnchangedByRefactor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !th.RootUnavailable || th.ReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN {
+	// EVERYONE: the answer does not depend on the root, so an unavailable root is no oracle and the hint is ALLOWED.
+	if !th.RootUnavailable || th.ReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED {
 		t.Fatalf("root unavailable=%v hint=%v", th.RootUnavailable, th.ReplyPermission)
+	}
+	// RESTRICTED with the same unavailable root: the hint needs the root, so it stays UNKNOWN.
+	er := restrictedEnv(ReplyPolicyFollowing)
+	er.graph.snap.BlockedBy = map[string]bool{uZed: true}
+	thr, _, err := er.thread(ThreadInput{PostID: rReply4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !thr.RootUnavailable || thr.ReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN {
+		t.Fatalf("restricted: root unavailable=%v hint=%v, want UNKNOWN", thr.RootUnavailable, thr.ReplyPermission)
 	}
 	// Reads stay bounded: GetThread adds nothing for an EVERYONE thread (no FOLLOWING graph read).
 	e2 := newThreadEnv()
@@ -876,4 +896,44 @@ func TestEnforceReplyPolicy_DependencyFailuresAreInternal(t *testing.T) {
 			t.Fatal("nothing may be written")
 		}
 	})
+}
+
+// TestCreate_ReplyReplayAfterPermissionLost pins the founder-accepted behaviour (CMP-B2 review, MINOR 2): enforcement
+// runs before the idempotency lookup, so a replay of a reply that was created while allowed answers REPLY_NOT_ALLOWED
+// (or NOT_FOUND once the root is unusable) after the permission is gone. It fails closed and never grants access;
+// the reply itself still exists.
+func TestCreate_ReplyReplayAfterPermissionLost(t *testing.T) {
+	tests := []struct {
+		name   string
+		revoke func(e *createEnv)
+		want   string
+	}{
+		{"mention removed from the root", func(e *createEnv) { e.repo.docs[rRoot].Mentions = nil }, "denied"},
+		{"root hidden", func(e *createEnv) { e.repo.docs[rRoot].Moderation = ModerationTakenDown }, "notfound"},
+		{"root author blocks the caller", func(e *createEnv) { e.graph.snap.BlockedBy = map[string]bool{uZed: true} }, "notfound"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := restrictedEnv(ReplyPolicyMentionedOnly, testUID)
+			first, _, err := e.replyTo(rRoot)
+			if err != nil {
+				t.Fatalf("first reply: %v", err)
+			}
+			tt.revoke(e)
+			e.repo.createCalls = 0
+			got, c, err := e.replyTo(rRoot) // same idempotency key and request
+			switch tt.want {
+			case "denied":
+				wantReplyNotAllowed(t, err, "mentioned_only")
+			case "notfound":
+				wantNotFound(t, err)
+			}
+			if got != nil || c.Writes() != 0 || e.repo.createCalls != 0 {
+				t.Fatalf("a refused replay returns nothing and writes nothing: post=%v writes=%d creates=%d", got, c.Writes(), e.repo.createCalls)
+			}
+			if e.repo.docs[first.ID] == nil {
+				t.Fatal("the original reply must still exist")
+			}
+		})
+	}
 }

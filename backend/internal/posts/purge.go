@@ -205,7 +205,7 @@ type exportedPost struct {
 	// The author's own disclosure labels (ADR-0021 D3); omitted when false so older exports are byte-identical.
 	PaidPartnership bool `json:"paidPartnership,omitempty"`
 	MadeWithAI      bool `json:"madeWithAi,omitempty"`
-	// The reply policy the user chose for the conversation (ADR-0021 D2); omitted when EVERYONE. Holds no user id.
+	// The effective reply policy of the conversation (ADR-0021 D2; a reply exports the policy it inherited); omitted when EVERYONE. Holds no user id.
 	ReplyPolicy string `json:"replyPolicy,omitempty"`
 }
 

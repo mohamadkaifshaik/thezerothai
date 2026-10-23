@@ -391,8 +391,13 @@ func (s *service) ReplyPermission(ctx context.Context, viewer string, p *Post) p
 
 // threadReplyPermission is GetThread's single hint: the policy is per conversation, so every row shares it. R is
 // the focal post for a root focal, else the context root threadContext just loaded; when that root is unavailable
-// the hint is UNKNOWN. <= +1 read cold (FOLLOWING).
+// the hint is UNKNOWN. An unrestricted conversation is ALLOWED with 0 reads; <= +1 read cold (FOLLOWING).
 func (s *service) threadReplyPermission(ctx context.Context, caller string, snap graph.Snapshot, focal *Post, out *Thread) postsv1.ReplyPermission {
+	if !focal.ReplyPolicy.Restricted() {
+		// EVERYONE (a reply carries the inherited policy): the answer never depends on the root, so a blocked or
+		// deleted root cannot be told apart by it. 0 reads.
+		return postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED
+	}
 	root := focal
 	if focal.ReplyToID != "" {
 		if out.RootUnavailable || out.Root == nil {

@@ -182,7 +182,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 		{"FOLLOWING direct", convs[2].root.ID, "following", fDirect},
 	} {
 		before := countDocs(t, client, "idempotency")
-		posts := countDocs(t, client, postsCollection)
+		postsBefore := countDocs(t, client, postsCollection)
 		replies := replyCount(t, seed, tc.parent)
 		in := fresh()
 		_, c, err := in.reply(t, "uid-dave", key(50), "nope", tc.parent)
@@ -197,7 +197,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 		if got := countDocs(t, client, "idempotency"); got != before {
 			t.Fatalf("%s: idempotency docs %d -> %d, a refusal must store nothing under the key", tc.name, before, got)
 		}
-		if got := countDocs(t, client, postsCollection); got != posts || replyCount(t, seed, tc.parent) != replies {
+		if got := countDocs(t, client, postsCollection); got != postsBefore || replyCount(t, seed, tc.parent) != replies {
 			t.Fatalf("%s: a refusal changed posts or the parent counter", tc.name)
 		}
 	}
@@ -260,13 +260,14 @@ func TestReplyAudience_Integration(t *testing.T) {
 	}
 
 	// --- GetThread: the hint of a FOLLOWING conversation is +1 cold over an EVERYONE one of the same size ---
-	// (the base and the FOLLOWING conversation hold the same number of replies by now: seed, direct, deep, 2 warm).
+	// PageSize 1 caps the conversation query at one reply in both, so the delta no longer depends on how many replies
+	// each conversation holds by now.
 	threadReads := func(c *conv) *budget.Counter {
 		in := fresh()
 		if _, err := in.svc.directory.GetProfiles(context.Background(), []string{"uid-bob"}); err != nil {
 			t.Fatal(err)
 		}
-		th, ctr, err := in.thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID})
+		th, ctr, err := in.thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID, PageSize: 1})
 		if err != nil {
 			t.Fatal(err)
 		}

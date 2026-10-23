@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -263,7 +264,7 @@ func TestPostsContract_ReplyAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMe: %v", err)
 	}
-	if got := me.Msg.GetEnabledFeatures(); !containsString(got, "reply_audience") {
+	if got := me.Msg.GetEnabledFeatures(); !slices.Contains(got, "reply_audience") {
 		t.Errorf("enabled_features with the flag on = %v, want reply_audience", got)
 	}
 
@@ -288,6 +289,15 @@ func TestPostsContract_ReplyAudience(t *testing.T) {
 	}
 	if err := reply(author, "ra-author"); err != nil {
 		t.Fatalf("the root author's own reply: %v", err)
+	}
+
+	// reply_policy on a reply is VALIDATION (a reply inherits its conversation's policy), with the flag on.
+	_, err = env.posts.CreatePost(ctx, authed(author, &postsv1.CreatePostRequest{
+		IdempotencyKey: contractKey("ra-reply-policy"), Text: "reply", ReplyToPostId: rootID, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}))
+	d = wireError(t, err, connect.CodeInvalidArgument)
+	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
+	if d.GetMetadata()["field"] != "reply_policy" {
+		t.Errorf("metadata = %v, want field=reply_policy", d.GetMetadata())
 	}
 
 	got, err := env.posts.GetPost(ctx, authed(stranger, &postsv1.GetPostRequest{PostId: rootID}))
@@ -321,7 +331,7 @@ func TestPostsContract_ReplyAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMe (off): %v", err)
 	}
-	if got := me.Msg.GetEnabledFeatures(); containsString(got, "reply_audience") {
+	if got := me.Msg.GetEnabledFeatures(); slices.Contains(got, "reply_audience") {
 		t.Errorf("enabled_features with the flag off = %v, want no reply_audience", got)
 	}
 	_, err = off.posts.CreatePost(ctx, authed(stranger, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("ra-off"), Text: "reply", ReplyToPostId: rootID}))
@@ -332,13 +342,4 @@ func TestPostsContract_ReplyAudience(t *testing.T) {
 	if d.GetMetadata()["feature"] != "reply_audience" {
 		t.Errorf("metadata = %v, want feature=reply_audience", d.GetMetadata())
 	}
-}
-
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
