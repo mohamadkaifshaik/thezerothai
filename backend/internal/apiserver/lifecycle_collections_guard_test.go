@@ -92,6 +92,11 @@ var lifecycleCollections = []collectionRow{
 	// the post author's uid (authorId, a pseudonymous link) so readers can scope them per feed. The posts step deletes
 	// them by authorId (PurgeUser phase 2); the 32-day TTL is only the backstop, so no residue allowlist entry exists.
 	{Name: "postRemovals", Disposition: erasedByStep, Step: "posts", ExportNote: "operator-internal moderation log (post id, state, timestamps, author uid); not user content, not exported", Owner: "posts", Cite: "ADR-0016 amendment 2026-10-18 (b), ADR-0011 Q10"},
+	// ADR-0021 D4 (CMP-D2): scheduled posts live under users/{uid}/scheduled, a subcollection that deleting users/{uid}
+	// does not remove. The `scheduled` step (posts.ScheduledEraser, BeforeIdentity after reports) deletes every
+	// document; the export section lists every document and the draft wherever one is still held. The documents hold
+	// only the owner's data (no other user's uid, D2 copies none), so no residue allowlist entry exists.
+	{Name: "scheduled", Sub: true, Disposition: erasedByStep, Step: "scheduled", Section: "scheduled", Owner: "posts", Cite: "ADR-0021"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 }
 
@@ -271,6 +276,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerScheduledLifecycle(l, posts.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

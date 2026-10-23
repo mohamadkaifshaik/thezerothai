@@ -94,3 +94,75 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 		})
 	}
 }
+
+// TestScheduledBuckets_ShareTheCreatePostBucket (ADR-0021 D4): SchedulePost and CancelScheduledPost draw on the SAME
+// 10/min bucket as CreatePost, so a user's creates, schedules and cancels together cannot exceed it, while
+// ListScheduledPosts is a read on the 60/min default bucket and is not starved by an exhausted create bucket.
+func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
+	procs := []string{
+		postsv1connect.PostServiceCreatePostProcedure,
+		postsv1connect.PostServiceSchedulePostProcedure,
+		postsv1connect.PostServiceCancelScheduledPostProcedure,
+		postsv1connect.PostServiceListScheduledPostsProcedure,
+	}
+	cfg := defaultRateLimitCfg()
+	cfg.RateLimit.PerUserPerMinute = 60
+	cfg.RateLimit.PerIPPerMinute = 100000
+	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
+	rl := RateLimitConfig(cfg)
+
+	for _, p := range []string{postsv1connect.PostServiceSchedulePostProcedure, postsv1connect.PostServiceCancelScheduledPostProcedure} {
+		if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != rl.PerProcedure[postsv1connect.PostServiceCreatePostProcedure] {
+			t.Errorf("%s does not use the CreatePost limiter instance", p)
+		}
+	}
+	if _, has := rl.PerProcedure[postsv1connect.PostServiceListScheduledPostsProcedure]; has {
+		t.Error("ListScheduledPosts must use the default read bucket, not a dedicated one")
+	}
+	for _, p := range procs {
+		if _, exempt := rl.ReadBudgetExempt[p]; exempt {
+			t.Errorf("%s is on the read-budget exemption list; the list must stay empty", p)
+		}
+		if _, charge := rl.ReadBudgetChargeOnly[p]; charge {
+			t.Errorf("%s is charge-only; only the account operations may be", p)
+		}
+	}
+
+	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-sched", SignInProvider: authn.SignInProviderGoogle}), req)
+		}
+	})
+	opts := connect.WithInterceptors(setUID, ratelimit.Interceptor(rl))
+	mux := http.NewServeMux()
+	for _, p := range procs {
+		mux.Handle(p, connect.NewUnaryHandler(p,
+			func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+			}, opts))
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	invoke := func(proc string) error {
+		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
+		_, err := c.CallUnary(context.Background(), connect.NewRequest(&commonv1.ErrorDetail{}))
+		return err
+	}
+
+	// 4 creates + 3 schedules + 3 cancels = the 10 calls of the minute, in any mix.
+	mix := []string{procs[0], procs[1], procs[2], procs[0], procs[1], procs[2], procs[0], procs[1], procs[2], procs[0]}
+	for i, p := range mix {
+		if err := invoke(p); err != nil {
+			t.Fatalf("call %d (%s) must pass: %v", i+1, p, err)
+		}
+	}
+	for _, p := range procs[:3] {
+		var ce *connect.Error
+		if err := invoke(p); !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
+			t.Errorf("%s after 10 shared calls: err = %v, want ResourceExhausted", p, err)
+		}
+	}
+	if err := invoke(procs[3]); err != nil {
+		t.Errorf("ListScheduledPosts must not draw on the create bucket: %v", err)
+	}
+}

@@ -167,6 +167,10 @@ against a cloud project.
   `evidence` copy of their post text) are kept until resolved + 90 days, then Firestore TTL deletes them; this is the
   residue allowlist entries `reports.targetOwnerId` / `reports.targetId`. Do not hand-delete them. Tell the
   requester in the reply; the privacy policy carries the same sentence.
+- **Scheduled posts (ADR-0021 D4):** `users/{uid}/scheduled/*` is a subcollection, which deleting `users/{uid}` does not remove, so the
+  `scheduled` step (after `reports`, before `identity`) deletes every document, 500 per page. It costs 1 read when the account has none.
+  The documents hold only the owner's data (no other user's uid), so there is no residue to report. The export carries a `scheduled`
+  section with every document and the draft of each PENDING or FAILED one.
 - **Notifications and devices (P6, ADR-0017):** the `notifications` step removes the user's devices and their
   `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
   `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when
@@ -239,7 +243,7 @@ GOWORK=off go run ./cmd/opsctl check-t26 --project dzeroth-prod   # asks you to 
 `DELETING` with a `deletionJob` and publishes to the Pub/Sub topic `jobs`. The push subscription `jobs-push` calls
 `/internal/pubsub/jobs` (OIDC, only the `pubsub-push` service account). After a **120 s gate** (so no instance still
 treats the user as ACTIVE) the job runs the steps in this fixed order, in 20 s slices that re-publish themselves:
-`auth_disable`, `posts`, `graph`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
+`auth_disable`, `posts`, `graph`, `media`, `notifications`, `engagement`, `reports`, `scheduled`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
 persisted in `deletionJob.step`; never rename or remove one without a migration. `RequestAccountExport` writes
 `exports/{id}` and a JSON object to the private bucket `<project>-exports` (7-day lifecycle, soft delete off); each
 `GetAccountExport` signs a fresh 15-minute GET URL. Exports are capped at 1 per day per user.

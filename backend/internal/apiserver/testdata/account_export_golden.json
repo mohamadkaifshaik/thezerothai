@@ -94,5 +94,28 @@
   "reports": {
     "reports": [],
     "userId": "<uid:A>"
+  },
+  "scheduled": {
+    "scheduled": [
+      {
+        "createdAt": "<time>",
+        "draft": {
+          "madeWithAi": true,
+          "text": "scheduled draft of PENDING"
+        },
+        "id": "<scheduled-id>",
+        "publishAt": "<time>",
+        "status": "PENDING",
+        "updatedAt": "<time>"
+      },
+      {
+        "createdAt": "<time>",
+        "id": "<scheduled-id>",
+        "publishAt": "<time>",
+        "status": "CANCELLED",
+        "updatedAt": "<time>"
+      }
+    ],
+    "userId": "<uid:A>"
   }
 }

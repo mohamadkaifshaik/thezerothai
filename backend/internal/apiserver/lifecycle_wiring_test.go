@@ -12,9 +12,11 @@ import (
 	"time"
 
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
@@ -183,5 +185,64 @@ func TestRegisterLifecycleModules(t *testing.T) {
 	}
 	if err := registerLifecycleModules(l, posts.NewFirestoreRepo(nil), graph.NewFirestoreRepo(nil), media.NewPurger(nil, nil, ""), notifications.NewFirestoreRepo(nil)); err == nil {
 		t.Error("registering the same modules twice was accepted")
+	}
+}
+
+// TestRegisterLifecycle_FullOrder pins the deletion order and the export sections exactly as Build registers them
+// (registerLifecycleModules, then engagement, reports and scheduled). The step names are persisted in
+// users/{uid}.deletionJob.step and the section names are keys of the export file, so a reorder or rename strands
+// in-flight deletions or breaks exports already handed out (ADR-0011 Q1, ADR-0021: `scheduled` runs after the
+// existing steps and before identity).
+func TestRegisterLifecycle_FullOrder(t *testing.T) {
+	l, err := identity.NewLifecycle(identity.LifecycleDeps{
+		Repo: stubRepo{}, Cache: identity.NewCache(time.Minute), Publisher: stubPub{}, Auth: stubAuth{},
+		ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postsRepo := posts.NewFirestoreRepo(nil)
+	if err := registerLifecycleModules(l, postsRepo, graph.NewFirestoreRepo(nil), media.NewPurger(nil, nil, ""), notifications.NewFirestoreRepo(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerEngagementLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerScheduledLifecycle(l, postsRepo); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "identity", "auth_delete", "users_doc"}
+	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
+		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
+	}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled"}
+	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
+		t.Errorf("export sections = %v, want %v", got, wantSections)
+	}
+	if err := registerScheduledLifecycle(l, postsRepo); err == nil {
+		t.Error("registering the scheduled step twice was accepted")
+	}
+}
+
+type fakeScheduledSource struct{}
+
+func (fakeScheduledSource) ExportUser(_ context.Context, uid string, w io.Writer) error {
+	_, err := io.WriteString(w, `{"userId":"`+uid+`","scheduled":[]}`)
+	return err
+}
+
+// TestScheduledSection: the section is named `scheduled` and streams what posts.ScheduledExporter writes; the step is
+// named `scheduled` and decodes its checkpoint from JSON like the others.
+func TestScheduledSection(t *testing.T) {
+	s := scheduledSection{x: fakeScheduledSource{}}
+	var buf bytes.Buffer
+	if s.Name() != "scheduled" || s.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != `{"userId":"u1","scheduled":[]}` {
+		t.Errorf("section %q = %q", s.Name(), buf.String())
+	}
+	if got := scheduledEraserStep(posts.NewScheduledEraser(nil)).Name(); got != "scheduled" {
+		t.Errorf("step name = %q", got)
 	}
 }

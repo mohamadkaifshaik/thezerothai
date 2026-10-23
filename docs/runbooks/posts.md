@@ -29,6 +29,21 @@ while the CreatePost lands on an old one, which drops the unknown field and post
 a spike of `outcome=rejected:reply_not_allowed` is users hitting restricted conversations (expected), not an outage; reads of a
 restricted reply are +0 warm and at most +3 (MENTIONED_ONLY) / +4 (FOLLOWING) cold. No new failure mode.
 
+Scheduled posts (ADR-0021 D4, foundation): `FEATURE_SCHEDULED_POSTS[_ALLOWLIST|_PERCENT]` / `feature_scheduled_posts*`, wire name
+`scheduled_posts`, default off in every environment (dev ceiling: allowlist, at most 3 uids). `GetMe.enabled_features` lists it only
+when on for the caller. **This release only adds storage and plumbing:** `SchedulePost`, `ListScheduledPosts` and
+`CancelScheduledPost` still answer `UNIMPLEMENTED` and the publish sweep does not exist yet, so turning the flag on changes nothing a
+user can see. What does ship, and runs whatever the flag says: the `quotas.schedules` daily counter (`QUOTA_SCHEDULES_PER_DAY` 50,
+`QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY` 10) and the `SCHEDULED_*` limits (parsed and validated at startup; a typo fails the boot, so
+check the Cloud Run revision came up), the `scheduled` account-deletion step and export section for `users/{uid}/scheduled/*`
+(deleting `users/{uid}` does not remove a subcollection), and the rate-limit mapping (SchedulePost and CancelScheduledPost share the
+CreatePost 10/min bucket; ListScheduledPosts uses the default read bucket). Rules to keep when the service lands: the flag leaves `off`
+only after 100% of traffic is on a revision that stores scheduled posts (ADR-0021 L-1), and never roll a revision back past the first
+one that knows `quotas.schedules`: an older revision `Set`s the whole quotas record and zeroes the counter on that user's next quota'd
+call (review I-3; bounded by one extra day's quota, still under the pending and window caps). Deletion check: an account-deletion job
+now runs a `scheduled` step after `reports`; a user with nothing scheduled costs 1 read and 0 deletes, and the export gains a
+`scheduled` section (1 read when empty). No new failure mode yet; the sweep section is added with the sweep.
+
 Replay after losing permission (accepted behaviour, CMP-B2 review): enforcement runs before the idempotency lookup, so retrying
 a CreatePost whose reply already exists, after the caller lost the right to reply (blocked by the root author, root hidden or deleted,
 author suspended, or no longer a follower under FOLLOWING), answers `REPLY_NOT_ALLOWED` or `NOT_FOUND` instead of
