@@ -89,6 +89,13 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_REAUTH_REQUIRED =
       ErrorReason._(15, _omitEnumNames ? '' : 'ERROR_REASON_REAUTH_REQUIRED');
 
+  /// PERMISSION_DENIED: the conversation's reply policy does not include the caller (ADR-0021 D2). metadata["policy"]
+  /// names the conversation's policy. Only returned once the conversation root is visible to the caller;
+  /// an unusable root (deleted, hidden, a block in either direction) answers NOT_FOUND instead. Do not retry; show
+  /// the policy label.
+  static const ErrorReason ERROR_REASON_REPLY_NOT_ALLOWED =
+      ErrorReason._(16, _omitEnumNames ? '' : 'ERROR_REASON_REPLY_NOT_ALLOWED');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -106,10 +113,11 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_TARGET_BLOCKED,
     ERROR_REASON_FEATURE_DISABLED,
     ERROR_REASON_REAUTH_REQUIRED,
+    ERROR_REASON_REPLY_NOT_ALLOWED,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 15);
+      $pb.ProtobufEnum.$_initByValueList(values, 16);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

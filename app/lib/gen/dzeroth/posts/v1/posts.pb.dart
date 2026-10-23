@@ -105,6 +105,9 @@ class EmbeddedPost extends $pb.GeneratedMessage {
     $core.Iterable<$0.MediaRef>? media,
     $1.Timestamp? createdAt,
     $core.bool? unavailable,
+    $core.bool? paidPartnership,
+    $core.bool? madeWithAi,
+    ReplyPolicy? replyPolicy,
   }) {
     final result = EmbeddedPost._();
     if (postId != null) result.postId = postId;
@@ -113,6 +116,9 @@ class EmbeddedPost extends $pb.GeneratedMessage {
     if (media != null) result.media.addAll(media);
     if (createdAt != null) result.createdAt = createdAt;
     if (unavailable != null) result.unavailable = unavailable;
+    if (paidPartnership != null) result.paidPartnership = paidPartnership;
+    if (madeWithAi != null) result.madeWithAi = madeWithAi;
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
     return result;
   }
 
@@ -139,6 +145,10 @@ class EmbeddedPost extends $pb.GeneratedMessage {
     ..aOM<$1.Timestamp>(5, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $1.Timestamp.$_createMessage)
     ..aOB(6, _omitFieldNames ? '' : 'unavailable')
+    ..aOB(7, _omitFieldNames ? '' : 'paidPartnership')
+    ..aOB(8, _omitFieldNames ? '' : 'madeWithAi')
+    ..aE<ReplyPolicy>(9, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -215,6 +225,35 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   $core.bool hasUnavailable() => $_has(5);
   @$pb.TagNumber(6)
   void clearUnavailable() => $_clearField(6);
+
+  /// The original's disclosure labels (ADR-0021 D3), frozen at write time; render them on the embed.
+  @$pb.TagNumber(7)
+  $core.bool get paidPartnership => $_getBF(6);
+  @$pb.TagNumber(7)
+  set paidPartnership($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasPaidPartnership() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearPaidPartnership() => $_clearField(7);
+
+  @$pb.TagNumber(8)
+  $core.bool get madeWithAi => $_getBF(7);
+  @$pb.TagNumber(8)
+  set madeWithAi($core.bool value) => $_setBool(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasMadeWithAi() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearMadeWithAi() => $_clearField(8);
+
+  /// The original's effective reply policy, for the viewer hint of a REPOST row (ADR-0021 D2).
+  @$pb.TagNumber(9)
+  ReplyPolicy get replyPolicy => $_getN(8);
+  @$pb.TagNumber(9)
+  set replyPolicy(ReplyPolicy value) => $_setField(9, value);
+  @$pb.TagNumber(9)
+  $core.bool hasReplyPolicy() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearReplyPolicy() => $_clearField(9);
 }
 
 class Post extends $pb.GeneratedMessage {
@@ -236,6 +275,9 @@ class Post extends $pb.GeneratedMessage {
     $fixnum.Int64? quoteCount,
     Visibility? visibility,
     $1.Timestamp? createdAt,
+    ReplyPolicy? replyPolicy,
+    $core.bool? paidPartnership,
+    $core.bool? madeWithAi,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -255,6 +297,9 @@ class Post extends $pb.GeneratedMessage {
     if (quoteCount != null) result.quoteCount = quoteCount;
     if (visibility != null) result.visibility = visibility;
     if (createdAt != null) result.createdAt = createdAt;
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    if (paidPartnership != null) result.paidPartnership = paidPartnership;
+    if (madeWithAi != null) result.madeWithAi = madeWithAi;
     return result;
   }
 
@@ -296,6 +341,10 @@ class Post extends $pb.GeneratedMessage {
         enumValues: Visibility.values)
     ..aOM<$1.Timestamp>(17, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $1.Timestamp.$_createMessage)
+    ..aE<ReplyPolicy>(18, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
+    ..aOB(19, _omitFieldNames ? '' : 'paidPartnership')
+    ..aOB(20, _omitFieldNames ? '' : 'madeWithAi')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -464,6 +513,36 @@ class Post extends $pb.GeneratedMessage {
   void clearCreatedAt() => $_clearField(17);
   @$pb.TagNumber(17)
   $1.Timestamp ensureCreatedAt() => $_ensure(16);
+
+  /// Effective reply policy (ADR-0021 D2); on replies, the one inherited from the conversation. UNSPECIFIED ==
+  /// EVERYONE.
+  @$pb.TagNumber(18)
+  ReplyPolicy get replyPolicy => $_getN(17);
+  @$pb.TagNumber(18)
+  set replyPolicy(ReplyPolicy value) => $_setField(18, value);
+  @$pb.TagNumber(18)
+  $core.bool hasReplyPolicy() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearReplyPolicy() => $_clearField(18);
+
+  /// User-asserted disclosure labels (ADR-0021 D3).
+  @$pb.TagNumber(19)
+  $core.bool get paidPartnership => $_getBF(18);
+  @$pb.TagNumber(19)
+  set paidPartnership($core.bool value) => $_setBool(18, value);
+  @$pb.TagNumber(19)
+  $core.bool hasPaidPartnership() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearPaidPartnership() => $_clearField(19);
+
+  @$pb.TagNumber(20)
+  $core.bool get madeWithAi => $_getBF(19);
+  @$pb.TagNumber(20)
+  set madeWithAi($core.bool value) => $_setBool(19, value);
+  @$pb.TagNumber(20)
+  $core.bool hasMadeWithAi() => $_has(19);
+  @$pb.TagNumber(20)
+  void clearMadeWithAi() => $_clearField(20);
 }
 
 /// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
@@ -474,11 +553,14 @@ class PostView extends $pb.GeneratedMessage {
     Post? post,
     $core.bool? likedByViewer,
     $core.bool? repostedByViewer,
+    ReplyPermission? viewerReplyPermission,
   }) {
     final result = PostView._();
     if (post != null) result.post = post;
     if (likedByViewer != null) result.likedByViewer = likedByViewer;
     if (repostedByViewer != null) result.repostedByViewer = repostedByViewer;
+    if (viewerReplyPermission != null)
+      result.viewerReplyPermission = viewerReplyPermission;
     return result;
   }
 
@@ -500,6 +582,8 @@ class PostView extends $pb.GeneratedMessage {
         subBuilder: Post.$_createMessage)
     ..aOB(2, _omitFieldNames ? '' : 'likedByViewer')
     ..aOB(3, _omitFieldNames ? '' : 'repostedByViewer')
+    ..aE<ReplyPermission>(4, _omitFieldNames ? '' : 'viewerReplyPermission',
+        enumValues: ReplyPermission.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -550,6 +634,17 @@ class PostView extends $pb.GeneratedMessage {
   $core.bool hasRepostedByViewer() => $_has(2);
   @$pb.TagNumber(3)
   void clearRepostedByViewer() => $_clearField(3);
+
+  /// Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
+  /// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
+  @$pb.TagNumber(4)
+  ReplyPermission get viewerReplyPermission => $_getN(3);
+  @$pb.TagNumber(4)
+  set viewerReplyPermission(ReplyPermission value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasViewerReplyPermission() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearViewerReplyPermission() => $_clearField(4);
 }
 
 class CreatePostRequest extends $pb.GeneratedMessage {
@@ -560,6 +655,9 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     $core.String? replyToPostId,
     $core.String? quoteOfPostId,
     $core.Iterable<$core.String>? mediaAltTexts,
+    ReplyPolicy? replyPolicy,
+    $core.bool? paidPartnership,
+    $core.bool? madeWithAi,
   }) {
     final result = CreatePostRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -568,6 +666,9 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     if (replyToPostId != null) result.replyToPostId = replyToPostId;
     if (quoteOfPostId != null) result.quoteOfPostId = quoteOfPostId;
     if (mediaAltTexts != null) result.mediaAltTexts.addAll(mediaAltTexts);
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    if (paidPartnership != null) result.paidPartnership = paidPartnership;
+    if (madeWithAi != null) result.madeWithAi = madeWithAi;
     return result;
   }
 
@@ -591,6 +692,10 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     ..aOS(4, _omitFieldNames ? '' : 'replyToPostId')
     ..aOS(5, _omitFieldNames ? '' : 'quoteOfPostId')
     ..pPS(6, _omitFieldNames ? '' : 'mediaAltTexts')
+    ..aE<ReplyPolicy>(7, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
+    ..aOB(8, _omitFieldNames ? '' : 'paidPartnership')
+    ..aOB(9, _omitFieldNames ? '' : 'madeWithAi')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -658,6 +763,35 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   /// Parallel to media_ids; optional accessibility text <= 1,000 chars each.
   @$pb.TagNumber(6)
   $pb.PbList<$core.String> get mediaAltTexts => $_getList(5);
+
+  /// Root posts and quotes only (ADR-0021 D2); FEATURE_REPLY_AUDIENCE.
+  @$pb.TagNumber(7)
+  ReplyPolicy get replyPolicy => $_getN(6);
+  @$pb.TagNumber(7)
+  set replyPolicy(ReplyPolicy value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasReplyPolicy() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearReplyPolicy() => $_clearField(7);
+
+  /// Disclosure labels (ADR-0021 D3); FEATURE_CONTENT_DISCLOSURE.
+  @$pb.TagNumber(8)
+  $core.bool get paidPartnership => $_getBF(7);
+  @$pb.TagNumber(8)
+  set paidPartnership($core.bool value) => $_setBool(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasPaidPartnership() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearPaidPartnership() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  $core.bool get madeWithAi => $_getBF(8);
+  @$pb.TagNumber(9)
+  set madeWithAi($core.bool value) => $_setBool(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasMadeWithAi() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearMadeWithAi() => $_clearField(9);
 }
 
 class CreatePostResponse extends $pb.GeneratedMessage {
@@ -1174,6 +1308,686 @@ class GetThreadResponse extends $pb.GeneratedMessage {
   void clearRootUnavailable() => $_clearField(7);
 }
 
+/// A post waiting to be published by the server (ADR-0021 D4). Kept 7 days after it reaches a terminal state.
+class ScheduledPost extends $pb.GeneratedMessage {
+  factory ScheduledPost({
+    $core.String? scheduledId,
+    $core.String? text,
+    $core.Iterable<$0.MediaRef>? media,
+    ReplyPolicy? replyPolicy,
+    $core.bool? paidPartnership,
+    $core.bool? madeWithAi,
+    $1.Timestamp? publishAt,
+    ScheduledPostStatus? status,
+    $core.String? postId,
+    ScheduledPostFailure? failure,
+    $1.Timestamp? createdAt,
+  }) {
+    final result = ScheduledPost._();
+    if (scheduledId != null) result.scheduledId = scheduledId;
+    if (text != null) result.text = text;
+    if (media != null) result.media.addAll(media);
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    if (paidPartnership != null) result.paidPartnership = paidPartnership;
+    if (madeWithAi != null) result.madeWithAi = madeWithAi;
+    if (publishAt != null) result.publishAt = publishAt;
+    if (status != null) result.status = status;
+    if (postId != null) result.postId = postId;
+    if (failure != null) result.failure = failure;
+    if (createdAt != null) result.createdAt = createdAt;
+    return result;
+  }
+
+  ScheduledPost._();
+
+  factory ScheduledPost.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ScheduledPost()..mergeFromBuffer(data, registry);
+  factory ScheduledPost.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ScheduledPost()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ScheduledPost',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: ScheduledPost.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'scheduledId')
+    ..aOS(2, _omitFieldNames ? '' : 'text')
+    ..pPM<$0.MediaRef>(3, _omitFieldNames ? '' : 'media',
+        subBuilder: $0.MediaRef.$_createMessage)
+    ..aE<ReplyPolicy>(4, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
+    ..aOB(5, _omitFieldNames ? '' : 'paidPartnership')
+    ..aOB(6, _omitFieldNames ? '' : 'madeWithAi')
+    ..aOM<$1.Timestamp>(7, _omitFieldNames ? '' : 'publishAt',
+        subBuilder: $1.Timestamp.$_createMessage)
+    ..aE<ScheduledPostStatus>(8, _omitFieldNames ? '' : 'status',
+        enumValues: ScheduledPostStatus.values)
+    ..aOS(9, _omitFieldNames ? '' : 'postId')
+    ..aE<ScheduledPostFailure>(10, _omitFieldNames ? '' : 'failure',
+        enumValues: ScheduledPostFailure.values)
+    ..aOM<$1.Timestamp>(11, _omitFieldNames ? '' : 'createdAt',
+        subBuilder: $1.Timestamp.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ScheduledPost clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ScheduledPost copyWith(void Function(ScheduledPost) updates) =>
+      super.copyWith((message) => updates(message as ScheduledPost))
+          as ScheduledPost;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ScheduledPost() / ScheduledPost.new instead')
+  static ScheduledPost create() => ScheduledPost._();
+  static $pb.GeneratedMessage $_createMessage() => ScheduledPost._();
+  @$core.override
+  ScheduledPost createEmptyInstance() => ScheduledPost._();
+  @$core.pragma('dart2js:noInline')
+  static ScheduledPost getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ScheduledPost>(
+          ScheduledPost.$_createMessage);
+  static ScheduledPost? _defaultInstance;
+
+  /// 32 lowercase hex characters.
+  @$pb.TagNumber(1)
+  $core.String get scheduledId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set scheduledId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledId() => $_clearField(1);
+
+  /// Empty once PUBLISHED or CANCELLED.
+  @$pb.TagNumber(2)
+  $core.String get text => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set text($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasText() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearText() => $_clearField(2);
+
+  /// Including alt text; lists render thumb_url only. Empty once PUBLISHED or CANCELLED.
+  @$pb.TagNumber(3)
+  $pb.PbList<$0.MediaRef> get media => $_getList(2);
+
+  @$pb.TagNumber(4)
+  ReplyPolicy get replyPolicy => $_getN(3);
+  @$pb.TagNumber(4)
+  set replyPolicy(ReplyPolicy value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasReplyPolicy() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearReplyPolicy() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.bool get paidPartnership => $_getBF(4);
+  @$pb.TagNumber(5)
+  set paidPartnership($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasPaidPartnership() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPaidPartnership() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.bool get madeWithAi => $_getBF(5);
+  @$pb.TagNumber(6)
+  set madeWithAi($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasMadeWithAi() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearMadeWithAi() => $_clearField(6);
+
+  /// UTC, a whole minute, as stored by the server (show this, not the requested time).
+  @$pb.TagNumber(7)
+  $1.Timestamp get publishAt => $_getN(6);
+  @$pb.TagNumber(7)
+  set publishAt($1.Timestamp value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasPublishAt() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearPublishAt() => $_clearField(7);
+  @$pb.TagNumber(7)
+  $1.Timestamp ensurePublishAt() => $_ensure(6);
+
+  @$pb.TagNumber(8)
+  ScheduledPostStatus get status => $_getN(7);
+  @$pb.TagNumber(8)
+  set status(ScheduledPostStatus value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasStatus() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearStatus() => $_clearField(8);
+
+  /// Set when PUBLISHED.
+  @$pb.TagNumber(9)
+  $core.String get postId => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set postId($core.String value) => $_setString(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasPostId() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearPostId() => $_clearField(9);
+
+  /// Set when FAILED.
+  @$pb.TagNumber(10)
+  ScheduledPostFailure get failure => $_getN(9);
+  @$pb.TagNumber(10)
+  set failure(ScheduledPostFailure value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasFailure() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearFailure() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  $1.Timestamp get createdAt => $_getN(10);
+  @$pb.TagNumber(11)
+  set createdAt($1.Timestamp value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasCreatedAt() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearCreatedAt() => $_clearField(11);
+  @$pb.TagNumber(11)
+  $1.Timestamp ensureCreatedAt() => $_ensure(10);
+}
+
+class SchedulePostRequest extends $pb.GeneratedMessage {
+  factory SchedulePostRequest({
+    $core.String? idempotencyKey,
+    $core.String? text,
+    $core.Iterable<$core.String>? mediaIds,
+    $core.Iterable<$core.String>? mediaAltTexts,
+    ReplyPolicy? replyPolicy,
+    $core.bool? paidPartnership,
+    $core.bool? madeWithAi,
+    $1.Timestamp? publishAt,
+  }) {
+    final result = SchedulePostRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (text != null) result.text = text;
+    if (mediaIds != null) result.mediaIds.addAll(mediaIds);
+    if (mediaAltTexts != null) result.mediaAltTexts.addAll(mediaAltTexts);
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    if (paidPartnership != null) result.paidPartnership = paidPartnership;
+    if (madeWithAi != null) result.madeWithAi = madeWithAi;
+    if (publishAt != null) result.publishAt = publishAt;
+    return result;
+  }
+
+  SchedulePostRequest._();
+
+  factory SchedulePostRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SchedulePostRequest()..mergeFromBuffer(data, registry);
+  factory SchedulePostRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SchedulePostRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SchedulePostRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: SchedulePostRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'text')
+    ..pPS(3, _omitFieldNames ? '' : 'mediaIds')
+    ..pPS(4, _omitFieldNames ? '' : 'mediaAltTexts')
+    ..aE<ReplyPolicy>(5, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
+    ..aOB(6, _omitFieldNames ? '' : 'paidPartnership')
+    ..aOB(7, _omitFieldNames ? '' : 'madeWithAi')
+    ..aOM<$1.Timestamp>(8, _omitFieldNames ? '' : 'publishAt',
+        subBuilder: $1.Timestamp.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SchedulePostRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SchedulePostRequest copyWith(void Function(SchedulePostRequest) updates) =>
+      super.copyWith((message) => updates(message as SchedulePostRequest))
+          as SchedulePostRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use SchedulePostRequest() / SchedulePostRequest.new instead')
+  static SchedulePostRequest create() => SchedulePostRequest._();
+  static $pb.GeneratedMessage $_createMessage() => SchedulePostRequest._();
+  @$core.override
+  SchedulePostRequest createEmptyInstance() => SchedulePostRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SchedulePostRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SchedulePostRequest>(
+          SchedulePostRequest.$_createMessage);
+  static SchedulePostRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  /// CreatePost text rules.
+  @$pb.TagNumber(2)
+  $core.String get text => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set text($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasText() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearText() => $_clearField(2);
+
+  /// 0-4 media ids, as CreatePost.
+  @$pb.TagNumber(3)
+  $pb.PbList<$core.String> get mediaIds => $_getList(2);
+
+  /// Parallel to media_ids, as CreatePost.
+  @$pb.TagNumber(4)
+  $pb.PbList<$core.String> get mediaAltTexts => $_getList(3);
+
+  @$pb.TagNumber(5)
+  ReplyPolicy get replyPolicy => $_getN(4);
+  @$pb.TagNumber(5)
+  set replyPolicy(ReplyPolicy value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasReplyPolicy() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearReplyPolicy() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.bool get paidPartnership => $_getBF(5);
+  @$pb.TagNumber(6)
+  set paidPartnership($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasPaidPartnership() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearPaidPartnership() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.bool get madeWithAi => $_getBF(6);
+  @$pb.TagNumber(7)
+  set madeWithAi($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasMadeWithAi() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearMadeWithAi() => $_clearField(7);
+
+  /// UTC; truncated to the minute by the server. The client's time zone is display-only.
+  @$pb.TagNumber(8)
+  $1.Timestamp get publishAt => $_getN(7);
+  @$pb.TagNumber(8)
+  set publishAt($1.Timestamp value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasPublishAt() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearPublishAt() => $_clearField(8);
+  @$pb.TagNumber(8)
+  $1.Timestamp ensurePublishAt() => $_ensure(7);
+}
+
+class SchedulePostResponse extends $pb.GeneratedMessage {
+  factory SchedulePostResponse({
+    ScheduledPost? scheduledPost,
+  }) {
+    final result = SchedulePostResponse._();
+    if (scheduledPost != null) result.scheduledPost = scheduledPost;
+    return result;
+  }
+
+  SchedulePostResponse._();
+
+  factory SchedulePostResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SchedulePostResponse()..mergeFromBuffer(data, registry);
+  factory SchedulePostResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SchedulePostResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SchedulePostResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: SchedulePostResponse.$_createMessage)
+    ..aOM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPost',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SchedulePostResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SchedulePostResponse copyWith(void Function(SchedulePostResponse) updates) =>
+      super.copyWith((message) => updates(message as SchedulePostResponse))
+          as SchedulePostResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SchedulePostResponse() / SchedulePostResponse.new instead')
+  static SchedulePostResponse create() => SchedulePostResponse._();
+  static $pb.GeneratedMessage $_createMessage() => SchedulePostResponse._();
+  @$core.override
+  SchedulePostResponse createEmptyInstance() => SchedulePostResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SchedulePostResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SchedulePostResponse>(
+          SchedulePostResponse.$_createMessage);
+  static SchedulePostResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  ScheduledPost get scheduledPost => $_getN(0);
+  @$pb.TagNumber(1)
+  set scheduledPost(ScheduledPost value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ScheduledPost ensureScheduledPost() => $_ensure(0);
+}
+
+class ListScheduledPostsRequest extends $pb.GeneratedMessage {
+  factory ListScheduledPostsRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ListScheduledPostsRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListScheduledPostsRequest._();
+
+  factory ListScheduledPostsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListScheduledPostsRequest()..mergeFromBuffer(data, registry);
+  factory ListScheduledPostsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListScheduledPostsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListScheduledPostsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: ListScheduledPostsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListScheduledPostsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListScheduledPostsRequest copyWith(
+          void Function(ListScheduledPostsRequest) updates) =>
+      super.copyWith((message) => updates(message as ListScheduledPostsRequest))
+          as ListScheduledPostsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListScheduledPostsRequest() / ListScheduledPostsRequest.new instead')
+  static ListScheduledPostsRequest create() => ListScheduledPostsRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListScheduledPostsRequest._();
+  @$core.override
+  ListScheduledPostsRequest createEmptyInstance() =>
+      ListScheduledPostsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListScheduledPostsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListScheduledPostsRequest>(
+          ListScheduledPostsRequest.$_createMessage);
+  static ListScheduledPostsRequest? _defaultInstance;
+
+  /// 0 => 20, max 50.
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  /// Opaque, bound to the caller.
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+class ListScheduledPostsResponse extends $pb.GeneratedMessage {
+  factory ListScheduledPostsResponse({
+    $core.Iterable<ScheduledPost>? scheduledPosts,
+    $core.String? nextPageToken,
+  }) {
+    final result = ListScheduledPostsResponse._();
+    if (scheduledPosts != null) result.scheduledPosts.addAll(scheduledPosts);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ListScheduledPostsResponse._();
+
+  factory ListScheduledPostsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListScheduledPostsResponse()..mergeFromBuffer(data, registry);
+  factory ListScheduledPostsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListScheduledPostsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListScheduledPostsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: ListScheduledPostsResponse.$_createMessage)
+    ..pPM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPosts',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListScheduledPostsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListScheduledPostsResponse copyWith(
+          void Function(ListScheduledPostsResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListScheduledPostsResponse))
+          as ListScheduledPostsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListScheduledPostsResponse() / ListScheduledPostsResponse.new instead')
+  static ListScheduledPostsResponse create() => ListScheduledPostsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListScheduledPostsResponse._();
+  @$core.override
+  ListScheduledPostsResponse createEmptyInstance() =>
+      ListScheduledPostsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListScheduledPostsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListScheduledPostsResponse>(
+          ListScheduledPostsResponse.$_createMessage);
+  static ListScheduledPostsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<ScheduledPost> get scheduledPosts => $_getList(0);
+
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
+class CancelScheduledPostRequest extends $pb.GeneratedMessage {
+  factory CancelScheduledPostRequest({
+    $core.String? idempotencyKey,
+    $core.String? scheduledId,
+  }) {
+    final result = CancelScheduledPostRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (scheduledId != null) result.scheduledId = scheduledId;
+    return result;
+  }
+
+  CancelScheduledPostRequest._();
+
+  factory CancelScheduledPostRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelScheduledPostRequest()..mergeFromBuffer(data, registry);
+  factory CancelScheduledPostRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelScheduledPostRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CancelScheduledPostRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: CancelScheduledPostRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'scheduledId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelScheduledPostRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelScheduledPostRequest copyWith(
+          void Function(CancelScheduledPostRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as CancelScheduledPostRequest))
+          as CancelScheduledPostRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CancelScheduledPostRequest() / CancelScheduledPostRequest.new instead')
+  static CancelScheduledPostRequest create() => CancelScheduledPostRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      CancelScheduledPostRequest._();
+  @$core.override
+  CancelScheduledPostRequest createEmptyInstance() =>
+      CancelScheduledPostRequest._();
+  @$core.pragma('dart2js:noInline')
+  static CancelScheduledPostRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CancelScheduledPostRequest>(
+          CancelScheduledPostRequest.$_createMessage);
+  static CancelScheduledPostRequest? _defaultInstance;
+
+  /// Unused; format-validated so clients keep one code path.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get scheduledId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set scheduledId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasScheduledId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearScheduledId() => $_clearField(2);
+}
+
+class CancelScheduledPostResponse extends $pb.GeneratedMessage {
+  factory CancelScheduledPostResponse({
+    ScheduledPost? scheduledPost,
+  }) {
+    final result = CancelScheduledPostResponse._();
+    if (scheduledPost != null) result.scheduledPost = scheduledPost;
+    return result;
+  }
+
+  CancelScheduledPostResponse._();
+
+  factory CancelScheduledPostResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelScheduledPostResponse()..mergeFromBuffer(data, registry);
+  factory CancelScheduledPostResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CancelScheduledPostResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CancelScheduledPostResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: CancelScheduledPostResponse.$_createMessage)
+    ..aOM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPost',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelScheduledPostResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CancelScheduledPostResponse copyWith(
+          void Function(CancelScheduledPostResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as CancelScheduledPostResponse))
+          as CancelScheduledPostResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CancelScheduledPostResponse() / CancelScheduledPostResponse.new instead')
+  static CancelScheduledPostResponse create() =>
+      CancelScheduledPostResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      CancelScheduledPostResponse._();
+  @$core.override
+  CancelScheduledPostResponse createEmptyInstance() =>
+      CancelScheduledPostResponse._();
+  @$core.pragma('dart2js:noInline')
+  static CancelScheduledPostResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CancelScheduledPostResponse>(
+          CancelScheduledPostResponse.$_createMessage);
+  static CancelScheduledPostResponse? _defaultInstance;
+
+  /// The current state; PUBLISHED means it was too late to cancel (not an error).
+  @$pb.TagNumber(1)
+  ScheduledPost get scheduledPost => $_getN(0);
+  @$pb.TagNumber(1)
+  set scheduledPost(ScheduledPost value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ScheduledPost ensureScheduledPost() => $_ensure(0);
+}
+
 class PostServiceApi {
   final $pb.RpcClient _client;
 
@@ -1184,9 +1998,24 @@ class PostServiceApi {
   /// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
   /// accounts younger than 24 h).
   /// Not available while the sub-feature's flag is off for the caller (ADR-0010 D2): a non-empty reply_to_post_id
-  /// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT) or media_ids / media_alt_texts (FEATURE_MEDIA) =>
-  /// FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" | "media" (first match
-  /// in that order), 0 reads.
+  /// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
+  /// reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
+  /// (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
+  /// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
+  /// Reply policy (ADR-0021 D2): settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
+  /// VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
+  /// available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
+  /// the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
+  /// checked against the conversation root R after the parent visibility check: an unusable R (missing, not public,
+  /// hidden, author not ACTIVE, a block in either direction, caller blockedBy overflow, or a quote root whose embedded
+  /// author blocks the caller) => NOT_FOUND "post not found"; otherwise R's author always may reply, FOLLOWING needs
+  /// R's author to follow the caller (graph cache 60 s), MENTIONED_ONLY needs the caller in R's mentions; else
+  /// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
+  /// Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
+  /// +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
+  /// Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
+  /// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
+  /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
   /// Quotes (P5, plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
   /// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
   /// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
@@ -1262,6 +2091,8 @@ class PostServiceApi {
   /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
   /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
   /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement on. Writes 0.
+  /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
+  /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
   $async.Future<GetPostResponse> getPost(
           $pb.ClientContext? ctx, GetPostRequest request) =>
       _client.invoke<GetPostResponse>(
@@ -1280,10 +2111,55 @@ class PostServiceApi {
   /// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
   /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
   /// (one conversation query, minimum 1); writes 0.
+  /// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
+  /// read for a FOLLOWING conversation (the root author's graph), +0 warm.
   $async.Future<GetThreadResponse> getThread(
           $pb.ClientContext? ctx, GetThreadRequest request) =>
       _client.invoke<GetThreadResponse>(
           ctx, 'PostService', 'GetThread', request, GetThreadResponse());
+
+  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
+  /// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+  /// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
+  /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
+  /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
+  ///
+  /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
+  /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
+  /// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
+  /// field "publish_at". Media are validated (owned, READY or READY_UNSCREENED, unattached) but not reserved: an image
+  /// used elsewhere before publish fails the item MEDIA_UNAVAILABLE; it stays reachable by its public URL until then.
+  /// Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
+  /// the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
+  /// PUBLISHED or CANCELLED item returns it without text or media.
+  /// Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
+  /// publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
+  /// 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
+  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4;
+  /// +1 on a concurrent duplicate) / 4 typical; writes 2 (scheduled doc, quotas). Replay / at pending cap / at
+  /// window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
+  $async.Future<SchedulePostResponse> schedulePost(
+          $pb.ClientContext? ctx, SchedulePostRequest request) =>
+      _client.invoke<SchedulePostResponse>(
+          ctx, 'PostService', 'SchedulePost', request, SchedulePostResponse());
+
+  /// The caller's PENDING and FAILED scheduled posts, publish_at ascending. page_size 0 => 20, clamped to 50; opaque
+  /// page_token bound to the caller.
+  /// Firestore: reads 1 + page (21 at 20, 51 at 50), typical 1 + items (min 1); writes 0.
+  $async.Future<ListScheduledPostsResponse> listScheduledPosts(
+          $pb.ClientContext? ctx, ListScheduledPostsRequest request) =>
+      _client.invoke<ListScheduledPostsResponse>(ctx, 'PostService',
+          'ListScheduledPosts', request, ListScheduledPostsResponse());
+
+  /// Cancel a PENDING item, or dismiss a FAILED one; returns the item's current state without text or media.
+  /// Idempotent by state: an item already PUBLISHED (too late, not an error) or CANCELLED is returned unchanged with
+  /// 0 writes. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown => NOT_FOUND. idempotency_key is
+  /// format-validated (VALIDATION when malformed) but not stored.
+  /// Firestore: reads 2 worst / 1 typical; writes 1 (0 if already terminal); +1 TTL delete after 7 d.
+  $async.Future<CancelScheduledPostResponse> cancelScheduledPost(
+          $pb.ClientContext? ctx, CancelScheduledPostRequest request) =>
+      _client.invoke<CancelScheduledPostResponse>(ctx, 'PostService',
+          'CancelScheduledPost', request, CancelScheduledPostResponse());
 }
 
 const $core.bool _omitFieldNames =

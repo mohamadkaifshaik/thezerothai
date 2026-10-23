@@ -80,6 +80,11 @@ const (
 	// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
 	// same idempotency_key; do not loop.
 	ErrorReason_ERROR_REASON_REAUTH_REQUIRED ErrorReason = 15
+	// PERMISSION_DENIED: the conversation's reply policy does not include the caller (ADR-0021 D2). metadata["policy"]
+	// names the conversation's policy. Only returned once the conversation root is visible to the caller;
+	// an unusable root (deleted, hidden, a block in either direction) answers NOT_FOUND instead. Do not retry; show
+	// the policy label.
+	ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED ErrorReason = 16
 )
 
 // Enum value maps for ErrorReason.
@@ -101,6 +106,7 @@ var (
 		13: "ERROR_REASON_TARGET_BLOCKED",
 		14: "ERROR_REASON_FEATURE_DISABLED",
 		15: "ERROR_REASON_REAUTH_REQUIRED",
+		16: "ERROR_REASON_REPLY_NOT_ALLOWED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -119,6 +125,7 @@ var (
 		"ERROR_REASON_TARGET_BLOCKED":         13,
 		"ERROR_REASON_FEATURE_DISABLED":       14,
 		"ERROR_REASON_REAUTH_REQUIRED":        15,
+		"ERROR_REASON_REPLY_NOT_ALLOWED":      16,
 	}
 )
 
@@ -424,7 +431,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xaa\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xce\x04\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -442,7 +449,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1fERROR_REASON_ACCOUNT_RESTRICTED\x10\f\x12\x1f\n" +
 	"\x1bERROR_REASON_TARGET_BLOCKED\x10\r\x12!\n" +
 	"\x1dERROR_REASON_FEATURE_DISABLED\x10\x0e\x12 \n" +
-	"\x1cERROR_REASON_REAUTH_REQUIRED\x10\x0fBCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1cERROR_REASON_REAUTH_REQUIRED\x10\x0f\x12\"\n" +
+	"\x1eERROR_REASON_REPLY_NOT_ALLOWED\x10\x10BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

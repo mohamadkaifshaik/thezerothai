@@ -29,6 +29,12 @@ abstract class PostServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.GetPostRequest request);
   $async.Future<$2.GetThreadResponse> getThread(
       $pb.ServerContext ctx, $2.GetThreadRequest request);
+  $async.Future<$2.SchedulePostResponse> schedulePost(
+      $pb.ServerContext ctx, $2.SchedulePostRequest request);
+  $async.Future<$2.ListScheduledPostsResponse> listScheduledPosts(
+      $pb.ServerContext ctx, $2.ListScheduledPostsRequest request);
+  $async.Future<$2.CancelScheduledPostResponse> cancelScheduledPost(
+      $pb.ServerContext ctx, $2.CancelScheduledPostRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -40,6 +46,12 @@ abstract class PostServiceBase extends $pb.GeneratedService {
         return $2.GetPostRequest();
       case 'GetThread':
         return $2.GetThreadRequest();
+      case 'SchedulePost':
+        return $2.SchedulePostRequest();
+      case 'ListScheduledPosts':
+        return $2.ListScheduledPostsRequest();
+      case 'CancelScheduledPost':
+        return $2.CancelScheduledPostRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -56,6 +68,13 @@ abstract class PostServiceBase extends $pb.GeneratedService {
         return getPost(ctx, request as $2.GetPostRequest);
       case 'GetThread':
         return getThread(ctx, request as $2.GetThreadRequest);
+      case 'SchedulePost':
+        return schedulePost(ctx, request as $2.SchedulePostRequest);
+      case 'ListScheduledPosts':
+        return listScheduledPosts(ctx, request as $2.ListScheduledPostsRequest);
+      case 'CancelScheduledPost':
+        return cancelScheduledPost(
+            ctx, request as $2.CancelScheduledPostRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

@@ -3,8 +3,9 @@
 // Source: dzeroth/posts/v1/posts.proto
 
 // Posts: create/delete, single post, threads. Owner module: backend/internal/posts.
-// Collections owned: posts/{postId}. Uses idempotency/{hash} (platform) for CreatePost because post ids are
-// time-ordered Snowflakes and cannot be derived from the idempotency key (ADR-0003).
+// Collections owned: posts/{postId}, users/{uid}/scheduled/{scheduledId} (ADR-0021). Uses idempotency/{hash}
+// (platform) for CreatePost because post ids are time-ordered Snowflakes and cannot be derived from the idempotency
+// key (ADR-0003). SchedulePost uses its own natural-key doc instead (ADR-0021 D4, founder-approved rule-4 bend).
 // Timelines (home/profile) live in dzeroth.timeline.v1 and return the PostView defined here.
 package postsv1connect
 
@@ -45,6 +46,15 @@ const (
 	PostServiceGetPostProcedure = "/dzeroth.posts.v1.PostService/GetPost"
 	// PostServiceGetThreadProcedure is the fully-qualified name of the PostService's GetThread RPC.
 	PostServiceGetThreadProcedure = "/dzeroth.posts.v1.PostService/GetThread"
+	// PostServiceSchedulePostProcedure is the fully-qualified name of the PostService's SchedulePost
+	// RPC.
+	PostServiceSchedulePostProcedure = "/dzeroth.posts.v1.PostService/SchedulePost"
+	// PostServiceListScheduledPostsProcedure is the fully-qualified name of the PostService's
+	// ListScheduledPosts RPC.
+	PostServiceListScheduledPostsProcedure = "/dzeroth.posts.v1.PostService/ListScheduledPosts"
+	// PostServiceCancelScheduledPostProcedure is the fully-qualified name of the PostService's
+	// CancelScheduledPost RPC.
+	PostServiceCancelScheduledPostProcedure = "/dzeroth.posts.v1.PostService/CancelScheduledPost"
 )
 
 // PostServiceClient is a client for the dzeroth.posts.v1.PostService service.
@@ -54,9 +64,24 @@ type PostServiceClient interface {
 	// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
 	// accounts younger than 24 h).
 	// Not available while the sub-feature's flag is off for the caller (ADR-0010 D2): a non-empty reply_to_post_id
-	// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT) or media_ids / media_alt_texts (FEATURE_MEDIA) =>
-	// FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" | "media" (first match
-	// in that order), 0 reads.
+	// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
+	// reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
+	// (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
+	// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
+	// Reply policy (ADR-0021 D2): settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
+	// VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
+	// available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
+	// the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
+	// checked against the conversation root R after the parent visibility check: an unusable R (missing, not public,
+	// hidden, author not ACTIVE, a block in either direction, caller blockedBy overflow, or a quote root whose embedded
+	// author blocks the caller) => NOT_FOUND "post not found"; otherwise R's author always may reply, FOLLOWING needs
+	// R's author to follow the caller (graph cache 60 s), MENTIONED_ONLY needs the caller in R's mentions; else
+	// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
+	// Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
+	// +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
+	// Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
+	// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
+	// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
 	// Quotes (P5, plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
 	// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
 	// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
@@ -124,6 +149,8 @@ type PostServiceClient interface {
 	// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
 	// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
 	// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement on. Writes 0.
+	// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
+	// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
 	GetPost(context.Context, *connect.Request[v1.GetPostRequest]) (*connect.Response[v1.GetPostResponse], error)
 	// Post detail: the focal post, its parent and conversation root, and a page of the conversation in
 	// chronological order (posts where conversationId == root, createdAt ASC, the root itself skipped).
@@ -138,7 +165,40 @@ type PostServiceClient interface {
 	// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
 	// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
 	// (one conversation query, minimum 1); writes 0.
+	// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
+	// read for a FOLLOWING conversation (the root author's graph), +0 warm.
 	GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error)
+	// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
+	// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+	// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
+	// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
+	// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
+	//
+	// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
+	// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
+	// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
+	// field "publish_at". Media are validated (owned, READY or READY_UNSCREENED, unattached) but not reserved: an image
+	// used elsewhere before publish fails the item MEDIA_UNAVAILABLE; it stays reachable by its public URL until then.
+	// Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
+	// the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
+	// PUBLISHED or CANCELLED item returns it without text or media.
+	// Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
+	// publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
+	// 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
+	// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4;
+	// +1 on a concurrent duplicate) / 4 typical; writes 2 (scheduled doc, quotas). Replay / at pending cap / at
+	// window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
+	SchedulePost(context.Context, *connect.Request[v1.SchedulePostRequest]) (*connect.Response[v1.SchedulePostResponse], error)
+	// The caller's PENDING and FAILED scheduled posts, publish_at ascending. page_size 0 => 20, clamped to 50; opaque
+	// page_token bound to the caller.
+	// Firestore: reads 1 + page (21 at 20, 51 at 50), typical 1 + items (min 1); writes 0.
+	ListScheduledPosts(context.Context, *connect.Request[v1.ListScheduledPostsRequest]) (*connect.Response[v1.ListScheduledPostsResponse], error)
+	// Cancel a PENDING item, or dismiss a FAILED one; returns the item's current state without text or media.
+	// Idempotent by state: an item already PUBLISHED (too late, not an error) or CANCELLED is returned unchanged with
+	// 0 writes. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown => NOT_FOUND. idempotency_key is
+	// format-validated (VALIDATION when malformed) but not stored.
+	// Firestore: reads 2 worst / 1 typical; writes 1 (0 if already terminal); +1 TTL delete after 7 d.
+	CancelScheduledPost(context.Context, *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error)
 }
 
 // NewPostServiceClient constructs a client for the dzeroth.posts.v1.PostService service. By
@@ -178,15 +238,37 @@ func NewPostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		schedulePost: connect.NewClient[v1.SchedulePostRequest, v1.SchedulePostResponse](
+			httpClient,
+			baseURL+PostServiceSchedulePostProcedure,
+			connect.WithSchema(postServiceMethods.ByName("SchedulePost")),
+			connect.WithClientOptions(opts...),
+		),
+		listScheduledPosts: connect.NewClient[v1.ListScheduledPostsRequest, v1.ListScheduledPostsResponse](
+			httpClient,
+			baseURL+PostServiceListScheduledPostsProcedure,
+			connect.WithSchema(postServiceMethods.ByName("ListScheduledPosts")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		cancelScheduledPost: connect.NewClient[v1.CancelScheduledPostRequest, v1.CancelScheduledPostResponse](
+			httpClient,
+			baseURL+PostServiceCancelScheduledPostProcedure,
+			connect.WithSchema(postServiceMethods.ByName("CancelScheduledPost")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // postServiceClient implements PostServiceClient.
 type postServiceClient struct {
-	createPost *connect.Client[v1.CreatePostRequest, v1.CreatePostResponse]
-	deletePost *connect.Client[v1.DeletePostRequest, v1.DeletePostResponse]
-	getPost    *connect.Client[v1.GetPostRequest, v1.GetPostResponse]
-	getThread  *connect.Client[v1.GetThreadRequest, v1.GetThreadResponse]
+	createPost          *connect.Client[v1.CreatePostRequest, v1.CreatePostResponse]
+	deletePost          *connect.Client[v1.DeletePostRequest, v1.DeletePostResponse]
+	getPost             *connect.Client[v1.GetPostRequest, v1.GetPostResponse]
+	getThread           *connect.Client[v1.GetThreadRequest, v1.GetThreadResponse]
+	schedulePost        *connect.Client[v1.SchedulePostRequest, v1.SchedulePostResponse]
+	listScheduledPosts  *connect.Client[v1.ListScheduledPostsRequest, v1.ListScheduledPostsResponse]
+	cancelScheduledPost *connect.Client[v1.CancelScheduledPostRequest, v1.CancelScheduledPostResponse]
 }
 
 // CreatePost calls dzeroth.posts.v1.PostService.CreatePost.
@@ -209,6 +291,21 @@ func (c *postServiceClient) GetThread(ctx context.Context, req *connect.Request[
 	return c.getThread.CallUnary(ctx, req)
 }
 
+// SchedulePost calls dzeroth.posts.v1.PostService.SchedulePost.
+func (c *postServiceClient) SchedulePost(ctx context.Context, req *connect.Request[v1.SchedulePostRequest]) (*connect.Response[v1.SchedulePostResponse], error) {
+	return c.schedulePost.CallUnary(ctx, req)
+}
+
+// ListScheduledPosts calls dzeroth.posts.v1.PostService.ListScheduledPosts.
+func (c *postServiceClient) ListScheduledPosts(ctx context.Context, req *connect.Request[v1.ListScheduledPostsRequest]) (*connect.Response[v1.ListScheduledPostsResponse], error) {
+	return c.listScheduledPosts.CallUnary(ctx, req)
+}
+
+// CancelScheduledPost calls dzeroth.posts.v1.PostService.CancelScheduledPost.
+func (c *postServiceClient) CancelScheduledPost(ctx context.Context, req *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error) {
+	return c.cancelScheduledPost.CallUnary(ctx, req)
+}
+
 // PostServiceHandler is an implementation of the dzeroth.posts.v1.PostService service.
 type PostServiceHandler interface {
 	// Create a post, reply or quote. Text <= 280 code points after NFC; <= 4 READY media owned by the caller;
@@ -216,9 +313,24 @@ type PostServiceHandler interface {
 	// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
 	// accounts younger than 24 h).
 	// Not available while the sub-feature's flag is off for the caller (ADR-0010 D2): a non-empty reply_to_post_id
-	// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT) or media_ids / media_alt_texts (FEATURE_MEDIA) =>
-	// FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" | "media" (first match
-	// in that order), 0 reads.
+	// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
+	// reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
+	// (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
+	// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
+	// Reply policy (ADR-0021 D2): settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
+	// VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
+	// available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
+	// the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
+	// checked against the conversation root R after the parent visibility check: an unusable R (missing, not public,
+	// hidden, author not ACTIVE, a block in either direction, caller blockedBy overflow, or a quote root whose embedded
+	// author blocks the caller) => NOT_FOUND "post not found"; otherwise R's author always may reply, FOLLOWING needs
+	// R's author to follow the caller (graph cache 60 s), MENTIONED_ONLY needs the caller in R's mentions; else
+	// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
+	// Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
+	// +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
+	// Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
+	// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
+	// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
 	// Quotes (P5, plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
 	// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
 	// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
@@ -286,6 +398,8 @@ type PostServiceHandler interface {
 	// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
 	// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
 	// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement on. Writes 0.
+	// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
+	// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
 	GetPost(context.Context, *connect.Request[v1.GetPostRequest]) (*connect.Response[v1.GetPostResponse], error)
 	// Post detail: the focal post, its parent and conversation root, and a page of the conversation in
 	// chronological order (posts where conversationId == root, createdAt ASC, the root itself skipped).
@@ -300,7 +414,40 @@ type PostServiceHandler interface {
 	// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
 	// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
 	// (one conversation query, minimum 1); writes 0.
+	// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
+	// read for a FOLLOWING conversation (the root author's graph), +0 warm.
 	GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error)
+	// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
+	// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+	// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
+	// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
+	// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
+	//
+	// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
+	// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
+	// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
+	// field "publish_at". Media are validated (owned, READY or READY_UNSCREENED, unattached) but not reserved: an image
+	// used elsewhere before publish fails the item MEDIA_UNAVAILABLE; it stays reachable by its public URL until then.
+	// Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
+	// the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
+	// PUBLISHED or CANCELLED item returns it without text or media.
+	// Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
+	// publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
+	// 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
+	// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4;
+	// +1 on a concurrent duplicate) / 4 typical; writes 2 (scheduled doc, quotas). Replay / at pending cap / at
+	// window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
+	SchedulePost(context.Context, *connect.Request[v1.SchedulePostRequest]) (*connect.Response[v1.SchedulePostResponse], error)
+	// The caller's PENDING and FAILED scheduled posts, publish_at ascending. page_size 0 => 20, clamped to 50; opaque
+	// page_token bound to the caller.
+	// Firestore: reads 1 + page (21 at 20, 51 at 50), typical 1 + items (min 1); writes 0.
+	ListScheduledPosts(context.Context, *connect.Request[v1.ListScheduledPostsRequest]) (*connect.Response[v1.ListScheduledPostsResponse], error)
+	// Cancel a PENDING item, or dismiss a FAILED one; returns the item's current state without text or media.
+	// Idempotent by state: an item already PUBLISHED (too late, not an error) or CANCELLED is returned unchanged with
+	// 0 writes. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown => NOT_FOUND. idempotency_key is
+	// format-validated (VALIDATION when malformed) but not stored.
+	// Firestore: reads 2 worst / 1 typical; writes 1 (0 if already terminal); +1 TTL delete after 7 d.
+	CancelScheduledPost(context.Context, *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error)
 }
 
 // NewPostServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -336,6 +483,25 @@ func NewPostServiceHandler(svc PostServiceHandler, opts ...connect.HandlerOption
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	postServiceSchedulePostHandler := connect.NewUnaryHandler(
+		PostServiceSchedulePostProcedure,
+		svc.SchedulePost,
+		connect.WithSchema(postServiceMethods.ByName("SchedulePost")),
+		connect.WithHandlerOptions(opts...),
+	)
+	postServiceListScheduledPostsHandler := connect.NewUnaryHandler(
+		PostServiceListScheduledPostsProcedure,
+		svc.ListScheduledPosts,
+		connect.WithSchema(postServiceMethods.ByName("ListScheduledPosts")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	postServiceCancelScheduledPostHandler := connect.NewUnaryHandler(
+		PostServiceCancelScheduledPostProcedure,
+		svc.CancelScheduledPost,
+		connect.WithSchema(postServiceMethods.ByName("CancelScheduledPost")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.posts.v1.PostService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PostServiceCreatePostProcedure:
@@ -346,6 +512,12 @@ func NewPostServiceHandler(svc PostServiceHandler, opts ...connect.HandlerOption
 			postServiceGetPostHandler.ServeHTTP(w, r)
 		case PostServiceGetThreadProcedure:
 			postServiceGetThreadHandler.ServeHTTP(w, r)
+		case PostServiceSchedulePostProcedure:
+			postServiceSchedulePostHandler.ServeHTTP(w, r)
+		case PostServiceListScheduledPostsProcedure:
+			postServiceListScheduledPostsHandler.ServeHTTP(w, r)
+		case PostServiceCancelScheduledPostProcedure:
+			postServiceCancelScheduledPostHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -369,4 +541,16 @@ func (UnimplementedPostServiceHandler) GetPost(context.Context, *connect.Request
 
 func (UnimplementedPostServiceHandler) GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.GetThread is not implemented"))
+}
+
+func (UnimplementedPostServiceHandler) SchedulePost(context.Context, *connect.Request[v1.SchedulePostRequest]) (*connect.Response[v1.SchedulePostResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.SchedulePost is not implemented"))
+}
+
+func (UnimplementedPostServiceHandler) ListScheduledPosts(context.Context, *connect.Request[v1.ListScheduledPostsRequest]) (*connect.Response[v1.ListScheduledPostsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.ListScheduledPosts is not implemented"))
+}
+
+func (UnimplementedPostServiceHandler) CancelScheduledPost(context.Context, *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.CancelScheduledPost is not implemented"))
 }

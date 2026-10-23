@@ -88,6 +88,22 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "scheduled",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "publishAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "scheduled",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "publishAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -97,6 +113,7 @@
     { "collectionGroup": "posts", "fieldPath": "embedded", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "mentions", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "replyToHandle", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "replyPolicy", "indexes": [] },
 
     { "collectionGroup": "users", "fieldPath": "bio", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "displayName", "indexes": [] },
@@ -125,6 +142,9 @@
     },
 
     { "collectionGroup": "postRemovals", "fieldPath": "state", "indexes": [] },
+
+    { "collectionGroup": "scheduled", "fieldPath": "draft", "indexes": [] },
+    { "collectionGroup": "scheduled", "fieldPath": "requestHash", "indexes": [] },
 
     { "collectionGroup": "reports", "fieldPath": "evidence", "indexes": [] },
     { "collectionGroup": "reports", "fieldPath": "note", "indexes": [] },
