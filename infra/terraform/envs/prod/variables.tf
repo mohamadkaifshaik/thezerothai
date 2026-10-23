@@ -384,6 +384,34 @@ variable "feature_ui_shell_percent" {
   }
 }
 
+variable "feature_content_disclosure" {
+  description = "FEATURE_CONTENT_DISCLOSURE rollout mode for setting paid_partnership / made_with_ai on CreatePost (ADR-0021 D3): off | allowlist | percent | on. Default off; leaves off only after 100% of traffic is on a revision that stores the labels (ADR-0021 L-1)."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_content_disclosure)
+    error_message = "feature_content_disclosure must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_content_disclosure_allowlist" {
+  description = "FEATURE_CONTENT_DISCLOSURE_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_content_disclosure_percent" {
+  description = "FEATURE_CONTENT_DISCLOSURE_PERCENT: 0-100, only meaningful when feature_content_disclosure = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_content_disclosure_percent >= 0 && var.feature_content_disclosure_percent <= 100 && floor(var.feature_content_disclosure_percent) == var.feature_content_disclosure_percent
+    error_message = "feature_content_disclosure_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_replies" {
   description = "FEATURE_REPLIES rollout mode for replies and GetThread (P3): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

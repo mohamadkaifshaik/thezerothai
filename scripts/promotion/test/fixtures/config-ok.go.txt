@@ -12,5 +12,6 @@
 	featureReports, err := flags.LoadSpec("REPORTS", "reports", flags.Off)
 	featureEngagement, err := flags.LoadSpec("ENGAGEMENT", "engagement", flags.Off)
 	featureQuotes, err := flags.LoadSpec("QUOTES", "quotes", flags.Off)
+	featureContentDisclosure, err := flags.LoadSpec("CONTENT_DISCLOSURE", "content_disclosure", flags.Off)
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)

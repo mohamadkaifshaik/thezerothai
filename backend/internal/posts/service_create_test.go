@@ -208,6 +208,10 @@ func TestCreate_FeatureDisabledBeforeAnythingElse(t *testing.T) {
 		{"alt texts only", CreateInput{MediaAltTexts: []string{"a"}}, "media"},
 		{"reply and media: replies first", CreateInput{ReplyToPostID: "x", MediaIDs: []string{"m"}, QuoteOfPostID: "y"}, "replies"},
 		{"quote and media: quotes first", CreateInput{QuoteOfPostID: "y", MediaIDs: []string{"m"}}, "quotes"},
+		{"disclosure paid partnership", CreateInput{PaidPartnership: true}, "content_disclosure"},
+		{"disclosure made with AI", CreateInput{MadeWithAI: true}, "content_disclosure"},
+		{"media before disclosure", CreateInput{MediaIDs: []string{"m"}, MadeWithAI: true}, "media"},
+		{"quotes before disclosure", CreateInput{QuoteOfPostID: "y", PaidPartnership: true}, "quotes"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

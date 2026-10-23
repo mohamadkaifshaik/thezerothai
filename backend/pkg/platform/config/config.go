@@ -306,6 +306,10 @@ type Config struct {
 	// quote_of_post_id path of CreatePost, in addition to FEATURE_ENGAGEMENT. FEATURE_QUOTES[_ALLOWLIST|_PERCENT],
 	// default off in every environment. Existing quote posts keep displaying regardless.
 	FeatureQuotes flags.Spec
+	// FeatureContentDisclosure is the ADR-0021 D3 flag (wire name `content_disclosure`) gating only SETTING
+	// paid_partnership / made_with_ai on CreatePost (either true while off is FEATURE_DISABLED). Existing labels keep
+	// rendering. FEATURE_CONTENT_DISCLOSURE[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureContentDisclosure flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -801,6 +805,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureContentDisclosure, err := flags.LoadSpec("CONTENT_DISCLOSURE", "content_disclosure", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -877,6 +885,7 @@ func Load() (Config, error) {
 		FeatureReports:            featureReports,
 		FeatureEngagement:         featureEngagement,
 		FeatureQuotes:             featureQuotes,
+		FeatureContentDisclosure:  featureContentDisclosure,
 		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,

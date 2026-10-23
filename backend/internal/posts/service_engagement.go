@@ -97,7 +97,8 @@ func snapshotOf(q *Post) *Embedded {
 	if len(media) == 0 {
 		media = nil
 	}
-	return &Embedded{PostID: q.ID, Author: q.Author, Text: q.Text, Media: media, CreatedAt: q.CreatedAt}
+	return &Embedded{PostID: q.ID, Author: q.Author, Text: q.Text, Media: media, CreatedAt: q.CreatedAt,
+		PaidPartnership: q.PaidPartnership, MadeWithAI: q.MadeWithAI}
 }
 
 // NewRepostPost builds the REPOST post doc engagement writes for uid reposting original (D5): a root post

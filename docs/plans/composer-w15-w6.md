@@ -53,9 +53,9 @@ Budget: create +0 reads (field on the doc); reply under `FOLLOWING` +1 read (Get
 | ID | Ticket | Owner | Size | Status |
 | --- | --- | --- | --- | --- |
 | CMP-C1 | Proto: `bool paid_partnership`, `bool made_with_ai` on `CreatePostRequest` and `Post` (new field numbers) | architect | S | **Done** (merged in #243: additive proto, indexes, field overrides, data-model skill rows, regenerated Go/Dart) |
-| CMP-C2 | `posts`: persist both flags and copy them into the denormalised author/post snapshots so timelines add no reads; reject nothing (labels only); moderation reports may reference them | backend-developer | S | Not started |
+| CMP-C2 | `posts`: persist both flags and copy them into the denormalised author/post snapshots so timelines add no reads; reject nothing (labels only); moderation reports may reference them | backend-developer | S | Done (#247) (2026-10-23; flag `FEATURE_CONTENT_DISCLOSURE`, off) |
 | CMP-C3 | Flutter: disclosure dialog (two switches, Done), badge/label on `PostCard`. **How X renders the label is UNKNOWN**; capture it (CMP-0) before specifying the visual. Warn when the echoed labels differ from what was sent (ADR-0021 L-1) | frontend-developer | M | Needs CMP-0 |
-| CMP-C4 | Tests | tester | S | After C2/C3 |
+| CMP-C4 | Tests | tester | S | Backend tests written with C2 (unit, config, contract, emulator integration); the Flutter echo-check tests wait for C3 |
 
 Budget: +0 reads, +0 writes (fields on existing docs). Flag `FEATURE_CONTENT_DISCLOSURE`. Copy must avoid implying legal compliance advice.
 

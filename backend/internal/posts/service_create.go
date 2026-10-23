@@ -57,6 +57,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if hasMedia && !in.MediaEnabled {
 		return nil, featureDisabled("media")
 	}
+	// The reply_audience check slots in here (ADR-0021 D2); disclosure comes after it. 0 reads.
+	if (in.PaidPartnership || in.MadeWithAI) && !in.DisclosureEnabled {
+		return nil, featureDisabled("content_disclosure")
+	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
@@ -119,7 +123,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts),
+		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, in.PaidPartnership, in.MadeWithAI),
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
 		MediaAlts:   in.MediaAltTexts,
@@ -132,6 +136,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 			Kind: KindPost, Text: parsed.Text,
 			Hashtags: hashtags, Mentions: mentions,
 			Visibility: VisibilityPublic, SnapshotVersion: author.SnapshotVersion,
+			PaidPartnership: in.PaidPartnership, MadeWithAI: in.MadeWithAI,
 		},
 	}
 	if parent != nil {
@@ -230,10 +235,20 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 
 // requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text, the
 // reply target, media ids and alt texts in request order and the quote target, in a fixed order (D18). A
-// text-only root post hashes exactly as it did before P3 and P4.
-func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string) string {
-	return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
-		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), replyTo, quoteOf))
+// text-only root post hashes exactly as it did before P3 and P4. The ADR-0021 disclosure labels are appended
+// (`|pp=1`, `|ai=1`) ONLY when true, so a request without them hashes byte-for-byte as before the deploy and a
+// retry across it still replays instead of IDEMPOTENCY_KEY_REUSED. The reply-policy segment (`|policy=...`)
+// belongs between the base string and `|pp=`.
+func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string, paidPartnership, madeWithAI bool) string {
+	base := fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
+		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), replyTo, quoteOf)
+	if paidPartnership {
+		base += "|pp=1"
+	}
+	if madeWithAI {
+		base += "|ai=1"
+	}
+	return idempotency.HashRequest(base)
 }
 
 // maxAltTextRunes bounds one alt text (CreatePost proto: <= 1,000 chars).

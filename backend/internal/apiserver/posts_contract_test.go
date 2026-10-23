@@ -140,6 +140,8 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 		{"replies", &postsv1.CreatePostRequest{Text: "r", ReplyToPostId: "0000000000000000001"}, "replies"},
 		{"quotes", &postsv1.CreatePostRequest{Text: "q", QuoteOfPostId: "0000000000000000001"}, "quotes"},
 		{"media", &postsv1.CreatePostRequest{Text: "m", MediaIds: []string{"0000000000000000001"}}, "media"},
+		{"content_disclosure paid", &postsv1.CreatePostRequest{Text: "d", PaidPartnership: true}, "content_disclosure"},
+		{"content_disclosure ai", &postsv1.CreatePostRequest{Text: "d", MadeWithAi: true}, "content_disclosure"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

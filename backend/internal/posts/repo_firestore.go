@@ -107,6 +107,9 @@ type postDoc struct {
 	Moderation  string     `firestore:"moderation,omitempty"`
 	ModeratedAt *time.Time `firestore:"moderatedAt,omitempty"`
 	CreatedAt   time.Time  `firestore:"createdAt"`
+	// ADR-0021 D3 disclosure labels; absent (omitempty) = false, no backfill.
+	PaidPartnership bool `firestore:"paidPartnership,omitempty"`
+	MadeWithAI      bool `firestore:"madeWithAi,omitempty"`
 }
 
 type authorDoc struct {
@@ -125,6 +128,9 @@ type embeddedDoc struct {
 	Media       []mediaDoc `firestore:"media,omitempty"`
 	CreatedAt   *time.Time `firestore:"createdAt,omitempty"`
 	Unavailable bool       `firestore:"unavailable,omitempty"`
+	// ADR-0021 D3: the embedded post's labels, copied by snapshotOf; absent = false.
+	PaidPartnership bool `firestore:"paidPartnership,omitempty"`
+	MadeWithAI      bool `firestore:"madeWithAi,omitempty"`
 }
 
 type mentionDoc struct {
@@ -157,11 +163,13 @@ func toDoc(p *Post) postDoc {
 		Hashtags:  p.Hashtags,
 		LikeCount: p.LikeCount, RepostCount: p.RepostCount, ReplyCount: p.ReplyCount, QuoteCount: p.QuoteCount,
 		Visibility: string(p.Visibility), SnapshotVersion: p.SnapshotVersion, CreatedAt: p.CreatedAt,
-		Moderation: string(p.Moderation),
+		Moderation:      string(p.Moderation),
+		PaidPartnership: p.PaidPartnership, MadeWithAI: p.MadeWithAI,
 	}
 	if e := p.Embedded; e != nil {
 		ed := &embeddedDoc{PostID: e.PostID, Unavailable: e.Unavailable}
 		if !e.Unavailable {
+			ed.PaidPartnership, ed.MadeWithAI = e.PaidPartnership, e.MadeWithAI
 			ed.Author = &authorDoc{UserID: e.Author.UserID, Handle: e.Author.Handle, DisplayName: e.Author.DisplayName, AvatarURL: e.Author.AvatarURL, Verified: e.Author.Verified}
 			ed.Text = e.Text
 			t := e.CreatedAt
@@ -201,10 +209,12 @@ func (d postDoc) toPost(id string) *Post {
 		Hashtags:  d.Hashtags,
 		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount,
 		Visibility: Visibility(d.Visibility), SnapshotVersion: d.SnapshotVersion, CreatedAt: d.CreatedAt.UTC(),
-		Moderation: Moderation(d.Moderation),
+		Moderation:      Moderation(d.Moderation),
+		PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI,
 	}
 	if e := d.Embedded; e != nil {
-		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable}
+		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable,
+			PaidPartnership: e.PaidPartnership, MadeWithAI: e.MadeWithAI}
 		if e.Author != nil {
 			pe.Author = AuthorSnapshot{UserID: e.Author.UserID, Handle: e.Author.Handle, DisplayName: e.Author.DisplayName, AvatarURL: e.Author.AvatarURL, Verified: e.Author.Verified}
 		}

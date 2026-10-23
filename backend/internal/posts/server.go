@@ -101,6 +101,10 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		MediaEnabled:   s.mediaEnabled(uid),
 		RepliesEnabled: s.repliesEnabled(uid),
 		QuotesEnabled:  s.quotesEnabled(uid),
+
+		PaidPartnership:   m.GetPaidPartnership(),
+		MadeWithAI:        m.GetMadeWithAi(),
+		DisclosureEnabled: s.disclosureEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
@@ -166,6 +170,15 @@ const QuotesFlagName = "quotes"
 // (quote embeds, counters and notifications need engagement). Off when no checker is wired (fail closed).
 func (s *Server) quotesEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, EngagementFlagName) && s.flags.Enabled(uid, QuotesFlagName)
+}
+
+// ContentDisclosureFlagName is the wire name of FEATURE_CONTENT_DISCLOSURE (ADR-0021 D3). It gates only SETTING a
+// label on CreatePost; rendering the labels of existing posts never consults it.
+const ContentDisclosureFlagName = "content_disclosure"
+
+// disclosureEnabled is the FEATURE_CONTENT_DISCLOSURE decision for uid (off when no checker is wired).
+func (s *Server) disclosureEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, ContentDisclosureFlagName)
 }
 
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).

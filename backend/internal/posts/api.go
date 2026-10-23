@@ -110,6 +110,11 @@ type Post struct {
 	Moderation Moderation
 	// CreatedAt is the Snowflake's millisecond timestamp (ADR-0010 D18), so (CreatedAt, ID) order equals id order.
 	CreatedAt time.Time
+	// PaidPartnership and MadeWithAI are the author's own content-disclosure labels (ADR-0021 D3): user assertions,
+	// never detected or verified. Absent on legacy docs = false. A REPOST carries none of its own (its original's
+	// labels travel in Embedded).
+	PaidPartnership bool
+	MadeWithAI      bool
 }
 
 // Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
@@ -144,6 +149,10 @@ type Embedded struct {
 	Media       []MediaRef
 	CreatedAt   time.Time
 	Unavailable bool
+	// PaidPartnership and MadeWithAI are the embedded post's disclosure labels, frozen with the snapshot
+	// (ADR-0021 D3, review I-6: the embed shows its own labels).
+	PaidPartnership bool
+	MadeWithAI      bool
 }
 
 // MediaRef is one image of a post (common.v1.MediaRef): the URLs are the published public-bucket objects, copied
@@ -270,6 +279,13 @@ type CreateInput struct {
 	// RepliesEnabled is the FEATURE_REPLIES decision for the caller, made by server.go (never from the request).
 	// A non-empty ReplyToPostID with it false is FEATURE_DISABLED (metadata feature=replies).
 	RepliesEnabled bool
+	// PaidPartnership and MadeWithAI are the user-asserted disclosure labels (ADR-0021 D3). Either true with
+	// DisclosureEnabled false is FEATURE_DISABLED (metadata feature=content_disclosure); nothing else is rejected.
+	PaidPartnership bool
+	MadeWithAI      bool
+	// DisclosureEnabled is the FEATURE_CONTENT_DISCLOSURE decision for the caller, made by server.go (never from
+	// the request).
+	DisclosureEnabled bool
 }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST
