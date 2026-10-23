@@ -8,11 +8,14 @@ import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
+import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPolicy;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_transport.dart';
@@ -131,6 +134,64 @@ void main() {
     );
 
     expect(cachedIds(await store.read(const FeedKey.home())), [postId(5)]);
+  });
+
+  group('reply_policy (ADR-0021)', () {
+    pb.CreatePostRequest lastRequest() =>
+        requests.whereType<pb.CreatePostRequest>().last;
+
+    test('is UNSPECIFIED unless a policy is passed', () async {
+      answer = (_) => pb.CreatePostResponse(post: postView(1));
+      await repo.createPost(idempotencyKey: 'k', text: 't');
+      expect(
+        lastRequest().replyPolicy,
+        ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+      );
+    });
+
+    test('a chosen policy goes on the wire', () async {
+      answer = (_) => pb.CreatePostResponse(post: postView(1));
+      await repo.createPost(
+        idempotencyKey: 'k',
+        text: 't',
+        replyPolicy: ReplyPolicy.REPLY_POLICY_FOLLOWING,
+      );
+      expect(lastRequest().replyPolicy, ReplyPolicy.REPLY_POLICY_FOLLOWING);
+    });
+
+    test('FEATURE_DISABLED feature=reply_audience stops later sends of a '
+        'policy, but not plain posts', () async {
+      answer = (_) => serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureReplyAudience},
+      );
+      await expectLater(
+        repo.createPost(
+          idempotencyKey: 'k',
+          text: 't',
+          replyPolicy: ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY,
+        ),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(gate.postsEnabled, isTrue);
+      expect(gate.subFeatureEnabled(kFeatureReplyAudience), isFalse);
+
+      transport.calledProcedures.clear();
+      await expectLater(
+        repo.createPost(
+          idempotencyKey: 'k2',
+          text: 't',
+          replyPolicy: ReplyPolicy.REPLY_POLICY_FOLLOWING,
+        ),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(transport.calledProcedures, isEmpty);
+
+      answer = (_) => pb.CreatePostResponse(post: postView(1));
+      await repo.createPost(idempotencyKey: 'k3', text: 'plain');
+      expect(transport.calledProcedures, [_create]);
+    });
   });
 
   group('getThread (FEATURE_REPLIES)', () {

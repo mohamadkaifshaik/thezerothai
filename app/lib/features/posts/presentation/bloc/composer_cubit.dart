@@ -7,10 +7,12 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
 import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
+import '../../domain/reply_audience.dart';
 import 'pending_posts_cubit.dart';
 
 enum ComposerStatus { editing, submitting, posted }
@@ -25,6 +27,8 @@ class ComposerState {
     this.hasAttachments = false,
     this.attachmentsReady = true,
     this.uploadFailed = false,
+    this.replyAudience = ReplyAudience.everyone,
+    this.replyPolicyNotApplied = false,
   });
 
   final PostDraft draft;
@@ -49,6 +53,16 @@ class ComposerState {
   /// words it for photos.
   final bool uploadFailed;
 
+  /// Who may reply to this post once it is created (ADR-0021 D2). Everyone
+  /// unless the user chose otherwise; only chosen when
+  /// [ComposerCubit.canChooseReplyAudience].
+  final ReplyAudience replyAudience;
+
+  /// Set with [ComposerStatus.posted] when the post the server echoed does
+  /// not carry the audience that was sent (ADR-0021 L-1): the screen tells
+  /// the user once and nothing else changes.
+  final bool replyPolicyNotApplied;
+
   bool get isSubmitting => status == ComposerStatus.submitting;
   bool get canSubmit {
     if (status != ComposerStatus.editing) return false;
@@ -67,6 +81,8 @@ class ComposerState {
     bool? hasAttachments,
     bool? attachmentsReady,
     bool? uploadFailed,
+    ReplyAudience? replyAudience,
+    bool? replyPolicyNotApplied,
     bool clearError = false,
     bool clearCreated = false,
   }) => ComposerState(
@@ -77,6 +93,8 @@ class ComposerState {
     hasAttachments: hasAttachments ?? this.hasAttachments,
     attachmentsReady: attachmentsReady ?? this.attachmentsReady,
     uploadFailed: clearError ? false : (uploadFailed ?? this.uploadFailed),
+    replyAudience: replyAudience ?? this.replyAudience,
+    replyPolicyNotApplied: replyPolicyNotApplied ?? this.replyPolicyNotApplied,
   );
 }
 
@@ -108,6 +126,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     required common.AuthorSnapshot author,
     this.quoteOfPostId = '',
     AttachmentsCubit? attachments,
+    this.replyAudienceEnabled = false,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Uuid? uuid,
     DateTime Function()? clock,
@@ -139,6 +158,7 @@ class ComposerCubit extends Cubit<ComposerState> {
        _onUnexpectedError = null,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
+       replyAudienceEnabled = false,
        super(ComposerState(draft: analyzePostDraft('')));
 
   /// The post being replied to; empty for a top-level post.
@@ -148,6 +168,18 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// for a plain post or a reply. A quote is a top-level post with the same
   /// 280 limit, text or photos, and an embed of the original.
   final String quoteOfPostId;
+
+  /// `reply_audience` is on for this viewer (ADR-0021 D2). Only then, and
+  /// only for a root post or a quote (never a reply), may the user pick who
+  /// can reply; otherwise the request always carries UNSPECIFIED.
+  final bool replyAudienceEnabled;
+
+  /// Also false once the server answered FEATURE_DISABLED for it (the gate
+  /// remembers that until the next `GetMe`).
+  bool get canChooseReplyAudience =>
+      replyAudienceEnabled &&
+      replyToPostId.isEmpty &&
+      _repository.subFeatureEnabled(kFeatureReplyAudience);
 
   final PostsRepository _repository;
   final PendingPostsCubit? _pending;
@@ -199,9 +231,24 @@ class ComposerCubit extends Cubit<ComposerState> {
         status: ComposerStatus.editing,
         hasAttachments: state.hasAttachments,
         attachmentsReady: state.attachmentsReady,
+        replyAudience: state.replyAudience,
       ),
     );
   }
+
+  /// Picks who can reply (the "Who can reply?" sheet). Ignored for a reply,
+  /// while the feature is off and while the post is being sent.
+  void replyAudienceChanged(ReplyAudience audience) {
+    if (!canChooseReplyAudience || state.isSubmitting) return;
+    if (audience == state.replyAudience) return;
+    emit(state.copyWith(replyAudience: audience));
+  }
+
+  /// The policy the next CreatePost carries: UNSPECIFIED unless a narrower
+  /// audience is allowed and chosen (an explicit Everyone is UNSPECIFIED too).
+  ReplyPolicy get _policyToSend => canChooseReplyAudience
+      ? state.replyAudience.wire
+      : ReplyPolicy.REPLY_POLICY_UNSPECIFIED;
 
   Future<void> submit() async {
     if (!state.canSubmit) return;
@@ -274,7 +321,14 @@ class ComposerCubit extends Cubit<ComposerState> {
         ? text
         : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
     // A quote and a plain post with the same body are different requests.
-    final intent = quoteOfPostId.isEmpty ? body : 'q:$quoteOfPostId\u0001$body';
+    final policy = _policyToSend;
+    // A different audience is a different request body for the server.
+    final bodyWithPolicy = policy == ReplyPolicy.REPLY_POLICY_UNSPECIFIED
+        ? body
+        : 'p:${policy.value}\u0001$body';
+    final intent = quoteOfPostId.isEmpty
+        ? bodyWithPolicy
+        : 'q:$quoteOfPostId\u0001$bodyWithPolicy';
     final key = _keys.putIfAbsent(intent, _uuid.v4);
     if (_keys.length > _maxRememberedKeys) _keys.remove(_keys.keys.first);
     _keyText = intent;
@@ -300,12 +354,25 @@ class ComposerCubit extends Cubit<ComposerState> {
         quoteOfPostId: quoteOfPostId,
         mediaIds: mediaIds,
         mediaAltTexts: altTexts,
+        replyPolicy: policy,
       );
       _keys.remove(intent);
       _keyText = null;
       pending?.remove(key);
       if (!isClosed) {
-        emit(state.copyWith(status: ComposerStatus.posted, created: created));
+        // Echo check (ADR-0021 L-1): an older revision may have dropped the
+        // field, leaving the post open to everyone. Warn; never fail.
+        final notApplied = !replyPoliciesMatch(
+          policy,
+          created.post.replyPolicy,
+        );
+        emit(
+          state.copyWith(
+            status: ComposerStatus.posted,
+            created: created,
+            replyPolicyNotApplied: notApplied,
+          ),
+        );
       }
     } on AppException catch (e) {
       _fail(key, e);
@@ -319,7 +386,18 @@ class ComposerCubit extends Cubit<ComposerState> {
     // the field and the key stays for the retry.
     _pending?.remove(key);
     if (isClosed) return;
-    emit(state.copyWith(status: ComposerStatus.editing, error: error));
+    // The server refused the audience (flag off): fall back to Everyone so
+    // the user can still post (the gate also stops sending it).
+    final audienceRefused =
+        error is FeatureDisabledException &&
+        error.feature == kFeatureReplyAudience;
+    emit(
+      state.copyWith(
+        status: ComposerStatus.editing,
+        error: error,
+        replyAudience: audienceRefused ? ReplyAudience.everyone : null,
+      ),
+    );
   }
 
   /// Marks the error as handled (shown), keeping the draft.

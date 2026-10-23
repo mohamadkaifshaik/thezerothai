@@ -4,9 +4,11 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../timeline/data/timeline_store.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../domain/posts_feature_flag.dart';
+import '../domain/reply_audience.dart';
 
 /// Talks to `PostService` (create, delete, get one post) and keeps the
 /// cached feeds ([TimelineStore]) consistent with what it learns.
@@ -51,7 +53,9 @@ class PostsRepository {
   bool subFeatureEnabled(String name) => _gate.subFeatureEnabled(name);
 
   /// Creates a post. [idempotencyKey] must be reused when retrying the same
-  /// post (the server replays the stored result).
+  /// post (the server replays the stored result). [replyPolicy] stays
+  /// UNSPECIFIED (everyone) unless the user chose a narrower audience for a
+  /// root post or quote (ADR-0021 D2); never set it on a reply.
   Future<pb.PostView> createPost({
     required String idempotencyKey,
     required String text,
@@ -59,6 +63,7 @@ class PostsRepository {
     String quoteOfPostId = '',
     List<String> mediaIds = const [],
     List<String> mediaAltTexts = const [],
+    ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
   }) async {
     final session = _store.session;
     final response = await _gate.run(
@@ -70,12 +75,16 @@ class PostsRepository {
           quoteOfPostId: quoteOfPostId,
           mediaIds: mediaIds,
           mediaAltTexts: mediaAltTexts,
+          replyPolicy: replyPolicy,
         ),
       ),
       requires: [
         if (replyToPostId.isNotEmpty) kPostsSubFeatureReplies,
         if (quoteOfPostId.isNotEmpty) kPostsSubFeatureQuotes,
         if (mediaIds.isNotEmpty) kPostsSubFeatureMedia,
+        // Only a chosen audience needs the flag; UNSPECIFIED never does.
+        if (replyPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED)
+          kFeatureReplyAudience,
       ],
     );
     final view = response.post;

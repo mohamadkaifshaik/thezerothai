@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -410,6 +411,90 @@ void main() {
 
       await pump(tester, _view(), showReply: false);
       expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+    });
+  });
+
+  group('reply permission (ADR-0021)', () {
+    pb.PostView withPermission(ReplyPermission permission) {
+      final view = _view();
+      view.viewerReplyPermission = permission;
+      return view;
+    }
+
+    testWidgets('NOT_ALLOWED: Reply stays, disabled, with a why-less hint', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pump(
+        tester,
+        withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
+      );
+
+      expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
+      final node = tester.getSemantics(find.bySemanticsLabel('Reply, 1'));
+      expect(node.flagsCollection.isButton, isTrue);
+      expect(node.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+      expect(node.hint, "You can't reply to this post");
+      expect(node.rect.size.shortestSide, greaterThanOrEqualTo(48));
+
+      // Tapping does nothing; long press shows the tooltip.
+      await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+      await tester.pumpAndSettle();
+      expect(pushedLocation, isNull);
+      await tester.longPress(find.byIcon(Icons.chat_bubble_outline));
+      await tester.pumpAndSettle();
+      expect(find.text("You can't reply to this post"), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('NOT_ALLOWED adds nothing with replies off or showReply false', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
+        features: const {'engagement'},
+      );
+      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+
+      await pump(
+        tester,
+        withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
+        showReply: false,
+      );
+      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+    });
+
+    for (final permission in [
+      ReplyPermission.REPLY_PERMISSION_UNSPECIFIED,
+      ReplyPermission.REPLY_PERMISSION_UNKNOWN,
+      ReplyPermission.REPLY_PERMISSION_ALLOWED,
+    ]) {
+      testWidgets('${permission.name}: Reply stays enabled', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, withPermission(permission));
+
+        final node = tester.getSemantics(find.bySemanticsLabel('Reply, 1'));
+        expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+        expect(node.hint, isNot("You can't reply to this post"));
+        await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+        await tester.pumpAndSettle();
+        expect(pushedLocation, '/post/${postId(1)}');
+        handle.dispose();
+      });
+    }
+
+    testWidgets('NOT_ALLOWED at 320dp and text x2 does not overflow', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
+        width: 320,
+        textScale: 2,
+      );
+      expect(tester.takeException(), isNull);
     });
   });
 

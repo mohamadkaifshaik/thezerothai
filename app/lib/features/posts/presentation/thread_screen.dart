@@ -27,6 +27,7 @@ import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
+import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/thread_cubit.dart';
@@ -193,10 +194,15 @@ class _ThreadBody extends StatelessWidget {
     final canReply = context.select(
       (ThreadCubit c) => !c.state.repliesDisabled,
     );
+    // Advisory (ADR-0021 I-4): only an explicit NOT_ALLOWED disables it.
+    final replyBlocked = context.select((ThreadCubit c) {
+      final focal = c.state.focal;
+      return focal != null && replyKnownNotAllowed(focal);
+    });
     return Column(
       children: [
         const Expanded(child: _ThreadList()),
-        if (canReply) const _ReplyComposer(),
+        if (canReply) _ReplyComposer(blocked: replyBlocked),
       ],
     );
   }
@@ -526,7 +532,11 @@ class _Footer extends StatelessWidget {
 /// Inline composer docked under the thread: replies to the open post. The
 /// same 280 code-point rules and counter as the main composer.
 class _ReplyComposer extends StatefulWidget {
-  const _ReplyComposer();
+  const _ReplyComposer({this.blocked = false});
+
+  /// The viewer may not reply to the open post: the field and Reply are
+  /// disabled, with a why-less hint.
+  final bool blocked;
 
   @override
   State<_ReplyComposer> createState() => _ReplyComposerState();
@@ -592,7 +602,7 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                         ),
                         child: TextField(
                           controller: _controller,
-                          enabled: !state.isSubmitting,
+                          enabled: !state.isSubmitting && !widget.blocked,
                           minLines: 1,
                           maxLines: 5,
                           keyboardType: TextInputType.multiline,
@@ -602,7 +612,9 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                           ],
                           style: theme.textTheme.bodyLarge,
                           decoration: InputDecoration(
-                            hintText: 'Post your reply',
+                            hintText: widget.blocked
+                                ? kReplyNotAllowedHint
+                                : 'Post your reply',
                             hintStyle: theme.textTheme.bodyLarge?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -621,7 +633,9 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                       label: 'Reply',
                       busy: state.isSubmitting,
                       busySemanticsLabel: 'Sending reply',
-                      onPressed: state.canSubmit ? cubit.submit : null,
+                      onPressed: state.canSubmit && !widget.blocked
+                          ? cubit.submit
+                          : null,
                     ),
                   ],
                 ),
