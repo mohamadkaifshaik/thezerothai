@@ -48,6 +48,12 @@ variable "ttl_fields" {
       collection = "postRemovals"
       field      = "expireAt"
     }
+    # ADR-0021: finished scheduled posts (PUBLISHED / CANCELLED / FAILED) at users/{uid}/scheduled/{id}; expireAt is
+    # set when the item leaves PENDING (+7 days), absent while PENDING so pending items never expire. Collection-group key.
+    scheduled_expire_at = {
+      collection = "scheduled"
+      field      = "expireAt"
+    }
   }
 }
 
