@@ -168,6 +168,9 @@ cost:
 			--format='table(timestamp, jsonPayload.rpc, jsonPayload.fs_reads, jsonPayload.fs_writes, jsonPayload.removal_log_reads, jsonPayload.fanout_fs_reads, jsonPayload.code)' \
 		|| echo "gcloud query failed - check 'gcloud auth login' and PROJECT_ID=$$PROJECT_ID"; \
 	fi
+	@echo ""
+	@echo "=== Cloud Vision units (ADR-0022) ==="
+	@bash scripts/cost-vision.sh "$${PROJECT_ID:-}"
 
 ## loadtest: k6 against the emulators by default. make loadtest SCENARIO=identity_getme (loadtest/README.md)
 loadtest:

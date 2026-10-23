@@ -5,6 +5,7 @@
 - Monitoring alert: "Firestore reads > 40k/day, 80% of free quota".
 - Firebase console → Firestore → Usage tab trending toward 50k reads / 20k writes / 20k deletes per day.
 - Cloud Run instance count pinned at `max_instance_count` (3) — probably also a traffic/abuse spike, see `docs/runbooks/abuse-spike.md`.
+- Credit runway (ADR-0022): compare cumulative gross spend with the INR 371/day line and read Vision units with `make cost PROJECT_ID=<project>`; see `docs/reviews/cost-model.md` §10.
 
 ## Immediate triage (5 minutes)
 1. Open Cloud Monitoring dashboard "Free-tier budget (\<env\>)" (Terraform: `modules/monitoring`) — identify which metric is spiking:
