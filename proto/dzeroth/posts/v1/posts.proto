@@ -1,8 +1,9 @@
 syntax = "proto3";
 
 // Posts: create/delete, single post, threads. Owner module: backend/internal/posts.
-// Collections owned: posts/{postId}. Uses idempotency/{hash} (platform) for CreatePost because post ids are
-// time-ordered Snowflakes and cannot be derived from the idempotency key (ADR-0003).
+// Collections owned: posts/{postId}, users/{uid}/scheduled/{scheduledId} (ADR-0021). Uses idempotency/{hash}
+// (platform) for CreatePost because post ids are time-ordered Snowflakes and cannot be derived from the idempotency
+// key (ADR-0003). SchedulePost uses its own natural-key doc instead (ADR-0021 D4, founder-approved rule-4 bend).
 // Timelines (home/profile) live in dzeroth.timeline.v1 and return the PostView defined here.
 package dzeroth.posts.v1;
 
@@ -17,9 +18,24 @@ service PostService {
   // Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
   // accounts younger than 24 h).
   // Not available while the sub-feature's flag is off for the caller (ADR-0010 D2): a non-empty reply_to_post_id
-  // (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT) or media_ids / media_alt_texts (FEATURE_MEDIA) =>
-  // FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" | "quotes" | "media" (first match
-  // in that order), 0 reads.
+  // (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
+  // reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
+  // (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
+  // "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
+  // Reply policy (ADR-0021 D2): settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
+  // VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
+  // available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
+  // the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
+  // checked against the conversation root R after the parent visibility check: an unusable R (missing, not public,
+  // hidden, author not ACTIVE, a block in either direction, caller blockedBy overflow, or a quote root whose embedded
+  // author blocks the caller) => NOT_FOUND "post not found"; otherwise R's author always may reply, FOLLOWING needs
+  // R's author to follow the caller (graph cache 60 s), MENTIONED_ONLY needs the caller in R's mentions; else
+  // PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
+  // Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
+  // +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
+  // Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
+  // into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
+  // with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
   // Quotes (P5, plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
   // to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
   // original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
@@ -89,6 +105,8 @@ service PostService {
   // Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
   // all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
   // Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement on. Writes 0.
+  // viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
+  // cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
   rpc GetPost(GetPostRequest) returns (GetPostResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -106,9 +124,47 @@ service PostService {
   // Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
   // + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
   // (one conversation query, minimum 1); writes 0.
+  // viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
+  // read for a FOLLOWING conversation (the root author's graph), +0 warm.
   rpc GetThread(GetThreadRequest) returns (GetThreadResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+
+  // Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
+  // FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+  // only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
+  // CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
+  // up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
+  //
+  // Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
+  // reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
+  // truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
+  // field "publish_at". Media are validated (owned, READY or READY_UNSCREENED, unattached) but not reserved: an image
+  // used elsewhere before publish fails the item MEDIA_UNAVAILABLE; it stays reachable by its public URL until then.
+  // Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
+  // the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
+  // PUBLISHED or CANCELLED item returns it without text or media.
+  // Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
+  // publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
+  // 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
+  // Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4;
+  // +1 on a concurrent duplicate) / 4 typical; writes 2 (scheduled doc, quotas). Replay / at pending cap / at
+  // window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
+  rpc SchedulePost(SchedulePostRequest) returns (SchedulePostResponse);
+
+  // The caller's PENDING and FAILED scheduled posts, publish_at ascending. page_size 0 => 20, clamped to 50; opaque
+  // page_token bound to the caller.
+  // Firestore: reads 1 + page (21 at 20, 51 at 50), typical 1 + items (min 1); writes 0.
+  rpc ListScheduledPosts(ListScheduledPostsRequest) returns (ListScheduledPostsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Cancel a PENDING item, or dismiss a FAILED one; returns the item's current state without text or media.
+  // Idempotent by state: an item already PUBLISHED (too late, not an error) or CANCELLED is returned unchanged with
+  // 0 writes. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown => NOT_FOUND. idempotency_key is
+  // format-validated (VALIDATION when malformed) but not stored.
+  // Firestore: reads 2 worst / 1 typical; writes 1 (0 if already terminal); +1 TTL delete after 7 d.
+  rpc CancelScheduledPost(CancelScheduledPostRequest) returns (CancelScheduledPostResponse);
 }
 
 enum PostKind {
@@ -129,6 +185,67 @@ enum Visibility {
   VISIBILITY_FOLLOWERS = 2;
 }
 
+// Who may reply in a conversation (ADR-0021 D2). Set on the first post of a conversation (a root post or a quote);
+// replies carry the effective policy inherited from their parent. The conversation root's author may always reply.
+enum ReplyPolicy {
+  // Same as EVERYONE. Every post written before ADR-0021 has it.
+  REPLY_POLICY_UNSPECIFIED = 0;
+  REPLY_POLICY_EVERYONE = 1;
+  // Accounts the conversation root's author follows.
+  REPLY_POLICY_FOLLOWING = 2;
+  // Accounts mentioned in the conversation root.
+  REPLY_POLICY_MENTIONED_ONLY = 3;
+  // Not available yet: rejected with VALIDATION field "reply_policy". Declared (not reserved) so a later ADR can
+  // enable it without a new value.
+  REPLY_POLICY_FOLLOWING_OF_FOLLOWING = 4;
+  // Not available yet: rejected with VALIDATION field "reply_policy".
+  REPLY_POLICY_VERIFIED = 5;
+}
+
+// Whether the viewer may reply, as far as the server can tell without extra reads (ADR-0021 D2). Advisory only:
+// CreatePost decides.
+enum ReplyPermission {
+  // An older server that does not compute it: treat as allowed.
+  REPLY_PERMISSION_UNSPECIFIED = 0;
+  REPLY_PERMISSION_ALLOWED = 1;
+  REPLY_PERMISSION_NOT_ALLOWED = 2;
+  // Not decided (e.g. a reply row in a restricted conversation, a FOLLOWING root in a timeline): show the policy
+  // label and let CreatePost decide.
+  REPLY_PERMISSION_UNKNOWN = 3;
+}
+
+// Lifecycle of a scheduled post (ADR-0021 D4).
+enum ScheduledPostStatus {
+  SCHEDULED_POST_STATUS_UNSPECIFIED = 0;
+  // Waiting for publish_at.
+  SCHEDULED_POST_STATUS_PENDING = 1;
+  // Published as post_id. Text and media are no longer returned.
+  SCHEDULED_POST_STATUS_PUBLISHED = 2;
+  // Cancelled by the user, or the account was being deleted at publish time. Text and media are no longer returned.
+  SCHEDULED_POST_STATUS_CANCELLED = 3;
+  // Not published; see failure. Keeps text and media so the client can offer "reschedule" (a new SchedulePost).
+  SCHEDULED_POST_STATUS_FAILED = 4;
+}
+
+// Why a scheduled post was not published (status FAILED).
+enum ScheduledPostFailure {
+  SCHEDULED_POST_FAILURE_UNSPECIFIED = 0;
+  // An image was missing, used by another post, or no longer READY at publish time.
+  SCHEDULED_POST_FAILURE_MEDIA_UNAVAILABLE = 1;
+  // The posts daily quota was used up at publish time.
+  SCHEDULED_POST_FAILURE_QUOTA_EXCEEDED = 2;
+  // The account was suspended at publish time. Unsuspension does not revive the item.
+  SCHEDULED_POST_FAILURE_ACCOUNT_RESTRICTED = 3;
+  // The text no longer passes the post rules.
+  SCHEDULED_POST_FAILURE_INVALID_CONTENT = 4;
+  // Not published within 6 h of publish_at (e.g. after an outage).
+  SCHEDULED_POST_FAILURE_EXPIRED = 5;
+  // Repeated server errors.
+  SCHEDULED_POST_FAILURE_INTERNAL = 6;
+  // Written by a newer server version that this one cannot publish.
+  SCHEDULED_POST_FAILURE_UNSUPPORTED = 7;
+}
+
 message Mention {
   string user_id = 1;
   string handle = 2;
@@ -146,6 +263,11 @@ message EmbeddedPost {
   google.protobuf.Timestamp created_at = 5;
   // True when the original was deleted or became invisible; render a tombstone.
   bool unavailable = 6;
+  // The original's disclosure labels (ADR-0021 D3), frozen at write time; render them on the embed.
+  bool paid_partnership = 7;
+  bool made_with_ai = 8;
+  // The original's effective reply policy, for the viewer hint of a REPOST row (ADR-0021 D2).
+  ReplyPolicy reply_policy = 9;
 }
 
 message Post {
@@ -172,6 +294,12 @@ message Post {
   int64 quote_count = 15;
   Visibility visibility = 16;
   google.protobuf.Timestamp created_at = 17;
+  // Effective reply policy (ADR-0021 D2); on replies, the one inherited from the conversation. UNSPECIFIED ==
+  // EVERYONE.
+  ReplyPolicy reply_policy = 18;
+  // User-asserted disclosure labels (ADR-0021 D3).
+  bool paid_partnership = 19;
+  bool made_with_ai = 20;
 }
 
 // A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
@@ -181,6 +309,9 @@ message PostView {
   Post post = 1;
   bool liked_by_viewer = 2;
   bool reposted_by_viewer = 3;
+  // Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
+  // viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
+  ReplyPermission viewer_reply_permission = 4;
 }
 
 message CreatePostRequest {
@@ -192,6 +323,11 @@ message CreatePostRequest {
   string quote_of_post_id = 5;
   // Parallel to media_ids; optional accessibility text <= 1,000 chars each.
   repeated string media_alt_texts = 6;
+  // Root posts and quotes only (ADR-0021 D2); FEATURE_REPLY_AUDIENCE.
+  ReplyPolicy reply_policy = 7;
+  // Disclosure labels (ADR-0021 D3); FEATURE_CONTENT_DISCLOSURE.
+  bool paid_partnership = 8;
+  bool made_with_ai = 9;
 }
 
 message CreatePostResponse {
@@ -233,4 +369,67 @@ message GetThreadResponse {
   bool parent_unavailable = 6;
   // Same for the conversation root when the focal post is a reply.
   bool root_unavailable = 7;
+}
+
+// A post waiting to be published by the server (ADR-0021 D4). Kept 7 days after it reaches a terminal state.
+message ScheduledPost {
+  // 32 lowercase hex characters.
+  string scheduled_id = 1;
+  // Empty once PUBLISHED or CANCELLED.
+  string text = 2;
+  // Including alt text; lists render thumb_url only. Empty once PUBLISHED or CANCELLED.
+  repeated dzeroth.common.v1.MediaRef media = 3;
+  ReplyPolicy reply_policy = 4;
+  bool paid_partnership = 5;
+  bool made_with_ai = 6;
+  // UTC, a whole minute, as stored by the server (show this, not the requested time).
+  google.protobuf.Timestamp publish_at = 7;
+  ScheduledPostStatus status = 8;
+  // Set when PUBLISHED.
+  string post_id = 9;
+  // Set when FAILED.
+  ScheduledPostFailure failure = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message SchedulePostRequest {
+  string idempotency_key = 1;
+  // CreatePost text rules.
+  string text = 2;
+  // 0-4 media ids, as CreatePost.
+  repeated string media_ids = 3;
+  // Parallel to media_ids, as CreatePost.
+  repeated string media_alt_texts = 4;
+  ReplyPolicy reply_policy = 5;
+  bool paid_partnership = 6;
+  bool made_with_ai = 7;
+  // UTC; truncated to the minute by the server. The client's time zone is display-only.
+  google.protobuf.Timestamp publish_at = 8;
+}
+
+message SchedulePostResponse {
+  ScheduledPost scheduled_post = 1;
+}
+
+message ListScheduledPostsRequest {
+  // 0 => 20, max 50.
+  int32 page_size = 1;
+  // Opaque, bound to the caller.
+  string page_token = 2;
+}
+
+message ListScheduledPostsResponse {
+  repeated ScheduledPost scheduled_posts = 1;
+  string next_page_token = 2;
+}
+
+message CancelScheduledPostRequest {
+  // Unused; format-validated so clients keep one code path.
+  string idempotency_key = 1;
+  string scheduled_id = 2;
+}
+
+message CancelScheduledPostResponse {
+  // The current state; PUBLISHED means it was too late to cancel (not an error).
+  ScheduledPost scheduled_post = 1;
 }

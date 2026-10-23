@@ -147,6 +147,21 @@ final class ReauthRequiredException extends AppException {
   const ReauthRequiredException(super.message);
 }
 
+/// The reply audience policy (ADR-0021) does not let the caller reply.
+///
+/// The text is deliberately generic and fixed: it never says why (a block, a
+/// follow rule, ...), so the UI cannot reveal who blocks whom. [policy] is the
+/// server's `metadata["policy"]`, kept as an opaque string for logs and
+/// analytics only; never show it to the user.
+final class ReplyNotAllowedException extends AppException {
+  const ReplyNotAllowedException({this.policy}) : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage = "You can't reply to this conversation.";
+
+  final String? policy;
+}
+
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
 final class NotFoundException extends AppException {
   const NotFoundException(super.message);

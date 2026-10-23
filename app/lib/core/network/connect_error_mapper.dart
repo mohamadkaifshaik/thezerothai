@@ -79,6 +79,13 @@ AppException mapConnectError(Object error) {
       // call. The caller re-authenticates once and retries with the same key.
       case common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED:
         return ReauthRequiredException(message);
+      // ADR-0021: the reply audience policy forbids this caller. The message
+      // is fixed and generic (never the server text) so it cannot reveal why.
+      case common.ErrorReason.ERROR_REASON_REPLY_NOT_ALLOWED:
+        final policy = detail.metadata['policy'];
+        return ReplyNotAllowedException(
+          policy: (policy == null || policy.isEmpty) ? null : policy,
+        );
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }
