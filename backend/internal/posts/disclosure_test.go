@@ -2,6 +2,7 @@ package posts
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
@@ -340,5 +342,35 @@ func TestExport_DisclosureShape(t *testing.T) {
 	set, _ := json.Marshal(exportedPost{ID: "1", PaidPartnership: true, MadeWithAI: true})
 	if !bytes.Contains(set, []byte(`"paidPartnership":true`)) || !bytes.Contains(set, []byte(`"madeWithAi":true`)) {
 		t.Fatalf("labelled post export = %s", set)
+	}
+}
+
+// TestGet_WarmCacheKeepsDisclosure: CreatePost seeds the instance cache with SetPost, and a counter adjustment
+// copies the cached post; a warm Get (0 reads) must still carry both labels on the post and on its embed.
+func TestGet_WarmCacheKeepsDisclosure(t *testing.T) {
+	e := newDeleteEnv()
+	e.repo.docs[pidOther].MadeWithAI = true
+	p, _, err := e.create(CreateInput{
+		IdempotencyKey: key1, Text: "my take", QuoteOfPostID: pidOther, QuotesEnabled: true,
+		PaidPartnership: true, DisclosureEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"after create", "after AdjustCounts"} {
+		if step == "after AdjustCounts" {
+			e.cache.AdjustCounts(p.ID, 1, 0, 0)
+		}
+		ctx, c := budget.WithCounter(context.Background())
+		got, err := e.svc.Get(ctx, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Reads() != 0 {
+			t.Fatalf("%s: warm Get read %d docs, want 0", step, c.Reads())
+		}
+		if !got.PaidPartnership || got.MadeWithAI || got.Embedded == nil || got.Embedded.PaidPartnership || !got.Embedded.MadeWithAI {
+			t.Fatalf("%s: labels lost on the cache path: %+v embedded %+v", step, got, got.Embedded)
+		}
 	}
 }

@@ -6,6 +6,12 @@ Queries are for **Logs Explorer** (`resource.type="cloud_run_revision" AND resou
 kill switch is `FEATURE_POSTS=off` (pinned-traffic procedure in `docs/runbooks/cost-spike.md`); `DEGRADED_MODE=readonly`
 rejects CreatePost and DeletePost but keeps reads.
 
+Content disclosure (ADR-0021 D3): `FEATURE_CONTENT_DISCLOSURE[_ALLOWLIST|_PERCENT]` / `feature_content_disclosure*`, wire name
+`content_disclosure`, default off. It gates only SETTING `paid_partnership` / `made_with_ai` on CreatePost (either true while off is
+`FEATURE_DISABLED` `feature=content_disclosure`); existing labels keep rendering. Rollback: set the flag to `off` and deploy, never
+roll a revision back. It leaves `off` only after 100% of traffic is on a revision that stores the labels (ADR-0021 L-1), otherwise an
+old revision silently drops the unknown request fields. No new failure mode.
+
 ## 1. `posts_txn_contention` (WARN)
 **What it is.** A CreatePost transaction needed more than 3 attempts (`txn_attempts` on the request line). The hot
 documents are the author's `users/{uid}` (postsCount) and `quotas/{uid}`, so it means one account is posting from
