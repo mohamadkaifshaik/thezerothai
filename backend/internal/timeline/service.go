@@ -276,7 +276,7 @@ func (s *Server) toViews(ctx context.Context, uid string, engaged bool, ps []*po
 	}
 	out := make([]*postsv1.PostView, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, posts.ToView(p, vs))
+		out = append(out, posts.ToView(p, vs, uid))
 	}
 	return out
 }

@@ -69,7 +69,7 @@ func TestRequestHash_DisclosureOnlyWhenSet(t *testing.T) {
 			}
 			seen := map[string]string{}
 			for _, g := range golden {
-				got := requestHash(tt.text, tt.reply, tt.quote, tt.media, tt.alts, g.pp, g.ai)
+				got := requestHash(tt.text, tt.reply, tt.quote, tt.media, tt.alts, ReplyPolicyEveryone, g.pp, g.ai)
 				if want := idempotency.HashRequest(g.want); got != want {
 					t.Fatalf("%s: request hash = %s, want HashRequest(%q) = %s", g.name, got, g.want, want)
 				}
@@ -248,7 +248,7 @@ func TestDoc_DisclosureRoundTripAndLegacy(t *testing.T) {
 // TestToView_CarriesDisclosure: ToView (used by GetPost, GetThread and the timeline module) returns the labels.
 func TestToView_CarriesDisclosure(t *testing.T) {
 	t.Parallel()
-	v := ToView(&Post{ID: "1", PaidPartnership: true, MadeWithAI: true, CreatedAt: time.UnixMilli(1)}, ViewerSet{})
+	v := ToView(&Post{ID: "1", PaidPartnership: true, MadeWithAI: true, CreatedAt: time.UnixMilli(1)}, ViewerSet{}, "")
 	if !v.GetPost().GetPaidPartnership() || !v.GetPost().GetMadeWithAi() {
 		t.Fatalf("view = %v", v)
 	}

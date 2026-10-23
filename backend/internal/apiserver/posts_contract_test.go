@@ -140,6 +140,12 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 		{"replies", &postsv1.CreatePostRequest{Text: "r", ReplyToPostId: "0000000000000000001"}, "replies"},
 		{"quotes", &postsv1.CreatePostRequest{Text: "q", QuoteOfPostId: "0000000000000000001"}, "quotes"},
 		{"media", &postsv1.CreatePostRequest{Text: "m", MediaIds: []string{"0000000000000000001"}}, "media"},
+		{"reply_audience following", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "reply_audience"},
+		{"reply_audience mentioned only", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY}, "reply_audience"},
+		{"reply_audience everyone is still a set", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_EVERYONE}, "reply_audience"},
+		{"reply_audience unavailable value", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_VERIFIED}, "reply_audience"},
+		{"media beats reply_audience", &postsv1.CreatePostRequest{Text: "a", MediaIds: []string{"0000000000000000001"}, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "media"},
+		{"reply_audience beats content_disclosure", &postsv1.CreatePostRequest{Text: "a", PaidPartnership: true, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "reply_audience"},
 		{"content_disclosure paid", &postsv1.CreatePostRequest{Text: "d", PaidPartnership: true}, "content_disclosure"},
 		{"content_disclosure ai", &postsv1.CreatePostRequest{Text: "d", MadeWithAi: true}, "content_disclosure"},
 	}
@@ -207,4 +213,89 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 			t.Errorf("metadata = %v, want no feature key for the whole service", d.GetMetadata())
 		}
 	})
+}
+
+// TestPostsContract_ReplyAudience: over the real chain, FEATURE_REPLY_AUDIENCE lists `reply_audience` in
+// enabled_features only when on, a MENTIONED_ONLY root refuses a stranger's reply with PERMISSION_DENIED +
+// REPLY_NOT_ALLOWED + metadata policy=mentioned_only, the root's author may reply, and switching the flag off
+// does not reopen the conversation (enforcement is not flag-gated).
+func TestPostsContract_ReplyAudience(t *testing.T) {
+	ctx := context.Background()
+	on := func(cfg *config.Config) {
+		cfg.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}
+		cfg.FeatureReplyAudience = flags.Spec{Name: "reply_audience", Mode: flags.On}
+	}
+	env := newChain(t, on)
+	author, _ := mintToken(t, "")
+	stranger, _ := mintToken(t, "")
+	env.createProfile(t, author)
+	env.createProfile(t, stranger)
+
+	me, err := env.identity.GetMe(ctx, authed(author, &identityv1.GetMeRequest{}))
+	if err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if got := me.Msg.GetEnabledFeatures(); !containsString(got, "reply_audience") {
+		t.Errorf("enabled_features with the flag on = %v, want reply_audience", got)
+	}
+
+	root, err := env.posts.CreatePost(ctx, authed(author, &postsv1.CreatePostRequest{
+		IdempotencyKey: contractKey("ra-root"), Text: "just for the mentioned", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY}))
+	if err != nil {
+		t.Fatalf("CreatePost with a policy: %v", err)
+	}
+	rootID := root.Msg.GetPost().GetPost().GetPostId()
+	if got := root.Msg.GetPost().GetPost().GetReplyPolicy(); got != postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY {
+		t.Fatalf("echoed reply_policy = %v", got)
+	}
+
+	reply := func(token, key string) error {
+		_, err := env.posts.CreatePost(ctx, authed(token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey(key), Text: "reply", ReplyToPostId: rootID}))
+		return err
+	}
+	d := wireError(t, reply(stranger, "ra-stranger"), connect.CodePermissionDenied)
+	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED)
+	if d.GetMetadata()["policy"] != "mentioned_only" {
+		t.Errorf("metadata = %v, want policy=mentioned_only", d.GetMetadata())
+	}
+	if err := reply(author, "ra-author"); err != nil {
+		t.Fatalf("the root author's own reply: %v", err)
+	}
+
+	got, err := env.posts.GetPost(ctx, authed(stranger, &postsv1.GetPostRequest{PostId: rootID}))
+	if err != nil {
+		t.Fatalf("GetPost: %v", err)
+	}
+	if h := got.Msg.GetPost().GetViewerReplyPermission(); h != postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED {
+		t.Errorf("stranger's hint on the MENTIONED_ONLY root = %v, want NOT_ALLOWED", h)
+	}
+
+	// Flag off: no new policies, but the stored one is still enforced, and the list no longer names the feature.
+	off := newChain(t, func(cfg *config.Config) {
+		cfg.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}
+	})
+	me, err = off.identity.GetMe(ctx, authed(author, &identityv1.GetMeRequest{}))
+	if err != nil {
+		t.Fatalf("GetMe (off): %v", err)
+	}
+	if got := me.Msg.GetEnabledFeatures(); containsString(got, "reply_audience") {
+		t.Errorf("enabled_features with the flag off = %v, want no reply_audience", got)
+	}
+	_, err = off.posts.CreatePost(ctx, authed(stranger, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("ra-off"), Text: "reply", ReplyToPostId: rootID}))
+	assertReason(t, wireError(t, err, connect.CodePermissionDenied), commonv1.ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED)
+	_, err = off.posts.CreatePost(ctx, authed(author, &postsv1.CreatePostRequest{
+		IdempotencyKey: contractKey("ra-off-set"), Text: "x", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}))
+	d = wireError(t, err, connect.CodeFailedPrecondition)
+	if d.GetMetadata()["feature"] != "reply_audience" {
+		t.Errorf("metadata = %v, want feature=reply_audience", d.GetMetadata())
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
