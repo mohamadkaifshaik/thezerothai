@@ -185,6 +185,17 @@ final class UploadInterruptedException extends AppException {
   const UploadInterruptedException(super.message);
 }
 
+/// The API is paused: Google's front end refused the call with HTTP 403 and no
+/// Connect error body (the public invoker was removed, ADR-0022 / the
+/// credit-sunset runbook). Never a permission problem of the caller. The app
+/// shows the "service paused" screen until a re-check succeeds.
+final class ServicePausedException extends AppException {
+  const ServicePausedException([super.message = userMessage]);
+
+  static const userMessage =
+      'The service is temporarily paused. Please try again later.';
+}
+
 /// Anything else (mapped from an unrecognized Connect `Code`).
 final class UnknownApiException extends AppException {
   const UnknownApiException(super.message);

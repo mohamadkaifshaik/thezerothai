@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import '../core/network/api_client.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/rate_limit_hold.dart';
+import '../core/network/service_paused_cubit.dart';
 import '../core/storage/app_database.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -82,10 +83,16 @@ Future<void> bootstrap() async {
     appleServiceId: config.appleServiceId,
     appleRedirectUri: config.appleRedirectUri,
   );
+  // ADR-0022: while the API is paused, Google's front end answers HTTP 403;
+  // the interceptor flips this cubit and the root shows the paused screen.
+  final servicePaused = ServicePausedCubit(
+    probe: () => probeServicePaused(http.Client(), config.apiBaseUrl),
+  );
   final apiClient = ApiClient(
     baseUrl: config.apiBaseUrl,
     authTokens: authRepository,
     appCheckTokens: const FirebaseAppCheckTokenProvider(),
+    onServicePaused: servicePaused.markPaused,
   );
   final database = AppDatabase();
   final identityRepository = IdentityRepository(
@@ -235,6 +242,7 @@ Future<void> bootstrap() async {
       engagementRepository: engagementRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
+      servicePausedCubit: servicePaused,
     ),
   );
 }

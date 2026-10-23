@@ -25,6 +25,56 @@ connect.ConnectException _withDetail(
 }
 
 void main() {
+  group('HTTP 403 from the front end (ADR-0022 pause)', () {
+    test('connect-dart HTTP 403 fallback maps to ServicePausedException', () {
+      final mapped = mapConnectError(
+        connect.ConnectException(connect.Code.permissionDenied, 'HTTP 403'),
+      );
+      expect(mapped, isA<ServicePausedException>());
+      expect(mapped.message, ServicePausedException.userMessage);
+    });
+
+    test('a Connect PERMISSION_DENIED with a reason is unchanged', () {
+      final mapped = mapConnectError(
+        _withDetail(
+          connect.Code.permissionDenied,
+          'HTTP 403',
+          common.ErrorDetail(
+            reason: common.ErrorReason.ERROR_REASON_ACCOUNT_RESTRICTED,
+            message: 'restricted',
+          ),
+        ),
+      );
+      expect(mapped, isA<AccountRestrictedException>());
+    });
+
+    test('a server PERMISSION_DENIED with its own message is unchanged', () {
+      final mapped = mapConnectError(
+        connect.ConnectException(connect.Code.permissionDenied, 'no access'),
+      );
+      expect(mapped, isA<AccountRestrictedException>());
+    });
+
+    test(
+      'offline (a non-Connect error, e.g. a web fetch failure) is unchanged',
+      () {
+        expect(
+          mapConnectError(Exception('XMLHttpRequest error.')),
+          isA<NetworkException>(),
+        );
+      },
+    );
+
+    test('HTTP 503 (unavailable) is not "paused"', () {
+      expect(
+        mapConnectError(
+          connect.ConnectException(connect.Code.unavailable, 'HTTP 503'),
+        ),
+        isA<NetworkException>(),
+      );
+    });
+  });
+
   group('mapConnectError', () {
     test('maps a non-Connect error to NetworkException', () {
       final result = mapConnectError(Exception('socket closed'));

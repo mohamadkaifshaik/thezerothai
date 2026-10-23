@@ -25,11 +25,15 @@ class ApiClient {
     required String baseUrl,
     required AuthTokenProvider authTokens,
     required AppCheckTokenProvider appCheckTokens,
+    void Function()? onServicePaused,
+    connect.HttpClient? httpClient,
   }) : _transport = protocol_connect.Transport(
          baseUrl: baseUrl,
          codec: const ProtoCodec(),
-         httpClient: createPlatformHttpClient(),
+         httpClient: httpClient ?? createPlatformHttpClient(),
          interceptors: [
+           if (onServicePaused != null)
+             ServicePausedInterceptor(onServicePaused).call,
            const RequestMetadataInterceptor().call,
            AuthHeadersInterceptor(authTokens, appCheckTokens).call,
            const RetryInterceptor().call,
