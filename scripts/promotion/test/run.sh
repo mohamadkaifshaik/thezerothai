@@ -217,5 +217,59 @@ fi
 # --- authenticated-smoke.sh and prod-smoke.sh: their own fixture file (fake curl), run here so the required CI step covers it
 expect "authenticated smoke tests" 0 "$here/smoke-test.sh"
 
+# --- check-until-dates.sh (ADR-0022): a time-boxed marker must not outlive its date
+U="$p/check-until-dates.sh"
+ud="$tmp/until"
+mkdir -p "$ud/envs/prod" "$ud/.terraform"
+# expect_msg <name> <want-exit> <pattern> <command...>: like expect, and the output must contain the pattern
+expect_msg() {
+  local name=$1 want=$2 pat=$3
+  shift 3
+  expect "$name" "$want" "$@"
+  if ! grep -q -- "$pat" "$tmp/out"; then
+    echo "FAIL $name: output lacks '$pat'"
+    sed 's/^/    /' "$tmp/out"
+    failed=$((failed + 1))
+  fi
+}
+export UNTIL_TODAY=2026-12-22
+printf 'resource "x" "y" {\n  a = 1\n}\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: no markers pass" 0 "0 until: marker" "$U" "$ud"
+printf 'a = 1 # cost-approved: ADR-0022 until:2026-12-31\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: future date passes" 0 "1 until: marker" "$U" "$ud"
+printf 'a = 1 # cost-approved: ADR-0022 until:2026-12-22\n' >"$ud/envs/prod/main.tf"
+expect "until: today passes" 0 "$U" "$ud"
+printf 'a = 1 # cost-approved: ADR-0022 until:2026-12-21\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: past date fails" 1 "expired marker until:2026-12-21" "$U" "$ud"
+printf 'a = 1 # until:2026-13-45\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: impossible month fails clearly" 1 "malformed marker" "$U" "$ud"
+printf 'a = 1 # until:2026-02-30\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: 30 February fails clearly" 1 "malformed marker" "$U" "$ud"
+printf 'a = 1 # until:soon\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: not a date fails clearly" 1 "want until:YYYY-MM-DD" "$U" "$ud"
+printf 'a = 1 # until:2026-12-2\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: short date fails clearly" 1 "malformed marker" "$U" "$ud"
+printf 'a = 1 # prose until: the date passes\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: followed by a space is prose, not a marker" 0 "0 until: marker" "$U" "$ud"
+printf 'a = 1 # until:2026-12-31 and until:2026-12-01\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: a second marker on the same line is checked" 1 "expired marker until:2026-12-01" "$U" "$ud"
+printf 'a = 1 # until:2026-12-21\r\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: CRLF file, past date fails" 1 "expired marker until:2026-12-21" "$U" "$ud"
+printf 'a = 1 # until:2026-12-22\r\n' >"$ud/envs/prod/main.tf"
+expect "until: CRLF file, today passes" 0 "$U" "$ud"
+printf 'a = 1 # until:2020-01-01\n' >"$ud/envs/prod/terraform.tfvars.example"
+printf 'a = 1\n' >"$ud/envs/prod/main.tf"
+expect_msg "until: tfvars.example is scanned" 1 "terraform.tfvars.example" "$U" "$ud"
+rm -f "$ud/envs/prod/terraform.tfvars.example"
+printf 'a = 1 # until:2020-01-01\n' >"$ud/.terraform/provider.tf"
+printf 'a = 1 # until:2020-01-01\n' >"$ud/envs/prod/notes.md"
+expect "until: .terraform and other file types are ignored" 0 "$U" "$ud"
+UNTIL_TODAY=2026-12-23 expect_msg "until: the date override is honoured (a day later)" 0 "0 until: marker" "$U" "$ud"
+printf 'a = 1 # until:2026-12-22\n' >"$ud/envs/prod/main.tf"
+UNTIL_TODAY=2026-12-23 expect "until: marker expires the day after" 1 "$U" "$ud"
+UNTIL_TODAY=tomorrow expect_msg "until: a bad UNTIL_TODAY is a usage error" 2 "not a YYYY-MM-DD" "$U" "$ud"
+unset UNTIL_TODAY
+expect "until: missing directory is a usage error" 2 "$U" "$tmp/does-not-exist"
+
 echo "promotion fixture tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

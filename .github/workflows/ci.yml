@@ -189,3 +189,8 @@ jobs:
         run: |
           bash scripts/promotion/check-flag-registry.sh backend/pkg/platform/config/config.go \
             scripts/promotion/flag-ceiling.json infra/terraform/envs/dev/main.tf infra/terraform/envs/prod/main.tf
+
+      # ADR-0022: a time-boxed credit-mode marker (until:YYYY-MM-DD) in infra/terraform must not outlive its date (UTC).
+      # Red from the day after a date means: revert that line (or renew it by a new decision), do not delete this step.
+      - name: No expired until-markers in infra/terraform (ADR-0022)
+        run: bash scripts/promotion/check-until-dates.sh infra/terraform

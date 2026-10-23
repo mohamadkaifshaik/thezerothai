@@ -250,10 +250,12 @@ resource "google_monitoring_alert_policy" "run_5xx_rate" {
 
 // 3. Firestore reads > 40k in a day — 80% of the 50k/day free quota, early
 // cost warning (billing budget is the hard cost backstop).
+// ADR-0022 D2: the threshold is a variable (250k/day in credit mode, back to 40k on 2026-12-22). The display name is
+// unchanged at the default so Stage 0 plans show no diff.
 resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
   count        = var.enable_ops_alerts ? 1 : 0
   project      = var.project_id
-  display_name = "Firestore reads > 40k/day, 80% of free quota (${var.env})"
+  display_name = var.firestore_reads_alert_per_day == 40000 ? "Firestore reads > 40k/day, 80% of free quota (${var.env})" : "Firestore reads > ${var.firestore_reads_alert_per_day}/day (${var.env})"
   combiner     = "OR"
 
   conditions {
@@ -261,7 +263,7 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
     condition_threshold {
       filter          = "metric.type=\"firestore.googleapis.com/document/read_count\" resource.type=\"firestore_instance\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 40000
+      threshold_value = var.firestore_reads_alert_per_day
       duration        = "0s"
 
       aggregations {
@@ -325,6 +327,45 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
   documentation {
     mime_type = "text/markdown"
     content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. Runbook: docs/runbooks (account lifecycle)."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
+  }
+}
+
+// 5. ADR-0022 D3 request-flood detector (credit mode). Cloud Run bills every request that reaches the container, even
+// ones our limiters answer with 429, and requests are not capped by max-instances: a 1,000 req/s flood is about
+// INR 3,283/day. The billing budget lags by hours; this metric lags by minutes. Default 50,000 requests/hour is about
+// 14 req/s, 10x the 3k-DAU average. Alerting is not charged before 2027-09-01 (pricing page, 2026-10-23).
+// Off by default (var.enable_request_flood_alert) so Stage 0 plans do not change.
+resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR-0022 until:2026-12-26
+  count        = var.enable_request_flood_alert ? 1 : 0
+  project      = var.project_id
+  display_name = "api requests > ${var.request_flood_per_hour}/hour, flood or abuse (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Cloud Run request count, 1 h sum, all revisions"
+    condition_threshold {
+      filter          = "metric.type=\"run.googleapis.com/request_count\" resource.type=\"cloud_run_revision\" resource.label.\"service_name\"=\"api\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = var.request_flood_per_hour
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; runbook docs/runbooks/credit-sunset-pause-resume.md, lever L2). Then investigate with docs/runbooks/abuse-spike.md and docs/runbooks/cost-spike.md. Restore the invoker afterwards."
   }
 
   alert_strategy {
