@@ -87,6 +87,39 @@ void main() {
       expect(result.retryAfter, const Duration(days: 3));
     });
 
+    test('maps LIMIT_REACHED naming the limit under metadata limit', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+          message: 'too many scheduled posts',
+          metadata: {'limit': 'scheduled_window'}.entries,
+        ),
+      );
+
+      final result = mapConnectError(error) as LimitReachedException;
+
+      expect(result.quota, 'scheduled_window');
+    });
+
+    test('LIMIT_REACHED prefers quota over limit when both are present', () {
+      final error = _withDetail(
+        connect.Code.failedPrecondition,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+          message: 'x',
+          metadata: {'quota': 'handle_change', 'limit': 'other'}.entries,
+        ),
+      );
+
+      expect(
+        (mapConnectError(error) as LimitReachedException).quota,
+        'handle_change',
+      );
+    });
+
     test('maps RATE_LIMITED carrying limit and retryAfter', () {
       final error = _withDetail(
         connect.Code.resourceExhausted,

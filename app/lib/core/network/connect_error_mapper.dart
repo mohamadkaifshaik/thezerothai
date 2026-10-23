@@ -48,9 +48,11 @@ AppException mapConnectError(Object error) {
       case common.ErrorReason.ERROR_REASON_HANDLE_TAKEN:
         return HandleTakenException(message);
       case common.ErrorReason.ERROR_REASON_LIMIT_REACHED:
+        // The handle cooldown names the limit under `quota`; the graph cap and the ADR-0021 scheduling limits
+        // (`scheduled_pending`, `scheduled_window`) use `limit`.
         return LimitReachedException(
           message,
-          quota: detail.metadata['quota'],
+          quota: detail.metadata['quota'] ?? detail.metadata['limit'],
           retryAfter: retryAfter,
         );
       case common.ErrorReason.ERROR_REASON_MEDIA_NOT_READY:

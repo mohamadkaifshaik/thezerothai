@@ -25,7 +25,7 @@ resource "google_firestore_database" "default" {
 // TTL policies let Firestore delete expired docs for free instead of us
 // running a paid cron/backfill job. Fields must be a Timestamp type.
 // Per ADR-0003: collection groups `idempotency`, `media`, `notifications`,
-// `exports`, `reports`, `postRemovals` (ADR-0016), field `expireAt` on each — owned by Terraform. An empty
+// `exports`, `reports`, `postRemovals` (ADR-0016), `scheduled` (ADR-0021), field `expireAt` on each — owned by Terraform. An empty
 // `index_config {}` exempts the TTL field from single-field indexing (it's
 // never queried, only used by the TTL sweep), matching
 // `firebase/firestore.indexes.json`, which never declares `expireAt`: no
