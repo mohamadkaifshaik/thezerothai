@@ -48,6 +48,15 @@ This takes effect in seconds and does not require rebuilding an image — Cloud 
 **If the incident is feature-related, not a bad build:** flip the feature flag off first (flags default OFF per
 CLAUDE.md) before deciding whether a full revision rollback is even necessary.
 
+**Forward-only floor for reply audience (ADR-0021).** Once `FEATURE_REPLY_AUDIENCE` has left `off` in an environment, never route
+traffic to a revision older than the first release that enforces it (name the tag here when it is cut). Turning the flag off
+does **not** undo anything: enforcement of stored policies is not flag-gated, and the flag only controls setting a new policy.
+A pre-enforcement revision neither enforces nor copies `replyPolicy`, so every restricted conversation opens to everyone, and
+every reply written in that window carries no policy, which leaves the sub-threads below it open even after rolling forward.
+There is no error: the control fails silently. If a bad build must be backed out, fix forward or roll to a revision that is
+at or above the floor. Dev is safe because `deploy-dev.yml` rolls back only to the previously serving revision, as long as the
+flag leaves `off` only after the enforcing revision serves 100% (rule L-1 in `docs/runbooks/posts.md`).
+
 ## Firestore data changes
 Data changes are expand/contract only (CLAUDE.md rule) — never a destructive migration in place:
 1. **Expand**: add the new field/collection; old code ignores it, new code writes both old and new shapes.
