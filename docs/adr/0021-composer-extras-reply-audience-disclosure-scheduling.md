@@ -1,5 +1,6 @@
 # 0021. Composer extras: reply audience, content disclosure, scheduled posts
 Status: Accepted (founder, 2026-10-23; includes the five founder decisions recorded in "Founder decisions" below, and the rule-4 bend in item 3)
+Clarified 2026-10-23 (PR #247): pinned the exact CreatePost `requestHash` suffix bytes and order; reconciled the Stage 0 functional line with D3 (disclosure labels are accepted on any post kind). No decision changed.
 Date: 2026-10-23 (revised the same day after `docs/reviews/security-review-adr-0021.md`; see §Security review)
 Deciders: architect (proposal); founder (accepted 2026-10-23). Product defaults below were proposed by the founder's delegate in
 `docs/plans/composer-w15-w6.md` "Answers to the open questions" (2026-10-23).
@@ -78,7 +79,8 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
   status write, which is enough for a request that read ACTIVE from the 60 s cache just before its 5 s transaction.
 
 **Stage 0 requirements:**
-- *Functional:* a root post or quote can carry a reply policy and two disclosure labels. A user can schedule a root
+- *Functional:* a root post or quote can carry a reply policy; any post (root, reply or quote) can carry two disclosure
+  labels, which are never rejected for the post kind (D3). A user can schedule a root
   post with up to 4 images for 2 min to 60 days ahead, then list and cancel it. Clients can show who may reply.
 - *Non-functional:*
   - 0 extra timeline reads.
@@ -333,6 +335,8 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
 **CreatePost `requestHash`.** Append `|policy=…|pp=…|ai=…` **only when the effective values are not the defaults**
 (EVERYONE and UNSPECIFIED both count as absent; a reply's request carries no policy, and the policy it inherits is
 never hashed), so a CreatePost retried across the deploy (within the 24 h TTL) still hashes the same.
+Exact bytes, appended to the existing base string in this order and each only when non-default: `|policy=<NAME>`
+(the enum name, e.g. `|policy=FOLLOWING`), then `|pp=1`, then `|ai=1`; `|policy=` always comes before `|pp=1`.
 
 ## Firestore model
 **`posts/{postId}`** gets new fields. Each is absent by default, there is no backfill, and an absent field means the
