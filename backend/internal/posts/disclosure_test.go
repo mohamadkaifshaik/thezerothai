@@ -40,7 +40,7 @@ func TestRequestHash_DisclosureOnlyWhenSet(t *testing.T) {
 	t.Parallel()
 	base := func(text, reply, quote string, media, alts []string) string {
 		return fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
-			text, strings.Join(media, ","), strings.Join(alts, ""), reply, quote)
+			text, strings.Join(media, ","), strings.Join(alts, "\x1f"), reply, quote)
 	}
 	tests := []struct {
 		name         string
