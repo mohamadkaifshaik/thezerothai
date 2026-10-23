@@ -14,6 +14,8 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPermission;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -633,5 +635,47 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(pageCalls, 1);
+  });
+
+  group('reply permission (ADR-0021)', () {
+    void stubFocal(ReplyPermission permission) {
+      final focal = postView(1, text: 'the focal post')
+        ..viewerReplyPermission = permission;
+      stubThread((_) async => pb.GetThreadResponse(focal: focal));
+    }
+
+    testWidgets('NOT_ALLOWED disables the docked composer, with no reason', (
+      tester,
+    ) async {
+      stubFocal(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED);
+      await open(tester);
+
+      expect(find.text("You can't reply to this post"), findsOneWidget);
+      expect(find.text('Post your reply'), findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+      final pill = tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Reply'),
+      );
+      expect(pill.onPressed, isNull);
+    });
+
+    for (final permission in [
+      ReplyPermission.REPLY_PERMISSION_UNSPECIFIED,
+      ReplyPermission.REPLY_PERMISSION_UNKNOWN,
+      ReplyPermission.REPLY_PERMISSION_ALLOWED,
+    ]) {
+      testWidgets('${permission.name} keeps the composer usable', (
+        tester,
+      ) async {
+        stubFocal(permission);
+        await open(tester);
+
+        expect(find.text('Post your reply'), findsOneWidget);
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).enabled,
+          isTrue,
+        );
+      });
+    }
   });
 }

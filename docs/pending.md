@@ -51,7 +51,7 @@ Done and merged: ADR accepted, proto contract, scheduled TTL policy, content dis
 
 | # | Ticket | Owner | Status | Task |
 |---|---|---|---|---|
-| 2.1 | CMP-B3 | Claude | DOING | Flutter reply-audience UI: "Who can reply?" sheet (3 options), link text, disabled reply state from `viewer_reply_permission`, echo check. Branch `feat/composer-b3-reply-audience-ui`. |
+| 2.1 | CMP-B3 | Claude | DONE (#256) | Flutter reply-audience UI: "Who can reply?" sheet (3 options), link text, disabled reply state from `viewer_reply_permission`, echo check. Needs a dev check once `FEATURE_REPLY_AUDIENCE` is allowlisted for a test user (see 2.13). |
 | 2.2 | CMP-D2/D3 foundation | Claude | DOING | Scheduled posts PR 1: config and quotas, the `users/{uid}/scheduled` data model and repository, the deletion eraser, export and collection-guard row, `FEATURE_SCHEDULED_POSTS`, rate-limit mapping. Branch `feat/composer-d1-scheduled-foundation`. |
 | 2.3 | CMP-D3 | Claude | TODO | Scheduled posts PR 2: `SchedulePost`, `ListScheduledPosts`, `CancelScheduledPost` service and handlers (replay check before limits, window cap, quotas, per-item rules from the security review). |
 | 2.4 | CMP-D4 | Claude | TODO | Scheduled posts PR 3: the publish sweep and its `/internal/cron/publish-scheduled` route (per-item recover, per-author cap, precondition writes, error scrubbing, exactly-once publish). |
@@ -94,4 +94,5 @@ These come from the memory notes of earlier sessions. Claude should confirm each
 
 ## 5. Recently done
 
+- 2026-10-23: `docs/pending.md` added (#255); reply audience UI CMP-B3 (#256, open until merged).
 - 2026-10-23: ADR-0021 accepted and merged (#242); proto contract (#243); scheduled TTL policy (#244); disclosure backend (#247); reply audience backend (#248); ADR-0022 accepted (#249); cost model re-priced (#250); `CLAUDE.md` credit mode and dated cost-hook marker (#251); Flutter service-paused screen (#252); credit-mode Terraform and the until-date CI check (#253); `CLAUDE.md` Stage 0 wording (#254).

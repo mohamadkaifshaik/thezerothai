@@ -32,6 +32,7 @@ class PostActionBar extends StatelessWidget {
     this.liked = false,
     this.reposted = false,
     this.showDisabled = true,
+    this.replyDisabledHint,
   });
 
   final PostActions actions;
@@ -46,6 +47,11 @@ class PostActionBar extends StatelessWidget {
   /// exists, no Reply while replies are off).
   final bool showDisabled;
 
+  /// When set, Reply is shown disabled whatever [showDisabled] says, and
+  /// announced and tooltipped with this text (the viewer may not reply to
+  /// this post). It is advisory: it never says why.
+  final String? replyDisabledHint;
+
   bool _shows(VoidCallback? callback) => showDisabled || callback != null;
 
   @override
@@ -53,13 +59,14 @@ class PostActionBar extends StatelessWidget {
     final colors = context.appColors;
     return Row(
       children: [
-        if (_shows(actions.onReply))
+        if (_shows(actions.onReply) || replyDisabledHint != null)
           _ActionSlot(
             child: _ActionButton(
               icon: Icons.chat_bubble_outline,
               label: 'Reply',
               count: replyCount,
               onPressed: actions.onReply,
+              disabledHint: actions.onReply == null ? replyDisabledHint : null,
             ),
           ),
         if (_shows(actions.onRepost))
@@ -117,6 +124,7 @@ class _ActionButton extends StatelessWidget {
     this.active = false,
     this.activeColor,
     this.alignEnd = false,
+    this.disabledHint,
   });
 
   final IconData icon;
@@ -130,16 +138,24 @@ class _ActionButton extends StatelessWidget {
   /// card's right padding) instead of a left-aligned one.
   final bool alignEnd;
 
+  /// Why-less explanation of a deliberately disabled button: a semantics
+  /// hint (and `enabled: false`) plus a tooltip (long press / hover).
+  final String? disabledHint;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = active
+    final color = disabledHint != null
+        ? theme.disabledColor
+        : active
         ? activeColor ?? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
     final shown = count ?? 0;
-    return Semantics(
+    final button = Semantics(
       button: true,
       selected: active,
+      enabled: disabledHint == null ? null : false,
+      hint: disabledHint,
       label: shown > 0 ? '$label, $shown' : label,
       excludeSemantics: true,
       onTap: onPressed,
@@ -176,5 +192,9 @@ class _ActionButton extends StatelessWidget {
         ),
       ),
     );
+    final hint = disabledHint;
+    return hint == null
+        ? button
+        : Tooltip(message: hint, excludeFromSemantics: true, child: button);
   }
 }
