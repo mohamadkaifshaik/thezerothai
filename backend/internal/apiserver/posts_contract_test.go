@@ -140,12 +140,6 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 		{"replies", &postsv1.CreatePostRequest{Text: "r", ReplyToPostId: "0000000000000000001"}, "replies"},
 		{"quotes", &postsv1.CreatePostRequest{Text: "q", QuoteOfPostId: "0000000000000000001"}, "quotes"},
 		{"media", &postsv1.CreatePostRequest{Text: "m", MediaIds: []string{"0000000000000000001"}}, "media"},
-		{"reply_audience following", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "reply_audience"},
-		{"reply_audience mentioned only", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY}, "reply_audience"},
-		{"reply_audience everyone is still a set", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_EVERYONE}, "reply_audience"},
-		{"reply_audience unavailable value", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_VERIFIED}, "reply_audience"},
-		{"media beats reply_audience", &postsv1.CreatePostRequest{Text: "a", MediaIds: []string{"0000000000000000001"}, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "media"},
-		{"reply_audience beats content_disclosure", &postsv1.CreatePostRequest{Text: "a", PaidPartnership: true, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "reply_audience"},
 		{"content_disclosure paid", &postsv1.CreatePostRequest{Text: "d", PaidPartnership: true}, "content_disclosure"},
 		{"content_disclosure ai", &postsv1.CreatePostRequest{Text: "d", MadeWithAi: true}, "content_disclosure"},
 	}
@@ -213,6 +207,40 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 			t.Errorf("metadata = %v, want no feature key for the whole service", d.GetMetadata())
 		}
 	})
+}
+
+// TestPostsContract_FeatureDisabledReplyAudience: the reply_audience rows of the FEATURE_DISABLED contract (ADR-0021
+// D2). Any reply_policy other than UNSPECIFIED is refused while the flag is off, after media and before disclosure.
+// A separate caller from TestPostsContract_FeatureDisabled keeps both tables under the per-user rate limit.
+func TestPostsContract_FeatureDisabledReplyAudience(t *testing.T) {
+	ctx := context.Background()
+	env := newChain(t, nil)
+	token, _ := mintToken(t, "")
+	env.createProfile(t, token)
+
+	tests := []struct {
+		name        string
+		req         *postsv1.CreatePostRequest
+		wantFeature string
+	}{
+		{"reply_audience following", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "reply_audience"},
+		{"reply_audience mentioned only", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY}, "reply_audience"},
+		{"reply_audience everyone is still a set", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_EVERYONE}, "reply_audience"},
+		{"reply_audience unavailable value", &postsv1.CreatePostRequest{Text: "a", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_VERIFIED}, "reply_audience"},
+		{"media beats reply_audience", &postsv1.CreatePostRequest{Text: "a", MediaIds: []string{"0000000000000000001"}, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "media"},
+		{"reply_audience beats content_disclosure", &postsv1.CreatePostRequest{Text: "a", PaidPartnership: true, ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}, "reply_audience"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.req.IdempotencyKey = contractKey("fd-ra-" + tt.name)
+			_, err := env.posts.CreatePost(ctx, authed(token, tt.req))
+			d := wireError(t, err, connect.CodeFailedPrecondition)
+			assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
+			if got := d.GetMetadata()["feature"]; got != tt.wantFeature {
+				t.Errorf("metadata feature = %q, want %q (metadata %v)", got, tt.wantFeature, d.GetMetadata())
+			}
+		})
+	}
 }
 
 // TestPostsContract_ReplyAudience: over the real chain, FEATURE_REPLY_AUDIENCE lists `reply_audience` in

@@ -14,6 +14,21 @@ reposts of labelled posts with its own `snapshotOf`, which has no label fields, 
 no backfill; reads on such a revision hide the labels but do not break. It leaves `off` only after 100% of traffic is on a revision that stores the labels (ADR-0021 L-1), otherwise an
 old revision silently drops the unknown request fields. No new failure mode.
 
+Reply audience (ADR-0021 D2): `FEATURE_REPLY_AUDIENCE[_ALLOWLIST|_PERCENT]` / `feature_reply_audience*`, wire name `reply_audience`,
+default off. It gates only SETTING `reply_policy` on CreatePost (any value other than UNSPECIFIED while off is `FEATURE_DISABLED`
+`feature=reply_audience`, 0 reads); FOLLOWING_OF_FOLLOWING, VERIFIED, unknown values and any value on a reply are `VALIDATION`
+field `reply_policy`. **Enforcement and the `viewer_reply_permission` hint are never flag-gated**: a refused reply is
+`PERMISSION_DENIED` + `REPLY_NOT_ALLOWED` with `metadata["policy"]` = `following` | `mentioned_only` (lower snake case), and an
+unusable conversation root (missing, hidden, non-public, author not ACTIVE, a block in either direction, caller blockedBy overflow)
+is the usual `NOT_FOUND "post not found"` before the policy runs (review M-1). Kill switch: set the flag to `off` and deploy; that
+stops new policies and leaves every stored one enforced. **Never roll a revision back once the flag has left `off`:** enforcement keys
+off the parent's stored `replyPolicy`, and a pre-B2 revision neither enforces it nor copies it, so its replies carry no policy
+and re-open every sub-thread under them (permanently, no backfill). The flag leaves `off`, even for the allowlist, only after 100% of
+traffic is on a revision that stores and enforces it (ADR-0021 L-1; during a 10/90 split GetMe on the new revision can list the feature
+while the CreatePost lands on an old one, which drops the unknown field and posts to everyone without an error). Symptoms and checks:
+a spike of `outcome=rejected:reply_not_allowed` is users hitting restricted conversations (expected), not an outage; reads of a
+restricted reply are +0 warm and at most +3 (MENTIONED_ONLY) / +4 (FOLLOWING) cold. No new failure mode.
+
 ## 1. `posts_txn_contention` (WARN)
 **What it is.** A CreatePost transaction needed more than 3 attempts (`txn_attempts` on the request line). The hot
 documents are the author's `users/{uid}` (postsCount) and `quotas/{uid}`, so it means one account is posting from

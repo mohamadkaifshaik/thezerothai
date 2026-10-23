@@ -36,6 +36,11 @@ import (
 //	        up to 4 more: 17 cold / 6 warm ceiling, planning 2.5 + n) and + len(media_ids) writes (media/{id}.postId,
 //	        so up to 8); a replay re-reads no media
 //	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
+//
+// Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
+// FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
+// FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
+// writes nothing. An EVERYONE / absent conversation adds nothing and never loads the root.
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
 	defer func() {

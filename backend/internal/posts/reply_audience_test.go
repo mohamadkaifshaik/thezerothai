@@ -2,6 +2,7 @@ package posts
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,10 +25,8 @@ import (
 // Reply audience (ADR-0021 D2, CMP-B2/B4): who may reply, set on a root post or quote, inherited by replies,
 // enforced in service.Create after replyParent, hinted to viewers. FEATURE_REPLY_AUDIENCE gates SETTING only.
 
-const (
-	rPolRepost = "0000000000000000110" // by dave, REPOST of rRoot
-	rPolMyRoot = "0000000000000000120" // by the caller (testUID)
-)
+// rPolRepost is dave's REPOST of rRoot.
+const rPolRepost = "0000000000000000110"
 
 func replyAudienceRegistry(spec flags.Spec) *flags.Registry {
 	spec.Name = ReplyAudienceFlagName
@@ -836,4 +835,37 @@ func TestGetThread_ContextUnchangedByRefactor(t *testing.T) {
 			t.Fatalf("an EVERYONE thread read the graph of %q", a)
 		}
 	}
+}
+
+// TestEnforceReplyPolicy_DependencyFailuresAreInternal: a failing root read or follow read is an internal error,
+// never a REPLY_NOT_ALLOWED (which would wrongly tell the caller the conversation is closed) and never stored.
+func TestEnforceReplyPolicy_DependencyFailuresAreInternal(t *testing.T) {
+	notAPIError := func(t *testing.T, err error) {
+		t.Helper()
+		var ae *apierr.Error
+		if err == nil || errors.As(err, &ae) {
+			t.Fatalf("err = %v, want a plain internal error", err)
+		}
+	}
+	t.Run("root author graph read fails", func(t *testing.T) {
+		e := restrictedEnv(ReplyPolicyFollowing)
+		e.graph.errs = map[string]error{uZed: errBoom}
+		_, _, err := e.replyTo(rRoot)
+		notAPIError(t, err)
+		if e.repo.createCalls != 0 {
+			t.Fatal("nothing may be written")
+		}
+	})
+	t.Run("root read fails on a deep reply", func(t *testing.T) {
+		e := restrictedEnv(ReplyPolicyMentionedOnly, testUID)
+		if _, err := e.svc.Get(context.Background(), rReply1); err != nil { // warm the parent so only the root read fails
+			t.Fatal(err)
+		}
+		e.repo.getAllErr = errBoom
+		_, _, err := e.replyTo(rReply1)
+		notAPIError(t, err)
+		if e.repo.createCalls != 0 {
+			t.Fatal("nothing may be written")
+		}
+	})
 }

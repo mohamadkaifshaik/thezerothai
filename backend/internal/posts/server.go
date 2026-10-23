@@ -142,6 +142,8 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 
 // GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags come from one
 // cached userLikes read while FEATURE_ENGAGEMENT is on for the caller (ADR-0018 D5), else they are false.
+// viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
+// a reply in a restricted conversation is UNKNOWN. Never flag-gated.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
