@@ -4,7 +4,7 @@ Text-first social platform (X/Twitter-style) with image uploads, built by an ear
 Every agent and every human reads this file first. Decisions here are binding
 until superseded by an ADR in `docs/adr/`.
 
-## Prime directive: $0 until users pay for it
+## Prime directive: free tier first, per-use cost only, until users pay for it
 
 We run on the **GCP Always Free tier + Firebase no-cost quotas** from local dev through the
 first real production users. Nothing with a fixed monthly fee ships without an Accepted ADR
@@ -14,6 +14,7 @@ that names the cost and the user/revenue milestone that justifies it.
 - Every design states its **free-tier budget** (Firestore reads/writes per day, Cloud Run requests, GB stored/served). See the `free-tier-budget` skill.
 - Past the free tier we pay **per use** (cents per 100k ops), never a step to a fixed fee by accident.
 - The `cost-guard` hook blocks known fixed-cost Terraform resources unless marked `# cost-approved: ADR-NNNN`.
+- **Honest target:** Stage 0 is designed around the free tier but is not exactly $0 at real traffic. `docs/reviews/cost-model.md` and ADR-0022 put Stage 0 as configured at about INR 434 / 1,626 / 3,396 per month at 300 / 1,000 / 3,000 DAU (egress to India is never free, Cloud Vision SafeSearch is paid past 1,000 units at 2 units per image, Firestore reads pass the free quota at about 215 DAU). What this directive forbids is a **fixed** monthly fee and a bill that does not scale with use.
 - **Time-boxed exception (ADR-0022, credit mode):** until **2026-12-22** (heavy items off) and **2026-12-24** (services paused), prod may run the Stage 0C credit-mode profile paid by the GCP credit that expires 2026-12-26: service-level min instances 1, a higher `VISION_MONTHLY_CAP` with `reject` at the cap, and per-use overage. Gross spend is capped at `credit_spend_cap_inr` (INR 23,000 or lower). Nothing that bills after 2026-12-26 is allowed, and abuse limits do not change. After 2026-12-24 this prime directive applies unchanged.
 
 ## Stack (fixed)
@@ -26,7 +27,7 @@ that names the cost and the user/revenue milestone that justifies it.
 
 | Stage                | Users          | Monthly cost target    | Architecture                                                                 |
 | -------------------- | -------------- | ---------------------- | ---------------------------------------------------------------------------- |
-| **0 — Launch** (now) | 0 – ~300 DAU   | **$0** (free tier)     | Cloud Run + Firestore + GCS + Firebase                                       |
+| **0 — Launch** (now) | 0 – ~300 DAU   | **≈ $0–5** (free tier, then per use; ≈ INR 434 at 300 DAU) | Cloud Run + Firestore + GCS + Firebase                                       |
 | **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 23,000 total from GCP credit (≈ INR 45–270/day at 300–3k DAU) | Stage 0 + prod service-level min instances 1, Vision cap 20k–40k (reject at cap), gross-spend budgets |
 | 1 — Traction         | ~300 – 20k DAU | ~$1 – $50, pay-per-use | Same, pay Firestore/Cloud Run overage; add min-instance=1 if latency matters |
 | 2 — Growth           | 20k – 200k DAU | Funded by revenue      | ADR: Cloud SQL Postgres or keep Firestore; Memorystore; split hot services   |
