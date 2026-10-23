@@ -41,6 +41,10 @@ void main() {
       contains("Replies aren't available"),
     );
     expect(
+      replyErrorMessage(const ReplyNotAllowedException(policy: 'followed')),
+      "You can't reply to this conversation.",
+    );
+    expect(
       replyErrorMessage(const NetworkException('x')),
       contains('Your reply was not sent'),
     );

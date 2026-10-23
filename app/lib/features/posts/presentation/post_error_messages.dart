@@ -37,6 +37,7 @@ String replyErrorMessage(AppException error) {
   return switch (error) {
     NotFoundException() =>
       "The post you're replying to isn't available any more.",
+    ReplyNotAllowedException() => ReplyNotAllowedException.userMessage,
     FeatureDisabledException() => "Replies aren't available right now.",
     NetworkException() =>
       'No connection. Your reply was not sent; check your network and try '

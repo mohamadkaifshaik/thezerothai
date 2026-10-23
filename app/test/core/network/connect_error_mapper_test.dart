@@ -263,6 +263,54 @@ void main() {
       expect(mapped.message, 'Please sign in again');
     });
 
+    group('ERROR_REASON_REPLY_NOT_ALLOWED (ADR-0021)', () {
+      connect.ConnectException replyNotAllowed([
+        Map<String, String> metadata = const {},
+      ]) => _withDetail(
+        connect.Code.permissionDenied,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_REPLY_NOT_ALLOWED,
+          message: 'blocked by author',
+          metadata: metadata.entries,
+        ),
+      );
+
+      test('maps to ReplyNotAllowedException', () {
+        expect(
+          mapConnectError(replyNotAllowed()),
+          isA<ReplyNotAllowedException>(),
+        );
+      });
+
+      test('reads metadata["policy"] when present', () {
+        final mapped = mapConnectError(
+          replyNotAllowed({'policy': 'followed'}),
+        ) as ReplyNotAllowedException;
+        expect(mapped.policy, 'followed');
+      });
+
+      test('policy is null when the metadata is absent or empty', () {
+        expect(
+          (mapConnectError(
+            replyNotAllowed(),
+          ) as ReplyNotAllowedException).policy,
+          isNull,
+        );
+        expect(
+          (mapConnectError(
+            replyNotAllowed({'policy': ''}),
+          ) as ReplyNotAllowedException).policy,
+          isNull,
+        );
+      });
+
+      test('uses the generic text, never the server message or policy', () {
+        final mapped = mapConnectError(replyNotAllowed({'policy': 'followed'}));
+        expect(mapped.message, "You can't reply to this conversation.");
+      });
+    });
+
     test('account-lifecycle reasons keep their typed mapping', () {
       AppException map(
         connect.Code code,
