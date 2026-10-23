@@ -29,6 +29,12 @@ while the CreatePost lands on an old one, which drops the unknown field and post
 a spike of `outcome=rejected:reply_not_allowed` is users hitting restricted conversations (expected), not an outage; reads of a
 restricted reply are +0 warm and at most +3 (MENTIONED_ONLY) / +4 (FOLLOWING) cold. No new failure mode.
 
+Replay after losing permission (accepted behaviour, CMP-B2 review): enforcement runs before the idempotency lookup, so retrying
+a CreatePost whose reply already exists, after the caller lost the right to reply (blocked by the root author, root hidden or deleted,
+author suspended, or no longer a follower under FOLLOWING), answers `REPLY_NOT_ALLOWED` or `NOT_FOUND` instead of
+returning the stored reply. It fails closed and never grants access. The reply itself still exists, so a client may show "you
+cannot reply" for a reply that was posted; reloading the thread shows it. Pinned by `TestCreate_ReplyReplayAfterPermissionLost`.
+
 ## 1. `posts_txn_contention` (WARN)
 **What it is.** A CreatePost transaction needed more than 3 attempts (`txn_attempts` on the request line). The hot
 documents are the author's `users/{uid}` (postsCount) and `quotas/{uid}`, so it means one account is posting from
