@@ -101,3 +101,6 @@ Does not change the Decision above or this ADR's Accepted status; it records the
 - Output today is JPEG only (`img.encodeJpg`): the Decision's "WebP (JPEG fallback)" runs on its fallback path.
 - Cost impact: $0 (no new dependency, no server change). Handoff line above and `.claude/skills/media-pipeline`
   updated accordingly.
+
+## Note (ADR-0022, 2026-10-23; decisions above unchanged)
+Note (ADR-0022): superseded in part until 2026-12-26: `VISION_MONTHLY_CAP` 20,000 (40,000 above 1,300 DAU) and `VISION_EXHAUSTED_POLICY=reject` until 2026-12-22. Correction: with `VISION_SCREEN_THUMB=true` each image costs 2 units, so 10,000 covers about 820 DAU, not 1,600.

@@ -14,6 +14,7 @@ that names the cost and the user/revenue milestone that justifies it.
 - Every design states its **free-tier budget** (Firestore reads/writes per day, Cloud Run requests, GB stored/served). See the `free-tier-budget` skill.
 - Past the free tier we pay **per use** (cents per 100k ops), never a step to a fixed fee by accident.
 - The `cost-guard` hook blocks known fixed-cost Terraform resources unless marked `# cost-approved: ADR-NNNN`.
+- **Time-boxed exception (ADR-0022, credit mode):** until **2026-12-22** (heavy items off) and **2026-12-24** (services paused), prod may run the Stage 0C credit-mode profile paid by the GCP credit that expires 2026-12-26: service-level min instances 1, a higher `VISION_MONTHLY_CAP` with `reject` at the cap, and per-use overage. Gross spend is capped at `credit_spend_cap_inr` (INR 23,000 or lower). Nothing that bills after 2026-12-26 is allowed, and abuse limits do not change. After 2026-12-24 this prime directive applies unchanged.
 
 ## Stack (fixed)
 
@@ -26,6 +27,7 @@ that names the cost and the user/revenue milestone that justifies it.
 | Stage                | Users          | Monthly cost target    | Architecture                                                                 |
 | -------------------- | -------------- | ---------------------- | ---------------------------------------------------------------------------- |
 | **0 — Launch** (now) | 0 – ~300 DAU   | **$0** (free tier)     | Cloud Run + Firestore + GCS + Firebase                                       |
+| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 23,000 total from GCP credit (≈ INR 45–270/day at 300–3k DAU) | Stage 0 + prod service-level min instances 1, Vision cap 20k–40k (reject at cap), gross-spend budgets |
 | 1 — Traction         | ~300 – 20k DAU | ~$1 – $50, pay-per-use | Same, pay Firestore/Cloud Run overage; add min-instance=1 if latency matters |
 | 2 — Growth           | 20k – 200k DAU | Funded by revenue      | ADR: Cloud SQL Postgres or keep Firestore; Memorystore; split hot services   |
 | 3 — Scale            | 200k+ DAU      | Funded                 | ADR: Spanner, GKE, multi-region, CDN + Cloud Armor                           |
@@ -39,13 +41,13 @@ Cloud Run + Firestore give us (both regional, multi-zone managed) — no self-bu
 
 | Concern                     | Choice                                                                                                                                                     | Free allowance (verify in `free-tier-budget`)       |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| API compute                 | **Cloud Run** service `api`, request-based billing, min 0 / max 3 instances, 512 MiB, concurrency 80                                                       | 2M req, 180k vCPU-s, 360k GiB-s /month              |
+| API compute                 | **Cloud Run** service `api`, request-based billing, min 0 / max 3 instances (prod: service-level min 1 until 2026-12-22, ADR-0022), 512 MiB, concurrency 80                                                       | 2M req, 180k vCPU-s, 360k GiB-s /month              |
 | Async work                  | Pub/Sub **push** to `api` `/internal/*` (OIDC-authenticated)                                                                                               | 10 GiB messages /month                              |
 | Cron                        | Cloud Scheduler → `api` `/internal/cron/*`                                                                                                                 | 3 jobs /billing account                             |
 | Database                    | **Firestore Native, `(default)` database**                                                                                                                 | 1 GiB, 50k reads, 20k writes, 20k deletes /day      |
 | Cache                       | In-process LRU in each Cloud Run instance + client-side cache (drift/IndexedDB). **No Redis.**                                                             | —                                                   |
 | Media                       | GCS bucket in a **US region**, V4 signed PUT URLs, client-side resize/compress, public-read objects                                                        | 5 GB, 5k Class A, 50k Class B, 100 GB egress /month |
-| Moderation                  | Cloud Vision SafeSearch on **every** image, paid past the free quota; capped by `VISION_MONTHLY_CAP` (default 10k), then report-driven review (ADR-0005)                                                                               | 1,000 units /month                                  |
+| Moderation                  | Cloud Vision SafeSearch on **every** image, paid past the free quota; capped by `VISION_MONTHLY_CAP` (default 10k; 20k–40k with `reject` in credit mode, ADR-0022), then report-driven review (ADR-0005)                                                                               | 1,000 units /month                                  |
 | Search                      | Firestore prefix queries (handles), `array-contains` (hashtags). No search engine.                                                                         | —                                                   |
 | Auth                        | Firebase Auth (email, Google, Apple). ID tokens verified in Go. **No phone/SMS OTP** (billed per SMS).                                                     | no-cost tier                                        |
 | Abuse                       | Firebase App Check + per-user quotas in Firestore + in-memory rate limits + Cloud Run max-instances cap                                                    | —                                                   |
@@ -55,7 +57,7 @@ Cloud Run + Firestore give us (both regional, multi-zone managed) — no self-bu
 | Secrets                     | Secret Manager (keep ≤ 6 active versions) — most config is plain env vars                                                                                  | 6 versions, 10k accesses                            |
 | Observability               | slog JSON → Cloud Logging; built-in Cloud Run metrics; Error Reporting; 1 uptime check                                                                     | 50 GiB logs /project                                |
 | CI/CD                       | GitHub Actions + Workload Identity Federation → `ko` image → Artifact Registry (cleanup policy) → `gcloud run deploy` with tagged revision + traffic split | AR 0.5 GB                                           |
-| Cost control                | Billing budget alerts (50/90/100%), max-instances caps, degraded-mode switch                                                                               | free                                                |
+| Cost control                | Billing budget alerts (net per project + gross credit budget, ADR-0022), max-instances caps, degraded-mode switch                                                                               | free                                                |
 
 **Region:** Cloud Run, Firestore and Artifact Registry in `asia-south1` (Mumbai) for Indian users — Cloud Run's free
 tier applies in any region and Firestore's free quota applies to the `(default)` database wherever it lives.
@@ -64,6 +66,7 @@ Media bucket in `us-central1` because GCS free storage is **US regions only**. F
 **Explicitly not used at Stage 0** (fixed monthly cost): GKE, Spanner, Memorystore, Cloud SQL, external/global HTTPS LB,
 Cloud Armor, Cloud CDN (LB-backed), Cloud NAT, Serverless VPC connector, Transcoder, Vertex AI Search, CMEK/Cloud KMS keys,
 Binary Authorization, Cloud Deploy, BigQuery streaming, Managed Prometheus, a staging Firestore at scale.
+Credit mode (ADR-0022) does not lift this list. Also never during credit mode: committed use discounts, subscriptions or prepaid plans, or anything else that bills after 2026-12-26.
 
 ### Modules inside the monolith (`backend/internal/*`)
 
@@ -140,7 +143,7 @@ No agent marks work done while `make ci` fails.
 - **Status lives in `docs/plans/`.** `docs/plans/phase1.md` is the Phase 1 slice overview; each slice has its own plan with per-ticket `Status`. Read the relevant plan before starting work and update the ticket status in the PR that merges it.
 - **Branches and PRs:** `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `chore/<slug>`; one ticket per PR; merge `origin/main` into the branch rather than rewriting history. Never open a PR or push to `main` unless the human asked. See the `pr-workflow` skill.
 - **Rollout:** every user-facing feature ships behind a server flag (`FEATURE_<NAME>`: off → allowlist → percent → on). See the `flag-rollout` skill.
-- **Stop and ask the founder** before: adding any fixed-cost resource, bending a non-negotiable rule, changing a proto contract in a breaking way, accepting an ADR, or any `prod` apply/traffic shift.
+- **Stop and ask the founder** before: adding any fixed-cost resource, bending a non-negotiable rule, changing a proto contract in a breaking way, accepting an ADR, changing `credit_spend_cap_inr` or the ADR-0022 dates, keeping any credit-mode item on after 2026-12-22, or any `prod` apply/traffic shift.
 - **Hooks need `jq`.** The guard hooks fail closed (block the edit) when `jq` is missing.
 
 ## Commands

@@ -98,3 +98,6 @@ database location cannot be changed after creation (migration = export/import at
   The milestone that justifies it: prod serves real users and these are the only pages that wake the founder.
 - `cost-model.md` section 5 carries the line. Source of the prices and the open question on charge start date are
   recorded there.
+
+## Note (ADR-0022, 2026-10-23; decisions above unchanged)
+Note (ADR-0022): superseded in part until 2026-12-26: a gross-spend budget view (`INCLUDE_SPECIFIED_CREDITS` `FREE_TIER`), a billing-account `credit-runway` budget, a prod monthly gross budget of INR 3,000 and a request-count alert. Alerting is not charged before 2027-09-01 (pricing page, 2026-10-23), so the R4 alert line is $0 through the window.
