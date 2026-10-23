@@ -12,7 +12,8 @@ infra/terraform/
                        #   artifactregistry, iamcredentials, vision, firebase, identitytoolkit, billingbudgets, monitoring)
     firestore          # google_firestore_database "(default)", location asia-south1, type FIRESTORE_NATIVE,
                        #   delete_protection_state = DELETE_PROTECTION_ENABLED; TTL policies (notifications.expireAt, media.expireAt)
-    cloud-run-api      # google_cloud_run_v2_service: min 0, max 3, 1 vCPU, 512Mi, concurrency 80, cpu_idle = true,
+    cloud-run-api      # google_cloud_run_v2_service: min 0 (prod service-level min 1 only under ADR-0022 until 2026-12-22;
+                       #   never revision-level: it warms every tagged revision), max 3, 1 vCPU, 512Mi, concurrency 80, cpu_idle = true,
                        #   startup_cpu_boost = true, timeout 30s, ingress all, allUsers invoker (app auth is in Go)
     media-buckets      # upload (private, lifecycle 2d, CORS) + media (public-read) in us-central1
     pubsub             # topics + push subscriptions to /internal/* with OIDC SA, DLQ topic, max 5 delivery attempts
@@ -20,7 +21,8 @@ infra/terraform/
     artifact-registry  # docker repo asia-south1 with cleanup policy: keep 3 most recent, delete untagged after 1d
     iam                # runtime SA, pubsub-push SA, CI deployer SA, Workload Identity Federation pool for GitHub
     secrets            # only what can't be env config (≤ 6 active versions across the project)
-    budget             # google_billing_budget: $5, thresholds 0.25/0.5/0.9/1.0 + forecast 1.0, pubsub topic billing-alerts
+    budget             # google_billing_budget: $5, thresholds 0.25/0.5/0.9/1.0 + forecast 1.0, pubsub topic billing-alerts;
+                       #   net per project + gross `credit-runway` custom-period budget (ADR-0022)
     monitoring         # 1 dashboard (reads, writes, requests, instances, egress), 1 uptime check on /healthz, ≤ 3 alert policies
     firebase           # google_firebase_project, web/android/ios apps, hosting site; App Check config
   envs/{dev,prod}/{main.tf,variables.tf,terraform.tfvars,backend.tf}
@@ -40,7 +42,7 @@ infra/terraform/
 e2-micro option), `google_compute_global_forwarding_rule`, `google_compute_forwarding_rule`, `google_compute_security_policy`,
 `google_compute_router_nat`, `google_vpc_access_connector`, `google_kms_crypto_key`, `google_clouddeploy_*`,
 `google_filestore_instance`, `google_vertex_ai_*`, `google_discovery_engine_*`, Cloud Run `min_instance_count > 0`.
-To use one, add `# cost-approved: ADR-NNNN` on the resource line and reference the ADR in the PR.
+To use one, add `# cost-approved: ADR-NNNN` or `# cost-approved: ADR-NNNN until:YYYY-MM-DD` (blocked after that date, UTC) on the resource line and reference the ADR in the PR.
 
 ## Rules
 - Never `terraform destroy` or replace Firestore/buckets without explicit human confirmation.

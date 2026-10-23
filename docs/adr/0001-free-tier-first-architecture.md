@@ -64,3 +64,6 @@ can be swapped later.
 - frontend-developer: client-side image compression, incremental timeline refresh, local cache.
 - production-deployer: Terraform per `gcp-terraform` including budgets and caps.
 - tester: emulator-based integration suite.
+
+## Note (ADR-0022, 2026-10-23; decisions above unchanged)
+Note (ADR-0022): superseded in part until 2026-12-26. Prod may run service-level min instances 1 until 2026-12-22, paid by GCP credit. After 2026-12-24 this ADR applies unchanged.

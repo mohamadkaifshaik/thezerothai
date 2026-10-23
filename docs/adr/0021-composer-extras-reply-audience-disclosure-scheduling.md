@@ -876,3 +876,6 @@ the normal gates (ADR-0019).
   `scheduled_author_reads` to `make cost`.
 - **security-auditor:** re-check M-1 and M-2 against the implementation (the R-usable helper, both recover sites)
   and the dev grant's condition.
+
+## Note (ADR-0022, 2026-10-23; decisions above unchanged)
+Note (ADR-0022): superseded in part until 2026-12-26: `publish-scheduled` may run every minute until 2026-12-22 (+1,152 reads/day, +34,560 requests/month, $0 Scheduler), then back to */5.

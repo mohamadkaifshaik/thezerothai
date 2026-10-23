@@ -81,6 +81,7 @@ REA capture times out on tabs that are not the active tab of their window, so ea
 | Building P0 surfaces from guesses | W1.5 captures first; unobserved states are UNKNOWN, never filled in |
 | Visual drift without goldens | M1 exit needs the Linux golden job and the founder review |
 | Copying X too closely | only colours and structure follow X; own icons, copy, names; no Grok / Premium / ads upsell surfaces |
+| Credit window (ADR-0022, until 2026-12-24) treated as a budget for new features | the credit lifts no 🔒 gate; anything built in the window must run at Stage 0 cost after 2026-12-24 (no realtime, video, external search, paid GIF provider, App Check web without its own ADR) |
 
 ## 7. Founder decisions (2026-10-23)
 | # | Question | Decision |

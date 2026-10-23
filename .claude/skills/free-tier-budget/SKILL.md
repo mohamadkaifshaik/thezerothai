@@ -8,6 +8,7 @@ description: GCP/Firebase Always Free limits, the per-request read/write budget 
 ## 1. The allowances we design against
 Last verified: 2026-09-26 against cloud.google.com/free, the Cloud Run pricing page and Firestore quotas.
 Google says these "do not expire, but are subject to change" — re-verify every quarter and before each stage change.
+Prices re-verified 2026-10-23 (ADR-0022): Firestore asia-south1 $0.035 / $0.104 / $0.012 per 100k reads / writes / deletes; Cloud Run asia-south1 is Tier 1; alerting is not charged before 2027-09-01.
 
 | Service | Always-free allowance | Scope / catches |
 |---|---|---|
@@ -16,7 +17,7 @@ Google says these "do not expire, but are subject to change" — re-verify every
 | Cloud Storage | 5 GB-months, 5,000 Class A ops, 50,000 Class B ops, 100 GB egress (from NA) per month | **US regions only** (us-west1, us-central1, us-east1). Object GETs are Class B |
 | Pub/Sub | 10 GiB messages/month | |
 | Cloud Scheduler | 3 jobs | per billing account |
-| Cloud Vision | 1,000 units/feature/month | SafeSearch = 1 unit per image |
+| Cloud Vision | 1,000 units/feature/month | SafeSearch = 1 unit per screened image; `VISION_SCREEN_THUMB=true` (default) screens 2 per upload |
 | Secret Manager | 6 active versions, 10,000 accesses/month | read secrets once at startup |
 | Artifact Registry | 0.5 GB storage | cleanup policy: keep last 3 images |
 | Cloud Build | 2,500 build-min/month (e2-standard-2) | we build in GitHub Actions anyway |
@@ -56,7 +57,7 @@ Reference numbers for Stage 0 planning (update from real metrics once live):
 
 ## 4. Guardrails (Terraform, all free)
 - **Billing budget** on the billing account: amount = $5 (or ₹ equivalent), thresholds 25/50/90/100% actual + 100% forecast, email to founders.
-  Budget notifications also go to Pub/Sub topic `billing-alerts`.
+  Budget notifications also go to Pub/Sub topic `billing-alerts`. Budgets must not hide promotional credit: a gross view uses `INCLUDE_SPECIFIED_CREDITS` with `FREE_TIER` only; keep a net budget too (ADR-0022).
 - **Cloud Run caps:** `max_instance_count = 3`, `containerConcurrency = 80`, 1 vCPU, 512 MiB, request timeout 30 s, CPU only during requests.
 - **Per-user quotas** (config): posts 100/day, likes 500/day, follows 200/day, media uploads 20/day, signups rate-limited by App Check + IP bucket.
 - **Degraded mode:** env var `DEGRADED_MODE=off|readonly|nomedia`. `readonly` rejects writes with a friendly error;
@@ -64,7 +65,7 @@ Reference numbers for Stage 0 planning (update from real metrics once live):
   (runbook `docs/runbooks/cost-spike.md`). Optional: a tiny Cloud Run function on `billing-alerts` flips it automatically at 100%.
 - **Hard stop (last resort, human decision only):** detaching billing stops everything and can lead to resource deletion. Never automate.
 - **Vision counter:** `admin/vision-{yyyymm}` incremented per call. Every image is screened (paid past the free 1,000/month, ADR-0005); stop at `VISION_MONTHLY_CAP` (default 10,000) and fall back to report-driven moderation.
-- The `cost-guard` hook blocks fixed-cost Terraform resources unless the line carries `# cost-approved: ADR-NNNN`.
+- The `cost-guard` hook blocks fixed-cost Terraform resources unless the line carries `# cost-approved: ADR-NNNN` or `# cost-approved: ADR-NNNN until:YYYY-MM-DD` (blocked after that date, UTC; ADR-0022).
 
 ## 5. Watching usage (free)
 - Firebase console → Firestore → Usage tab (reads/writes/deletes per day).
@@ -83,6 +84,9 @@ Reference numbers for Stage 0 planning (update from real metrics once live):
 | Video uploads demanded | short client-compressed MP4 first; Transcoder later |
 | Users outside India > 40% | add a Cloud Run region + Firebase Hosting geo routing; Firestore stays single-region |
 | Revenue > infra bill × 10 | consider Stage 2 of CLAUDE.md |
+
+## 7. Credit mode (ADR-0022, until 2026-12-24)
+Profile, cap and sunset in ADR-0022; abuse limits never change for credit; everything credit-funded carries `until:` and is off by 2026-12-22.
 
 ## Cost-review checklist (use in code review and readiness)
 - [ ] New RPC has a budget row; totals still < 80% of free quota at the current stage's DAU target.
