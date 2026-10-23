@@ -42,6 +42,9 @@ const (
 	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
 	// avatar), P2 / ADR-0003: 5 per day.
 	SnapshotEdits Kind = "snapshotEdits"
+	// Schedules counts SchedulePost calls that wrote a scheduled doc (ADR-0021 D4, review L-4). A replay is not
+	// charged; CancelScheduledPost and ListScheduledPosts never are. The posts quota is charged at publish, not here.
+	Schedules Kind = "schedules"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -78,6 +81,10 @@ type Record struct {
 	Likes int64 `firestore:"likes"`
 	// SnapshotEdits counts snapshot-affecting profile edits (P2).
 	SnapshotEdits int64 `firestore:"snapshotEdits"`
+	// Schedules counts SchedulePost writes (ADR-0021 D4). Absent in older docs, so it decodes as 0. CheckAndReserveN
+	// Sets the whole record, so a revision built without this field zeroes it on that user's next quota'd call
+	// (ADR-0021 review I-3): a persistent counter must never live here.
+	Schedules int64 `firestore:"schedules"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -98,6 +105,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Likes
 	case SnapshotEdits:
 		return r.SnapshotEdits
+	case Schedules:
+		return r.Schedules
 	default:
 		return 0
 	}
@@ -121,6 +130,8 @@ func (r *Record) increment(k Kind, n int64) {
 		r.Likes += n
 	case SnapshotEdits:
 		r.SnapshotEdits += n
+	case Schedules:
+		r.Schedules += n
 	}
 }
 

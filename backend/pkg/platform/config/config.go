@@ -210,6 +210,12 @@ type QuotaConfig struct {
 	// never quota-gated; reposts use the posts quota.
 	LikesPerDay           int
 	NewAccountLikesPerDay int
+
+	// SchedulesPerDay/NewAccountSchedulesPerDay cap SchedulePost calls per IST day (ADR-0021 D4, quota.Schedules;
+	// review L-4). CancelScheduledPost and ListScheduledPosts are never quota-gated. The new-account tier applies to
+	// accounts younger than NewAccountWindow.
+	SchedulesPerDay           int
+	NewAccountSchedulesPerDay int
 }
 
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
@@ -231,6 +237,8 @@ type Config struct {
 
 	RateLimit RateLimitConfig
 	Quota     QuotaConfig
+	// Scheduled holds the SCHEDULED_* limits of scheduled posts (ADR-0021 D4, Sweep).
+	Scheduled ScheduledConfig
 
 	// HandleChangeCooldown is the minimum time between successful ChangeHandle calls.
 	HandleChangeCooldown time.Duration
@@ -315,6 +323,11 @@ type Config struct {
 	// never flag-gated, so turning it off cannot reopen a restricted conversation. FEATURE_REPLY_AUDIENCE[_ALLOWLIST|
 	// _PERCENT], default off in every environment.
 	FeatureReplyAudience flags.Spec
+	// FeatureScheduledPosts is the ADR-0021 D4 flag (wire name `scheduled_posts`) gating SchedulePost,
+	// ListScheduledPosts and CancelScheduledPost (FEATURE_DISABLED feature=scheduled_posts while off) and the publish
+	// sweep (a no-op while off). FEATURE_SCHEDULED_POSTS[_ALLOWLIST|_PERCENT], default off in every environment. It
+	// leaves off only after 100% of traffic is on a revision that stores it (ADR-0021 L-1).
+	FeatureScheduledPosts flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -700,6 +713,25 @@ func Load() (Config, error) {
 	if q.NewAccountLikesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", 100); err != nil {
 		return Config{}, err
 	}
+	// ADR-0021 D4: 50 SchedulePost calls/day, 10 for accounts younger than the new-account window (review L-4).
+	if q.SchedulesPerDay, err = getInt("QUOTA_SCHEDULES_PER_DAY", 50); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountSchedulesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY", 10); err != nil {
+		return Config{}, err
+	}
+	for name, v := range map[string]int{
+		"QUOTA_SCHEDULES_PER_DAY":             q.SchedulesPerDay,
+		"QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY": q.NewAccountSchedulesPerDay,
+	} {
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
+		}
+	}
+	scheduled, err := loadScheduled()
+	if err != nil {
+		return Config{}, err
+	}
 
 	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
@@ -818,6 +850,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureScheduledPosts, err := flags.LoadSpec("SCHEDULED_POSTS", "scheduled_posts", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -876,6 +912,7 @@ func Load() (Config, error) {
 		CursorHMACKey:             []byte(cursorKey),
 		RateLimit:                 rl,
 		Quota:                     q,
+		Scheduled:                 scheduled,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
@@ -896,6 +933,7 @@ func Load() (Config, error) {
 		FeatureQuotes:             featureQuotes,
 		FeatureContentDisclosure:  featureContentDisclosure,
 		FeatureReplyAudience:      featureReplyAudience,
+		FeatureScheduledPosts:     featureScheduledPosts,
 		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
