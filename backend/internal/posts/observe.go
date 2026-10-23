@@ -60,6 +60,8 @@ func rejectReason(err error) string {
 		return "quota_exceeded"
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED:
 		return "key_reused"
+	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED:
+		return "reply_not_allowed" // ADR-0021 D2: expected traffic, not an outage (runbook posts.md)
 	case ae.Code == connect.CodeInvalidArgument:
 		return "invalid"
 	case ae.Code == connect.CodeNotFound:

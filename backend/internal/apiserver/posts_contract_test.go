@@ -298,6 +298,21 @@ func TestPostsContract_ReplyAudience(t *testing.T) {
 		t.Errorf("stranger's hint on the MENTIONED_ONLY root = %v, want NOT_ALLOWED", h)
 	}
 
+	// A FOLLOWING root: only the wired GetPost seam can decide this hint (the 0-read function says UNKNOWN), so a
+	// NOT_ALLOWED here proves the production wiring reaches posts.ReplyHinter.
+	following, err := env.posts.CreatePost(ctx, authed(author, &postsv1.CreatePostRequest{
+		IdempotencyKey: contractKey("ra-following"), Text: "only my follows", ReplyPolicy: postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING}))
+	if err != nil {
+		t.Fatalf("CreatePost FOLLOWING: %v", err)
+	}
+	got, err = env.posts.GetPost(ctx, authed(stranger, &postsv1.GetPostRequest{PostId: following.Msg.GetPost().GetPost().GetPostId()}))
+	if err != nil {
+		t.Fatalf("GetPost: %v", err)
+	}
+	if h := got.Msg.GetPost().GetViewerReplyPermission(); h != postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED {
+		t.Errorf("stranger's hint on a FOLLOWING root = %v, want NOT_ALLOWED (the seam must be wired)", h)
+	}
+
 	// Flag off: no new policies, but the stored one is still enforced, and the list no longer names the feature.
 	off := newChain(t, func(cfg *config.Config) {
 		cfg.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On}

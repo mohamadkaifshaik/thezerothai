@@ -503,6 +503,14 @@ func TestEnforceReplyPolicy_Following(t *testing.T) {
 	})
 }
 
+// TestRejectReason_ReplyNotAllowed: the request log line names the refusal (runbook query outcome=rejected:...).
+func TestRejectReason_ReplyNotAllowed(t *testing.T) {
+	t.Parallel()
+	if got := rejectReason(replyNotAllowed(ReplyPolicyFollowing)); got != "reply_not_allowed" {
+		t.Fatalf("rejectReason = %q, want reply_not_allowed", got)
+	}
+}
+
 // TestEnforceReplyPolicy_NotFlagGated: a stored restrictive policy is enforced whether FEATURE_REPLY_AUDIENCE is
 // off or on; only SETTING consults the flag (switching it off must never reopen a conversation).
 func TestEnforceReplyPolicy_NotFlagGated(t *testing.T) {

@@ -104,7 +104,9 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 //
 // Firestore, worst case with the interceptor's caller read: 1 + focal 1 + focal author 1 + caller graph 1 (+1
 // author graph on blockedBy overflow) + parent and root 2 + their authors <= 2 + one conversation query of
-// Limit(page) <= 30 => 38 cold (+2 when the focal id is a REPOST: its original and that author => 40); warm: the query only (1 .. 30). Writes 0. A QUOTE or REPOST parent or root is
+// Limit(page) <= 30 => 38 cold (+2 when the focal id is a REPOST: its original and that author => 40); warm: the query only (1 .. 30). Writes 0.
+// The viewer_reply_permission hint (ADR-0021 D2) adds <= +1 cold (R's author graph, FOLLOWING conversations only;
+// +0 warm, +0 for EVERYONE / MENTIONED_ONLY / the root author): 39 cold, 41 for a REPOST focal. A QUOTE or REPOST parent or root is
 // checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")

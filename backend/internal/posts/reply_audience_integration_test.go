@@ -258,6 +258,24 @@ func TestReplyAudience_Integration(t *testing.T) {
 	if r := hintCost(following.ID); r != 1 {
 		t.Fatalf("hint on a FOLLOWING root read %d, want 1 (R's author graph, cold)", r)
 	}
+
+	// --- GetThread: the hint of a FOLLOWING conversation is +1 cold over an EVERYONE one of the same size ---
+	// (the base and the FOLLOWING conversation hold the same number of replies by now: seed, direct, deep, 2 warm).
+	threadReads := func(c *conv) *budget.Counter {
+		in := fresh()
+		if _, err := in.svc.directory.GetProfiles(context.Background(), []string{"uid-bob"}); err != nil {
+			t.Fatal(err)
+		}
+		th, ctr, err := in.thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if th.ReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED {
+			t.Fatalf("%s thread hint = %v, want ALLOWED for bob", c.name, th.ReplyPermission)
+		}
+		return ctr
+	}
+	assertDelta(t, "GetThread FOLLOWING hint", threadReads(convs[2]), threadReads(convs[0]), 1)
 }
 
 // assertDelta fails unless got.Reads() == base.Reads()+want.
