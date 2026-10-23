@@ -18,6 +18,22 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
+// ReplyPolicy is who may reply in a conversation (ADR-0021 D2), stored on the first post of the conversation and
+// copied (never with a user id) onto every reply. The empty value is EVERYONE: legacy docs and EVERYONE both have it.
+// The doc stores the upper-case name.
+type ReplyPolicy string
+
+const (
+	ReplyPolicyEveryone      ReplyPolicy = ""
+	ReplyPolicyFollowing     ReplyPolicy = "FOLLOWING"
+	ReplyPolicyMentionedOnly ReplyPolicy = "MENTIONED_ONLY"
+)
+
+// Restricted reports whether the policy limits who may reply (anything but EVERYONE).
+func (r ReplyPolicy) Restricted() bool {
+	return r == ReplyPolicyFollowing || r == ReplyPolicyMentionedOnly
+}
+
 // Kind mirrors postsv1.PostKind as a plain Go type (no proto import at the domain-model layer; server.go
 // converts at the boundary). The Firestore doc stores the upper-case name ("POST", "REPLY", ...).
 type Kind string
@@ -115,6 +131,10 @@ type Post struct {
 	// labels travel in Embedded).
 	PaidPartnership bool
 	MadeWithAI      bool
+	// ReplyPolicy is the conversation's effective reply policy (ADR-0021 D2): the author's choice on a root post or
+	// a quote, the value copied from the parent on a reply. Absent = EVERYONE. A REPOST has none of its own (the
+	// original's travels in Embedded). No user id is ever stored with it.
+	ReplyPolicy ReplyPolicy
 }
 
 // Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
@@ -153,6 +173,9 @@ type Embedded struct {
 	// (ADR-0021 D3, review I-6: the embed shows its own labels).
 	PaidPartnership bool
 	MadeWithAI      bool
+	// ReplyPolicy is the embedded post's effective reply policy, frozen with the snapshot: the viewer hint of a
+	// REPOST row reads it (ADR-0021 D2, review I-6).
+	ReplyPolicy ReplyPolicy
 }
 
 // MediaRef is one image of a post (common.v1.MediaRef): the URLs are the published public-bucket objects, copied
@@ -286,6 +309,13 @@ type CreateInput struct {
 	// DisclosureEnabled is the FEATURE_CONTENT_DISCLOSURE decision for the caller, made by server.go (never from
 	// the request).
 	DisclosureEnabled bool
+	// ReplyPolicy is the raw postsv1.ReplyPolicy number of the request (ADR-0021 D2); the service validates it, so
+	// EVERYONE, FOLLOWING_OF_FOLLOWING, VERIFIED and unknown numbers all reach the checks. ReplyAudienceEnabled is
+	// the FEATURE_REPLY_AUDIENCE decision for the caller, made by server.go (never from the request): a non-zero
+	// ReplyPolicy with it false is FEATURE_DISABLED (metadata feature=reply_audience). Only SETTING is gated;
+	// enforcement of a stored policy never consults it.
+	ReplyPolicy          int32
+	ReplyAudienceEnabled bool
 }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST

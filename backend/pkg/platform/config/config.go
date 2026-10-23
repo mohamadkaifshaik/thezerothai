@@ -310,6 +310,11 @@ type Config struct {
 	// paid_partnership / made_with_ai on CreatePost (either true while off is FEATURE_DISABLED). Existing labels keep
 	// rendering. FEATURE_CONTENT_DISCLOSURE[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureContentDisclosure flags.Spec
+	// FeatureReplyAudience is the ADR-0021 D2 flag (wire name `reply_audience`) gating only SETTING a reply_policy
+	// on CreatePost (a non-default value while off is FEATURE_DISABLED). ENFORCEMENT of an already-stored policy is
+	// never flag-gated, so turning it off cannot reopen a restricted conversation. FEATURE_REPLY_AUDIENCE[_ALLOWLIST|
+	// _PERCENT], default off in every environment.
+	FeatureReplyAudience flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -809,6 +814,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureReplyAudience, err := flags.LoadSpec("REPLY_AUDIENCE", "reply_audience", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -886,6 +895,7 @@ func Load() (Config, error) {
 		FeatureEngagement:         featureEngagement,
 		FeatureQuotes:             featureQuotes,
 		FeatureContentDisclosure:  featureContentDisclosure,
+		FeatureReplyAudience:      featureReplyAudience,
 		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,

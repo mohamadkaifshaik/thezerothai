@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -35,6 +36,11 @@ import (
 //	        up to 4 more: 17 cold / 6 warm ceiling, planning 2.5 + n) and + len(media_ids) writes (media/{id}.postId,
 //	        so up to 8); a replay re-reads no media
 //	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
+//
+// Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
+// FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
+// FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
+// writes nothing. An EVERYONE / absent conversation adds nothing and never loads the root.
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
 	defer func() {
@@ -57,12 +63,21 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if hasMedia && !in.MediaEnabled {
 		return nil, featureDisabled("media")
 	}
-	// The reply_audience check slots in here (ADR-0021 D2); disclosure comes after it. 0 reads.
+	// reply_audience (ADR-0021 D2) gates only SETTING a policy: any reply_policy other than UNSPECIFIED (EVERYONE, the
+	// not-yet-available values and unknown numbers included) is FEATURE_DISABLED while the flag is off, 0 reads.
+	// Enforcing a stored policy (enforceReplyPolicy) never consults the flag. Disclosure comes after it.
+	if in.ReplyPolicy != int32(postsv1.ReplyPolicy_REPLY_POLICY_UNSPECIFIED) && !in.ReplyAudienceEnabled {
+		return nil, featureDisabled("reply_audience")
+	}
 	if (in.PaidPartnership || in.MadeWithAI) && !in.DisclosureEnabled {
 		return nil, featureDisabled("content_disclosure")
 	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
+	}
+	policy, err := validateReplyPolicy(in)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateMedia(in.MediaIDs, in.MediaAltTexts); err != nil {
 		return nil, err
@@ -97,6 +112,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		if parent, err = s.replyParent(ctx, uid, in.ReplyToPostID); err != nil {
 			return nil, err
 		}
+		// ADR-0021 D2: after the visibility check (NOT_FOUND first), before mentions and the transaction.
+		if err = s.enforceReplyPolicy(ctx, uid, parent); err != nil {
+			return nil, err
+		}
 	}
 	var quoted *Post
 	if in.QuoteOfPostID != "" {
@@ -123,7 +142,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, in.PaidPartnership, in.MadeWithAI),
+		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI),
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
 		MediaAlts:   in.MediaAltTexts,
@@ -137,6 +156,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 			Hashtags: hashtags, Mentions: mentions,
 			Visibility: VisibilityPublic, SnapshotVersion: author.SnapshotVersion,
 			PaidPartnership: in.PaidPartnership, MadeWithAI: in.MadeWithAI,
+			ReplyPolicy: policy, // a reply's is replaced by the parent's in applyReply
 		},
 	}
 	if parent != nil {
@@ -237,11 +257,15 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 // reply target, media ids and alt texts in request order and the quote target, in a fixed order (D18). A
 // text-only root post hashes exactly as it did before P3 and P4. The ADR-0021 disclosure labels are appended
 // (`|pp=1`, `|ai=1`) ONLY when true, so a request without them hashes byte-for-byte as before the deploy and a
-// retry across it still replays instead of IDEMPOTENCY_KEY_REUSED. The reply-policy segment (`|policy=...`)
-// belongs between the base string and `|pp=`.
-func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string, paidPartnership, madeWithAI bool) string {
+// retry across it still replays instead of IDEMPOTENCY_KEY_REUSED. The reply policy (`|policy=FOLLOWING`, the enum
+// name) is appended before `|pp=`, only when restricted; EVERYONE and UNSPECIFIED are both absent, and a reply's
+// inherited policy is never hashed (a reply's request carries none).
+func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string, policy ReplyPolicy, paidPartnership, madeWithAI bool) string {
 	base := fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
 		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), replyTo, quoteOf)
+	if policy != ReplyPolicyEveryone {
+		base += "|policy=" + string(policy)
+	}
 	if paidPartnership {
 		base += "|pp=1"
 	}
@@ -249,6 +273,34 @@ func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []strin
 		base += "|ai=1"
 	}
 	return idempotency.HashRequest(base)
+}
+
+// validateReplyPolicy checks the request's reply_policy before any read (ADR-0021 D2) and returns the value to
+// store: UNSPECIFIED and EVERYONE are stored as absent. FOLLOWING_OF_FOLLOWING and VERIFIED are declared but not
+// available; unknown numbers are invalid; any non-UNSPECIFIED value on a reply is refused, because a reply
+// inherits its conversation's policy and never sets its own.
+func validateReplyPolicy(in CreateInput) (ReplyPolicy, error) {
+	p := postsv1.ReplyPolicy(in.ReplyPolicy)
+	switch p {
+	case postsv1.ReplyPolicy_REPLY_POLICY_UNSPECIFIED:
+		return ReplyPolicyEveryone, nil
+	case postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING_OF_FOLLOWING, postsv1.ReplyPolicy_REPLY_POLICY_VERIFIED:
+		return "", apierr.Validation("reply_policy", "this reply setting is not available yet")
+	case postsv1.ReplyPolicy_REPLY_POLICY_EVERYONE, postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING, postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY:
+		if in.ReplyToPostID != "" {
+			return "", apierr.Validation("reply_policy", "set who can reply on the first post of a conversation")
+		}
+		switch p {
+		case postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING:
+			return ReplyPolicyFollowing, nil
+		case postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY:
+			return ReplyPolicyMentionedOnly, nil
+		default:
+			return ReplyPolicyEveryone, nil
+		}
+	default:
+		return "", apierr.Validation("reply_policy", "reply_policy is not a valid value")
+	}
 }
 
 // maxAltTextRunes bounds one alt text (CreatePost proto: <= 1,000 chars).

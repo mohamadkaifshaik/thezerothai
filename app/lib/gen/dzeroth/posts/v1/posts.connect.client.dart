@@ -44,6 +44,13 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
   /// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
   /// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
+  /// Reply audience (ADR-0021 D2): a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
+  /// the parent visibility check. Extra reads over a plain reply: EVERYONE +0; restricted, parent is the root: MENTIONED_ONLY +0,
+  /// FOLLOWING +1 cold (root author's graph); restricted, deeper reply: MENTIONED_ONLY +3 / FOLLOWING +4 cold (root post, root
+  /// author's profile, caller graph if the caller wrote the parent, + root author's graph for FOLLOWING); +0 warm (60 s caches).
+  /// A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
+  /// 0 writes, same reads as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
+  /// deleting author, or one who blocks the caller) is NOT_FOUND "post not found", never REPLY_NOT_ALLOWED.
   /// Media (P4, FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
   /// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
   /// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or

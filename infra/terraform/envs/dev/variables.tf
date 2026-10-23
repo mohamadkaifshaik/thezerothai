@@ -415,6 +415,34 @@ variable "feature_content_disclosure_percent" {
   }
 }
 
+variable "feature_reply_audience" {
+  description = "FEATURE_REPLY_AUDIENCE rollout mode for setting a reply_policy on CreatePost (ADR-0021 D2); enforcement of a stored policy is never gated: off | allowlist | percent | on. Default off; leaves off only after 100% of traffic is on a revision that stores and enforces the policy (ADR-0021 L-1)."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_reply_audience)
+    error_message = "feature_reply_audience must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_reply_audience_allowlist" {
+  description = "FEATURE_REPLY_AUDIENCE_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_reply_audience_percent" {
+  description = "FEATURE_REPLY_AUDIENCE_PERCENT: 0-100, only meaningful when feature_reply_audience = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_reply_audience_percent >= 0 && var.feature_reply_audience_percent <= 100 && floor(var.feature_reply_audience_percent) == var.feature_reply_audience_percent
+    error_message = "feature_reply_audience_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_replies" {
   description = "FEATURE_REPLIES rollout mode for replies and GetThread (P3): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

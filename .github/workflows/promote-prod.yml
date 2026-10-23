@@ -288,4 +288,5 @@ jobs:
           REGION: ${{ vars.PROD_REGION }}
         run: |
           echo "::error::Promotion failed. See docs/runbooks/rollback.md."
+          echo "::warning::Do not roll back past the first release that enforces reply audience once FEATURE_REPLY_AUDIENCE has left off (ADR-0021). See the forward-only floor in docs/runbooks/rollback.md."
           echo "gcloud run services update-traffic ${SERVICE} --project=${PROJECT} --region=${REGION} --to-revisions=<previous-stable-revision>=100"

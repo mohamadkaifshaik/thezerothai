@@ -105,6 +105,9 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		PaidPartnership:   m.GetPaidPartnership(),
 		MadeWithAI:        m.GetMadeWithAi(),
 		DisclosureEnabled: s.disclosureEnabled(uid),
+
+		ReplyPolicy:          int32(m.GetReplyPolicy()),
+		ReplyAudienceEnabled: s.replyAudienceEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
@@ -139,6 +142,8 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 
 // GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags come from one
 // cached userLikes read while FEATURE_ENGAGEMENT is on for the caller (ADR-0018 D5), else they are false.
+// viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
+// a reply in a restricted conversation is UNKNOWN. Never flag-gated.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -150,7 +155,11 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&postsv1.GetPostResponse{Post: ToView(post, s.viewerSet(ctx, uid))}), nil
+	v := ToView(post, s.viewerSet(ctx, uid), uid)
+	if h, ok := s.svc.(ReplyHinter); ok {
+		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
+	}
+	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
 }
 
 // RepliesFlagName is the wire name of FEATURE_REPLIES (P3). It is independent of FEATURE_POSTS but needs it:
@@ -181,6 +190,22 @@ func (s *Server) disclosureEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, ContentDisclosureFlagName)
 }
 
+// ReplyAudienceFlagName is the wire name of FEATURE_REPLY_AUDIENCE (ADR-0021 D2). It gates only SETTING a reply
+// policy on CreatePost; enforcing a stored policy and the viewer hint never consult it, so switching it off cannot
+// reopen a restricted conversation.
+const ReplyAudienceFlagName = "reply_audience"
+
+// replyAudienceEnabled is the FEATURE_REPLY_AUDIENCE decision for uid (off when no checker is wired).
+func (s *Server) replyAudienceEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, ReplyAudienceFlagName)
+}
+
+// ReplyHinter is implemented by the concrete service (like Engagement, reached by type assertion so Service and
+// its fakes stay unchanged): the GetPost viewer hint for a restricted root, which may spend one cached graph read.
+type ReplyHinter interface {
+	ReplyPermission(ctx context.Context, viewer string, p *Post) postsv1.ReplyPermission
+}
+
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
 func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.GetThreadRequest]) (*connect.Response[postsv1.GetThreadResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
@@ -201,20 +226,25 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 		return nil, err
 	}
 	vs := s.viewerSet(ctx, uid)
+	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row
+		v := ToView(p, vs, uid)
+		v.ViewerReplyPermission = t.ReplyPermission
+		return v
+	}
 	out := &postsv1.GetThreadResponse{
-		Focal:             ToView(t.Focal, vs),
+		Focal:             view(t.Focal),
 		ParentUnavailable: t.ParentUnavailable,
 		RootUnavailable:   t.RootUnavailable,
 		NextPageToken:     t.NextPageToken,
 	}
 	if t.Parent != nil {
-		out.Parent = ToView(t.Parent, vs)
+		out.Parent = view(t.Parent)
 	}
 	if t.Root != nil {
-		out.Root = ToView(t.Root, vs)
+		out.Root = view(t.Root)
 	}
 	for _, p := range t.Replies {
-		out.Replies = append(out.Replies, ToView(p, vs))
+		out.Replies = append(out.Replies, view(p))
 	}
 	return connect.NewResponse(out), nil
 }
