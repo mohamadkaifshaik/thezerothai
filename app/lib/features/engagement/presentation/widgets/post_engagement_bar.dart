@@ -12,6 +12,7 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post_action_bar.dart';
 import '../../../posts/data/posts_repository.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
+import '../../../posts/domain/reply_audience.dart';
 import '../../domain/engagement_entry.dart';
 import '../bloc/engagement_cubit.dart';
 import '../bloc/engagement_state.dart';
@@ -79,6 +80,10 @@ class PostEngagementBar extends StatelessWidget {
     final shown = EngagementEntry.fromView(view);
     final replies =
         showReply && isFeatureEnabled(context, kPostsSubFeatureReplies);
+    // The server says this viewer may not reply (ADR-0021): the button stays,
+    // disabled, with a why-less hint. Advisory only (I-4): UNSPECIFIED and
+    // UNKNOWN stay enabled, and a server refusal still shows its own message.
+    final replyBlocked = replies && replyKnownNotAllowed(view);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -105,13 +110,14 @@ class PostEngagementBar extends StatelessWidget {
         final current = entry != null && entry.matches(view) ? entry : shown;
         return PostActionBar(
           showDisabled: false,
+          replyDisabledHint: replyBlocked ? kReplyNotAllowedHint : null,
           replyCount: view.post.replyCount.toInt(),
           repostCount: current.repostCount ?? 0,
           likeCount: current.likeCount ?? 0,
           liked: current.liked,
           reposted: current.reposted,
           actions: PostActions(
-            onReply: replies
+            onReply: replies && !replyBlocked
                 ? () => context.push(AppRouter.postPath(target))
                 : null,
             onLike: () =>

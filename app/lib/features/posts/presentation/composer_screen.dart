@@ -29,11 +29,13 @@ import '../../media/presentation/widgets/attachment_grid.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
 import '../domain/posts_feature_flag.dart';
+import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
+import 'widgets/reply_audience_sheet.dart';
 
 /// Upper bound on what the field accepts. It is far above the 280 limit so
 /// the counter can go negative (the user sees how much to cut), while a huge
@@ -121,6 +123,12 @@ class ComposerScreen extends StatelessWidget {
             author: viewerAuthorSnapshot(profile),
             quoteOfPostId: quoteOfPostId,
             attachments: mediaEnabled ? context.read<AttachmentsCubit>() : null,
+            // Setting an audience needs the flag; a quote is a root post, so
+            // it may (a reply never uses this screen).
+            replyAudienceEnabled: featureEnabledSnapshot(
+              context,
+              kFeatureReplyAudience,
+            ),
             onUnexpectedError: context.read<UnexpectedErrorReporter>(),
           ),
         ),
@@ -179,6 +187,15 @@ class _ComposerViewState extends State<_ComposerView> {
 
   void _onState(BuildContext context, ComposerState state) {
     if (state.status == ComposerStatus.posted) {
+      // ADR-0021 L-1: the server echoed another audience than the one sent.
+      // The messenger is app-level, so the snackbar outlives this screen.
+      if (state.replyPolicyNotApplied) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text(kReplyPolicyNotAppliedMessage)),
+          );
+      }
       if (context.canPop()) {
         context.pop();
       } else {
@@ -345,6 +362,12 @@ class _ComposerViewState extends State<_ComposerView> {
                     if (isQuote) _QuotePreview(preview: widget.quotePreview),
                     if (widget.mediaEnabled)
                       AttachmentGrid(enabled: !state.isSubmitting),
+                    if (cubit.canChooseReplyAudience)
+                      _ReplyAudienceLink(
+                        audience: state.replyAudience,
+                        enabled: !state.isSubmitting,
+                        onChanged: cubit.replyAudienceChanged,
+                      ),
                     const Divider(height: 1),
                     Padding(
                       padding: const EdgeInsetsDirectional.fromSTEB(
@@ -402,6 +425,74 @@ class _AddPhotoButton extends StatelessWidget {
               : () => context.read<AttachmentsCubit>().pick(),
         );
       },
+    );
+  }
+}
+
+/// "Everyone can reply" under the text (ADR-0021 D2): the current audience in
+/// the accent colour with its icon, opening the "Who can reply?" sheet. A
+/// 48dp-high target; the label follows the choice.
+class _ReplyAudienceLink extends StatelessWidget {
+  const _ReplyAudienceLink({
+    required this.audience,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final ReplyAudience audience;
+  final bool enabled;
+  final ValueChanged<ReplyAudience> onChanged;
+
+  Future<void> _open(BuildContext context) async {
+    final picked = await showReplyAudienceSheet(context, selected: audience);
+    if (picked != null) onChanged(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = enabled
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: audience.linkLabel,
+        hint: 'Choose who can reply',
+        excludeSemantics: true,
+        onTap: enabled ? () => _open(context) : null,
+        child: InkWell(
+          onTap: enabled ? () => _open(context) : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: AppSpacing.xxl),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    replyAudienceIcon(audience),
+                    size: AppIconSize.sm,
+                    color: color,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(
+                    child: Text(
+                      audience.linkLabel,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
