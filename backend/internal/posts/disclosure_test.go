@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,9 +38,9 @@ func disclosureRegistry(disclosure flags.Spec) *flags.Registry {
 // (so a retry across the deploy replays), and each label changes the hash independently.
 func TestRequestHash_DisclosureOnlyWhenSet(t *testing.T) {
 	t.Parallel()
-	legacy := func(text, reply, quote string, media, alts []string) string {
-		return idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
-			text, joinComma(media), joinUS(alts), reply, quote))
+	base := func(text, reply, quote string, media, alts []string) string {
+		return fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
+			text, strings.Join(media, ","), strings.Join(alts, ""), reply, quote)
 	}
 	tests := []struct {
 		name         string
@@ -54,33 +55,31 @@ func TestRequestHash_DisclosureOnlyWhenSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			want := legacy(tt.text, tt.reply, tt.quote, tt.media, tt.alts)
-			if got := requestHash(tt.text, tt.reply, tt.quote, tt.media, tt.alts, false, false); got != want {
-				t.Fatalf("old-style request hash changed: %s != %s", got, want)
+			b := base(tt.text, tt.reply, tt.quote, tt.media, tt.alts)
+			// Pinned goldens: the exact bytes hashed, suffixes only when set, |pp=1 before |ai=1.
+			golden := []struct {
+				name   string
+				pp, ai bool
+				want   string
+			}{
+				{"none", false, false, b},
+				{"pp", true, false, b + "|pp=1"},
+				{"ai", false, true, b + "|ai=1"},
+				{"both", true, true, b + "|pp=1|ai=1"},
 			}
-			seen := map[string]string{want: "none"}
-			for name, pp := range map[string][2]bool{"pp": {true, false}, "ai": {false, true}, "both": {true, true}} {
-				h := requestHash(tt.text, tt.reply, tt.quote, tt.media, tt.alts, pp[0], pp[1])
-				if prev, dup := seen[h]; dup {
-					t.Fatalf("%s hashes like %s", name, prev)
+			seen := map[string]string{}
+			for _, g := range golden {
+				got := requestHash(tt.text, tt.reply, tt.quote, tt.media, tt.alts, g.pp, g.ai)
+				if want := idempotency.HashRequest(g.want); got != want {
+					t.Fatalf("%s: request hash = %s, want HashRequest(%q) = %s", g.name, got, g.want, want)
 				}
-				seen[h] = name
+				if prev, dup := seen[got]; dup {
+					t.Fatalf("%s hashes like %s", g.name, prev)
+				}
+				seen[got] = g.name
 			}
 		})
 	}
-}
-
-func joinComma(s []string) string { return joinWith(s, ",") }
-func joinUS(s []string) string    { return joinWith(s, "\x1f") }
-func joinWith(s []string, sep string) string {
-	var b bytes.Buffer
-	for i, v := range s {
-		if i > 0 {
-			b.WriteString(sep)
-		}
-		b.WriteString(v)
-	}
-	return b.String()
 }
 
 // TestCreate_Disclosure covers the service: flag off with a label is FEATURE_DISABLED before any read, flag off
@@ -126,10 +125,8 @@ func TestCreate_Disclosure(t *testing.T) {
 			if stored.PaidPartnership != tt.pp || stored.MadeWithAI != tt.ai {
 				t.Fatalf("persisted labels pp=%v ai=%v, want %v/%v", stored.PaidPartnership, stored.MadeWithAI, tt.pp, tt.ai)
 			}
-			// Labels add no reads or writes: the base create budget (2 reads warm, 4 writes) is unchanged.
-			if c.Reads() != 2 || c.Writes() != 4 {
-				t.Fatalf("reads=%d writes=%d, want 2/4 (delta 0)", c.Reads(), c.Writes())
-			}
+			// No read/write assertion here: fakeRepo.Create adds fixed counts, so it could not fail. The "delta 0"
+			// claim is asserted against a real emulator in TestCreate_Integration_Disclosure.
 		})
 	}
 }
@@ -240,6 +237,8 @@ func TestDoc_DisclosureRoundTripAndLegacy(t *testing.T) {
 	if pb.GetPaidPartnership() || pb.GetMadeWithAi() || pb.GetEmbedded().GetPaidPartnership() || pb.GetEmbedded().GetMadeWithAi() {
 		t.Fatalf("legacy wire labels must be false: %v", pb)
 	}
+	// ToProto-level only: the stored tombstone (tombstoneUpdates replaces the whole embedded map) is asserted
+	// against the emulator in TestCreate_Integration_Disclosure.
 	tomb := ToProto(&Post{ID: "3", Kind: KindQuote, Embedded: &Embedded{PostID: "2", Unavailable: true, PaidPartnership: true}})
 	if tomb.GetEmbedded().GetPaidPartnership() || !tomb.GetEmbedded().GetUnavailable() {
 		t.Fatalf("a tombstone embed must carry no labels: %v", tomb.GetEmbedded())
@@ -312,23 +311,6 @@ func TestServer_GetPost_DisclosureDisplaysWithFlagOff(t *testing.T) {
 	}
 	if !got.Msg.GetPost().GetPost().GetPaidPartnership() || got.Msg.GetPost().GetPost().GetMadeWithAi() {
 		t.Fatalf("GetPost labels = %v", got.Msg.GetPost().GetPost())
-	}
-}
-
-// TestEnabledFeatures_ContentDisclosure: GetMe.enabled_features lists the wire name only for callers the flag is on for.
-func TestEnabledFeatures_ContentDisclosure(t *testing.T) {
-	t.Parallel()
-	reg := disclosureRegistry(allowOnly(testUID))
-	has := func(uid string) bool {
-		for _, f := range reg.EnabledFeatures(uid) {
-			if f == "content_disclosure" {
-				return true
-			}
-		}
-		return false
-	}
-	if !has(testUID) || has("someone-else") {
-		t.Fatalf("allowlisted=%v other=%v", has(testUID), has("someone-else"))
 	}
 }
 

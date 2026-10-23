@@ -34,7 +34,11 @@ func TestCreate_Integration_Disclosure(t *testing.T) {
 
 	both, c := create(key(1), "labelled", true, true)
 	budgettest.Assert(t, "CreatePost with disclosure", c, budgettest.Budget{Reads: 2, Writes: 4})
-	plain, _ := create(key(2), "plain", false, false)
+	plain, pc := create(key(2), "plain", false, false)
+	// Delta 0 (ADR-0021 D3): the labelled create costs exactly what the plain one does, not merely "within a ceiling".
+	if c.Reads() != pc.Reads() || c.Writes() != pc.Writes() {
+		t.Fatalf("labelled create reads/writes = %d/%d, plain = %d/%d, want equal", c.Reads(), c.Writes(), pc.Reads(), pc.Writes())
+	}
 
 	raw := func(id string) map[string]any {
 		t.Helper()
@@ -65,5 +69,36 @@ func TestCreate_Integration_Disclosure(t *testing.T) {
 	}
 	if g := read[plain.ID]; g == nil || g.PaidPartnership || g.MadeWithAI {
 		t.Fatalf("unlabelled read = %+v", g)
+	}
+
+	// A quote of the labelled post freezes both labels into the stored embed under the real Firestore field names
+	// (a tag typo in embeddedDoc fails here), and the quote tombstone removes them from the raw doc.
+	in.signUp(t, "uid-bob", "bob")
+	ctx := googleCtx(context.Background(), "uid-bob")
+	if _, err := in.svc.directory.GetProfiles(context.Background(), []string{"uid-bob"}); err != nil {
+		t.Fatal(err)
+	}
+	quote, err := in.svc.Create(ctx, "uid-bob", CreateInput{
+		IdempotencyKey: key(3), Text: "quoting", QuoteOfPostID: both.ID, QuotesEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emb, _ := raw(quote.ID)["embedded"].(map[string]any)
+	if emb["paidPartnership"] != true || emb["madeWithAi"] != true {
+		t.Fatalf("stored embedded = %v, want paidPartnership and madeWithAi true", emb)
+	}
+	changed, _, err := in.repo.TombstoneQuotes(context.Background(), both.ID, 10)
+	if err != nil || changed != 1 {
+		t.Fatalf("TombstoneQuotes changed=%d err=%v, want 1", changed, err)
+	}
+	emb, _ = raw(quote.ID)["embedded"].(map[string]any)
+	if _, ok := emb["paidPartnership"]; ok {
+		t.Fatalf("tombstoned embed still has paidPartnership: %v", emb)
+	}
+	if _, ok := emb["madeWithAi"]; ok {
+		t.Fatalf("tombstoned embed still has madeWithAi: %v", emb)
+	}
+	if emb["unavailable"] != true {
+		t.Fatalf("tombstoned embed = %v, want unavailable", emb)
 	}
 }
