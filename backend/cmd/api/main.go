@@ -19,6 +19,7 @@ import (
 	_ "go.uber.org/automaxprocs" // right-sizes GOMAXPROCS for the container's cgroup CPU limit
 
 	"github.com/dzeroth/dzeroth/backend/internal/apiserver"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -43,6 +44,11 @@ func main() {
 }
 
 func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	// The App Check verifier is built lazily (on the first token), so prove at startup that it can be built:
+	// a broken setup must stop the deploy here, not reject every request later.
+	if err := authn.CheckAppCheck(ctx, cfg.ProjectID); err != nil {
+		return fmt.Errorf("app check: %w", err)
+	}
 	mux, fsClient, err := apiserver.Build(ctx, cfg, log)
 	if err != nil {
 		return err
