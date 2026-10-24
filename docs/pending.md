@@ -36,7 +36,7 @@ Decisions already made: Vision at the cap = `reject`; use Cloud Run's native spe
 
 | # | Owner | Status | Task |
 |---|---|---|---|
-| 1.15 | Claude | TODO | Replace remaining "Stage 0 ($0)" wording: plan headers (`docs/plans/*.md` line 2), `docs/plans/roadmap.md:2,9`, `.claude/agents/production-deployer.md:11`, `.claude/skills/free-tier-budget/SKILL.md:41`, `docs/plans/phase1.md:398`, `docs/runbooks/cloud-bootstrap.md:235` ("$5 budget"), `README-CLAUDE-SETUP.md:4,42`. |
+| 1.15 | Claude | TODO | Replace remaining "Stage 0 ($0)" wording: plan headers (`docs/plans/*.md` line 2), `docs/plans/roadmap.md:2,9`, `.claude/agents/production-deployer.md:11`, `.claude/skills/free-tier-budget/SKILL.md:41`, `docs/plans/phase1.md:398`, `docs/runbooks/cloud-bootstrap.md:235` ("$5 budget"). |
 | 1.16 | Claude | TODO | Terraform comments that still say "min must stay 0" or "~$5" (`modules/cloud-run-api/main.tf`, `modules/budget/main.tf`, `envs/*/variables.tf`). |
 | 1.17 | Claude | TODO | Runbook follow-ups F1 to F6: a `service_paused` Terraform variable, tested `pause.sh` and `resume.sh`, a budget-triggered automatic pause (level 1 only), a gross-spend budget, a maintenance page and a way to mute the uptime alert while paused, and the dev rehearsal results. |
 | 1.18 | Claude | TODO | `publish-scheduled` Cloud Scheduler job is not in `envs/prod/main.tf` yet (ADR-0021, part of composer item 2.7). |
