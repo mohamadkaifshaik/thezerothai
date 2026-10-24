@@ -5,9 +5,11 @@ package posts
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -391,4 +393,47 @@ func TestModerator_HideAuthorLogsEveryPostInOneBatchAndIsIdempotent(t *testing.T
 	if st, _, _ := storedRemoval(t, repo, pid(n)); st != RemovalRestored {
 		t.Fatalf("after unsuspend entry = %q, want RESTORED", st)
 	}
+}
+
+// TestListCopied_Integration (issue #151): only the author's own posts that have reposts or quotes are returned,
+// newest first, at one read per post paged and no writes; another author's posts are never read.
+func TestListCopied_Integration(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	ctx := context.Background()
+	for i, a := range []string{"u-a", "u-a", "u-a", "u-a", "u-b"} {
+		seedPost(t, client, pid(i+1), a, false, 1_700_000_000_000+int64(i)*1000)
+	}
+	zero := func(id string, fields ...string) {
+		t.Helper()
+		var ups []firestore.Update
+		for _, f := range fields {
+			ups = append(ups, firestore.Update{Path: f, Value: 0})
+		}
+		if _, err := repo.ref(id).Update(ctx, ups); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// seedPost gives every post repostCount 2 and quoteCount 4. pid(1): neither; pid(2): reposts only; pid(3): quotes
+	// only; pid(4): both. pid(5) belongs to u-b.
+	zero(pid(1), "repostCount", "quoteCount")
+	zero(pid(2), "quoteCount")
+	zero(pid(3), "repostCount")
+
+	cctx, c := budget.WithCounter(ctx)
+	ids, next, done, err := repo.ListCopied(cctx, "u-a", nil)
+	if err != nil || !done || next == nil {
+		t.Fatalf("ListCopied ids=%v next=%v done=%v err=%v", ids, next, done, err)
+	}
+	if want := []string{pid(4), pid(3), pid(2)}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ids = %v, want %v (newest first, post 1 has no copies, u-b's post is not read)", ids, want)
+	}
+	budgettest.Assert(t, "ListCopied", c, budgettest.Budget{Reads: 4})
+
+	cctx, c = budget.WithCounter(ctx)
+	ids, _, done, err = repo.ListCopied(cctx, "u-nobody", nil)
+	if err != nil || !done || len(ids) != 0 {
+		t.Fatalf("empty author ids=%v done=%v err=%v", ids, done, err)
+	}
+	budgettest.Assert(t, "ListCopied empty", c, budgettest.Budget{Reads: 1})
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/firestore"
 
@@ -55,9 +56,19 @@ type Cleanup interface {
 	TombstoneQuotes(ctx context.Context, originalID string, max int) (changed int, more bool, err error)
 }
 
+// CopiedLister finds the posts of one author that other accounts have copied (reposted or quoted), so a suspension
+// can clean the copies up (issue #151, ADR-0018). *FirestoreRepo implements it.
+type CopiedLister interface {
+	// ListCopied pages uid's posts newest first (up to hidePage = 250 per call) and returns the ids of those whose
+	// repostCount or quoteCount is above zero. next is where to resume; done reports the last page. Reads one per post
+	// paged (minimum 1), no writes. The counters are written in the same batch as the copy, so they are not stale.
+	ListCopied(ctx context.Context, uid string, after *Position) (ids []string, next *Position, done bool, err error)
+}
+
 var (
 	_ EngagementWriter = (*FirestoreRepo)(nil)
 	_ Cleanup          = (*FirestoreRepo)(nil)
+	_ CopiedLister     = (*FirestoreRepo)(nil)
 )
 
 // SetRepostLinks gives the repo engagement's reposts-doc seam, needed by RemoveReposts and the purge copy phase.
@@ -276,4 +287,45 @@ func (r *FirestoreRepo) tombstoneItems(ctx context.Context, items []quoteItem) (
 		}
 	}
 	return n, nil
+}
+
+// ListCopied implements CopiedLister.
+func (r *FirestoreRepo) ListCopied(ctx context.Context, uid string, after *Position) ([]string, *Position, bool, error) {
+	q := r.authorQuery(uid).Select("createdAt", "repostCount", "quoteCount")
+	if after != nil {
+		q = q.StartAfter(after.CreatedAt, r.ref(after.ID))
+	}
+	docs, err := q.Limit(hidePage).Documents(ctx).GetAll()
+	reads := int64(len(docs))
+	if reads == 0 {
+		reads = 1
+	}
+	budget.FromContext(ctx).AddReads(reads)
+	if err != nil {
+		return nil, after, false, fmt.Errorf("posts: list copied %s: %w", logger.HashUID(uid), err)
+	}
+	if len(docs) == 0 {
+		return nil, after, true, nil
+	}
+	var ids []string
+	for _, s := range docs {
+		var d struct {
+			RepostCount int64 `firestore:"repostCount"`
+			QuoteCount  int64 `firestore:"quoteCount"`
+		}
+		if err := s.DataTo(&d); err != nil {
+			return nil, after, false, fmt.Errorf("posts: list copied decode %s: %w", s.Ref.ID, err)
+		}
+		if d.RepostCount > 0 || d.QuoteCount > 0 {
+			ids = append(ids, s.Ref.ID)
+		}
+	}
+	last := docs[len(docs)-1]
+	var ld struct {
+		CreatedAt time.Time `firestore:"createdAt"`
+	}
+	if err := last.DataTo(&ld); err != nil {
+		return nil, after, false, fmt.Errorf("posts: list copied decode %s: %w", last.Ref.ID, err)
+	}
+	return ids, &Position{CreatedAt: ld.CreatedAt.UTC(), ID: last.Ref.ID}, len(docs) < hidePage, nil
 }

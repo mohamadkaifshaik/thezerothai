@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -157,12 +159,59 @@ func (f *fakeSweeper) SweepActorRows(_ context.Context, uid string, cp notificat
 	return notifications.Checkpoint{Step: 2, Deleted: cp.Deleted + 3}, true, nil
 }
 
+// fakeCopied lists the author's posts that have copies, in pages of one so paging is exercised.
+type fakeCopied struct {
+	ids   []string
+	calls int
+	err   error
+}
+
+func (f *fakeCopied) ListCopied(_ context.Context, _ string, after *posts.Position) ([]string, *posts.Position, bool, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, after, false, f.err
+	}
+	i := 0
+	if after != nil {
+		i, _ = strconv.Atoi(after.ID)
+	}
+	if i >= len(f.ids) {
+		return nil, after, true, nil
+	}
+	return []string{f.ids[i]}, &posts.Position{ID: strconv.Itoa(i + 1)}, i+1 >= len(f.ids), nil
+}
+
+// fakeCleanup records the copy cleanup. moreFor lists post ids whose reposts never run out (page budget hit).
+type fakeCleanup struct {
+	reposts, quotes []string
+	order           *[]string
+	moreFor         map[string]bool
+}
+
+func (f *fakeCleanup) RemoveReposts(_ context.Context, id string, exists bool, _ int) (int, bool, error) {
+	if !exists {
+		panic("a suspension keeps the original, so its repostCount must be kept exact")
+	}
+	f.reposts = append(f.reposts, id)
+	if f.order != nil {
+		*f.order = append(*f.order, "copies")
+	}
+	return 2, f.moreFor[id], nil
+}
+
+func (f *fakeCleanup) TombstoneQuotes(_ context.Context, id string, _ int) (int, bool, error) {
+	f.quotes = append(f.quotes, id)
+	return 1, false, nil
+}
+
 type modFixture struct {
-	sweep *fakeSweeper
-	order []string
-	ops   *fakeOps
-	mod   *fakeModerator
-	acc   *fakeAccounts
+	copied  *fakeCopied
+	cleanup *fakeCleanup
+	sweep   *fakeSweeper
+	order   []string
+	ops     *fakeOps
+	mod     *fakeModerator
+	acc     *fakeAccounts
 	// slept records the settle waits; onSleep runs while "waiting" (a post created in the cache window).
 	slept   []time.Duration
 	onSleep func()
@@ -171,8 +220,10 @@ type modFixture struct {
 }
 
 func newModFixture() *modFixture {
-	m := &modFixture{ops: &fakeOps{}, mod: &fakeModerator{}, acc: &fakeAccounts{}, sweep: &fakeSweeper{}}
+	m := &modFixture{ops: &fakeOps{}, mod: &fakeModerator{}, acc: &fakeAccounts{}, sweep: &fakeSweeper{},
+		copied: &fakeCopied{}, cleanup: &fakeCleanup{moreFor: map[string]bool{}}}
 	m.sweep.order = &m.order
+	m.cleanup.order = &m.order
 	return m
 }
 
@@ -180,7 +231,7 @@ func (m *modFixture) run(stdin string, args ...string) (code int, stdout, stderr
 	var out, errOut bytes.Buffer
 	open := func(context.Context, string) (*backends, error) {
 		return &backends{
-			reports: m.ops, moderator: m.mod, accounts: m.acc, actorSweeper: m.sweep,
+			reports: m.ops, moderator: m.mod, accounts: m.acc, actorSweeper: m.sweep, copied: m.copied, cleanup: m.cleanup,
 			postsPlanner: fakePostsPlanner{posts.PurgePlan{Posts: cmp.Or(m.plannedPosts, 7)}},
 			profile: func(context.Context, string) (identity.Profile, error) {
 				return identity.Profile{Status: identity.AccountStatusActive}, nil
@@ -488,6 +539,71 @@ func TestSuspendUnsuspend(t *testing.T) {
 		code, _, _ = f.run("dzeroth-prod\n", "suspend-user", "--project", "dzeroth-prod", "--uid", "u2")
 		if code != 0 || len(f.acc.calls) != 1 {
 			t.Fatalf("confirmed: code=%d acc=%v", code, f.acc.calls)
+		}
+	})
+}
+
+// Issue #151: suspend-user removes the copies other users hold of the author's posts, after the settle wait.
+func TestSuspendUser_CleansUpCopiesOfTheHiddenPosts(t *testing.T) {
+	t.Parallel()
+	t.Run("copies are removed for posts that have them, after the settle wait, never on a dry run", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.copied.ids = []string{"1111111111111111111", "2222222222222222222"}
+		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run")
+		if code != 0 || len(f.cleanup.reposts) != 0 || f.copied.calls != 0 {
+			t.Fatalf("dry run: code=%d cleanup=%v listed=%d, want nothing touched", code, f.cleanup.reposts, f.copied.calls)
+		}
+		if !strings.Contains(out, "PERMANENT") {
+			t.Errorf("dry run out=%q, want the permanence warning", out)
+		}
+		code, out, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
+		if code != 0 {
+			t.Fatalf("code=%d stderr=%q", code, stderr)
+		}
+		if got := strings.Join(f.cleanup.reposts, ","); got != "1111111111111111111,2222222222222222222" {
+			t.Errorf("reposts cleaned for %q", got)
+		}
+		if got := strings.Join(f.cleanup.quotes, ","); got != "1111111111111111111,2222222222222222222" {
+			t.Errorf("quotes cleaned for %q", got)
+		}
+		if !strings.Contains(out, "posts with copies=2 reposts removed=4 quote embeds tombstoned=2") {
+			t.Errorf("out=%q, want the copy totals", out)
+		}
+		w := slices.Index(f.order, "settle-wait")
+		c := slices.Index(f.order, "copies")
+		if w < 0 || c < w {
+			t.Errorf("order=%v, want the copy cleanup after the settle wait", f.order)
+		}
+	})
+	t.Run("an author whose posts have no copies costs only the listing", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
+		if code != 0 || len(f.cleanup.reposts) != 0 || !strings.Contains(out, "posts with copies=0") {
+			t.Fatalf("code=%d out=%q cleanup=%v", code, out, f.cleanup.reposts)
+		}
+	})
+	t.Run("a post with more copies than one run handles is reported so the operator re-runs", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.copied.ids = []string{"1111111111111111111"}
+		f.cleanup.moreFor["1111111111111111111"] = true
+		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")
+		if code != 0 || !strings.Contains(out, "re-run suspend-user to finish") {
+			t.Fatalf("code=%d out=%q, want the re-run note", code, out)
+		}
+	})
+	t.Run("a listing failure stops before the report is resolved and says to re-run", func(t *testing.T) {
+		t.Parallel()
+		f := newModFixture()
+		f.copied.err = errors.New("boom")
+		code, _, stderr := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--report", testReportID)
+		if code == 0 || !strings.Contains(stderr, "re-run suspend-user to resume") {
+			t.Fatalf("code=%d stderr=%q, want a failure that says to re-run", code, stderr)
+		}
+		if len(f.ops.resolved) != 0 {
+			t.Errorf("the report was resolved although the copy cleanup failed")
 		}
 	})
 }

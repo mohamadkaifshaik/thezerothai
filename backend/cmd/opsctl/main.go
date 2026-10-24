@@ -56,7 +56,9 @@ type backends struct {
 	reports   moderation.Ops
 	moderator posts.Moderator
 	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
-	cleanup  posts.Cleanup
+	cleanup posts.Cleanup
+	// copied lists the suspended author's posts that have copies, for suspend-user's copy cleanup (#151).
+	copied   posts.CopiedLister
 	accounts accountStatusSetter
 	// actorSweeper removes the notification rows other users hold about a suspended actor (security audit N-4);
 	// nil skips the sweep.
@@ -109,6 +111,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		reports:       moderationRepo,
 		moderator:     postsRepo,
 		cleanup:       postsRepo,
+		copied:        postsRepo,
 		accounts:      identityRepo,
 		actorSweeper:  notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
 		listAuthUsers: lister,
