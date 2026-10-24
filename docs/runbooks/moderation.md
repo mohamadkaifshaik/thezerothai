@@ -40,7 +40,7 @@ confirmation. Nothing here touches Firebase Auth.
 | `reports list` | one per report shown (<= 50) | 0 |
 | `reports show` | 1 | 0 |
 | `reports resolve` | 1 | 1 (0 if already resolved) |
-| `takedown-post` | 1 (+2 with `--report`: target check, resolve) | 2 (post + log entry; +1 with `--report`) |
+| `takedown-post` | 1 (+2 with `--report`: target check, resolve) | 2 (post + log entry; +1 with `--report`); on a REPOST: 3 writes + 1 delete (see below) |
 | `restore-post` | 1 (rejects `--report`) | 2 (post + RESTORED log entry) |
 | `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 250, + the posts of the last ~3 minutes re-read by the settle pass) | 2P + 1, or 2P + 2 with `--report` |
 | &nbsp;&nbsp;↳ copy cleanup (part of `suspend-user`, issue #151) | + P to find the posts that have copies, then per such post 2 reads (minimum) | per repost 2 writes and 2 deletes, per quote 1 write |
@@ -97,7 +97,9 @@ answers `removed_ids` on `since_token` refreshes, so a client drops a card it al
 A report on a **repost** has `target` = the repost id and `owner` = the reposter, but `reports show` prints
 `evidence is the ORIGINAL post <id>`: the text, handle, media ids and time under `evidence` belong to the original post
 (snapshot at report time). To remove the content run `takedown-post` on that original id; `takedown-post` on the repost id
-hides only the repost. Account actions on `owner` concern the reposter. Reports filed before B2, or whose original was
+removes only the repost: the repost doc is deleted and its reposts record, the original's `repostCount` and the reposter's
+`postsCount` are released (issue #153; reads 1, writes 3, deletes 1, fewer counters when the original or the reposter's user doc
+is gone). `restore-post` on it then answers not found: the removal is a fresh state and the user can repost again. Account actions on `owner` concern the reposter. Reports filed before B2, or whose original was
 already unavailable, show empty evidence text.
 
 ## 3a. Media on takedown (manual until `--purge-media` exists)

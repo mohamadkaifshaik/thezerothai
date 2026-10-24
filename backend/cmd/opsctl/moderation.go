@@ -211,6 +211,9 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 		return err
 	}
 	fmt.Fprintf(out, "post %s: %s -> %s (hidden from GetPost, profile and Home within 60 s)\n", a.post, stateName(r.Before), stateName(r.After))
+	if r.RepostReleased {
+		fmt.Fprintln(out, "note: a REPOST is removed, not hidden: its reposts record and counters are released, so restore-post cannot bring it back and the user can repost again")
+	}
 	if err := cleanupCopies(cctx, b, a.post, out); err != nil {
 		return err
 	}
