@@ -409,15 +409,25 @@ class PostCard extends StatelessWidget {
   }
 
   /// Why [embedded] must not be shown, if so: gone (`unavailable`), or its
-  /// author is blocked / muted by the viewer per the local relationship
-  /// cache (0 RPCs; the server already drops such copies from feeds, this
-  /// covers the ones that reach a detail view or were cached before the
-  /// block). The viewer's own posts are never hidden.
+  /// author is blocked / muted by the viewer. The server says so on the
+  /// detail views (`embed_viewer_state`, issue #152), which holds even when
+  /// the local relationship cache is cold after a restart; otherwise (an older
+  /// server, a feed row cached before the block) the local cache decides, 0
+  /// RPCs. The server already drops such copies from feeds. The viewer's own
+  /// posts are never hidden.
   EmbedPlaceholder? _placeholderFor(
     BuildContext context,
     pb.EmbeddedPost embedded,
   ) {
     if (embedded.unavailable) return EmbedPlaceholder.unavailable;
+    switch (view.embedViewerState) {
+      case pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED:
+        return EmbedPlaceholder.blocked;
+      case pb.EmbedViewerState.EMBED_VIEWER_STATE_MUTED:
+        return EmbedPlaceholder.muted;
+      default:
+        break;
+    }
     final authorId = embedded.author.userId;
     if (!graphActionsEnabled || authorId.isEmpty || authorId == viewerUserId) {
       return null;

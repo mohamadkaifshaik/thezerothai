@@ -159,6 +159,9 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if h, ok := s.svc.(ReplyHinter); ok {
 		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
 	}
+	if h, ok := s.svc.(EmbedHinter); ok {
+		v.EmbedViewerState = h.EmbedViewerState(ctx, uid, post) // 0 reads without an embed, else the cached graph
+	}
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
 }
 
@@ -206,6 +209,12 @@ type ReplyHinter interface {
 	ReplyPermission(ctx context.Context, viewer string, p *Post) postsv1.ReplyPermission
 }
 
+// EmbedHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the viewer's
+// block/mute state for the original a REPOST or QUOTE embeds (issue #152).
+type EmbedHinter interface {
+	EmbedViewerState(ctx context.Context, viewer string, p *Post) postsv1.EmbedViewerState
+}
+
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
 func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.GetThreadRequest]) (*connect.Response[postsv1.GetThreadResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
@@ -229,6 +238,9 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row
 		v := ToView(p, vs, uid)
 		v.ViewerReplyPermission = t.ReplyPermission
+		if h, ok := s.svc.(EmbedHinter); ok {
+			v.EmbedViewerState = h.EmbedViewerState(ctx, uid, p)
+		}
 		return v
 	}
 	out := &postsv1.GetThreadResponse{

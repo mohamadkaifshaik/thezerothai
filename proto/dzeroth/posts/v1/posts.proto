@@ -221,6 +221,19 @@ enum ReplyPermission {
   REPLY_PERMISSION_UNKNOWN = 3;
 }
 
+// Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
+// viewer's OWN block and mute lists only; an author who blocks the viewer is never reported here (GetPost answers
+// NOT_FOUND for that, ADR-0008).
+enum EmbedViewerState {
+  // The embed may be shown, or the server did not compute it (older server, or the row has no embed): fall back to
+  // the client's local relationship cache.
+  EMBED_VIEWER_STATE_UNSPECIFIED = 0;
+  // The viewer blocks the embedded author.
+  EMBED_VIEWER_STATE_BLOCKED = 1;
+  // The viewer mutes the embedded author.
+  EMBED_VIEWER_STATE_MUTED = 2;
+}
+
 // Lifecycle of a scheduled post (ADR-0021 D4).
 enum ScheduledPostStatus {
   SCHEDULED_POST_STATUS_UNSPECIFIED = 0;
@@ -319,6 +332,10 @@ message PostView {
   // Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
   // viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
   ReplyPermission viewer_reply_permission = 4;
+  // Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
+  // client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set it:
+  // they drop such rows (ADR-0018 D13).
+  EmbedViewerState embed_viewer_state = 5;
 }
 
 message CreatePostRequest {

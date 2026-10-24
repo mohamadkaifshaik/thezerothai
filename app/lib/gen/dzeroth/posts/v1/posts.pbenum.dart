@@ -144,6 +144,38 @@ class ReplyPermission extends $pb.ProtobufEnum {
   const ReplyPermission._(super.value, super.name);
 }
 
+/// Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
+/// viewer's OWN block and mute lists only; an author who blocks the viewer is never reported here (GetPost answers
+/// NOT_FOUND for that, ADR-0008).
+class EmbedViewerState extends $pb.ProtobufEnum {
+  /// The embed may be shown, or the server did not compute it (older server, or the row has no embed): fall back to
+  /// the client's local relationship cache.
+  static const EmbedViewerState EMBED_VIEWER_STATE_UNSPECIFIED =
+      EmbedViewerState._(
+          0, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_UNSPECIFIED');
+
+  /// The viewer blocks the embedded author.
+  static const EmbedViewerState EMBED_VIEWER_STATE_BLOCKED =
+      EmbedViewerState._(1, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_BLOCKED');
+
+  /// The viewer mutes the embedded author.
+  static const EmbedViewerState EMBED_VIEWER_STATE_MUTED =
+      EmbedViewerState._(2, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_MUTED');
+
+  static const $core.List<EmbedViewerState> values = <EmbedViewerState>[
+    EMBED_VIEWER_STATE_UNSPECIFIED,
+    EMBED_VIEWER_STATE_BLOCKED,
+    EMBED_VIEWER_STATE_MUTED,
+  ];
+
+  static final $core.List<EmbedViewerState?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static EmbedViewerState? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const EmbedViewerState._(super.value, super.name);
+}
+
 /// Lifecycle of a scheduled post (ADR-0021 D4).
 class ScheduledPostStatus extends $pb.ProtobufEnum {
   static const ScheduledPostStatus SCHEDULED_POST_STATUS_UNSPECIFIED =
