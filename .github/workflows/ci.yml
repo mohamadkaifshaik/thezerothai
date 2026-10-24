@@ -38,7 +38,8 @@ jobs:
           # Pinned patch: 1.26.10 fixes GO-2026-6809 (crypto/x509). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.10"
           check-latest: true
-          cache: false
+          # setup-go only looks for go.sum/go.mod at the repo root; the module lives in backend/, so name it (otherwise the cache step warns and saves nothing).
+          cache-dependency-path: backend/go.sum
 
       - name: Setup Flutter
         uses: ./.github/actions/setup-flutter
@@ -49,6 +50,8 @@ jobs:
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
           version: ${{ env.BUF_VERSION }}
+          # An authenticated GitHub API call: the anonymous one is rate-limited per runner IP and failed a run ("API rate limit exceeded").
+          github_token: ${{ github.token }}
 
       # M7: `make ci`'s lint step only runs golangci-lint if it's already on
       # PATH (see Makefile) — install + run it here so CI actually enforces
@@ -95,7 +98,8 @@ jobs:
   emulator-integration:
     name: make test-int (Firebase emulators)
     runs-on: ubuntu-latest
-    needs: make-ci
+    # No `needs:`: this job uses nothing from make-ci (own checkout, toolchains and coverage files; generated code is committed),
+    # so the two run in parallel and both always report a result.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -104,7 +108,8 @@ jobs:
           # Pinned patch: 1.26.10 fixes GO-2026-6809 (crypto/x509). Bump with each 1.26 security release; go.mod only states the minimum language version.
           go-version: "1.26.10"
           check-latest: true
-          cache: false
+          # setup-go only looks for go.sum/go.mod at the repo root; the module lives in backend/, so name it (otherwise the cache step warns and saves nothing).
+          cache-dependency-path: backend/go.sum
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

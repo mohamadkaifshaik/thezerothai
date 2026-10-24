@@ -230,6 +230,20 @@ type crashChain struct {
 	l    *identity.Lifecycle
 }
 
+// steppingClock is a clock that moves 1 ms on every read. The crash chain runs with a 1 ns work budget so every delivery
+// does exactly one step call; on a coarse real clock two calls can share a tick, a run then records fewer side effects
+// than the clean run, and a death planned at one of the last operations never fires (issue #259). The other source of run-to-run variation was the 120 s start gate: pastGate removes it.
+func steppingClock() func() time.Time {
+	var mu sync.Mutex
+	now := time.Now()
+	return func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		now = now.Add(time.Millisecond)
+		return now
+	}
+}
+
 func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain {
 	t.Helper()
 	authc := emulatorAuth{host: os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"), project: e.cfg.ProjectID}
@@ -252,6 +266,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 		Auth: crashAuth{authc, plan}, Objects: crashObjects{objs, plan},
 		Log: slog.New(slog.NewJSONHandler(io.Discard, nil)), ProjectID: e.cfg.ProjectID,
 		ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute,
+		Now:        steppingClock(),
 		WorkBudget: time.Nanosecond, StartGate: time.Nanosecond, RetryBackoff: time.Millisecond,
 	})
 	if err != nil {
@@ -499,7 +514,9 @@ func TestAccountLifecycle_RichAccountCrashAtEverySideEffect(t *testing.T) {
 	clean := e.rich(t)
 	cleanPlan := &crashPlan{}
 	cc := e.newCrashChain(t, cleanPlan)
-	deaths, deliveries := cc.pump(t, e.beginDeletion(t, clean, "crash-clean-delete-0001"))
+	msg := e.beginDeletion(t, clean, "crash-clean-delete-0001")
+	e.pastGate(t, clean.a.uid) // the first delivery must not be nacked by the start gate, or the clean run repeats the Auth disable
+	deaths, deliveries := cc.pump(t, msg)
 	if deaths != 0 {
 		t.Fatalf("clean run had %d deaths", deaths)
 	}
@@ -517,9 +534,11 @@ func TestAccountLifecycle_RichAccountCrashAtEverySideEffect(t *testing.T) {
 			r := e.rich(t)
 			plan := &crashPlan{at: k}
 			cc := e.newCrashChain(t, plan)
-			deaths, _ := cc.pump(t, e.beginDeletion(t, r, fmt.Sprintf("crash-delete-key-%04d", k)))
+			msg := e.beginDeletion(t, r, fmt.Sprintf("crash-delete-key-%04d", k))
+			e.pastGate(t, r.a.uid)
+			deaths, _ := cc.pump(t, msg)
 			if deaths != 1 {
-				t.Fatalf("deaths = %d, want exactly 1", deaths)
+				t.Fatalf("deaths = %d, want exactly 1 (ran %d side effects, clean run %d)\n got  %v\n want %v", deaths, plan.n, total, plan.ops, cleanPlan.ops)
 			}
 			assertOrder(t, plan.ops)
 			e.requireRichErased(t, r)

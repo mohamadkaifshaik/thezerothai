@@ -13,9 +13,19 @@ that names the cost and the user/revenue milestone that justifies it.
 - Every resource **scales to zero** when idle. No always-on VMs, clusters, load balancers, or DB instances.
 - Every design states its **free-tier budget** (Firestore reads/writes per day, Cloud Run requests, GB stored/served). See the `free-tier-budget` skill.
 - Past the free tier we pay **per use** (cents per 100k ops), never a step to a fixed fee by accident.
-- The `cost-guard` hook blocks known fixed-cost Terraform resources unless marked `# cost-approved: ADR-NNNN`.
+- The `cost-guard` hook blocks known fixed-cost Terraform resources (including `min_instance_count` above 0) unless marked `# cost-approved: ADR-NNNN`.
 - **Honest target:** Stage 0 is designed around the free tier but is not exactly $0 at real traffic. `docs/reviews/cost-model.md` and ADR-0022 put Stage 0 as configured at about INR 434 / 1,626 / 3,396 per month at 300 / 1,000 / 3,000 DAU (egress to India is never free, Cloud Vision SafeSearch is paid past 1,000 units at 2 units per image, Firestore reads pass the free quota at about 215 DAU). What this directive forbids is a **fixed** monthly fee and a bill that does not scale with use.
-- **Time-boxed exception (ADR-0022, credit mode):** until **2026-12-22** (heavy items off) and **2026-12-24** (services paused), prod may run the Stage 0C credit-mode profile paid by the GCP credit that expires 2026-12-26: service-level min instances 1, a higher `VISION_MONTHLY_CAP` with `reject` at the cap, and per-use overage. Gross spend is capped at `credit_spend_cap_inr` (INR 23,000 or lower). Nothing that bills after 2026-12-26 is allowed, and abuse limits do not change. After 2026-12-24 this prime directive applies unchanged.
+- **Time-boxed exception:** credit mode (ADR-0022) is the only one; see "Credit mode" below. After 2026-12-24 this prime directive applies unchanged.
+
+## Credit mode (ADR-0022, expires 2026-12-24)
+
+A GCP credit that expires **2026-12-26** pays for a temporary profile. Dates: **2026-12-22** heavy items off, **2026-12-24** services paused (runbook `docs/runbooks/credit-sunset-pause-resume.md`), **2026-12-26** credit gone. Steps and owners live in `docs/pending.md` section 1.
+
+- **Allowed until then:** prod service-level min instances 1; `VISION_MONTHLY_CAP` 20k–40k with `reject` at the cap; per-use overage.
+- **Capped:** gross spend at `credit_spend_cap_inr` (INR 23,000 or lower), watched by a gross-spend budget.
+- **Unchanged:** abuse limits, the "not used" list below, and no committed use discounts, subscriptions or prepaid plans. Nothing that bills after 2026-12-26.
+- **Guard:** `cost-guard` accepts `# cost-approved: ADR-NNNN until:YYYY-MM-DD` and stops accepting it after that date (UTC). Use it for min-instance lines.
+- **Removal:** after 2026-12-24 delete this section and every "credit mode" mention in this file.
 
 ## Stack (fixed)
 
@@ -28,7 +38,7 @@ that names the cost and the user/revenue milestone that justifies it.
 | Stage                | Users          | Monthly cost target    | Architecture                                                                 |
 | -------------------- | -------------- | ---------------------- | ---------------------------------------------------------------------------- |
 | **0 — Launch** (now) | 0 – ~300 DAU   | **≈ $0–5** (free tier, then per use; ≈ INR 434 at 300 DAU) | Cloud Run + Firestore + GCS + Firebase                                       |
-| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 23,000 total from GCP credit (≈ INR 45–270/day at 300–3k DAU) | Stage 0 + prod service-level min instances 1, Vision cap 20k–40k (reject at cap), gross-spend budgets |
+| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 23,000 total from GCP credit | Stage 0 plus the profile in "Credit mode" below |
 | 1 — Traction         | ~300 – 20k DAU | ~$1 – $50, pay-per-use | Same, pay Firestore/Cloud Run overage; add min-instance=1 if latency matters |
 | 2 — Growth           | 20k – 200k DAU | Funded by revenue      | ADR: Cloud SQL Postgres or keep Firestore; Memorystore; split hot services   |
 | 3 — Scale            | 200k+ DAU      | Funded                 | ADR: Spanner, GKE, multi-region, CDN + Cloud Armor                           |
@@ -42,13 +52,13 @@ Cloud Run + Firestore give us (both regional, multi-zone managed) — no self-bu
 
 | Concern                     | Choice                                                                                                                                                     | Free allowance (verify in `free-tier-budget`)       |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| API compute                 | **Cloud Run** service `api`, request-based billing, min 0 / max 3 instances (prod: service-level min 1 until 2026-12-22, ADR-0022), 512 MiB, concurrency 80                                                       | 2M req, 180k vCPU-s, 360k GiB-s /month              |
+| API compute                 | **Cloud Run** service `api`, request-based billing, min 0 / max 3 instances (prod min 1 only in credit mode), 512 MiB, concurrency 80                                                       | 2M req, 180k vCPU-s, 360k GiB-s /month              |
 | Async work                  | Pub/Sub **push** to `api` `/internal/*` (OIDC-authenticated)                                                                                               | 10 GiB messages /month                              |
 | Cron                        | Cloud Scheduler → `api` `/internal/cron/*`                                                                                                                 | 3 jobs /billing account                             |
 | Database                    | **Firestore Native, `(default)` database**                                                                                                                 | 1 GiB, 50k reads, 20k writes, 20k deletes /day      |
 | Cache                       | In-process LRU in each Cloud Run instance + client-side cache (drift/IndexedDB). **No Redis.**                                                             | —                                                   |
 | Media                       | GCS bucket in a **US region**, V4 signed PUT URLs, client-side resize/compress, public-read objects                                                        | 5 GB, 5k Class A, 50k Class B, 100 GB egress /month |
-| Moderation                  | Cloud Vision SafeSearch on **every** image, paid past the free quota; capped by `VISION_MONTHLY_CAP` (default 10k; 20k–40k with `reject` in credit mode, ADR-0022), then report-driven review (ADR-0005)                                                                               | 1,000 units /month                                  |
+| Moderation                  | Cloud Vision SafeSearch on **every** image, paid past the free quota; capped by `VISION_MONTHLY_CAP` (default 10k; higher with `reject` in credit mode), then report-driven review (ADR-0005)                                                                               | 1,000 units /month                                  |
 | Search                      | Firestore prefix queries (handles), `array-contains` (hashtags). No search engine.                                                                         | —                                                   |
 | Auth                        | Firebase Auth (email, Google, Apple). ID tokens verified in Go. **No phone/SMS OTP** (billed per SMS).                                                     | no-cost tier                                        |
 | Abuse                       | Firebase App Check + per-user quotas in Firestore + in-memory rate limits + Cloud Run max-instances cap                                                    | —                                                   |
@@ -58,7 +68,7 @@ Cloud Run + Firestore give us (both regional, multi-zone managed) — no self-bu
 | Secrets                     | Secret Manager (keep ≤ 6 active versions) — most config is plain env vars                                                                                  | 6 versions, 10k accesses                            |
 | Observability               | slog JSON → Cloud Logging; built-in Cloud Run metrics; Error Reporting; 1 uptime check                                                                     | 50 GiB logs /project                                |
 | CI/CD                       | GitHub Actions + Workload Identity Federation → `ko` image → Artifact Registry (cleanup policy) → `gcloud run deploy` with tagged revision + traffic split | AR 0.5 GB                                           |
-| Cost control                | Billing budget alerts (net per project + gross credit budget, ADR-0022), max-instances caps, degraded-mode switch                                                                               | free                                                |
+| Cost control                | Billing budget alerts (net per project, plus a gross budget in credit mode), max-instances caps, degraded-mode switch                                                                               | free                                                |
 
 **Region:** Cloud Run, Firestore and Artifact Registry in `asia-south1` (Mumbai) for Indian users — Cloud Run's free
 tier applies in any region and Firestore's free quota applies to the `(default)` database wherever it lives.
@@ -67,7 +77,7 @@ Media bucket in `us-central1` because GCS free storage is **US regions only**. F
 **Explicitly not used at Stage 0** (fixed monthly cost): GKE, Spanner, Memorystore, Cloud SQL, external/global HTTPS LB,
 Cloud Armor, Cloud CDN (LB-backed), Cloud NAT, Serverless VPC connector, Transcoder, Vertex AI Search, CMEK/Cloud KMS keys,
 Binary Authorization, Cloud Deploy, BigQuery streaming, Managed Prometheus, a staging Firestore at scale.
-Credit mode (ADR-0022) does not lift this list. Also never during credit mode: committed use discounts, subscriptions or prepaid plans, or anything else that bills after 2026-12-26.
+Credit mode does not lift this list.
 
 ### Modules inside the monolith (`backend/internal/*`)
 
@@ -98,12 +108,22 @@ app/                   # Flutter app: lib/features/<feature>/{data,domain,presen
 firebase/              # firebase.json, firestore.rules (deny-all to clients), firestore.indexes.json, storage.rules
 infra/terraform/       # envs/{dev,prod}, modules/*
 loadtest/              # k6 scripts (run locally against emulators, tiny smoke in cloud)
+scripts/               # dev.sh, cost-vision.sh, mint-app-token.sh; promotion/ = deploy validators (flag registry, ceilings, until-dates)
+testdata/              # fixtures shared by Go and Dart tests (e.g. the post text grammar)
+docs/pending.md        # the founder's single task list (see Status below)
 docs/adr/              # Architecture Decision Records (architect owns)
-docs/plans/            # Feature plans (planner owns)
+docs/plans/            # Feature plans (planner owns); roadmap.md is the product roadmap
 docs/reviews/          # Review, cost and production-readiness reports
-docs/runbooks/
-.github/workflows/     # CI/CD
+docs/runbooks/         # One per failure mode, plus release, rollback and CI enforcement
+docs/releases/         # Per-tag release notes and readiness records
+docs/code-map.md       # Catalog of shared backend code: search it before writing a helper
+docs/ui-catalog.md     # Catalog of shared Flutter UI; docs/x_research/ holds the X reference captures
+.claude/               # agents, skills, commands, hooks and settings for the team
+.github/workflows/     # ci, deploy-dev, release-prod, promote-prod, terraform
+.github/CODEOWNERS    # gate files that need the founder's review
 ```
+
+ADR numbers 0012–0015 are intentionally unused (reserved for slices that ran in parallel and needed no ADR); the next free number is the highest existing plus one.
 
 ## Environments
 
@@ -141,11 +161,19 @@ No agent marks work done while `make ci` fails.
 
 ## Working conventions
 
-- **Status lives in `docs/plans/`.** `docs/plans/phase1.md` is the Phase 1 slice overview; each slice has its own plan with per-ticket `Status`. Read the relevant plan before starting work and update the ticket status in the PR that merges it.
+- **Status lives in three places.** `docs/pending.md` is the founder's single task list: update it in the same PR that changes the state of an item. `docs/plans/roadmap.md` is the product roadmap and `docs/plans/phase1.md` the Phase 1 slice overview; each slice has its own plan with per-ticket `Status`. Read the relevant ones before starting work and update ticket status in the PR that merges it.
 - **Branches and PRs:** `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `chore/<slug>`; one ticket per PR; merge `origin/main` into the branch rather than rewriting history. Never open a PR or push to `main` unless the human asked. See the `pr-workflow` skill.
+- **Working in parallel:** agents work in git worktrees under `.claude/worktrees/` (never in Temp). The assistant is meant to open PRs through its own GitHub App identity, not the founder's, so the code-owner review is always a second identity (`docs/runbooks/ci-enforcement.md`). Do not use bare `git stash` in a shared checkout.
 - **Rollout:** every user-facing feature ships behind a server flag (`FEATURE_<NAME>`: off → allowlist → percent → on). See the `flag-rollout` skill.
-- **Stop and ask the founder** before: adding any fixed-cost resource, bending a non-negotiable rule, changing a proto contract in a breaking way, accepting an ADR, changing `credit_spend_cap_inr` or the ADR-0022 dates, keeping any credit-mode item on after 2026-12-22, or any `prod` apply/traffic shift.
+- **Stop and ask the founder** before: adding any fixed-cost resource, bending a non-negotiable rule, changing a proto contract in a breaking way, accepting an ADR, changing `credit_spend_cap_inr` or the ADR-0022 dates, keeping any credit-mode item on after 2026-12-22, any `prod` apply or traffic shift (ADR-0019), creating or moving a `v*` release tag, or loosening a CI or ruleset gate.
 - **Hooks need `jq`.** The guard hooks fail closed (block the edit) when `jq` is missing.
+
+## Release and approval gates (ADR-0019)
+
+- `main` is protected by a ruleset: required CI checks and code-owner review, no bypass actors (`docs/runbooks/ci-enforcement.md`). Gate files (workflows, `.github/CODEOWNERS`, `scripts/promotion/flag-ceiling.json`, `firebase/firestore.indexes.json`, `firebase/field-overrides.ack`, `scripts/mint-app-token.sh`) need the founder's review.
+- Merging to `main` deploys **dev** (`deploy-dev.yml`); the promotion validators in `scripts/promotion` must pass (flag registry, flag ceilings, until-dates, fieldOverrides acknowledgement).
+- **Prod** only moves by a `v*` tag (ruleset: only the founder creates, moves or deletes them) and the `prod` environment's required-reviewer approval. Flow: tag, `release-prod.yml` stages a 0%-traffic `candidate`, `production-reviewer` issues GO or NO-GO, then `promote-prod.yml` (manual dispatch) shifts traffic 10% then 100%. See `docs/runbooks/rollback.md` and the `release-rollout` skill.
+- Terraform `apply` in prod is plan-then-OK. Agents never apply to prod, create release tags or dispatch `promote-prod` on their own.
 
 ## Commands
 
@@ -155,7 +183,7 @@ make ci           # lint, vet, unit tests, buf breaking, flutter analyze/test
 make emulators    # firebase emulators:start --only firestore,auth,pubsub,storage
 make test-int     # integration tests against emulators
 make dev          # emulators + API + Flutter web
-make cost         # print read/write budget table from docs + last 24h usage (gcloud)
+make cost         # print read/write budget table from docs + last 24h usage (gcloud) and Vision units
 make loadtest SCENARIO=timeline_read   # against emulators by default
 ```
 
@@ -167,3 +195,6 @@ make loadtest SCENARIO=timeline_read   # against emulators by default
 - Worst-case Firestore reads/writes per RPC documented; free-tier budget table in `free-tier-budget` still holds at Stage 0 targets.
 - Logs + an Error Reporting-visible error path exist for any new request path.
 - Runbook entry updated for any new failure mode.
+- `make ci` and `make test-int` pass, including the promotion-script checks when flags, Terraform or workflows change; a new flag is registered with its ceiling.
+- `docs/pending.md` updated if the change touches an item; shared helpers added to `docs/code-map.md` or `docs/ui-catalog.md`.
+- Skills in `.claude/skills/` are the source of procedures (flags, PR workflow, reuse-first, release); read the relevant one instead of guessing.
