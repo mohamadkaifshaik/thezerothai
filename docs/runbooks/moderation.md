@@ -28,7 +28,7 @@ Decide one of:
 | Nothing wrong | `reports resolve --id R --resolution NO_ACTION` (or `DISMISSED` for abusive/duplicate reports; these are the only two resolutions `resolve` accepts) | report RESOLVED, evidence TTL-deleted 90 days later |
 | Remove one post | `takedown-post --post POSTID --report R` | post hidden from GetPost (NOT_FOUND for everyone, the author included), profile timeline and Home within 60 s; report resolved TAKEDOWN |
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
-| Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); report resolved SUSPENDED |
+| Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
 
 Every writing command ends with a `cost: reads=... writes=...` line (the `hidden:`/`settle pass:`/`restored:` lines before it are running totals). Prod project ids (`*-prod`) ask for the project id as a typed
@@ -43,6 +43,7 @@ confirmation. Nothing here touches Firebase Auth.
 | `takedown-post` | 1 (+2 with `--report`: target check, resolve) | 2 (post + log entry; +1 with `--report`) |
 | `restore-post` | 1 (rejects `--report`) | 2 (post + RESTORED log entry) |
 | `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 250, + the posts of the last ~3 minutes re-read by the settle pass) | 2P + 1, or 2P + 2 with `--report` |
+| &nbsp;&nbsp;↳ copy cleanup (part of `suspend-user`, issue #151) | + P to find the posts that have copies, then per such post 2 reads (minimum) | per repost 2 writes and 2 deletes, per quote 1 write |
 | `unsuspend-user` | P_hidden + 2 | 2 P_hidden + 1 |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is

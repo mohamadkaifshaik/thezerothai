@@ -219,6 +219,8 @@ D8 = ADR D2). `apiserver/notifications_wiring.go:40` "D9" is ADR D9. Code commen
 - P7 follow-up: until that job lands, embeds (REPOST and QUOTE snapshots) of a post whose author is suspended
   outlive the suspension: the original is hidden, but copies keep showing the frozen text. P7 must tombstone or hide
   them when it suspends an author, and restore nothing (the snapshot is gone once tombstoned).
+  Done (issue #151): `opsctl suspend-user` now runs the takedown copy cleanup for every post of the author that has
+  reposts or quotes, after the settle pass (`posts.CopiedLister`, one read per post paged).
 - A user that blocks someone keeps that user's old likes on their posts (counts stay exact; no per-block clean-up).
 
 ## Handoff

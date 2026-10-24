@@ -235,15 +235,31 @@ func cleanupCopies(ctx context.Context, b *backends, postID string, out io.Write
 	if b.cleanup == nil {
 		return nil
 	}
-	reposts, quotes := 0, 0
+	reposts, quotes, moreReposts, moreQuotes, err := cleanupCopiesOf(ctx, b, postID)
+	if err != nil {
+		return err
+	}
+	if moreReposts {
+		fmt.Fprintf(out, "note: more reposts remain; run takedown-post again to finish\n")
+	}
+	if moreQuotes {
+		fmt.Fprintf(out, "note: more quotes remain; run takedown-post again to finish\n")
+	}
+	fmt.Fprintf(out, "copies: reposts removed=%d quote embeds tombstoned=%d\n", reposts, quotes)
+	return nil
+}
+
+// cleanupCopiesOf is the paging core of cleanupCopies, with no output: it returns what it removed and whether the
+// page budget ran out with reposts or quotes still remaining. b.cleanup must not be nil.
+func cleanupCopiesOf(ctx context.Context, b *backends, postID string) (reposts, quotes int, moreReposts, moreQuotes bool, err error) {
 	for page := 0; ; page++ {
 		if page >= cleanupPageBudget {
-			fmt.Fprintf(out, "note: more reposts remain; run takedown-post again to finish\n")
+			moreReposts = true
 			break
 		}
 		n, more, err := b.cleanup.RemoveReposts(ctx, postID, true, posts.CleanupPage)
 		if err != nil {
-			return fmt.Errorf("remove reposts: %w", err)
+			return reposts, quotes, false, false, fmt.Errorf("remove reposts: %w", err)
 		}
 		reposts += n
 		if !more {
@@ -252,19 +268,74 @@ func cleanupCopies(ctx context.Context, b *backends, postID string, out io.Write
 	}
 	for page := 0; ; page++ {
 		if page >= cleanupPageBudget {
-			fmt.Fprintf(out, "note: more quotes remain; run takedown-post again to finish\n")
+			moreQuotes = true
 			break
 		}
 		n, more, err := b.cleanup.TombstoneQuotes(ctx, postID, posts.CleanupPage)
 		if err != nil {
-			return fmt.Errorf("tombstone quotes: %w", err)
+			return reposts, quotes, moreReposts, false, fmt.Errorf("tombstone quotes: %w", err)
 		}
 		quotes += n
 		if !more {
 			break
 		}
 	}
-	fmt.Fprintf(out, "copies: reposts removed=%d quote embeds tombstoned=%d\n", reposts, quotes)
+	return reposts, quotes, moreReposts, moreQuotes, nil
+}
+
+// copyCheckpoint resumes the suspend-user copy cleanup. Totals are across calls; a post whose copies did not all
+// fit in one call's page budget is counted in Unfinished and finished by re-running suspend-user.
+type copyCheckpoint struct {
+	After      *posts.Position
+	Posts      int
+	Reposts    int
+	Quotes     int
+	Unfinished int
+}
+
+// suspendCopyCleanup removes the copies other accounts hold of a suspended author's posts (issue #151, ADR-0018
+// P7 note): REPOSTs of them are deleted with their counters and the embeds of quotes become a tombstone. Like
+// takedown-post's cleanup it is permanent: unsuspend-user restores the author's own posts, not the copies.
+func suspendCopyCleanup(ctx context.Context, b *backends, uid string, out io.Writer) error {
+	if b.cleanup == nil || b.copied == nil {
+		return nil
+	}
+	var last copyCheckpoint
+	err := driveLoop(ctx, out, copyCheckpoint{},
+		func(ctx context.Context, cp copyCheckpoint) (copyCheckpoint, bool, error) {
+			ids, next, done, err := b.copied.ListCopied(ctx, uid, cp.After)
+			if err != nil {
+				return cp, false, err
+			}
+			// The page is committed to the checkpoint only when every post of it was handled, so a failed call
+			// repeats the whole page (the removals are idempotent).
+			out2 := cp
+			out2.After = next
+			for _, id := range ids {
+				r, q, moreR, moreQ, err := cleanupCopiesOf(ctx, b, id)
+				out2.Reposts += r
+				out2.Quotes += q
+				if err != nil {
+					return cp, false, err
+				}
+				if moreR || moreQ {
+					out2.Unfinished++
+				}
+			}
+			out2.Posts += len(ids)
+			last = out2
+			return out2, done, nil
+		},
+		func(cp copyCheckpoint) string {
+			return fmt.Sprintf("posts-with-copies=%d reposts=%d quotes=%d", cp.Posts, cp.Reposts, cp.Quotes)
+		}, "copy cleanup")
+	if err != nil {
+		return err
+	}
+	if last.Unfinished > 0 {
+		fmt.Fprintf(out, "note: %d post(s) have more copies than one run handles; re-run suspend-user to finish\n", last.Unfinished)
+	}
+	fmt.Fprintf(out, "copies: posts with copies=%d reposts removed=%d quote embeds tombstoned=%d\n", last.Posts, last.Reposts, last.Quotes)
 	return nil
 }
 
@@ -317,6 +388,8 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			"  with --report: reads~%d writes~%d) (nothing written)\n",
 			statusName(p.Status), plan.Posts, plan.Posts, settleWait, plan.Posts+2, 2*plan.Posts+1, plan.Posts+4, 2*plan.Posts+2)
 		fmt.Fprintf(out, "  then sweeps the notification rows other users hold about the account: 1 read + 1 delete per row (500 a page, 1 read when none)\n")
+		fmt.Fprintf(out, "  then removes other users' reposts and quote embeds of those posts (PERMANENT: unsuspend-user does not bring them back):\n"+
+			"  ~%d more reads to find the posts that have copies, then per such post 2 reads (minimum), 2 writes and 2 deletes per repost, 1 write per quote\n", plan.Posts)
 		printResetWarning(out, "suspend-user", plan.Posts)
 		return nil
 	}
@@ -379,6 +452,11 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			func(cp notifications.Checkpoint) string { return fmt.Sprintf("swept=%d", cp.Deleted) }, "notification sweep"); err != nil {
 			return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 		}
+	}
+	// Issue #151: the copies other users hold of the hidden posts (ADR-0018 P7 note). After the settle pass, so a
+	// post created while instance caches still saw the account as ACTIVE is covered too.
+	if err := suspendCopyCleanup(ctx, b, uid, out); err != nil {
+		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 	}
 	if a.report != "" {
 		if err := resolveReport(ctx, b, a.report, moderation.ResolutionSuspended, a.note, out, now); err != nil {
