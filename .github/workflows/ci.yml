@@ -50,6 +50,8 @@ jobs:
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
           version: ${{ env.BUF_VERSION }}
+          # An authenticated GitHub API call: the anonymous one is rate-limited per runner IP and failed a run ("API rate limit exceeded").
+          github_token: ${{ github.token }}
 
       # M7: `make ci`'s lint step only runs golangci-lint if it's already on
       # PATH (see Makefile) — install + run it here so CI actually enforces
