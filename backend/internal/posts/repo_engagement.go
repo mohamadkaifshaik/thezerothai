@@ -190,6 +190,12 @@ func (r *FirestoreRepo) stageRepostRemoval(b store.Batch, row repostRow, postsCo
 // removeOneRepost tries the full variant, then without the reposter's postsCount (users doc gone), then without
 // the original's repostCount (original gone). A last failure means the REPOST is already gone: nothing to do.
 func (r *FirestoreRepo) removeOneRepost(ctx context.Context, row repostRow, originalExists bool) (bool, error) {
+	return r.removeOneRepostWith(ctx, row, originalExists, nil)
+}
+
+// removeOneRepostWith is removeOneRepost; extra, when set, stages more writes in the same batch of every variant
+// (Takedown adds the removal-log entry, so a REPOST is never deleted without being logged).
+func (r *FirestoreRepo) removeOneRepostWith(ctx context.Context, row repostRow, originalExists bool, extra func(store.Batch)) (bool, error) {
 	c := budget.FromContext(ctx)
 	for _, v := range []struct{ postsCount, repostCount bool }{
 		{true, originalExists}, {false, originalExists}, {true, false}, {false, false},
@@ -200,6 +206,9 @@ func (r *FirestoreRepo) removeOneRepost(ctx context.Context, row repostRow, orig
 		var scratch budget.Counter
 		b := store.NewFirestoreBatch(r.client, &scratch)
 		r.stageRepostRemoval(b, row, v.postsCount)
+		if extra != nil {
+			extra(b)
+		}
 		if v.repostCount {
 			bumpCount(b, r.ref(row.originalID), "repostCount", -1)
 		}

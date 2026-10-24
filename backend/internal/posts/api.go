@@ -498,6 +498,9 @@ type ModerationResult struct {
 	AuthorID string
 	// Before and After are the moderation state before and after the call.
 	Before, After Moderation
+	// RepostReleased is set when a takedown hit a REPOST: the doc was deleted and its reposts record, the original's
+	// repostCount and the reposter's postsCount were released (issue #153), so there is nothing left to restore.
+	RepostReleased bool
 }
 
 // Moderator is the moderator-action seam used by opsctl (ADR-0016 D4). It never runs in the API process, so
@@ -506,6 +509,8 @@ type Moderator interface {
 	// Takedown sets TAKEN_DOWN on one post (ErrNotFound when it does not exist). A post already hidden by a
 	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). Reads 1, writes 2 (the post and its
 	// postRemovals entry, ADR-0016 D10; 0 when already TAKEN_DOWN).
+	// A REPOST is not hidden but removed: its doc is deleted and the reposts record and counters released (see
+	// ModerationResult.RepostReleased); Restore then reports ErrNotFound and the user can repost again.
 	Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
 	// Restore clears TAKEN_DOWN (ErrNotFound when missing). A SUSPENDED_AUTHOR post is left unchanged: only
 	// unsuspend-user restores those. Reads 1, writes 2 (post + RESTORED entry; 0 when not TAKEN_DOWN).

@@ -71,6 +71,7 @@ type fakePost struct {
 type fakeModerator struct {
 	takedowns, restores []string
 	hideCalls, restCall int
+	releaseRepost       bool // Takedown reports a REPOST that was removed (issue #153)
 	err                 error
 	posts               []*fakePost
 	paged               int
@@ -83,7 +84,7 @@ const fakePage = 2
 
 func (f *fakeModerator) Takedown(_ context.Context, id string, _ time.Time) (posts.ModerationResult, error) {
 	f.takedowns = append(f.takedowns, id)
-	return posts.ModerationResult{AuthorID: "u2", Before: posts.ModerationNone, After: posts.ModerationTakenDown}, f.err
+	return posts.ModerationResult{AuthorID: "u2", Before: posts.ModerationNone, After: posts.ModerationTakenDown, RepostReleased: f.releaseRepost}, f.err
 }
 
 func (f *fakeModerator) Restore(_ context.Context, id string, _ time.Time) (posts.ModerationResult, error) {
@@ -606,4 +607,19 @@ func TestSuspendUser_CleansUpCopiesOfTheHiddenPosts(t *testing.T) {
 			t.Errorf("the report was resolved although the copy cleanup failed")
 		}
 	})
+}
+
+// Issue #153: a taken-down REPOST is removed, and the operator is told restore-post will not bring it back.
+func TestTakedownPost_RepostIsReleasedNotHidden(t *testing.T) {
+	t.Parallel()
+	f := newModFixture()
+	f.mod.releaseRepost = true
+	code, out, stderr := f.run("", "takedown-post", "--project", "dzeroth-dev", "--post", testPostID)
+	if code != 0 || !strings.Contains(out, "a REPOST is removed, not hidden") || !strings.Contains(out, "can repost again") {
+		t.Fatalf("code=%d out=%q stderr=%q, want the removal note", code, out, stderr)
+	}
+	f = newModFixture()
+	if _, out, _ := f.run("", "takedown-post", "--project", "dzeroth-dev", "--post", testPostID); strings.Contains(out, "REPOST is removed") {
+		t.Errorf("a plain post got the repost note: %q", out)
+	}
 }

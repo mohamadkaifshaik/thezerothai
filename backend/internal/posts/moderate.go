@@ -32,10 +32,28 @@ const fieldModeration = "moderation"
 const hidePage = opsPage / 2
 
 // Takedown implements Moderator. One transaction: 1 read, 2 writes (the post and its removal-log entry; 0 when already TAKEN_DOWN).
+// A REPOST is removed instead (issue #153): the transaction only reads it (1 read), then one batch deletes the doc and
+// its reposts record, decrements the original's repostCount and the reposter's postsCount and writes the REMOVED
+// log entry (writes: 2 + 1 for the counters, 1 for the log entry, deletes: 2; fewer counters when the original or the
+// reposter's users doc is gone). Restore of a removed REPOST is ErrNotFound: the user can repost again.
 func (r *FirestoreRepo) Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error) {
-	return r.setModeration(ctx, postID, func(cur Moderation) (Moderation, bool) {
+	res, row, err := r.setModerationX(ctx, postID, func(cur Moderation) (Moderation, bool) {
 		return ModerationTakenDown, cur != ModerationTakenDown
-	}, now)
+	}, now, true)
+	if err != nil || row == nil {
+		return res, err
+	}
+	ok, err := r.removeOneRepostWith(ctx, *row, true, func(b store.Batch) {
+		r.setRemoval(b, row.id, row.authorID, RemovalRemoved, now)
+	})
+	if err != nil {
+		return ModerationResult{}, err
+	}
+	if !ok {
+		return ModerationResult{}, ErrNotFound // deleted concurrently
+	}
+	res.After, res.RepostReleased = ModerationTakenDown, true
+	return res, nil
 }
 
 // Restore implements Moderator. One transaction: 1 read, 2 writes (post + RESTORED log entry; 0 unless the post is TAKEN_DOWN).
@@ -47,10 +65,18 @@ func (r *FirestoreRepo) Restore(ctx context.Context, postID string, now time.Tim
 }
 
 func (r *FirestoreRepo) setModeration(ctx context.Context, postID string, decide func(Moderation) (Moderation, bool), now time.Time) (ModerationResult, error) {
+	out, _, err := r.setModerationX(ctx, postID, decide, now, false)
+	return out, err
+}
+
+// setModerationX is setModeration; with interceptRepost, a REPOST is only read and returned as a repostRow for the
+// caller to remove (nothing is written in the transaction).
+func (r *FirestoreRepo) setModerationX(ctx context.Context, postID string, decide func(Moderation) (Moderation, bool), now time.Time, interceptRepost bool) (ModerationResult, *repostRow, error) {
 	if postID == "" {
-		return ModerationResult{}, ErrInvalidID
+		return ModerationResult{}, nil, ErrInvalidID
 	}
 	var out ModerationResult
+	var repost *repostRow
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.ref(postID))
@@ -66,8 +92,13 @@ func (r *FirestoreRepo) setModeration(ctx context.Context, postID string, decide
 			return fmt.Errorf("posts: moderate decode %s: %w", postID, err)
 		}
 		cur := Moderation(d.Moderation)
-		next, change := decide(cur)
 		out = ModerationResult{AuthorID: d.AuthorID, Before: cur, After: cur}
+		repost = nil
+		if interceptRepost && Kind(d.Kind) == KindRepost && d.RepostOfID != "" {
+			repost = &repostRow{id: postID, authorID: d.AuthorID, originalID: d.RepostOfID}
+			return nil
+		}
+		next, change := decide(cur)
 		if !change {
 			return nil
 		}
@@ -81,9 +112,9 @@ func (r *FirestoreRepo) setModeration(ctx context.Context, postID string, decide
 		return nil
 	})
 	if err != nil {
-		return ModerationResult{}, err
+		return ModerationResult{}, nil, err
 	}
-	return out, nil
+	return out, repost, nil
 }
 
 // removalStateFor is the log state a moderation transition to next writes: any hide is REMOVED, a clear is RESTORED.

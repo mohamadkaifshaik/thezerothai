@@ -437,3 +437,71 @@ func TestListCopied_Integration(t *testing.T) {
 	}
 	budgettest.Assert(t, "ListCopied empty", c, budgettest.Budget{Reads: 1})
 }
+
+// TestTakedown_Integration_RepostIsReleased (issue #153): taking down a REPOST deletes the doc, releases the
+// reposts record, the original's repostCount and the reposter's postsCount, and logs the removal; restore is then
+// ErrNotFound (a fresh state: the user can repost again). A plain post is still only hidden.
+func TestTakedown_Integration_RepostIsReleased(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	repo.SetWriters(WriteDeps{Counters: countersStub{client}})
+	links := &recordLinks{}
+	repo.SetRepostLinks(links)
+	ctx := context.Background()
+	now := time.Unix(1_800_000_000, 0)
+
+	seedPost(t, client, cpOrig, cpGone, false, 1_700_000_000_000) // the original, repostCount 2 from seedPost
+	seedCopy(t, client, copyOf("uid-reposter", cpRepost, KindRepost))
+	if _, err := client.Doc("users/uid-reposter").Set(ctx, map[string]any{"postsCount": int64(4)}); err != nil {
+		t.Fatal(err)
+	}
+
+	cctx, c := budget.WithCounter(ctx)
+	res, err := repo.Takedown(cctx, cpRepost, now)
+	if err != nil || !res.RepostReleased || res.AuthorID != "uid-reposter" || res.After != ModerationTakenDown {
+		t.Fatalf("takedown = %+v err=%v", res, err)
+	}
+	// 1 read (the transaction); writes: the original's repostCount, the reposter's postsCount, the log entry.
+	budgettest.Assert(t, "Takedown of a REPOST", c, budgettest.Budget{Reads: 1, Writes: 3, Deletes: 1})
+
+	if _, err := client.Doc("posts/" + cpRepost).Get(ctx); err == nil {
+		t.Error("the REPOST doc survived")
+	}
+	links.mu.Lock()
+	if len(links.pairs) != 1 || links.pairs[0] != [2]string{cpOrig, "uid-reposter"} {
+		t.Errorf("reposts-record releases = %v, want one for (orig, uid-reposter)", links.pairs)
+	}
+	links.mu.Unlock()
+	o, _ := client.Doc("posts/" + cpOrig).Get(ctx)
+	if v, _ := o.DataAt("repostCount"); v != int64(1) {
+		t.Errorf("original repostCount = %v, want 1 (was 2)", v)
+	}
+	us, _ := client.Doc("users/uid-reposter").Get(ctx)
+	if v, _ := us.DataAt("postsCount"); v != int64(1) { // countersStub writes the constant 1
+		t.Errorf("reposter postsCount = %v, the counter was not staged", v)
+	}
+	rm, err := client.Collection(removalsCollection).Doc(cpRepost).Get(ctx)
+	if err != nil {
+		t.Fatalf("no removal-log entry: %v", err)
+	}
+	if st, _ := rm.DataAt("state"); st != string(RemovalRemoved) {
+		t.Errorf("removal state = %v, want REMOVED", st)
+	}
+
+	if _, err := repo.Restore(ctx, cpRepost, now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("restore of a released REPOST = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.Takedown(ctx, cpRepost, now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second takedown = %v, want ErrNotFound", err)
+	}
+
+	// A plain post is unchanged behaviour: hidden, not deleted.
+	seedPost(t, client, pid(77), "u-a", false, 1_700_000_001_000)
+	res, err = repo.Takedown(ctx, pid(77), now)
+	if err != nil || res.RepostReleased || res.After != ModerationTakenDown {
+		t.Fatalf("plain takedown = %+v err=%v", res, err)
+	}
+	if _, err := repo.ref(pid(77)).Get(ctx); err != nil {
+		t.Errorf("a plain post was deleted: %v", err)
+	}
+}
