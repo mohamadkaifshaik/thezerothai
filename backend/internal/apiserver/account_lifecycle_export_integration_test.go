@@ -135,6 +135,10 @@ func normalizeExport(t *testing.T, raw []byte, repl map[string]string) []byte {
 					v[k] = "<post-id>"
 					continue
 				}
+				if k == "id" && parent == "scheduled" { // 32 hex derived from the random uid
+					v[k] = "<scheduled-id>"
+					continue
+				}
 				v[k] = walk(k, x)
 			}
 			return v
@@ -198,6 +202,10 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	_, err = e.graph.Mute(ctx, authed(w.token, &graphv1.MuteRequest{IdempotencyKey: key("mute-f"), UserId: f.uid}))
 	must("w mutes f", err)
 
+	// ADR-0021: one pending (draft held) and one cancelled (draft cleared) scheduled post in the `scheduled` section.
+	e.seedScheduled(t, a.uid, key("sched-pending"), "PENDING")
+	e.seedScheduled(t, a.uid, key("sched-cancelled"), "CANCELLED")
+
 	fHandle, _ := e.profileOf(t, f)
 	for i, text := range []string{
 		"plain ascii post #golden",
@@ -259,7 +267,6 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		{"the email of a blocked user", xEmail},
 		{"the email of a muted user", zEmail},
 		{"the key blockedBy", `"blockedBy"`},
-		{"an internal status field", `"status"`},
 		{"snapshotVersion", `"snapshotVersion"`},
 		{"deletionJob", `"deletionJob"`},
 		{"handleLower", `"handleLower"`},
@@ -269,6 +276,27 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		if strings.Contains(string(raw), leak.needle) {
 			t.Errorf("the export contains %s (%q)", leak.what, leak.needle)
 		}
+	}
+	// The account's own status (users/{uid}.status) is internal and no section may carry a `status` key, except the
+	// `scheduled` section, whose items legitimately report PENDING, PUBLISHED, CANCELLED or FAILED (ADR-0021). The
+	// ban therefore runs over everything except that one section, and the account values are banned everywhere.
+	var sections map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &sections); err != nil {
+		t.Fatalf("export is not a JSON object: %v", err)
+	}
+	if _, ok := sections["scheduled"]; !ok {
+		t.Error("the export has no scheduled section")
+	}
+	delete(sections, "scheduled")
+	rest, err := json.Marshal(sections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rest), `"status"`) {
+		t.Errorf("the export contains an internal status field outside the scheduled section: %s", rest)
+	}
+	if m := regexp.MustCompile(`"status"\s*:\s*"(ACTIVE|SUSPENDED|DELETING)"`).Find(raw); m != nil {
+		t.Errorf("the export contains the account status (%s)", m)
 	}
 	// The subject's OWN relationships are in it: the blocked and muted users by uid and handle.
 	var doc struct {

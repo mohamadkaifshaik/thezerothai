@@ -58,6 +58,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlUserTimeline := ratelimit.NewLimiter(cfg.RateLimit.UserTimelinePerMinute, idleBucketTTL)
 	rlPostCreate := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	rlPostDelete := ratelimit.NewLimiter(cfg.RateLimit.PostDeletePerMinute, idleBucketTTL)
+	// ADR-0021 D4: SchedulePost and CancelScheduledPost share the CreatePost bucket (the SAME limiter, so one user's
+	// creates, schedules and cancels draw on one 10/min budget; that bound is what limits schedule/cancel churn
+	// across the instance-local limiter). ListScheduledPosts is a read: the 60/min default bucket and the read budget.
+	// Schedules are bounded per day by quota.Schedules (50, 10 for new accounts).
 	// ADR-0016: ReportContent 5/min per user; the daily bound is the reports quota (20, 5 for new accounts).
 	rlReport := ratelimit.NewLimiter(cfg.RateLimit.ReportPerMinute, idleBucketTTL)
 
@@ -78,6 +82,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			timelinev1connect.TimelineServiceGetUserTimelineProcedure:         rlUserTimeline,
 			postsv1connect.PostServiceCreatePostProcedure:                     rlPostCreate,
 			postsv1connect.PostServiceDeletePostProcedure:                     rlPostDelete,
+			postsv1connect.PostServiceSchedulePostProcedure:                   rlPostCreate,
+			postsv1connect.PostServiceCancelScheduledPostProcedure:            rlPostCreate,
 			moderationv1connect.ModerationServiceReportContentProcedure:       rlReport,
 			engagementv1connect.EngagementServiceLikePostProcedure:            rlEngagement,
 			engagementv1connect.EngagementServiceUnlikePostProcedure:          rlEngagement,

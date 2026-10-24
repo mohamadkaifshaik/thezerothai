@@ -363,8 +363,8 @@ old behaviour:
 dismiss); none uses `Set` (§Sweep "State writes").
 - PENDING → PUBLISHED: the publish transaction. **Clears `draft`** in the same commit.
 - PENDING → CANCELLED: the user cancels, or the sweep finds the account DELETING or gone. **Clears `draft`.**
-- PENDING → FAILED: a permanent cause, expiry, a recovered panic, or `attempts ≥ SCHEDULED_MAX_ATTEMPTS`. Keeps
-  `draft`, because "reschedule" is offered only from FAILED.
+- PENDING → FAILED: a permanent cause, expiry, a recovered panic, or `attempts ≥ SCHEDULED_MAX_ATTEMPTS`. Clears
+  `draft` (founder, 2026-10-24: failed items are not rescheduled).
 - FAILED → CANCELLED: the user dismisses it. **Clears `draft`.**
 - The client offers "reschedule" as a new SchedulePost built from the FAILED item's draft.
 - A PUBLISHED or CANCELLED doc keeps only `status`, `postId`, `failure`, `requestHash`, `publishAt` and timestamps

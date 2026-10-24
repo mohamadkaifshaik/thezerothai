@@ -176,3 +176,48 @@ func TestCheckAndReserveN(t *testing.T) {
 		})
 	}
 }
+
+// TestSchedulesKind: the schedules counter (ADR-0021 D4) reserves like the others, is independent of posts, rejects
+// with QUOTA_EXCEEDED metadata quota=schedules, and the only thing it writes is the one whole-record Set.
+func TestSchedulesKind(t *testing.T) {
+	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
+	tests := []struct {
+		name     string
+		rec      Record
+		limit    int64
+		wantErr  bool
+		wantUsed int64
+	}{
+		{"first schedule of the day", Record{Day: Today()}, 50, false, 1},
+		{"last one that fits", Record{Day: Today(), Schedules: 49}, 50, false, 50},
+		{"at the daily cap", Record{Day: Today(), Schedules: 50}, 50, true, 50},
+		{"new-account cap of 10", Record{Day: Today(), Schedules: 10}, 10, true, 10},
+		{"posts at its own cap do not block schedules", Record{Day: Today(), Posts: 100}, 50, false, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBatch{}
+			err := CheckAndReserve(b, ref, tt.rec, Schedules, tt.limit)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Metadata["quota"] != "schedules" || len(b.sets) != 0 {
+					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED quota=schedules and nothing written", err, len(b.sets))
+				}
+				return
+			}
+			got := b.sets[0].(Record)
+			if got.Schedules != tt.wantUsed || got.Posts != tt.rec.Posts {
+				t.Errorf("record = %+v, want Schedules %d and Posts untouched", got, tt.wantUsed)
+			}
+		})
+	}
+	if got := (Record{Schedules: 7}).valueFor(Schedules); got != 7 {
+		t.Errorf("valueFor(Schedules) = %d, want 7", got)
+	}
+	if got := (Record{Schedules: 7}).valueFor(Posts); got != 0 {
+		t.Errorf("valueFor(Posts) = %d, want 0: schedules must not leak into other kinds", got)
+	}
+}

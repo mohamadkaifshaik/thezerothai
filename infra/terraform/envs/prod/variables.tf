@@ -440,6 +440,34 @@ variable "feature_reply_audience_percent" {
   }
 }
 
+variable "feature_scheduled_posts" {
+  description = "FEATURE_SCHEDULED_POSTS rollout mode for SchedulePost, ListScheduledPosts, CancelScheduledPost and the publish sweep (ADR-0021 D4): off | allowlist | percent | on. Default off; leaves off only after 100% of traffic is on a revision that stores scheduled posts (ADR-0021 L-1)."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_scheduled_posts)
+    error_message = "feature_scheduled_posts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_scheduled_posts_allowlist" {
+  description = "FEATURE_SCHEDULED_POSTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_scheduled_posts_percent" {
+  description = "FEATURE_SCHEDULED_POSTS_PERCENT: 0-100, only meaningful when feature_scheduled_posts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_scheduled_posts_percent >= 0 && var.feature_scheduled_posts_percent <= 100 && floor(var.feature_scheduled_posts_percent) == var.feature_scheduled_posts_percent
+    error_message = "feature_scheduled_posts_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_replies" {
   description = "FEATURE_REPLIES rollout mode for replies and GetThread (P3): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

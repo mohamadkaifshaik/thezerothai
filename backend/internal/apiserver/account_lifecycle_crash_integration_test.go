@@ -257,7 +257,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo)} {
+	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo))} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, crashStep{s, plan}); err != nil {
 			t.Fatal(err)
 		}
@@ -349,6 +349,10 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	_, err = e.posts.CreatePost(ctx, authed(r.f1.token, &postsv1.CreatePostRequest{IdempotencyKey: "rich-mention-" + r.f1.uid[:12], Text: "hello @" + r.handle}))
 	e.call(t, "CreatePost (mention)", err)
 
+	// Scheduled posts live under users/{uid}/scheduled, which deleting users/{uid} does not remove (ADR-0021).
+	e.seedScheduled(t, r.a.uid, "rich-sched-pending-0001", "PENDING")
+	e.seedScheduled(t, r.a.uid, "rich-sched-cancelled-01", "CANCELLED")
+
 	exp, err := e.identity.RequestAccountExport(ctx, authed(r.a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "rich-export-" + r.a.uid[:12]}))
 	e.call(t, "RequestAccountExport", err)
 	r.exportID = exp.Msg.GetExportId()
@@ -374,6 +378,33 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	}
 	slices.Sort(r.cohort)
 	return r
+}
+
+// seedScheduled writes one users/{uid}/scheduled document in the stored shape (ADR-0021): a PENDING one holds a draft,
+// a CANCELLED one does not and carries an expireAt. The key makes the id.
+func (e *lifecycleEnv) seedScheduled(t *testing.T, uid, key, status string) {
+	t.Helper()
+	id, err := posts.ScheduledID(uid, key)
+	if err != nil {
+		t.Fatalf("ScheduledID: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Minute)
+	publishAt := now.Add(48 * time.Hour) // a CANCELLED one is later, so the export order (publishAt) is stable
+	if status == "CANCELLED" {
+		publishAt = now.Add(72 * time.Hour)
+	}
+	doc := map[string]any{
+		"schemaVersion": 1, "status": status, "publishAt": publishAt, "attempts": 0,
+		"requestHash": "h", "createdAt": now, "updatedAt": now,
+	}
+	if status == "CANCELLED" {
+		doc["expireAt"] = now.Add(7 * 24 * time.Hour)
+	} else {
+		doc["draft"] = map[string]any{"text": "scheduled draft of " + status, "madeWithAi": true}
+	}
+	if _, err := e.fs.Doc("users/"+uid+"/scheduled/"+id).Set(context.Background(), doc); err != nil {
+		t.Fatalf("seed scheduled: %v", err)
+	}
 }
 
 // beginDeletion requests the deletion through the real chain and returns the seq-0 job message.
@@ -443,6 +474,9 @@ func (e *lifecycleEnv) requireRichErased(t *testing.T, r richAccount) {
 	}
 	if _, err := e.bucket.Object(r.exportID + ".json").Attrs(ctx); err == nil {
 		t.Error("the export object survived")
+	}
+	if docs, err := e.fs.Doc("users/" + r.a.uid).Collection("scheduled").Limit(1).Documents(ctx).GetAll(); err != nil || len(docs) != 0 {
+		t.Errorf("users/{uid}/scheduled survived the scheduled step: %d docs, err %v", len(docs), err)
 	}
 	for _, other := range []testUser{r.blockedByA, r.blocksA, r.mutedByA} {
 		if !fsDocExists(t, e.fs, "users/"+other.uid) {

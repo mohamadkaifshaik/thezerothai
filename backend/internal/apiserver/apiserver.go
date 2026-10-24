@@ -109,7 +109,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureUIShell, cfg.FeatureRemovedIDs)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureUIShell, cfg.FeatureRemovedIDs)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -313,6 +313,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
 	if err := registerModerationLifecycle(lifecycle, moderationRepo); err != nil {
 		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
+	}
+	// scheduled posts (ADR-0021 D4): the erase step and export section are registered whether or not
+	// FEATURE_SCHEDULED_POSTS is on, because documents outlive the flag; the step runs after reports, before identity.
+	if err := registerScheduledLifecycle(lifecycle, postsRepo); err != nil {
+		return nil, nil, fmt.Errorf("scheduled lifecycle registry: %w", err)
 	}
 	moderationSvc := moderation.New(moderation.Deps{
 		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,
