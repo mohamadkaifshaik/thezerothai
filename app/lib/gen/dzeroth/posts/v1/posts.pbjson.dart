@@ -90,6 +90,22 @@ final $typed_data.Uint8List replyPermissionDescriptor = $convert.base64Decode(
     'JFUExZX1BFUk1JU1NJT05fQUxMT1dFRBABEiAKHFJFUExZX1BFUk1JU1NJT05fTk9UX0FMTE9X'
     'RUQQAhIcChhSRVBMWV9QRVJNSVNTSU9OX1VOS05PV04QAw==');
 
+@$core.Deprecated('Use embedViewerStateDescriptor instead')
+const EmbedViewerState$json = {
+  '1': 'EmbedViewerState',
+  '2': [
+    {'1': 'EMBED_VIEWER_STATE_UNSPECIFIED', '2': 0},
+    {'1': 'EMBED_VIEWER_STATE_BLOCKED', '2': 1},
+    {'1': 'EMBED_VIEWER_STATE_MUTED', '2': 2},
+  ],
+};
+
+/// Descriptor for `EmbedViewerState`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List embedViewerStateDescriptor = $convert.base64Decode(
+    'ChBFbWJlZFZpZXdlclN0YXRlEiIKHkVNQkVEX1ZJRVdFUl9TVEFURV9VTlNQRUNJRklFRBAAEh'
+    '4KGkVNQkVEX1ZJRVdFUl9TVEFURV9CTE9DS0VEEAESHAoYRU1CRURfVklFV0VSX1NUQVRFX01V'
+    'VEVEEAI=');
+
 @$core.Deprecated('Use scheduledPostStatusDescriptor instead')
 const ScheduledPostStatus$json = {
   '1': 'ScheduledPostStatus',
@@ -333,6 +349,14 @@ const PostView$json = {
       '6': '.dzeroth.posts.v1.ReplyPermission',
       '10': 'viewerReplyPermission'
     },
+    {
+      '1': 'embed_viewer_state',
+      '3': 5,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.posts.v1.EmbedViewerState',
+      '10': 'embedViewerState'
+    },
   ],
 };
 
@@ -342,7 +366,8 @@ final $typed_data.Uint8List postViewDescriptor = $convert.base64Decode(
     'YKD2xpa2VkX2J5X3ZpZXdlchgCIAEoCFINbGlrZWRCeVZpZXdlchIsChJyZXBvc3RlZF9ieV92'
     'aWV3ZXIYAyABKAhSEHJlcG9zdGVkQnlWaWV3ZXISWQoXdmlld2VyX3JlcGx5X3Blcm1pc3Npb2'
     '4YBCABKA4yIS5kemVyb3RoLnBvc3RzLnYxLlJlcGx5UGVybWlzc2lvblIVdmlld2VyUmVwbHlQ'
-    'ZXJtaXNzaW9u');
+    'ZXJtaXNzaW9uElAKEmVtYmVkX3ZpZXdlcl9zdGF0ZRgFIAEoDjIiLmR6ZXJvdGgucG9zdHMudj'
+    'EuRW1iZWRWaWV3ZXJTdGF0ZVIQZW1iZWRWaWV3ZXJTdGF0ZQ==');
 
 @$core.Deprecated('Use createPostRequestDescriptor instead')
 const CreatePostRequest$json = {

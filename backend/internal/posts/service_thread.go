@@ -435,3 +435,31 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.Draft.ConversationID = conv
 	p.Draft.ReplyPolicy = parent.ReplyPolicy // inherited, 0 reads; never a user id (ADR-0021 D2)
 }
+
+// EmbedViewerState implements EmbedHinter (issue #152): whether the viewer blocks or mutes the author of the REPOST or
+// QUOTE p embeds. It reads the viewer's own lists only (never BlockedBy: an author who blocks the viewer is not
+// reported, GetPost answers NOT_FOUND for that). 0 reads for a post without a live embed; otherwise the viewer's graph
+// snapshot, which GetPost and GetThread have just cached (<= +1 read cold). On a graph error it is UNSPECIFIED and the
+// client falls back to its local relationship cache.
+func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) postsv1.EmbedViewerState {
+	a := p.EmbeddedAuthor()
+	if a == "" || a == viewer || p.AuthorID == viewer {
+		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+	}
+	snap, err := s.graph.Snapshot(ctx, viewer)
+	if err != nil {
+		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+	}
+	return embedStateFor(snap, a)
+}
+
+// embedStateFor is the pure decision: blocked wins over muted.
+func embedStateFor(snap graph.Snapshot, embeddedAuthor string) postsv1.EmbedViewerState {
+	switch {
+	case snap.Blocked[embeddedAuthor]:
+		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_BLOCKED
+	case snap.Muted[embeddedAuthor]:
+		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_MUTED
+	}
+	return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+}

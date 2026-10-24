@@ -554,6 +554,7 @@ class PostView extends $pb.GeneratedMessage {
     $core.bool? likedByViewer,
     $core.bool? repostedByViewer,
     ReplyPermission? viewerReplyPermission,
+    EmbedViewerState? embedViewerState,
   }) {
     final result = PostView._();
     if (post != null) result.post = post;
@@ -561,6 +562,7 @@ class PostView extends $pb.GeneratedMessage {
     if (repostedByViewer != null) result.repostedByViewer = repostedByViewer;
     if (viewerReplyPermission != null)
       result.viewerReplyPermission = viewerReplyPermission;
+    if (embedViewerState != null) result.embedViewerState = embedViewerState;
     return result;
   }
 
@@ -584,6 +586,8 @@ class PostView extends $pb.GeneratedMessage {
     ..aOB(3, _omitFieldNames ? '' : 'repostedByViewer')
     ..aE<ReplyPermission>(4, _omitFieldNames ? '' : 'viewerReplyPermission',
         enumValues: ReplyPermission.values)
+    ..aE<EmbedViewerState>(5, _omitFieldNames ? '' : 'embedViewerState',
+        enumValues: EmbedViewerState.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -645,6 +649,18 @@ class PostView extends $pb.GeneratedMessage {
   $core.bool hasViewerReplyPermission() => $_has(3);
   @$pb.TagNumber(4)
   void clearViewerReplyPermission() => $_clearField(4);
+
+  /// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
+  /// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set it:
+  /// they drop such rows (ADR-0018 D13).
+  @$pb.TagNumber(5)
+  EmbedViewerState get embedViewerState => $_getN(4);
+  @$pb.TagNumber(5)
+  set embedViewerState(EmbedViewerState value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasEmbedViewerState() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearEmbedViewerState() => $_clearField(5);
 }
 
 class CreatePostRequest extends $pb.GeneratedMessage {

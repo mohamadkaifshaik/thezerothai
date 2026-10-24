@@ -260,6 +260,62 @@ func (ReplyPermission) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{3}
 }
 
+// Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
+// viewer's OWN block and mute lists only; an author who blocks the viewer is never reported here (GetPost answers
+// NOT_FOUND for that, ADR-0008).
+type EmbedViewerState int32
+
+const (
+	// The embed may be shown, or the server did not compute it (older server, or the row has no embed): fall back to
+	// the client's local relationship cache.
+	EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED EmbedViewerState = 0
+	// The viewer blocks the embedded author.
+	EmbedViewerState_EMBED_VIEWER_STATE_BLOCKED EmbedViewerState = 1
+	// The viewer mutes the embedded author.
+	EmbedViewerState_EMBED_VIEWER_STATE_MUTED EmbedViewerState = 2
+)
+
+// Enum value maps for EmbedViewerState.
+var (
+	EmbedViewerState_name = map[int32]string{
+		0: "EMBED_VIEWER_STATE_UNSPECIFIED",
+		1: "EMBED_VIEWER_STATE_BLOCKED",
+		2: "EMBED_VIEWER_STATE_MUTED",
+	}
+	EmbedViewerState_value = map[string]int32{
+		"EMBED_VIEWER_STATE_UNSPECIFIED": 0,
+		"EMBED_VIEWER_STATE_BLOCKED":     1,
+		"EMBED_VIEWER_STATE_MUTED":       2,
+	}
+)
+
+func (x EmbedViewerState) Enum() *EmbedViewerState {
+	p := new(EmbedViewerState)
+	*p = x
+	return p
+}
+
+func (x EmbedViewerState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EmbedViewerState) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_posts_v1_posts_proto_enumTypes[4].Descriptor()
+}
+
+func (EmbedViewerState) Type() protoreflect.EnumType {
+	return &file_dzeroth_posts_v1_posts_proto_enumTypes[4]
+}
+
+func (x EmbedViewerState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EmbedViewerState.Descriptor instead.
+func (EmbedViewerState) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{4}
+}
+
 // Lifecycle of a scheduled post (ADR-0021 D4).
 type ScheduledPostStatus int32
 
@@ -304,11 +360,11 @@ func (x ScheduledPostStatus) String() string {
 }
 
 func (ScheduledPostStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_dzeroth_posts_v1_posts_proto_enumTypes[4].Descriptor()
+	return file_dzeroth_posts_v1_posts_proto_enumTypes[5].Descriptor()
 }
 
 func (ScheduledPostStatus) Type() protoreflect.EnumType {
-	return &file_dzeroth_posts_v1_posts_proto_enumTypes[4]
+	return &file_dzeroth_posts_v1_posts_proto_enumTypes[5]
 }
 
 func (x ScheduledPostStatus) Number() protoreflect.EnumNumber {
@@ -317,7 +373,7 @@ func (x ScheduledPostStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ScheduledPostStatus.Descriptor instead.
 func (ScheduledPostStatus) EnumDescriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{4}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{5}
 }
 
 // Why a scheduled post was not published (status FAILED).
@@ -376,11 +432,11 @@ func (x ScheduledPostFailure) String() string {
 }
 
 func (ScheduledPostFailure) Descriptor() protoreflect.EnumDescriptor {
-	return file_dzeroth_posts_v1_posts_proto_enumTypes[5].Descriptor()
+	return file_dzeroth_posts_v1_posts_proto_enumTypes[6].Descriptor()
 }
 
 func (ScheduledPostFailure) Type() protoreflect.EnumType {
-	return &file_dzeroth_posts_v1_posts_proto_enumTypes[5]
+	return &file_dzeroth_posts_v1_posts_proto_enumTypes[6]
 }
 
 func (x ScheduledPostFailure) Number() protoreflect.EnumNumber {
@@ -389,7 +445,7 @@ func (x ScheduledPostFailure) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ScheduledPostFailure.Descriptor instead.
 func (ScheduledPostFailure) EnumDescriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{5}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{6}
 }
 
 type Mention struct {
@@ -775,8 +831,12 @@ type PostView struct {
 	// Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
 	// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
 	ViewerReplyPermission ReplyPermission `protobuf:"varint,4,opt,name=viewer_reply_permission,json=viewerReplyPermission,proto3,enum=dzeroth.posts.v1.ReplyPermission" json:"viewer_reply_permission,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
+	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set it:
+	// they drop such rows (ADR-0018 D13).
+	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PostView) Reset() {
@@ -835,6 +895,13 @@ func (x *PostView) GetViewerReplyPermission() ReplyPermission {
 		return x.ViewerReplyPermission
 	}
 	return ReplyPermission_REPLY_PERMISSION_UNSPECIFIED
+}
+
+func (x *PostView) GetEmbedViewerState() EmbedViewerState {
+	if x != nil {
+		return x.EmbedViewerState
+	}
+	return EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 }
 
 type CreatePostRequest struct {
@@ -1858,12 +1925,13 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\freply_policy\x18\x12 \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\vreplyPolicy\x12)\n" +
 	"\x10paid_partnership\x18\x13 \x01(\bR\x0fpaidPartnership\x12 \n" +
 	"\fmade_with_ai\x18\x14 \x01(\bR\n" +
-	"madeWithAi\"\xe7\x01\n" +
+	"madeWithAi\"\xb9\x02\n" +
 	"\bPostView\x12*\n" +
 	"\x04post\x18\x01 \x01(\v2\x16.dzeroth.posts.v1.PostR\x04post\x12&\n" +
 	"\x0fliked_by_viewer\x18\x02 \x01(\bR\rlikedByViewer\x12,\n" +
 	"\x12reposted_by_viewer\x18\x03 \x01(\bR\x10repostedByViewer\x12Y\n" +
-	"\x17viewer_reply_permission\x18\x04 \x01(\x0e2!.dzeroth.posts.v1.ReplyPermissionR\x15viewerReplyPermission\"\xf6\x02\n" +
+	"\x17viewer_reply_permission\x18\x04 \x01(\x0e2!.dzeroth.posts.v1.ReplyPermissionR\x15viewerReplyPermission\x12P\n" +
+	"\x12embed_viewer_state\x18\x05 \x01(\x0e2\".dzeroth.posts.v1.EmbedViewerStateR\x10embedViewerState\"\xf6\x02\n" +
 	"\x11CreatePostRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
@@ -1961,7 +2029,11 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\x1cREPLY_PERMISSION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18REPLY_PERMISSION_ALLOWED\x10\x01\x12 \n" +
 	"\x1cREPLY_PERMISSION_NOT_ALLOWED\x10\x02\x12\x1c\n" +
-	"\x18REPLY_PERMISSION_UNKNOWN\x10\x03*\xcb\x01\n" +
+	"\x18REPLY_PERMISSION_UNKNOWN\x10\x03*t\n" +
+	"\x10EmbedViewerState\x12\"\n" +
+	"\x1eEMBED_VIEWER_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aEMBED_VIEWER_STATE_BLOCKED\x10\x01\x12\x1c\n" +
+	"\x18EMBED_VIEWER_STATE_MUTED\x10\x02*\xcb\x01\n" +
 	"\x13ScheduledPostStatus\x12%\n" +
 	"!SCHEDULED_POST_STATUS_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dSCHEDULED_POST_STATUS_PENDING\x10\x01\x12#\n" +
@@ -2000,90 +2072,92 @@ func file_dzeroth_posts_v1_posts_proto_rawDescGZIP() []byte {
 	return file_dzeroth_posts_v1_posts_proto_rawDescData
 }
 
-var file_dzeroth_posts_v1_posts_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_dzeroth_posts_v1_posts_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
 var file_dzeroth_posts_v1_posts_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_dzeroth_posts_v1_posts_proto_goTypes = []any{
 	(PostKind)(0),                       // 0: dzeroth.posts.v1.PostKind
 	(Visibility)(0),                     // 1: dzeroth.posts.v1.Visibility
 	(ReplyPolicy)(0),                    // 2: dzeroth.posts.v1.ReplyPolicy
 	(ReplyPermission)(0),                // 3: dzeroth.posts.v1.ReplyPermission
-	(ScheduledPostStatus)(0),            // 4: dzeroth.posts.v1.ScheduledPostStatus
-	(ScheduledPostFailure)(0),           // 5: dzeroth.posts.v1.ScheduledPostFailure
-	(*Mention)(nil),                     // 6: dzeroth.posts.v1.Mention
-	(*EmbeddedPost)(nil),                // 7: dzeroth.posts.v1.EmbeddedPost
-	(*Post)(nil),                        // 8: dzeroth.posts.v1.Post
-	(*PostView)(nil),                    // 9: dzeroth.posts.v1.PostView
-	(*CreatePostRequest)(nil),           // 10: dzeroth.posts.v1.CreatePostRequest
-	(*CreatePostResponse)(nil),          // 11: dzeroth.posts.v1.CreatePostResponse
-	(*DeletePostRequest)(nil),           // 12: dzeroth.posts.v1.DeletePostRequest
-	(*DeletePostResponse)(nil),          // 13: dzeroth.posts.v1.DeletePostResponse
-	(*GetPostRequest)(nil),              // 14: dzeroth.posts.v1.GetPostRequest
-	(*GetPostResponse)(nil),             // 15: dzeroth.posts.v1.GetPostResponse
-	(*GetThreadRequest)(nil),            // 16: dzeroth.posts.v1.GetThreadRequest
-	(*GetThreadResponse)(nil),           // 17: dzeroth.posts.v1.GetThreadResponse
-	(*ScheduledPost)(nil),               // 18: dzeroth.posts.v1.ScheduledPost
-	(*SchedulePostRequest)(nil),         // 19: dzeroth.posts.v1.SchedulePostRequest
-	(*SchedulePostResponse)(nil),        // 20: dzeroth.posts.v1.SchedulePostResponse
-	(*ListScheduledPostsRequest)(nil),   // 21: dzeroth.posts.v1.ListScheduledPostsRequest
-	(*ListScheduledPostsResponse)(nil),  // 22: dzeroth.posts.v1.ListScheduledPostsResponse
-	(*CancelScheduledPostRequest)(nil),  // 23: dzeroth.posts.v1.CancelScheduledPostRequest
-	(*CancelScheduledPostResponse)(nil), // 24: dzeroth.posts.v1.CancelScheduledPostResponse
-	(*v1.AuthorSnapshot)(nil),           // 25: dzeroth.common.v1.AuthorSnapshot
-	(*v1.MediaRef)(nil),                 // 26: dzeroth.common.v1.MediaRef
-	(*timestamppb.Timestamp)(nil),       // 27: google.protobuf.Timestamp
+	(EmbedViewerState)(0),               // 4: dzeroth.posts.v1.EmbedViewerState
+	(ScheduledPostStatus)(0),            // 5: dzeroth.posts.v1.ScheduledPostStatus
+	(ScheduledPostFailure)(0),           // 6: dzeroth.posts.v1.ScheduledPostFailure
+	(*Mention)(nil),                     // 7: dzeroth.posts.v1.Mention
+	(*EmbeddedPost)(nil),                // 8: dzeroth.posts.v1.EmbeddedPost
+	(*Post)(nil),                        // 9: dzeroth.posts.v1.Post
+	(*PostView)(nil),                    // 10: dzeroth.posts.v1.PostView
+	(*CreatePostRequest)(nil),           // 11: dzeroth.posts.v1.CreatePostRequest
+	(*CreatePostResponse)(nil),          // 12: dzeroth.posts.v1.CreatePostResponse
+	(*DeletePostRequest)(nil),           // 13: dzeroth.posts.v1.DeletePostRequest
+	(*DeletePostResponse)(nil),          // 14: dzeroth.posts.v1.DeletePostResponse
+	(*GetPostRequest)(nil),              // 15: dzeroth.posts.v1.GetPostRequest
+	(*GetPostResponse)(nil),             // 16: dzeroth.posts.v1.GetPostResponse
+	(*GetThreadRequest)(nil),            // 17: dzeroth.posts.v1.GetThreadRequest
+	(*GetThreadResponse)(nil),           // 18: dzeroth.posts.v1.GetThreadResponse
+	(*ScheduledPost)(nil),               // 19: dzeroth.posts.v1.ScheduledPost
+	(*SchedulePostRequest)(nil),         // 20: dzeroth.posts.v1.SchedulePostRequest
+	(*SchedulePostResponse)(nil),        // 21: dzeroth.posts.v1.SchedulePostResponse
+	(*ListScheduledPostsRequest)(nil),   // 22: dzeroth.posts.v1.ListScheduledPostsRequest
+	(*ListScheduledPostsResponse)(nil),  // 23: dzeroth.posts.v1.ListScheduledPostsResponse
+	(*CancelScheduledPostRequest)(nil),  // 24: dzeroth.posts.v1.CancelScheduledPostRequest
+	(*CancelScheduledPostResponse)(nil), // 25: dzeroth.posts.v1.CancelScheduledPostResponse
+	(*v1.AuthorSnapshot)(nil),           // 26: dzeroth.common.v1.AuthorSnapshot
+	(*v1.MediaRef)(nil),                 // 27: dzeroth.common.v1.MediaRef
+	(*timestamppb.Timestamp)(nil),       // 28: google.protobuf.Timestamp
 }
 var file_dzeroth_posts_v1_posts_proto_depIdxs = []int32{
-	25, // 0: dzeroth.posts.v1.EmbeddedPost.author:type_name -> dzeroth.common.v1.AuthorSnapshot
-	26, // 1: dzeroth.posts.v1.EmbeddedPost.media:type_name -> dzeroth.common.v1.MediaRef
-	27, // 2: dzeroth.posts.v1.EmbeddedPost.created_at:type_name -> google.protobuf.Timestamp
+	26, // 0: dzeroth.posts.v1.EmbeddedPost.author:type_name -> dzeroth.common.v1.AuthorSnapshot
+	27, // 1: dzeroth.posts.v1.EmbeddedPost.media:type_name -> dzeroth.common.v1.MediaRef
+	28, // 2: dzeroth.posts.v1.EmbeddedPost.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 3: dzeroth.posts.v1.EmbeddedPost.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	25, // 4: dzeroth.posts.v1.Post.author:type_name -> dzeroth.common.v1.AuthorSnapshot
+	26, // 4: dzeroth.posts.v1.Post.author:type_name -> dzeroth.common.v1.AuthorSnapshot
 	0,  // 5: dzeroth.posts.v1.Post.kind:type_name -> dzeroth.posts.v1.PostKind
-	26, // 6: dzeroth.posts.v1.Post.media:type_name -> dzeroth.common.v1.MediaRef
-	7,  // 7: dzeroth.posts.v1.Post.embedded:type_name -> dzeroth.posts.v1.EmbeddedPost
-	6,  // 8: dzeroth.posts.v1.Post.mentions:type_name -> dzeroth.posts.v1.Mention
+	27, // 6: dzeroth.posts.v1.Post.media:type_name -> dzeroth.common.v1.MediaRef
+	8,  // 7: dzeroth.posts.v1.Post.embedded:type_name -> dzeroth.posts.v1.EmbeddedPost
+	7,  // 8: dzeroth.posts.v1.Post.mentions:type_name -> dzeroth.posts.v1.Mention
 	1,  // 9: dzeroth.posts.v1.Post.visibility:type_name -> dzeroth.posts.v1.Visibility
-	27, // 10: dzeroth.posts.v1.Post.created_at:type_name -> google.protobuf.Timestamp
+	28, // 10: dzeroth.posts.v1.Post.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 11: dzeroth.posts.v1.Post.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	8,  // 12: dzeroth.posts.v1.PostView.post:type_name -> dzeroth.posts.v1.Post
+	9,  // 12: dzeroth.posts.v1.PostView.post:type_name -> dzeroth.posts.v1.Post
 	3,  // 13: dzeroth.posts.v1.PostView.viewer_reply_permission:type_name -> dzeroth.posts.v1.ReplyPermission
-	2,  // 14: dzeroth.posts.v1.CreatePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	9,  // 15: dzeroth.posts.v1.CreatePostResponse.post:type_name -> dzeroth.posts.v1.PostView
-	9,  // 16: dzeroth.posts.v1.GetPostResponse.post:type_name -> dzeroth.posts.v1.PostView
-	9,  // 17: dzeroth.posts.v1.GetThreadResponse.focal:type_name -> dzeroth.posts.v1.PostView
-	9,  // 18: dzeroth.posts.v1.GetThreadResponse.parent:type_name -> dzeroth.posts.v1.PostView
-	9,  // 19: dzeroth.posts.v1.GetThreadResponse.root:type_name -> dzeroth.posts.v1.PostView
-	9,  // 20: dzeroth.posts.v1.GetThreadResponse.replies:type_name -> dzeroth.posts.v1.PostView
-	26, // 21: dzeroth.posts.v1.ScheduledPost.media:type_name -> dzeroth.common.v1.MediaRef
-	2,  // 22: dzeroth.posts.v1.ScheduledPost.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	27, // 23: dzeroth.posts.v1.ScheduledPost.publish_at:type_name -> google.protobuf.Timestamp
-	4,  // 24: dzeroth.posts.v1.ScheduledPost.status:type_name -> dzeroth.posts.v1.ScheduledPostStatus
-	5,  // 25: dzeroth.posts.v1.ScheduledPost.failure:type_name -> dzeroth.posts.v1.ScheduledPostFailure
-	27, // 26: dzeroth.posts.v1.ScheduledPost.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 27: dzeroth.posts.v1.SchedulePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	27, // 28: dzeroth.posts.v1.SchedulePostRequest.publish_at:type_name -> google.protobuf.Timestamp
-	18, // 29: dzeroth.posts.v1.SchedulePostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
-	18, // 30: dzeroth.posts.v1.ListScheduledPostsResponse.scheduled_posts:type_name -> dzeroth.posts.v1.ScheduledPost
-	18, // 31: dzeroth.posts.v1.CancelScheduledPostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
-	10, // 32: dzeroth.posts.v1.PostService.CreatePost:input_type -> dzeroth.posts.v1.CreatePostRequest
-	12, // 33: dzeroth.posts.v1.PostService.DeletePost:input_type -> dzeroth.posts.v1.DeletePostRequest
-	14, // 34: dzeroth.posts.v1.PostService.GetPost:input_type -> dzeroth.posts.v1.GetPostRequest
-	16, // 35: dzeroth.posts.v1.PostService.GetThread:input_type -> dzeroth.posts.v1.GetThreadRequest
-	19, // 36: dzeroth.posts.v1.PostService.SchedulePost:input_type -> dzeroth.posts.v1.SchedulePostRequest
-	21, // 37: dzeroth.posts.v1.PostService.ListScheduledPosts:input_type -> dzeroth.posts.v1.ListScheduledPostsRequest
-	23, // 38: dzeroth.posts.v1.PostService.CancelScheduledPost:input_type -> dzeroth.posts.v1.CancelScheduledPostRequest
-	11, // 39: dzeroth.posts.v1.PostService.CreatePost:output_type -> dzeroth.posts.v1.CreatePostResponse
-	13, // 40: dzeroth.posts.v1.PostService.DeletePost:output_type -> dzeroth.posts.v1.DeletePostResponse
-	15, // 41: dzeroth.posts.v1.PostService.GetPost:output_type -> dzeroth.posts.v1.GetPostResponse
-	17, // 42: dzeroth.posts.v1.PostService.GetThread:output_type -> dzeroth.posts.v1.GetThreadResponse
-	20, // 43: dzeroth.posts.v1.PostService.SchedulePost:output_type -> dzeroth.posts.v1.SchedulePostResponse
-	22, // 44: dzeroth.posts.v1.PostService.ListScheduledPosts:output_type -> dzeroth.posts.v1.ListScheduledPostsResponse
-	24, // 45: dzeroth.posts.v1.PostService.CancelScheduledPost:output_type -> dzeroth.posts.v1.CancelScheduledPostResponse
-	39, // [39:46] is the sub-list for method output_type
-	32, // [32:39] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	4,  // 14: dzeroth.posts.v1.PostView.embed_viewer_state:type_name -> dzeroth.posts.v1.EmbedViewerState
+	2,  // 15: dzeroth.posts.v1.CreatePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	10, // 16: dzeroth.posts.v1.CreatePostResponse.post:type_name -> dzeroth.posts.v1.PostView
+	10, // 17: dzeroth.posts.v1.GetPostResponse.post:type_name -> dzeroth.posts.v1.PostView
+	10, // 18: dzeroth.posts.v1.GetThreadResponse.focal:type_name -> dzeroth.posts.v1.PostView
+	10, // 19: dzeroth.posts.v1.GetThreadResponse.parent:type_name -> dzeroth.posts.v1.PostView
+	10, // 20: dzeroth.posts.v1.GetThreadResponse.root:type_name -> dzeroth.posts.v1.PostView
+	10, // 21: dzeroth.posts.v1.GetThreadResponse.replies:type_name -> dzeroth.posts.v1.PostView
+	27, // 22: dzeroth.posts.v1.ScheduledPost.media:type_name -> dzeroth.common.v1.MediaRef
+	2,  // 23: dzeroth.posts.v1.ScheduledPost.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	28, // 24: dzeroth.posts.v1.ScheduledPost.publish_at:type_name -> google.protobuf.Timestamp
+	5,  // 25: dzeroth.posts.v1.ScheduledPost.status:type_name -> dzeroth.posts.v1.ScheduledPostStatus
+	6,  // 26: dzeroth.posts.v1.ScheduledPost.failure:type_name -> dzeroth.posts.v1.ScheduledPostFailure
+	28, // 27: dzeroth.posts.v1.ScheduledPost.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 28: dzeroth.posts.v1.SchedulePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	28, // 29: dzeroth.posts.v1.SchedulePostRequest.publish_at:type_name -> google.protobuf.Timestamp
+	19, // 30: dzeroth.posts.v1.SchedulePostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
+	19, // 31: dzeroth.posts.v1.ListScheduledPostsResponse.scheduled_posts:type_name -> dzeroth.posts.v1.ScheduledPost
+	19, // 32: dzeroth.posts.v1.CancelScheduledPostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
+	11, // 33: dzeroth.posts.v1.PostService.CreatePost:input_type -> dzeroth.posts.v1.CreatePostRequest
+	13, // 34: dzeroth.posts.v1.PostService.DeletePost:input_type -> dzeroth.posts.v1.DeletePostRequest
+	15, // 35: dzeroth.posts.v1.PostService.GetPost:input_type -> dzeroth.posts.v1.GetPostRequest
+	17, // 36: dzeroth.posts.v1.PostService.GetThread:input_type -> dzeroth.posts.v1.GetThreadRequest
+	20, // 37: dzeroth.posts.v1.PostService.SchedulePost:input_type -> dzeroth.posts.v1.SchedulePostRequest
+	22, // 38: dzeroth.posts.v1.PostService.ListScheduledPosts:input_type -> dzeroth.posts.v1.ListScheduledPostsRequest
+	24, // 39: dzeroth.posts.v1.PostService.CancelScheduledPost:input_type -> dzeroth.posts.v1.CancelScheduledPostRequest
+	12, // 40: dzeroth.posts.v1.PostService.CreatePost:output_type -> dzeroth.posts.v1.CreatePostResponse
+	14, // 41: dzeroth.posts.v1.PostService.DeletePost:output_type -> dzeroth.posts.v1.DeletePostResponse
+	16, // 42: dzeroth.posts.v1.PostService.GetPost:output_type -> dzeroth.posts.v1.GetPostResponse
+	18, // 43: dzeroth.posts.v1.PostService.GetThread:output_type -> dzeroth.posts.v1.GetThreadResponse
+	21, // 44: dzeroth.posts.v1.PostService.SchedulePost:output_type -> dzeroth.posts.v1.SchedulePostResponse
+	23, // 45: dzeroth.posts.v1.PostService.ListScheduledPosts:output_type -> dzeroth.posts.v1.ListScheduledPostsResponse
+	25, // 46: dzeroth.posts.v1.PostService.CancelScheduledPost:output_type -> dzeroth.posts.v1.CancelScheduledPostResponse
+	40, // [40:47] is the sub-list for method output_type
+	33, // [33:40] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_posts_v1_posts_proto_init() }
@@ -2096,7 +2170,7 @@ func file_dzeroth_posts_v1_posts_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_posts_v1_posts_proto_rawDesc), len(file_dzeroth_posts_v1_posts_proto_rawDesc)),
-			NumEnums:      6,
+			NumEnums:      7,
 			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,

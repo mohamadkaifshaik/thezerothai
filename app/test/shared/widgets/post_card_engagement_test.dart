@@ -244,6 +244,37 @@ void main() {
       expect(find.text('the original words'), findsOneWidget);
     });
 
+    testWidgets(
+      'a server embed_viewer_state hides the snapshot with a cold cache',
+      (tester) async {
+        when(() => graphRepository.cached('u-orig')).thenReturn(null);
+        final blocked = _repost()
+          ..embedViewerState = pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED;
+        await tester.pumpWidget(wrap(PostCard(view: blocked, now: _now)));
+
+        expect(find.text('You blocked this account'), findsOneWidget);
+        expect(find.text('the original words'), findsNothing);
+
+        final muted = _repost()
+          ..embedViewerState = pb.EmbedViewerState.EMBED_VIEWER_STATE_MUTED;
+        await tester.pumpWidget(wrap(PostCard(view: muted, now: _now)));
+        await tester.pump();
+
+        expect(find.text('You muted this account'), findsOneWidget);
+        expect(find.text('the original words'), findsNothing);
+      },
+    );
+
+    testWidgets('an unspecified embed_viewer_state falls back to the cache', (
+      tester,
+    ) async {
+      when(() => graphRepository.cached('u-orig'))
+          .thenReturn(graph.Relationship(userId: 'u-orig', muting: true));
+      await tester.pumpWidget(wrap(PostCard(view: _repost(), now: _now)));
+
+      expect(find.text('You muted this account'), findsOneWidget);
+    });
+
     testWidgets('the repost header has a spoken label', (tester) async {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(wrap(PostCard(view: _repost(), now: _now)));
@@ -304,6 +335,19 @@ void main() {
 
       expect(find.text('my take'), findsOneWidget);
       expect(find.text('This post is unavailable'), findsOneWidget);
+    });
+
+    testWidgets('a server embed_viewer_state hides a quote embed too', (
+      tester,
+    ) async {
+      when(() => graphRepository.cached('u-orig')).thenReturn(null);
+      final view = _quote()
+        ..embedViewerState = pb.EmbedViewerState.EMBED_VIEWER_STATE_BLOCKED;
+      await tester.pumpWidget(wrap(PostCard(view: view, now: _now)));
+
+      expect(find.text('my take'), findsOneWidget);
+      expect(find.text('You blocked this account'), findsOneWidget);
+      expect(find.text('the original words'), findsNothing);
     });
 
     testWidgets('a blocked quoted author shows no snapshot', (tester) async {
