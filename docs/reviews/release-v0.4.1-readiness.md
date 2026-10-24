@@ -88,7 +88,7 @@ On this Windows machine `gcloud.cmd` mis-parses filters that contain `>=`. Run l
 - `/privacy` and `/api/health` return 200.
 - After the next 03:00 IST run, the `account_job backstop outcome=ok` line appears from the new revision.
 - 24 h and 7 days: ERROR/5xx = 0, Firestore < 10k reads/day.
-- Write `docs/reviews/release-v0.4.1-postrelease.md`.
+- Write `docs/archive/reviews/release-v0.4.1-postrelease.md`.
 
 ## 6. Rollback
 - **Cloud Run (seconds):** `"$G" run services update-traffic api $P --to-revisions=api-00010-zah=100`. Always `--to-revisions`, never `--to-latest`. `api-00010-zah` and its image `api:v0.4.0@sha256:c1a5e07…` both survive: revisions are never deleted by a deploy, and `keep-tag-v` protects the image (H10).
