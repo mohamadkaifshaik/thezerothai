@@ -51,20 +51,20 @@ Done and merged: ADR accepted, proto contract, scheduled TTL policy, content dis
 
 | # | Ticket | Owner | Status | Task |
 |---|---|---|---|---|
-| 2.1 | CMP-B3 | Claude | DONE (#256) | Flutter reply-audience UI: "Who can reply?" sheet (3 options), link text, disabled reply state from `viewer_reply_permission`, echo check. Needs a dev check once `FEATURE_REPLY_AUDIENCE` is allowlisted for a test user (see 2.13). |
-| 2.2 | CMP-D2/D3 foundation | Claude | DONE (PR open) | Scheduled posts PR 1: config and quotas, the `users/{uid}/scheduled` model and repository, deletion eraser, export section, collection-guard row, `FEATURE_SCHEDULED_POSTS` (off), rate-limit mapping. Open questions for the architect: FAILED items also get a 7-day TTL (the draft offered for reschedule disappears after a week); Cancel accepts FAILED as well as PENDING; the agent's own bounds on the `SCHEDULED_*` config keys. Terraform entries for the new env vars and `rollback.md` wording are left for PRs 4 and 6. |
+| 2.1 | CMP-B3 | Claude | DONE (#256, merged) | Flutter reply-audience UI: "Who can reply?" sheet (3 options), link text, disabled reply state from `viewer_reply_permission`, echo check. Needs a dev check once `FEATURE_REPLY_AUDIENCE` is allowlisted for a test user (see 2.13). |
+| 2.2 | CMP-D2/D3 foundation | Claude | DONE (PR #258 open) | Scheduled posts PR 1: config and quotas, the `users/{uid}/scheduled` model and repository, deletion eraser, export section, collection-guard row, `FEATURE_SCHEDULED_POSTS` (off), rate-limit mapping. Founder decisions 2026-10-24: failed items are not rescheduled (draft cleared on FAILED); Cancel accepts FAILED as well as PENDING; `SCHEDULED_MAX_PENDING` max 50 and `SCHEDULED_SWEEP_CONCURRENCY` max 4; flaky lifecycle test is issue #259. |
 | 2.3 | CMP-D3 | Claude | TODO | Scheduled posts PR 2: `SchedulePost`, `ListScheduledPosts`, `CancelScheduledPost` service and handlers (replay check before limits, window cap, quotas, per-item rules from the security review). |
 | 2.4 | CMP-D4 | Claude | TODO | Scheduled posts PR 3: the publish sweep and its `/internal/cron/publish-scheduled` route (per-item recover, per-author cap, precondition writes, error scrubbing, exactly-once publish). |
 | 2.5 | CMP-D5 | Claude | TODO | Scheduled posts PR 4: Terraform for the `publish-scheduled` job (prod only, every 5 minutes; 2 of 3 free Scheduler jobs). |
 | 2.6 | CMP-D6 | Claude | TODO | Scheduled posts PR 5: Flutter schedule dialog (native date and time pickers on mobile) and the Scheduled list. |
 | 2.7 | CMP-D7/D8 | Claude | TODO | Scheduled posts PR 6: tests, runbook entry, cost report (sre-performance). |
-| 2.8 | CMP-C3 | Claude | BLOCKED | Flutter disclosure UI: the two-switch dialog can be built; the badge on a post waits for the capture in 2.9. |
-| 2.9 | CMP-0 captures | Both | BLOCKED | Needs a Chrome tab in the foreground. Still to capture on x.com: how a **disclosed post** renders in a feed; the counter ring under 280 characters; media with alt text; light theme; what the Schedule button does; a Scheduled list with a row. |
+| 2.8 | CMP-C3 | Claude | TODO (on hold: founder said do not start yet) | Flutter disclosure UI. Unblocked: the two-switch dialog, the label rows under the composer text (sparkle "Made with AI", then "Paid partnership", grey `#71767b`, about 22 dp pitch), the filled flag icon while a label is set, and the same two rows on a posted post (between the text and the action row) are all captured and measured. Add the label text to the post's accessibility summary (X leaves it out). Still unknown: label placement with media or a quote, mobile, light theme. |
+| 2.9 | CMP-0 captures | Both | DOING | Captured so far (local notes `docs/x_research/screens/composer.md` sections 1a to 1g): over-limit state, discard prompt, mobile composer, schedule dialog, disclosure labels in the composer and on a posted post, counter ring (blue progress arc, number only near the limit, yellow ring at 4 remaining, red negative over). **Still to capture:** the exact remaining-count where the number appears and the ring colour at 15 and 20 remaining; media with alt text; light theme; labelled post with media or a quote, in the post detail and on mobile; what the Schedule button does; a Scheduled list with a row. Needs a Chrome tab in the foreground. |
 | 2.10 | Follow-up | Claude | TODO | De-duplicate the who-may-reply decision (`policyAllows`, `Post.Mentions`); remove the proto import from the posts domain layer; add a log field for degraded hints; the CreatePost response hint. |
-| 2.11 | Follow-up | Claude | TODO | Open a ticket for the flaky `TestAccountLifecycle_RichAccountCrashAtEverySideEffect` (failed in a few local runs, green in CI every time). |
+| 2.11 | Follow-up | Claude | DONE (#259) | Ticket opened for the flaky `TestAccountLifecycle_RichAccountCrashAtEverySideEffect` (failed in a few local runs, green in CI every time). |
 | 2.12 | Follow-up | Claude | TODO | Name the first reply-audience-enforcing release tag in `docs/runbooks/rollback.md` when it is cut (the "forward-only floor"). |
 | 2.13 | Rollout | Both | WAIT | Ramp the three flags (`content_disclosure`, `reply_audience`, `scheduled_posts`): dev allowlist first (max 3 users), then prod through the normal release path. Only after the UI exists and 100% of traffic is on an enforcing revision. |
-| 2.14 | Cleanup | Founder | TODO | Close the two browser tabs that still hold test text and an open schedule dialog (the desktop schedule tab and the emulated mobile tab): choose **Discard**, do not Save. |
+| 2.14 | Cleanup | Founder | TODO | Close the browser tab(s) that still hold test text or an open dialog (choose **Discard**, never Save), and delete the test post you published with both labels on `x.com/fan_of_ur_s` if you do not want it on your profile. |
 
 ---
 
@@ -94,5 +94,6 @@ These come from the memory notes of earlier sessions. Claude should confirm each
 
 ## 5. Recently done
 
-- 2026-10-23: `docs/pending.md` added (#255); reply audience UI CMP-B3 (#256, open until merged).
+- 2026-10-23: reply audience UI CMP-B3 merged (#256).
+- 2026-10-23: `docs/pending.md` added (#255); 
 - 2026-10-23: ADR-0021 accepted and merged (#242); proto contract (#243); scheduled TTL policy (#244); disclosure backend (#247); reply audience backend (#248); ADR-0022 accepted (#249); cost model re-priced (#250); `CLAUDE.md` credit mode and dated cost-hook marker (#251); Flutter service-paused screen (#252); credit-mode Terraform and the until-date CI check (#253); `CLAUDE.md` Stage 0 wording (#254).

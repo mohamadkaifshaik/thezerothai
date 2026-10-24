@@ -296,7 +296,7 @@ func TestScheduledTransition(t *testing.T) {
 		{"published clears the draft", ScheduledTransition{To: ScheduledPublished, PostID: "1234567890123456789"}, ScheduledPending, false, false, "1234567890123456789", ""},
 		{"cancelled clears the draft", ScheduledTransition{To: ScheduledCancelled}, ScheduledPending, false, false, "", ""},
 		{"dismissing a failed item clears the draft", ScheduledTransition{To: ScheduledCancelled}, ScheduledFailed, false, false, "", ""},
-		{"failed keeps the draft for reschedule", ScheduledTransition{To: ScheduledFailed, Failure: FailureMediaUnavailable}, ScheduledPending, false, true, "", FailureMediaUnavailable},
+		{"failed clears the draft (no reschedule)", ScheduledTransition{To: ScheduledFailed, Failure: FailureMediaUnavailable}, ScheduledPending, false, false, "", FailureMediaUnavailable},
 		{"published needs a post id", ScheduledTransition{To: ScheduledPublished}, ScheduledPending, true, false, "", ""},
 		{"failed needs a reason", ScheduledTransition{To: ScheduledFailed}, ScheduledPending, true, false, "", ""},
 		{"failed needs a known reason", ScheduledTransition{To: ScheduledFailed, Failure: "WEIRD"}, ScheduledPending, true, false, "", ""},

@@ -56,12 +56,12 @@ func loadScheduled() (ScheduledConfig, error) {
 		def      int
 		min, max int
 	}{
-		{&c.MaxPending, "SCHEDULED_MAX_PENDING", 25, 1, 100},
+		{&c.MaxPending, "SCHEDULED_MAX_PENDING", 25, 1, 50},
 		{&c.PerAuthorPerRun, "SCHEDULED_PER_AUTHOR_PER_RUN", 3, 1, 10},
 		{&c.AuthorReadsWarn, "SCHEDULED_AUTHOR_READS_WARN", 40, 1, 1000},
 		{&c.SweepLimit, "SCHEDULED_SWEEP_LIMIT", MaxScheduledSweepLimit, 1, 1000},
 		{&c.SweepMaxPages, "SCHEDULED_SWEEP_MAX_PAGES", 2, 1, 10},
-		{&c.SweepConcurrency, "SCHEDULED_SWEEP_CONCURRENCY", 4, 1, 16},
+		{&c.SweepConcurrency, "SCHEDULED_SWEEP_CONCURRENCY", 4, 1, 4},
 		{&c.MaxAttempts, "SCHEDULED_MAX_ATTEMPTS", 3, 1, 10},
 	}
 	for _, f := range ints {

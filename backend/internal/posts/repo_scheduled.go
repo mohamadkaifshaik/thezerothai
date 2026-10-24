@@ -81,7 +81,7 @@ type ScheduledRepo interface {
 var _ ScheduledRepo = (*FirestoreRepo)(nil)
 
 // scheduledDoc is the stored shape. Optional fields use omitempty or nil pointers so a PENDING document carries no
-// expireAt, failure or postId, and a PUBLISHED or CANCELLED one carries no draft.
+// expireAt, failure or postId, and a PUBLISHED, CANCELLED or FAILED one carries no draft.
 type scheduledDoc struct {
 	SchemaVersion int                `firestore:"schemaVersion"`
 	Draft         *scheduledDraftDoc `firestore:"draft,omitempty"`
@@ -183,7 +183,7 @@ func decodeScheduledAll(docs []*firestore.DocumentSnapshot, uid string) ([]*Sche
 }
 
 // ScheduledTransition is a state change out of PENDING (or FAILED, for a dismiss). Every transition stamps
-// status, updatedAt and expireAt; PUBLISHED and CANCELLED also clear the draft (review L-2).
+// status, updatedAt and expireAt; PUBLISHED, CANCELLED and FAILED also clear the draft (review L-2; a failed item is never rescheduled).
 type ScheduledTransition struct {
 	To ScheduledStatus
 	// Failure is required when To is FAILED.
@@ -222,7 +222,7 @@ func (t ScheduledTransition) updates(now time.Time, ttl time.Duration) ([]firest
 	case ScheduledCancelled:
 		ups = append(ups, firestore.Update{Path: "draft", Value: firestore.Delete})
 	case ScheduledFailed:
-		ups = append(ups, firestore.Update{Path: "failure", Value: string(t.Failure)})
+		ups = append(ups, firestore.Update{Path: "failure", Value: string(t.Failure)}, firestore.Update{Path: "draft", Value: firestore.Delete})
 	}
 	return ups, nil
 }
@@ -237,7 +237,7 @@ func (t ScheduledTransition) apply(p *ScheduledPost, now time.Time, ttl time.Dur
 	case ScheduledCancelled:
 		p.Draft = nil
 	case ScheduledFailed:
-		p.Failure = t.Failure
+		p.Failure, p.Draft = t.Failure, nil
 	}
 }
 
