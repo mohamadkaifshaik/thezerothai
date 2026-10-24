@@ -438,7 +438,7 @@ func TestScheduled_Integration_Transitions(t *testing.T) {
 		return got
 	}
 
-	t.Run("fail keeps the draft and stamps the ttl", func(t *testing.T) {
+	t.Run("fail clears the draft and stamps the ttl", func(t *testing.T) {
 		p := mk(1)
 		wctx, c := counted()
 		next, applied, err := e.repo.TransitionScheduled(wctx, p.Ref(), ScheduledTransition{To: ScheduledFailed, Failure: FailureExpired}, schedNow, itTTL)
@@ -451,7 +451,7 @@ func TestScheduled_Integration_Transitions(t *testing.T) {
 		}
 		raw := e.raw(t, "alice", p.ID)
 		exp, _ := raw["expireAt"].(time.Time)
-		if raw["status"] != "FAILED" || raw["failure"] != "EXPIRED" || raw["draft"] == nil || !exp.Equal(schedNow.Add(itTTL)) {
+		if raw["status"] != "FAILED" || raw["failure"] != "EXPIRED" || raw["draft"] != nil || !exp.Equal(schedNow.Add(itTTL)) {
 			t.Errorf("stored = %v", raw)
 		}
 		// The old reference is now stale: a second write with it is a no-op.
