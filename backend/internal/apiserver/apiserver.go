@@ -372,37 +372,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		mw.ErrorMapping(log),
 	)
 
-	mux := http.NewServeMux()
-	// /health is the canonical path: Cloud Run's Google front end reserves URL paths ending in "z" on
-	// *.run.app, so external requests to /healthz never reach the container. /healthz stays as an alias.
-	mux.HandleFunc("/health", health.Handler())
-	mux.HandleFunc("/healthz", health.Handler())
-
-	// Hardening (2026-09-27 security audit, informational finding): connect.WithReadMaxBytes caps the
-	// *decompressed* body size at the Connect codec layer (a gzip-bomb guard — see limits.MaxRequestBytes's
-	// doc comment); http.MaxBytesHandler below caps the raw bytes read off the socket before that.
-	path, handler := identityv1connect.NewIdentityServiceHandler(identityServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(path, handler)
-
-	graphPath, graphHandler := graphv1connect.NewGraphServiceHandler(graphServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(graphPath, graphHandler)
-
-	postsPath, postsHandler := postsv1connect.NewPostServiceHandler(postsServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(postsPath, postsHandler)
-
-	timelinePath, timelineHandler := timelinev1connect.NewTimelineServiceHandler(timelineServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(timelinePath, timelineHandler)
-
-	engagementPath, engagementHandler := engagementv1connect.NewEngagementServiceHandler(engagementServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(engagementPath, engagementHandler)
-
-	moderationPath, moderationHandler := moderationv1connect.NewModerationServiceHandler(moderationServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(moderationPath, moderationHandler)
-	notifPath, notifHandler := notificationsv1connect.NewNotificationServiceHandler(notifServer, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(notifPath, notifHandler)
-	mediaPath, mediaHandler := mediav1connect.NewMediaServiceHandler(mediaMod.server, interceptors, connect.WithReadMaxBytes(limits.MaxRequestBytes))
-	mux.Handle(mediaPath, mediaHandler)
-
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
 	// when cfg.Env == "local" — where no real Pub/Sub push subscription exists yet to forge a call from.
@@ -410,15 +379,57 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if cfg.InternalOIDCAudience != "" {
 		protectInternal = pubsubpush.NewVerifier(cfg.InternalOIDCAudience, cfg.InternalOIDCAllowedEmails...).Middleware
 	}
-	mux.Handle("/internal/", protectInternal(pubsubpush.PlaceholderHandler()))
+
+	// Every route goes through the route table (routes.go): Connect services always get the interceptor chain above,
+	// /internal/* always gets protectInternal, and only the patterns in publicRoutes are served without auth.
+	routes := newRouteTable(interceptors, protectInternal)
+	// /health is the canonical path: Cloud Run's Google front end reserves URL paths ending in "z" on
+	// *.run.app, so external requests to /healthz never reach the container. /healthz stays as an alias.
+	routes.public("/health", http.HandlerFunc(health.Handler()))
+	routes.public("/healthz", http.HandlerFunc(health.Handler()))
+
+	// Hardening (2026-09-27 security audit, informational finding): connect.WithReadMaxBytes caps the
+	// *decompressed* body size at the Connect codec layer (a gzip-bomb guard — see limits.MaxRequestBytes's
+	// doc comment); http.MaxBytesHandler below caps the raw bytes read off the socket before that.
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return identityv1connect.NewIdentityServiceHandler(identityServer, o...)
+	})
+
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return graphv1connect.NewGraphServiceHandler(graphServer, o...)
+	})
+
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return postsv1connect.NewPostServiceHandler(postsServer, o...)
+	})
+
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return timelinev1connect.NewTimelineServiceHandler(timelineServer, o...)
+	})
+
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
+	})
+
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return moderationv1connect.NewModerationServiceHandler(moderationServer, o...)
+	})
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return notificationsv1connect.NewNotificationServiceHandler(notifServer, o...)
+	})
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return mediav1connect.NewMediaServiceHandler(mediaMod.server, o...)
+	})
+
+	routes.internal("/internal/", pubsubpush.PlaceholderHandler())
 	// ADR-0011: the shared jobs topic's push endpoint and the daily-maintenance backstop. Never behind the
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
-	mux.Handle("/internal/pubsub/jobs", protectInternal(lifecycle.JobsHandler()))
-	mux.Handle("/internal/cron/daily-maintenance", protectInternal(lifecycle.CronHandler()))
+	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
+	routes.internal("/internal/cron/daily-maintenance", lifecycle.CronHandler())
 	// ADR-0017 D3: the notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
-	mux.Handle("/internal/pubsub/notifications-fanout", protectInternal(notifFanout.Handler()))
+	routes.internal("/internal/pubsub/notifications-fanout", notifFanout.Handler())
 
 	// M1 (docs/reviews/security-audit-v0.1.0.md): a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
 	// /internal/* and every module's Connect handler — as plain net/http middleware, so an unauthenticated
@@ -437,19 +448,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// same wrapped handler runs against the already-stripped "/health").
 	preAuthIPLimiter := ratelimit.NewLimiter(cfg.RateLimit.PreAuthIPPerMinute, idleBucketTTL)
 	protectedMux := ratelimit.PreAuthIPMiddleware(preAuthIPLimiter, cfg.TrustedProxyHops, healthPaths)(
-		http.MaxBytesHandler(mux, limits.MaxRequestBytes),
+		http.MaxBytesHandler(routes.mux, limits.MaxRequestBytes),
 	)
 
 	// B1: Firebase Hosting's `/api/**` rewrite (firebase.json) forwards the path unchanged, so every route
-	// above must also answer under that prefix. http.StripPrefix delegates to the exact same (protected) mux
-	// instead of registering every module's handler twice, so this stays correct as new modules are added.
-	root := http.NewServeMux()
-	root.Handle("/", protectedMux)
-	root.Handle("/api/", http.StripPrefix("/api", protectedMux))
-
+	// above must also answer under that prefix: apiRoot (routes.go) mounts the same protected mux at "/" and,
+	// through http.StripPrefix, at "/api/", so this stays correct as new modules are added.
 	// M10: CORS is off unless cfg.CORSAllowedOrigins is non-empty (local dev by default, or an explicit
 	// CORS_ALLOWED_ORIGINS elsewhere) — see pkg/platform/httpcors's doc comment.
-	return httpcors.Wrap(cfg.CORSAllowedOrigins, root), fsClient, nil
+	return httpcors.Wrap(cfg.CORSAllowedOrigins, apiRoot(protectedMux)), fsClient, nil
 }
 
 // accountStatusAdapter adapts identity.Service to authn.AccountStatusProvider without either package
