@@ -83,6 +83,14 @@ firebase hosting:clone <project-id>:<previous-version-or-channel> <project-id>:l
 
 Or use the Firebase console → Hosting → release history → "Rollback" on the previous release. Instant, no rebuild.
 
+### Web app blank or sign-in broken after a deploy: CSP
+
+The CSP in `firebase.json` is enforced (`Content-Security-Policy`). Symptom: the page loads blank, or sign-in
+does nothing, and the browser console shows `Refused to ... because it violates the following Content Security Policy directive`.
+Likely cause: a `firebase_*` bump changed the inline loader hashes (`make ci` normally catches it), or a new third-party origin.
+Fix: roll back Hosting as above (instant). Then correct `script-src` / `connect-src` in a PR (`bash scripts/csp/check-firebase-loader-hashes.sh --print`
+prints the expected hashes). To debug without breaking users, temporarily rename the key back to `Content-Security-Policy-Report-Only`.
+
 ## Mobile (Android/iOS)
 - **Android**: Play Console staged rollout (10% → 50% → 100%) can be **halted** from the Play Console at any stage
   without a new build; halting stops the percentage from increasing further. A full rollback to the previous version

@@ -101,8 +101,8 @@ The FlutterFire web plugins load the Firebase JS SDK through inline `<script>` e
 hashes depend on the SDK version pinned by `firebase_core_web`. `make ci` runs `scripts/csp/check-firebase-loader-hashes.sh`
 and fails when `script-src` does not carry exactly the expected set. After a `firebase_*` bump, run
 `bash scripts/csp/check-firebase-loader-hashes.sh --print` and replace the `'sha256-...'` entries in `script-src`. A new
-`firebase_*` dependency must also be added to the module map in that script. The header is still `Report-Only`; enforcing it
-is a separate decision (see `docs/reviews/security-audit-v0.1.0.md` L3).
+`firebase_*` dependency must also be added to the module map in that script. The header is enforced (`Content-Security-Policy`), so a missed hash blocks the Firebase loaders and the web app does not start:
+see the CSP entry in `docs/runbooks/rollback.md`.
 
 ## Repo setting (founder, GitHub UI; not done by any agent)
 Turn on "Require actions to be pinned to a full-length commit SHA" only after this PR is merged and the next `main`
