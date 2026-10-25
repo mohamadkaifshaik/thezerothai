@@ -55,12 +55,13 @@ CreatePost-shared rate bucket (burst 10 per instance).
 What is proven and what is not. PROVEN, on the emulator only (its transactions are lock-based, not optimistic): ten simultaneous calls of one
 account for one minute never leave more than the cap stored, and never reject while fewer than the cap are stored
 (`TestSchedulerIT_ConcurrentWindowCap`, repeated runs, with and without an existing `quotas` document), and each attempt of a retried
-transaction counts afresh (`TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt`). REASONED for prod: optimistic mode plus an existing
-`quotas/{uid}` document makes the cap exact, by the commit conflict on that document. UNVERIFIED until the dev smoke (pending 2.16): (a) a
-brand-new account with no `quotas/{uid}` document yet, where exactness needs Firestore to treat a not-found read as a conflict when another
-transaction creates the document; (b) the transactional aggregation `count()` on real Firestore, the first one in the codebase (the other
-`count()` calls run outside transactions). If (b) is unsupported, every SchedulePost would fail with INTERNAL, which is invisible while
-`FEATURE_SCHEDULED_POSTS` is off, so run the dev smoke before the flag leaves `off` anywhere.
+transaction counts afresh (`TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt`). REASONED: optimistic mode plus an existing
+`quotas/{uid}` document makes the cap exact, by the commit conflict on that document. VERIFIED on the real dev Firestore (`OPTIMISTIC`, the
+same mode and module as prod, 2026-10-26, result in pending 2.16): the same ten-call race, with a brand-new account (no `quotas/{uid}`
+document yet, where exactness needs Firestore to treat a not-found read as a conflict when another transaction creates the document) and with
+an existing one, left exactly the cap stored every time, `quotas.schedules` matched, and the transactional aggregation `count()` (the first
+one in the codebase; the others run outside transactions) works. NOT covered by that run: the deployed HTTP path with auth (it called the
+service and repository directly), and prod itself.
 
 Reads, service's own (add the interceptor's profile read when cold): typical 4 (doc, pending count, quotas, window count), worst 8 with four
 images, replay 1, at the pending cap 2, at the window cap 5 (the extra read is the key's own document, see below), at the daily cap 4; a
