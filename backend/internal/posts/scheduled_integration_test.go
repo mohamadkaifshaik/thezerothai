@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
@@ -114,16 +116,16 @@ func (e *schedEnv) params(t *testing.T, uid string, n int, publishAt time.Time) 
 		t.Fatal(err)
 	}
 	return ScheduledCreateParams{
-		UID: uid, ID: id, PublishAt: publishAt, RequestHash: "hash", Now: schedNow, QuotaLimit: 50,
+		UID: uid, ID: id, PublishAt: publishAt, RequestHash: "hash", Now: schedNow, QuotaLimit: 50, WindowCap: 3,
 		Draft: ScheduledDraft{Text: "hello", ReplyPolicy: ReplyPolicyMentionedOnly, MadeWithAI: true},
 	}
 }
 
 func counted() (context.Context, *budget.Counter) { return budget.WithCounter(context.Background()) }
 
-// TestScheduled_Integration_CreateAndReplay: the schedule transaction stores the documented shape in 1 read and 2
-// writes, a repeat of the id is ErrScheduledExists with nothing written and the stored draft untouched (Create
-// precondition), and the daily cap rejects with QUOTA_EXCEEDED quota=schedules and nothing written.
+// TestScheduled_Integration_CreateAndReplay: the schedule transaction stores the documented shape in 2 reads (quotas,
+// the window count) and 2 writes, a repeat of the id is ErrScheduledExists with nothing written and the stored draft
+// untouched (Create precondition), and the daily cap rejects with QUOTA_EXCEEDED quota=schedules and nothing written.
 func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	e := newSchedEnv(t)
 	p := e.params(t, "alice", 1, schedBase.Add(30*time.Second)) // not on a whole minute: stored truncated
@@ -133,9 +135,9 @@ func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateScheduled: %v", err)
 	}
-	budgettest.Assert(t, "CreateScheduled", c, budgettest.Budget{Reads: 1, Writes: 2})
-	if c.Reads() != 1 || c.Writes() != 2 {
-		t.Errorf("CreateScheduled cost = %d reads %d writes, want 1 and 2", c.Reads(), c.Writes())
+	budgettest.Assert(t, "CreateScheduled", c, budgettest.Budget{Reads: 2, Writes: 2})
+	if c.Reads() != 2 || c.Writes() != 2 {
+		t.Errorf("CreateScheduled cost = %d reads %d writes, want 2 and 2", c.Reads(), c.Writes())
 	}
 	if !got.PublishAt.Equal(schedBase) || got.Status != ScheduledPending {
 		t.Errorf("created = %+v, want PENDING at %v", got, schedBase)
@@ -194,6 +196,8 @@ func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 		if cc.Writes() != 0 {
 			t.Errorf("a rejected call wrote %d documents", cc.Writes())
 		}
+		// quotas + the window count; the daily cap is checked after the window and before the media read.
+		budgettest.Assert(t, "CreateScheduled at the daily cap", cc, budgettest.Budget{Reads: 2, Writes: 0})
 		if _, err := e.repo.GetScheduled(context.Background(), "alice", capped.ID); !errors.Is(err, ErrScheduledNotFound) {
 			t.Errorf("the capped document exists: %v", err)
 		}
@@ -217,9 +221,9 @@ func TestScheduled_Integration_CreateWithMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "CreateScheduled with 2 images", c, budgettest.Budget{Reads: 1 + 2, Writes: 2})
-	if c.Reads() != 3 || e.media.attached != 0 {
-		t.Errorf("reads = %d, attached = %d, want 3 and 0 (validated, not reserved)", c.Reads(), e.media.attached)
+	budgettest.Assert(t, "CreateScheduled with 2 images", c, budgettest.Budget{Reads: 2 + 2, Writes: 2})
+	if c.Reads() != 4 || e.media.attached != 0 {
+		t.Errorf("reads = %d, attached = %d, want 4 and 0 (validated, not reserved)", c.Reads(), e.media.attached)
 	}
 	if len(got.Draft.Media) != 2 || got.Draft.Media[0].AltText != "first" || got.Draft.Media[0].URL == "" {
 		t.Errorf("draft media = %+v", got.Draft.Media)
@@ -310,8 +314,8 @@ func TestScheduled_Integration_ListPagination(t *testing.T) {
 	}
 }
 
-// TestScheduled_Integration_Counts: the pending count stops at its limit, the window count covers +/-4 min inclusive
-// and only PENDING items of the caller, and each costs one read.
+// TestScheduled_Integration_Counts: the pending count stops at its limit, counts only the caller's PENDING items and
+// costs one read.
 func TestScheduled_Integration_Counts(t *testing.T) {
 	e := newSchedEnv(t)
 	for n := 0; n < 5; n++ {
@@ -328,7 +332,13 @@ func TestScheduled_Integration_Counts(t *testing.T) {
 			t.Errorf("CountPending(limit %d) = %d err=%v reads=%d, want %d and 1 read", limit, got, err, c.Reads(), want)
 		}
 	}
+}
 
+// TestScheduled_Integration_WindowCap: the window count inside the schedule transaction covers +/-4 min inclusive and
+// only PENDING items of the caller; a full window is ErrScheduledWindowFull with nothing written and no quota spent
+// (3 reads: quotas, the count, the document of this id); a window with room costs 2 reads; windowQuery honours its limit.
+func TestScheduled_Integration_WindowCap(t *testing.T) {
+	e := newSchedEnv(t)
 	w := newSched(t, "carol", 0, ScheduledPending).PublishAt // the centre
 	offsets := []time.Duration{-5 * time.Minute, -4 * time.Minute, -time.Minute, 0, 4 * time.Minute, 5 * time.Minute}
 	for i, off := range offsets {
@@ -342,21 +352,168 @@ func TestScheduled_Integration_Counts(t *testing.T) {
 	otherUser := newSched(t, "dave", 61, ScheduledPending)
 	otherUser.PublishAt = w
 	e.seed(t, otherUser)
+	// Four PENDING items of carol are inside [-4m, +4m]: -4, -1, 0, +4. The -5 and +5 items, the FAILED one and dave's are not.
 
-	for limit, want := range map[int]int64{4: 4, 3: 3, 2: 2} {
+	// The query stops at its limit (the transaction passes WindowCap+1), 1 read each.
+	col := e.client.Collection("users").Doc("carol").Collection("scheduled")
+	for limit, want := range map[int]int64{26: 4, 4: 4, 3: 3, 2: 2, 1: 1} {
 		ctx, c := counted()
-		got, err := e.repo.CountWindow(ctx, "carol", w, limit)
+		got, err := countQuery(ctx, windowQuery(col, w, limit), nil)
 		if err != nil || got != want || c.Reads() != 1 {
-			t.Errorf("CountWindow(limit %d) = %d err=%v reads=%d, want %d and 1 read", limit, got, err, c.Reads(), want)
+			t.Errorf("window count (limit %d) = %d err=%v reads=%d, want %d and 1 read", limit, got, err, c.Reads(), want)
 		}
 	}
-	// Four PENDING items are inside [-4m, +4m]: -4, -1, 0, +4. The -5 and +5 items, the FAILED one and dave's are not.
-	if got, err := e.repo.CountWindow(context.Background(), "carol", w, 26); err != nil || got != 4 {
-		t.Errorf("CountWindow = %d err=%v, want 4", got, err)
+
+	try := func(n int, at time.Time, windowCap int) (*budget.Counter, error) {
+		p := e.params(t, "carol", n, at)
+		p.WindowCap = windowCap
+		ctx, c := counted()
+		_, err := e.repo.CreateScheduled(ctx, p)
+		return c, err
 	}
-	if got, err := e.repo.CountWindow(context.Background(), "carol", w.Add(24*time.Hour), 26); err != nil || got != 0 {
-		t.Errorf("CountWindow far away = %d err=%v, want 0", got, err)
+	for _, windowCap := range []int{1, 2, 3, 4} {
+		c, err := try(100+windowCap, w, windowCap)
+		if !errors.Is(err, ErrScheduledWindowFull) {
+			t.Errorf("cap %d with 4 inside: err = %v, want ErrScheduledWindowFull", windowCap, err)
+		}
+		budgettest.Assert(t, "CreateScheduled at a full window", c, budgettest.Budget{Reads: 3, Writes: 0})
+		if c.Reads() != 3 || c.Writes() != 0 {
+			t.Errorf("cap %d: %d reads %d writes, want 3 and 0", windowCap, c.Reads(), c.Writes())
+		}
 	}
+	if e.schedules(t, "carol") != 0 {
+		t.Errorf("a rejected call charged the quota: %d", e.schedules(t, "carol"))
+	}
+	if _, err := e.repo.GetScheduled(context.Background(), "carol", e.params(t, "carol", 101, w).ID); !errors.Is(err, ErrScheduledNotFound) {
+		t.Errorf("a rejected call stored a document: %v", err)
+	}
+
+	// The window is checked before the daily cap: a caller over both (QuotaLimit 0 is spent from the start) hears the window.
+	both := e.params(t, "carol", 105, w)
+	both.QuotaLimit = 0
+	bctx, _ := counted()
+	if _, err := e.repo.CreateScheduled(bctx, both); !errors.Is(err, ErrScheduledWindowFull) {
+		t.Errorf("over both caps: err = %v, want ErrScheduledWindowFull (the window comes first)", err)
+	}
+
+	// Room: a window far away (nothing inside) and a cap above the four inside. Each costs quotas + count.
+	for name, tc := range map[string]struct {
+		n         int
+		at        time.Time
+		windowCap int
+	}{"far away, cap 1": {110, w.Add(24 * time.Hour), 1}, "four inside, cap 5": {111, w, 5}} {
+		c, err := try(tc.n, tc.at, tc.windowCap)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		budgettest.Assert(t, "CreateScheduled with room in the window", c, budgettest.Budget{Reads: 2, Writes: 2})
+		if c.Reads() != 2 || c.Writes() != 2 {
+			t.Errorf("%s: %d reads %d writes, want 2 and 2", name, c.Reads(), c.Writes())
+		}
+	}
+
+	// A window cap below 1 is refused, never read as "no cap".
+	if _, err := try(120, w.Add(48*time.Hour), 0); err == nil || errors.Is(err, ErrScheduledWindowFull) {
+		t.Errorf("cap 0: err = %v, want a configuration error", err)
+	}
+}
+
+// TestScheduled_Integration_WindowFullByTheSameKey: a full window that holds the document of this very id is a
+// replay (ErrScheduledExists), not a full window; that is what a duplicate of a call that just committed finds when it
+// retries after the winner's commit, with the window at its cap.
+func TestScheduled_Integration_WindowFullByTheSameKey(t *testing.T) {
+	e := newSchedEnv(t)
+	at := newSched(t, "carol", 0, ScheduledPending).PublishAt
+	for n := 0; n < 2; n++ {
+		p := newSched(t, "carol", n, ScheduledPending)
+		p.PublishAt = at
+		e.seed(t, p)
+	}
+	mine := e.params(t, "carol", 9, at)
+	winner := newSched(t, "carol", 9, ScheduledPending)
+	winner.ID, winner.PublishAt = mine.ID, at
+	e.seed(t, winner)
+
+	ctx, c := counted()
+	if _, err := e.repo.CreateScheduled(ctx, mine); !errors.Is(err, ErrScheduledExists) {
+		t.Fatalf("err = %v, want ErrScheduledExists", err)
+	}
+	budgettest.Assert(t, "CreateScheduled, duplicate in a full window", c, budgettest.Budget{Reads: 3, Writes: 0})
+	if c.Writes() != 0 || e.schedules(t, "carol") != 0 {
+		t.Errorf("writes %d, schedules %d: nothing may be written", c.Writes(), e.schedules(t, "carol"))
+	}
+}
+
+// TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt drives the real transaction through a retry. The attemptHook
+// runs at the start of every attempt: on attempt 1 a concurrent winner commits into the window and the attempt is aborted
+// (ABORTED, as a conflicting commit would); attempt 2 must count the winner and reject, with nothing written. A window
+// check made once before the transaction would not see the winner and would store a 4th item. (Emulator behaviour: an
+// attempt that has counted the window blocks a write into it until the attempt ends, "Transaction lock timeout", so the
+// winner has to commit before the attempt's reads. Dev and prod run Firestore in OPTIMISTIC mode, where the loser is
+// instead rejected ABORTED at commit; this test does not prove that path, only that every attempt counts afresh.)
+func TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt(t *testing.T) {
+	e := newSchedEnv(t)
+	at := newSched(t, "carol", 0, ScheduledPending).PublishAt
+	for n := 0; n < 2; n++ {
+		p := newSched(t, "carol", n, ScheduledPending)
+		p.PublishAt = at
+		e.seed(t, p)
+	}
+	mine := e.params(t, "carol", 9, at)
+
+	t.Run("a winner commits between the attempts", func(t *testing.T) {
+		var attempts []int
+		e.repo.attemptHook = func(attempt int, id string) error {
+			attempts = append(attempts, attempt)
+			if id != mine.ID {
+				t.Errorf("hook id = %s, want the scheduled id", id)
+			}
+			if attempt == 1 {
+				w := newSched(t, "carol", 30, ScheduledPending)
+				w.PublishAt = at
+				e.seed(t, w)
+				return status.Error(codes.Aborted, "conflict")
+			}
+			return nil
+		}
+		ctx, c := counted()
+		if _, err := e.repo.CreateScheduled(ctx, mine); !errors.Is(err, ErrScheduledWindowFull) {
+			t.Fatalf("err = %v, want ErrScheduledWindowFull from the retried attempt", err)
+		}
+		if fmt.Sprint(attempts) != "[1 2]" {
+			t.Errorf("attempts = %v, want [1 2]", attempts)
+		}
+		// attempt 1 aborted before its first read; attempt 2: quotas + count + the document of this id.
+		budgettest.Assert(t, "CreateScheduled, retried into a full window", c, budgettest.Budget{Reads: 3, Writes: 0})
+		if c.Reads() != 3 || c.Writes() != 0 {
+			t.Errorf("%d reads %d writes, want 3 and 0", c.Reads(), c.Writes())
+		}
+		if e.schedules(t, "carol") != 0 {
+			t.Errorf("schedules = %d: the loser must not be charged", e.schedules(t, "carol"))
+		}
+		if _, err := e.repo.GetScheduled(context.Background(), "carol", mine.ID); !errors.Is(err, ErrScheduledNotFound) {
+			t.Errorf("the loser stored a document: %v", err)
+		}
+	})
+
+	t.Run("control: an abort without a winner is retried and succeeds", func(t *testing.T) {
+		e.repo.attemptHook = func(attempt int, _ string) error {
+			if attempt == 1 {
+				return status.Error(codes.Aborted, "conflict")
+			}
+			return nil
+		}
+		// 3 items sit in the window now (2 seeded + the winner above), so use a quiet minute.
+		quiet := e.params(t, "carol", 10, at.Add(6*time.Hour))
+		ctx, c := counted()
+		if _, err := e.repo.CreateScheduled(ctx, quiet); err != nil {
+			t.Fatalf("err = %v, want success on the retried attempt", err)
+		}
+		if c.Reads() != 2 || c.Writes() != 2 {
+			t.Errorf("%d reads %d writes, want 2 and 2 (the aborted attempt read nothing)", c.Reads(), c.Writes())
+		}
+	})
+	e.repo.attemptHook = nil
 }
 
 // TestScheduled_Integration_Cancel: PENDING and FAILED become CANCELLED in 1 read and 1 write, clearing the draft;

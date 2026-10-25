@@ -169,14 +169,18 @@ abstract final class PostService {
   /// PUBLISHED, CANCELLED or FAILED item returns it without text or media.
   /// A call that gets a cap error (LIMIT_REACHED, QUOTA_EXCEEDED) may be a near-simultaneous duplicate of a call that just
   /// succeeded: keep the same idempotency_key and retry after any such error, and the retry returns the stored item.
-  /// Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
-  /// publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
-  /// 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
-  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4)
+  /// Caps: 25 pending (soft: counted outside the transaction, so concurrent calls can overshoot it by the number in
+  /// flight) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of publish_at (exact:
+  /// counted inside the transaction, so concurrent calls cannot exceed it; a near-simultaneous duplicate that finds the
+  /// window full is answered with the stored item) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for
+  /// accounts younger than 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at
+  /// publish.
+  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, quotas 1, window count 1, media <= 4)
   /// / 5 typical without media (4 of them the service's own; the interceptor's profile read is a cache hit when warm);
   /// writes 2 (scheduled doc, quotas). A concurrent duplicate adds 1 (the winner's doc is re-read), and a transaction
-  /// retry under contention re-reads quotas and the media (up to 5 more per retry). Replay / at pending cap / at
-  /// window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
+  /// retry under contention re-reads quotas, the window count and the media (up to 6 more per retry). Replay / at
+  /// pending cap / at window cap / at daily cap: reads 2 / 3 / 6 / 5 worst, writes 0 (the window cap reads this key's own
+  /// document once more, to tell a full window from a duplicate).
   static const schedulePost = connect.Spec(
     '/$name/SchedulePost',
     connect.StreamType.unary,

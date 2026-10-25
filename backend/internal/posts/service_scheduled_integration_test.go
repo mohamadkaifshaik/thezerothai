@@ -210,7 +210,12 @@ func TestSchedulerIT_PendingAndWindowCaps(t *testing.T) {
 	if ae.Metadata["limit"] != "scheduled_window" {
 		t.Errorf("limit = %q", ae.Metadata["limit"])
 	}
-	budgettest.Assert(t, "SchedulePost at the window cap", wc, budgettest.Budget{Reads: 3, Writes: 0}) // documented 4 with the interceptor
+	// doc 1 + pending count 1 + quotas 1 + window count 1 + the document of this key 1 (a full window is checked for a
+	// concurrent duplicate); documented 6 with the interceptor.
+	budgettest.Assert(t, "SchedulePost at the window cap", wc, budgettest.Budget{Reads: 5, Writes: 0})
+	if wc.Reads() != 5 {
+		t.Errorf("reads at the window cap = %d, want exactly 5", wc.Reads())
+	}
 	// +5 min from the last is outside every window; -4 min inclusive is inside.
 	octx, _ := e.ctx("alice")
 	if _, err := e.svc.Schedule(octx, "alice", e.in(5, at(7))); err != nil { // 4th pending item; 7 is 5 min after 2
