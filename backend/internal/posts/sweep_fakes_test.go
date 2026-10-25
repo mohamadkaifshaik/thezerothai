@@ -57,6 +57,8 @@ type fakeSweepRepo struct {
 	// query and the item.
 	afterDue                   func()
 	publishReads, publishWrite int64 // charged by the default publish
+	// authorCreatedAt is what the default publish reports as the author's account creation time.
+	authorCreatedAt time.Time
 }
 
 func newFakeSweepRepo() *fakeSweepRepo {
@@ -254,7 +256,7 @@ func (f *fakeSweepRepo) publishDefault(ctx context.Context, p PublishParams) (Pu
 	c := budget.FromContext(ctx)
 	c.AddReads(f.publishReads)
 	c.AddWrites(f.publishWrite)
-	return PublishResult{Outcome: PublishPublished, Post: &post, Attempts: 1}, nil
+	return PublishResult{Outcome: PublishPublished, Post: &post, Attempts: 1, AuthorCreatedAt: f.authorCreatedAt}, nil
 }
 
 // sweepFlags is a GloballyOffChecker: the named flags are off for everyone.
@@ -307,9 +309,14 @@ type sweepEvents struct {
 	mu      sync.Mutex
 	created []*Post
 	panicOn func(*Post) bool
+	// onCreated runs first, without the lock held.
+	onCreated func(*Post)
 }
 
 func (e *sweepEvents) Created(_ context.Context, p *Post) {
+	if e.onCreated != nil {
+		e.onCreated(p)
+	}
 	e.mu.Lock()
 	panics := e.panicOn != nil && e.panicOn(p)
 	e.created = append(e.created, p)

@@ -265,6 +265,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// view (GloballyOff), so an allowlist or percent rollout still publishes every due item.
 		Sweep: posts.SweepDeps{
 			Repo: postsRepo, Flags: featureFlags, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
+			// A sweep-published post has no authenticated request behind it, so the recipient cap would not know the author is
+			// new (and the profile cache entry is evicted right after the publish): hand it the createdAt the publish read.
+			RecordAuthorAge: actorAges.Record,
 			Limits: posts.SweepLimits{
 				PerAuthorPerRun: cfg.Scheduled.PerAuthorPerRun, AuthorReadsWarn: cfg.Scheduled.AuthorReadsWarn,
 				Limit: cfg.Scheduled.SweepLimit, MaxPages: cfg.Scheduled.SweepMaxPages, Concurrency: cfg.Scheduled.SweepConcurrency,

@@ -89,6 +89,11 @@ type SweepDeps struct {
 	ReadOnly bool
 	// Log carries the per-item and per-author lines and the Error Reporting entries (nil: discarded).
 	Log *slog.Logger
+	// RecordAuthorAge (optional) is told the author's createdAt, from the publish transaction's own read (0 reads), right
+	// before the post event is emitted. The wiring points it at the memo the notification recipient cap consults: a post
+	// published by a sweep has no authenticated request behind it, and the profile cache entry was just evicted, so
+	// without this a first-day account would be charged to the ESTABLISHED recipient bucket.
+	RecordAuthorAge func(uid string, createdAt time.Time)
 }
 
 var errNoSweepRepo = errors.New("posts: the publish sweep is not configured")

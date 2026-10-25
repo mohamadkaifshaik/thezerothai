@@ -124,6 +124,9 @@ func (s *service) settle(ctx context.Context, it *ScheduledPost, res PublishResu
 		s.cache.SetPost(post)
 		s.cache.PrependOwn(post)
 		s.directory.Forget(it.UID)
+		if s.sweep.RecordAuthorAge != nil {
+			s.sweep.RecordAuthorAge(it.UID, res.AuthorCreatedAt) // before the emitter consults the new-account tier
+		}
 		s.events.Created(ctx, post)
 	case PublishCancelled:
 		tally.add(func(r *SweepResult) { r.Cancelled++ })

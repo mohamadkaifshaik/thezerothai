@@ -98,6 +98,10 @@ type PublishResult struct {
 	Failure ScheduledFailure
 	// Attempts is how many times the transaction body ran (1 unless Firestore retried it).
 	Attempts int
+	// AuthorCreatedAt is the author's account creation time as read INSIDE the transaction (PublishPublished only). The
+	// sweep hands it to SweepDeps.RecordAuthorAge so the notification recipient cap can tell a first-day account with 0
+	// reads: a sweep has no authenticated request that would have recorded it.
+	AuthorCreatedAt time.Time
 }
 
 // PublishParams is everything the publish transaction needs. The service parses the draft and decides the limits; the
@@ -268,7 +272,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 	if err := b.Err(); err != nil {
 		return PublishResult{}, err
 	}
-	return PublishResult{Outcome: PublishPublished, Post: &post}, nil
+	return PublishResult{Outcome: PublishPublished, Post: &post, AuthorCreatedAt: prof.CreatedAt}, nil
 }
 
 // stageEnd stages the one terminal transition of a permanent failure or a cancellation and reports it. The caller

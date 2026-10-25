@@ -17,7 +17,9 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -149,5 +151,59 @@ func TestPublishScheduledRoute_NoOpWhenTheFeatureIsOffOrDegraded(t *testing.T) {
 				t.Errorf("lines = %v, want one %s line with 0 reads and 0 writes", lines, tc.outcome)
 			}
 		})
+	}
+}
+
+// A post published by the sweep has no authenticated request of its author behind it, so the notifications recipient cap
+// (security audit N-1) cannot learn the author is new from the account-status interceptor; the sweep hands it the
+// createdAt its publish transaction read (SweepDeps.RecordAuthorAge). The scheduled doc is seeded straight into Firestore
+// so no SchedulePost request records the age first. The new-account tier here is 1 recipient a day and the established one
+// 50: a first-day author mentioning 2 users is dropped whole (and logged), not charged to the established bucket.
+func TestPublishScheduledRoute_FirstDayAuthorGetsTheNewAccountRecipientCap(t *testing.T) {
+	ctx := context.Background()
+	env := newChain(t, func(cfg *config.Config) {
+		cfg.FeatureScheduledPosts = flags.Spec{Name: "scheduled_posts", Mode: flags.On}
+		cfg.FeatureNotifications = flags.Spec{Name: "notifications", Mode: flags.On}
+		cfg.RateLimit.NotificationRecipientsPerActorPerDay = 50
+		cfg.RateLimit.NotificationRecipientsPerNewActorPerDay = 1
+	})
+	authorToken, authorUID := mintToken(t, "")
+	env.createProfile(t, authorToken)
+
+	var handles []string
+	for range 2 {
+		token, _ := mintToken(t, "")
+		h := uniqueHandle("mn")
+		if _, err := env.identity.CreateProfile(ctx, authed(token, &identityv1.CreateProfileRequest{
+			IdempotencyKey: contractKey("mention-profile"), Handle: h, DisplayName: "Mentioned",
+		})); err != nil {
+			t.Fatalf("CreateProfile(%s): %v", h, err)
+		}
+		handles = append(handles, h)
+	}
+
+	id, err := posts.ScheduledID(authorUID, contractKey("age"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := env.fs.Collection("users").Doc(authorUID).Collection("scheduled").Doc(id).Set(ctx, map[string]any{
+		"schemaVersion": 1, "draft": map[string]any{"text": "hello @" + handles[0] + " and @" + handles[1]},
+		"publishAt": now.Add(-10 * time.Minute), "status": "PENDING", "attempts": 0, "requestHash": "seeded",
+		"createdAt": now.Add(-time.Hour), "updatedAt": now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed scheduled doc: %v", err)
+	}
+
+	if got := postRoute(t, env.url+"/internal/cron/publish-scheduled", http.MethodPost); got != http.StatusNoContent {
+		t.Fatalf("POST = %d, want 204", got)
+	}
+	snap, err := env.fs.Collection("users").Doc(authorUID).Collection("scheduled").Doc(id).Get(ctx)
+	if err != nil || snap.Data()["status"] != "PUBLISHED" {
+		t.Fatalf("scheduled doc = %v, err = %v, want PUBLISHED", snap.Data(), err)
+	}
+	capped := env.logs.messageLines("notification_fanout_capped")
+	if len(capped) != 1 || capped[0]["new_account"] != true || capped[0]["recipients"] != float64(2) || capped[0]["limit_per_day"] != float64(1) {
+		t.Fatalf("notification_fanout_capped lines = %v, want one for the new-account tier (the author's age was not known to the cap)", capped)
 	}
 }

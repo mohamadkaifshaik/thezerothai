@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -428,5 +429,56 @@ func TestSweep_ErrorsNeverLeakUIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertClean(t, e, nil)
+	})
+}
+
+// A sweep-published post has no authenticated request behind it and the author's cached profile is evicted right after
+// the publish, so the notification recipient cap could not tell a first-day account (security review Low 1). The author's
+// createdAt, read inside the publish transaction, is handed to RecordAuthorAge BEFORE the post event is emitted, and only
+// for a post that was actually published.
+func TestSweepItem_RecordsTheAuthorAgeBeforeThePostEvent(t *testing.T) {
+	t.Run("published: recorded with the transaction's createdAt, before Created", func(t *testing.T) {
+		var mu sync.Mutex
+		var order []string
+		signedUp := schedNow.Add(-3 * time.Hour)
+		e := newSweepEnv(t, func(d *SweepDeps, e *sweepEnv) {
+			d.RecordAuthorAge = func(uid string, createdAt time.Time) {
+				mu.Lock()
+				defer mu.Unlock()
+				order = append(order, fmt.Sprintf("age %s %s", uid, createdAt.UTC().Format(time.RFC3339)))
+			}
+			e.events.onCreated = func(*Post) {
+				mu.Lock()
+				defer mu.Unlock()
+				order = append(order, "created")
+			}
+		})
+		e.repo.authorCreatedAt = signedUp
+		e.dueItem("uid-alice", 1)
+
+		if res, _, err := e.sweep(context.Background()); err != nil || res.Published != 1 {
+			t.Fatalf("res = %+v err = %v, want 1 published", res, err)
+		}
+		want := []string{"age uid-alice " + signedUp.UTC().Format(time.RFC3339), "created"}
+		if fmt.Sprint(order) != fmt.Sprint(want) {
+			t.Errorf("order = %v, want %v: the age must be recorded before the emitter consults it", order, want)
+		}
+	})
+
+	t.Run("not published: nothing is recorded", func(t *testing.T) {
+		var calls int
+		e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) {
+			d.RecordAuthorAge = func(string, time.Time) { calls++ }
+		})
+		e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) {
+			return PublishResult{Outcome: PublishFailed, Failure: FailureQuotaExceeded}, nil
+		}
+		e.dueItem("uid-alice", 1)
+		if _, _, err := e.sweep(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if calls != 0 {
+			t.Errorf("RecordAuthorAge called %d times for an item that was not published", calls)
+		}
 	})
 }
