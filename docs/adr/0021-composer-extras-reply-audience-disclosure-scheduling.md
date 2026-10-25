@@ -1,6 +1,7 @@
 # 0021. Composer extras: reply audience, content disclosure, scheduled posts
 Status: Accepted (founder, 2026-10-23; includes the five founder decisions recorded in "Founder decisions" below, and the rule-4 bend in item 3)
 Clarified 2026-10-23 (PR #247): pinned the exact CreatePost `requestHash` suffix bytes and order; reconciled the Stage 0 functional line with D3 (disclosure labels are accepted on any post kind). No decision changed.
+Implementation notes 2026-10-26 (pending 2.17, after #291 and #292): "Implementation notes (2026-10-26)" at the end records where the scheduled-posts code as built differs from the text (publish transaction, item log level, Scheduler retries, the 500 rule, the media hold, the exact window cap, smaller details). No decision of this ADR changed: the media hold (note 5) is the founder's decision of 2026-10-26 (pending 2.15) and the exact window cap (note 6) tightens a cap this text calls soft (pending 2.16).
 Date: 2026-10-23 (revised the same day after `docs/reviews/security-review-adr-0021.md`; see §Security review)
 Deciders: architect (proposal); founder (accepted 2026-10-23). Product defaults below were proposed by the founder's delegate in
 `docs/plans/composer-w15-w6.md` "Answers to the open questions" (2026-10-23).
@@ -259,6 +260,7 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
     overshoot by the number in flight. The 10/min CreatePost bucket (SchedulePost and Cancel share it) bounds that,
     but it is a per-instance in-memory limiter, so the real bound is bursts across up to 3 instances, still capped by
     the daily quota (review I-3). A persistent counter cannot live on `quotas/{uid}`, which resets daily.
+    [Amended: see Implementation notes 6]
   - **`quotas.schedules` can be reset by an older revision** (review I-3): `CheckAndReserveN` `Set`s the whole record,
     so a revision without the field zeroes it on that user's next quota'd call. The L-1 rollout rule below keeps old
     revisions off traffic once the flag is on, so this happens only on a rollback. Bound: one extra day's quota
@@ -273,9 +275,11 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
      writes); a different hash → IDEMPOTENCY_KEY_REUSED.
   5. Only then the time checks: lead and horizon against `now`.
   6. The pending count, then the window count.
+     [Amended: see Implementation notes 6]
   7. The transaction: `quotas/{uid}` (daily cap), media `LoadForPost` (owned, READY or READY_UNSCREENED,
      unattached; no `Attach`), then `Create` the scheduled doc and reserve `quotas.schedules`. An AlreadyExists at
      commit is a concurrent first call: read the doc once more and answer as in step 4.
+     [Amended: see Implementation notes 6]
 
   A retry that arrives after the 2-min lead has passed, or after the caps filled, therefore still gets its stored
   item, and the client never re-schedules under a new key (which would double-publish).
@@ -285,6 +289,7 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
   keep the same `idempotency_key` and retry after any cap error; the retry returns the stored item. Closing the gap
   would cost one more `GetScheduled` read on each cap-rejection path (budgets 3 / 4 / 5 become 4 / 5 / 6) and was
   not done.
+  [Amended: see Implementation notes 6]
 - **Exactly-once publish.** *Plan error (CMP-D4, follow-on (b)):* a "deterministic post id derived from the scheduled
   id" **does not fit the code**.
   - Post ids are Snowflakes whose millisecond is `createdAt`, drawn per transaction attempt. An id fixed at schedule
@@ -574,8 +579,8 @@ Per-operation Firestore cost. "Cold" includes the account-status interceptor's c
 | Timelines `viewer_reply_permission` | +0 | +0 | 0 | 0 |
 | GetPost (root) / GetThread permission (FOLLOWING, viewer ≠ root author) | +1 | +0 | 0 | 0 |
 | GetPost (reply in a restricted conversation) | +0 (UNKNOWN) | +0 | 0 | 0 |
-| SchedulePost | 9 (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media ≤ 4); +1 on a concurrent-duplicate AlreadyExists | 4 | 2 (scheduled doc, `quotas.schedules`) | 0 |
-| SchedulePost replay / at pending cap / at window cap / at daily cap | 2 / 3 / 4 / 5 | 1 / 2 / 3 / 4 | 0 | 0 |
+| SchedulePost [Amended: see Implementation notes 6] | 9 (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media ≤ 4); +1 on a concurrent-duplicate AlreadyExists | 4 | 2 (scheduled doc, `quotas.schedules`) | 0 |
+| SchedulePost replay / at pending cap / at window cap / at daily cap [Amended: see Implementation notes 6] | 2 / 3 / 4 / 5 | 1 / 2 / 3 / 4 | 0 | 0 |
 | ListScheduledPosts | 1 + page (21 at 20, 51 at 50) | 1 + items (min 1) | 0 | 0 |
 | CancelScheduledPost | 2 | 1 | 1 (0 if already terminal) | +1 TTL after 7 d |
 | Sweep run, flag off / readonly | 0 | 0 | 0 | 0 |
@@ -650,7 +655,7 @@ under request-based billing.
 
 | Abuse case | Mitigation |
 |---|---|
-| Scheduling spam / schedule-cancel churn | 25 pending (soft), 3 per ±4 min (soft), 50 schedules/day (10 for new accounts; exact, `quotas`), 10/min bucket, posts quota at publish, allowlist rollout |
+| Scheduling spam / schedule-cancel churn | 25 pending (soft), 3 per ±4 min (soft) [Amended: see Implementation notes 6], 50 schedules/day (10 for new accounts; exact, `quotas`), 10/min bucket, posts quota at publish, allowlist rollout |
 | A burst of one user's posts landing at once (L-3 a) | ≤ 3 per 5-min span at schedule time; ≤ 3 per author per run, processed one after another |
 | Many users schedule the same minute (L-3 b) | ≤ 100 per run; the window cap makes a 6 h starvation need ~300+ verified accounts (§Lateness); per-user quotas unchanged; far below per-collection write limits |
 | Sweep reads outside the per-user read budget (L-4) | cheapest-first checks (a quota-bound item costs 3 reads, not 17); new-account schedule cap; `scheduled_author_reads` warning |
@@ -677,6 +682,7 @@ under request-based billing.
 - A 6 h outage fails items as EXPIRED instead of posting them late.
 - A follow change can take up to 60 s to affect FOLLOWING (cache TTL).
 - The pending and window caps are soft.
+  [Amended: see Implementation notes 6]
 - Deep replies in restricted conversations cost up to +4 cold reads; the plan's "+0 / +1" holds only for direct
   replies to the root.
 - A caller who blocked a restricted conversation's root author, or who has more than 10,000 blockers, cannot reply
@@ -887,3 +893,140 @@ the normal gates (ADR-0019).
 
 ## Note (ADR-0022, 2026-10-23; decisions above unchanged)
 Note (ADR-0022): superseded in part until 2026-12-26: `publish-scheduled` may run every minute until 2026-12-22 (+1,152 reads/day, +34,560 requests/month, $0 Scheduler), then back to */5.
+
+## Implementation notes (2026-10-26)
+Pending 2.17, written after the media hold (#291) and the exact window cap (#292) merged. Each note records where the
+scheduled-posts code as built differs from the text above. The text above is left as accepted, so the history stays
+readable, and no decision of this ADR changes. Code locations are `file: function` under `backend/internal/posts`
+unless a path is given (line numbers rot). Numbers taken from tests, smoke runs or other records name their source;
+they were not re-measured for these notes.
+
+1. **Publish transaction** (Sweep step 3.3; Handoff "The `CreateParams.Scheduled` guard"). Implemented as built;
+   differs from the text above in how the transaction is built. The publish is a SIBLING of CreatePost's
+   `repo_create.go: createAttempt`, not a reuse of `repo.Create`: `service_sweep_item.go: sweepItem` calls
+   `repo_publish_scheduled.go: FirestoreRepo.PublishScheduled`, whose attempt body is `publishAttempt`. There is no
+   `CreateParams.Scheduled` field and no `posts.service.publishScheduled`. The sibling reuses CreatePost's write helpers
+   (`toDoc`, `mediaWithAlts`, `quota.CheckAndReserve`, the `identity.Counters` seam, the media claim) and keeps the
+   order of step 3.3: the scheduled doc, the account inside the transaction, quotas, media, mentions last. A post-id
+   collision at commit redraws the Snowflake, up to `maxIDCollisionRetries` times, as `Create` does. **Permanent
+   failures commit, they do not roll back:** a DELETING or missing account (CANCELLED), any other non-ACTIVE account,
+   the posts quota reached, or `ErrMediaNotReady` (FAILED with the reason) stages the one terminal transition on the
+   transaction batch (`stageEnd`) and returns nil, so the transaction commits exactly 1 write. That is the cost the row
+   "Cancel / fail inside the publish txn" already states. Any other error rolls the attempt back and takes the
+   transient path.
+2. **`scheduled_item_start` level** (Sweep 5 "Bounds", Sweep 7 "Logging"). Implemented as built; differs from the
+   text above in the level. The line is logged at INFO, not debug (`service_sweep_item.go: sweepItem`): the process
+   logger drops DEBUG, and the crash-isolation runbook step reads this line. It is written when a dispatched item
+   starts, before the expiry and content checks and so before its transaction. Held items (note 5) and deferred
+   items get none. The log cost stays negligible at Stage 0 volume.
+3. **Fatal-crash bound** (Sweep 5 "Bounds"; Consequences "A fatal runtime error ... for up to 6 h"). Implemented as
+   built; differs from the text above in the count. A fatal runtime error, an OOM kill or an instance kill fails the
+   request, and Cloud Scheduler retries a failed attempt: `retry_count = 3` for every job
+   (`infra/terraform/modules/scheduler/main.tf`); the prod `publish-scheduled` entry in
+   `infra/terraform/envs/prod/main.tf` only adds `attempt_deadline_seconds = 60`. One tick can therefore crash up to
+   4 times (the tick and its 3 retries), so the 6 h `SCHEDULED_MAX_LATENESS` bound allows up to 72 ticks × 4 = **288
+   crashes per poison item at the `*/5` cadence, not 72**. The bound scales with the cadence: at the every-minute
+   cadence the ADR-0022 note above allows until 2026-12-22 it is up to 360 × 4 = 1,440 (arithmetic, not measured).
+   `attempts` still never moves on such a crash; "claim before publish" (Revisit) remains the follow-up. Terraform sets
+   no retry backoff, so Cloud Scheduler's default applies. Operator steps: `docs/runbooks/posts.md` section 12,
+   "Isolating a crash-looping item".
+4. **When the route answers 500** (Sweep 6; Sweep 7 "Error Reporting fires on a 500"). Implemented as built; differs
+   from the text above in which query failure answers 500. `service_sweep.go: service.Sweep` fetches every due page
+   before any item runs and returns an error only when the FIRST page fails (nothing was processed);
+   `sweep_http.go: NewSweepHandler` then answers 500, and the Cloud Scheduler retry is harmless. When a LATER page
+   fails, the pages before it are processed, the error comes back as `SweepResult.LaterPageErr`, and the route
+   answers **204**: a 5xx would make Scheduler re-run the sweep within seconds and burn the 3-attempt ladder
+   (`SCHEDULED_MAX_ATTEMPTS`) of any item that had just failed transiently. The failed page's items are due again
+   next tick. Both cases write the `scheduled_sweep` line at WARN with `outcome=error` plus a separate Error Reporting
+   entry that carries only the scrubbed error, so Error Reporting also fires on that 204.
+5. **Media hold** (Sweep 1 "Per-user flags are not re-evaluated at publish"; Sweep 3 "Checks that run at schedule time
+   only: ... the sub-feature flags"; pending 2.15, #291). Implemented as built; differs from the text above in one
+   exception, decided by the founder on 2026-10-26. While the global `FEATURE_MEDIA` kill switch is `off`
+   (`flags.Registry.GloballyOff("media")`, asked once per run, 0 reads; `allowlist` and `percent` are rollouts and hold
+   nothing, and neither does `DEGRADED_MODE=nomedia`), the sweep HOLDS every image-carrying PENDING item: no publish
+   transaction, 0 writes, no `attempts` bump, `updatedAt` untouched, counted as `held_media` (inside `due`, not
+   `deferred`). Each held item still costs its 1 due-query read on every run. `service.Sweep` takes held items out
+   BEFORE the per-author cap (`service_sweep_item.go: heldForMedia`), so a held item does not use one of its author's
+   3 slots. `heldForMedia` shares `precheck` with `sweepItem`, so expiry (`SCHEDULED_MAX_LATENESS`), UNSUPPORTED and
+   INVALID_CONTENT still retire an image-carrying item as before, and a hold cannot keep content past the lateness
+   bound. The verdicts only the publish transaction gives (ACCOUNT_RESTRICTED, CANCELLED, QUOTA_EXCEEDED,
+   MEDIA_UNAVAILABLE) wait until the item is released, or become EXPIRED if the hold outlasts the bound. **Known
+   limit**, accepted for now and pinned by `TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow`: held items keep
+   their place at the head of the 100-item due window, so about 100 of them (for example 4 aged accounts with 25 each)
+   stop other users' due posts from being read until the held ones expire. While the switch is off this also weakens
+   §Lateness "Flood": a few accounts, not about 300, can stall the queue. Pending 2.21 tracks adaptive paging; the
+   numbers come from pending 2.15 and `docs/runbooks/posts.md` section 12.
+6. **Exact window cap** (D4 "Limits", "SchedulePost order" steps 6 and 7 and its "Known limit (CMP-D3 review m1)",
+   the SchedulePost cost rows, the abuse table, Consequences; pending 2.16, #292). Implemented as built; differs from
+   the text above in where the window cap is decided. The cap of `SCHEDULED_PER_AUTHOR_PER_RUN` (3) PENDING items
+   within ±4 min is decided INSIDE the schedule transaction and is **exact**: `repo_scheduled.go:
+   FirestoreRepo.CreateScheduled` reads `quotas/{uid}` and then runs `countQuery(ctx, windowQuery(...), tx)` (an
+   aggregation count, `Limit(cap + 1)`, 1 read), re-run on every attempt. Every schedule by one account reads and
+   writes `quotas/{uid}`, so of two racing calls only one commits, and the loser's retry counts the winner's committed
+   document. The count must stay after the quotas read. Inside the transaction the order is: quotas, the window count
+   (plus 1 read of this key's own document when the window is full), the daily cap, media, then the 2 writes. The
+   pending cap (`SCHEDULED_MAX_PENDING`, 25) stays soft and outside the transaction on purpose
+   (`service_scheduled.go: service.Schedule` step 6, `CountPending`): reading up to 26 documents inside it would blow
+   the read budget, and the overshoot stays bounded by the exact daily quota and the rate bucket's burst.
+   - **Concurrency mode.** Dev and prod Firestore run `OPTIMISTIC` (`concurrency_mode` in
+     `infra/terraform/modules/firestore/main.tf`); the emulator is lock-based, so the emulator race tests are not
+     proof for prod. Per pending 2.16, a smoke on the real dev Firestore on 2026-10-26 (ten simultaneous calls per
+     run, with and without an existing `quotas/{uid}` document) stored exactly 3 and rejected 7 every time. That smoke
+     called the service and repository directly, not the deployed HTTP path, and did not touch prod.
+   - **Duplicates.** A full window that holds this key's own document (a concurrent first call of the same
+     `idempotency_key` committed it) is answered as a replay, not as `scheduled_window`. That closes the CMP-D3 m1
+     known limit on the window path only: a concurrent duplicate can still get `LIMIT_REACHED`
+     (`limit=scheduled_pending`) or `QUOTA_EXCEEDED`, and the client rule (retry with the same key after any cap
+     error) stands.
+   - **Reads**, including the interceptor's cold read: typical 5 (4 the service's own), worst 9 with four images;
+     replay / at pending cap / at window cap / at daily cap 2 / 3 / **6** / 5 worst and 1 / 2 / **5** / 4 typical (the
+     window cap was 4 worst, 3 typical). A transaction retry under contention re-reads quotas, the window count and the
+     media (up to 6 more reads per retry). Writes are unchanged. The daily budget in §Cost impact is unchanged: it
+     counts no cap rejections.
+   - The sentences above that call the window cap soft or count it outside the transaction carry the pointer
+     "[Amended: see Implementation notes 6]".
+7. **Smaller differences found while verifying** (scheduled posts only). Implemented as built; each differs from the
+   text above in a detail, and none changes a decision.
+   - **Fetch, then dispatch** (Sweep 2). `service.Sweep` fetches every due page before any item runs. A page after
+     the first is fetched only while `sweepMinRemaining` (6 s) of the 25 s run deadline (`sweep.go:
+     sweepRunDeadline`) remain, and an author worker starts an item only under the same rule. The deadline chain is
+     handler 25 s < Cloud Run request timeout 30 s < the job's `attempt_deadline_seconds = 60`
+     (`infra/terraform/envs/prod/main.tf`), which the text above does not state.
+   - **Workers** (Sweep 2 "Per author"). One worker per author (`service_sweep.go: sweepAuthor`) on an
+     `errgroup.Group` with `SetLimit(SCHEDULED_SWEEP_CONCURRENCY)`, never `WithContext`, as the text allows. Each
+     worker has its own `budget.Counter`, folded into the run's counter when it ends; `scheduled_author_reads`
+     compares that per-author counter with `SCHEDULED_AUTHOR_READS_WARN`.
+   - **Recover sites** (D1 "The route", Sweep 5). Four, not two: the route (`mw.RecoverHTTP` from
+     `pkg/platform/mw`, used in `sweep_http.go: NewSweepHandler`; a shared helper, not the posts-own wrapper D1 and
+     the Handoff describe), each author worker (`sweepAuthor`), each item (`sweepItemSafe`, plus a guard in
+     `itemPanicked` that logs a second panic as `scheduled_item_second_panic`, type only), and the transaction
+     callback (`repo_publish_scheduled.go: guardPublishPanic`).
+   - **Account status in the publish transaction** (Sweep 3.3 step 2). Any status other than ACTIVE or DELETING,
+     including one this revision does not know, fails closed as FAILED `ACCOUNT_RESTRICTED`, not only SUSPENDED
+     (`publishAttempt`).
+   - **INVALID_CONTENT** (Sweep 3 step 2) also covers a missing draft and a reply policy or media shape this revision
+     does not accept, besides text that no longer parses (`service_sweep_item.go: publishParams`).
+   - **No media attacher wired** for a draft with images is a wiring error: it takes the transient path (then FAILED
+     `INTERNAL` with an Error Reporting entry on the last attempt), never a user-visible `MEDIA_UNAVAILABLE`
+     (`PublishScheduled`).
+   - **After the commit** (Sweep 3 "After the commit"; `service_sweep_item.go: settle`). Besides the cache updates
+     and `PostEvents.Created` (run on `context.WithoutCancel`, so the run deadline cannot cancel the notification
+     publish of a committed post), the sweep calls `directory.Forget(uid)` and `SweepDeps.RecordAuthorAge(uid,
+     createdAt)` with the `createdAt` the publish transaction read (0 reads). The wiring
+     (`backend/internal/apiserver/apiserver.go`) points it at `actorAges.Record`, which the per-actor notification
+     recipient cap (N-1) consults. Without it a sweep-published post, which has no authenticated request behind it,
+     would charge a first-day author to the established tier.
+   - **Undecodable due documents** are counted as `undecodable` and skipped, like `skipped_bad_path`, and are
+     re-read every run (`repo_scheduled.go: DueScheduled`). Retiring them is pending 2.18.
+   - **The `scheduled_sweep` line** (Sweep 7) also carries `held_media`, `noop`, `write_failed`, `undecodable`,
+     `failed_total`, `fs_deletes` and `latency_ms`, and is written at WARN when a page failed (note 4). Further WARN
+     lines name an item by `uid_hash` and `scheduled_id`: `scheduled_item_transient`,
+     `scheduled_item_bookkeeping_failed` and `scheduled_item_second_panic` (`docs/runbooks/posts.md` section 12).
+   - **Config ranges** (Rollout "Config"). `backend/pkg/platform/config/scheduled.go: loadScheduled` range-checks
+     every `SCHEDULED_*` key at startup and fails the boot outside its range (typo guards, not product rules). The
+     ranges: `SCHEDULED_SWEEP_LIMIT` 1 to 1,000, then clamped to 50; `SCHEDULED_SWEEP_MAX_PAGES` 1 to 10, so the
+     §Lateness lever "raise `SCHEDULED_SWEEP_MAX_PAGES`" tops out at 500 due reads a run; `SCHEDULED_SWEEP_CONCURRENCY`
+     1 to 4 and `SCHEDULED_MAX_PENDING` 1 to 50 (founder, 2026-10-24, pending 2.2); `SCHEDULED_PER_AUTHOR_PER_RUN`
+     1 to 10; `SCHEDULED_MAX_ATTEMPTS` 1 to 10; `SCHEDULED_AUTHOR_READS_WARN` 1 to 1,000; `SCHEDULED_MAX_LATENESS`
+     1 min to 168 h; `SCHEDULED_TERMINAL_TTL` 1 h to 720 h; `SCHEDULED_HORIZON` 1 h to 8,760 h; `SCHEDULED_MIN_LEAD`
+     1 min to 24 h and shorter than the horizon. The defaults are those in §Rollout "Config".
