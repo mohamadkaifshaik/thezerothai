@@ -37,10 +37,18 @@ enum ScheduleProblem {
   };
 }
 
-/// [time] cut down to its whole minute (the server does the same).
-DateTime truncatedToMinute(DateTime time) => time.isUtc
-    ? DateTime.utc(time.year, time.month, time.day, time.hour, time.minute)
-    : DateTime(time.year, time.month, time.day, time.hour, time.minute);
+/// [time] cut down to its whole minute (the server does the same). The
+/// seconds and below are subtracted as a duration: rebuilding a local time
+/// from its year-to-minute fields can land on another instant in a daylight
+/// saving gap or overlap, subtracting cannot. Keeps the zone kind (UTC or
+/// local).
+DateTime truncatedToMinute(DateTime time) => time.subtract(
+  Duration(
+    seconds: time.second,
+    milliseconds: time.millisecond,
+    microseconds: time.microsecond,
+  ),
+);
 
 /// What the dialog opens with: the next whole minute after [now], plus the
 /// minimum lead (so Confirm is enabled at once).

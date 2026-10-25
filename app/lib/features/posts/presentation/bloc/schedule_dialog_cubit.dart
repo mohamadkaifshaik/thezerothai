@@ -63,7 +63,9 @@ class ScheduleDialogCubit extends Cubit<ScheduleDialogState> {
     );
   }
 
-  /// A date was picked: keep the time of day.
+  /// A date was picked: keep the time of day. (Built from the wall-clock
+  /// fields on purpose: the user picked a date and a time of day, not an
+  /// instant to subtract from.)
   void dateChanged(DateTime date) {
     final current = state.selected;
     _select(

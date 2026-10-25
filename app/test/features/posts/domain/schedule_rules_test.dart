@@ -29,6 +29,35 @@ void main() {
       expect(truncatedToMinute(utc), DateTime.utc(now.year, 1, 2, 3, 4));
       expect(truncatedToMinute(utc).isUtc, isTrue);
     });
+
+    test(
+      'subtracts the part below a minute as a duration, from any instant',
+      () {
+        // Rebuilding a local time from its fields can move it in a DST gap or
+        // overlap; subtracting cannot, so the difference is exactly the part
+        // below the minute, whatever the zone of the machine.
+        final below = const Duration(
+          seconds: 59,
+          milliseconds: 999,
+          microseconds: 123,
+        );
+        for (final time in [
+          DateTime(now.year, 3, 30, 2, 30, 59, 999, 123),
+          DateTime(now.year, 10, 26, 1, 30, 59, 999, 123),
+          DateTime(now.year, 6, 15, 10, 7, 59, 999, 123),
+          DateTime.utc(now.year, 6, 15, 10, 7, 59, 999, 123),
+        ]) {
+          final cut = truncatedToMinute(time);
+          expect(time.difference(cut), below, reason: '$time');
+          expect(cut.isUtc, time.isUtc, reason: '$time');
+        }
+      },
+    );
+
+    test('a whole minute is left alone', () {
+      final exact = DateTime(now.year, 6, 15, 10, 7);
+      expect(truncatedToMinute(exact), exact);
+    });
   });
 
   group('defaultPublishAt', () {
