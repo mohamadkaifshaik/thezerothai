@@ -84,6 +84,10 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 		tally.res.Outcome = SweepDegraded
 		return tally.snapshot(), nil
 	}
+	// The media kill switch (pending 2.15), asked once with 0 reads. While FEATURE_MEDIA is off for everyone CreatePost
+	// refuses media_ids, so the sweep must not attach images either: items that carry them are held (below). Allowlist and
+	// percent are rollouts, not the kill switch (GloballyOff is false for them), so they hold nothing.
+	holdMedia := s.sweep.Flags.GloballyOff(mediaFlagName)
 	lim := s.sweep.Limits
 	pageLimit := min(max(lim.Limit, 1), MaxLimit)
 	maxPages := max(lim.MaxPages, 1)
@@ -124,12 +128,18 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 		return res, queryErr
 	}
 
-	// Group by author in query order. The cap counts across pages: an item over it is deferred without a write.
+	// Group by author in query order. The cap counts across pages: an item over it is deferred without a write. A held item
+	// (media is off) is filtered out BEFORE the cap: it needs no worker and no write, and must not use up a slot that the
+	// same author's text-only item could publish in.
 	var order []string
 	byAuthor := make(map[string][]*ScheduledPost)
 	for _, it := range items {
 		tally.res.Due++
 		tally.res.MaxLateness = max(tally.res.MaxLateness, runNow.Sub(it.PublishAt))
+		if holdMedia && s.heldForMedia(it, runNow) {
+			tally.res.HeldMedia++
+			continue
+		}
 		if _, seen := byAuthor[it.UID]; !seen {
 			order = append(order, it.UID)
 		}
