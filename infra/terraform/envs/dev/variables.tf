@@ -526,3 +526,33 @@ variable "feature_profile_snapshot_percent" {
     error_message = "feature_profile_snapshot_percent must be an integer 0-100."
   }
 }
+
+# ---- Manual cron testing in dev (ADR-0021 D1, security review L-5). OPT-IN: both default to "" and create nothing. Dev only:
+# envs/prod has no such variable on purpose. Whether to set them is the founder's decision (docs/pending.md).
+
+variable "cron_test_invoker" {
+  description = "Principal allowed to mint an OIDC identity token for the dev pubsub-push service account, to curl a cron route by hand (ADR-0021 D1), as \"user:someone@example.com\" or \"serviceAccount:name@project.iam.gserviceaccount.com\". Empty (default) = no grant is created. Needs cron_test_invoker_expiry. Groups, domains, allUsers and allAuthenticatedUsers are refused."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cron_test_invoker == "" || can(regex("^(user|serviceAccount):[^@[:space:]:]+@[^@[:space:]:]+$", var.cron_test_invoker))
+    error_message = "cron_test_invoker must be empty or a single principal such as \"user:someone@example.com\" or \"serviceAccount:name@project.iam.gserviceaccount.com\" (no group:, domain:, allUsers or allAuthenticatedUsers)."
+  }
+}
+
+variable "cron_test_invoker_expiry" {
+  description = "RFC 3339 timestamp, for example \"2026-11-24T00:00:00Z\", after which the cron_test_invoker grant stops working (IAM condition request.time < expiry). Required whenever cron_test_invoker is set. 30 days after the apply is the intended maximum. Empty (default) = no grant."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cron_test_invoker_expiry == "" || can(timeadd(var.cron_test_invoker_expiry, "0s"))
+    error_message = "cron_test_invoker_expiry must be an RFC 3339 timestamp such as \"2026-11-24T00:00:00Z\"."
+  }
+
+  validation {
+    condition     = var.cron_test_invoker == "" || var.cron_test_invoker_expiry != ""
+    error_message = "cron_test_invoker_expiry is required when cron_test_invoker is set: an unbounded grant is not allowed."
+  }
+}
