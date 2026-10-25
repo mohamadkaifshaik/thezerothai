@@ -251,6 +251,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
 		CursorKey:             cfg.CursorHMACKey,
+		// Scheduled posts (ADR-0021 D4): the repository and the limits come from config; the RPCs stay behind
+		// FEATURE_SCHEDULED_POSTS (server.go), so wiring them costs nothing while the flag is off.
+		Scheduled: postsRepo,
+		Schedule: posts.ScheduleLimits{
+			MaxPending: cfg.Scheduled.MaxPending, WindowCap: cfg.Scheduled.PerAuthorPerRun,
+			MinLead: cfg.Scheduled.MinLead, Horizon: cfg.Scheduled.Horizon, TerminalTTL: cfg.Scheduled.TerminalTTL,
+			SchedulesPerDay: int64(cfg.Quota.SchedulesPerDay), NewAccountSchedulesPerDay: int64(cfg.Quota.NewAccountSchedulesPerDay),
+		},
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
 
 	// engagement (P5, ADR-0018): likes and reposts behind FEATURE_ENGAGEMENT. posts and engagement need each
@@ -272,7 +280,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	postsRepo.SetRepostLinks(engagementMod)
 	postsSvc.(interface{ SetRepostLinks(posts.RepostLinks) }).SetRepostLinks(engagementMod)
 	engagementServer := engagement.NewServer(engagementMod, featureFlags)
-	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod))
+	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod), posts.WithScheduler(postsSvc.(posts.Scheduler)))
 	// The removal log is built only when FEATURE_REMOVED_IDS is not off: off means no instance cache, no reads and
 	// no reset of cached client feeds (timeline treats a nil Removals as "no removed_ids"). Allowlist and percent
 	// modes are enforced per caller in timeline.removedIDs.

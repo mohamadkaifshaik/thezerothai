@@ -1,7 +1,7 @@
 // scheduled_purge.go is the right-to-delete and right-to-access path of users/{uid}/scheduled (ADR-0021 "Right to
 // delete"). Deleting users/{uid} does not delete its subcollections, so the `scheduled` account-deletion step
 // (ScheduledEraser, registered BeforeIdentity after the existing steps) removes the documents, and the `scheduled`
-// export section lists every document with the draft wherever one is still held (PENDING and FAILED).
+// export section lists every document with the draft wherever one is still held (only PENDING items hold one: FAILED clears it).
 package posts
 
 import (
@@ -108,7 +108,7 @@ func (e *ScheduledEraser) PurgeUser(ctx context.Context, uid string, cp Schedule
 }
 
 // exportedScheduled is one scheduled document in the manual export. The draft appears only while the document still
-// holds one (PENDING and FAILED); the requestHash and the attempts counter are operational and not exported.
+// holds one (only PENDING); the requestHash and the attempts counter are operational and not exported.
 type exportedScheduled struct {
 	ID        string         `json:"id"`
 	Status    string         `json:"status"`

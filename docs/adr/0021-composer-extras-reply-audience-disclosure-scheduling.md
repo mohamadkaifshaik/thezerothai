@@ -279,6 +279,12 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
 
   A retry that arrives after the 2-min lead has passed, or after the caps filled, therefore still gets its stored
   item, and the client never re-schedules under a new key (which would double-publish).
+
+  Known limit (CMP-D3 review m1): a duplicate that arrives while the first call is still committing runs steps 4 to 6
+  before the doc exists, so it can answer LIMIT_REACHED or QUOTA_EXCEEDED instead of the stored item. The client must
+  keep the same `idempotency_key` and retry after any cap error; the retry returns the stored item. Closing the gap
+  would cost one more `GetScheduled` read on each cap-rejection path (budgets 3 / 4 / 5 become 4 / 5 / 6) and was
+  not done.
 - **Exactly-once publish.** *Plan error (CMP-D4, follow-on (b)):* a "deterministic post id derived from the scheduled
   id" **does not fit the code**.
   - Post ids are Snowflakes whose millisecond is `createdAt`, drawn per transaction attempt. An id fixed at schedule
@@ -318,8 +324,10 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
 | | `PostService`: `rpc SchedulePost`, `rpc ListScheduledPosts` (`NO_SIDE_EFFECTS`), `rpc CancelScheduledPost`, each with a budget comment from the table below |
 
 **Rules for the three new RPCs:**
-- All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS (`feature="scheduled_posts"`). If either is off they return
-  FEATURE_DISABLED with 0 reads.
+- All three need FEATURE_POSTS (`FEATURE_DISABLED` with 0 reads when off). SchedulePost also needs FEATURE_SCHEDULED_POSTS on
+  for the caller; ListScheduledPosts and CancelScheduledPost only need it **not globally off** (`feature="scheduled_posts"`
+  on refusal), so a user who is outside the allowlist or percent bucket, or was removed from it, can still list and cancel
+  what they already scheduled (security review L-A, option b; `flags.Registry.GloballyOff`).
 - SchedulePost also applies the media, reply-audience and disclosure sub-feature checks, and requires a verified email
   as CreatePost does.
 - Error mapping:
@@ -349,7 +357,7 @@ old behaviour:
 | Field | Notes |
 |---|---|
 | `schemaVersion` | 1 |
-| `draft` | map: `text` (normalised at schedule time), `media[]` (MediaRef copies from `LoadForPost`, with alt), `replyPolicy`, `paidPartnership`, `madeWithAi`. Index-exempt. **Present only while PENDING or FAILED** |
+| `draft` | map: `text` (normalised at schedule time), `media[]` (MediaRef copies from `LoadForPost`, with alt), `replyPolicy`, `paidPartnership`, `madeWithAi`. Index-exempt. **Present only while PENDING** (cleared on PUBLISHED, CANCELLED and FAILED) |
 | `publishAt` | timestamp, UTC, minute precision |
 | `status` | `PENDING`, `PUBLISHED`, `CANCELLED`, `FAILED` |
 | `failure` | reason name when FAILED |
@@ -366,7 +374,7 @@ dismiss); none uses `Set` (§Sweep "State writes").
 - PENDING → FAILED: a permanent cause, expiry, a recovered panic, or `attempts ≥ SCHEDULED_MAX_ATTEMPTS`. Clears
   `draft` (founder, 2026-10-24: failed items are not rescheduled).
 - FAILED → CANCELLED: the user dismisses it. **Clears `draft`.**
-- The client offers "reschedule" as a new SchedulePost built from the FAILED item's draft.
+- A FAILED item holds no draft, so the client cannot reschedule from it: the user dismisses it (cancel) and re-enters the post.
 - A PUBLISHED or CANCELLED doc keeps only `status`, `postId`, `failure`, `requestHash`, `publishAt` and timestamps
   for its 7-day TTL: enough for a replay and for Cancel's "too late" answer (review L-2).
 
@@ -407,7 +415,7 @@ Deleting `users/{uid}` does **not** delete its subcollections, and the T11 guard
 2. A T11 row: `{Name: "scheduled", Sub: true, Disposition: erasedByStep, Step: "scheduled", Section: "scheduled",
    Owner: "posts", Cite: "ADR-0021"}`.
 3. An export section `scheduled` that lists **every** scheduled doc (status, `publishAt`, `postId`, failure,
-   timestamps) and includes the draft wherever one is still held, which is PENDING and FAILED. Since PUBLISHED and
+   timestamps) and includes the draft wherever one is still held, which is PENDING only. Since PUBLISHED, FAILED and
    CANCELLED docs no longer hold a draft, no user content sits outside the export: a published post's text lives
    only in `posts`, which is exported there and gone once the user deletes the post.
 4. No residue: these docs hold only the owner's data, and D2 copies no other user's uid.
@@ -443,7 +451,7 @@ Deleting `users/{uid}` does **not** delete its subcollections, and the T11 guard
 3. **Each item, cheapest and most decisive check first (review L-4):**
    1. **Expiry.** If `now − publishAt > SCHEDULED_MAX_LATENESS` (6 h), mark it FAILED `EXPIRED`. 0 reads (the query
       returned the doc). This is the catch-up bound: after an outage, stale posts are not dumped onto feeds hours
-      late. The user can reschedule.
+      late. The user re-enters the post (the draft is cleared).
    2. `schemaVersion` above 1 → FAILED `UNSUPPORTED`. The text parse (rules may have tightened) → FAILED
       `INVALID_CONTENT`. Both are CPU only, 0 reads.
    3. **The publish transaction** (`posts.service.publishScheduled`). It reuses the CreatePost draft builder and
@@ -749,7 +757,7 @@ under request-based billing.
     - **a suspension committed between the query and the publish transaction → FAILED `ACCOUNT_RESTRICTED`, no
       post** (L-7);
     - per author: 5 due items of one author → 3 published one after another, 2 deferred to the next run;
-    - PUBLISHED and CANCELLED docs hold no `draft`; the export lists every doc with drafts for PENDING and FAILED;
+    - PUBLISHED, CANCELLED and FAILED docs hold no `draft`; the export lists every doc with the draft of each PENDING one;
     - the deletion residue sweep and the T11 row;
     - budget assertions.
   - *Other:* Flutter widget tests for the sheet, dialogs and list, and the echo-mismatch warning; `buf breaking`.
@@ -856,7 +864,7 @@ the normal gates (ADR-0019).
     its own content).
   - The echo check after CreatePost, with a mismatch warning (L-1).
   - The schedule dialog with platform pickers, sending UTC, and the "images are reachable by link" copy (L-9).
-  - The Scheduled list: PENDING and FAILED items, cancel, reschedule from a FAILED draft; and the "Schedule" button
+  - The Scheduled list: PENDING and FAILED items, cancel or dismiss (a FAILED item has no draft, so no reschedule); and the "Schedule" button
     state.
   - Handle `LIMIT_REACHED` `scheduled_window` and `scheduled_pending`, and replay/Cancel responses without text.
   - Gate everything on `enabled_features`, and never send poll fields together with a schedule.

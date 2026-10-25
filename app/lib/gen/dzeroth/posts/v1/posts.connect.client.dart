@@ -188,8 +188,10 @@ extension type PostServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
-  /// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
+  /// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
+  /// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
+  /// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
   /// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
   /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
@@ -200,12 +202,16 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// used elsewhere before publish fails the item MEDIA_UNAVAILABLE; it stays reachable by its public URL until then.
   /// Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
   /// the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
-  /// PUBLISHED or CANCELLED item returns it without text or media.
+  /// PUBLISHED, CANCELLED or FAILED item returns it without text or media.
+  /// A call that gets a cap error (LIMIT_REACHED, QUOTA_EXCEEDED) may be a near-simultaneous duplicate of a call that just
+  /// succeeded: keep the same idempotency_key and retry after any such error, and the retry returns the stored item.
   /// Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
   /// publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
   /// 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
-  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4;
-  /// +1 on a concurrent duplicate) / 4 typical; writes 2 (scheduled doc, quotas). Replay / at pending cap / at
+  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4)
+  /// / 5 typical without media (4 of them the service's own; the interceptor's profile read is a cache hit when warm);
+  /// writes 2 (scheduled doc, quotas). A concurrent duplicate adds 1 (the winner's doc is re-read), and a transaction
+  /// retry under contention re-reads quotas and the media (up to 5 more per retry). Replay / at pending cap / at
   /// window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
   Future<dzerothpostsv1posts.SchedulePostResponse> schedulePost(
     dzerothpostsv1posts.SchedulePostRequest input, {

@@ -261,6 +261,11 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 // name) is appended before `|pp=`, only when restricted; EVERYONE and UNSPECIFIED are both absent, and a reply's
 // inherited policy is never hashed (a reply's request carries none).
 func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string, policy ReplyPolicy, paidPartnership, madeWithAI bool) string {
+	return idempotency.HashRequest(requestHashBase(normalisedText, replyTo, quoteOf, mediaIDs, alts, policy, paidPartnership, madeWithAI))
+}
+
+// requestHashBase is the canonical string requestHash digests; SchedulePost appends its publish time to it.
+func requestHashBase(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string, policy ReplyPolicy, paidPartnership, madeWithAI bool) string {
 	base := fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q",
 		normalisedText, strings.Join(mediaIDs, ","), strings.Join(alts, "\x1f"), replyTo, quoteOf)
 	if policy != ReplyPolicyEveryone {
@@ -272,7 +277,7 @@ func requestHash(normalisedText, replyTo, quoteOf string, mediaIDs, alts []strin
 	if madeWithAI {
 		base += "|ai=1"
 	}
-	return idempotency.HashRequest(base)
+	return base
 }
 
 // validateReplyPolicy checks the request's reply_policy before any read (ADR-0021 D2) and returns the value to

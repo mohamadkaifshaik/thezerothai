@@ -49,6 +49,8 @@ type Server struct {
 	svc    Service
 	flags  FlagChecker
 	viewer ViewerFlags
+	// scheduler serves the three scheduled-post RPCs (WithScheduler); nil answers Unimplemented once the flags pass.
+	scheduler Scheduler
 }
 
 // ServerOption configures NewServer.
