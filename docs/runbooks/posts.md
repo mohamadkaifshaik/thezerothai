@@ -127,7 +127,8 @@ has passed. Until the job is applied nothing calls the route. The flag leaves `o
 this sweep (a tick that lands on an older revision gets a silent 202 from the placeholder handler). Logs Explorer queries:
 
 - `jsonPayload.message="scheduled_sweep"`: one line per run. `due`, `published`, `cancelled`, `expired`, `transient`, `deferred`
-  (held back by the 3-per-author cap, retried next run), `noop` (the item changed under us, quiet), `write_failed`, `skipped_bad_path`,
+  (held back by the 3-per-author cap, retried next run), `held_media` (items with images left alone because `FEATURE_MEDIA` is globally off,
+  see "Images held while `FEATURE_MEDIA` is off"; they are in `due`, not in `deferred`), `noop` (the item changed under us, quiet), `write_failed`, `skipped_bad_path`,
   `undecodable`, `max_lateness_ms`, `failed_total`, `failed.<reason>` (`media_unavailable`, `quota_exceeded`, `account_restricted`,
   `invalid_content`, `internal`, `unsupported`, `expired`; `expired` is also the top-level `expired` count), `fs_reads`, `fs_writes`,
   `fs_deletes`, `latency_ms`, `outcome` (`ok`, `flag_off`, `degraded`, `error`).
@@ -143,7 +144,8 @@ this sweep (a tick that lands on an older revision gets a silent 202 from the pl
   processed, and a SEPARATE Error Reporting entry (ERROR, `rpc=cron/publish-scheduled`) that carries only the scrubbed error.
 
 Cost: nothing due is 1 read; each due doc costs 1 read, plus 17 worst / 3 typical reads and 4 writes (+1 per attached image) when it
-publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or transiently failing. At most 100 due docs per run
+publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or transiently failing, or nothing beyond its 1 query read and 0 writes
+while it is held for images (`held_media`). At most 100 due docs per run
 (`SCHEDULED_SWEEP_LIMIT` 50 x `SCHEDULED_SWEEP_MAX_PAGES` 2). The empty ticks cost about 288 reads a day.
 
 ### Symptoms and what to do
@@ -151,14 +153,15 @@ publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or tr
 | Symptom | Meaning | Do |
 |---|---|---|
 | `outcome=error` on the `scheduled_sweep` line, Error Reporting `cron/publish-scheduled`, and a 500 on the route only when page 1 failed | A due query page failed (a Firestore incident, or the `scheduled` collection-group index on `status, publishAt` is not deployed: `FAILED_PRECONDITION`). **Page 1 failed:** nothing was processed, the route answers 500 and Scheduler retries (3 times, then the next tick); a retry is harmless. **A later page failed:** the earlier pages were processed and the route answers 204 on purpose (a retry seconds later would burn the 3-attempt ladder of any item that failed transiently); the items on the failed page are due again next tick | Check the Firestore status page. If the index is missing, deploy `firebase/firestore.indexes.json` (a gate file, founder review). Nothing is lost: unprocessed items stay PENDING |
-| `max_lateness_ms` > 600000 (10 min) | Runs are late or a backlog exists | Look for failed runs and for `deferred` > 0, then see "Draining a backlog". Past `SCHEDULED_MAX_LATENESS` (6 h) items become FAILED `EXPIRED` |
+| `max_lateness_ms` > 600000 (10 min) | Runs are late or a backlog exists. Held items count: `max_lateness_ms` is the age of the oldest due item, held or not | Check `held_media` first (see "Images held while `FEATURE_MEDIA` is off"), then look for failed runs and for `deferred` > 0 and see "Draining a backlog". Past `SCHEDULED_MAX_LATENESS` (6 h) items become FAILED `EXPIRED` |
+| `held_media` > 0 on the `scheduled_sweep` line, and users see scheduled posts with images still PENDING after their time | `FEATURE_MEDIA` is `off` for everyone (the kill switch, for example during an image-abuse incident). CreatePost refuses `media_ids` in that state, so the sweep does not attach images either; it leaves those items PENDING with no write. Text-only items still publish | Expected while the switch is off, no action. They publish on the first run after the flag is back, or become FAILED `EXPIRED` once `SCHEDULED_MAX_LATENESS` (6 h) overdue. If the incident will outlast that and late posts are preferred to lost ones, raise `SCHEDULED_MAX_LATENESS` first: see "Images held while `FEATURE_MEDIA` is off" |
 | A spike in one `failed.<reason>` | `quota_exceeded`: authors at the 100 (new accounts 20) posts-per-day cap, expected, see section 3. `media_unavailable`: images removed or never READY. `account_restricted`: authors suspended. `internal`: 3 transient failures or a panic, check Error Reporting. `unsupported`: a draft written by a newer revision than the one sweeping, for example after a rollback. `invalid_content`: a draft that no longer parses or whose reply policy or media is invalid | Failures are terminal and the user sees FAILED in ListScheduledPosts. No action unless `internal` or `unsupported` spikes |
 | `skipped_bad_path` > 0 | A document that is not exactly `users/{uid}/scheduled/{32 hex}` matched the due query. It is skipped and never published | Find it in the console (collection group `scheduled`, `status == PENDING`) and delete it by hand. Rules deny clients, so find out who wrote it |
 | `undecodable` > 0 | A due doc could not be decoded | Same as above; it is counted and skipped, never retried in a loop |
 | `scheduled_author_reads` WARN | One author's items spent more than `SCHEDULED_AUTHOR_READS_WARN` (40) reads in a run (for example 3 items with 10 handle mentions each). These reads sit outside the per-user read budget by design | The same `uid_hash` repeatedly is abuse (`docs/runbooks/abuse-spike.md`). A single occurrence is noise |
 | `scheduled_item_bookkeeping_failed` WARN, `write_failed` > 0 | A write that records an item's outcome failed (a Firestore error or a timeout on the 3 s bookkeeping budget). The item keeps its state, so it is retried next run; a post that was already committed is not affected | A burst is a Firestore incident. The same item every run: look at the `error` field (scrubbed) and at the document |
 | An instance crashes in bursts of up to 4 every 5 minutes (Cloud Run restarts, "fatal error", OOM kill) and those runs write no `scheduled_sweep` line | A fatal runtime error (concurrent map write, stack exhaustion) or an OOM in the publish path. These cannot be recovered, and `attempts` never moves | See "Isolating a crash-looping item" |
-| Items stay PENDING past their time | The job is paused or failing, the flag is `off`, `DEGRADED_MODE=readonly`, or the 3-per-author cap is stretching a backlog (25 items need 9 runs) | `gcloud scheduler jobs describe publish-scheduled --location asia-south1`, then read `outcome` in the `scheduled_sweep` lines |
+| Items stay PENDING past their time | The job is paused or failing, the flag is `off`, `DEGRADED_MODE=readonly`, `FEATURE_MEDIA` is `off` and the items carry images (`held_media`), or the 3-per-author cap is stretching a backlog (25 items need 9 runs) | `gcloud scheduler jobs describe publish-scheduled --location asia-south1`, then read `outcome` in the `scheduled_sweep` lines |
 
 ### Manual run
 
@@ -186,6 +189,34 @@ publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or tr
   above. Only `off` stops the sweep: `allowlist` and `percent` modes still publish what was already scheduled, so a user outside the
   cohort keeps their items. `DEGRADED_MODE=readonly` gives `outcome=degraded`, also 0 reads.
 - Do not roll a revision back to turn it off; see the roll-forward-only rule below.
+
+### Images held while `FEATURE_MEDIA` is off
+
+`FEATURE_MEDIA=off` is also a kill switch for the sweep (pending 2.15, ADR-0021 security review of the sweep, Low 2). CreatePost refuses
+`media_ids` while the flag is off for everyone, so the sweep does not publish already-uploaded images either. Each run asks once, with 0
+reads, whether `media` is globally off. Only `off` holds: `allowlist` and `percent` are rollouts, so the sweep keeps publishing images that
+were scheduled, as it does for `FEATURE_SCHEDULED_POSTS`. `DEGRADED_MODE=nomedia` holds nothing either: it blocks uploads only, for CreatePost
+and the sweep alike.
+
+- **What is held.** An item whose draft has images, and that nothing before the publish transaction would retire. It stays PENDING with its
+  draft, `attempts` and `updatedAt` untouched: no write, no publish transaction, no media read. The author sees it still PENDING in
+  `ListScheduledPosts`. It is counted in `held_media` (and in `due`, never in `deferred`). It does not use one of its author's 3 slots per run,
+  so the same author's text-only items still publish in the same run.
+- **What is not held.** The order of the checks is unchanged, expiry first. An item more than `SCHEDULED_MAX_LATENESS` (6 h) overdue is still
+  retired FAILED `EXPIRED` (the user re-enters it; the draft is cleared), so a hold cannot keep content forever; UNSUPPORTED and
+  INVALID_CONTENT items are retired as always. Nothing is failed because of the flag itself.
+- **When the flag returns** the next run publishes the held items like any other, with no special handling and no step to run. Items that
+  were scheduled for hours ago publish late, in `publishAt` order, 3 per author per run (see "Draining a backlog").
+- **If the incident will outlast 6 h** and a late post is better than a lost one, raise `SCHEDULED_MAX_LATENESS` (up to 168h) and deploy
+  BEFORE the oldest held item is 6 h overdue (expiry is decided on every run and is terminal) and BEFORE turning `FEATURE_MEDIA` back on, then
+  restore the default once the backlog has drained (the same lever as "Raising the lateness bound before recovering from an outage"). The held
+  images then stay queued longer and publish as soon as the flag returns, so decide it with whoever owns the incident. The publish transaction
+  still checks every image when it finally runs: one that was rejected or removed in the meantime fails the item as `MEDIA_UNAVAILABLE`.
+- **Cost of holding.** Held items still match the due query, so each run re-reads them: 1 read each per run (about 288 runs a day), up to
+  `SCHEDULED_MAX_PENDING` (25) per user. 20 held items cost about 5,800 reads a day (about 12% of the free 50,000), and `max_lateness_ms` rises
+  with the oldest of them. They are the oldest due items, so they sit at the head of the query, which reads at most 100 items a run
+  (`SCHEDULED_SWEEP_LIMIT` x `SCHEDULED_SWEEP_MAX_PAGES`): more than 100 held items would push newer due items past the window until the held ones
+  expire or the flag returns. If that ever happens, raise `SCHEDULED_SWEEP_MAX_PAGES` (up to 10) as in "Draining a backlog".
 
 ### Draining a backlog
 
