@@ -170,7 +170,7 @@ against a cloud project.
 - **Scheduled posts (ADR-0021 D4):** `users/{uid}/scheduled/*` is a subcollection, which deleting `users/{uid}` does not remove, so the
   `scheduled` step (after `reports`, before `identity`) deletes every document, 500 per page. It costs 1 read when the account has none.
   The documents hold only the owner's data (no other user's uid), so there is no residue to report. The export carries a `scheduled`
-  section with every document and the draft of each PENDING or FAILED one.
+  section with every document and the draft of each PENDING one (FAILED items hold none).
 - **Notifications and devices (P6, ADR-0017):** the `notifications` step removes the user's devices and their
   `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
   `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when

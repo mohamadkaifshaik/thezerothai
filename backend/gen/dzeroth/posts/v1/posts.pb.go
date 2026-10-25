@@ -327,7 +327,8 @@ const (
 	ScheduledPostStatus_SCHEDULED_POST_STATUS_PUBLISHED ScheduledPostStatus = 2
 	// Cancelled by the user, or the account was being deleted at publish time. Text and media are no longer returned.
 	ScheduledPostStatus_SCHEDULED_POST_STATUS_CANCELLED ScheduledPostStatus = 3
-	// Not published; see failure. Keeps text and media so the client can offer "reschedule" (a new SchedulePost).
+	// Not published; see failure. The draft is cleared (founder decision 2026-10-24), so text and media are not returned and
+	// the item cannot be rescheduled: the user dismisses it (CancelScheduledPost) and re-enters the post.
 	ScheduledPostStatus_SCHEDULED_POST_STATUS_FAILED ScheduledPostStatus = 4
 )
 
@@ -1399,9 +1400,9 @@ type ScheduledPost struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 32 lowercase hex characters.
 	ScheduledId string `protobuf:"bytes,1,opt,name=scheduled_id,json=scheduledId,proto3" json:"scheduled_id,omitempty"`
-	// Empty once PUBLISHED or CANCELLED.
+	// Empty unless PENDING (the draft is cleared on PUBLISHED, CANCELLED and FAILED).
 	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// Including alt text; lists render thumb_url only. Empty once PUBLISHED or CANCELLED.
+	// Including alt text; lists render thumb_url only. Empty unless PENDING (the draft is cleared on PUBLISHED, CANCELLED and FAILED).
 	Media           []*v1.MediaRef `protobuf:"bytes,3,rep,name=media,proto3" json:"media,omitempty"`
 	ReplyPolicy     ReplyPolicy    `protobuf:"varint,4,opt,name=reply_policy,json=replyPolicy,proto3,enum=dzeroth.posts.v1.ReplyPolicy" json:"reply_policy,omitempty"`
 	PaidPartnership bool           `protobuf:"varint,5,opt,name=paid_partnership,json=paidPartnership,proto3" json:"paid_partnership,omitempty"`

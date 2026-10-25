@@ -75,8 +75,9 @@ const (
 	scheduledIDLen = 32
 )
 
-// ScheduledDraft is the content to publish. It exists only while the item is PENDING or FAILED: the transitions to
-// PUBLISHED and CANCELLED clear it (review L-2), so the post text lives in `posts` alone once published.
+// ScheduledDraft is the content to publish. It exists only while the item is PENDING: the transitions to PUBLISHED,
+// CANCELLED and FAILED clear it (review L-2; founder decision 2026-10-24 for FAILED), so the post text lives in `posts`
+// alone once published.
 type ScheduledDraft struct {
 	// Text is the normalised (NFC) post text.
 	Text string
@@ -92,7 +93,7 @@ type ScheduledPost struct {
 	// ID is the document id (32 hex); UID is the owner, taken from the path and never stored in the document.
 	ID, UID       string
 	SchemaVersion int
-	// Draft is nil once the item is PUBLISHED or CANCELLED.
+	// Draft is nil unless the item is PENDING (cleared on PUBLISHED, CANCELLED and FAILED).
 	Draft *ScheduledDraft
 	// PublishAt is UTC, truncated to the minute.
 	PublishAt time.Time

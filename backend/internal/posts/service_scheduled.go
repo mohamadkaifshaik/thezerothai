@@ -89,9 +89,10 @@ type Scheduler interface {
 	// Firestore, worst case (keep the SchedulePost proto comment and the integration budget assertions in sync):
 	//
 	//	reads : interceptor 1 (caller users, cached) + scheduled doc 1 + pending count() 1 + window count() 1 + quotas 1
-	//	        + media <= 4 = 9; +1 when the create loses a race (AlreadyExists, one more read of the winner's doc)
-	//	typical (no media): 4; replay 2; at the pending cap 3; at the window cap 4; at the daily cap 5 (the cap is
-	//	        checked before the media read)
+	//	        + media <= 4 = 9. A create that loses a race (AlreadyExists) adds 1 read of the winner's doc, and a
+	//	        transaction retry under contention re-reads quotas and the media (up to 5 more per retry)
+	//	typical (no media): 5 with a cold interceptor read, 4 of them the service's own; replay 2; at the pending cap 3;
+	//	        at the window cap 4; at the daily cap 5 (the cap is checked before the media read)
 	//	writes: scheduled doc + quotas.schedules = 2 (replay and every cap: 0); + 1 TTL delete when it reaches a
 	//	        terminal state. The posts daily quota is charged at publish, not here.
 	//

@@ -197,7 +197,8 @@ class ScheduledPostStatus extends $pb.ProtobufEnum {
       ScheduledPostStatus._(
           3, _omitEnumNames ? '' : 'SCHEDULED_POST_STATUS_CANCELLED');
 
-  /// Not published; see failure. Keeps text and media so the client can offer "reschedule" (a new SchedulePost).
+  /// Not published; see failure. The draft is cleared (founder decision 2026-10-24), so text and media are not returned and
+  /// the item cannot be rescheduled: the user dismisses it (CancelScheduledPost) and re-enters the post.
   static const ScheduledPostStatus SCHEDULED_POST_STATUS_FAILED =
       ScheduledPostStatus._(
           4, _omitEnumNames ? '' : 'SCHEDULED_POST_STATUS_FAILED');

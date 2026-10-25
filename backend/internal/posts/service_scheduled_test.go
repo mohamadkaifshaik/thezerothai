@@ -371,7 +371,7 @@ func TestSchedule_EffectiveRequestDecidesReplayOrReuse(t *testing.T) {
 				wantReads(t, c, 1, 0)
 				return
 			}
-			wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+			_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 			wantReads(t, c, 1, 0)
 			if e.repo.stored(schedUID, first.ID).Draft.Text != "hello later" {
 				t.Error("the stored item changed")
@@ -559,7 +559,7 @@ func TestSchedule_MediaNotReady(t *testing.T) {
 	e := newSchedSvcEnv()
 	e.repo.mediaNotReady = true
 	_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(2) }))
-	wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
+	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 	wantReads(t, c, 6, 0)
 	if len(e.repo.docs[schedUID]) != 0 || e.repo.schedules[schedUID] != 0 {
 		t.Error("something was stored")
@@ -587,7 +587,7 @@ func TestSchedule_ConcurrentDuplicateAnswersFromTheWinner(t *testing.T) {
 		winner.RequestHash = "another-body"
 		e.repo.raceDoc = winner
 		_, _, err := e.schedule(in(e))
-		wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	})
 	t.Run("the winner vanished: an internal error, not a loop", func(t *testing.T) {
 		e := newSchedSvcEnv()
@@ -603,7 +603,7 @@ func TestSchedule_ProfileRequired(t *testing.T) {
 	e := newSchedSvcEnv()
 	delete(e.dir.profiles, schedUID)
 	_, _, err := e.schedule(e.validIn())
-	wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
+	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
 	if e.repo.creates != 0 {
 		t.Error("created without a profile")
 	}
@@ -874,7 +874,7 @@ func TestCancelScheduled(t *testing.T) {
 	t.Run("unknown id is NOT_FOUND", func(t *testing.T) {
 		e := newSchedSvcEnv()
 		_, _, err := cancel(e, schedUID, schedKeyFor(1), strings.Repeat("a", 32))
-		wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+		_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	})
 	t.Run("another user's id is NOT_FOUND and the item is untouched", func(t *testing.T) {
 		bobs := newSched(t, "uid-bob", 1, ScheduledPending)

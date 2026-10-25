@@ -1419,7 +1419,7 @@ class ScheduledPost extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearScheduledId() => $_clearField(1);
 
-  /// Empty once PUBLISHED or CANCELLED.
+  /// Empty unless PENDING (the draft is cleared on PUBLISHED, CANCELLED and FAILED).
   @$pb.TagNumber(2)
   $core.String get text => $_getSZ(1);
   @$pb.TagNumber(2)
@@ -1429,7 +1429,7 @@ class ScheduledPost extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearText() => $_clearField(2);
 
-  /// Including alt text; lists render thumb_url only. Empty once PUBLISHED or CANCELLED.
+  /// Including alt text; lists render thumb_url only. Empty unless PENDING (the draft is cleared on PUBLISHED, CANCELLED and FAILED).
   @$pb.TagNumber(3)
   $pb.PbList<$0.MediaRef> get media => $_getList(2);
 
@@ -2154,12 +2154,16 @@ class PostServiceApi {
   /// used elsewhere before publish fails the item MEDIA_UNAVAILABLE; it stays reachable by its public URL until then.
   /// Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
   /// the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
-  /// PUBLISHED or CANCELLED item returns it without text or media.
+  /// PUBLISHED, CANCELLED or FAILED item returns it without text or media.
+  /// A call that gets a cap error (LIMIT_REACHED, QUOTA_EXCEEDED) may be a near-simultaneous duplicate of a call that just
+  /// succeeded: keep the same idempotency_key and retry after any such error, and the retry returns the stored item.
   /// Caps: 25 pending (soft) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of
   /// publish_at (soft) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for accounts younger than
   /// 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at publish.
-  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4;
-  /// +1 on a concurrent duplicate) / 4 typical; writes 2 (scheduled doc, quotas). Replay / at pending cap / at
+  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, window count 1, quotas 1, media <= 4)
+  /// / 5 typical without media (4 of them the service's own; the interceptor's profile read is a cache hit when warm);
+  /// writes 2 (scheduled doc, quotas). A concurrent duplicate adds 1 (the winner's doc is re-read), and a transaction
+  /// retry under contention re-reads quotas and the media (up to 5 more per retry). Replay / at pending cap / at
   /// window cap / at daily cap: reads 2 / 3 / 4 / 5 worst, writes 0.
   $async.Future<SchedulePostResponse> schedulePost(
           $pb.ClientContext? ctx, SchedulePostRequest request) =>

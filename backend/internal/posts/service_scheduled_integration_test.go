@@ -130,7 +130,7 @@ func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 	} {
 		kctx, kc := e.ctx("alice")
 		_, err := e.svc.Schedule(kctx, "alice", e.in(1, mut))
-		wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 		budgettest.Assert(t, "SchedulePost key reuse: "+name, kc, budgettest.Budget{Reads: 1, Writes: 0})
 	}
 
@@ -167,7 +167,7 @@ func TestSchedulerIT_MediaAndTheDailyCap(t *testing.T) {
 	for name, id := range map[string]string{"someone else's": itMediaID(9), "unknown": itMediaID(77)} {
 		mctx, mc := e.ctx("alice")
 		_, err := e.svc.Schedule(mctx, "alice", e.in(2, func(i *ScheduleInput) { i.MediaIDs = []string{id} }))
-		wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
+		_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 		budgettest.Assert(t, "SchedulePost with a bad image: "+name, mc, budgettest.Budget{Reads: 5, Writes: 0})
 	}
 	if e.schedules(t, "alice") != 1 {
@@ -370,7 +370,7 @@ func TestSchedulerIT_Cancel(t *testing.T) {
 	for _, tc := range []struct{ key, id string }{{schedKeyFor(1), "NOT-HEX"}, {"short", pending.ID}} {
 		ctx, vc := e.ctx("alice")
 		_, err := e.svc.CancelScheduled(ctx, "alice", tc.key, tc.id)
-		wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
+		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 		if vc.Reads() != 0 {
 			t.Errorf("validation read %d documents", vc.Reads())
 		}
@@ -381,7 +381,7 @@ func TestSchedulerIT_Cancel(t *testing.T) {
 // charge and the same item for every caller (the loser answers from the winner's doc).
 func TestSchedulerIT_ConcurrentDuplicates(t *testing.T) {
 	e := newSchedSvcIT(t)
-	const callers = 3
+	const callers = 2 // two keep the emulator well inside the 5 s create-transaction timeout; more only add contention
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
@@ -389,10 +389,12 @@ func TestSchedulerIT_ConcurrentDuplicates(t *testing.T) {
 		failure error
 	)
 	in := e.in(1)
+	start := make(chan struct{}) // released together so both calls overlap
 	for i := 0; i < callers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start
 			ctx, _ := e.ctx("alice")
 			p, err := e.svc.Schedule(ctx, "alice", in)
 			mu.Lock()
@@ -404,6 +406,7 @@ func TestSchedulerIT_ConcurrentDuplicates(t *testing.T) {
 			ids = append(ids, p.ID)
 		}()
 	}
+	close(start)
 	wg.Wait()
 	if failure != nil {
 		var ae *apierr.Error

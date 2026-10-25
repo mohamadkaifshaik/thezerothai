@@ -114,8 +114,8 @@ func (s *Server) CancelScheduledPost(ctx context.Context, req *connect.Request[p
 }
 
 // ScheduledToProto converts a stored item to its wire shape. Text, media, reply policy and the labels come from the
-// draft, which exists only while PENDING or FAILED (founder decision 2026-10-24: a FAILED item's draft is cleared),
-// so a PUBLISHED, CANCELLED or FAILED item is returned without them. publish_at is the stored whole minute.
+// draft, which exists only while PENDING (cleared on PUBLISHED, CANCELLED and, by founder decision 2026-10-24, FAILED), so
+// only a PENDING item carries them. publish_at is the stored whole minute.
 func ScheduledToProto(p *ScheduledPost) *postsv1.ScheduledPost {
 	out := &postsv1.ScheduledPost{
 		ScheduledId: p.ID,
