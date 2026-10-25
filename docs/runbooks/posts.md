@@ -162,7 +162,8 @@ publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or tr
   a 30-day conditional grant that is never applied in prod):
   `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token --impersonate-service-account=<dev pubsub-push SA> --audiences=<dev api_url> --include-email)" <dev api_url>/internal/cron/publish-scheduled`
   If gcloud's impersonation needs more than `getOpenIdToken`, mint the token through IAM Credentials with your own access token and pass the
-  returned `token` as the Bearer:
+  returned `token` as the Bearer. Never "fix" a failing impersonation by granting `roles/iam.serviceAccountTokenCreator` instead: that role
+  also mints access tokens and signs blobs as the service account, which is far more than a manual cron test needs (security review I-6):
   `curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d '{"audience":"<dev api_url>","includeEmail":true}' https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<dev pubsub-push SA>:generateIdToken`
   The route answers 204 whatever happened to the items, so read the `scheduled_sweep` line for the result. A GET is a 405.
 
