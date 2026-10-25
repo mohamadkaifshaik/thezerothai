@@ -13,6 +13,8 @@ import (
 	"errors"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -108,6 +110,17 @@ type Counters interface {
 	// D3: Block's counter decrements are "combined per doc"). A zero delta is simply omitted from the
 	// update; if both are zero, no write is appended at all.
 	AddCounts(b store.Batch, uid string, followingDelta, followersDelta int64)
+}
+
+// TxProfiles lets another module read the author's users/{uid} document INSIDE its own transaction, uncached, so a
+// concurrent status change (an opsctl suspension, a DeleteAccount) conflicts with the transaction instead of being
+// missed (ADR-0021 Sweep step 3.2, security review L-7). It is the read-side companion of Counters: no module other
+// than identity ever reads or writes users/{uid} directly. Unlike Directory.GetProfiles it does NOT filter by status:
+// SUSPENDED and DELETING profiles come back with their Status so the caller can decide.
+type TxProfiles interface {
+	// ProfileInTx reads users/{uid} through tx. Reads 1 (charged to ctx's budget.Counter). ErrNotFound when the
+	// document is absent. The error text never includes the uid.
+	ProfileInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Profile, error)
 }
 
 // Repo is the storage seam service.go depends on; repo_firestore.go is the Firestore implementation,
