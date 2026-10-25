@@ -24,37 +24,37 @@ import (
 // exactly: concurrent schedules by one user conflict on quotas/{uid}, so a retried loser sees the winner's committed
 // document. A cap that only counts outside the transaction lets every concurrent first call through.
 
-// scheduleOutcome classifies the error of one concurrent Schedule call.
-type scheduleOutcome string
+// windowRaceOutcome classifies the error of one concurrent Schedule call.
+type windowRaceOutcome string
 
 const (
-	outcomeOK             scheduleOutcome = "ok"
-	outcomeWindowRejected scheduleOutcome = "window_rejected"
-	// outcomeUnknown is a transaction the client gave up on (ABORTED after its retries, the 5 s deadline, UNAVAILABLE).
+	windowRaceOK       windowRaceOutcome = "ok"
+	windowRaceRejected windowRaceOutcome = "window_rejected"
+	// windowRaceUnknown is a transaction the client gave up on (ABORTED after its retries, the 5 s deadline, UNAVAILABLE).
 	// A commit that timed out on the client can still have landed on the server, so the outcome is not known.
-	outcomeUnknown scheduleOutcome = "unknown"
-	outcomeOther   scheduleOutcome = "other"
+	windowRaceUnknown windowRaceOutcome = "unknown"
+	windowRaceOther   windowRaceOutcome = "other"
 )
 
-func classifySchedule(err error) scheduleOutcome {
+func classifyWindowRace(err error) windowRaceOutcome {
 	if err == nil {
-		return outcomeOK
+		return windowRaceOK
 	}
 	var ae *apierr.Error
 	if errors.As(err, &ae) {
 		if ae.Reason == commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED && ae.Metadata["limit"] == limitScheduledWindow {
-			return outcomeWindowRejected
+			return windowRaceRejected
 		}
-		return outcomeOther
+		return windowRaceOther
 	}
 	switch status.Code(err) {
 	case codes.Aborted, codes.DeadlineExceeded, codes.Unavailable:
-		return outcomeUnknown
+		return windowRaceUnknown
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return outcomeUnknown
+		return windowRaceUnknown
 	}
-	return outcomeOther
+	return windowRaceOther
 }
 
 // TestSchedulerIT_ConcurrentWindowCap: 10 simultaneous SchedulePost calls of ONE user for the SAME minute with distinct
@@ -89,7 +89,7 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 			var (
 				ready, done sync.WaitGroup
 				mu          sync.Mutex
-				outcomes    = map[scheduleOutcome]int{}
+				outcomes    = map[windowRaceOutcome]int{}
 				unknownBy   = map[string]int{} // the gRPC code of each unknown outcome, for the log
 				otherErrs   []string
 			)
@@ -104,14 +104,14 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 					ready.Done()
 					<-start
 					_, err := e.svc.Schedule(ctx, "alice", in)
-					out := classifySchedule(err)
+					out := classifyWindowRace(err)
 					mu.Lock()
 					defer mu.Unlock()
 					outcomes[out]++
 					switch out {
-					case outcomeOther:
+					case windowRaceOther:
 						otherErrs = append(otherErrs, err.Error())
-					case outcomeUnknown:
+					case windowRaceUnknown:
 						unknownBy[status.Code(err).String()]++
 					}
 				}()
@@ -148,7 +148,7 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 			if stored > windowCap {
 				t.Errorf("%d items hold the same minute, the window cap is %d", stored, windowCap)
 			}
-			ok, unknown := outcomes[outcomeOK], outcomes[outcomeUnknown]
+			ok, unknown := outcomes[windowRaceOK], outcomes[windowRaceUnknown]
 			if ok < 1 {
 				t.Errorf("no call succeeded (%d callers): the test proves nothing", callers)
 			}
