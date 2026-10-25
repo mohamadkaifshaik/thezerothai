@@ -4,6 +4,11 @@ variable "project_id" {
 
 variable "env" {
   type = string
+
+  validation {
+    condition     = contains(["dev", "prod"], var.env)
+    error_message = "env must be dev or prod (the API refuses to start with any other ENV)."
+  }
 }
 
 variable "region" {

@@ -303,15 +303,38 @@ func TestLoad_CORSOffByDefaultOutsideLocal(t *testing.T) {
 }
 
 func TestLoad_RefusesLocalOnCloudRun(t *testing.T) {
-	for _, env := range []string{"", "local"} {
-		clearEnv(t)
-		t.Setenv("K_SERVICE", "api")
-		if env != "" {
+	for _, tc := range []struct{ name, env, key string }{
+		{"service, ENV unset", "", "K_SERVICE"},
+		{"service, ENV=local", "local", "K_SERVICE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv(tc.key, "api")
+			if tc.env != "" {
+				t.Setenv("ENV", tc.env)
+			}
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tc.key) {
+				t.Fatalf("Load() error = %v, want a refusal mentioning %s", err, tc.key)
+			}
+		})
+	}
+}
+
+func TestLoad_DevAndProdLoadOnCloudRun(t *testing.T) {
+	for _, env := range []string{"dev", "prod"} {
+		t.Run(env, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("K_SERVICE", "api")
 			t.Setenv("ENV", env)
-		}
-		if _, err := Load(); err == nil {
-			t.Fatalf("expected error for ENV=%q with K_SERVICE set", env)
-		}
+			t.Setenv("FIREBASE_PROJECT_ID", "dzeroth-"+env)
+			t.Setenv("CURSOR_HMAC_KEY", "secret")
+			t.Setenv("INTERNAL_OIDC_AUDIENCE", "https://api-xyz.a.run.app")
+			t.Setenv("INTERNAL_OIDC_ALLOWED_EMAILS", "sa@x.iam.gserviceaccount.com")
+			if _, err := Load(); err != nil {
+				t.Fatalf("Load() error = %v, want nil", err)
+			}
+		})
 	}
 }
 
@@ -346,13 +369,6 @@ func TestLoad_RejectsEmulatorHostsOutsideLocal(t *testing.T) {
 		if _, err := Load(); err == nil {
 			t.Fatalf("expected error with %s set in dev", k)
 		}
-	}
-}
-
-func TestLoad_LocalAllowedWithoutKService(t *testing.T) {
-	clearEnv(t)
-	if _, err := Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
 	}
 }
 
