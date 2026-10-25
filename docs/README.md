@@ -15,5 +15,10 @@ Start here. Binding rules are in `/CLAUDE.md`; decisions in `adr/` win over ever
 | X reference captures for the UI | `x_research/` (local only, gitignored; not in a fresh clone) |
 | Claude Code tooling and guardrails | `runbooks/claude-setup.md` |
 
-`archive/` holds closed reports that nothing links to (phase 0 and p0 reviews, old post-release notes). They are history, not guidance: do not
-read them unless a task names them.
+`archive/` holds closed reports. They are history, not guidance: do not read them unless a task names them. `archive/reviews/` has the
+code, security, test and cost reports of the shipped graph, posts/timeline, account-lifecycle and modern-UI slices (plans and ADRs still
+cite them by their `docs/archive/reviews/` path), plus the phase 0 and p0 reviews and old post-release notes.
+
+`reviews/` keeps what is still used: `cost-model.md` (read by `make cost`), the ADR-0021 security review (that work is in progress) and the
+`release-<tag>-readiness.md` files. Keep the release files in place: `release-prod.yml` and `promote-prod.yml` require
+`docs/reviews/release-<tag>-readiness.md` with a `VERDICT: GO` line for the tag being released.

@@ -3,8 +3,8 @@ Owner: sre-performance. Date: 2026-09-30. Ticket: `docs/plans/graph.md` T21. Met
 Status: **Graph section complete. The Identity baseline is carried over from `release-v0.1.0-readiness.md` §3. Other
 sections (Cloud Run tuning, cold start on dev, actuals) are added by T24/T25 and are not covered here.**
 
-Inputs: `docs/reviews/loadtest-graph.md` (T18 k6 on emulators), T16a/T16b `budgettest` ceilings, ADR-0008 plus the
-2026-09-30 amendment (A2 cold/warm table). `docs/reviews/test-report-graph.md` (T17): **pending, not yet written; not
+Inputs: `docs/archive/reviews/loadtest-graph.md` (T18 k6 on emulators), T16a/T16b `budgettest` ceilings, ADR-0008 plus the
+2026-09-30 amendment (A2 cold/warm table). `docs/archive/reviews/test-report-graph.md` (T17): **pending, not yet written; not
 referenced for any number here.** Everything is emulator-measured or a stated planning value. No cloud access was used.
 
 ## Graph: per-RPC measured vs budget

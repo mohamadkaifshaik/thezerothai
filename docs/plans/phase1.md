@@ -56,7 +56,7 @@ P9 has no plan yet.
 
 **Could not verify:** whether PR #58 (graph T27 lazy clean-up) is still open or merged (no GitHub access from here),
 and whether v0.2.0 is tagged or released. `docs/plans/graph.md:2` targets graph at v0.2.0, and
-`docs/reviews/cost-report-v0.2.0.md` exists, but there is no `release-v0.2.0-readiness.md`. Deployed state was not checked.
+`docs/archive/reviews/cost-report-v0.2.0.md` exists, but there is no `release-v0.2.0-readiness.md`. Deployed state was not checked.
 
 ### Contract drift to fix in the slices (found while reading)
 - `media.proto:23-26` still says SafeSearch runs "if the monthly Vision counter < 950". ADR-0005 was amended on 2026-09-27
@@ -375,7 +375,7 @@ ADR-0010 → P1 ────┼──► P2 ────────────
   P2 moves earlier if handle renames become common among testers.
 
 ## 4. Release cut line
-`v0.2.0` is already claimed by the graph slice (`docs/plans/graph.md:2`, `docs/reviews/cost-report-v0.2.0.md`). The two
+`v0.2.0` is already claimed by the graph slice (`docs/plans/graph.md:2`, `docs/archive/reviews/cost-report-v0.2.0.md`). The two
 Phase 1 releases after it are therefore called **v0.3.0** and **v0.4.0**. If v0.2.0 was never tagged, the founder can
 renumber them without changing the cut.
 

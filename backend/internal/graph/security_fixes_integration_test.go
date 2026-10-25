@@ -1,7 +1,7 @@
 //go:build integration
 
 // security_fixes_integration_test.go covers the emulator-visible behaviour of the M4-verification fixes
-// (docs/reviews/security-review-graph.md): M1 opaque/bound page tokens, M2 the shared graph_mutation_daily cap,
+// (docs/archive/reviews/security-review-graph.md): M1 opaque/bound page tokens, M2 the shared graph_mutation_daily cap,
 // L3 reserved ids. M3 (GetProfile of non-ACTIVE accounts) is asserted by TestNotFound_Integration_ByteIdentical,
 // D-1 by TestPurge_Integration_ChunkOfOnlyMissingCounterparts, D1 by TestT16a_Race_FollowUnfollowFlapping. It
 // reuses the shared fixtures (newWired, seedFollow, seedBlock, the rig) and the invariant sweep newWired registers.

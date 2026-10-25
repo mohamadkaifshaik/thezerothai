@@ -655,7 +655,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
     - B unblocks A;
     - clean-up.
   - Run `flutter test` and check that every new screen has widget tests.
-  - Write `docs/reviews/test-report-graph.md` with the budget table (actual reads/writes per RPC vs budget), coverage,
+  - Write `docs/archive/reviews/test-report-graph.md` with the budget table (actual reads/writes per RPC vs budget), coverage,
     and the matrix results.
 - **Acceptance criteria.**
   - Given `make ci` and `make test-int`, then both are green.
@@ -687,7 +687,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - the reuse report is present and the catalogs are updated.
 - **Acceptance criteria.**
   - Given each PR, then an APPROVE is recorded, or findings are fixed and re-reviewed.
-  - Given the summary, then `docs/reviews/graph-code-review.md` lists 0 open Blockers.
+  - Given the summary, then `docs/archive/reviews/graph-code-review.md` lists 0 open Blockers.
 - **Test notes.** —
 - **Observability.** Check that every new request path has `fs_reads`/`fs_writes` logging and an ERROR path visible in
   Logs Explorer.
@@ -707,7 +707,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - `opsctl` safety (explicit project, confirmation, runs only with the founder's ADC);
   - the privacy of the export (no third-party block data).
 
-  Output: `docs/reviews/security-review-graph.md`.
+  Output: `docs/archive/reviews/security-review-graph.md`.
 - **Acceptance criteria.** 0 Critical and 0 High open. Every Medium is fixed or has a recorded risk acceptance for
   the v0.2.0 readiness §4.
 - **Test notes.** Any finding that needs a test goes back to T16 as a new case.
@@ -720,7 +720,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   - Update `docs/reviews/cost-model.md` §2: the Graph rows with this plan's numbers, measured reads/writes from T16 and
     T18 replacing the estimates, and Block/Mute split out.
   - Update §3 and §4: recompute the crossover DAU.
-  - Add a graph section to `docs/reviews/cost-report-v0.2.0.md`: per-RPC measured vs budget, daily totals at 300 DAU,
+  - Add a graph section to `docs/archive/reviews/cost-report-v0.2.0.md`: per-RPC measured vs budget, daily totals at 300 DAU,
     and the abuse bounds.
   - Confirm no new service or fixed cost, and that `cost-guard` is clean.
 - **Acceptance criteria.**

@@ -1237,7 +1237,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   `code-map.md` test-helpers section.
 - **Observability.** —
 - **Budget.** Not applicable (emulator).
-- **Status: tests written 2026-10-06 (audit items #1, #8, #10, #12, #14-16, #19-22 in `docs/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: `assertPostsInvariants` (swept after every create/delete test), cold replay and reused-key budgets, quota rejection and concurrent-create budgets, posts IST rollover, the CreatePost mentions D6 matrix, GetPost and DeletePost D6 matrices, stored mentions/hashtags table, U+2028 to `\n`, purge restart from an empty checkpoint. Still open: the D21 G5 11 s row end to end through CreatePost (covered in `identity/resolve_handles_g5_test.go`; the posts test skips it because `identity.Cache.now` is unexported), and golden JSON for happy responses (no golden convention in the repo).
+- **Status: tests written 2026-10-06 (audit items #1, #8, #10, #12, #14-16, #19-22 in `docs/archive/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: `assertPostsInvariants` (swept after every create/delete test), cold replay and reused-key budgets, quota rejection and concurrent-create budgets, posts IST rollover, the CreatePost mentions D6 matrix, GetPost and DeletePost D6 matrices, stored mentions/hashtags table, U+2028 to `\n`, purge restart from an empty checkpoint. Still open: the D21 G5 11 s row end to end through CreatePost (covered in `identity/resolve_handles_g5_test.go`; the posts test skips it because `identity.Cache.now` is unexported), and golden JSON for happy responses (no golden convention in the repo).
 
 ### T20 — Emulator integration tests: timelines and read budget  [owner: tester] [size: M] [depends: T3, T12, T13]
 - **Description.**
@@ -1267,7 +1267,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** Reuse the T19 fixtures.
 - **Observability.** —
 - **Budget.** Not applicable.
-- **Status: tests written 2026-10-06 (audit items #2-#7, #9, #11, #13, #17, #18, #23, #24 in `docs/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: the P0 random-handle loop and unverified-account rotation as e2e tests, restricted (SUSPENDED/DELETING) callers on every posts/timeline RPC, home D6 matrix (unit and emulator), older-page and cold-page budgets, settle-window re-read cost and user-timeline late-commit test, user token binding, wire-level reason/metadata contract tests, `budgettest.Assert` self-test, IPv6 /64 keying. The contract tests found and the fix commit closed one bug: QUOTA_EXCEEDED had no `retry_after`. Note: the limiter key count for AC4 is not observable, so it is asserted indirectly (every call `fs_reads == 0`).
+- **Status: tests written 2026-10-06 (audit items #2-#7, #9, #11, #13, #17, #18, #23, #24 in `docs/archive/reviews/test-audit-posts-timeline-t19-t20.md`).** Added: the P0 random-handle loop and unverified-account rotation as e2e tests, restricted (SUSPENDED/DELETING) callers on every posts/timeline RPC, home D6 matrix (unit and emulator), older-page and cold-page budgets, settle-window re-read cost and user-timeline late-commit test, user token binding, wire-level reason/metadata contract tests, `budgettest.Assert` self-test, IPv6 /64 keying. The contract tests found and the fix commit closed one bug: QUOTA_EXCEEDED had no `retry_after`. Note: the limiter key count for AC4 is not observable, so it is asserted indirectly (every call `fs_reads == 0`).
 
 ### T21 — E2E smoke, Flutter test sweep, test report  [owner: tester] [size: S] [depends: T16, T17, T18, T19, T20]
 - **Description.**
@@ -1280,12 +1280,12 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
     6. A's GetPost is NOT_FOUND;
     7. clean-up.
   - Run `flutter test` and check that every new screen has widget tests.
-  - Write `docs/reviews/test-report-posts-timeline.md` with the measured budget table, coverage and matrix results.
+  - Write `docs/archive/reviews/test-report-posts-timeline.md` with the measured budget table, coverage and matrix results.
 - **Acceptance criteria.** Given `make ci` and `make test-int`, then both are green and the report verdict is PASS.
 - **Test notes.** The smoke test cleans up after itself, so it can re-run on `candidate`.
 - **Observability.** —
 - **Budget.** A smoke run ≈ 20 reads and 10 writes.
-- **Status: partly done (2026-10-06).** `backend/e2e/posts_smoke_test.go` added and passing on the emulators; `docs/reviews/test-report-posts-timeline.md` written. Open (blocked on credentials): run the smoke on the dev URL with the flag on (T26) and on the prod `candidate` URL (T27).
+- **Status: partly done (2026-10-06).** `backend/e2e/posts_smoke_test.go` added and passing on the emulators; `docs/archive/reviews/test-report-posts-timeline.md` written. Open (blocked on credentials): run the smoke on the dev URL with the flag on (T26) and on the prod `candidate` URL (T27).
 
 ### T22 — k6 emulator load smoke: timeline read + post create  [owner: sre-performance] [size: S] [depends: T8, T13]
 - **Description.** Add `loadtest/timeline_read.js` (50 virtual users, F distributed 10–300, refresh + older page) and
@@ -1324,7 +1324,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
 - **Test notes.** —
 - **Observability.** —
 - **Budget.** —
-- **Status: done for PR #94 (2026-10-05).** APPROVE, no open Blockers; see `docs/reviews/code-review-posts-timeline.md`.
+- **Status: done for PR #94 (2026-10-05).** APPROVE, no open Blockers; see `docs/archive/reviews/code-review-posts-timeline.md`.
 
 ### T24 — Security review: posts/timeline threat model + P0 closure  [owner: security-auditor] [size: M] [depends: T3, T8–T13]
 - **Description.** Threat-model:
@@ -1343,13 +1343,13 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - idempotency-key reuse;
   - log PII (no post text in logs).
 
-  Write `docs/reviews/security-review-posts-timeline.md`.
+  Write `docs/archive/reviews/security-review-posts-timeline.md`.
 - **Acceptance criteria.** 0 Critical/High open. The public-repo finding is marked Closed with evidence (T20 test
   names, config values), and the founder's acceptance of ADR-0010 D5 R1/R2 is recorded in the readiness report.
 - **Test notes.** Findings go back to the owning ticket.
 - **Observability.** Confirm no request body or text is logged.
 - **Budget.** —
-- **Status: done for PR #94 (2026-10-05).** 0 Critical/High open; see `docs/reviews/security-review-posts-timeline.md`. Open: mark the public-repo finding Closed with test-name evidence in the posts readiness report (`docs/reviews/release-v0.3.0-readiness.md`, draft started), and record the founder's R1/R2 acceptance there (founder's decision).
+- **Status: done for PR #94 (2026-10-05).** 0 Critical/High open; see `docs/archive/reviews/security-review-posts-timeline.md`. Open: mark the public-repo finding Closed with test-name evidence in the posts readiness report (`docs/reviews/release-v0.3.0-readiness.md`, draft started), and record the founder's R1/R2 acceptance there (founder's decision).
 
 ### T25 — Cost report and cost-model update  [owner: sre-performance] [size: S] [depends: T19, T20, T22]
 - **Description.** Re-base the `cost-model.md` §2 rows for CreatePost, DeletePost, GetPost and the timelines on
@@ -1363,7 +1363,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - restate §2–§5 for the whole product (≈ 215 reads/DAU after these corrections), and add §9 queries by
     `posts_op`/`timeline_op`.
 
-  Write `docs/reviews/cost-report-posts-timeline.md`. Add a Logs Explorer query grouping `fs_reads` by `rpc` for
+  Write `docs/archive/reviews/cost-report-posts-timeline.md`. Add a Logs Explorer query grouping `fs_reads` by `rpc` for
   Post/Timeline.
 - **Acceptance criteria.**
   - Given the report, then every planning value is within 25% of its measured mean, or the difference is explained.
