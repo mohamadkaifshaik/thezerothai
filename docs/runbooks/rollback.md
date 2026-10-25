@@ -88,6 +88,7 @@ Or use the Firebase console → Hosting → release history → "Rollback" on th
 The CSP in `firebase.json` is enforced (`Content-Security-Policy`). Symptom: the page loads blank, or sign-in
 does nothing, and the browser console shows `Refused to ... because it violates the following Content Security Policy directive`.
 Likely cause: a `firebase_*` bump changed the inline loader hashes (`make ci` normally catches it), or a new third-party origin.
+Image picking reads the chosen file from a `blob:` URL, which `connect-src` must allow (`blob:`); without it uploads fail before they start.
 Fix: roll back Hosting as above (instant). Then correct `script-src` / `connect-src` in a PR (`bash scripts/csp/check-firebase-loader-hashes.sh --print`
 prints the expected hashes). To debug without breaking users, temporarily rename the key back to `Content-Security-Policy-Report-Only`.
 
