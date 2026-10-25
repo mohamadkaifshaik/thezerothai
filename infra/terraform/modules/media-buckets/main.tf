@@ -28,7 +28,10 @@ resource "google_storage_bucket" "upload" {
   cors {
     origin          = var.cors_origins
     method          = ["PUT", "OPTIONS"]
-    response_header = ["Content-Type", "Content-MD5", "x-goog-*"]
+    # Exact header names only: Cloud Storage does not expand "x-goog-*", so a prefix entry fails the browser preflight for
+    # the signed x-goog-content-length-range header. Keep this equal to the headers objstore.SignedPutURL returns
+    # (objstore_cors_test.go enforces it).
+    response_header = ["Content-Type", "Content-MD5", "x-goog-content-length-range"]
     max_age_seconds = 3600
   }
 
