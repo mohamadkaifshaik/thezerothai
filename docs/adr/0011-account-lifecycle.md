@@ -468,7 +468,7 @@ lower**.
   replay (0 writes). The proto comment is unchanged to keep generated code stable; this note is the record.
 
 ## Amendment 2026-10-08 (L-4, L-6): export lease, ordered backstop scans
-Closes the two Low findings of `docs/reviews/security-review-account-lifecycle.md`. No new resource and no change to the
+Closes the two Low findings of `docs/archive/reviews/security-review-account-lifecycle.md`. No new resource and no change to the
 proto or to Q1-Q10. **Cost: none** (the new composite indexes store a few bytes per `DELETING` user and `PENDING`
 export; the one added write per export is inside the free quota).
 

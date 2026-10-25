@@ -334,7 +334,7 @@ sign-up (no profile yet). Replays for an existing profile make no Auth call.
 ### Rollout and rollback
 Dev is `allowlist` (founder uid). Prod is `off`. Ramp with the `flag-rollout` skill (off, allowlist, percent, on).
 Before the prod flag leaves `off`: the privacy policy rights section is reworded and reviewed, the security review
-items for prod are closed (see `docs/reviews/security-review-account-lifecycle.md`), and `production-reviewer` says GO.
+items for prod are closed (see `docs/archive/reviews/security-review-account-lifecycle.md`), and `production-reviewer` says GO.
 Rollback of a bad deploy is the usual Cloud Run traffic shift to the previous revision (the code is backward
 compatible with in-flight `deletionJob` documents as long as step names are unchanged).
 
