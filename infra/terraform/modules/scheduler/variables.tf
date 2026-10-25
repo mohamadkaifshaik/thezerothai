@@ -27,14 +27,29 @@ variable "request_timeout_seconds" {
 
 variable "jobs" {
   description = <<-EOT
-    Map of job name => { schedule (unix-cron), path }. Cloud Scheduler's free
-    tier is 3 jobs per BILLING ACCOUNT, shared across dev + prod — keep the
+    Map of job name => { schedule (unix-cron), path, attempt_deadline_seconds (optional) }.
+    Cloud Scheduler's free tier is 3 jobs per BILLING ACCOUNT, shared across dev + prod — keep the
     combined total across both envs' tfvars at or under 3.
+
+    attempt_deadline_seconds: how long Cloud Scheduler waits for one attempt before it cancels it and
+    retries. Omit it (null) to use request_timeout_seconds, which is what existing jobs do. Cloud
+    Scheduler allows 15 s to 30 min (1800 s) for HTTP targets. Keep it above the route's own deadline
+    and above the Cloud Run request timeout.
   EOT
   type = map(object({
-    schedule = string
-    path     = string
+    schedule                 = string
+    path                     = string
+    attempt_deadline_seconds = optional(number)
   }))
+
+  validation {
+    condition = alltrue([
+      for j in values(var.jobs) :
+      j.attempt_deadline_seconds == null ? true : (j.attempt_deadline_seconds >= 15 && j.attempt_deadline_seconds <= 1800)
+    ])
+    error_message = "attempt_deadline_seconds must be between 15 and 1800 (Cloud Scheduler HTTP target limits)."
+  }
+
   default = {
     "daily-maintenance" = {
       schedule = "0 3 * * *"

@@ -6,6 +6,11 @@ output "pubsub_push_service_account_email" {
   value = google_service_account.pubsub_push.email
 }
 
+output "pubsub_push_service_account_name" {
+  description = "Fully-qualified resource name (projects/<project>/serviceAccounts/<email>) of the pubsub-push SA, for IAM bindings made on that service account from an env root."
+  value       = google_service_account.pubsub_push.name
+}
+
 output "ci_deploy_service_account_email" {
   value = google_service_account.ci_deploy.email
 }
