@@ -206,6 +206,7 @@ class _ComposerViewState extends State<_ComposerView> {
   void _onScheduled(BuildContext context, pb.ScheduledPost scheduled) {
     _controller.clear();
     final router = GoRouter.of(context);
+    final cubit = context.read<ComposerCubit>();
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -219,18 +220,40 @@ class _ComposerViewState extends State<_ComposerView> {
           action: scheduledToastHasView(scheduled)
               ? SnackBarAction(
                   label: 'View',
-                  onPressed: () => router.push(AppRouter.scheduledPostsPath),
+                  onPressed: () => unawaited(
+                    router
+                        .push(AppRouter.scheduledPostsPath)
+                        .then(
+                          (_) => _scheduleAvailabilityMayHaveChanged(cubit),
+                        ),
+                  ),
                 )
               : null,
         ),
       );
-    context.read<ComposerCubit>().scheduledNoticeShown();
+    cubit.scheduledNoticeShown();
+  }
+
+  /// Back from the Scheduled list (or a tap on a control that went stale),
+  /// which may have learned that scheduling is switched off
+  /// (FEATURE_DISABLED): drop a time that can no longer be sent, so "Post"
+  /// means what it says, and rebuild, because `canSchedule` reads the gate
+  /// and nothing in the cubit state changes when only the gate does.
+  void _scheduleAvailabilityMayHaveChanged(ComposerCubit cubit) {
+    if (!mounted || cubit.isClosed) return;
+    cubit.scheduleAvailabilityChecked();
+    setState(() {});
   }
 
   /// Opens the Schedule dialog and applies its answer. [notice] is a server
   /// refusal of the time, shown under the pickers.
   Future<void> _openSchedule(BuildContext context, {String? notice}) async {
     final cubit = context.read<ComposerCubit>();
+    if (!cubit.canSchedule) {
+      // Scheduling went off since this page was built.
+      _scheduleAvailabilityMayHaveChanged(cubit);
+      return;
+    }
     final result = await showScheduleDialog(
       context,
       initial: cubit.state.scheduledAt,
@@ -245,7 +268,8 @@ class _ComposerViewState extends State<_ComposerView> {
         cubit.scheduleChanged(null);
       case ScheduleOpenList():
         // push, never go: the draft stays here underneath.
-        unawaited(context.push(AppRouter.scheduledPostsPath));
+        await context.push(AppRouter.scheduledPostsPath);
+        _scheduleAvailabilityMayHaveChanged(cubit);
       case null:
         break;
     }
@@ -350,6 +374,9 @@ class _ComposerViewState extends State<_ComposerView> {
       builder: (context, state) {
         final cubit = context.read<ComposerCubit>();
         final isQuote = cubit.quoteOfPostId.isNotEmpty;
+        // A time is only shown (and "Schedule" only written) while the
+        // composer can still schedule: never a line the button cannot honour.
+        final scheduling = state.isScheduling && cubit.canSchedule;
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
         // for an upload in flight. Applies to the verify-email view too: it
@@ -384,24 +411,28 @@ class _ComposerViewState extends State<_ComposerView> {
                     AppFormHeader(
                       title: isQuote ? 'Quote' : 'New post',
                       busy: state.isSubmitting,
-                      busySemanticsLabel: state.isScheduling
-                          ? 'Scheduling post'
-                          : null,
+                      busySemanticsLabel: scheduling ? 'Scheduling post' : null,
                       onCancel: () => _requestClose(context, state),
-                      actionLabel: state.isScheduling ? 'Schedule' : 'Post',
+                      actionLabel: scheduling ? 'Schedule' : 'Post',
                       onAction: state.canSubmit ? cubit.submit : null,
                     ),
-                    if (state.isSubmitting && state.isScheduling)
-                      const LinearProgressIndicator(
-                        minHeight: 2,
-                        semanticsLabel: 'Scheduling post',
+                    // The header announces "Scheduling post"; this bar is
+                    // only the picture of it.
+                    if (state.isSubmitting && scheduling)
+                      const ExcludeSemantics(
+                        child: LinearProgressIndicator(minHeight: 2),
                       ),
-                    if (state.scheduledAt != null)
+                    if (scheduling)
                       ScheduleLine(
                         publishAt: state.scheduledAt!,
                         enabled: !state.isSubmitting,
                         onTap: () => _openSchedule(context),
                       ),
+                    // L-9: the photos are reachable by link before the post
+                    // goes out. The dialog says so too, but photos can be
+                    // added after the time was set.
+                    if (scheduling && state.hasAttachments)
+                      const _ScheduleImagesNoteBox(),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.all(AppSpacing.md),
@@ -485,7 +516,7 @@ class _ComposerViewState extends State<_ComposerView> {
                               if (widget.mediaEnabled) const _AddPhotoButton(),
                               if (cubit.canSchedule)
                                 ScheduleButton(
-                                  scheduled: state.isScheduling,
+                                  scheduled: scheduling,
                                   enabled: !state.isSubmitting,
                                   onPressed: () => _openSchedule(context),
                                 ),
@@ -503,6 +534,33 @@ class _ComposerViewState extends State<_ComposerView> {
           ),
         );
       },
+    );
+  }
+}
+
+/// The L-9 note under the "Will send on" line, at most two tap targets high:
+/// at very large text on a small phone it scrolls inside that box, so it can
+/// never push the text field and the bottom bar off the screen.
+class _ScheduleImagesNoteBox extends StatelessWidget {
+  const _ScheduleImagesNoteBox();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.md,
+        0,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxHeight: AppSpacing.minTapTarget * 2,
+        ),
+        child: const SingleChildScrollView(
+          child: ScheduleImagesNote(compact: true),
+        ),
+      ),
     );
   }
 }

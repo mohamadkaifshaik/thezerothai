@@ -14,6 +14,41 @@ const kScheduleImagesNote =
     'Images are uploaded now and can be reached by anyone with the link '
     'before the post goes out.';
 
+/// [kScheduleImagesNote] with its info icon: in the Schedule dialog and, so
+/// that adding photos after choosing a time cannot skip it, under the
+/// "Will send on" line of the composer ([compact]: smaller type, there).
+class ScheduleImagesNote extends StatelessWidget {
+  const ScheduleImagesNote({super.key, this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.info_outline,
+          size: AppIconSize.md,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            kScheduleImagesNote,
+            style:
+                (compact
+                        ? theme.textTheme.bodySmall
+                        : theme.textTheme.bodyMedium)
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// How the Schedule dialog was left (dismissing it is `null`).
 sealed class ScheduleDialogResult {
   const ScheduleDialogResult();
@@ -269,32 +304,14 @@ class _ScheduleDialogBody extends StatelessWidget {
                         ),
                       ),
                     if (hasMedia)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(
                           AppSpacing.md,
                           AppSpacing.md,
                           AppSpacing.md,
                           0,
                         ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.info_outline,
-                              size: AppIconSize.md,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: Text(
-                                kScheduleImagesNote,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        child: ScheduleImagesNote(),
                       ),
                     const SizedBox(height: AppSpacing.sm),
                     if (hasSchedule)

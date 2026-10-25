@@ -73,7 +73,9 @@ void main() {
 
   /// Answers each SchedulePost with the next of [answers] (a value, an
   /// exception to throw, or a Future to wait for); the last one repeats.
-  void stubSchedule(List<Object> answers) {
+  /// [onCall] runs when a call reaches the "server", before it answers (the
+  /// gate learning a refusal).
+  void stubSchedule(List<Object> answers, {void Function()? onCall}) {
     var call = 0;
     when(
       () => repo.schedulePost(
@@ -94,12 +96,41 @@ void main() {
           policy: invocation.namedArguments[#replyPolicy] as ReplyPolicy,
         ),
       );
+      onCall?.call();
       final answer = answers[call < answers.length ? call : answers.length - 1];
       call++;
       if (answer is Exception) throw answer;
       if (answer is Future<pb.ScheduledPost>) return answer;
       return answer as pb.ScheduledPost;
     });
+  }
+
+  void stubCreatePost() {
+    when(
+      () => repo.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        replyToPostId: any(named: 'replyToPostId'),
+        quoteOfPostId: any(named: 'quoteOfPostId'),
+        mediaIds: any(named: 'mediaIds'),
+        mediaAltTexts: any(named: 'mediaAltTexts'),
+        replyPolicy: any(named: 'replyPolicy'),
+      ),
+    ).thenAnswer((_) async => postView(1));
+  }
+
+  /// A gate for which the scheduling sub-feature (and, with [allOfPosts],
+  /// every sub-feature) can be switched off from the test, like the real one
+  /// does when the server answers FEATURE_DISABLED.
+  ({void Function() switchOff}) stubGate({bool allOfPosts = false}) {
+    var on = true;
+    when(() => repo.subFeatureEnabled(any())).thenAnswer(
+      (invocation) =>
+          on ||
+          (!allOfPosts &&
+              invocation.positionalArguments.first != kFeatureScheduledPosts),
+    );
+    return (switchOff: () => on = false);
   }
 
   Future<GoRouter> open(
@@ -554,22 +585,23 @@ void main() {
       });
     }
 
-    testWidgets('FEATURE_DISABLED: the schedule UI goes, Post comes back', (
-      tester,
-    ) async {
+    testWidgets('FEATURE_DISABLED from the SERVER: the schedule UI goes, '
+        'Post comes back and posts now', (tester) async {
+      final gate = stubGate();
       stubSchedule([
         const FeatureDisabledException('x', feature: kFeatureScheduledPosts),
-      ]);
+      ], onCall: gate.switchOff);
+      stubCreatePost();
       await open(tester);
       await type(tester, 'hello');
       await chooseDefaultSchedule(tester);
-      // The gate remembers the answer.
-      when(() => repo.subFeatureEnabled(kFeatureScheduledPosts))
-          .thenReturn(false);
 
       await tester.tap(primaryButton('Schedule'));
       await tester.pumpAndSettle();
 
+      // One request reached the server: this is its answer, not a local
+      // refusal (the gate only turned off while that call was in flight).
+      expect(sent, hasLength(1));
       expect(
         find.text("Scheduling isn't available right now."),
         findsOneWidget,
@@ -578,6 +610,77 @@ void main() {
       expect(willSendLine(), findsNothing);
       expect(primaryButton('Post'), findsOneWidget);
       expect(find.text('hello'), findsOneWidget);
+
+      // The time did not stay behind: Post is a plain CreatePost.
+      await tester.tap(primaryButton('Post'));
+      await tester.pumpAndSettle();
+      expect(sent, hasLength(1));
+      verify(
+        () => repo.createPost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: 'hello',
+          replyToPostId: any(named: 'replyToPostId'),
+          quoteOfPostId: any(named: 'quoteOfPostId'),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
+          replyPolicy: any(named: 'replyPolicy'),
+        ),
+      ).called(1);
+      expect(find.text('home page'), findsOneWidget);
+    });
+
+    testWidgets('FEATURE_DISABLED for all of posts (no feature named): the '
+        'schedule UI goes too', (tester) async {
+      final gate = stubGate(allOfPosts: true);
+      stubSchedule([
+        const FeatureDisabledException('x'),
+      ], onCall: gate.switchOff);
+      await open(tester);
+      await type(tester, 'hello');
+      await chooseDefaultSchedule(tester);
+
+      await tester.tap(primaryButton('Schedule'));
+      await tester.pumpAndSettle();
+
+      expect(sent, hasLength(1));
+      expect(find.text("Posting isn't available right now."), findsOneWidget);
+      expect(scheduleIcon(), findsNothing);
+      expect(willSendLine(), findsNothing);
+      expect(primaryButton('Post'), findsOneWidget);
+      expect(find.text('hello'), findsOneWidget);
+    });
+
+    testWidgets('FEATURE_DISABLED for reply_audience: says the post will be '
+        'open to everyone, and the schedule stays', (tester) async {
+      stubSchedule([
+        const FeatureDisabledException('x', feature: 'reply_audience'),
+        scheduledPost(1),
+      ]);
+      await open(tester, features: {...both, 'reply_audience'});
+      await type(tester, 'hello');
+      await chooseDefaultSchedule(tester);
+      await tester.tap(find.text('Everyone can reply'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Only accounts you mention'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(primaryButton('Schedule'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Choosing who can reply isn't available right now. Your post will "
+          'be open to everyone.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text("Scheduling isn't available right now."), findsNothing);
+      expect(willSendLine(), findsOneWidget);
+      expect(find.text('Everyone can reply'), findsOneWidget);
+
+      await tester.tap(primaryButton('Schedule'));
+      await tester.pumpAndSettle();
+      expect(sent.last.policy, ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
     });
 
     testWidgets('VALIDATION on publish_at reopens the dialog with the reason', (
@@ -600,6 +703,174 @@ void main() {
         findsNothing,
       );
     });
+  });
+
+  group('photos', () {
+    testWidgets('a retry after a failed SchedulePost keeps the key and the '
+        'media ids (the uploads are not repeated)', (tester) async {
+      stubHappyUpload(media);
+      stubSchedule([const NetworkException('offline'), scheduledPost(1)]);
+      await open(tester, features: {...both, 'media'});
+      await addPhotos(tester, ['a', 'b']);
+      await chooseDefaultSchedule(tester);
+
+      await tester.tap(primaryButton('Schedule'));
+      await tester.pumpAndSettle();
+      expect(sent, hasLength(1));
+      expect(find.byTooltip('Remove photo 1'), findsOneWidget, reason: 'kept');
+      await tester.tap(primaryButton('Schedule'));
+      await tester.pumpAndSettle();
+
+      expect(sent, hasLength(2));
+      expect(sent[1].key, sent[0].key);
+      expect(sent[0].mediaIds, ['m1', 'm2']);
+      expect(sent[1].mediaIds, ['m1', 'm2']);
+      verify(
+        () => media.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('photos added AFTER the time was chosen still show the images '
+        'note in the composer', (tester) async {
+      await open(tester, features: {...both, 'media'});
+      await chooseDefaultSchedule(tester);
+      expect(find.text(kScheduleImagesNote), findsNothing, reason: 'no photos');
+
+      await addPhotos(tester, ['a']);
+
+      expect(find.text(kScheduleImagesNote), findsOneWidget);
+      // Below the "Will send on" line, above the text.
+      expect(
+        tester.getTopLeft(find.text(kScheduleImagesNote)).dy,
+        greaterThan(tester.getBottomLeft(willSendLine()).dy - 1),
+      );
+      expect(
+        tester.getTopLeft(find.text(kScheduleImagesNote)).dy,
+        lessThan(tester.getTopLeft(find.byType(TextField)).dy),
+      );
+    });
+
+    testWidgets('photos first, then the time: the note shows; removing the '
+        'time removes it; photos alone show none', (tester) async {
+      await open(tester, features: {...both, 'media'});
+      await addPhotos(tester, ['a']);
+      expect(find.text(kScheduleImagesNote), findsNothing, reason: 'no time');
+
+      await chooseDefaultSchedule(tester);
+      expect(find.text(kScheduleImagesNote), findsOneWidget);
+
+      await tester.tap(willSendLine());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove schedule'));
+      await tester.pumpAndSettle();
+      expect(find.text(kScheduleImagesNote), findsNothing);
+    });
+  });
+
+  group('scheduling switched off while the composer is open', () {
+    testWidgets('the list learned it: back in the composer the line, the '
+        'button and "Schedule" are gone, the draft stays', (tester) async {
+      final gate = stubGate();
+      stubCreatePost();
+      final router = await open(tester);
+      await type(tester, 'my draft');
+      await chooseDefaultSchedule(tester);
+      expect(willSendLine(), findsOneWidget);
+      await tester.tap(willSendLine());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Scheduled posts'));
+      await tester.pumpAndSettle();
+      expect(find.text('scheduled list page'), findsOneWidget);
+
+      // The list's own request was answered FEATURE_DISABLED.
+      gate.switchOff();
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(willSendLine(), findsNothing);
+      expect(scheduleIcon(), findsNothing);
+      expect(primaryButton('Post'), findsOneWidget);
+      expect(primaryButton('Schedule'), findsNothing);
+      expect(find.text('my draft'), findsOneWidget);
+
+      // What the button says is what it does: a plain post, no leftover time
+      // to refuse it first.
+      await tester.tap(primaryButton('Post'));
+      await tester.pumpAndSettle();
+      expect(sent, isEmpty);
+      verify(
+        () => repo.createPost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: 'my draft',
+          replyToPostId: any(named: 'replyToPostId'),
+          quoteOfPostId: any(named: 'quoteOfPostId'),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
+          replyPolicy: any(named: 'replyPolicy'),
+        ),
+      ).called(1);
+      expect(find.text("Scheduling isn't available right now."), findsNothing);
+    });
+
+    testWidgets('after "View" in the toast the Schedule button follows the '
+        'gate too', (tester) async {
+      final gate = stubGate();
+      stubSchedule([scheduledPost(1)]);
+      final router = await open(tester);
+      await type(tester, 'soon');
+      await chooseDefaultSchedule(tester);
+      await tester.tap(primaryButton('Schedule'));
+      await tester.pumpAndSettle();
+      expect(scheduleIcon(), findsOneWidget);
+
+      await tester.tap(find.text('View'));
+      await tester.pumpAndSettle();
+      expect(find.text('scheduled list page'), findsOneWidget);
+      gate.switchOff();
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(scheduleIcon(), findsNothing);
+      expect(primaryButton('Post'), findsOneWidget);
+    });
+
+    testWidgets('a tap on a stale Schedule button opens nothing', (
+      tester,
+    ) async {
+      final gate = stubGate();
+      await open(tester);
+      gate.switchOff();
+
+      await tester.tap(scheduleIcon());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Confirm'), findsNothing);
+      expect(scheduleIcon(), findsNothing);
+    });
+  });
+
+  testWidgets('while sending, "Scheduling post" is announced once', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final done = Completer<pb.ScheduledPost>();
+    stubSchedule([done.future]);
+    await open(tester);
+    await type(tester, 'slow');
+    await chooseDefaultSchedule(tester);
+
+    await tester.tap(primaryButton('Schedule'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.bySemanticsLabel('Scheduling post'), findsOneWidget);
+    done.complete(scheduledPost(1));
+    await tester.pumpAndSettle();
+    handle.dispose();
   });
 
   for (final brightness in Brightness.values) {

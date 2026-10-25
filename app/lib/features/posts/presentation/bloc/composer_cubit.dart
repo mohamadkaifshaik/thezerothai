@@ -276,11 +276,14 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   /// Sets (or, with null, removes) the time to send the post at. [publishAt]
   /// may be local or UTC; it is kept as a UTC instant cut to the minute, like
-  /// the server stores it. Ignored when scheduling is not offered and while
-  /// the post is being sent. The dialog has checked the window; the server
+  /// the server stores it. Setting a time is ignored when scheduling is not
+  /// offered; removing one is always allowed (a schedule must never be stuck
+  /// on a composer that can no longer schedule). Both are ignored while the
+  /// post is being sent. The dialog has checked the window; the server
   /// decides (VALIDATION `publish_at` reopens the dialog).
   void scheduleChanged(DateTime? publishAt) {
-    if (!canSchedule || state.isSubmitting) return;
+    if (state.isSubmitting) return;
+    if (publishAt != null && !canSchedule) return;
     final next = publishAt == null
         ? null
         : truncatedToMinute(publishAt.toUtc());
@@ -290,6 +293,15 @@ class ComposerCubit extends Cubit<ComposerState> {
           ? state.copyWith(clearScheduledAt: true, clearError: true)
           : state.copyWith(scheduledAt: next, clearError: true),
     );
+  }
+
+  /// Scheduling may have been switched off while this composer was open (the
+  /// gate learned a FEATURE_DISABLED elsewhere, for example from the Scheduled
+  /// list): drop the time then, so the screen never offers a schedule that
+  /// cannot be sent. The screen calls this when it comes back from the list.
+  void scheduleAvailabilityChecked() {
+    if (state.isSubmitting || state.scheduledAt == null || canSchedule) return;
+    emit(state.copyWith(clearScheduledAt: true));
   }
 
   /// The "Will send on" notice was shown: forget it.
@@ -386,10 +398,15 @@ class ComposerCubit extends Cubit<ComposerState> {
   }
 
   /// The idempotency key of [intent], created on first use and reused by
-  /// every retry of the same request.
+  /// every retry of the same request. Least recently used: a reused intent
+  /// moves to the end, so the oldest UNUSED one is dropped first (a request
+  /// that may exist on the server must keep its key while others come and go).
   String _keyFor(String intent) {
-    final key = _keys.putIfAbsent(intent, _uuid.v4);
-    if (_keys.length > _maxRememberedKeys) _keys.remove(_keys.keys.first);
+    final key = _keys.remove(intent) ?? _uuid.v4();
+    _keys[intent] = key;
+    while (_keys.length > _maxRememberedKeys) {
+      _keys.remove(_keys.keys.first);
+    }
     _keyText = intent;
     return key;
   }
@@ -549,16 +566,14 @@ class ComposerCubit extends Cubit<ComposerState> {
     final audienceRefused =
         error is FeatureDisabledException &&
         error.feature == kFeatureReplyAudience;
-    // Same for scheduling: the button goes back to "Post".
-    final scheduleRefused =
-        error is FeatureDisabledException &&
-        error.feature == kFeatureScheduledPosts;
     emit(
       state.copyWith(
         status: ComposerStatus.editing,
         error: error,
         replyAudience: audienceRefused ? ReplyAudience.everyone : null,
-        clearScheduledAt: scheduleRefused,
+        // Any answer that turned scheduling off (the sub-feature, or the whole
+        // of posts) takes the time with it: the button goes back to "Post".
+        clearScheduledAt: !canSchedule,
       ),
     );
   }

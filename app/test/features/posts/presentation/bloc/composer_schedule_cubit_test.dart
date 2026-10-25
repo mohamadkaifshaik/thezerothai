@@ -65,8 +65,9 @@ void main() {
   }
 
   /// Answers each SchedulePost with the next of [answers] (a value, or an
-  /// exception to throw); the last one repeats.
-  void stubSchedule(List<Object> answers) {
+  /// exception to throw); the last one repeats. [onCall] runs when a call
+  /// reaches the "server", before it answers (a gate that learns a refusal).
+  void stubSchedule(List<Object> answers, {void Function()? onCall}) {
     var call = 0;
     when(
       () => repo.schedulePost(
@@ -88,6 +89,7 @@ void main() {
           policy: invocation.namedArguments[#replyPolicy] as ReplyPolicy,
         ),
       );
+      onCall?.call();
       final answer = answers[call < answers.length ? call : answers.length - 1];
       call++;
       if (answer is Exception || answer is Error) throw answer;
@@ -250,6 +252,17 @@ void main() {
       await cubit.submit();
 
       expect(sent.single.policy, ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY);
+
+      // Another post: an explicit Everyone (after another choice) is still
+      // UNSPECIFIED on the wire, not a policy of its own.
+      cubit.textChanged('and later');
+      cubit.scheduleChanged(at);
+      cubit.replyAudienceChanged(ReplyAudience.following);
+      cubit.replyAudienceChanged(ReplyAudience.everyone);
+      await cubit.submit();
+
+      expect(sent, hasLength(2));
+      expect(sent.last.policy, ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
     });
 
     test(
@@ -449,13 +462,85 @@ void main() {
       await cubit.submit();
       expect(cubit.state.scheduledNotice, same(published));
     });
+
+    test(
+      'time edit and revert reuses the first key (that post may exist)',
+      () async {
+        stubSchedule([const NetworkException('offline')]);
+        final cubit = make();
+        cubit.textChanged('later');
+        cubit.scheduleChanged(at);
+        await cubit.submit();
+        cubit.scheduleChanged(at.add(const Duration(hours: 1)));
+        await cubit.submit();
+        cubit.scheduleChanged(at);
+        await cubit.submit();
+
+        expect(sent[1].key, isNot(sent[0].key));
+        expect(sent[2].key, sent[0].key);
+        expect(sent[2].publishAt, at.toUtc());
+      },
+    );
+
+    test('an audience change between attempts is a new request, a new key; '
+        'changing back reuses the first', () async {
+      stubSchedule([const NetworkException('offline')]);
+      final cubit = make(audience: true);
+      cubit.textChanged('later');
+      cubit.scheduleChanged(at);
+      await cubit.submit();
+
+      cubit.replyAudienceChanged(ReplyAudience.following);
+      await cubit.submit();
+      cubit.replyAudienceChanged(ReplyAudience.everyone);
+      await cubit.submit();
+
+      expect(sent[1].key, isNot(sent[0].key));
+      expect(sent[1].policy, ReplyPolicy.REPLY_POLICY_FOLLOWING);
+      expect(sent[2].key, sent[0].key);
+      expect(sent[2].policy, ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
+    });
+
+    test(
+      'keys are least recently used: a request retried again and again keeps '
+      'its key while newer ones push out the oldest UNUSED one',
+      () async {
+        stubSchedule([const NetworkException('offline')]);
+        final cubit = make();
+        cubit.textChanged('later');
+        Future<String> attempt(Duration offset) async {
+          cubit.scheduleChanged(at.add(offset));
+          await cubit.submit();
+          return sent.last.key;
+        }
+
+        // Eight different requests, all with an unknown outcome (the cap).
+        final first = await attempt(Duration.zero);
+        final second = await attempt(const Duration(hours: 1));
+        for (var hour = 2; hour <= 7; hour++) {
+          await attempt(Duration(hours: hour));
+        }
+        // The first is tried again (still its own key): it is now the most
+        // recently used, and the second the oldest.
+        expect(await attempt(Duration.zero), first);
+        // A ninth request evicts the oldest unused one (the second), not the
+        // first.
+        await attempt(const Duration(hours: 8));
+        expect(await attempt(Duration.zero), first);
+        expect(await attempt(const Duration(hours: 1)), isNot(second));
+      },
+    );
   });
 
   group('failures', () {
     test('FEATURE_DISABLED for scheduled_posts clears the schedule', () async {
+      // The gate remembers the refusal as soon as the server gave it.
+      var on = true;
+      when(() => repo.subFeatureEnabled(kFeatureScheduledPosts))
+          .thenAnswer((_) => on);
       stubSchedule([
         const FeatureDisabledException('off', feature: kFeatureScheduledPosts),
-      ]);
+      ], onCall: () => on = false);
       final cubit = make();
       cubit.textChanged('later');
       cubit.scheduleChanged(at);
@@ -467,6 +552,99 @@ void main() {
       expect(cubit.state.error, isA<FeatureDisabledException>());
       expect(cubit.state.status, ComposerStatus.editing);
     });
+
+    test(
+      'FEATURE_DISABLED without a feature (all of posts) clears it too',
+      () async {
+        var on = true;
+        when(() => repo.subFeatureEnabled(any())).thenAnswer((_) => on);
+        stubSchedule([
+          const FeatureDisabledException('off'),
+        ], onCall: () => on = false);
+        final cubit = make();
+        cubit.textChanged('later');
+        cubit.scheduleChanged(at);
+
+        await cubit.submit();
+
+        expect(sent, hasLength(1), reason: 'the server answered, not the gate');
+        expect(cubit.canSchedule, isFalse);
+        expect(cubit.state.scheduledAt, isNull);
+        expect(cubit.state.isScheduling, isFalse);
+        expect(cubit.state.draft.text, 'later');
+      },
+    );
+
+    test(
+      'FEATURE_DISABLED for media keeps the schedule (it is still on)',
+      () async {
+        stubSchedule([
+          const FeatureDisabledException('off', feature: kPostsSubFeatureMedia),
+        ]);
+        final cubit = make();
+        cubit.textChanged('later');
+        cubit.scheduleChanged(at);
+
+        await cubit.submit();
+
+        expect(cubit.state.scheduledAt, at.toUtc());
+      },
+    );
+
+    test('FEATURE_DISABLED for reply_audience falls back to Everyone and keeps '
+        'the schedule', () async {
+      stubSchedule([
+        const FeatureDisabledException('off', feature: kFeatureReplyAudience),
+        scheduledPost(1),
+      ]);
+      when(() => repo.subFeatureEnabled(kFeatureReplyAudience))
+          .thenReturn(false);
+      final cubit = make(audience: true);
+      cubit.textChanged('later');
+      cubit.scheduleChanged(at);
+
+      await cubit.submit();
+
+      expect(cubit.state.scheduledAt, at.toUtc());
+      expect(cubit.state.replyAudience, ReplyAudience.everyone);
+    });
+
+    test('a schedule can always be removed, also once scheduling is off', () {
+      var on = true;
+      when(() => repo.subFeatureEnabled(kFeatureScheduledPosts))
+          .thenAnswer((_) => on);
+      final cubit = make();
+      cubit.scheduleChanged(at);
+      expect(cubit.state.scheduledAt, at.toUtc());
+
+      on = false;
+      expect(cubit.canSchedule, isFalse);
+      // A new time is refused; removing the old one is not.
+      cubit.scheduleChanged(at.add(const Duration(hours: 1)));
+      expect(cubit.state.scheduledAt, at.toUtc());
+      cubit.scheduleChanged(null);
+      expect(cubit.state.scheduledAt, isNull);
+    });
+
+    test(
+      'scheduleAvailabilityChecked drops a time that can no longer be sent',
+      () {
+        var on = true;
+        when(() => repo.subFeatureEnabled(kFeatureScheduledPosts))
+            .thenAnswer((_) => on);
+        final cubit = make();
+        cubit.textChanged('later');
+        cubit.scheduleChanged(at);
+
+        cubit.scheduleAvailabilityChecked();
+        expect(cubit.state.scheduledAt, at.toUtc(), reason: 'still on');
+
+        on = false;
+        cubit.scheduleAvailabilityChecked();
+        expect(cubit.state.scheduledAt, isNull);
+        expect(cubit.state.draft.text, 'later');
+      },
+    );
 
     test('nothing is sent when scheduling went off meanwhile', () async {
       stubSchedule([scheduledPost(1)]);
