@@ -54,7 +54,7 @@ CreatePost-shared rate bucket (burst 10 per instance).
 
 What is proven and what is not. PROVEN, on the emulator only (its transactions are lock-based, not optimistic): ten simultaneous calls of one
 account for one minute never leave more than the cap stored, and never reject while fewer than the cap are stored
-(`TestSchedulerIT_ConcurrentWindowCap`, run about 180 times, with and without an existing `quotas` document), and each attempt of a retried
+(`TestSchedulerIT_ConcurrentWindowCap`, repeated runs, with and without an existing `quotas` document), and each attempt of a retried
 transaction counts afresh (`TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt`). REASONED for prod: optimistic mode plus an existing
 `quotas/{uid}` document makes the cap exact, by the commit conflict on that document. UNVERIFIED until the dev smoke (pending 2.16): (a) a
 brand-new account with no `quotas/{uid}` document yet, where exactness needs Firestore to treat a not-found read as a conflict when another
