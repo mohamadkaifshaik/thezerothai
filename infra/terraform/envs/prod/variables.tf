@@ -524,6 +524,19 @@ variable "feature_profile_snapshot_percent" {
   }
 }
 
+# ---- Scheduled posts (ADR-0021 D1). The sweep job lives in prod only; envs/dev has no Scheduler job.
+
+variable "publish_scheduled_schedule" {
+  description = "Cloud Scheduler cron (unix-cron, 5 fields, UTC) for the publish-scheduled sweep job (ADR-0021 D1). Default every 5 minutes: 8,640 requests/month, inside the free tier. A shorter cadence costs Firestore reads (every minute is +1,152 reads/day) and needs the cost-model headroom check; ADR-0022 allows every minute only in the credit window."
+  type        = string
+  default     = "*/5 * * * *"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9*/,-]+( [A-Za-z0-9*/,-]+){4}$", var.publish_scheduled_schedule))
+    error_message = "publish_scheduled_schedule must be a 5-field unix-cron expression separated by single spaces, for example \"*/5 * * * *\"."
+  }
+}
+
 # ---- ADR-0022 credit mode (time-boxed, prod only). The defaults below are the Stage 0 values: CI plan (prod) runs
 # with them and must show no change from this block. The credit values go only in the real, gitignored terraform.tfvars
 # (see terraform.tfvars.example). Dates and the cap: docs/adr/0022-credit-funded-runway.md.

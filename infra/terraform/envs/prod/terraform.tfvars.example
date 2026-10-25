@@ -39,6 +39,12 @@ browser_key_uid = "00000000-0000-0000-0000-000000000000" # Browser key (auto cre
 android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto created by Firebase)
 ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created by Firebase)
 
+# Scheduled posts (ADR-0021 D1): how often the publish-scheduled sweep runs (unix-cron, 5 fields, UTC). The default is
+# every 5 minutes and is what you want; leave this commented out. Prod only (dev has no Scheduler job). ADR-0022 lets
+# you run it every minute ("* * * * *") during the credit window, until 2026-12-22, then it goes back to every 5
+# minutes; that costs +1,152 Firestore reads a day, so check docs/reviews/cost-model.md first.
+# publish_scheduled_schedule = "*/5 * * * *"
+
 # ---------------------------------------------------------------------------------------------------------------------
 # ADR-0022 CREDIT MODE (time-boxed, prod only). Leave all of this commented out for Stage 0. The committed defaults are
 # the Stage 0 values. Uncomment ONLY after the founder has done the credit checklist in
