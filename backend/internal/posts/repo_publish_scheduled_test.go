@@ -48,7 +48,7 @@ func TestGuardPublishPanic(t *testing.T) {
 			runner := &rollbackRunner{}
 			attempts, err := store.RunTransaction(context.Background(), runner, guardPublishPanic(tc.body))
 			if tc.wantPanic == "" {
-				if !errors.Is(err, tc.wantErr) && !(tc.wantErr == nil && err == nil) {
+				if !errors.Is(err, tc.wantErr) && (tc.wantErr != nil || err != nil) {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)
 				}
 				if errors.Is(err, errPublishPanic) {
