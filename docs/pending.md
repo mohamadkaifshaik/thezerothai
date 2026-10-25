@@ -11,14 +11,14 @@ Rules that apply to every item: prod applies and traffic shifts need your plan-t
 
 ## 1. Credit runway (ADR-0022, GCP credit expires 2026-12-26)
 
-Decisions already made: Vision at the cap = `reject`; use Cloud Run's native spend cap on prod as a backstop if the account is eligible; if no funding arrives, run Stage 0 as configured for the first month after expiry (about INR 434 a month at 300 daily users) and then stay paused; upgrade the account to paid before expiry so paused costs about INR 0 to 15 a month. Spend cap: `credit_spend_cap_inr` = the lower of INR 23,000 and (remaining credit minus INR 2,000).
+Decisions already made: Vision at the cap = `reject`; use Cloud Run's native spend cap on prod as a backstop if the account is eligible; if no funding arrives, run Stage 0 as configured for the first month after expiry (about INR 434 a month at 300 daily users) and then stay paused; upgrade the account to paid before expiry so paused costs about INR 0 to 15 a month. Spend cap: `credit_spend_cap_inr` = the lower of INR 25,000 and (remaining credit minus INR 2,000).
 
 ### Dated steps (do them in this order)
 
 | # | When | Owner | Status | Task |
 |---|---|---|---|---|
 | 1.1 | **Now** | Founder | TODO | Open Billing > Credits. Write down the remaining amount, which services the credit covers, and whether a payment method is attached. (The ADR says 20k or 25k pool: the real figure is needed to set the cap.) Tell Claude the numbers. |
-| 1.2 | After 1.1 | Both | TODO | **R0 apply (prod, no behaviour change):** in your gitignored prod `terraform.tfvars` set `enable_credit_budgets = true`, `credit_spend_cap_inr = <min(23000, remaining - 2000)>`, `enable_request_flood_alert = true`, optionally `firestore_reads_alert_per_day = 250000`. From `infra/terraform/envs/prod` run `terraform plan -out=tfplan`, paste the plan to Claude, expect only: 2 budgets created, 1 flood alert created, the reads threshold changed, plus the known noise (the `moved` notice for the budget topic, `template[0].revision -> null`, the `FEATURE_GRAPH` artifact: never apply that). Then your OK and `terraform apply tfplan`. **CI does not run a Terraform plan, so this local plan is the only real check.** |
+| 1.2 | After 1.1 | Both | TODO | **R0 apply (prod, no behaviour change):** in your gitignored prod `terraform.tfvars` set `enable_credit_budgets = true`, `credit_spend_cap_inr = 25000 (the founder chose it on 2026-10-26; ADR-0022 Amendment 1)`, `enable_request_flood_alert = true`, optionally `firestore_reads_alert_per_day = 250000`. From `infra/terraform/envs/prod` run `terraform plan -out=tfplan`, paste the plan to Claude, expect only: 2 budgets created, 1 flood alert created, the reads threshold changed, plus the known noise (the `moved` notice for the budget topic, `template[0].revision -> null`, the `FEATURE_GRAPH` artifact: never apply that). Then your OK and `terraform apply tfplan`. **CI does not run a Terraform plan, so this local plan is the only real check.** |
 | 1.3 | By **2026-11-15** | Both | TODO | **Dev rehearsal** of the pause and resume runbook (`docs/runbooks/credit-sunset-pause-resume.md`) and the one-hour dev test "service-level min instance" (no merges to `main` meanwhile). Write the results back into the runbook. |
 | 1.4 | After 1.2 and 1.3 | Both | TODO | **R1:** set `min_instance_count = 1` in the prod tfvars (a warm instance, about INR 936 a month, paid by the credit), plan, review, OK, apply. Expect a 0%-traffic revision in the plan. |
 | 1.5 | When `FEATURE_MEDIA` serves images in prod | Both | WAIT | **R2:** `vision_monthly_cap = 20000` and `vision_exhausted_policy = "reject"`. Goes through the normal release path (three ADR-0019 approvals). |
@@ -95,7 +95,7 @@ These come from the memory notes of earlier sessions. Claude should confirm each
 
 ## 4. Reference
 
-- Credit facts: expires 2026-12-26; spend cap INR 23,000 (reserve INR 2,000), about INR 359 a day to 26 Dec or INR 371 a day to the 24 Dec pause; Firebase Blaze on a Google Cloud trial, free-tier-eligible services.
+- Credit facts: expires 2026-12-26; spend cap INR 25,000 (reserve INR 2,000; was 23,000 before Amendment 1), about INR 391 a day to 26 Dec or INR 403 a day to the 24 Dec pause; Firebase Blaze on a Google Cloud trial, free-tier-eligible services.
 - Monthly cost after the credit (INR, before GST): paused 0 to 15; Stage 0 as configured 434 / 1,626 / 3,396 at 300 / 1,000 / 3,000 daily users; credit mode 1,371 / 2,873 / 8,127. Source: `docs/plans/credit-runway-cost-model.md`.
 - Emergency levers, mildest first: `DEGRADED_MODE` (readonly or nomedia), remove the public `allUsers` invoker, last resort unlink billing. See `docs/runbooks/credit-sunset-pause-resume.md` and `docs/runbooks/cost-spike.md`.
 - Key documents: `docs/adr/0021-*.md`, `docs/adr/0022-credit-funded-runway.md`, `docs/plans/composer-w15-w6.md`, `docs/plans/roadmap.md`, `docs/reviews/cost-model.md`, `docs/reviews/security-review-adr-0021.md`.

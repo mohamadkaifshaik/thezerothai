@@ -4,7 +4,7 @@ Audience: the founder, on Windows, under stress. Use **Git Bash** for every comm
 Related: `docs/runbooks/cost-spike.md`, `docs/runbooks/abuse-spike.md`, `docs/runbooks/rollback.md`,
 `docs/runbooks/cloud-bootstrap.md`, `docs/runbooks/authenticated-smoke.md`. Credit-mode knobs: see ADR-0022.
 
-Context: the promotional credit pool (INR 23,000 spend cap) expires **2026-12-26**. Plan: **pause on 2026-12-24**.
+Context: the promotional credit pool (INR 25,000 spend cap) expires **2026-12-26**. Plan: **pause on 2026-12-24**.
 After expiry, charges may hit a payment method, so everything that can bill must be stopped BEFORE expiry.
 
 > **UNVERIFIED, read this first.** If the billing account is a Free-Trial-type account and is not funded after the

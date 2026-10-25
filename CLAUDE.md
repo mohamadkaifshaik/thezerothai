@@ -22,7 +22,7 @@ that names the cost and the user/revenue milestone that justifies it.
 A GCP credit that expires **2026-12-26** pays for a temporary profile. Dates: **2026-12-22** heavy items off, **2026-12-24** services paused (runbook `docs/runbooks/credit-sunset-pause-resume.md`), **2026-12-26** credit gone. Steps and owners live in `docs/pending.md` section 1.
 
 - **Allowed until then:** prod service-level min instances 1; `VISION_MONTHLY_CAP` 20k–40k with `reject` at the cap; per-use overage.
-- **Capped:** gross spend at `credit_spend_cap_inr` (INR 23,000 or lower), watched by a gross-spend budget.
+- **Capped:** gross spend at `credit_spend_cap_inr` (INR 25,000 or lower), watched by a gross-spend budget.
 - **Unchanged:** abuse limits, the "not used" list below, and no committed use discounts, subscriptions or prepaid plans. Nothing that bills after 2026-12-26.
 - **Guard:** `cost-guard` accepts `# cost-approved: ADR-NNNN until:YYYY-MM-DD` and stops accepting it after that date (UTC). Use it for min-instance lines.
 - **Removal:** after 2026-12-24 delete this section and every "credit mode" mention in this file.
@@ -38,7 +38,7 @@ A GCP credit that expires **2026-12-26** pays for a temporary profile. Dates: **
 | Stage                | Users          | Monthly cost target    | Architecture                                                                 |
 | -------------------- | -------------- | ---------------------- | ---------------------------------------------------------------------------- |
 | **0 — Launch** (now) | 0 – ~300 DAU   | **≈ $0–5** (free tier, then per use; ≈ INR 434 at 300 DAU) | Cloud Run + Firestore + GCS + Firebase                                       |
-| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 23,000 total from GCP credit | Stage 0 plus the profile in "Credit mode" below |
+| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 25,000 total from GCP credit | Stage 0 plus the profile in "Credit mode" below |
 | 1 — Traction         | ~300 – 20k DAU | ~$1 – $50, pay-per-use | Same, pay Firestore/Cloud Run overage; add min-instance=1 if latency matters |
 | 2 — Growth           | 20k – 200k DAU | Funded by revenue      | ADR: Cloud SQL Postgres or keep Firestore; Memorystore; split hot services   |
 | 3 — Scale            | 200k+ DAU      | Funded                 | ADR: Spanner, GKE, multi-region, CDN + Cloud Armor                           |

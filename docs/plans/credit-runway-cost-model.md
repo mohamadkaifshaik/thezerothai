@@ -114,6 +114,8 @@ quota at about 215 DAU. INR 0 needs fewer than about 200 DAU and few images.
 **Today (≈ 0 DAU):** credit mode ≈ min instance 936 + backups 4 + sweep and uptime noise ≈ **INR 950/month (INR 31/day)**.
 
 ## 4. Burn schedule against the cap
+> Amendment 1 of ADR-0022 (2026-10-26): the cap is now 25,000, so the line below is INR 403/day (391/day to 12-26). The tables in this document keep the 23,000 arithmetic.
+
 Plan line = `credit_spend_cap_inr × day / 62`, day 0 = 2026-10-23, day 62 = 2026-12-24 (pause). Cap 23,000 → **INR 371/day**
 (359/day to 12-26; with a cap of 18,000: 290/day). "Expected" assumes the DAU below held from day 0, credit mode until 12-22,
 then Stage 0 rates for 2 days.
