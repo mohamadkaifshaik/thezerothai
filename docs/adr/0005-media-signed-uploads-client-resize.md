@@ -75,7 +75,7 @@ Option A:
   established accounts if `VISION_MONTHLY_CAP` is ever hit).
 - Negative: US-hosted images add first-view latency for Indian users; Class A/B ops exceed free allowances early
   (cents); Vision becomes a small per-use line item past ~160 DAU.
-- Follow-up: runbook `docs/runbooks/media-moderation.md` (Vision exhausted, abuse wave → `nomedia`).
+- Follow-up: runbook `docs/runbooks/media.md` (Vision exhausted, abuse wave → `nomedia`).
 - Revisit when: any trigger above fires, or GCS bill > $5/month.
 
 ## Handoff
