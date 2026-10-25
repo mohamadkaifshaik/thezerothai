@@ -262,6 +262,12 @@ const MaxAccountDeleteReauthMaxAge = 10 * time.Minute
 func Load() (Config, error) {
 	env := getenv("ENV", "local")
 
+	// Cloud Run always sets K_SERVICE. ENV=local relaxes auth (unauthenticated /internal/*, AllowAll moderator,
+	// hard-coded cursor key, App Check monitor), so a missing ENV on Cloud Run must fail closed, not default to it.
+	if env == "local" && os.Getenv("K_SERVICE") != "" {
+		return Config{}, fmt.Errorf("config: ENV=local (or unset) is refused when K_SERVICE is set (running on Cloud Run); set ENV to dev or prod")
+	}
+
 	// FIREBASE_PROJECT_ID is the canonical var (Terraform sets it); GOOGLE_CLOUD_PROJECT, GCP_PROJECT_ID
 	// and GCP_PROJECT are accepted fallbacks so this also runs unmodified under tooling/environments that
 	// only set one of Google's own conventional project-id vars (B2).

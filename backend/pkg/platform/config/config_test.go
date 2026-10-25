@@ -29,7 +29,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_REPORTS", "FEATURE_REPORTS_ALLOWLIST", "FEATURE_REPORTS_PERCENT",
 		"RATE_LIMIT_REPORT_PER_MIN", "QUOTA_REPORTS_PER_DAY", "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY",
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
-		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY",
+		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY", "K_SERVICE",
 		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
 		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST", "TIMELINE_TOKEN_TTL",
 		"FEATURE_CONTENT_DISCLOSURE", "FEATURE_CONTENT_DISCLOSURE_ALLOWLIST", "FEATURE_CONTENT_DISCLOSURE_PERCENT",
@@ -299,6 +299,26 @@ func TestLoad_CORSOffByDefaultOutsideLocal(t *testing.T) {
 	}
 	if len(cfg2.CORSAllowedOrigins) != 2 {
 		t.Fatalf("CORSAllowedOrigins = %v, want 2 entries", cfg2.CORSAllowedOrigins)
+	}
+}
+
+func TestLoad_RefusesLocalOnCloudRun(t *testing.T) {
+	for _, env := range []string{"", "local"} {
+		clearEnv(t)
+		t.Setenv("K_SERVICE", "api")
+		if env != "" {
+			t.Setenv("ENV", env)
+		}
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error for ENV=%q with K_SERVICE set", env)
+		}
+	}
+}
+
+func TestLoad_LocalAllowedWithoutKService(t *testing.T) {
+	clearEnv(t)
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
 	}
 }
 
