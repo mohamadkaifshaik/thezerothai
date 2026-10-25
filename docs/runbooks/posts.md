@@ -129,10 +129,16 @@ this sweep (a tick that lands on an older revision gets a silent 202 from the pl
 - `jsonPayload.message="scheduled_sweep"`: one line per run. `due`, `published`, `cancelled`, `expired`, `transient`, `deferred`
   (held back by the 3-per-author cap, retried next run), `noop` (the item changed under us, quiet), `write_failed`, `skipped_bad_path`,
   `undecodable`, `max_lateness_ms`, `failed_total`, `failed.<reason>` (`media_unavailable`, `quota_exceeded`, `account_restricted`,
-  `invalid_content`, `internal`, `unsupported`), `fs_reads`, `fs_writes`, `outcome` (`ok`, `flag_off`, `degraded`, `error`).
+  `invalid_content`, `internal`, `unsupported`, `expired`; `expired` is also the top-level `expired` count), `fs_reads`, `fs_writes`,
+  `fs_deletes`, `latency_ms`, `outcome` (`ok`, `flag_off`, `degraded`, `error`).
 - `jsonPayload.message="scheduled_item_start"`: INFO, one per item, written before its transaction, with `uid_hash` and `scheduled_id`.
-- `jsonPayload.message="scheduled_author_reads"` (WARN) and `"scheduled_item_transient"` (WARN, a retryable error; `attempts` moved).
-- Error Reporting (`rpc` = `cron/publish-scheduled`): a 500, an item retired as FAILED `INTERNAL`, or a recovered panic (type only).
+- `jsonPayload.message="scheduled_author_reads"` (WARN, `uid_hash` only) and, naming the item with `uid_hash` and `scheduled_id`:
+  `"scheduled_item_transient"` (WARN, a retryable error: the item's `attempts` is bumped by one, unless that bump fails, see the next line,
+  or loses its precondition because the item changed under us, which is counted in `noop`); `"scheduled_item_bookkeeping_failed"` (WARN, a
+  write that records an item's outcome, a terminal transition or the `attempts` bump, returned an error: counted in `write_failed`, the item
+  keeps its state and is re-read next run); `"scheduled_item_second_panic"` (WARN, a panic while another panic was being handled; the type only).
+- Error Reporting (`rpc` = `cron/publish-scheduled`): a due page that failed, an item retired as FAILED `INTERNAL`, or a recovered panic
+  (type only). Item-level entries carry `uid_hash` and `scheduled_id`.
 - A failed run (a due page failed) still writes its `scheduled_sweep` line, at WARN with `outcome=error` and the counts of what was
   processed, and a SEPARATE Error Reporting entry (ERROR, `rpc=cron/publish-scheduled`) that carries only the scrubbed error.
 
@@ -150,7 +156,8 @@ publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or tr
 | `skipped_bad_path` > 0 | A document that is not exactly `users/{uid}/scheduled/{32 hex}` matched the due query. It is skipped and never published | Find it in the console (collection group `scheduled`, `status == PENDING`) and delete it by hand. Rules deny clients, so find out who wrote it |
 | `undecodable` > 0 | A due doc could not be decoded | Same as above; it is counted and skipped, never retried in a loop |
 | `scheduled_author_reads` WARN | One author's items spent more than `SCHEDULED_AUTHOR_READS_WARN` (40) reads in a run (for example 3 items with 10 handle mentions each). These reads sit outside the per-user read budget by design | The same `uid_hash` repeatedly is abuse (`docs/runbooks/abuse-spike.md`). A single occurrence is noise |
-| An instance crashes every 5 minutes (Cloud Run restarts, "fatal error", OOM kill) and those runs write no `scheduled_sweep` line | A fatal runtime error (concurrent map write, stack exhaustion) or an OOM in the publish path. These cannot be recovered, and `attempts` never moves | See "Isolating a crash-looping item" |
+| `scheduled_item_bookkeeping_failed` WARN, `write_failed` > 0 | A write that records an item's outcome failed (a Firestore error or a timeout on the 3 s bookkeeping budget). The item keeps its state, so it is retried next run; a post that was already committed is not affected | A burst is a Firestore incident. The same item every run: look at the `error` field (scrubbed) and at the document |
+| An instance crashes in bursts of up to 4 every 5 minutes (Cloud Run restarts, "fatal error", OOM kill) and those runs write no `scheduled_sweep` line | A fatal runtime error (concurrent map write, stack exhaustion) or an OOM in the publish path. These cannot be recovered, and `attempts` never moves | See "Isolating a crash-looping item" |
 | Items stay PENDING past their time | The job is paused or failing, the flag is `off`, `DEGRADED_MODE=readonly`, or the 3-per-author cap is stretching a backlog (25 items need 9 runs) | `gcloud scheduler jobs describe publish-scheduled --location asia-south1`, then read `outcome` in the `scheduled_sweep` lines |
 
 ### Manual run
@@ -163,7 +170,7 @@ publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or tr
   `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token --impersonate-service-account=<dev pubsub-push SA> --audiences=<dev api_url> --include-email)" <dev api_url>/internal/cron/publish-scheduled`
   If gcloud's impersonation needs more than `getOpenIdToken`, mint the token through IAM Credentials with your own access token and pass the
   returned `token` as the Bearer. Never "fix" a failing impersonation by granting `roles/iam.serviceAccountTokenCreator` instead: that role
-  also mints access tokens and signs blobs as the service account, which is far more than a manual cron test needs (security review I-6):
+  also mints access tokens and signs blobs as the service account, which is far more than a manual cron test needs (ADR-0021 security review L-5):
   `curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d '{"audience":"<dev api_url>","includeEmail":true}' https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<dev pubsub-push SA>:generateIdToken`
   The route answers 204 whatever happened to the items, so read the `scheduled_sweep` line for the result. A GET is a 405.
 
@@ -199,9 +206,11 @@ default. An item already marked EXPIRED is terminal; the user schedules it again
 
 A recovered panic never loops: the item is retired as FAILED `INTERNAL` in one run, with an Error Reporting entry that carries the panic
 type only. A fatal runtime error cannot be recovered, so the same item crashes the instance (and up to 80 in-flight requests on it) on every
-tick until the expiry check retires it after at most 6 h (72 runs).
+tick until the expiry check retires it after at most 6 h (72 ticks). A crash is a failed request, so Cloud Scheduler retries it
+(`retry_count = 3`, backoff 5 s, 10 s, 20 s): one tick crashes up to 4 instances, and the bound is up to 288 crashes over the 6 h, not 72.
 
-1. Confirm: Cloud Run instance restarts on the 5 minute cadence, and `scheduled_sweep` lines missing for those runs.
+1. Confirm: Cloud Run instance restarts in bursts of up to 4 (the tick and its 3 retries, about 40 s) every 5 minutes, and
+   `scheduled_sweep` lines missing for those runs.
 2. Name the item: in Logs Explorer take `jsonPayload.message="scheduled_item_start"` just before the first crash. The last line has the
    `uid_hash` and the `scheduled_id` (the document id under `users/*/scheduled/`), and the same pair repeats every tick. To open the
    document, run a collection-group query on `scheduled` in the console with `status == PENDING` ordered by `publishAt`; the oldest entry
@@ -210,7 +219,7 @@ tick until the expiry check retires it after at most 6 h (72 runs).
    say-so. Options: wait for the 6 h expiry (the bound); lower `SCHEDULED_MAX_LATENESS` for one deploy (retires it sooner but also expires
    every other late item); or pause the job (stops everyone's publishing). This is a founder decision.
 4. Follow-ups, not built: an `opsctl scheduled cancel` command, and "claim before publish" (`attempts++` before the work, +1 read and +1
-   write per publish), which bounds even fatal crashes to 3 runs. A crash loop actually observed is the ADR's trigger to build it.
+   write per publish), which bounds even fatal crashes to 3 crashes in total. A crash loop actually observed is the ADR's trigger to build it.
 
 ### Roll-forward only
 
@@ -219,3 +228,14 @@ revision `Set`s the whole `quotas/{uid}` record and zeroes `quotas.schedules` on
 that lands on it gets a silent 202 from the placeholder handler, so nothing publishes while it serves. Fix forward with a new revision, or
 use the kill switch above. Overlapping runs (a retry and the next tick, or two instances) are safe: the publish transaction re-reads the
 item as PENDING, so an item publishes at most once, and the loser is counted as `noop`.
+
+### Accepted risk: an ambiguous commit
+
+If the publish transaction commits on the server but the client sees DEADLINE_EXCEEDED or UNAVAILABLE, the sweep treats the error as
+transient and tries to bump `attempts`. Exactly-once still holds: the document is already PUBLISHED, so the bump's `LastUpdateTime`
+precondition fails (counted as `noop`) and no later run sees the item as PENDING. What is skipped is everything after the commit: the
+instance cache and the author's cached profile are not refreshed (the usual 60 s lag applies) and `events.Created` never runs, so the
+mention notifications of that one post are lost, with no replay. If it happens on the last allowed attempt, a false `FAILED INTERNAL` Error
+Reporting entry can also fire for an item that is in fact PUBLISHED (the FAILED write loses its precondition, so the document is not
+changed). Before acting on such an alert, open the document: `status` PUBLISHED with a `postId` means the post is live. This is accepted:
+telling the cases apart would cost an extra read after every ambiguous error, and the sweep adds none for it.
