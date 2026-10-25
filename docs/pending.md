@@ -82,7 +82,7 @@ These come from the memory notes of earlier sessions. Claude should confirm each
 | 3.6 | Both | WAIT | v0.4.1 prod hotfix watch window to 2026-10-28. |
 | 3.7 | Claude | TODO | Pending docs PRs from the ADR-0019 rollout (Accepted status, R4). |
 | 3.8 | Claude | TODO | Plan items per `docs/plans/roadmap.md`: W3 (profiles), W4 (search and Explore), W5 (Lists and Communities), W6 remainder (polls, drafts, GIF), W7 (DMs), W8 (UI shells). Spaces are dropped. |
-| 3.9 | Founder | TODO | Terms of Service: `docs/plans/phase1.md` says a draft is at `docs/legal/terms-of-service-DRAFT.md`, but that file does not exist. A ToS (with legal review) is needed before real users; decide who drafts it. |
+| 3.9 | Founder | TODO | Terms of Service: a DRAFT exists on branch `docs/terms-of-service-draft` (216 lines, `docs/legal/terms-of-service-DRAFT.md`; PR #149 was closed unmerged on 2026-10-21, so it is not on `main` and `docs/plans/phase1.md` points at a file that is not there). Review it with legal advice, then reopen it as a PR or replace it. Needed before real users. |
 
 ---
 
