@@ -19,7 +19,9 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
 import '../../features/posts/presentation/composer_screen.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
+import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
 import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
@@ -66,6 +68,12 @@ class AppRouter {
   // P2-T5: Edit profile and Change handle, behind the `profile_snapshot` flag.
   static const editProfilePath = '/settings/profile';
   static const changeHandlePath = '/settings/handle';
+  // CMP-D6: the Scheduled posts list, behind the `posts` and
+  // `scheduled_posts` flags. A root-level full-screen route like /compose, NOT
+  // a ShellRoute child: the composer pushes it over itself (dialog link, toast
+  // View), and a second page of the same ShellRoute under the composer breaks
+  // the Navigator (duplicate page key).
+  static const scheduledPostsPath = '/scheduled';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
@@ -127,6 +135,12 @@ class AppRouter {
             ),
           );
         },
+      ),
+      // Full-screen, outside the shell, so it can be pushed over the composer.
+      GoRoute(
+        path: scheduledPostsPath,
+        builder: (context, state) =>
+            const AuthGate(child: ScheduledPostsScreen()),
       ),
       GoRoute(
         path: accountDeletedPath,
@@ -259,6 +273,7 @@ class AppRouter {
         return _graphFlagRedirect(loc) ??
             _accountFlagRedirect(loc) ??
             _profileEditFlagRedirect(loc) ??
+            _scheduledFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
@@ -294,6 +309,17 @@ class AppRouter {
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureNotifications)
         ? null
         : homePath;
+  }
+
+  /// The Scheduled posts list redirects to Settings unless BOTH `posts` and
+  /// `scheduled_posts` are on for this caller (CMP-D6).
+  String? _scheduledFlagRedirect(String loc) {
+    if (loc != scheduledPostsPath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    return features.contains(kFeaturePosts) &&
+            features.contains(kFeatureScheduledPosts)
+        ? null
+        : settingsPath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');

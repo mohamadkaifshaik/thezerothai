@@ -11,6 +11,7 @@ import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../posts/domain/posts_feature_flag.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
 import 'widgets/appearance_sheet.dart';
 import 'widgets/settings_group.dart';
@@ -77,6 +78,10 @@ class SettingsList extends StatelessWidget {
     final graphEnabled = isGraphEnabled(context);
     final profileEnabled = isFeatureEnabled(context, kFeatureProfileSnapshot);
     final lifecycleEnabled = isAccountLifecycleEnabled(context);
+    // CMP-D6: the Scheduled posts list needs both posts flags.
+    final scheduledEnabled =
+        isFeatureEnabled(context, kFeaturePosts) &&
+        isFeatureEnabled(context, kFeatureScheduledPosts);
 
     final groups = <(String, List<Widget>)>[
       (
@@ -102,6 +107,18 @@ class SettingsList extends StatelessWidget {
               onTap: () => open(AppRouter.changeHandlePath),
             ),
           ],
+        ],
+      ),
+      (
+        'Posts',
+        [
+          if (scheduledEnabled)
+            SettingsRow(
+              icon: Icons.schedule_send_outlined,
+              title: 'Scheduled posts',
+              // A full-screen page over the shell, also in master-detail.
+              onTap: () => context.push(AppRouter.scheduledPostsPath),
+            ),
         ],
       ),
       (
