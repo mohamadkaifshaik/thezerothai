@@ -40,3 +40,15 @@ budget_currency_code = "INR"
 browser_key_uid = "00000000-0000-0000-0000-000000000000" # Browser key (auto created by Firebase)
 android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto created by Firebase)
 ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created by Firebase)
+
+# Manual cron testing in dev (ADR-0021 D1, security review L-5). OPT-IN: leave both commented out and nothing is created.
+# The founder decides whether to set them (see docs/pending.md). Together they create ONE time-boxed IAM binding
+# on the dev pubsub-push service account: roles/iam.serviceAccountOpenIdTokenCreator (only getOpenIdToken) for ONE
+# person ("user:" only: a service account, group or domain is refused), with an IAM condition that stops it working at
+# the expiry. The expiry is REQUIRED with the invoker, in the exact UTC form below; `terraform plan` refuses one that is
+# already past or more than 31 days away (30 days after the apply is the intended maximum). After the expiry the
+# binding is inert but stays in the policy, and local plans fail until both lines are cleared and applied (that
+# deletes the binding). CI's plan (dev) shows the binding as a destroy while it exists: expected, CI never applies.
+# Dev only; envs/prod has no such variable and must never get this grant.
+# cron_test_invoker        = "user:someone@example.com"
+# cron_test_invoker_expiry = "2026-11-24T00:00:00Z" # example: 30 days after the apply date
