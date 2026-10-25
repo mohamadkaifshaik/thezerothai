@@ -22,6 +22,14 @@ Owner: backend. Slice P4, ADR-0005. Flag: `FEATURE_MEDIA` (off | allowlist | per
 4. Once the cap is spent, `READY_UNSCREENED` images exist. Review reports against them first; there is no automated
    re-screen. List them: `media` where `status == READY_UNSCREENED` (add a `Limit`).
 
+### Web uploads show "No connection" but CreateUpload returned 200
+CreateUpload succeeds in the logs, no FinalizeUpload follows, and the browser console shows a CORS preflight error for the
+`storage.googleapis.com/<bucket>-media-upload/...` PUT (mobile apps are unaffected: no CORS). Cause: a header the signed PUT
+sends is not in the upload bucket's CORS `responseHeader` list. Cloud Storage matches exact names only; `x-goog-*` does not
+expand. Check with `gcloud storage buckets describe gs://<project>-media-upload --format='json(cors_config)'`; the list must
+hold `Content-Type`, `Content-MD5` and `x-goog-content-length-range`, and the request origin must be in `origin`. Fix in
+`infra/terraform/modules/media-buckets/main.tf` (plan, then apply). `objstore_cors_test.go` fails CI if the two drift.
+
 ### FinalizeUpload returns UNAVAILABLE ("image checks are temporarily unavailable")
 Vision (or its credentials) failed. Nothing was published and the image is still PENDING, so the client may retry.
 Check the Vision API is enabled in the project and the runtime service account can read the upload bucket. If it persists
