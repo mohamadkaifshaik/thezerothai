@@ -1036,5 +1036,5 @@ they were not re-measured for these notes.
      because it asks for `getAccessToken`, so the IAM Credentials `generateIdToken` fallback is the working path. The
      token's audience must be the service's `INTERNAL_OIDC_AUDIENCE` (the verifier checks that value:
      `pubsubpush.NewVerifier(cfg.InternalOIDCAudience, ...)` in `backend/internal/apiserver/apiserver.go`), not the
-     `*.a.run.app` URL, and curl needs an explicit empty body. The
-     grant stays dev-only, 30-day and OpenID-only, as D1 says.
+     `*.a.run.app` URL, and curl needs an explicit empty body. The grant stays dev-only, 30-day and OpenID-only, as
+     D1 says.
