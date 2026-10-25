@@ -61,7 +61,8 @@ func classifyWindowRace(err error) windowRaceOutcome {
 // idempotency keys leave at most WindowCap (3) items in that window, however the calls interleave. Losers may answer
 // LIMIT_REACHED(scheduled_window) or a retryable transaction error after the client's own retries; no outcome may
 // exceed the cap. Both a user with no quotas document yet (the first quota'd call of an account) and one with a
-// document today are covered, because the serialisation point is quotas/{uid}.
+// document today are covered, because the conflict point is quotas/{uid}. On the emulator racing transactions wait on
+// each other's locks; in dev and prod (OPTIMISTIC mode) the loser is rejected ABORTED at commit and retries.
 func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 	const (
 		callers   = 10 // the CreatePost-shared bucket's burst
@@ -148,6 +149,11 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 			if stored > windowCap {
 				t.Errorf("%d items hold the same minute, the window cap is %d", stored, windowCap)
 			}
+			// Nothing leaves PENDING in this test, so a rejection means the caller counted windowCap committed items, and a
+			// document that committed is still there when the test counts: fewer stored than the cap is an over-reject.
+			if outcomes[windowRaceRejected] > 0 && stored < windowCap {
+				t.Errorf("%d calls were rejected as window-full but only %d of %d items are stored (over-reject)", outcomes[windowRaceRejected], stored, windowCap)
+			}
 			ok, unknown := outcomes[windowRaceOK], outcomes[windowRaceUnknown]
 			if ok > windowCap {
 				t.Errorf("%d calls succeeded, the window cap is %d", ok, windowCap)
@@ -159,10 +165,10 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 			if got := e.schedules(t, "alice"); got != int64(stored) {
 				t.Errorf("quotas.schedules = %d, want %d (one charge per stored item)", got, stored)
 			}
-			// Ten transactions queued on one quotas document sometimes all run into the 5 s deadline on the emulator (the
-			// pre-fix code does too): then nothing finished and nothing can be concluded from this iteration.
-			if ok == 0 && !t.Failed() {
-				t.Skipf("inconclusive: none of the %d calls finished (%d hit the transaction deadline)", callers, unknown)
+			// Ten transactions contending for one quotas document sometimes all run into the 5 s deadline on the emulator
+			// (the pre-fix code does too): then nothing finished and nothing can be concluded from this iteration.
+			if unknown == callers && !t.Failed() {
+				t.Skipf("inconclusive: all %d calls hit the transaction deadline", callers)
 			}
 		})
 	}

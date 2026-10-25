@@ -67,17 +67,21 @@ type ScheduledRepo interface {
 	// within +/-ScheduledWindowRadius of PublishAt, limit WindowCap+1), then the media (len(MediaIDs)); writes 2 (the
 	// document and quotas.schedules). Every one of those reads repeats on each retry of a conflicted attempt.
 	//
-	// The window cap is EXACT: the count runs inside the transaction after the quotas read, so concurrent schedules by
-	// one user, which all read and write quotas/{uid}, serialise there and a retried attempt counts the winner's
-	// committed document. The pending cap is not checked here: reading up to MaxPending+1 documents inside the
+	// The window cap is EXACT, because of how racing transactions conflict, not because of the count itself: the count
+	// runs inside the transaction AFTER the quotas read, and every schedule by one user reads and writes quotas/{uid}, so
+	// of two racing calls only one commits. The loser is rejected (ABORTED at commit under the OPTIMISTIC concurrency mode
+	// of dev and prod; a lock wait or timeout on the emulator), the transaction retries, and the retried attempt counts
+	// the winner's committed document. The pending cap is not checked here: reading up to MaxPending+1 documents inside the
 	// transaction would blow the read budget, so it stays a soft count() outside (CountPending).
 	//
 	// Errors, each with nothing written: ErrScheduledWindowFull, ErrScheduledExists, ErrMediaNotReady, or the quota
 	// package's QUOTA_EXCEEDED error. The window check comes before the daily cap, as it did when the count ran outside.
-	// A full window costs 1 more read, the document of this very id: when it exists, a concurrent first call of the same
-	// idempotency key committed it and the count includes it, so the answer is ErrScheduledExists (a replay), not
-	// ErrScheduledWindowFull. That read is on the window rejection path only (3 reads in all). The daily cap is checked
-	// before the media read, so a call at the cap costs 2 reads (quotas, window) however many images it names.
+	// A full window costs 1 more read, the document of this very id: when it exists (a concurrent first call of the same
+	// idempotency key committed it), the answer is ErrScheduledExists (a replay), not ErrScheduledWindowFull. The count
+	// includes that document only while it is PENDING and inside the window; the existence read does not depend on that,
+	// so the outcome is the stored-item answer either way. That read is on the window rejection path only (3 reads in
+	// all). The daily cap is checked before the media read, so a call at the cap costs 2 reads (quotas, window) however
+	// many images it names.
 	CreateScheduled(ctx context.Context, p ScheduledCreateParams) (*ScheduledPost, error)
 	// CancelScheduled moves a PENDING or FAILED item to CANCELLED, clearing its draft. Reads 1, writes 1 (0 and
 	// changed=false when the item is already PUBLISHED or CANCELLED: the current state is returned).
@@ -310,7 +314,7 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 	attempt := 0
 	_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		attempt++
-		if r.attemptHook != nil { // test seam, before the attempt's first read (a write made here cannot wait on the attempt's own locks)
+		if r.attemptHook != nil { // test seam, before the attempt's first read: after it the emulator would block a test's write into the counted window
 			if err := r.attemptHook(attempt, p.ID); err != nil {
 				return err
 			}
@@ -320,16 +324,19 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			return fmt.Errorf("posts: quota lookup: %w", err)
 		}
 		// The window cap, EXACT. It is evaluated here, in the closure, so every retry of a conflicted attempt counts again.
-		// Concurrent schedules by one user all read and write quotas/{uid} (above and in CheckAndReserve below), so they
-		// conflict there; the loser's retry runs this count after the winner committed and sees the winner's document.
-		// (The count itself is not what serialises them.) 1 read, limit WindowCap+1 (rule 5).
+		// Concurrent schedules by one user all read and write quotas/{uid} (above and in CheckAndReserve below), so only one
+		// of two racing calls commits: the other is rejected at commit (ABORTED, optimistic mode) and its retry runs this
+		// count after the winner committed and sees the winner's document. The count itself is not what makes it exact. It
+		// must stay AFTER the quotas read: in optimistic mode a count placed above it could miss a winner that commits
+		// between the two reads, and the quotas read would then no longer guard it. 1 read, limit WindowCap+1 (rule 5).
 		inWindow, err := countQuery(ctx, windowQuery(ref.Parent, publishAt, p.WindowCap+1), tx)
 		if err != nil {
 			return fmt.Errorf("posts: window count: %w", err)
 		}
 		if inWindow >= int64(p.WindowCap) {
-			// A committed document of this very id sits in the window when a concurrent first call of the same
-			// idempotency key won: that is a replay (the caller answers from it), not a full window. Rejection path only.
+			// A document of this very id exists when a concurrent first call of the same idempotency key won: that is a
+			// replay (the caller answers from it), not a full window. The count includes it only while it is PENDING and
+			// inside the window, so this read is what decides, not the count. Rejection path only.
 			_, serr := tx.Get(ref)
 			budget.FromContext(ctx).AddReads(1)
 			switch {

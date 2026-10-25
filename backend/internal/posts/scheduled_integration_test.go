@@ -336,7 +336,7 @@ func TestScheduled_Integration_Counts(t *testing.T) {
 
 // TestScheduled_Integration_WindowCap: the window count inside the schedule transaction covers +/-4 min inclusive and
 // only PENDING items of the caller; a full window is ErrScheduledWindowFull with nothing written and no quota spent
-// (3 reads: quotas, the count, the document of this id); a window with room costs 2 reads; the count stops at its limit.
+// (3 reads: quotas, the count, the document of this id); a window with room costs 2 reads; windowQuery honours its limit.
 func TestScheduled_Integration_WindowCap(t *testing.T) {
 	e := newSchedEnv(t)
 	w := newSched(t, "carol", 0, ScheduledPending).PublishAt // the centre
@@ -353,6 +353,16 @@ func TestScheduled_Integration_WindowCap(t *testing.T) {
 	otherUser.PublishAt = w
 	e.seed(t, otherUser)
 	// Four PENDING items of carol are inside [-4m, +4m]: -4, -1, 0, +4. The -5 and +5 items, the FAILED one and dave's are not.
+
+	// The query stops at its limit (the transaction passes WindowCap+1), 1 read each.
+	col := e.client.Collection("users").Doc("carol").Collection("scheduled")
+	for limit, want := range map[int]int64{26: 4, 4: 4, 3: 3, 2: 2, 1: 1} {
+		ctx, c := counted()
+		got, err := countQuery(ctx, windowQuery(col, w, limit), nil)
+		if err != nil || got != want || c.Reads() != 1 {
+			t.Errorf("window count (limit %d) = %d err=%v reads=%d, want %d and 1 read", limit, got, err, c.Reads(), want)
+		}
+	}
 
 	try := func(n int, at time.Time, windowCap int) (*budget.Counter, error) {
 		p := e.params(t, "carol", n, at)
@@ -376,6 +386,14 @@ func TestScheduled_Integration_WindowCap(t *testing.T) {
 	}
 	if _, err := e.repo.GetScheduled(context.Background(), "carol", e.params(t, "carol", 101, w).ID); !errors.Is(err, ErrScheduledNotFound) {
 		t.Errorf("a rejected call stored a document: %v", err)
+	}
+
+	// The window is checked before the daily cap: a caller over both (QuotaLimit 0 is spent from the start) hears the window.
+	both := e.params(t, "carol", 105, w)
+	both.QuotaLimit = 0
+	bctx, _ := counted()
+	if _, err := e.repo.CreateScheduled(bctx, both); !errors.Is(err, ErrScheduledWindowFull) {
+		t.Errorf("over both caps: err = %v, want ErrScheduledWindowFull (the window comes first)", err)
 	}
 
 	// Room: a window far away (nothing inside) and a cap above the four inside. Each costs quotas + count.
@@ -429,8 +447,10 @@ func TestScheduled_Integration_WindowFullByTheSameKey(t *testing.T) {
 // TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt drives the real transaction through a retry. The attemptHook
 // runs at the start of every attempt: on attempt 1 a concurrent winner commits into the window and the attempt is aborted
 // (ABORTED, as a conflicting commit would); attempt 2 must count the winner and reject, with nothing written. A window
-// check made once before the transaction would not see the winner and would store a 4th item. (The emulator makes a write
-// wait on a transaction that has counted the window, so the winner has to commit before the attempt's reads.)
+// check made once before the transaction would not see the winner and would store a 4th item. (Emulator behaviour: an
+// attempt that has counted the window blocks a write into it until the attempt ends, "Transaction lock timeout", so the
+// winner has to commit before the attempt's reads. Dev and prod run Firestore in OPTIMISTIC mode, where the loser is
+// instead rejected ABORTED at commit; this test does not prove that path, only that every attempt counts afresh.)
 func TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt(t *testing.T) {
 	e := newSchedEnv(t)
 	at := newSched(t, "carol", 0, ScheduledPending).PublishAt

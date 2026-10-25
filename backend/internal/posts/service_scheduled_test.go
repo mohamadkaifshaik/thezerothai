@@ -464,6 +464,11 @@ func TestSchedule_PendingCap(t *testing.T) {
 	}
 }
 
+// The window tests below run against fakeSchedRepo, which models the repository's contract (ErrScheduledWindowFull,
+// ErrScheduledExists, the order of the checks, the reads). They prove what the SERVICE does with that contract: it passes
+// WindowCap and the stored minute, maps ErrScheduledWindowFull to LIMIT_REACHED(scheduled_window) and ErrScheduledExists
+// to a replay, and charges the reads. They say nothing about whether the cap is exact: the evidence for that is the
+// emulator tests (TestSchedulerIT_ConcurrentWindowCap, TestScheduled_Integration_WindowCap* and WindowFullByTheSameKey).
 func TestSchedule_WindowCap(t *testing.T) {
 	target := schedClock.Add(time.Hour) // the request's publish_at
 	at := func(d time.Duration) time.Time { return target.Add(d) }
@@ -516,10 +521,11 @@ func TestSchedule_WindowCap(t *testing.T) {
 	}
 }
 
-// TestSchedule_WindowCapIsExactAndEvaluatedPerAttempt: the window check lives inside the transaction attempt. An attempt
-// that saw room but lost the commit to a concurrent winner is retried, and the retry counts again: with the cap at 3, two
-// seeded items and a winner that commits during attempt 1, attempt 2 sees 3 and the call is rejected with nothing written.
-func TestSchedule_WindowCapIsExactAndEvaluatedPerAttempt(t *testing.T) {
+// TestSchedule_WindowFullAfterARetryIsLimitReached: when the repository retried the transaction (the fake models a
+// concurrent winner committing during attempt 1) and the second attempt found the window full, the service answers
+// LIMIT_REACHED(scheduled_window), writes nothing, and the reads of both attempts are charged. That the real closure
+// counts again on every attempt is proven by TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt, not here.
+func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 	e := newSchedSvcEnv()
 	at := e.clock.Add(time.Hour)
 	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at.Add(time.Minute)))
@@ -554,10 +560,11 @@ func TestSchedule_WindowCapIsExactAndEvaluatedPerAttempt(t *testing.T) {
 	}
 }
 
-// TestSchedule_ConcurrentDuplicateAtTheWindowEdge: a duplicate of a call that just committed finds a full window whose
-// count includes the winner's own document. That is a replay, not LIMIT_REACHED: the repository answers ErrScheduledExists
-// (1 extra read on this rejection path) and the service answers from the winner's document.
-func TestSchedule_ConcurrentDuplicateAtTheWindowEdge(t *testing.T) {
+// TestSchedule_ExistsFromAFullWindowAnswersAReplay: when the repository reports ErrScheduledExists for a full window (a
+// duplicate of a call that just committed; the fake models the winner's commit), the service answers from the winner's
+// document, not LIMIT_REACHED, and charges the winner's document read. The repository side is proven by
+// TestScheduled_Integration_WindowFullByTheSameKey.
+func TestSchedule_ExistsFromAFullWindowAnswersAReplay(t *testing.T) {
 	e := newSchedSvcEnv()
 	in := e.validIn()
 	winner, _, err := newSchedSvcEnv().schedule(in) // what the winning call stored
@@ -576,9 +583,10 @@ func TestSchedule_ConcurrentDuplicateAtTheWindowEdge(t *testing.T) {
 	wantReads(t, c, 8, 0)
 }
 
-// TestSchedule_WindowIsCheckedBeforeTheDailyCap keeps the order of the rules from when the window count ran outside the
-// transaction: a caller over both caps hears LIMIT_REACHED, and the daily quota is not charged.
-func TestSchedule_WindowIsCheckedBeforeTheDailyCap(t *testing.T) {
+// TestSchedule_WindowFullIsReportedWhenBothCapsAreHit: the service maps a window-full answer even when the daily cap is
+// spent too, so a caller over both hears LIMIT_REACHED. The real check order (window before daily cap) is asserted
+// against the repository in TestScheduled_Integration_WindowCap.
+func TestSchedule_WindowFullIsReportedWhenBothCapsAreHit(t *testing.T) {
 	e := newSchedSvcEnv()
 	at := e.clock.Add(time.Hour)
 	for n := 0; n < 3; n++ {
@@ -592,8 +600,10 @@ func TestSchedule_WindowIsCheckedBeforeTheDailyCap(t *testing.T) {
 	}
 }
 
-// TestSchedule_WindowCapBelowOneFailsClosed: a misconfigured limit is an internal error, never "no window cap".
-func TestSchedule_WindowCapBelowOneFailsClosed(t *testing.T) {
+// TestSchedule_RepoRefusalOfAWindowCapBelowOneIsInternal: a misconfigured limit comes back from the repository as an
+// error and the service keeps it internal, never "no window cap". The repository's refusal itself is asserted in
+// TestScheduled_Integration_WindowCap (cap 0).
+func TestSchedule_RepoRefusalOfAWindowCapBelowOneIsInternal(t *testing.T) {
 	e := newSchedSvcEnv()
 	e.svc.schedule.WindowCap = 0
 	_, _, err := e.schedule(e.validIn())

@@ -99,10 +99,12 @@ type Scheduler interface {
 	//	        terminal state. The posts daily quota is charged at publish, not here.
 	//
 	// Exact and soft: the window cap (WindowCap items within +/-4 min) and the daily quota are exact, both decided
-	// inside the transaction after the quotas read that serialises one user's concurrent calls. The pending cap is
-	// soft: its count() runs outside the transaction (reading up to MaxPending+1 documents inside it would blow the
-	// read budget), so concurrent calls can overshoot it by the number in flight, bounded by the daily quota and the
-	// rate bucket's burst of 10.
+	// inside the transaction after the quotas read. Every schedule by one user reads and writes quotas/{uid}, so of two
+	// racing calls only one commits; the loser is rejected at commit (ABORTED under the OPTIMISTIC mode of dev and prod,
+	// a lock wait on the emulator), retries, and counts the winner's committed document. The pending cap is soft: its
+	// count() runs outside the transaction (reading up to MaxPending+1 documents inside it would blow the read budget),
+	// so concurrent calls can overshoot it by the number in flight, bounded by the daily quota and the rate bucket's
+	// burst of 10.
 	//
 	// Both count() calls are charged to the request's budget.Counter by hand (the store wrappers do not see
 	// aggregations). The service's own reads exclude the interceptor's, so a unit budget is one less than above.
@@ -207,8 +209,9 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	//     it by the number in flight, which the exact daily quota (SchedulesPerDay, a transactional counter) and the
 	//     CreatePost-shared rate bucket's burst of 10 per instance bound.
 	//   - The window cap (WindowCap items within +/-ScheduledWindowRadius) is EXACT. It is not checked here: step 8's
-	//     transaction counts the window after reading quotas/{uid}, which concurrent calls of one user all read and write,
-	//     so a retried loser counts the winner's committed document. It answers ErrScheduledWindowFull.
+	//     transaction counts the window after reading quotas/{uid}, which every schedule by one user reads and writes, so
+	//     of two racing calls only one commits and the rejected one's retry counts the winner's committed document. It
+	//     answers ErrScheduledWindowFull.
 	pending, err := s.scheduled.CountPending(ctx, uid, s.schedule.MaxPending+1)
 	if err != nil {
 		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule pending count: %w", err), uid)
