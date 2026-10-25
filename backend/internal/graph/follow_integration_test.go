@@ -8,8 +8,10 @@ package graph_test
 import (
 	"context"
 	"errors"
-	"sync"
+	"fmt"
 	"testing"
+
+	"connectrpc.com/connect"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -76,34 +78,53 @@ func TestFollow_Integration_Replay(t *testing.T) {
 	}
 }
 
+// A double-click or a client retry is 2-3 identical Follow calls on one pair of docs. Racing them on the emulator can
+// legitimately make a call answer with the retryable UNAVAILABLE (ADR-0008 D1: retries exhausted after losing lock
+// races; nothing was written), so that is an accepted outcome, as in TestT16a_Race_ConcurrentDuplicateBlocksAndMutes.
+// What must hold is the invariant: at least one call commits, every other answer is success or UNAVAILABLE, and the
+// edge exists exactly once (FollowingCount == 1). A phase where every call was UNAVAILABLE proves nothing about
+// concurrency, so it is retried once on a fresh pair; a second such phase fails the test (issue #284).
 func TestFollow_Integration_ConcurrentDuplicateFollows_ExactlyOneEdge(t *testing.T) {
 	w := newWired(t)
-	mustCreateProfile(t, w.identity, "uid-a", "usera")
-	mustCreateProfile(t, w.identity, "uid-b", "userb")
+	const n = 3
+	const maxPhases = 2
+	for phase := 0; phase < maxPhases; phase++ {
+		a, b := fmt.Sprintf("uid-a%d", phase), fmt.Sprintf("uid-b%d", phase)
+		mustCreateProfile(t, w.identity, a, fmt.Sprintf("usera%d", phase))
+		mustCreateProfile(t, w.identity, b, fmt.Sprintf("userb%d", phase))
 
-	const n = 10
-	var wg sync.WaitGroup
-	errs := make([]error, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, errs[i] = w.graph.Follow(context.Background(), "uid-a", "0123456789abcdef", "uid-b")
-		}(i)
-	}
-	wg.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Errorf("Follow() goroutine %d error = %v", i, err)
+		errs := runConcurrently(n, func(int) error {
+			_, err := w.graph.Follow(context.Background(), a, "0123456789abcdef", b)
+			return err
+		})
+		succeeded := 0
+		for i, err := range errs {
+			if err == nil {
+				succeeded++
+				continue
+			}
+			var ae *apierr.Error
+			if errors.As(err, &ae) && ae.Code == connect.CodeUnavailable {
+				t.Logf("phase %d goroutine %d: retryable UNAVAILABLE after exhausted retries: %v", phase, i, err)
+				continue
+			}
+			t.Errorf("phase %d: Follow() goroutine %d error = %v (only success or UNAVAILABLE is acceptable)", phase, i, err)
 		}
-	}
+		if succeeded == 0 {
+			if phase+1 < maxPhases {
+				continue
+			}
+			t.Fatalf("every Follow call was UNAVAILABLE in %d phases, so concurrent duplicates were never exercised", maxPhases)
+		}
 
-	me, err := w.identity.GetMe(context.Background(), "uid-a")
-	if err != nil {
-		t.Fatalf("GetMe: %v", err)
-	}
-	if me.Profile.FollowingCount != 1 {
-		t.Errorf("FollowingCount = %d, want exactly 1 after %d concurrent Follow calls", me.Profile.FollowingCount, n)
+		me, err := w.identity.GetMe(context.Background(), a)
+		if err != nil {
+			t.Fatalf("GetMe: %v", err)
+		}
+		if me.Profile.FollowingCount != 1 {
+			t.Errorf("FollowingCount = %d, want exactly 1 after %d concurrent Follow calls", me.Profile.FollowingCount, n)
+		}
+		return
 	}
 }
 
