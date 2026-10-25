@@ -192,7 +192,7 @@ while it is held for images (`held_media`). At most 100 due docs per run
 
 ### Images held while `FEATURE_MEDIA` is off
 
-`FEATURE_MEDIA=off` is also a kill switch for the sweep (pending 2.15, ADR-0021 security review of the sweep, Low 2). CreatePost refuses
+`FEATURE_MEDIA=off` is also a kill switch for the sweep (pending 2.15, security review of #289, Low 2). CreatePost refuses
 `media_ids` while the flag is off for everyone, so the sweep does not publish already-uploaded images either. Each run asks once, with 0
 reads, whether `media` is globally off. Only `off` holds: `allowlist` and `percent` are rollouts, so the sweep keeps publishing images that
 were scheduled, as it does for `FEATURE_SCHEDULED_POSTS`. `DEGRADED_MODE=nomedia` holds nothing either: it blocks uploads only, for CreatePost
@@ -215,7 +215,7 @@ and the sweep alike.
 - **Cost of holding.** Held items still match the due query, so each run re-reads them: 1 read each per run (about 288 runs a day), up to
   `SCHEDULED_MAX_PENDING` (25) per user. 20 held items cost about 5,800 reads a day (about 12% of the free 50,000), and `max_lateness_ms` rises
   with the oldest of them. They are the oldest due items, so they sit at the head of the query, which reads at most 100 items a run
-  (`SCHEDULED_SWEEP_LIMIT` x `SCHEDULED_SWEEP_MAX_PAGES`): more than 100 held items would push newer due items past the window until the held ones
+  (`SCHEDULED_SWEEP_LIMIT` x `SCHEDULED_SWEEP_MAX_PAGES`): 100 or more held items would push newer due items past the window until the held ones
   expire or the flag returns. If that ever happens, raise `SCHEDULED_SWEEP_MAX_PAGES` (up to 10) as in "Draining a backlog".
 
 ### Draining a backlog
