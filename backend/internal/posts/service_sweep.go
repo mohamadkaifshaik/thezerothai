@@ -177,7 +177,7 @@ func (s *service) sweepAuthor(ctx context.Context, run runRef, uid string, items
 	actx, ac := budget.WithCounter(ctx)
 	defer func() {
 		if v := recover(); v != nil {
-			s.reportPanic(actx, v)
+			s.reportPanic(actx, v, "uid_hash", logger.HashUID(uid))
 		}
 		run.counter.AddReads(ac.Reads())
 		run.counter.AddWrites(ac.Writes())
@@ -216,16 +216,23 @@ func (s *service) sweepItemSafe(ctx context.Context, run runRef, it *ScheduledPo
 // Its own recover keeps a second panic from taking the process down while this one is being handled.
 func (s *service) itemPanicked(ctx context.Context, it *ScheduledPost, v any, tally *sweepTally) {
 	defer func() { _ = recover() }()
-	s.reportPanic(ctx, v)
+	s.reportPanic(ctx, v, itemAttrs(it)...)
 	s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureInternal}, tally)
 }
 
-// reportPanic sends the panic type to Error Reporting.
-func (s *service) reportPanic(ctx context.Context, v any) {
-	s.reportErr(ctx, logger.ScrubErr(fmt.Errorf("panic of type %T", v)))
+// itemAttrs identify an item in a log line or an Error Reporting entry: the one-way uid hash and the scheduled id (itself
+// a SHA-256 prefix, so it does not reveal the uid either). Never the raw uid.
+func itemAttrs(it *ScheduledPost) []any {
+	return []any{"uid_hash", logger.HashUID(it.UID), "scheduled_id", it.ID}
 }
 
-// reportErr writes an Error Reporting entry. err must already be scrubbed (logger.ScrubErr).
-func (s *service) reportErr(ctx context.Context, err error) {
-	mw.ReportError(ctx, s.sweep.Log.With(logger.TraceAttrs(ctx)...), sweepOp, err)
+// reportPanic sends the panic type to Error Reporting, with attrs naming the item or author it happened on.
+func (s *service) reportPanic(ctx context.Context, v any, attrs ...any) {
+	s.reportErr(ctx, logger.ScrubErr(fmt.Errorf("panic of type %T", v)), attrs...)
+}
+
+// reportErr writes an Error Reporting entry. err must already be scrubbed (logger.ScrubErr). attrs identify the item
+// (itemAttrs) so an operator can find it; the trace attributes are added here.
+func (s *service) reportErr(ctx context.Context, err error, attrs ...any) {
+	mw.ReportError(ctx, s.sweep.Log.With(append(attrs, logger.TraceAttrs(ctx)...)...), sweepOp, err)
 }

@@ -2,12 +2,15 @@ package posts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // Unit tests of the per-item rules (ADR-0021 "Sweep" steps 3 to 5): the cheapest-first checks, the outcomes a committed
@@ -481,4 +484,69 @@ func TestSweepItem_RecordsTheAuthorAgeBeforeThePostEvent(t *testing.T) {
 			t.Errorf("RecordAuthorAge called %d times for an item that was not published", calls)
 		}
 	})
+}
+
+// Every item-level warning and Error Reporting entry names the item (the one-way uid hash and the scheduled id), so an
+// operator can find the document; the raw uid never appears (review m5, L-8).
+func TestSweepItem_WarningsAndErrorEntriesIdentifyTheItem(t *testing.T) {
+	transient := func(context.Context, PublishParams) (PublishResult, error) {
+		return PublishResult{}, errors.New("rpc error: code = Unavailable desc = overloaded")
+	}
+	tests := []struct {
+		name  string
+		setup func(e *sweepEnv, p *ScheduledPost)
+		item  func(p *ScheduledPost)
+		want  string // the msg of the line that must carry the identity
+	}{
+		{"a transient error with attempts left", func(e *sweepEnv, _ *ScheduledPost) { e.repo.publish = transient }, nil, "scheduled_item_transient"},
+		{"the last allowed attempt is reported", func(e *sweepEnv, _ *ScheduledPost) { e.repo.publish = transient }, func(p *ScheduledPost) { p.Attempts = 2 }, ""},
+		{"a panic inside the transaction callback", func(e *sweepEnv, _ *ScheduledPost) {
+			e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) {
+				return PublishResult{}, fmt.Errorf("wrapped: %w", &publishPanicError{typ: "*errors.errorString"})
+			}
+		}, nil, ""},
+		{"a panic in the item", func(e *sweepEnv, _ *ScheduledPost) {
+			e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) { panic("boom with uid-alice") }
+		}, nil, ""},
+		{"a failed state write", func(e *sweepEnv, _ *ScheduledPost) { e.repo.transitionErr = errors.New("rpc error: unavailable") },
+			func(p *ScheduledPost) { p.PublishAt = schedNow.Add(-7 * time.Hour) }, "scheduled_item_bookkeeping_failed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newSweepEnv(t)
+			var muts []func(*ScheduledPost)
+			if tc.item != nil {
+				muts = append(muts, tc.item)
+			}
+			it := e.dueItem("uid-alice", 1, muts...)
+			tc.setup(e, it)
+			if _, _, err := e.sweep(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+
+			var flagged int
+			for _, line := range strings.Split(e.logs.String(), "\n") {
+				var m map[string]any
+				if json.Unmarshal([]byte(line), &m) != nil {
+					continue
+				}
+				if lvl := m["level"]; lvl != "WARN" && lvl != "ERROR" {
+					continue
+				}
+				flagged++
+				if m["uid_hash"] != logger.HashUID("uid-alice") || m["scheduled_id"] != it.ID {
+					t.Errorf("%v line %v does not identify the item (uid_hash, scheduled_id)", m["level"], m)
+				}
+				if tc.want != "" && m["msg"] != tc.want {
+					t.Errorf("msg = %v, want %s", m["msg"], tc.want)
+				}
+			}
+			if flagged == 0 {
+				t.Fatalf("no WARN or ERROR line was written:\n%s", e.logs.String())
+			}
+			if strings.Contains(e.logs.String(), "uid-alice") {
+				t.Errorf("the raw uid reached the logs:\n%s", e.logs.String())
+			}
+		})
+	}
 }

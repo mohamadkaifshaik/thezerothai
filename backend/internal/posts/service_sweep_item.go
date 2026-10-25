@@ -27,7 +27,7 @@ func (s *service) sweepItem(ctx context.Context, run runRef, it *ScheduledPost, 
 	// The only trace an unrecoverable crash (a fatal runtime error, an OOM kill) leaves: written before the transaction.
 	// uid_hash is one-way and the scheduled id is itself a SHA-256 prefix. Never the draft text. INFO, not DEBUG: the
 	// process logger drops DEBUG, and the crash-isolation runbook step reads this line.
-	s.sweep.Log.InfoContext(ctx, "scheduled_item_start", append([]any{"uid_hash", logger.HashUID(it.UID), "scheduled_id", it.ID}, logger.TraceAttrs(ctx)...)...)
+	s.sweep.Log.InfoContext(ctx, "scheduled_item_start", append(itemAttrs(it), logger.TraceAttrs(ctx)...)...)
 
 	// 1. Expiry: the catch-up bound. After an outage stale posts are not dumped onto feeds hours late.
 	if run.now.Sub(it.PublishAt) > lim.MaxLateness {
@@ -51,7 +51,7 @@ func (s *service) sweepItem(ctx context.Context, run runRef, it *ScheduledPost, 
 	switch {
 	case errors.Is(err, errPublishPanic):
 		// A panic inside the callback was rolled back by the wrapper. Retire the item in this run: never the attempts++ branch.
-		s.reportErr(ctx, logger.ScrubErr(fmt.Errorf("posts: scheduled publish: %w", err), it.UID))
+		s.reportErr(ctx, logger.ScrubErr(fmt.Errorf("posts: scheduled publish: %w", err), it.UID), itemAttrs(it)...)
 		s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureInternal}, tally)
 	case err != nil:
 		s.transient(ctx, it, err, tally)
@@ -145,13 +145,11 @@ func (s *service) transient(ctx context.Context, it *ScheduledPost, err error, t
 	scrubbed := logger.ScrubErr(fmt.Errorf("posts: scheduled publish: %w", err), it.UID)
 	tally.add(func(r *SweepResult) { r.Transient++ })
 	if it.Attempts+1 >= max(s.sweep.Limits.MaxAttempts, 1) {
-		s.reportErr(ctx, scrubbed)
+		s.reportErr(ctx, scrubbed, itemAttrs(it)...)
 		s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureInternal}, tally)
 		return
 	}
-	s.sweep.Log.WarnContext(ctx, "scheduled_item_transient", append([]any{
-		"uid_hash", logger.HashUID(it.UID), "attempt", it.Attempts + 1, "error", scrubbed.Error(),
-	}, logger.TraceAttrs(ctx)...)...)
+	s.sweep.Log.WarnContext(ctx, "scheduled_item_transient", append(append(itemAttrs(it), "attempt", it.Attempts+1, "error", scrubbed.Error()), logger.TraceAttrs(ctx)...)...)
 	bctx, cancel := bookkeepingCtx(ctx)
 	defer cancel()
 	_, applied, berr := s.sweep.Repo.BumpScheduledAttempts(bctx, it.Ref(), s.now())
@@ -185,9 +183,7 @@ func (s *service) endItem(ctx context.Context, it *ScheduledPost, tr ScheduledTr
 func (s *service) bookkeepingFailed(ctx context.Context, it *ScheduledPost, err error, tally *sweepTally) {
 	tally.add(func(r *SweepResult) { r.WriteFailed++ })
 	scrubbed := logger.ScrubErr(fmt.Errorf("posts: scheduled state write: %w", err), it.UID)
-	s.sweep.Log.WarnContext(ctx, "scheduled_item_bookkeeping_failed", append([]any{
-		"uid_hash", logger.HashUID(it.UID), "error", scrubbed.Error(),
-	}, logger.TraceAttrs(ctx)...)...)
+	s.sweep.Log.WarnContext(ctx, "scheduled_item_bookkeeping_failed", append(append(itemAttrs(it), "error", scrubbed.Error()), logger.TraceAttrs(ctx)...)...)
 }
 
 // bookkeepingCtx is a short context detached from the item's cancellation: an item that hit the run deadline can still
