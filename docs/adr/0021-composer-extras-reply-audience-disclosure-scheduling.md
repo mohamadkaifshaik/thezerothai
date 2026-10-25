@@ -1030,3 +1030,11 @@ they were not re-measured for these notes.
      1 to 10; `SCHEDULED_MAX_ATTEMPTS` 1 to 10; `SCHEDULED_AUTHOR_READS_WARN` 1 to 1,000; `SCHEDULED_MAX_LATENESS`
      1 min to 168 h; `SCHEDULED_TERMINAL_TTL` 1 h to 720 h; `SCHEDULED_HORIZON` 1 h to 8,760 h; `SCHEDULED_MIN_LEAD`
      1 min to 24 h and shorter than the horizon. The defaults are those in §Rollout "Config".
+   - **Dev manual run** (D1 "Testing in dev"). Found on dev on 2026-10-26 (pending 1.20, #293; procedure in
+     `docs/runbooks/posts.md` section 12 "Manual run"), not from the code: the primary
+     `gcloud auth print-identity-token --impersonate-service-account` command does not work with the OpenID-only role,
+     because it asks for `getAccessToken`, so the IAM Credentials `generateIdToken` fallback is the working path. The
+     token's audience must be the service's `INTERNAL_OIDC_AUDIENCE` (the verifier checks that value:
+     `pubsubpush.NewVerifier(cfg.InternalOIDCAudience, ...)` in `backend/internal/apiserver/apiserver.go`), not the
+     `*.a.run.app` URL, and curl needs an explicit empty body. The
+     grant stays dev-only, 30-day and OpenID-only, as D1 says.
