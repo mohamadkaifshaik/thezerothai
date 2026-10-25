@@ -537,8 +537,8 @@ void main() {
       (
         'offline',
         const NetworkException('x'),
-        'No connection. Your post was not scheduled; check your network and '
-            'try again.',
+        "Couldn't confirm your post was scheduled. Tap Schedule to try again, "
+            'or check Scheduled posts.',
       ),
     ];
     for (final (name, error, message) in cases) {

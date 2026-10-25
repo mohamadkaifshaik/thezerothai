@@ -62,11 +62,28 @@ void main() {
       );
     });
 
-    test('other failures use scheduling wording or the shared text', () {
+    test('the reply audience refusal says the post will be open to everyone, '
+        'not that scheduling is off', () {
       expect(
-        scheduleErrorMessage(const NetworkException('x')),
-        contains('not scheduled'),
+        scheduleErrorMessage(
+          const FeatureDisabledException('x', feature: 'reply_audience'),
+        ),
+        "Choosing who can reply isn't available right now. Your post will be "
+        'open to everyone.',
       );
+    });
+
+    test('a lost response is never reported as "not scheduled"', () {
+      final message = scheduleErrorMessage(const NetworkException('x'));
+      expect(
+        message,
+        "Couldn't confirm your post was scheduled. Tap Schedule to try again, "
+        'or check Scheduled posts.',
+      );
+      expect(message, isNot(contains('not scheduled')));
+    });
+
+    test('other failures use scheduling wording or the shared text', () {
       expect(
         scheduleErrorMessage(const DegradedModeException('x')),
         contains('scheduling is paused'),
@@ -126,11 +143,15 @@ void main() {
     test('Cancel and Dismiss failures', () {
       expect(
         cancelScheduledErrorMessage(const NetworkException('x')),
-        'No connection. Check your network and try cancel again.',
+        'No connection. Check your network and try again.',
       );
       expect(
         cancelScheduledErrorMessage(const NetworkException('x'), dismiss: true),
-        'No connection. Check your network and try dismiss again.',
+        'No connection. Check your network and try again.',
+      );
+      expect(
+        cancelScheduledErrorMessage(const FeatureDisabledException('x')),
+        "Scheduled posts aren't available right now",
       );
       expect(
         cancelScheduledErrorMessage(const UnknownApiException('x')),

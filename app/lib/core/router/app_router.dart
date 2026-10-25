@@ -311,13 +311,15 @@ class AppRouter {
         : homePath;
   }
 
-  /// The Scheduled posts list redirects to Settings unless BOTH `posts` and
-  /// `scheduled_posts` are on for this caller (CMP-D6).
+  /// The Scheduled posts list redirects to Settings unless `posts` is on for
+  /// this caller (CMP-D6). It does NOT need `scheduled_posts`: ListScheduledPosts
+  /// and CancelScheduledPost only need the flag "not globally off" (ADR-0021
+  /// L-A option b), so a user dropped from the allowlist can still see and
+  /// cancel what they already scheduled. A globally-off flag shows the list's
+  /// own "not available" state.
   String? _scheduledFlagRedirect(String loc) {
     if (loc != scheduledPostsPath) return null;
-    final features = _onboardingBloc.state.enabledFeatures;
-    return features.contains(kFeaturePosts) &&
-            features.contains(kFeatureScheduledPosts)
+    return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
         ? null
         : settingsPath;
   }

@@ -41,9 +41,10 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/scheduled` and its flag redirect (CMP-D6): the Scheduled posts
-/// list exists only with BOTH `posts` and `scheduled_posts`; without them the
-/// router sends the caller to Settings.
+/// `/scheduled` and its flag redirect (CMP-D6): the Scheduled posts list
+/// needs only `posts` (ADR-0021 L-A option b: a caller dropped from the
+/// `scheduled_posts` allowlist can still list and cancel what they already
+/// scheduled); without `posts` the router sends the caller to Settings.
 ///
 /// The router is pointed at the route BEFORE the first frame, so the Home
 /// screen (which needs the whole timeline wiring once `posts` is on) is never
@@ -111,10 +112,10 @@ void main() {
     expect(AppRouter.scheduledPostsPath, '/scheduled');
   });
 
-  testWidgets('redirects to Settings unless BOTH flags are on', (tester) async {
+  testWidgets('redirects to Settings without the posts flag', (tester) async {
     for (final flags in <Set<String>>[
       const {},
-      const {kFeaturePosts},
+      // The scheduling flag alone is not enough: posts gates the service.
       const {kFeatureScheduledPosts},
     ]) {
       final path = await openAt(tester, flags);
@@ -122,6 +123,15 @@ void main() {
       expect(find.byType(SettingsList), findsOneWidget, reason: '$flags');
       expect(find.byType(ScheduledPostsScreen), findsNothing);
     }
+  });
+
+  testWidgets('posts alone is enough: a user dropped from the scheduled_posts '
+      'allowlist can still open the list', (tester) async {
+    final path = await openAt(tester, const {kFeaturePosts});
+
+    expect(path, AppRouter.scheduledPostsPath);
+    expect(find.byType(ScheduledPostsScreen), findsOneWidget);
+    expect(find.byType(SettingsList), findsNothing);
   });
 
   testWidgets('opens the list with both flags on', (tester) async {
@@ -134,11 +144,12 @@ void main() {
     expect(find.byType(ScheduledPostsScreen), findsOneWidget);
     expect(find.text('Nothing scheduled'), findsOneWidget);
   });
-  testWidgets('from the composer: the dialog link pushes the list over the '
-      'draft (real AppRouter, a shell page underneath), Back returns to it', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1000, 900);
+
+  /// Settings (a shell page) -> `/compose` (root) -> the Schedule dialog ->
+  /// its "Scheduled posts" link -> the list (root) -> Back, on the real
+  /// [AppRouter], at [size]. Below 600dp the dialog is a full-screen route.
+  Future<void> composerToListAndBack(WidgetTester tester, Size size) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final auth = _MockAuthBloc();
@@ -198,7 +209,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SettingsList), findsOneWidget);
 
-    // Shell page (Settings) -> /compose (root) -> a second shell page.
+    // Shell page (Settings) -> /compose (root); the list then goes above the
+    // composer as another root page.
     unawaited(appRouter.router.push(AppRouter.composePath));
     await tester.pumpAndSettle();
     expect(find.byType(ComposerScreen), findsOneWidget);
@@ -220,5 +232,17 @@ void main() {
     expect(find.byType(ScheduledPostsScreen), findsNothing);
     expect(find.byType(ComposerScreen), findsOneWidget);
     expect(find.text('my draft'), findsOneWidget);
+  }
+
+  testWidgets('from the composer: the dialog link pushes the list over the '
+      'draft (real AppRouter, a shell page underneath), Back returns to it', (
+    tester,
+  ) async {
+    await composerToListAndBack(tester, const Size(1000, 900));
+  });
+
+  testWidgets('same on a phone: the full-screen dialog route, then the list, '
+      'then back to the draft', (tester) async {
+    await composerToListAndBack(tester, const Size(390, 844));
   });
 }

@@ -4,6 +4,8 @@ import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/posts/presentation/post_error_messages.dart'
+    show kScheduledUnavailableTitle;
 import 'package:dzeroth/features/posts/presentation/scheduled_posts_screen.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
@@ -180,6 +182,48 @@ void main() {
       expect(find.text('scheduled 1'), findsOneWidget);
     });
 
+    testWidgets(
+      'FEATURE_DISABLED: "not available", no Retry, a pull recovers',
+      (tester) async {
+        var off = true;
+        stubList(
+          (_) => off
+              ? throw const FeatureDisabledException(
+                  'x',
+                  feature: 'scheduled_posts',
+                )
+              : page([scheduledPost(1, text: 'back again')]),
+        );
+        await open(tester);
+
+        expect(find.text(kScheduledUnavailableTitle), findsOneWidget);
+        expect(find.text(kScheduledUnavailableBody), findsOneWidget);
+        expect(find.text('Retry'), findsNothing);
+        expect(find.text('Nothing scheduled'), findsNothing);
+        expect(
+          find.text("This feature isn't available yet."),
+          findsNothing,
+          reason: 'not the generic error view',
+        );
+        // Start aligned near the top, like the empty state.
+        final heading = tester.getTopLeft(
+          find.text(kScheduledUnavailableTitle),
+        );
+        expect(heading.dx, lessThan(40));
+        expect(heading.dy, lessThan(200));
+
+        off = false;
+        await tester.fling(
+          find.text(kScheduledUnavailableTitle),
+          const Offset(0, 400),
+          1000,
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('back again'), findsOneWidget);
+        expect(find.text(kScheduledUnavailableTitle), findsNothing);
+      },
+    );
+
     testWidgets('rows: the time, the text, a photo count and Cancel', (
       tester,
     ) async {
@@ -289,6 +333,42 @@ void main() {
 
       verify(() => repo.listScheduledPosts(pageToken: 'p2', pageSize: 20))
           .called(1);
+      expect(find.text('the last one'), findsOneWidget);
+    });
+
+    testWidgets('a failed page is not asked for again on every scroll tick; '
+        'Retry asks once', (tester) async {
+      var failPage = true;
+      final tokens = <String>[];
+      stubList((token) {
+        tokens.add(token);
+        if (token.isEmpty) {
+          return page([for (var i = 1; i <= 20; i++) scheduledPost(i)], 'p2');
+        }
+        if (failPage) throw const NetworkException('offline');
+        return page([scheduledPost(21, text: 'the last one')]);
+      });
+      await open(tester);
+
+      for (var i = 0; i < 4; i++) {
+        await tester.drag(
+          find.byType(CustomScrollView),
+          const Offset(0, -2500),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      // The first page, and the one page that failed: four scroll gestures
+      // (dozens of scroll ticks) asked for nothing more.
+      expect(tokens, ['', 'p2']);
+      expect(find.byType(AppNoticeBanner), findsOneWidget);
+
+      failPage = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(tokens, ['', 'p2', 'p2']);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -2500));
+      await tester.pumpAndSettle();
       expect(find.text('the last one'), findsOneWidget);
     });
 
@@ -431,7 +511,7 @@ void main() {
 
       expect(find.text('still here'), findsOneWidget);
       expect(
-        find.text('No connection. Check your network and try cancel again.'),
+        find.text('No connection. Check your network and try again.'),
         findsOneWidget,
       );
     });

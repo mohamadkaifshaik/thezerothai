@@ -2,6 +2,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostFailure;
+import '../domain/posts_feature_flag.dart';
+import '../domain/reply_audience.dart';
 import '../domain/schedule_rules.dart';
 
 /// Friendly, typed messages for a failed CreatePost (shown in a snackbar;
@@ -104,11 +106,17 @@ String scheduleErrorMessage(AppException error) {
       "You've reached today's limit for scheduling posts. It resets "
           'tomorrow.',
     ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
-    FeatureDisabledException(feature: 'media') => createPostErrorMessage(error),
+    FeatureDisabledException(feature: kPostsSubFeatureMedia) =>
+      createPostErrorMessage(error),
+    // The audience is dropped by the composer ("Everyone"), so say so.
+    FeatureDisabledException(feature: kFeatureReplyAudience) =>
+      "Choosing who can reply isn't available right now. Your post will be "
+          'open to everyone.',
     FeatureDisabledException() => "Scheduling isn't available right now.",
+    // A lost response may still have scheduled the post: never say it was not.
     NetworkException() =>
-      'No connection. Your post was not scheduled; check your network and '
-          'try again.',
+      "Couldn't confirm your post was scheduled. Tap Schedule to try again, "
+          'or check Scheduled posts.',
     DegradedModeException() =>
       'Dzeroth is in a limited mode right now, so scheduling is paused. '
           'Please try again shortly.',
@@ -144,13 +152,18 @@ String cancelScheduledErrorMessage(AppException error, {bool dismiss = false}) {
   final verb = dismiss ? 'dismiss' : 'cancel';
   return switch (error) {
     final RateLimitedException e => rateLimitedMessage(e),
-    NetworkException() =>
-      'No connection. Check your network and try $verb again.',
+    NetworkException() => 'No connection. Check your network and try again.',
     DegradedModeException() =>
       'Dzeroth is in a limited mode right now. Please try again shortly.',
+    FeatureDisabledException() => kScheduledUnavailableTitle,
     _ => "Couldn't $verb that post. Please try again.",
   };
 }
+
+/// "Scheduled posts aren't available right now": the Scheduled list (or a
+/// Cancel) was refused with FEATURE_DISABLED, i.e. scheduling is switched off
+/// for everyone. A state of its own, not an error with Retry.
+const kScheduledUnavailableTitle = "Scheduled posts aren't available right now";
 
 /// The banner over the Scheduled list when a refresh or page failed and the
 /// rows already loaded stay.

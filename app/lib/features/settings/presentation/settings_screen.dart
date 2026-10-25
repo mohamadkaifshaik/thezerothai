@@ -78,7 +78,12 @@ class SettingsList extends StatelessWidget {
     final graphEnabled = isGraphEnabled(context);
     final profileEnabled = isFeatureEnabled(context, kFeatureProfileSnapshot);
     final lifecycleEnabled = isAccountLifecycleEnabled(context);
-    // CMP-D6: the Scheduled posts list needs both posts flags.
+    // CMP-D6: the ROUTE needs only `posts` (a user dropped from the allowlist
+    // may still list and cancel, ADR-0021 L-A option b), but this ENTRY shows
+    // only with both flags for now: the client cannot tell "globally off" from
+    // "not in the allowlist" (both just leave `scheduled_posts` out of
+    // `enabled_features`). Whether every posts user gets the row is a product
+    // decision still open.
     final scheduledEnabled =
         isFeatureEnabled(context, kFeaturePosts) &&
         isFeatureEnabled(context, kFeatureScheduledPosts);

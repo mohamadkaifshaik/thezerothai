@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -29,12 +30,19 @@ import 'widgets/scheduled_post_row.dart';
 const kScheduledEmptyTitle = 'Nothing scheduled';
 const kScheduledEmptyBody = 'Schedule a post and it will show up here.';
 
+/// Shown instead of the list when the server answers FEATURE_DISABLED
+/// (scheduling is switched off for everyone): same layout as the empty state,
+/// no Retry (pull down to check again).
+const kScheduledUnavailableBody = 'Please check back later.';
+
 /// `/scheduled` (CMP-D6, ADR-0021 D4): the caller's PENDING and
 /// FAILED scheduled posts, oldest first. Cancel a pending one (after a
 /// confirmation) or dismiss a failed one; a failed post is never rescheduled.
 /// Reached from Settings, the composer's Schedule dialog and the "View" action
-/// of the schedule toast; the route and every entry point exist only with the
-/// `posts` and `scheduled_posts` flags.
+/// of the schedule toast. The route needs only the `posts` flag (ADR-0021
+/// L-A option b: listing and cancelling need `scheduled_posts` only "not
+/// globally off"); the entry points in Settings and the composer show only
+/// with both flags.
 class ScheduledPostsScreen extends StatelessWidget {
   const ScheduledPostsScreen({super.key});
 
@@ -138,17 +146,12 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
                       controller: _controller,
                       physics: const AlwaysScrollableScrollPhysics(),
                       slivers: [
-                        if (state.notice != null)
-                          SliverToBoxAdapter(
-                            child: AppNoticeBanner(
-                              message: scheduledListNoticeMessage(
-                                state.notice!,
-                              ),
-                              onRetry: noticeCanRetry(state.notice!)
-                                  ? cubit.retry
-                                  : null,
-                            ),
-                          ),
+                        // A failed refresh sits on top; a failed next page sits
+                        // at the end of the list (see _body), where the user
+                        // is, unless there are no rows to put it under.
+                        if (state.notice != null &&
+                            (!cubit.noticeFromPaging || state.items.isEmpty))
+                          SliverToBoxAdapter(child: _notice(state, cubit)),
                         ..._body(state, cubit),
                       ],
                     ),
@@ -159,6 +162,13 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _notice(ScheduledPostsState state, ScheduledPostsCubit cubit) {
+    return AppNoticeBanner(
+      message: scheduledListNoticeMessage(state.notice!),
+      onRetry: noticeCanRetry(state.notice!) ? cubit.retry : null,
     );
   }
 
@@ -175,6 +185,16 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
           ),
         ];
       case ScheduledPostsStatus.error:
+        if (state.error is FeatureDisabledException) {
+          return const [
+            SliverToBoxAdapter(
+              child: _ScheduledMessage(
+                title: kScheduledUnavailableTitle,
+                body: kScheduledUnavailableBody,
+              ),
+            ),
+          ];
+        }
         return [
           SliverFillRemaining(
             hasScrollBody: false,
@@ -184,7 +204,14 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
       case ScheduledPostsStatus.ready:
       case ScheduledPostsStatus.loadingMore:
         if (state.items.isEmpty) {
-          return const [SliverToBoxAdapter(child: _ScheduledEmptyState())];
+          return const [
+            SliverToBoxAdapter(
+              child: _ScheduledMessage(
+                title: kScheduledEmptyTitle,
+                body: kScheduledEmptyBody,
+              ),
+            ),
+          ];
         }
         return [
           SliverList.builder(
@@ -220,6 +247,8 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
                       ),
                     ),
                   )
+                : state.notice != null && cubit.noticeFromPaging
+                ? _notice(state, cubit)
                 : const SizedBox(height: AppSpacing.lg),
           ),
         ];
@@ -227,10 +256,14 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
   }
 }
 
-/// The empty Scheduled list: a heading over a muted line, start aligned, no
-/// illustration. Not [AppEmptyView], which centres an icon.
-class _ScheduledEmptyState extends StatelessWidget {
-  const _ScheduledEmptyState();
+/// A heading over a muted line, start aligned, no illustration: the empty
+/// Scheduled list and the "not available" state. Not [AppEmptyView], which
+/// centres an icon.
+class _ScheduledMessage extends StatelessWidget {
+  const _ScheduledMessage({required this.title, required this.body});
+
+  final String title;
+  final String body;
 
   @override
   Widget build(BuildContext context) {
@@ -243,7 +276,7 @@ class _ScheduledEmptyState extends StatelessWidget {
           Semantics(
             header: true,
             child: Text(
-              kScheduledEmptyTitle,
+              title,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
@@ -251,7 +284,7 @@ class _ScheduledEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            kScheduledEmptyBody,
+            body,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
