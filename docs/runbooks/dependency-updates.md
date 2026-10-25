@@ -95,6 +95,15 @@ the reachability gate.
   re-check, then either bump the dependency (preferred) or renew with a fresh reason.
 - Run locally from the repo root: `osv-scanner scan --config=osv-scanner.toml --no-call-analysis=go -L backend/go.mod -L app/pubspec.lock`.
 
+## Firebase plugin bumps and the CSP hashes
+The FlutterFire web plugins load the Firebase JS SDK through inline `<script>` elements, so the Content Security Policy in
+`firebase.json` allows them by `sha256` hash (8 hashes: 4 modules x the Trusted Types and plain whitespace variants). The
+hashes depend on the SDK version pinned by `firebase_core_web`. `make ci` runs `scripts/csp/check-firebase-loader-hashes.sh`
+and fails when `script-src` does not carry exactly the expected set. After a `firebase_*` bump, run
+`bash scripts/csp/check-firebase-loader-hashes.sh --print` and replace the `'sha256-...'` entries in `script-src`. A new
+`firebase_*` dependency must also be added to the module map in that script. The header is still `Report-Only`; enforcing it
+is a separate decision (see `docs/reviews/security-audit-v0.1.0.md` L3).
+
 ## Repo setting (founder, GitHub UI; not done by any agent)
 Turn on "Require actions to be pinned to a full-length commit SHA" only after this PR is merged and the next `main`
 deploy-dev run is green (all `uses:` are already SHA-pinned, so nothing should break):
