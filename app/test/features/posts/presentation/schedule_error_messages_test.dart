@@ -151,7 +151,7 @@ void main() {
       );
       expect(
         cancelScheduledErrorMessage(const FeatureDisabledException('x')),
-        "Scheduled posts aren't available right now",
+        "Scheduled posts aren't available right now.",
       );
       expect(
         cancelScheduledErrorMessage(const UnknownApiException('x')),

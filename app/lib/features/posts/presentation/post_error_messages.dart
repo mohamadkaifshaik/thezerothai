@@ -155,7 +155,7 @@ String cancelScheduledErrorMessage(AppException error, {bool dismiss = false}) {
     NetworkException() => 'No connection. Check your network and try again.',
     DegradedModeException() =>
       'Dzeroth is in a limited mode right now. Please try again shortly.',
-    FeatureDisabledException() => kScheduledUnavailableTitle,
+    FeatureDisabledException() => '$kScheduledUnavailableTitle.',
     _ => "Couldn't $verb that post. Please try again.",
   };
 }
