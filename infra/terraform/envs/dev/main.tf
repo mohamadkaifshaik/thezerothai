@@ -320,12 +320,57 @@ module "scheduler" {
   push_base_url                     = local.api_url
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
 
-  # dev + prod combined must stay <= 3 jobs (Cloud Scheduler free tier is per
-  # billing account). Keep dev empty by default; run cron for real in prod
-  # only, and use `gcloud scheduler jobs run` manually to test in dev.
+  # Cloud Scheduler's free tier is 3 jobs PER BILLING ACCOUNT, shared by dev and prod. Count today:
+  #   dev : 0  (this env keeps jobs = {} on purpose)
+  #   prod: 2  (daily-maintenance, publish-scheduled; see envs/prod)
+  #   total: 2 of 3 free. Do not add a dev job.
+  # Because no dev job exists, `gcloud scheduler jobs run <job>` cannot work here. To exercise a cron route in dev,
+  # POST to it directly with an OIDC identity token minted for the pubsub-push service account: the exact curl, and
+  # the IAM Credentials fallback, are in ADR-0021 D1. Minting that token needs the opt-in
+  # google_service_account_iam_member.cron_test_invoker_openid grant below, which is NOT created by default.
   jobs = {}
 
   depends_on = [module.project_services, module.cloud_run_api]
+}
+
+// Dev only, OPT-IN, time-boxed (ADR-0021 D1, security review L-5). Creates nothing unless cron_test_invoker is set.
+// It lets one named person mint an OIDC identity token for the dev pubsub-push service account, to curl a cron route
+// by hand. Deliberately:
+//  - roles/iam.serviceAccountOpenIdTokenCreator only (iam.serviceAccounts.getOpenIdToken). Never
+//    serviceAccountTokenCreator: that also grants getAccessToken, signBlob and signJwt, which the curl does not need.
+//  - bound on the pubsub-push SA only, to ONE person (user:, never a service account or group), with an IAM
+//    condition that makes the grant stop working at cron_test_invoker_expiry. The variable validations fix the format
+//    (UTC only) and the precondition below bounds the value: in the future and at most 31 days after the plan
+//    (30 days is the intended maximum), so an unbounded grant cannot be planned. After the expiry the binding is inert
+//    but stays in the policy, and the precondition then fails local plans until both variables are cleared and applied
+//    (that deletes the binding). A token minted just before the expiry stays valid for up to an hour after it.
+//  - not in envs/prod. A token minted for the pubsub-push SA is accepted by EVERY /internal/* route (the verifier's
+//    allowlist is not per route), so this stays a short, named, dev-only convenience.
+//  - CI plans dev with the variables.tf defaults (no tfvars), so while the binding exists every PR's `plan (dev)`
+//    shows this resource as a destroy. That is the known artifact of a local-only opt-in, not a real change: CI never
+//    applies. The precondition, like the one in modules/cloud-run-api, never fires there (count is 0).
+resource "google_service_account_iam_member" "cron_test_invoker_openid" {
+  count = var.cron_test_invoker == "" ? 0 : 1
+
+  service_account_id = module.iam.pubsub_push_service_account_name
+  role               = "roles/iam.serviceAccountOpenIdTokenCreator"
+  member             = var.cron_test_invoker
+
+  lifecycle {
+    precondition {
+      condition = (
+        timecmp(var.cron_test_invoker_expiry, plantimestamp()) > 0 &&
+        timecmp(var.cron_test_invoker_expiry, timeadd(plantimestamp(), "744h")) <= 0
+      )
+      error_message = "cron_test_invoker_expiry must be in the future and at most 31 days after this plan (ADR-0021 D1, security review L-5). If it has expired: remove cron_test_invoker and cron_test_invoker_expiry from terraform.tfvars and apply (that deletes the binding). To renew: set a new expiry at most 30 days out."
+    }
+  }
+
+  condition {
+    title       = "cron-test-invoker-expiry"
+    description = "ADR-0021 D1 / security review L-5: manual cron curl in dev. Stops working at the expiry; renew with a new dated apply."
+    expression  = "request.time < timestamp(\"${var.cron_test_invoker_expiry}\")"
+  }
 }
 
 module "monitoring" {

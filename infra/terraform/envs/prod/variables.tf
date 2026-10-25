@@ -524,6 +524,19 @@ variable "feature_profile_snapshot_percent" {
   }
 }
 
+# ---- Scheduled posts (ADR-0021 D1). The sweep job lives in prod only; envs/dev has no Scheduler job.
+
+variable "publish_scheduled_schedule" {
+  description = "Cloud Scheduler cron (UTC) for the publish-scheduled sweep job (ADR-0021 D1). Only \"every N minutes\" is accepted, N = 1 to 10 (\"* * * * *\" or \"*/N * * * *\"): a cadence that never fires or leaves gaps above SCHEDULED_MAX_LATENESS (6 h) would silently strand or EXPIRE scheduled posts. Default every 5 minutes: 8,640 requests/month, inside the free tier. A shorter cadence costs Firestore reads (every minute is +1,152 reads/day) and needs the cost-model headroom check; ADR-0022 allows every minute only until 2026-12-22."
+  type        = string
+  default     = "*/5 * * * *"
+
+  validation {
+    condition     = can(regex("^(\\*|\\*/([1-9]|10)) \\* \\* \\* \\*$", var.publish_scheduled_schedule))
+    error_message = "publish_scheduled_schedule must be \"* * * * *\" or \"*/N * * * *\" with N from 1 to 10, for example \"*/5 * * * *\"."
+  }
+}
+
 # ---- ADR-0022 credit mode (time-boxed, prod only). The defaults below are the Stage 0 values: CI plan (prod) runs
 # with them and must show no change from this block. The credit values go only in the real, gitignored terraform.tfvars
 # (see terraform.tfvars.example). Dates and the cap: docs/adr/0022-credit-funded-runway.md.
