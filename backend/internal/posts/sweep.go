@@ -120,10 +120,13 @@ type SweepResult struct {
 	Transient int
 	// Deferred counts items left PENDING without a write: over the per-author cap, or not started for lack of time.
 	Deferred int
-	// HeldMedia counts due items left PENDING, with no read and no write, because they carry images while FEATURE_MEDIA is
-	// globally off (the kill switch; allowlist and percent are rollouts and hold nothing). They are in Due, not in Deferred,
-	// and do not count toward the per-author cap. An item the expiry, UNSUPPORTED or INVALID_CONTENT check would retire is
-	// retired as always, not held. Next run asks again, so they are re-read every run until the flag returns or they expire.
+	// HeldMedia counts due items left PENDING, with no write and no publish transaction (each still costs its 1 read in the
+	// due query), because they carry images while FEATURE_MEDIA is globally off (the kill switch; allowlist and percent are
+	// rollouts and hold nothing). They are in Due, not in Deferred, and do not count toward the per-author cap. An item the
+	// expiry, UNSUPPORTED or INVALID_CONTENT check would retire is retired as always, not held. The verdicts that need the
+	// publish transaction (ACCOUNT_RESTRICTED, CANCELLED, QUOTA_EXCEEDED, MEDIA_UNAVAILABLE) wait until the item is released
+	// or expires. Next run asks again, so they are re-read every run until the flag returns or they expire, and they keep
+	// their place at the head of the due window meanwhile (known limit: runbook posts.md section 12).
 	HeldMedia int
 	// Noop counts state writes that found the item already moved on (another run, a Cancel, the eraser): nothing was
 	// written. The item can also be counted elsewhere: Published when the publish committed and a later panic's FAILED write
@@ -153,7 +156,7 @@ type Sweeper interface {
 	// SweepResult.LaterPageErr with a nil error (the route answers 204: a retry would burn the items' attempt ladder).
 	//
 	// Firestore, worst case: flag off, readonly: 0 reads. Nothing due: 1 read. N due: N (<= SCHEDULED_SWEEP_LIMIT x
-	// SCHEDULED_SWEEP_MAX_PAGES = 100; deferred, held (FEATURE_MEDIA globally off: 0 reads, 0 writes beyond the query) and
+	// SCHEDULED_SWEEP_MAX_PAGES = 100; deferred, held (FEATURE_MEDIA globally off: 1 query read each, 0 writes) and
 	// skipped items are re-read next run) + per item: publish 17 worst /
 	// 3 typical reads and 4 writes + media; an expiry, UNSUPPORTED, INVALID_CONTENT, transient or panic outcome 0 reads
 	// and 1 write (LastUpdateTime precondition); a failure inside the publish transaction 2 to 7 reads and 1 write.
