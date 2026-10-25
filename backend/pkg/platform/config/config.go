@@ -262,10 +262,26 @@ const MaxAccountDeleteReauthMaxAge = 10 * time.Minute
 func Load() (Config, error) {
 	env := getenv("ENV", "local")
 
-	// Cloud Run always sets K_SERVICE. ENV=local relaxes auth (unauthenticated /internal/*, AllowAll moderator,
-	// hard-coded cursor key, App Check monitor), so a missing ENV on Cloud Run must fail closed, not default to it.
-	if env == "local" && os.Getenv("K_SERVICE") != "" {
-		return Config{}, fmt.Errorf("config: ENV=local (or unset) is refused when K_SERVICE is set (running on Cloud Run); set ENV to dev or prod")
+	// Exact match only: every relaxed branch below keys on env == "local" or env == "prod", so a typo such as
+	// "Prod" or "staging" must not slip through as a third, half-permissive environment.
+	if env != "local" && env != "dev" && env != "prod" {
+		return Config{}, fmt.Errorf("config: invalid ENV %q (want local|dev|prod)", env)
+	}
+
+	// Cloud Run sets K_SERVICE (services) or CLOUD_RUN_JOB (jobs). ENV=local relaxes auth (unauthenticated
+	// /internal/*, AllowAll moderator, hard-coded cursor key, App Check monitor), so a missing ENV there must
+	// fail closed, not default to it.
+	if env == "local" && (os.Getenv("K_SERVICE") != "" || os.Getenv("CLOUD_RUN_JOB") != "") {
+		return Config{}, fmt.Errorf("config: ENV=local (or unset) is refused on Cloud Run (K_SERVICE or CLOUD_RUN_JOB is set); set ENV to dev or prod")
+	}
+
+	// Emulator hosts redirect the client libraries (and, for Auth, accept unsigned tokens), so they are local-only.
+	if env != "local" {
+		for _, k := range []string{"FIREBASE_AUTH_EMULATOR_HOST", "FIRESTORE_EMULATOR_HOST", "PUBSUB_EMULATOR_HOST", "STORAGE_EMULATOR_HOST"} {
+			if os.Getenv(k) != "" {
+				return Config{}, fmt.Errorf("config: %s must not be set in env %q", k, env)
+			}
+		}
 	}
 
 	// FIREBASE_PROJECT_ID is the canonical var (Terraform sets it); GOOGLE_CLOUD_PROJECT, GCP_PROJECT_ID
@@ -566,7 +582,7 @@ func Load() (Config, error) {
 	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
 	authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST") != ""
-	if authEmulator && (env == "dev" || env == "prod") {
+	if authEmulator && env != "local" {
 		return Config{}, fmt.Errorf("config: FIREBASE_AUTH_EMULATOR_HOST must not be set in env %q (the Admin SDK would accept unsigned tokens)", env)
 	}
 

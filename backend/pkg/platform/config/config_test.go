@@ -29,7 +29,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_REPORTS", "FEATURE_REPORTS_ALLOWLIST", "FEATURE_REPORTS_PERCENT",
 		"RATE_LIMIT_REPORT_PER_MIN", "QUOTA_REPORTS_PER_DAY", "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY",
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
-		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY", "K_SERVICE",
+		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY", "K_SERVICE", "CLOUD_RUN_JOB", "FIRESTORE_EMULATOR_HOST", "PUBSUB_EMULATOR_HOST", "STORAGE_EMULATOR_HOST",
 		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
 		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST", "TIMELINE_TOKEN_TTL",
 		"FEATURE_CONTENT_DISCLOSURE", "FEATURE_CONTENT_DISCLOSURE_ALLOWLIST", "FEATURE_CONTENT_DISCLOSURE_PERCENT",
@@ -311,6 +311,40 @@ func TestLoad_RefusesLocalOnCloudRun(t *testing.T) {
 		}
 		if _, err := Load(); err == nil {
 			t.Fatalf("expected error for ENV=%q with K_SERVICE set", env)
+		}
+	}
+}
+
+func TestLoad_RefusesLocalOnCloudRunJob(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("CLOUD_RUN_JOB", "backfill")
+	defer os.Unsetenv("CLOUD_RUN_JOB")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for unset ENV with CLOUD_RUN_JOB set")
+	}
+}
+
+func TestLoad_RejectsUnknownEnv(t *testing.T) {
+	for _, env := range []string{"staging", "Prod", " prod", "production"} {
+		clearEnv(t)
+		t.Setenv("ENV", env)
+		t.Setenv("FIREBASE_PROJECT_ID", "p")
+		t.Setenv("CURSOR_HMAC_KEY", "k")
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error for ENV=%q", env)
+		}
+	}
+}
+
+func TestLoad_RejectsEmulatorHostsOutsideLocal(t *testing.T) {
+	for _, k := range []string{"FIREBASE_AUTH_EMULATOR_HOST", "FIRESTORE_EMULATOR_HOST", "PUBSUB_EMULATOR_HOST", "STORAGE_EMULATOR_HOST"} {
+		clearEnv(t)
+		t.Setenv("ENV", "dev")
+		t.Setenv("FIREBASE_PROJECT_ID", "p")
+		t.Setenv("CURSOR_HMAC_KEY", "k")
+		t.Setenv(k, "localhost:1")
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error with %s set in dev", k)
 		}
 	}
 }
