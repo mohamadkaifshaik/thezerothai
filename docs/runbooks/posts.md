@@ -170,12 +170,16 @@ while it is held for images (`held_media`). At most 100 due docs per run
   tick. Do not call the prod route with an ID token minted for a person or a broader service account.
 - **Dev.** `gcloud scheduler jobs run` cannot run a job that does not exist and dev has `jobs = {}`, so call the route directly with an OIDC
   token for the dev pubsub-push service account (ADR-0021 D1; the principal needs `roles/iam.serviceAccountOpenIdTokenCreator` on that SA,
-  a 30-day conditional grant that is never applied in prod):
-  `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token --impersonate-service-account=<dev pubsub-push SA> --audiences=<dev api_url> --include-email)" <dev api_url>/internal/cron/publish-scheduled`
-  If gcloud's impersonation needs more than `getOpenIdToken`, mint the token through IAM Credentials with your own access token and pass the
-  returned `token` as the Bearer. Never "fix" a failing impersonation by granting `roles/iam.serviceAccountTokenCreator` instead: that role
-  also mints access tokens and signs blobs as the service account, which is far more than a manual cron test needs (ADR-0021 security review L-5):
-  `curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d '{"audience":"<dev api_url>","includeEmail":true}' https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<dev pubsub-push SA>:generateIdToken`
+  a 30-day conditional grant that is never applied in prod; it exists only while `cron_test_invoker` is set in the dev `terraform.tfvars`, and
+  a TARGETED apply creates or removes it, see pending 3.10). Mint the token through IAM Credentials `generateIdToken` with your own access
+  token: gcloud's `print-identity-token --impersonate-service-account` does not work with this role, because it asks for `getAccessToken`.
+  The `audience` must be the service's `INTERNAL_OIDC_AUDIENCE` (the deterministic `https://api-<project-number>.<region>.run.app` URL), not
+  the `*.a.run.app` URL: a token for that one is a 401. Send an empty body with `--data ''`, or curl sends none and the route answers 411.
+  `AUD=$(gcloud run services describe api --region asia-south1 --project dzeroth-dev --format=json | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="INTERNAL_OIDC_AUDIENCE").value')`
+  `TOKEN=$(curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d "{\"audience\":\"$AUD\",\"includeEmail\":true}" https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<dev pubsub-push SA>:generateIdToken | jq -r .token)`
+  `curl -X POST -H "Authorization: Bearer $TOKEN" --data '' "$AUD/internal/cron/publish-scheduled"`
+  Never "fix" a failing impersonation by granting `roles/iam.serviceAccountTokenCreator` instead: that role also mints access tokens and signs
+  blobs as the service account, which is far more than a manual cron test needs (ADR-0021 security review L-5).
   The route answers 204 whatever happened to the items, so read the `scheduled_sweep` line for the result. A GET is a 405.
 
 ### Pause, kill switch
