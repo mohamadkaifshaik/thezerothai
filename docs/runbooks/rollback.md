@@ -110,6 +110,14 @@ For a rollback between two P8-aware revisions, messages that failed repeatedly e
 topic has **no pull subscription** (nothing to `pull`); the backstop (`/internal/cron/daily-maintenance`) rebuilds the
 work from Firestore state, so nothing needs replaying by hand. See `account-deletion.md` section 6, "A deletion is stuck".
 
+## Startup fails with `ENV=local (or unset) is refused on Cloud Run`
+The API refuses to start when `ENV` is `local` or empty and `K_SERVICE` (or `CLOUD_RUN_JOB`) is set; the same startup
+check rejects any `ENV` other than `local|dev|prod` and any `*_EMULATOR_HOST` variable outside local. **Symptom:** the
+new revision never becomes ready and `gcloud run deploy` fails. **User impact:** none, the previous revision keeps serving
+(`--no-traffic` for prod). **Cause:** `ENV` was removed or changed by a console edit or `--clear-env-vars`.
+**Fix:** restore it through Terraform (`var.env` is `dev` or `prod`); do not hand-edit the service. Check with
+`gcloud run services describe api --project=<proj> --region=asia-south1 --format='value(spec.template.spec.containers[0].env)'`.
+
 ## After any rollback
 - Confirm `/health` (not `/healthz`: `*.run.app` reserves paths ending in `z`) and the uptime check are green, and Error Reporting is quiet for the restored revision.
 - Record what happened and the fix in `docs/reviews/` (or a runbook update if a new failure mode was discovered —
