@@ -58,7 +58,11 @@ type SweepRepo interface {
 var _ SweepRepo = (*FirestoreRepo)(nil)
 
 // SweepLimits are the plain-value SCHEDULED_* limits of the sweep, filled by the wiring from config.Scheduled (posts
-// does not import config). Each is clamped to a safe range when used, so a zero value still behaves.
+// does not import config). PerAuthorPerRun, Limit (also capped at MaxLimit), MaxPages, Concurrency and MaxAttempts are
+// clamped to at least 1 when used and a zero AuthorReadsWarn disables that warning, but MaxLateness and TerminalTTL are NOT
+// clamped: a zero MaxLateness expires every due item and a zero TerminalTTL makes every terminal transition fail its
+// validation. config.loadScheduled enforces the ranges of every SCHEDULED_* key at startup, so only a hand-built SweepLimits
+// can get that wrong.
 type SweepLimits struct {
 	// PerAuthorPerRun is the most items of one author a run processes (SCHEDULED_PER_AUTHOR_PER_RUN, review L-3); the
 	// rest are deferred to the next run without a write.
@@ -98,7 +102,9 @@ type SweepDeps struct {
 
 var errNoSweepRepo = errors.New("posts: the publish sweep is not configured")
 
-// SweepResult counts what one sweep run did. Items are counted once, in the first bucket that applies.
+// SweepResult counts what one sweep run did. The buckets are not a partition of Due: Deferred items are only counted, and
+// an item can land in two buckets because its outcome and its bookkeeping are counted separately (see Transient, Noop and
+// WriteFailed). Published, Cancelled and the Failed reasons count items that really moved out of PENDING in this run.
 type SweepResult struct {
 	// Outcome is one of the Sweep* constants.
 	Outcome string
@@ -107,16 +113,18 @@ type SweepResult struct {
 	// Published, Cancelled and Failed (by reason) are items moved out of PENDING by this run. Failed includes EXPIRED.
 	Published, Cancelled int
 	Failed               map[ScheduledFailure]int
-	// Transient counts items whose publish hit a transient error (attempts++, or FAILED INTERNAL on the last attempt,
-	// which is also counted in Failed).
+	// Transient counts items whose publish hit a transient error. The follow-up write is counted again where it ends up:
+	// attempts++ applied (nowhere else), FAILED INTERNAL on the last attempt (also in Failed), the precondition lost (also
+	// in Noop) or the write failed (also in WriteFailed).
 	Transient int
 	// Deferred counts items left PENDING without a write: over the per-author cap, or not started for lack of time.
 	Deferred int
 	// Noop counts state writes that found the item already moved on (another run, a Cancel, the eraser): nothing was
-	// written, and the item is not counted anywhere else.
+	// written. The item can also be counted elsewhere: Published when the publish committed and a later panic's FAILED write
+	// then lost its precondition, Transient when the attempts++ lost it.
 	Noop int
 	// WriteFailed counts state writes (a terminal transition or attempts++) that failed with an error: the item stays
-	// as it was and is re-read next run.
+	// as it was and is re-read next run. A failed attempts++ is also counted in Transient.
 	WriteFailed int
 	// SkippedBadPath and Undecodable are results the query returned that were not valid scheduled docs.
 	SkippedBadPath, Undecodable int

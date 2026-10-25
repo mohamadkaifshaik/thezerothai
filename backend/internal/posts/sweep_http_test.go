@@ -66,12 +66,16 @@ func TestSweepHandler_MethodAndDeadline(t *testing.T) {
 		}
 	}
 	sw := &fakeSweeper{res: SweepResult{Outcome: SweepOK}}
+	before := time.Now()
 	rec, _ := serveSweep(t, sw, http.MethodPost)
+	after := time.Now()
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
-	if d := time.Until(sw.deadline); d < 24*time.Second || d > sweepRunDeadline {
-		t.Errorf("the run's deadline is %v away, want about 25 s", d)
+	// The deadline is set inside the handler, so it is exactly sweepRunDeadline after some instant between before and after;
+	// bracketing it that way does not depend on how long the request took or how loaded the machine is.
+	if sw.deadline.Before(before.Add(sweepRunDeadline)) || sw.deadline.After(after.Add(sweepRunDeadline)) {
+		t.Errorf("the run's deadline is %v after the request started, want exactly %v", sw.deadline.Sub(before), sweepRunDeadline)
 	}
 	if !sw.hadCount {
 		t.Error("the run has no budget counter (system reads must not be charged to a user)")

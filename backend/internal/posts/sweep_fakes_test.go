@@ -55,7 +55,9 @@ type fakeSweepRepo struct {
 	params                    []PublishParams
 	// afterDue runs after a due page was built, without the lock held: a test changes a document in the window between the
 	// query and the item.
-	afterDue                   func()
+	afterDue func()
+	// transitionPanic, when set, makes TransitionScheduled panic with it (a second panic while an item's panic is handled).
+	transitionPanic            any
 	publishReads, publishWrite int64 // charged by the default publish
 	// authorCreatedAt is what the default publish reports as the author's account creation time.
 	authorCreatedAt time.Time
@@ -169,6 +171,9 @@ func (f *fakeSweepRepo) TransitionScheduled(ctx context.Context, ref ScheduledRe
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record(sweepCall{kind: "transition", uid: ref.UID, id: ref.ID, t: t, ref: ref})
+	if f.transitionPanic != nil {
+		panic(f.transitionPanic)
+	}
 	if f.transitionErr != nil {
 		return ref, false, f.transitionErr
 	}
@@ -311,15 +316,18 @@ type sweepEvents struct {
 	panicOn func(*Post) bool
 	// onCreated runs first, without the lock held.
 	onCreated func(*Post)
+	// ctxErrs is ctx.Err() of each Created call: a notification publish must not be cancelled with the run.
+	ctxErrs []error
 }
 
-func (e *sweepEvents) Created(_ context.Context, p *Post) {
+func (e *sweepEvents) Created(ctx context.Context, p *Post) {
 	if e.onCreated != nil {
 		e.onCreated(p)
 	}
 	e.mu.Lock()
 	panics := e.panicOn != nil && e.panicOn(p)
 	e.created = append(e.created, p)
+	e.ctxErrs = append(e.ctxErrs, ctx.Err())
 	e.mu.Unlock()
 	if panics {
 		panic("events boom")

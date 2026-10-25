@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -102,3 +103,29 @@ func TestAuthorSnapshotOf(t *testing.T) {
 		t.Errorf("zero profile = %+v, %d, want only the uid", zero, zv)
 	}
 }
+
+// A draft with images on a repo wired without a media attacher is a wiring bug: it must come back as an error (the sweep
+// counts a transient attempt and reports the last one), never as a silent, permanent FAILED MEDIA_UNAVAILABLE, and it
+// must be decided before any Firestore access (this repo has no client at all).
+func TestPublishScheduled_ImagesWithoutAMediaAttacherIsAnError(t *testing.T) {
+	var wired *identity.FirestoreRepo // satisfies Counters and TxProfiles; never called here
+	newRepo := func(media MediaAttacher) *FirestoreRepo {
+		r := &FirestoreRepo{}
+		r.SetWriters(WriteDeps{IDs: publishTestIDs("1"), Quotas: &quota.Store{}, Counters: wired, Profiles: wired, Media: media})
+		return r
+	}
+	_, err := newRepo(nil).PublishScheduled(context.Background(), PublishParams{
+		UID: "uid-alice", ID: "00000000000000000000000000000001", MediaIDs: []string{"m1"},
+	})
+	if err == nil || errors.Is(err, errPublishPanic) || !strings.Contains(err.Error(), "media attacher") {
+		t.Fatalf("err = %v, want the wiring error", err)
+	}
+	if strings.Contains(err.Error(), "uid-alice") {
+		t.Errorf("the error names a uid: %v", err)
+	}
+}
+
+// publishTestIDs is an IDGenerator that always returns the same id.
+type publishTestIDs string
+
+func (g publishTestIDs) Generate() string { return string(g) }

@@ -550,3 +550,57 @@ func TestSweepItem_WarningsAndErrorEntriesIdentifyTheItem(t *testing.T) {
 		})
 	}
 }
+
+// A panic while another panic is being handled (here the FAILED INTERNAL write panics) must not take the process down and
+// must not be silent: it is logged with its TYPE only, and the next author's item still publishes.
+func TestSweepItem_SecondPanicWhileHandlingIsLoggedNotSilent(t *testing.T) {
+	e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Limits.Concurrency = 1 })
+	bad := e.dueItem("uid-a", 1)
+	e.dueItem("uid-b", 2)
+	e.repo.transitionPanic = "secret text of uid-a"
+	e.repo.publish = func(ctx context.Context, p PublishParams) (PublishResult, error) {
+		if p.ID == bad.ID {
+			panic("first panic")
+		}
+		return e.repo.publishDefault(ctx, p)
+	}
+
+	res, _, err := e.sweep(context.Background()) // must not panic
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Published != 1 {
+		t.Errorf("published = %d, want the other author's item", res.Published)
+	}
+	lines := e.logs.lines(`"scheduled_item_second_panic"`)
+	if len(lines) != 1 {
+		t.Fatalf("scheduled_item_second_panic lines = %d, want 1:\n%s", len(lines), e.logs.String())
+	}
+	if !strings.Contains(lines[0], `"panic_type":"string"`) || !strings.Contains(lines[0], `"level":"WARN"`) || !strings.Contains(lines[0], bad.ID) {
+		t.Errorf("line = %s, want a WARN naming the item and the panic type", lines[0])
+	}
+	if strings.Contains(e.logs.String(), "secret text") || strings.Contains(e.logs.String(), "uid-a") {
+		t.Errorf("the panic value or the raw uid reached the logs:\n%s", e.logs.String())
+	}
+}
+
+// The notification publish of a committed post must not be cancelled with the run: an item that finishes after the run's
+// context is done still hands its event a live context (the emitter applies its own publish timeout).
+func TestSweepItem_PostEventContextSurvivesTheRunContext(t *testing.T) {
+	e := newSweepEnv(t)
+	e.dueItem("uid-alice", 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	e.repo.publish = func(c context.Context, p PublishParams) (PublishResult, error) {
+		res, err := e.repo.publishDefault(c, p)
+		cancel() // the run's deadline passes after the commit, before the event is emitted
+		return res, err
+	}
+
+	res, _, err := e.sweep(ctx)
+	if err != nil || res.Published != 1 {
+		t.Fatalf("res = %+v err = %v, want 1 published", res, err)
+	}
+	if len(e.events.ctxErrs) != 1 || e.events.ctxErrs[0] != nil {
+		t.Errorf("event contexts' errors = %v, want one live context", e.events.ctxErrs)
+	}
+}

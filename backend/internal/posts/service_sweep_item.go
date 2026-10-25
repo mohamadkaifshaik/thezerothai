@@ -127,7 +127,9 @@ func (s *service) settle(ctx context.Context, it *ScheduledPost, res PublishResu
 		if s.sweep.RecordAuthorAge != nil {
 			s.sweep.RecordAuthorAge(it.UID, res.AuthorCreatedAt) // before the emitter consults the new-account tier
 		}
-		s.events.Created(ctx, post)
+		// The post is committed, so its notification publish must not be cancelled by the run's 25 s deadline when this was a
+		// late item: WithoutCancel keeps the trace and budget values, and the emitter applies its own publish timeout.
+		s.events.Created(context.WithoutCancel(ctx), post)
 	case PublishCancelled:
 		tally.add(func(r *SweepResult) { r.Cancelled++ })
 	case PublishFailed:

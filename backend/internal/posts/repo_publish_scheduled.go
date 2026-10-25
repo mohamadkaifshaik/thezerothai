@@ -17,7 +17,8 @@
 //	                                 rarely and need no isolation)                                            <= 10 reads
 //
 // Worst case 17 reads (1+1+1+4+10), typical 3 (planning 4). A success writes the post, users.postsCount, quotas and
-// the scheduled doc (PUBLISHED, postId, draft cleared) = 4, plus one media/{id}.postId update per image (<= 8).
+// the scheduled doc (PUBLISHED, postId, draft cleared) = 4, plus one media/{id}.postId update per attached image (at most
+// 4 images, so at most 8 writes in all).
 //
 // FAILURES COMMIT, THEY DO NOT ROLL BACK. A permanent cause found by (a) to (d) stages the one terminal transition of
 // the scheduled doc on the transaction batch and returns nil, so the transaction commits with exactly 1 write:
@@ -137,6 +138,12 @@ func (r *FirestoreRepo) PublishScheduled(ctx context.Context, p PublishParams) (
 	if r.w.IDs == nil || r.w.Quotas == nil || r.w.Counters == nil || r.w.Profiles == nil {
 		return PublishResult{}, errors.New("posts: repo has no publish writers configured")
 	}
+	if len(p.MediaIDs) > 0 && r.w.Media == nil {
+		// A wiring bug, not a property of the draft, so it must not become a permanent, user-visible MEDIA_UNAVAILABLE. A plain
+		// error costs 0 reads and takes the sweep's transient path: a WARN each run, then FAILED INTERNAL with an Error
+		// Reporting entry on the last allowed attempt.
+		return PublishResult{}, errors.New("posts: repo has no media attacher configured for a draft with images")
+	}
 	if _, err := r.scheduledRef(p.UID, p.ID); err != nil {
 		return PublishResult{}, err
 	}
@@ -214,9 +221,6 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 	// (d) The images, read before the first write: one GetAll of len(ids) reads.
 	var claim MediaClaim
 	if len(p.MediaIDs) > 0 {
-		if r.w.Media == nil {
-			return r.stageEnd(b, p, ScheduledFailed, FailureMediaUnavailable)
-		}
 		claim, err = r.w.Media.LoadForPost(ctx, tx, p.UID, p.MediaIDs)
 		if errors.Is(err, ErrMediaNotReady) {
 			return r.stageEnd(b, p, ScheduledFailed, FailureMediaUnavailable)

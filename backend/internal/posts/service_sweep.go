@@ -213,9 +213,14 @@ func (s *service) sweepItemSafe(ctx context.Context, run runRef, it *ScheduledPo
 }
 
 // itemPanicked retires the item FAILED INTERNAL and reports the panic TYPE only (its value could carry a uid or text).
-// Its own recover keeps a second panic from taking the process down while this one is being handled.
+// Its own recover keeps a second panic from taking the process down while this one is being handled; the second one is
+// logged (its TYPE only) so it is not silent.
 func (s *service) itemPanicked(ctx context.Context, it *ScheduledPost, v any, tally *sweepTally) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if v2 := recover(); v2 != nil {
+			s.sweep.Log.WarnContext(ctx, "scheduled_item_second_panic", append(append(itemAttrs(it), "panic_type", fmt.Sprintf("%T", v2)), logger.TraceAttrs(ctx)...)...)
+		}
+	}()
 	s.reportPanic(ctx, v, itemAttrs(it)...)
 	s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureInternal}, tally)
 }
