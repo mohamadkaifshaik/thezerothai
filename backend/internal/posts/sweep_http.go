@@ -36,20 +36,29 @@ func NewSweepHandler(sw Sweeper, log *slog.Logger, projectID string) http.Handle
 		ctx, counter := budget.WithCounter(ctx)
 
 		res, err := sw.Sweep(ctx)
+		// A due-query failure is the run's error: err when page 1 failed (nothing processed, 500, Scheduler's retry is
+		// wanted), res.LaterPageErr when a later page failed (the earlier pages were processed: 204, a retry would burn the
+		// items' attempt ladder). Both are scrubbed by Sweep; scrubbing again is idempotent and keeps the guarantee here.
+		runErr := err
+		if runErr == nil {
+			runErr = res.LaterPageErr
+		}
+		if err != nil {
+			res.Outcome = SweepError
+		}
 		attrs := append(res.logAttrs(counter), "latency_ms", time.Since(started).Milliseconds())
 		attrs = append(attrs, logger.TraceAttrs(ctx)...)
+		// The one scheduled_sweep line is written for EVERY run, failed ones included (outcome=error, with the counts of what
+		// was processed). The Error Reporting entry is a separate line that carries only the scrubbed error.
+		if runErr != nil {
+			log.WarnContext(ctx, "scheduled_sweep", attrs...)
+			mw.ReportError(ctx, log.With(logger.TraceAttrs(ctx)...), sweepOp, logger.ScrubErr(runErr))
+		} else {
+			log.InfoContext(ctx, "scheduled_sweep", attrs...)
+		}
 		if err != nil {
-			// The due query failed: an Error Reporting entry and a 500 so Cloud Scheduler retries. err is already
-			// scrubbed by Sweep; scrubbing again is idempotent and keeps the guarantee local to this boundary.
-			mw.ReportError(ctx, log.With(attrs...), sweepOp, logger.ScrubErr(err))
 			w.WriteHeader(http.StatusInternalServerError)
 			return
-		}
-		log.InfoContext(ctx, "scheduled_sweep", attrs...)
-		if res.LaterPageErr != nil {
-			// A later due page failed after the earlier ones were processed: an Error Reporting entry, but still 204 (a retry
-			// seconds later would burn the transient-failure ladder of the items just processed). The rest is due next tick.
-			mw.ReportError(ctx, log.With(logger.TraceAttrs(ctx)...), sweepOp, logger.ScrubErr(res.LaterPageErr))
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))

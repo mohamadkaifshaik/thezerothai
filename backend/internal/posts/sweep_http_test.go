@@ -124,17 +124,45 @@ func TestSweepHandler_NoOpOutcomesAre204WithZeroReads(t *testing.T) {
 }
 
 func TestSweepHandler_QueryFailureIs500WithAnErrorReport(t *testing.T) {
-	sw := &fakeSweeper{res: SweepResult{Outcome: SweepError}, err: errors.New("posts: sweep due query: unavailable")}
+	sw := &fakeSweeper{reads: 1, res: SweepResult{Outcome: SweepError}, err: errors.New("posts: sweep due query: unavailable")}
 	rec, logs := serveSweep(t, sw, http.MethodPost)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 so Cloud Scheduler retries", rec.Code)
 	}
-	m := lastJSONLine(t, logs)
-	if m["level"] != "ERROR" || m["@type"] == nil || m["rpc"] != "cron/publish-scheduled" || m["outcome"] != "error" {
-		t.Errorf("line = %v, want an Error Reporting entry", m)
+	// The scheduled_sweep line is written for a failed run too (outcome=error, with the counts and the run's reads)...
+	lines := logs.lines(`"msg":"scheduled_sweep"`)
+	if len(lines) != 1 {
+		t.Fatalf("scheduled_sweep lines = %d, want exactly 1 on a failed run too:\n%s", len(lines), logs.String())
 	}
-	if len(logs.lines(`"msg":"scheduled_sweep"`)) != 0 {
-		t.Error("a failed run also wrote the success line")
+	var run map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &run); err != nil {
+		t.Fatal(err)
+	}
+	if run["outcome"] != "error" || run["level"] != "WARN" || run["fs_reads"] != float64(1) || run["due"] != float64(0) {
+		t.Errorf("run line = %v, want outcome=error at WARN with the counts and 1 read", run)
+	}
+	// ...and a SEPARATE Error Reporting entry carries only the scrubbed error, no counts.
+	m := lastJSONLine(t, logs)
+	if m["level"] != "ERROR" || m["@type"] == nil || m["rpc"] != "cron/publish-scheduled" || m["msg"] == "scheduled_sweep" {
+		t.Errorf("last line = %v, want the Error Reporting entry", m)
+	}
+	if _, has := m["due"]; has {
+		t.Errorf("the Error Reporting entry carries the run counts: %v", m)
+	}
+}
+
+// A later page failing is the same two lines but a 204.
+func TestSweepHandler_LaterPageErrorIsReportedWith204(t *testing.T) {
+	sw := &fakeSweeper{res: SweepResult{Outcome: SweepError, Published: 2, LaterPageErr: errors.New("posts: sweep due query: unavailable")}}
+	rec, logs := serveSweep(t, sw, http.MethodPost)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (the earlier pages were processed; a retry would burn attempts)", rec.Code)
+	}
+	if n := len(logs.lines(`"msg":"scheduled_sweep"`)); n != 1 {
+		t.Errorf("scheduled_sweep lines = %d, want 1", n)
+	}
+	if m := lastJSONLine(t, logs); m["level"] != "ERROR" || m["@type"] == nil {
+		t.Errorf("last line = %v, want an Error Reporting entry", m)
 	}
 }
 

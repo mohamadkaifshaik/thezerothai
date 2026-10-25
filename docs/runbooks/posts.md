@@ -133,8 +133,8 @@ this sweep (a tick that lands on an older revision gets a silent 202 from the pl
 - `jsonPayload.message="scheduled_item_start"`: INFO, one per item, written before its transaction, with `uid_hash` and `scheduled_id`.
 - `jsonPayload.message="scheduled_author_reads"` (WARN) and `"scheduled_item_transient"` (WARN, a retryable error; `attempts` moved).
 - Error Reporting (`rpc` = `cron/publish-scheduled`): a 500, an item retired as FAILED `INTERNAL`, or a recovered panic (type only).
-- A run that answers 500 writes no `scheduled_sweep` line: its counts (including the items already published when a later page failed)
-  are on the ERROR entry with `rpc=cron/publish-scheduled` and `outcome=error`. Query both when reconstructing a run.
+- A failed run (a due page failed) still writes its `scheduled_sweep` line, at WARN with `outcome=error` and the counts of what was
+  processed, and a SEPARATE Error Reporting entry (ERROR, `rpc=cron/publish-scheduled`) that carries only the scrubbed error.
 
 Cost: nothing due is 1 read; each due doc costs 1 read, plus 17 worst / 3 typical reads and 4 writes (+1 per attached image) when it
 publishes, or 0 reads and 1 write when it is expired, unsupported, invalid or transiently failing. At most 100 due docs per run
