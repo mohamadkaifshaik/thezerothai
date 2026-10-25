@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -80,5 +81,24 @@ func TestPublishPanicErrorIsOnlyTheSentinel(t *testing.T) {
 	}
 	if errors.Is(errBoom, errPublishPanic) || errors.Is(&publishPanicError{typ: "x"}, errBoom) {
 		t.Error("errPublishPanic matches unrelated errors")
+	}
+}
+
+// The author block of a post is built from an identity.Profile in exactly one place, for CreatePost and for the scheduled
+// publish transaction alike: the uid is the caller's (never the profile's), the avatar is the thumbnail, and the snapshot
+// version travels with it.
+func TestAuthorSnapshotOf(t *testing.T) {
+	p := identity.Profile{
+		UserID: "profile-uid", Handle: "Alice", DisplayName: "Alice A", AvatarURL: "full.jpg", AvatarThumbURL: "thumb.jpg",
+		Verified: true, SnapshotVersion: 7, Bio: "not part of the snapshot",
+	}
+	got, version := authorSnapshotOf("uid-alice", p)
+	want := AuthorSnapshot{UserID: "uid-alice", Handle: "Alice", DisplayName: "Alice A", AvatarURL: "thumb.jpg", Verified: true}
+	if got != want || version != 7 {
+		t.Errorf("authorSnapshotOf = %+v, %d, want %+v, 7", got, version, want)
+	}
+	zero, zv := authorSnapshotOf("uid-x", identity.Profile{})
+	if zero != (AuthorSnapshot{UserID: "uid-x"}) || zv != 0 {
+		t.Errorf("zero profile = %+v, %d, want only the uid", zero, zv)
 	}
 }

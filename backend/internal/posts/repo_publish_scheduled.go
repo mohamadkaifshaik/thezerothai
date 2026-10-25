@@ -249,10 +249,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 	post := p.Draft
 	post.ID, post.CreatedAt, post.ConversationID = id, createdAt, id
 	post.AuthorID = p.UID
-	post.Author = AuthorSnapshot{
-		UserID: p.UID, Handle: prof.Handle, DisplayName: prof.DisplayName, AvatarURL: prof.AvatarThumbURL, Verified: prof.Verified,
-	}
-	post.SnapshotVersion = prof.SnapshotVersion
+	post.Author, post.SnapshotVersion = authorSnapshotOf(p.UID, prof)
 	post.Mentions = mentions
 	if claim != nil {
 		post.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)
