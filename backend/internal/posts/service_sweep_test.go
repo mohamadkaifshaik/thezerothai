@@ -302,14 +302,14 @@ func TestSweep_DueQueryFailure(t *testing.T) {
 			t.Error("an item ran although the query failed")
 		}
 	})
-	t.Run("page two fails: page one is still processed, then the error is returned", func(t *testing.T) {
+	t.Run("page two fails: page one is processed and the failure is in the result, not a returned error", func(t *testing.T) {
 		e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Limits.Limit = 1 })
 		e.dueItem("uid-a", 1)
 		e.dueItem("uid-b", 2)
 		e.repo.dueErr, e.repo.dueErrAt = errors.New("unavailable"), 2
 		res, _, err := e.sweep(context.Background())
-		if err == nil || res.Outcome != SweepError || res.Published != 1 {
-			t.Fatalf("res = %+v err = %v, want page one published and an error", res, err)
+		if err != nil || res.Outcome != SweepError || res.LaterPageErr == nil || res.Published != 1 {
+			t.Fatalf("res = %+v err = %v, want page one published, outcome error and LaterPageErr set (no returned error: no retry)", res, err)
 		}
 	})
 	t.Run("nothing due is one read and no error", func(t *testing.T) {

@@ -3,8 +3,10 @@
 // budget), route-level panic recovery, and the one `scheduled_sweep` line per run. Mount it behind the OIDC verifier
 // (apiserver's routeTable.internal does).
 //
-// Response contract: 204 when the run completed, even when some items failed (each is counted in the line and the
-// failed ones are in their own docs); 500 only when the due query failed, so Cloud Scheduler retries (retry_count 3).
+// Response contract: 204 when the run processed what it fetched, even when some items failed (each is counted in the
+// line and the failed ones are in their own docs) and even when a LATER due page failed (SweepResult.LaterPageErr: an
+// Error Reporting entry, no retry, which would burn the attempt ladder of the items just processed); 500 only when the
+// FIRST due page failed, so nothing was processed and Cloud Scheduler's retry (retry_count 3) is harmless.
 // Overlapping runs, such as a retry and the next tick, are safe because the publish transaction requires PENDING.
 package posts
 
@@ -44,6 +46,11 @@ func NewSweepHandler(sw Sweeper, log *slog.Logger, projectID string) http.Handle
 			return
 		}
 		log.InfoContext(ctx, "scheduled_sweep", attrs...)
+		if res.LaterPageErr != nil {
+			// A later due page failed after the earlier ones were processed: an Error Reporting entry, but still 204 (a retry
+			// seconds later would burn the transient-failure ladder of the items just processed). The rest is due next tick.
+			mw.ReportError(ctx, log.With(logger.TraceAttrs(ctx)...), sweepOp, logger.ScrubErr(res.LaterPageErr))
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 }

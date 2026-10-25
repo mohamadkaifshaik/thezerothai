@@ -150,3 +150,69 @@ func TestSweepHandler_PanicIsRecovered(t *testing.T) {
 		t.Errorf("log = %s, want the panic type only", out)
 	}
 }
+
+// A due-query page that fails AFTER page 1 was processed must not make Cloud Scheduler re-run the sweep (review M1): the
+// retry comes seconds later and would burn the 3-attempt ladder of any item that failed transiently. Page 1 failing
+// processes nothing, so there the 500 and the retry are wanted.
+func TestSweepHandler_LaterPageFailureIs204FirstPageFailureIs500(t *testing.T) {
+	serve := func(e *sweepEnv) *httptest.ResponseRecorder {
+		h := NewSweepHandler(e.svc, slog.New(slog.NewJSONHandler(e.logs, nil)), "demo-project")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/cron/publish-scheduled", nil))
+		return rec
+	}
+	pageTwoErr := errors.New("rpc error: code = Unavailable desc = on documents/users/uid-b/scheduled/x")
+
+	t.Run("page two fails: 204, page one processed exactly once, its transient item bumped once", func(t *testing.T) {
+		e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Limits.Limit = 1 })
+		a := e.dueItem("uid-a", 1)
+		b := e.dueItem("uid-b", 2)
+		e.repo.dueErr, e.repo.dueErrAt = pageTwoErr, 2
+		e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) {
+			return PublishResult{}, errors.New("rpc error: code = Unavailable desc = overloaded")
+		}
+
+		rec := serve(e)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204: a 5xx would make Cloud Scheduler re-run the sweep seconds later", rec.Code)
+		}
+		if got := e.repo.callsOf("publish"); len(got) != 1 || got[0].uid != "uid-a" {
+			t.Errorf("publish calls = %+v, want exactly one, for the page-one item", got)
+		}
+		if got := e.repo.doc("uid-a", a.ID); got.Attempts != 1 || got.Status != ScheduledPending {
+			t.Errorf("page-one item = %+v, want PENDING with attempts 1 (one run, one attempt)", got)
+		}
+		if got := e.repo.doc("uid-b", b.ID); got.Attempts != 0 {
+			t.Errorf("the item on the failed page has attempts %d, want 0", got.Attempts)
+		}
+		var sweepLine map[string]any
+		for _, line := range strings.Split(e.logs.String(), "\n") {
+			var m map[string]any
+			if json.Unmarshal([]byte(line), &m) == nil && m["msg"] == "scheduled_sweep" {
+				sweepLine = m
+			}
+		}
+		if sweepLine == nil || sweepLine["outcome"] != "error" || sweepLine["transient"] != float64(1) {
+			t.Errorf("scheduled_sweep line = %v, want outcome=error with the counts", sweepLine)
+		}
+		if len(e.logs.lines("ReportedErrorEvent")) < 1 {
+			t.Error("the page failure raised no Error Reporting entry")
+		}
+		if strings.Contains(e.logs.String(), "uid-b") {
+			t.Errorf("a uid reached the logs:\n%s", e.logs.String())
+		}
+	})
+
+	t.Run("page one fails: 500, nothing processed", func(t *testing.T) {
+		e := newSweepEnv(t)
+		e.dueItem("uid-a", 1)
+		e.repo.dueErr, e.repo.dueErrAt = pageTwoErr, 1
+
+		if rec := serve(e); rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500 so Cloud Scheduler retries (nothing was processed)", rec.Code)
+		}
+		if n := len(e.repo.callsOf("publish")); n != 0 {
+			t.Errorf("%d items ran although the first page failed", n)
+		}
+	})
+}

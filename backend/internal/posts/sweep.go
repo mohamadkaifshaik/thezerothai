@@ -19,7 +19,10 @@ const (
 	SweepFlagOff = "flag_off"
 	// SweepDegraded: DEGRADED_MODE=readonly. 0 reads.
 	SweepDegraded = "degraded"
-	// SweepError: the due query failed (the route answers 500 and Cloud Scheduler retries).
+	// SweepError: a due query page failed. Page 1: Sweep returns the error, nothing was processed and the route answers 500
+	// (Cloud Scheduler retries, which is harmless). A later page: the earlier pages were processed, Sweep returns a nil
+	// error with SweepResult.LaterPageErr set, and the route answers 204 and reports the error (a retry seconds later would
+	// burn the attempt ladder of items that failed transiently).
 	SweepError = "error"
 )
 
@@ -114,6 +117,9 @@ type SweepResult struct {
 	SkippedBadPath, Undecodable int
 	// MaxLateness is the largest now - publishAt among the due items.
 	MaxLateness time.Duration
+	// LaterPageErr is the (scrubbed) error of a due-query page that failed AFTER an earlier page was fetched; the run
+	// processed what it had and Outcome is SweepError. Nil otherwise. A page-1 failure is Sweep's returned error instead.
+	LaterPageErr error
 }
 
 // Expired is the items failed EXPIRED.
@@ -122,9 +128,10 @@ func (r SweepResult) Expired() int { return r.Failed[FailureExpired] }
 // Sweeper is the publish sweep the cron route calls. The concrete service returned by New implements it (reached by
 // type assertion in the wiring, like Scheduler), so Service and its fakes stay unchanged.
 type Sweeper interface {
-	// Sweep publishes the scheduled posts that are due (ADR-0021 "Sweep"). The error is non-nil only when the due query
-	// failed (the route answers 500 and Cloud Scheduler retries); an item that fails is counted in the result, never
-	// returned. Items already fetched are still processed when a later page fails.
+	// Sweep publishes the scheduled posts that are due (ADR-0021 "Sweep"). The error is non-nil only when the FIRST due
+	// page failed (nothing was processed: the route answers 500 and Cloud Scheduler retries). An item that fails is counted
+	// in the result, never returned. When a LATER page fails the earlier pages are processed and the failure comes back as
+	// SweepResult.LaterPageErr with a nil error (the route answers 204: a retry would burn the items' attempt ladder).
 	//
 	// Firestore, worst case: flag off, readonly: 0 reads. Nothing due: 1 read. N due: N (<= SCHEDULED_SWEEP_LIMIT x
 	// SCHEDULED_SWEEP_MAX_PAGES = 100; deferred and skipped items are re-read next run) + per item: publish 17 worst /

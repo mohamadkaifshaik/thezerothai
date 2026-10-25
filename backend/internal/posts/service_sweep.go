@@ -94,9 +94,10 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 	// items already fetched.
 	runNow := s.now()
 	var (
-		items    []*ScheduledPost
-		cursor   *ScheduledDueCursor
-		queryErr error
+		items        []*ScheduledPost
+		cursor       *ScheduledDueCursor
+		queryErr     error
+		pagesFetched int
 	)
 	for page := 0; page < maxPages; page++ {
 		if page > 0 && s.timeLeft(ctx) < sweepMinRemaining {
@@ -107,6 +108,7 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 			queryErr = logger.ScrubErr(fmt.Errorf("posts: sweep due query: %w", err))
 			break
 		}
+		pagesFetched++
 		items = append(items, pg.Items...)
 		tally.res.SkippedBadPath += pg.SkippedBadPath
 		tally.res.Undecodable += pg.Undecodable
@@ -115,7 +117,8 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 		}
 		cursor = pg.Next
 	}
-	if queryErr != nil && len(items) == 0 {
+	if queryErr != nil && pagesFetched == 0 {
+		// Page 1 failed: nothing was processed, so the route answers 500 and a Cloud Scheduler retry is harmless and wanted.
 		res := tally.snapshot()
 		res.Outcome = SweepError
 		return res, queryErr
@@ -150,9 +153,12 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 	_ = g.Wait()
 
 	res := tally.snapshot()
-	if queryErr != nil { // a later page failed: the fetched items were processed, and the 500 makes Scheduler retry
+	if queryErr != nil {
+		// A LATER page failed: the pages before it were fetched and processed, so the run is not retried (a 5xx would make
+		// Cloud Scheduler re-run the sweep seconds later and burn the attempt ladder of any item that failed transiently).
+		// The route answers 204 and reports this error; the items the failed page would have held are due next tick.
 		res.Outcome = SweepError
-		return res, queryErr
+		res.LaterPageErr = queryErr
 	}
 	return res, nil
 }
