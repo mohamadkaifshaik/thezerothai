@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -36,6 +38,8 @@ import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/reply_audience_sheet.dart';
+import 'widgets/schedule_controls.dart';
+import 'widgets/schedule_dialog.dart';
 
 /// Upper bound on what the field accepts. It is far above the 280 limit so
 /// the counter can go negative (the user sees how much to cut), while a huge
@@ -129,6 +133,11 @@ class ComposerScreen extends StatelessWidget {
               context,
               kFeatureReplyAudience,
             ),
+            // Scheduling needs both flags; the cubit also refuses it for a
+            // quote (a reply never uses this screen).
+            scheduleEnabled:
+                featureEnabledSnapshot(context, kFeaturePosts) &&
+                featureEnabledSnapshot(context, kFeatureScheduledPosts),
             onUnexpectedError: context.read<UnexpectedErrorReporter>(),
           ),
         ),
@@ -185,7 +194,69 @@ class _ComposerViewState extends State<_ComposerView> {
     super.dispose();
   }
 
+  /// The server turned scheduling off: the cubit has already dropped the
+  /// schedule, but the error is still about scheduling.
+  bool _refusedScheduling(AppException error) =>
+      error is FeatureDisabledException &&
+      error.feature == kFeatureScheduledPosts;
+
+  /// SchedulePost succeeded: the cubit has reset the composer, so clear the
+  /// field, and say when the post will go out (the time the server stored).
+  /// The messenger is app-level; "View" opens the Scheduled list.
+  void _onScheduled(BuildContext context, pb.ScheduledPost scheduled) {
+    _controller.clear();
+    final router = GoRouter.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            scheduledToastText(
+              scheduled,
+              use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+            ),
+          ),
+          action: scheduledToastHasView(scheduled)
+              ? SnackBarAction(
+                  label: 'View',
+                  onPressed: () => router.push(AppRouter.scheduledPostsPath),
+                )
+              : null,
+        ),
+      );
+    context.read<ComposerCubit>().scheduledNoticeShown();
+  }
+
+  /// Opens the Schedule dialog and applies its answer. [notice] is a server
+  /// refusal of the time, shown under the pickers.
+  Future<void> _openSchedule(BuildContext context, {String? notice}) async {
+    final cubit = context.read<ComposerCubit>();
+    final result = await showScheduleDialog(
+      context,
+      initial: cubit.state.scheduledAt,
+      hasMedia: cubit.state.hasAttachments,
+      notice: notice,
+    );
+    if (!context.mounted) return;
+    switch (result) {
+      case ScheduleChosen(:final publishAt):
+        cubit.scheduleChanged(publishAt);
+      case ScheduleRemoved():
+        cubit.scheduleChanged(null);
+      case ScheduleOpenList():
+        // push, never go: the draft stays here underneath.
+        unawaited(context.push(AppRouter.scheduledPostsPath));
+      case null:
+        break;
+    }
+  }
+
   void _onState(BuildContext context, ComposerState state) {
+    final scheduled = state.scheduledNotice;
+    if (scheduled != null) {
+      _onScheduled(context, scheduled);
+      return;
+    }
     if (state.status == ComposerStatus.posted) {
       // ADR-0021 L-1: the server echoed another audience than the one sent.
       // The messenger is app-level, so the snackbar outlives this screen.
@@ -204,6 +275,15 @@ class _ComposerViewState extends State<_ComposerView> {
       return;
     }
     final error = state.error;
+    // The server refused the time (too soon, too far): reopen the dialog
+    // with the reason instead of a snackbar.
+    if (error is ValidationException &&
+        error.field == 'publish_at' &&
+        state.isScheduling) {
+      context.read<ComposerCubit>().errorShown();
+      unawaited(_openSchedule(context, notice: scheduleErrorMessage(error)));
+      return;
+    }
     // EmailNotVerified swaps in VerifyEmailView (see build); everything else
     // is a snackbar, once.
     if (error != null && error is! EmailNotVerifiedException) {
@@ -214,6 +294,8 @@ class _ComposerViewState extends State<_ComposerView> {
             content: Text(
               state.uploadFailed
                   ? uploadErrorMessage(error)
+                  : state.isScheduling || _refusedScheduling(error)
+                  ? scheduleErrorMessage(error)
                   : context.read<ComposerCubit>().quoteOfPostId.isNotEmpty
                   ? quoteErrorMessage(error)
                   : createPostErrorMessage(error),
@@ -261,7 +343,9 @@ class _ComposerViewState extends State<_ComposerView> {
       // Attachment progress re-emits the state many times; side effects
       // (pop, snackbar) must run once per status or error change only.
       listenWhen: (prev, curr) =>
-          prev.status != curr.status || !identical(prev.error, curr.error),
+          prev.status != curr.status ||
+          !identical(prev.error, curr.error) ||
+          !identical(prev.scheduledNotice, curr.scheduledNotice),
       listener: _onState,
       builder: (context, state) {
         final cubit = context.read<ComposerCubit>();
@@ -300,10 +384,24 @@ class _ComposerViewState extends State<_ComposerView> {
                     AppFormHeader(
                       title: isQuote ? 'Quote' : 'New post',
                       busy: state.isSubmitting,
+                      busySemanticsLabel: state.isScheduling
+                          ? 'Scheduling post'
+                          : null,
                       onCancel: () => _requestClose(context, state),
-                      actionLabel: 'Post',
+                      actionLabel: state.isScheduling ? 'Schedule' : 'Post',
                       onAction: state.canSubmit ? cubit.submit : null,
                     ),
+                    if (state.isSubmitting && state.isScheduling)
+                      const LinearProgressIndicator(
+                        minHeight: 2,
+                        semanticsLabel: 'Scheduling post',
+                      ),
+                    if (state.scheduledAt != null)
+                      ScheduleLine(
+                        publishAt: state.scheduledAt!,
+                        enabled: !state.isSubmitting,
+                        onTap: () => _openSchedule(context),
+                      ),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.all(AppSpacing.md),
@@ -381,10 +479,18 @@ class _ComposerViewState extends State<_ComposerView> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          if (widget.mediaEnabled)
-                            const _AddPhotoButton()
-                          else
-                            const SizedBox.shrink(),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.mediaEnabled) const _AddPhotoButton(),
+                              if (cubit.canSchedule)
+                                ScheduleButton(
+                                  scheduled: state.isScheduling,
+                                  enabled: !state.isSubmitting,
+                                  onPressed: () => _openSchedule(context),
+                                ),
+                            ],
+                          ),
                           DraftProblemHint(problem: state.draft.problem),
                           CharacterCounter(remaining: state.draft.remaining),
                         ],

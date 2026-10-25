@@ -13,6 +13,7 @@ import '../../data/posts_repository.dart';
 import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
 import '../../domain/reply_audience.dart';
+import '../../domain/schedule_rules.dart';
 import 'pending_posts_cubit.dart';
 
 enum ComposerStatus { editing, submitting, posted }
@@ -29,6 +30,8 @@ class ComposerState {
     this.uploadFailed = false,
     this.replyAudience = ReplyAudience.everyone,
     this.replyPolicyNotApplied = false,
+    this.scheduledAt,
+    this.scheduledNotice,
   });
 
   final PostDraft draft;
@@ -63,6 +66,18 @@ class ComposerState {
   /// the user once and nothing else changes.
   final bool replyPolicyNotApplied;
 
+  /// The time the post is to be sent (CMP-D6, ADR-0021 D4): a UTC instant at
+  /// minute precision, or null for "post now". Set only while
+  /// [ComposerCubit.canSchedule]; the primary button then reads "Schedule".
+  final DateTime? scheduledAt;
+
+  /// Set when a SchedulePost succeeded: the item as the server stored it (its
+  /// `publish_at` is the time to show). The state is otherwise reset to an
+  /// empty composer; the screen shows the notice once and calls
+  /// [ComposerCubit.scheduledNoticeShown].
+  final pb.ScheduledPost? scheduledNotice;
+
+  bool get isScheduling => scheduledAt != null;
   bool get isSubmitting => status == ComposerStatus.submitting;
   bool get canSubmit {
     if (status != ComposerStatus.editing) return false;
@@ -83,8 +98,11 @@ class ComposerState {
     bool? uploadFailed,
     ReplyAudience? replyAudience,
     bool? replyPolicyNotApplied,
+    DateTime? scheduledAt,
     bool clearError = false,
     bool clearCreated = false,
+    bool clearScheduledAt = false,
+    bool clearScheduledNotice = false,
   }) => ComposerState(
     draft: draft ?? this.draft,
     status: status ?? this.status,
@@ -95,6 +113,8 @@ class ComposerState {
     uploadFailed: clearError ? false : (uploadFailed ?? this.uploadFailed),
     replyAudience: replyAudience ?? this.replyAudience,
     replyPolicyNotApplied: replyPolicyNotApplied ?? this.replyPolicyNotApplied,
+    scheduledAt: clearScheduledAt ? null : (scheduledAt ?? this.scheduledAt),
+    scheduledNotice: clearScheduledNotice ? null : scheduledNotice,
   );
 }
 
@@ -127,6 +147,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     this.quoteOfPostId = '',
     AttachmentsCubit? attachments,
     this.replyAudienceEnabled = false,
+    this.scheduleEnabled = false,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Uuid? uuid,
     DateTime Function()? clock,
@@ -159,6 +180,7 @@ class ComposerCubit extends Cubit<ComposerState> {
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
        replyAudienceEnabled = false,
+       scheduleEnabled = false,
        super(ComposerState(draft: analyzePostDraft('')));
 
   /// The post being replied to; empty for a top-level post.
@@ -180,6 +202,21 @@ class ComposerCubit extends Cubit<ComposerState> {
       replyAudienceEnabled &&
       replyToPostId.isEmpty &&
       _repository.subFeatureEnabled(kFeatureReplyAudience);
+
+  /// `posts` and `scheduled_posts` are both on for this viewer (CMP-D6,
+  /// ADR-0021 D4). Only then, and only for a new root post, may the user
+  /// schedule it.
+  final bool scheduleEnabled;
+
+  /// Whether the Schedule action is offered: a new root post only (the request
+  /// has no reply, quote or poll field), and not once the server answered
+  /// FEATURE_DISABLED for `scheduled_posts` (the gate remembers that until the
+  /// next `GetMe`).
+  bool get canSchedule =>
+      scheduleEnabled &&
+      replyToPostId.isEmpty &&
+      quoteOfPostId.isEmpty &&
+      _repository.subFeatureEnabled(kFeatureScheduledPosts);
 
   final PostsRepository _repository;
   final PendingPostsCubit? _pending;
@@ -232,8 +269,34 @@ class ComposerCubit extends Cubit<ComposerState> {
         hasAttachments: state.hasAttachments,
         attachmentsReady: state.attachmentsReady,
         replyAudience: state.replyAudience,
+        scheduledAt: state.scheduledAt,
       ),
     );
+  }
+
+  /// Sets (or, with null, removes) the time to send the post at. [publishAt]
+  /// may be local or UTC; it is kept as a UTC instant cut to the minute, like
+  /// the server stores it. Ignored when scheduling is not offered and while
+  /// the post is being sent. The dialog has checked the window; the server
+  /// decides (VALIDATION `publish_at` reopens the dialog).
+  void scheduleChanged(DateTime? publishAt) {
+    if (!canSchedule || state.isSubmitting) return;
+    final next = publishAt == null
+        ? null
+        : truncatedToMinute(publishAt.toUtc());
+    if (next == state.scheduledAt) return;
+    emit(
+      next == null
+          ? state.copyWith(clearScheduledAt: true, clearError: true)
+          : state.copyWith(scheduledAt: next, clearError: true),
+    );
+  }
+
+  /// The "Will send on" notice was shown: forget it.
+  void scheduledNoticeShown() {
+    if (state.scheduledNotice != null) {
+      emit(state.copyWith(clearScheduledNotice: true));
+    }
   }
 
   /// Picks who can reply (the "Who can reply?" sheet). Ignored for a reply,
@@ -250,8 +313,91 @@ class ComposerCubit extends Cubit<ComposerState> {
       ? state.replyAudience.wire
       : ReplyPolicy.REPLY_POLICY_UNSPECIFIED;
 
+  static const _noUploads = UploadedAttachments(mediaIds: [], altTexts: []);
+
+  bool get _hasAttached => _attachments != null && !_attachments.state.isEmpty;
+
+  /// Uploads the attached images first (P4) and returns their ids and alt
+  /// texts (empty without attachments). Null when the upload failed or the
+  /// screen went away: the failure is then already in the state, and the
+  /// caller just stops. Shared by Post and Schedule.
+  Future<UploadedAttachments?> _uploadAttached() async {
+    final attachments = _attachments!;
+    // A CreatePost with media is refused while the media sub-feature is
+    // off: do not spend upload quota first.
+    if (!_repository.subFeatureEnabled(kPostsSubFeatureMedia)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'Photos are not available.',
+            feature: kPostsSubFeatureMedia,
+          ),
+        ),
+      );
+      return null;
+    }
+    try {
+      final uploaded = await attachments.uploadAll();
+      // The screen may have gone while the photos uploaded: never create
+      // a post nobody is waiting for (and never one that lost its photos).
+      return isClosed ? null : uploaded;
+    } on AppException catch (e) {
+      // Already reported where it happened (repository / uploader): never
+      // report an upload failure a second time here.
+      if (isClosed) return null;
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: e,
+          uploadFailed: true,
+        ),
+      );
+      return null;
+    } catch (error, stack) {
+      _onUnexpectedError?.call(error, stack);
+      if (isClosed) return null;
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const UnknownApiException('Something went wrong.'),
+          uploadFailed: true,
+        ),
+      );
+      return null;
+    }
+  }
+
+  /// What makes two requests the same for the server: text, media ids, alt
+  /// texts and the audience. Keys are remembered per such body.
+  String _bodyKey(
+    String text,
+    List<String> mediaIds,
+    List<String> altTexts,
+    ReplyPolicy policy,
+  ) {
+    final body = mediaIds.isEmpty
+        ? text
+        : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
+    // A different audience is a different request body for the server.
+    return policy == ReplyPolicy.REPLY_POLICY_UNSPECIFIED
+        ? body
+        : 'p:${policy.value}\u0001$body';
+  }
+
+  /// The idempotency key of [intent], created on first use and reused by
+  /// every retry of the same request.
+  String _keyFor(String intent) {
+    final key = _keys.putIfAbsent(intent, _uuid.v4);
+    if (_keys.length > _maxRememberedKeys) _keys.remove(_keys.keys.first);
+    _keyText = intent;
+    return key;
+  }
+
   Future<void> submit() async {
     if (!state.canSubmit) return;
+    final publishAt = state.scheduledAt;
+    if (publishAt != null) return _submitScheduled(publishAt);
     final text = state.draft.text;
     emit(
       state.copyWith(
@@ -266,72 +412,19 @@ class ComposerCubit extends Cubit<ComposerState> {
       for (final a in _attachments?.state.items ?? const <Attachment>[])
         if (a.previewBytes != null) a.previewBytes!,
     ];
-    var mediaIds = const <String>[];
-    var altTexts = const <String>[];
-    final attachments = _attachments;
-    if (attachments != null && !attachments.state.isEmpty) {
-      // A CreatePost with media is refused while the media sub-feature is
-      // off: do not spend upload quota first.
-      if (!_repository.subFeatureEnabled(kPostsSubFeatureMedia)) {
-        emit(
-          state.copyWith(
-            status: ComposerStatus.editing,
-            error: const FeatureDisabledException(
-              'Photos are not available.',
-              feature: kPostsSubFeatureMedia,
-            ),
-          ),
-        );
-        return;
-      }
-      try {
-        final uploaded = await attachments.uploadAll();
-        mediaIds = uploaded.mediaIds;
-        altTexts = uploaded.altTexts;
-        // The screen may have gone while the photos uploaded: never create
-        // a post nobody is waiting for (and never one that lost its photos).
-        if (isClosed) return;
-      } on AppException catch (e) {
-        // Already reported where it happened (repository / uploader): never
-        // report an upload failure a second time here.
-        if (isClosed) return;
-        emit(
-          state.copyWith(
-            status: ComposerStatus.editing,
-            error: e,
-            uploadFailed: true,
-          ),
-        );
-        return;
-      } catch (error, stack) {
-        _onUnexpectedError?.call(error, stack);
-        if (isClosed) return;
-        emit(
-          state.copyWith(
-            status: ComposerStatus.editing,
-            error: const UnknownApiException('Something went wrong.'),
-            uploadFailed: true,
-          ),
-        );
-        return;
-      }
-    }
+    // No await without photos: the optimistic row appears in the same turn.
+    final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
+    if (uploaded == null) return;
+    final mediaIds = uploaded.mediaIds;
+    final altTexts = uploaded.altTexts;
 
-    final body = mediaIds.isEmpty
-        ? text
-        : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
-    // A quote and a plain post with the same body are different requests.
     final policy = _policyToSend;
-    // A different audience is a different request body for the server.
-    final bodyWithPolicy = policy == ReplyPolicy.REPLY_POLICY_UNSPECIFIED
-        ? body
-        : 'p:${policy.value}\u0001$body';
+    final bodyWithPolicy = _bodyKey(text, mediaIds, altTexts, policy);
+    // A quote and a plain post with the same body are different requests.
     final intent = quoteOfPostId.isEmpty
         ? bodyWithPolicy
         : 'q:$quoteOfPostId\u0001$bodyWithPolicy';
-    final key = _keys.putIfAbsent(intent, _uuid.v4);
-    if (_keys.length > _maxRememberedKeys) _keys.remove(_keys.keys.first);
-    _keyText = intent;
+    final key = _keyFor(intent);
 
     final pending = _pending;
     final author = _author;
@@ -381,6 +474,71 @@ class ComposerCubit extends Cubit<ComposerState> {
     }
   }
 
+  /// Schedules the post for [publishAt] (CMP-D6): the same uploads as Post,
+  /// then `SchedulePost` with a key kept per request (text, media, audience
+  /// AND time). A retry of the same request reuses its key, also after a
+  /// LIMIT_REACHED / QUOTA_EXCEEDED that may have been a near-simultaneous
+  /// duplicate of a call that succeeded (review m1), and also when the 2 minute
+  /// lead has passed meanwhile: the server then answers with the stored item,
+  /// which is why no local time check runs here. Any edit (text, photos,
+  /// audience, time) is a different request and gets its own key. Nothing is
+  /// added to a feed: the post exists once the server publishes it.
+  ///
+  /// On success the composer is reset to empty; [ComposerState.scheduledNotice]
+  /// carries the stored item for the one "Your post will be sent on ..." toast.
+  Future<void> _submitScheduled(DateTime publishAt) async {
+    if (!canSchedule) {
+      emit(
+        state.copyWith(
+          error: const FeatureDisabledException(
+            'Scheduling is not available.',
+            feature: kFeatureScheduledPosts,
+          ),
+          clearScheduledAt: true,
+        ),
+      );
+      return;
+    }
+    final text = state.draft.text;
+    emit(
+      state.copyWith(
+        status: ComposerStatus.submitting,
+        clearError: true,
+        clearCreated: true,
+      ),
+    );
+    // No await without photos: the optimistic row appears in the same turn.
+    final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
+    if (uploaded == null) return;
+    final policy = _policyToSend;
+    final intent =
+        's:${publishAt.millisecondsSinceEpoch}\u0001'
+        '${_bodyKey(text, uploaded.mediaIds, uploaded.altTexts, policy)}';
+    final key = _keyFor(intent);
+    try {
+      final scheduled = await _repository.schedulePost(
+        idempotencyKey: key,
+        text: text,
+        publishAt: publishAt,
+        mediaIds: uploaded.mediaIds,
+        mediaAltTexts: uploaded.altTexts,
+        replyPolicy: policy,
+      );
+      _keys.remove(intent);
+      _keyText = null;
+      if (isClosed) return;
+      emit(
+        ComposerState(draft: analyzePostDraft(''), scheduledNotice: scheduled),
+      );
+      // The images now belong to the scheduled item.
+      _attachments?.clear();
+    } on AppException catch (e) {
+      _fail(key, e);
+    } catch (_) {
+      _fail(key, const UnknownApiException('Something went wrong.'));
+    }
+  }
+
   void _fail(String key, AppException error) {
     // Rollback: the optimistic item leaves Home/profile; the text stays in
     // the field and the key stays for the retry.
@@ -391,11 +549,16 @@ class ComposerCubit extends Cubit<ComposerState> {
     final audienceRefused =
         error is FeatureDisabledException &&
         error.feature == kFeatureReplyAudience;
+    // Same for scheduling: the button goes back to "Post".
+    final scheduleRefused =
+        error is FeatureDisabledException &&
+        error.feature == kFeatureScheduledPosts;
     emit(
       state.copyWith(
         status: ComposerStatus.editing,
         error: error,
         replyAudience: audienceRefused ? ReplyAudience.everyone : null,
+        clearScheduledAt: scheduleRefused,
       ),
     );
   }
