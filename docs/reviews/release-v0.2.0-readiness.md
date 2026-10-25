@@ -376,7 +376,7 @@ Base filter: `B = resource.type="cloud_run_revision" AND resource.labels.service
 - Latency: request-log `latency_ms` for `GraphService` and for `GetMe`/`GetProfile` (baselines from v0.1.0: GetMe 270 ms, CheckHandleAvailability 85 ms, CreateProfile 500 ms; graph
   targets from the plan: Follow < 500 ms, GetRelationships < 150 ms, lists < 400 ms). There is no cloud baseline for graph
   RPCs yet; P2 and the first watch create it.
-- Record: results at +1 h and +24 h go into `docs/reviews/release-v0.2.0-postrelease.md` (P7).
+- Record: results at +1 h and +24 h go into `docs/reviews/release-v0.2.0-postrelease.md` (P7; never written).
 
 **P7 — addendum.** Commit `docs/reviews/release-v0.2.0-postrelease.md`: digest, run IDs (release-prod, both promotes, CI on the tag commit), candidate
 revision, the dev smoke output, P2 to P6 results, and the allowlist procedure used (R-P2).

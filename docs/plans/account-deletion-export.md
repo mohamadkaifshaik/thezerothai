@@ -863,7 +863,7 @@ Order:
 ### T25 — Flag rollout in prod: allowlist → 10% → on  [owner: production-deployer] [size: S] [depends: T24] [blocked: T1 accepted]
 - **Status:** Open (T1 is Accepted; unblocked).
 - **Description.** Run the flag stages below with the pinned-traffic env procedure, then reconcile Terraform. Write
-  `docs/reviews/release-v0.4.0-postrelease.md` (this slice's section).
+  `docs/reviews/release-v0.4.0-postrelease.md` (never written; the release record is `docs/releases/v0.4.0.md`) (this slice's section).
 - **Acceptance criteria.**
   - Given each stage, then the rollback-trigger checks are recorded.
   - Given `on`, then `terraform plan` shows no drift.

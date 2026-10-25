@@ -12,7 +12,7 @@ Start here. Binding rules are in `/CLAUDE.md`; decisions in `adr/` win over ever
 | Shared backend helpers, shared UI widgets | `code-map.md`, `ui-catalog.md` |
 | Cost and free-tier numbers | `reviews/cost-model.md`, `plans/credit-runway-cost-model.md` |
 | Release history and readiness | `releases/`, `reviews/release-*-readiness.md` |
-| X reference captures for the UI | `x_research/` |
+| X reference captures for the UI | `x_research/` (local only, gitignored; not in a fresh clone) |
 | Claude Code tooling and guardrails | `runbooks/claude-setup.md` |
 
 `archive/` holds closed reports that nothing links to (phase 0 and p0 reviews, old post-release notes). They are history, not guidance: do not

@@ -218,7 +218,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
 
 ### T1 — ADR-0008: graph slice decisions  [owner: architect] [size: M] [depends: —]
 - **Description.** Answer every question in "Open design questions" and record the answers in
-  `docs/adr/0008-social-graph-blocks-flags-quotas.md`. Cross-reference ADR-0003 and ADR-0006, and add "see ADR-0008"
+  `docs/adr/0008-social-graph.md`. Cross-reference ADR-0003 and ADR-0006, and add "see ADR-0008"
   pointer notes to them without editing their decisions. The ADR must fix:
   - private-account deferral and the L9 handling (Q1);
   - the `blockedBy` design and its cap (Q2);
@@ -808,7 +808,7 @@ Order: T1 → T2 → (T3, T4) → T5 → T6 → (T7, T8, T9 in parallel) → T10
   3. `on`.
 
   At each step, check the rollback triggers below. Afterwards append the actuals (reads/writes per DAU for graph) to
-  `cost-model.md` §8 and write `docs/reviews/release-v0.2.0-postrelease.md`.
+  `cost-model.md` §8 and write `docs/reviews/release-v0.2.0-postrelease.md` (never written).
 - **Acceptance criteria.**
   - Given each stage, then the trigger checks are recorded in the post-release doc.
   - Given `on`, then Terraform prod has `FEATURE_GRAPH=on` and `terraform plan` shows no drift.

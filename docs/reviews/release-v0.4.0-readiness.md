@@ -95,7 +95,7 @@ P="--project=dzeroth-prod --region=asia-south1"
 - `dzeroth.com` loads in a clean profile; sign-up and Google sign-in work; `/privacy` and `/api/health` return 200.
 - After the next 03:00 IST run, the `account_job backstop outcome=ok` line shows `fs_reads` around 2.
 - 7 days of ERROR/5xx = 0 and Firestore < 10k reads/day.
-- Write `docs/reviews/release-v0.4.0-postrelease.md`.
+- Write `docs/reviews/release-v0.4.0-postrelease.md` (never written; the release record is `docs/releases/v0.4.0.md`).
 
 **Rollback:**
 - Cloud Run: `"$G" run services update-traffic api $P --to-revisions=api-00003-tiw=100`. Always `--to-revisions`, never `--to-latest`.
