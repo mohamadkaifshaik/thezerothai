@@ -8,6 +8,16 @@ ADR-0010 (read budget), ADR-0019 (prod gate), ADR-0021 (scheduler sweep). Cost m
 `docs/plans/credit-runway-cost-model.md`. Command runbook (written by production-deployer, not part of this ADR):
 `docs/runbooks/credit-sunset-pause-resume.md`.
 
+## Amendment 1 (2026-10-26): spend cap 25,000
+
+Founder decision, 2026-10-26, after reading the real credit. Firebase console: **INR 28,659.76 remaining** on a Google Cloud Free Trial that is not upgraded (valid until 2026-12-26), a payment method is already attached, no funding is coming. This answers checklist items 1 and 4 below; item 2 (which services the credit covers) is still open.
+
+- `credit_spend_cap_inr` = **min(25,000, remaining credit − 2,000)**. With 28,659.76 remaining that is **25,000**. The ceiling was 23,000, written when the pool was said to be 20,000 or 25,000. The INR 2,000 reserve is unchanged and still holds (28,659.76 − 25,000 = 3,659.76).
+- The cap is a **ceiling for the alerts, not a target and not a spending limit**: budgets only alert and the stop is the manual runbook. Real burn is about INR 31-45 a day, so this changes where the alerts fire, not what is spent. Its cost: the straight line is steeper (**INR 403/day** to the 12-24 pause, 391/day to 12-26), so a slow overspend is flagged later.
+- Alert thresholds scale, their dates do not: 10% 2,500; 25% 6,250; 50% 12,500; 75% 18,750; 90% 22,500; 100% 25,000.
+- Unchanged: the dates, the credit-mode profile, every abuse limit, the "not used" list, no fixed fee, nothing that bills after 2026-12-26, and the pause on 2026-12-24.
+- Changed with it, in the same PR: the hard limit in `infra/terraform/envs/prod/variables.tf` (23000 to 25000), `terraform.tfvars.example`, `CLAUDE.md` (credit mode and the Growth-stages row, because the constitution quotes the cap), the sunset runbook, `docs/pending.md`, and every 23,000 / 371 in D3 below. The cumulative tables in `docs/plans/credit-runway-cost-model.md` and `docs/reviews/cost-model.md` keep the 23,000 arithmetic and say so.
+
 ## Context
 **The exception.** The billing account has a GCP credit that **expires 2026-12-26**. We want to spend part of it to buy
 what Stage 0 cannot afford, in this order: (1) responsiveness (no cold starts), (2) SafeSearch on **every** image,
@@ -17,7 +27,7 @@ subscriptions). If funded, services restart; if not, we revert to Stage 0.
 **Founder facts (2026-10-23) and what is not yet known.**
 | Fact | Value | Status |
 |---|---|---|
-| Credit pool | the founder has said both INR 20,000 and INR 25,000 | **AMBIGUOUS**. Plan uses `credit_spend_cap_inr` = **min(23,000, remaining credit on the Credits page − 2,000)**. The *remaining* figure matters, because usage since about 2026-09-27 has already drawn on the credit |
+| Credit pool | the founder has said both INR 20,000 and INR 25,000 | **AMBIGUOUS**. Plan uses `credit_spend_cap_inr` = **min(25,000, remaining credit on the Credits page − 2,000) (23,000 before Amendment 1)**. The *remaining* figure matters, because usage since about 2026-09-27 has already drawn on the credit |
 | Reserve | INR 2,000, never planned | firm |
 | Expiry | 2026-12-26 (64 days from 2026-10-23) | founder; verify on the Credits page (date and time zone) |
 | Type of credit | unknown. 2026-12-26 is exactly 90 days after the 2026-09-27 bootstrap (ADR-0007), which matches the **GCP Free Trial** ($300, 90 days). Free Trial credits are type `PROMOTION` | **UNVERIFIED**, checklist item 1 |
@@ -47,7 +57,7 @@ INR 0** on every line. Any line with net > 0 → that knob goes back to its Stag
 **Hard limits of the exception.**
 | Limit | Value | Who may change it |
 |---|---|---|
-| Gross spend cap | `credit_spend_cap_inr` = 23,000 (or lower per the formula above) | founder only, by amending this ADR |
+| Gross spend cap | `credit_spend_cap_inr` = 25,000 (or lower per the formula above; 23,000 before Amendment 1, 2026-10-26) | founder only, by amending this ADR |
 | Reserve | INR 2,000 (never planned) | founder only |
 | Heavy items off | **2026-12-22** | founder only (earlier is always allowed) |
 | Services paused | **2026-12-24** (2 days before expiry: billing data lags up to 24 h or more) | founder only |
@@ -190,8 +200,8 @@ TF (Terraform) or ADR-0021 (specified, not yet in `config.go`).
 
 ### D3. Budget plan and alerts
 **Spend line.** Gross spend (what we would pay without the promotional credit) is planned against a straight line to the
-**pause date**: `plan(day) = credit_spend_cap_inr × day / 62`, day 0 = 2026-10-23, day 62 = 2026-12-24. With 23,000 that
-is **INR 371/day** (359/day if drawn to 12-26; 290/day if the cap is 18,000).
+**pause date**: `plan(day) = credit_spend_cap_inr × day / 62`, day 0 = 2026-10-23, day 62 = 2026-12-24. With 25,000 that
+is **INR 403/day** (391/day if drawn to 12-26; 290/day if the cap is 18,000).
 
 **Ramp (what turns on when; each prod step is a Terraform plan shown to the founder first).**
 | Step | When | Change | Expected gross INR/day |
@@ -204,23 +214,23 @@ is **INR 371/day** (359/day if drawn to 12-26; 290/day if the cap is 18,000).
 | S1 | 2026-12-15 | founder funding decision; pause/resume dry run on dev; data export (Sunset) | 0 |
 | S2 | **2026-12-22** | heavy items off: min instances 0; Vision back to the post-expiry value; sweep */5; alert threshold back to 40k | back to Stage 0 |
 | S3 | **2026-12-24** | PAUSE (unless RESUMED was approved) | ≈ 0 |
-Expected whole-bill gross burn: about INR 31-45/day now, 45/day at 300 DAU, 94/day at 1k, 267/day at 3k, all under the 371
+Expected whole-bill gross burn: about INR 31-45/day now, 45/day at 300 DAU, 94/day at 1k, 267/day at 3k, all under the 403
 line (cost model §4).
 
 **Alert thresholds** on the billing-account-wide credit budget (thresholds on current gross spend; the "due" date is when
 the straight line reaches it; percentages and dates hold for any cap, INR scales with it):
-| Threshold | INR (of 23,000) | Straight line reaches it | If the alert arrives earlier |
+| Threshold | INR (of 25,000) | Straight line reaches it | If the alert arrives earlier |
 |---|---|---|---|
-| 10% | 2,300 | 2026-10-29 | look within 24 h: which service? |
-| 25% | 5,750 | 2026-11-07 | ahead of plan: revert the knob driving it |
-| 50% | 11,500 | 2026-11-23 | ahead of plan: revert to Stage 0 except min instances |
-| 75% | 17,250 | 2026-12-08 | start S2 now |
-| 90% | 20,700 | 2026-12-17 | start S3 now |
-| 100% | 23,000 | 2026-12-24 | already paused |
+| 10% | 2,500 | 2026-10-29 | look within 24 h: which service? |
+| 25% | 6,250 | 2026-11-07 | ahead of plan: revert the knob driving it |
+| 50% | 12,500 | 2026-11-23 | ahead of plan: revert to Stage 0 except min instances |
+| 75% | 18,750 | 2026-12-08 | start S2 now |
+| 90% | 22,500 | 2026-12-17 | start S3 now |
+| 100% | 25,000 | 2026-12-24 | already paused |
 Because the expected burn is far below the line, a second, tighter detector is the prod **monthly gross** budget at INR
 3,000 (≈ the 1k-DAU profile), thresholds 50/90/100% actual + 100% forecast. Any alert from it means spend above the 1k-DAU
 profile: look the same day. Daily habit (founder or sre-performance, 2 minutes): *Billing > Reports*, credits excluded,
-cumulative since 2026-10-23, compared with `371 × day`.
+cumulative since 2026-10-23, compared with `403 × day`.
 
 **How the Terraform budget module must treat credits.** Today every budget uses the default `INCLUDE_ALL_CREDITS`, so
 credit-paid usage shows as **INR 0** and no alert can fire. Changes (proposed, D6):
@@ -320,7 +330,7 @@ a paid (upgraded) account.
 1. **Credit facts.** The founder checked: the account is Firebase Blaze on a Google Cloud trial, the credit expires on 2026-12-26,
    and the credit applies to free-tier-eligible services. Still to read from Billing > Credits before the first paid change:
    the exact remaining amount (pool 20k vs 25k INR was stated both ways), which services the credit covers, and whether a
-   payment method is attached. They set `credit_spend_cap_inr` (the lower of INR 23,000 and remaining minus INR 2,000).
+   payment method is attached. They set `credit_spend_cap_inr` (the lower of INR 25,000 and remaining minus INR 2,000).
 2. **Vision at the cap: `VISION_EXHAUSTED_POLICY=reject`** during credit mode (no unscreened image is ever published; uploads
    fail at the cap).
 3. **K3 native Cloud Run spend cap on prod as a backstop: yes, if the account is eligible.** What Google documents
@@ -347,9 +357,9 @@ a paid (upgraded) account.
 - *Prime directive*, new last bullet: "- **Time-boxed exception (ADR-0022, credit mode):** until **2026-12-22** (heavy items
   off) and **2026-12-24** (services paused), prod may run the Stage 0C credit-mode profile paid by the GCP credit that
   expires 2026-12-26: service-level min instances 1, a higher `VISION_MONTHLY_CAP` with `reject` at the cap, and per-use
-  overage. Gross spend is capped at `credit_spend_cap_inr` (INR 23,000 or lower). Nothing that bills after 2026-12-26 is
+  overage. Gross spend is capped at `credit_spend_cap_inr` (INR 25,000 or lower). Nothing that bills after 2026-12-26 is
   allowed, and abuse limits do not change. After 2026-12-24 this prime directive applies unchanged."
-- *Growth stages*, new row after Stage 0: "| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 23,000
+- *Growth stages*, new row after Stage 0: "| **0C — Credit mode** (until 2026-12-24, ADR-0022) | 0 – ~3k DAU | ≤ INR 25,000
   total from GCP credit (≈ INR 45–270/day at 300–3k DAU) | Stage 0 + prod service-level min instances 1, Vision cap
   20k–40k (reject at cap), gross-spend budgets |"
 - *Reference architecture*, API compute cell: "... min 0 / max 3 instances (prod: service-level min 1 until 2026-12-22,
@@ -438,7 +448,7 @@ realtime, video, external search, paid GIF provider, App Check web without its o
 - **Per use:** Vision past 1,000 units (2 units/image; bounded by the cap: INR 2,708/month at 20k, 5,558 at 40k), Firestore
   overage (reads past ≈ 215 DAU, writes past ≈ 617 DAU), egress to India (never free), GCS ops and egress.
 - **Whole bill, credit mode** (INR/month ex-GST at 95/USD; ±5% FX): **1,371 / 2,873 / 8,127** at 300 / 1k / 3k DAU = INR
-  45 / 94 / 267 per day, versus a 371/day line. Over the 62-day window ≈ INR 2.7k / 5.8k / 16.3k if that DAU held from day
+  45 / 94 / 267 per day, versus a 403/day line. Over the 62-day window ≈ INR 2.7k / 5.8k / 16.3k if that DAU held from day
   one (cost model §4). Today (≈ 0 DAU) ≈ INR 31-45/day.
 - **Free-tier quota consumed:** 1-min sweep +1,152 reads/day (2.3% of 50k), +34,560 requests/month (1.7% of 2M); min
   instance may consume part of the shared Cloud Run free tier.
