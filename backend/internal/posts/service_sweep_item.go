@@ -16,33 +16,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
+// precheck runs the checks that need no read, in their fixed order (steps 1 and 2 above): expiry, schema version, content.
+// It returns the publish transaction's parameters, or the failure the item is retired with. sweepItem and heldForMedia both
+// ask it, so the hold can never disagree with the order the item is processed in.
+func (s *service) precheck(it *ScheduledPost, now time.Time) (PublishParams, ScheduledFailure) {
+	if now.Sub(it.PublishAt) > s.sweep.Limits.MaxLateness {
+		return PublishParams{}, FailureExpired
+	}
+	if it.SchemaVersion > ScheduledSchemaVersion {
+		return PublishParams{}, FailureUnsupported
+	}
+	params, ok := s.publishParams(it)
+	if !ok {
+		return PublishParams{}, FailureInvalidContent
+	}
+	return params, ""
+}
+
+// heldForMedia reports whether the item is to be left alone because FEATURE_MEDIA is globally off (the caller asks only
+// then): it carries images and nothing before the publish transaction would retire it. Expired, UNSUPPORTED and
+// INVALID_CONTENT items are therefore not held (they never depended on the flag and are retired as always, so a hold
+// cannot keep content forever). CPU only, 0 reads. The sweep calls it BEFORE the per-author cap, so a held item neither
+// costs a write nor uses one of its author's slots in the run.
+func (s *service) heldForMedia(it *ScheduledPost, now time.Time) bool {
+	if it.Draft == nil || len(it.Draft.Media) == 0 {
+		return false // text only (or no draft: INVALID_CONTENT): the flag is not its concern
+	}
+	params, failure := s.precheck(it, now)
+	return failure == "" && len(params.MediaIDs) > 0
+}
+
 // sweepItem processes one due item. The panic recovery is the caller's (sweepItemSafe).
 func (s *service) sweepItem(ctx context.Context, run runRef, it *ScheduledPost, tally *sweepTally) {
-	lim := s.sweep.Limits
 	// The only trace an unrecoverable crash (a fatal runtime error, an OOM kill) leaves: written before the transaction.
 	// uid_hash is one-way and the scheduled id is itself a SHA-256 prefix. Never the draft text. INFO, not DEBUG: the
 	// process logger drops DEBUG, and the crash-isolation runbook step reads this line.
 	s.sweep.Log.InfoContext(ctx, "scheduled_item_start", append(itemAttrs(it), logger.TraceAttrs(ctx)...)...)
 
 	// 1. Expiry: the catch-up bound. After an outage stale posts are not dumped onto feeds hours late.
-	if run.now.Sub(it.PublishAt) > lim.MaxLateness {
-		s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureExpired}, tally)
-		return
-	}
-
-	// 2. Content checks, CPU only.
-	if it.SchemaVersion > ScheduledSchemaVersion {
-		s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureUnsupported}, tally)
-		return
-	}
-	params, ok := s.publishParams(it)
-	if !ok {
-		s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: FailureInvalidContent}, tally)
+	// 2. Content checks, CPU only (precheck: expiry, then the schema version, then the draft itself).
+	params, failure := s.precheck(it, run.now)
+	if failure != "" {
+		s.endItem(ctx, it, ScheduledTransition{To: ScheduledFailed, Failure: failure}, tally)
 		return
 	}
 

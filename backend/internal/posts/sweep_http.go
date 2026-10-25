@@ -87,6 +87,7 @@ func (r SweepResult) logAttrs(c *budget.Counter) []any {
 		"expired", r.Expired(),
 		"transient", r.Transient,
 		"deferred", r.Deferred,
+		"held_media", r.HeldMedia,
 		"noop", r.Noop,
 		"write_failed", r.WriteFailed,
 		"skipped_bad_path", r.SkippedBadPath,
