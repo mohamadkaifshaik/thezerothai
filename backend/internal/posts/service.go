@@ -41,8 +41,12 @@ type Deps struct {
 	// Links releases a deleted REPOST's reposts doc and counters (P5, engagement). Nil: a REPOST deleted through
 	// DeletePost leaves its reposts doc to the post_delete job's reconciliation. Wired late (SetRepostLinks).
 	Links RepostLinks
-	// CursorKey seals GetThread page tokens (config.CursorHMACKey). Required only for GetThread.
+	// CursorKey seals GetThread and ListScheduledPosts page tokens (config.CursorHMACKey). Required only for those.
 	CursorKey []byte
+	// Scheduled and Schedule enable the Scheduler (SchedulePost, ListScheduledPosts, CancelScheduledPost; ADR-0021 D4).
+	// A nil Scheduled leaves them returning an internal error; the wiring never calls them then (the flag is off).
+	Scheduled ScheduledRepo
+	Schedule  ScheduleLimits
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -57,6 +61,8 @@ type service struct {
 	graph     graph.Reader
 	now       func() time.Time
 	cursorKey []byte
+	scheduled ScheduledRepo
+	schedule  ScheduleLimits
 
 	postsPerDay           int64
 	newAccountPostsPerDay int64
@@ -78,7 +84,7 @@ func WithAllowAnonymous(allow bool) Option {
 func New(d Deps, opts ...Option) Service {
 	s := &service{
 		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, links: d.Links, now: d.Now,
-		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey,
+		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
 	}
 	for _, o := range opts {

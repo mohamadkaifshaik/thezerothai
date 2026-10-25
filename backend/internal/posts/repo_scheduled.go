@@ -62,9 +62,9 @@ type ScheduledRepo interface {
 	// CountWindow counts uid's PENDING items whose publishAt is within +/-ScheduledWindowRadius of center, stopping
 	// at limit (callers pass SCHEDULED_PER_AUTHOR_PER_RUN+1). Reads 1, charged by hand.
 	CountWindow(ctx context.Context, uid string, center time.Time, limit int) (int64, error)
-	// CreateScheduled runs the schedule transaction. Reads 1 (quotas) + len(MediaIDs); writes 2 (the document and
-	// quotas.schedules). ErrScheduledExists, ErrMediaNotReady or the quota package's QUOTA_EXCEEDED error otherwise,
-	// with nothing written.
+	// CreateScheduled runs the schedule transaction. Reads 1 (quotas) + len(MediaIDs) (1 at the daily cap, which is
+	// checked before the media read); writes 2 (the document and quotas.schedules). ErrScheduledExists,
+	// ErrMediaNotReady or the quota package's QUOTA_EXCEEDED error otherwise, with nothing written.
 	CreateScheduled(ctx context.Context, p ScheduledCreateParams) (*ScheduledPost, error)
 	// CancelScheduled moves a PENDING or FAILED item to CANCELLED, clearing its draft. Reads 1, writes 1 (0 and
 	// changed=false when the item is already PUBLISHED or CANCELLED: the current state is returned).
@@ -291,6 +291,12 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 		qrec, err := r.w.Quotas.Get(ctx, tx, p.UID)
 		if err != nil {
 			return fmt.Errorf("posts: quota lookup: %w", err)
+		}
+		// The daily cap is checked before the media read: a call at the cap costs 1 read however many images it names
+		// (the SchedulePost proto budget), and nothing has been written yet. CheckAndReserve below repeats the same
+		// rule when it stages the quota write.
+		if qrec.Schedules >= p.QuotaLimit {
+			return quota.ExceededError(quota.Schedules, p.Now)
 		}
 		draft := p.Draft
 		if len(p.MediaIDs) > 0 {

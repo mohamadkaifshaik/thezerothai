@@ -58,6 +58,8 @@ func rejectReason(err error) string {
 		return "profile_required"
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED:
 		return "quota_exceeded"
+	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED:
+		return "limit_reached" // ADR-0021 D4 scheduled_pending / scheduled_window: expected traffic, not an outage
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED:
 		return "key_reused"
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED:

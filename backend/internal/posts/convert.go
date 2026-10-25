@@ -40,8 +40,15 @@ func ToProto(p *Post) *postsv1.Post {
 	for _, m := range p.Mentions {
 		out.Mentions = append(out.Mentions, &postsv1.Mention{UserId: m.UserID, Handle: m.Handle})
 	}
-	for _, m := range p.Media {
-		out.Media = append(out.Media, &commonv1.MediaRef{
+	out.Media = mediaRefsToProto(p.Media)
+	return out
+}
+
+// mediaRefsToProto converts image refs to the wire shape (nil for none). Shared by posts, embeds and scheduled drafts.
+func mediaRefsToProto(refs []MediaRef) []*commonv1.MediaRef {
+	var out []*commonv1.MediaRef
+	for _, m := range refs {
+		out = append(out, &commonv1.MediaRef{
 			MediaId: m.ID, Url: m.URL, ThumbUrl: m.ThumbURL, Width: int32(m.Width), Height: int32(m.Height), //nolint:gosec // validated <= 4096 at CreateUpload
 			Blurhash: m.Blurhash, AltText: m.AltText,
 		})
@@ -62,12 +69,7 @@ func embeddedToProto(e *Embedded) *postsv1.EmbeddedPost {
 	out.PaidPartnership, out.MadeWithAi = e.PaidPartnership, e.MadeWithAI
 	out.ReplyPolicy = policyToProto(e.ReplyPolicy)
 	out.CreatedAt = timestamppb.New(e.CreatedAt)
-	for _, m := range e.Media {
-		out.Media = append(out.Media, &commonv1.MediaRef{
-			MediaId: m.ID, Url: m.URL, ThumbUrl: m.ThumbURL, Width: int32(m.Width), Height: int32(m.Height), //nolint:gosec // validated <= 4096 at CreateUpload
-			Blurhash: m.Blurhash, AltText: m.AltText,
-		})
-	}
+	out.Media = mediaRefsToProto(e.Media)
 	return out
 }
 
