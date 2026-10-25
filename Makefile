@@ -103,6 +103,8 @@ ci: fmt vet test
 	fi
 	@echo "==> flutter analyze"
 	cd $(APP_DIR) && flutter analyze
+	@echo "==> CSP script-src carries the FlutterFire loader hashes"
+	bash scripts/csp/check-firebase-loader-hashes.sh firebase.json $(APP_DIR)
 	@echo "==> flutter test"
 	cd $(APP_DIR) && flutter test
 
