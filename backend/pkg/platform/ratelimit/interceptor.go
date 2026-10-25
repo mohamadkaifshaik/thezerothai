@@ -86,13 +86,6 @@ func (c Config) ReadBudgetCovers(procedure string) bool {
 	return !exempt
 }
 
-// ReadBudgetEnforces reports whether the read budget can REJECT procedure: it covers it and it is not
-// charge-only.
-func (c Config) ReadBudgetEnforces(procedure string) bool {
-	_, chargeOnly := c.ReadBudgetChargeOnly[procedure]
-	return c.ReadBudgetCovers(procedure) && !chargeOnly
-}
-
 // RetryAfterInFlight is the retry_after of a read budget rejection caused only by the single-flight guard
 // (another call is in flight near the cap), not by an exhausted budget.
 const RetryAfterInFlight = time.Second
