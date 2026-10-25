@@ -581,13 +581,13 @@ variable "enable_credit_budgets" {
 }
 
 variable "credit_spend_cap_inr" {
-  description = "ADR-0022 gross spend cap for the credit window, in budget_currency_code units (INR). Rule: min(23000, remaining credit on the Billing > Credits page minus the 2000 reserve). Only used when enable_credit_budgets = true. The default is the conservative low figure (20,000 pool minus the 2,000 reserve): a lower cap alerts earlier. Changing it is a founder decision."
+  description = "ADR-0022 gross spend cap for the credit window, in budget_currency_code units (INR). Rule: min(25000, remaining credit on the Billing > Credits page minus the 2000 reserve). Only used when enable_credit_budgets = true. The default is the conservative low figure (20,000 pool minus the 2,000 reserve): a lower cap alerts earlier. Changing it is a founder decision."
   type        = number
   default     = 18000
 
   validation {
-    condition     = var.credit_spend_cap_inr > 0 && var.credit_spend_cap_inr <= 23000 && floor(var.credit_spend_cap_inr) == var.credit_spend_cap_inr
-    error_message = "credit_spend_cap_inr must be a whole number 1-23000 (ADR-0022 hard limit; raising it means amending the ADR)."
+    condition     = var.credit_spend_cap_inr > 0 && var.credit_spend_cap_inr <= 25000 && floor(var.credit_spend_cap_inr) == var.credit_spend_cap_inr
+    error_message = "credit_spend_cap_inr must be a whole number 1-25000 (ADR-0022 hard limit; raising it means amending the ADR)."
   }
 }
 

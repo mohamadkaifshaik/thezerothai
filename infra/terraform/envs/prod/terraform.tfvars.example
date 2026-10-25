@@ -60,7 +60,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 #   vision_exhausted_policy  "reject" = at the cap, uploads fail instead of publishing an unchecked image.
 #   enable_credit_budgets    turn on the two gross-spend budgets (they show credit-paid spend, which the normal INR 500
 #                            net budget hides).
-#   credit_spend_cap_inr     the gross spend ceiling = min(23000, remaining credit on the Credits page - 2000 reserve).
+#   credit_spend_cap_inr     the gross spend ceiling = min(25000, remaining credit on the Credits page - 2000 reserve).
 #   enable_request_flood_alert, firestore_reads_alert_per_day   the flood detector and the raised reads alert.
 #
 # SUNSET (ADR-0022): on 2026-12-22 set min_instance_count = 0, vision_monthly_cap = 10000,
@@ -73,7 +73,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # vision_monthly_cap            = 20000      # until 2026-12-22 (then 10000)
 # vision_exhausted_policy       = "reject"   # until 2026-12-22 (then "unscreened_established")
 # enable_credit_budgets         = true       # until 2026-12-26
-# credit_spend_cap_inr          = 23000      # founder sets: min(23000, remaining - 2000); never above 23000
+# credit_spend_cap_inr          = 25000      # founder sets: min(25000, remaining - 2000); never above 25000
 # prod_gross_budget_inr         = 3000
 # enable_request_flood_alert    = true       # until 2026-12-26 (request_flood_per_hour = 50000 by default)
 # firestore_reads_alert_per_day = 250000     # until 2026-12-22 (then 40000)

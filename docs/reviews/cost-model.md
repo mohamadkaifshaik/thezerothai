@@ -242,6 +242,8 @@ Replaces the 2026-09-26 upper-bound prices from memory. Verify again before each
 
 
 ## 10. Daily gross burn against the credit-runway line (2026-10-23 ADR-0022)
+> Amendment 1 of ADR-0022 (2026-10-26): the cap is now 25,000 (INR 403/day to the pause, 391/day to 12-26). The arithmetic below keeps the 23,000 figure.
+
 ADR-0022 funds a bounded window from the Google credit: `credit_spend_cap_inr` = INR 23,000 from 2026-10-23, paused on 2026-12-24 unless a RESUMED ADR is approved (cap formula `min(23,000, remaining credit - 2,000)`).
 - **Straight line to the budget end (2026-12-26, 64 days):** 23,000 / 64 = **INR 359 per day** (359.4).
 - **Straight line to the planned pause (2026-12-24, 62 days):** 23,000 / 62 = **INR 371 per day** (371.0). This is the line the ADR and `credit-runway-cost-model.md` §4 use; the cumulative line on day N is 371 x N.
