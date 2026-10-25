@@ -3,6 +3,7 @@ package posts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -47,6 +48,9 @@ type Deps struct {
 	// A nil Scheduled leaves them returning an internal error; the wiring never calls them then (the flag is off).
 	Scheduled ScheduledRepo
 	Schedule  ScheduleLimits
+	// Sweep enables the Sweeper, the scheduled-post publish sweep behind the cron route (ADR-0021 CMP-D4). A zero value
+	// leaves Sweep returning an error; the wiring never mounts the route then.
+	Sweep SweepDeps
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -63,6 +67,9 @@ type service struct {
 	cursorKey []byte
 	scheduled ScheduledRepo
 	schedule  ScheduleLimits
+	sweep     SweepDeps
+	// sweepTimeLeft is a test seam: the time left in the sweep run. Nil means the context deadline against real time.
+	sweepTimeLeft func(ctx context.Context) time.Duration
 
 	postsPerDay           int64
 	newAccountPostsPerDay int64
@@ -84,7 +91,7 @@ func WithAllowAnonymous(allow bool) Option {
 func New(d Deps, opts ...Option) Service {
 	s := &service{
 		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, links: d.Links, now: d.Now,
-		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule,
+		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule, sweep: d.Sweep,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
 	}
 	for _, o := range opts {
@@ -95,6 +102,9 @@ func New(d Deps, opts ...Option) Service {
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.sweep.Log == nil {
+		s.sweep.Log = slog.New(slog.DiscardHandler)
 	}
 	return s
 }
