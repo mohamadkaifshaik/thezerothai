@@ -154,6 +154,23 @@ func (r *Registry) Enabled(uid, name string) bool {
 	return s.enabledFor(uid)
 }
 
+// GloballyOff reports whether the named flag is the kill switch: switched off for every caller, so Enabled(uid, name)
+// is false for every uid. It is true for an unknown name and for mode Off (or an invalid mode); it is false for a
+// retired flag, for On, and for Allowlist and Percent whatever the list or percentage (even an empty allowlist or
+// percent 0): those are rollouts, not the kill switch, and a caller outside the cohort may still need to read or undo
+// what they already created. It never reports true where Enabled is true for some uid. Implements the optional
+// posts.GloballyOffChecker.
+func (r *Registry) GloballyOff(name string) bool {
+	if r == nil {
+		return true
+	}
+	s, ok := r.specs[name]
+	if !ok {
+		return true
+	}
+	return !s.retired && (s.Mode == Off || !s.Mode.valid())
+}
+
 // EnabledFeatures returns the sorted list of flag names enabled for uid, for GetMeResponse.enabled_features
 // (ADR-0008 D6). Implements identity.FeatureFlags.
 func (r *Registry) EnabledFeatures(uid string) []string {

@@ -124,3 +124,42 @@ func TestPostsContract_ScheduledPostsHappyPath(t *testing.T) {
 		t.Fatalf("list after cancel = %v, %v; want empty (CANCELLED is not listed)", list, err)
 	}
 }
+
+// TestPostsContract_ScheduledPostsAllowlistCohort (security review L-A, option b): with the flag in allowlist mode a
+// caller outside the allowlist cannot SchedulePost (FEATURE_DISABLED, feature=scheduled_posts) but can still list and
+// cancel their own items (an unknown id is NOT_FOUND, never FEATURE_DISABLED), so a user removed from the allowlist
+// is not stuck with pending posts they cannot see or cancel.
+func TestPostsContract_ScheduledPostsAllowlistCohort(t *testing.T) {
+	ctx := context.Background()
+	insideToken, insideUID := mintToken(t, "")
+	outsideToken, _ := mintToken(t, "")
+	env := newChain(t, func(cfg *config.Config) {
+		cfg.FeatureScheduledPosts = flags.Spec{Name: "scheduled_posts", Mode: flags.Allowlist, Allowlist: map[string]struct{}{insideUID: {}}}
+	})
+	env.createProfile(t, insideToken)
+	env.createProfile(t, outsideToken)
+
+	// Inside: all three work.
+	if _, err := env.posts.SchedulePost(ctx, authed(insideToken, &postsv1.SchedulePostRequest{
+		IdempotencyKey: contractKey("in"), Text: "later", PublishAt: timestamppb.New(time.Now().Add(2 * time.Hour))})); err != nil {
+		t.Fatalf("allowlisted SchedulePost: %v", err)
+	}
+
+	// Outside: Schedule is refused, List and Cancel answer.
+	_, err := env.posts.SchedulePost(ctx, authed(outsideToken, &postsv1.SchedulePostRequest{
+		IdempotencyKey: contractKey("out"), Text: "later", PublishAt: timestamppb.New(time.Now().Add(2 * time.Hour))}))
+	d := wireError(t, err, connect.CodeFailedPrecondition)
+	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
+	if d.GetMetadata()["feature"] != "scheduled_posts" {
+		t.Errorf("metadata = %v, want feature=scheduled_posts", d.GetMetadata())
+	}
+	if list, err := env.posts.ListScheduledPosts(ctx, authed(outsideToken, &postsv1.ListScheduledPostsRequest{})); err != nil || len(list.Msg.GetScheduledPosts()) != 0 {
+		t.Fatalf("outside caller's list = %v, %v; want an empty list", list, err)
+	}
+	_, err = env.posts.CancelScheduledPost(ctx, authed(outsideToken, &postsv1.CancelScheduledPostRequest{
+		IdempotencyKey: contractKey("c"), ScheduledId: "0123456789abcdef0123456789abcdef"}))
+	d = wireError(t, err, connect.CodeNotFound)
+	if d.GetReason() == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+		t.Errorf("outside caller's Cancel was FEATURE_DISABLED: %v", d)
+	}
+}

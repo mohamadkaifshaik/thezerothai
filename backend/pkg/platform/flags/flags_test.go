@@ -181,3 +181,46 @@ func TestRegistry_EnabledFeatures_Sorted(t *testing.T) {
 		t.Errorf("EnabledFeatures() = %v, want %v", got, want)
 	}
 }
+
+// TestRegistry_GloballyOff pins the kill-switch semantics and the invariant that it never disagrees with Enabled:
+// where GloballyOff is true, Enabled is false for every uid.
+func TestRegistry_GloballyOff(t *testing.T) {
+	allow := map[string]struct{}{"uid-a": {}}
+	tests := []struct {
+		name string
+		spec Spec
+		look string
+		want bool
+	}{
+		{"unknown name", Spec{Name: "other", Mode: On}, "x", true},
+		{"off", Spec{Name: "x", Mode: Off}, "x", true},
+		{"off with an allowlist set", Spec{Name: "x", Mode: Off, Allowlist: allow}, "x", true},
+		{"invalid mode", Spec{Name: "x", Mode: Mode("maybe")}, "x", true},
+		{"allowlist empty", Spec{Name: "x", Mode: Allowlist, Allowlist: map[string]struct{}{}}, "x", false},
+		{"allowlist non-empty", Spec{Name: "x", Mode: Allowlist, Allowlist: allow}, "x", false},
+		{"percent 0", Spec{Name: "x", Mode: Percent, Percent: 0}, "x", false},
+		{"percent 30", Spec{Name: "x", Mode: Percent, Percent: 30}, "x", false},
+		{"on", Spec{Name: "x", Mode: On}, "x", false},
+		{"retired is on forever", NewRetired("x"), "x", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRegistry(tc.spec)
+			got := r.GloballyOff(tc.look)
+			if got != tc.want {
+				t.Fatalf("GloballyOff = %v, want %v", got, tc.want)
+			}
+			if got { // never true where some caller has the feature
+				for _, uid := range []string{"uid-a", "uid-b", "uid-c", "", "uid-0", "uid-1"} {
+					if r.Enabled(uid, tc.look) {
+						t.Errorf("GloballyOff is true but Enabled(%q) is true", uid)
+					}
+				}
+			}
+		})
+	}
+	var nilRegistry *Registry
+	if !nilRegistry.GloballyOff("x") {
+		t.Error("a nil *Registry has every flag off")
+	}
+}

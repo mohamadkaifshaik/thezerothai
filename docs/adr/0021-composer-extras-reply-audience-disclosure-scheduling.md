@@ -324,8 +324,10 @@ Stage 0 (CLAUDE.md): ~300 DAU, $0 target, Cloud Run min 0 / max 3, Firestore `(d
 | | `PostService`: `rpc SchedulePost`, `rpc ListScheduledPosts` (`NO_SIDE_EFFECTS`), `rpc CancelScheduledPost`, each with a budget comment from the table below |
 
 **Rules for the three new RPCs:**
-- All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS (`feature="scheduled_posts"`). If either is off they return
-  FEATURE_DISABLED with 0 reads.
+- All three need FEATURE_POSTS (`FEATURE_DISABLED` with 0 reads when off). SchedulePost also needs FEATURE_SCHEDULED_POSTS on
+  for the caller; ListScheduledPosts and CancelScheduledPost only need it **not globally off** (`feature="scheduled_posts"`
+  on refusal), so a user who is outside the allowlist or percent bucket, or was removed from it, can still list and cancel
+  what they already scheduled (security review L-A, option b; `flags.Registry.GloballyOff`).
 - SchedulePost also applies the media, reply-audience and disclosure sub-feature checks, and requires a verified email
   as CreatePost does.
 - Error mapping:

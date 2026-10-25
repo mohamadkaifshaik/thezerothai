@@ -12,6 +12,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -249,3 +250,110 @@ func TestScheduledToProto(t *testing.T) {
 		t.Error("unknown values must map to UNSPECIFIED")
 	}
 }
+
+// kindOnlyFlags is a FlagChecker without GloballyOff: the Server must fall back to the per-caller answer for all three
+// RPCs.
+type kindOnlyFlags struct{ on map[string]map[string]bool } // name -> uid -> on
+
+func (k kindOnlyFlags) Enabled(uid, name string) bool { return k.on[name][uid] }
+
+// TestScheduledServer_FlagCohortMatrix (security review L-A, option b): SchedulePost needs FEATURE_SCHEDULED_POSTS on
+// for the caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the
+// allowlist or percent bucket can still list and cancel what they scheduled. FEATURE_POSTS is needed by all three.
+func TestScheduledServer_FlagCohortMatrix(t *testing.T) {
+	const in, out = "in-cohort", "out-of-cohort"
+	// A uid whose bucket is below / above 50 for scheduled_posts, found by probing the real registry.
+	pctSpec := flags.Spec{Name: "scheduled_posts", Mode: flags.Percent, Percent: 50}
+	var pIn, pOut string
+	for i := 0; i < 1000 && (pIn == "" || pOut == ""); i++ {
+		uid := "p" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26)) + string(rune('a'+(i/676)%26))
+		if flags.NewRegistry(pctSpec).Enabled(uid, "scheduled_posts") {
+			pIn = uid
+		} else {
+			pOut = uid
+		}
+	}
+	if pIn == "" || pOut == "" {
+		t.Fatal("could not find uids on both sides of the percent bucket")
+	}
+	postsOn := flags.Spec{Name: "posts", Mode: flags.On}
+	allow := map[string]struct{}{in: {}}
+
+	tests := []struct {
+		name string
+		reg  []flags.Spec
+		uid  string
+		// wantSchedule / wantListCancel: the RPC reaches the scheduler.
+		wantSchedule, wantListCancel bool
+	}{
+		{"scheduled_posts off", []flags.Spec{postsOn, {Name: "scheduled_posts", Mode: flags.Off}}, in, false, false},
+		{"scheduled_posts not registered", []flags.Spec{postsOn}, in, false, false},
+		{"allowlist, caller in", []flags.Spec{postsOn, {Name: "scheduled_posts", Mode: flags.Allowlist, Allowlist: allow}}, in, true, true},
+		{"allowlist, caller out", []flags.Spec{postsOn, {Name: "scheduled_posts", Mode: flags.Allowlist, Allowlist: allow}}, out, false, true},
+		{"allowlist empty", []flags.Spec{postsOn, {Name: "scheduled_posts", Mode: flags.Allowlist}}, out, false, true},
+		{"percent, caller in the bucket", []flags.Spec{postsOn, pctSpec}, pIn, true, true},
+		{"percent, caller outside", []flags.Spec{postsOn, pctSpec}, pOut, false, true},
+		{"on", []flags.Spec{postsOn, {Name: "scheduled_posts", Mode: flags.On}}, out, true, true},
+		{"retired (on forever)", []flags.Spec{postsOn, flags.NewRetired("scheduled_posts")}, out, true, true},
+		{"posts off beats an on scheduled_posts", []flags.Spec{{Name: "posts", Mode: flags.Off}, {Name: "scheduled_posts", Mode: flags.On}}, in, false, false},
+	}
+	for _, tt := range tests {
+		for _, c := range schedCalls() {
+			want := tt.wantListCancel
+			if c.name == "SchedulePost" {
+				want = tt.wantSchedule
+			}
+			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
+				sc := &fakeScheduler{item: &ScheduledPost{PublishAt: schedBase, CreatedAt: schedNow}}
+				srv := NewServer(nil, flags.NewRegistry(tt.reg...), WithScheduler(sc))
+				err := c.call(srv, callerCtx(tt.uid))
+				if want {
+					if err != nil || sc.calls != 1 {
+						t.Fatalf("err %v calls %d, want one scheduler call", err, sc.calls)
+					}
+					return
+				}
+				_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
+				if sc.calls != 0 {
+					t.Error("the scheduler (Firestore) was reached while the flag gate is closed")
+				}
+			})
+		}
+	}
+}
+
+// TestScheduledServer_FlagDisabledShape: whichever gate refuses List or Cancel, the error carries
+// feature=scheduled_posts when it is the scheduled_posts gate (and none when it is FEATURE_POSTS).
+func TestScheduledServer_FlagDisabledShape(t *testing.T) {
+	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "scheduled_posts", Mode: flags.Off})
+	for _, c := range schedCalls() {
+		ae := wantAPIError(t, c.call(NewServer(nil, reg, WithScheduler(&fakeScheduler{})), callerCtx("u")), connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
+		if ae.Metadata["feature"] != "scheduled_posts" {
+			t.Errorf("%s: metadata = %v", c.name, ae.Metadata)
+		}
+	}
+}
+
+// TestScheduledServer_CheckerWithoutGloballyOff: a FlagChecker that cannot tell the kill switch apart gets today's
+// per-caller behaviour for all three RPCs.
+func TestScheduledServer_CheckerWithoutGloballyOff(t *testing.T) {
+	fl := kindOnlyFlags{on: map[string]map[string]bool{
+		"posts":           {"in": true, "out": true},
+		"scheduled_posts": {"in": true},
+	}}
+	for _, c := range schedCalls() {
+		for uid, want := range map[string]bool{"in": true, "out": false} {
+			sc := &fakeScheduler{item: &ScheduledPost{PublishAt: schedBase, CreatedAt: schedNow}}
+			err := c.call(NewServer(nil, fl, WithScheduler(sc)), callerCtx(uid))
+			if got := err == nil && sc.calls == 1; got != want {
+				t.Errorf("%s as %s: reached = %v (err %v), want %v", c.name, uid, got, err, want)
+			}
+		}
+	}
+}
+
+// The production registry must implement both seams, or List and Cancel would silently fall back to per-caller gating.
+var (
+	_ FlagChecker        = (*flags.Registry)(nil)
+	_ GloballyOffChecker = (*flags.Registry)(nil)
+)

@@ -152,8 +152,10 @@ abstract final class PostService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
-  /// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
+  /// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
+  /// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
+  /// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
   /// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
   /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.

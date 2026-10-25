@@ -175,8 +175,10 @@ type PostServiceClient interface {
 	// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
 	// read for a FOLLOWING conversation (the root author's graph), +0 warm.
 	GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error)
-	// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
-	// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+	// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
+	// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
+	// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
+	// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
 	// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
 	// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
 	// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
@@ -435,8 +437,10 @@ type PostServiceHandler interface {
 	// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
 	// read for a FOLLOWING conversation (the root author's graph), +0 warm.
 	GetThread(context.Context, *connect.Request[v1.GetThreadRequest]) (*connect.Response[v1.GetThreadResponse], error)
-	// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller, else
-	// FAILED_PRECONDITION + FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+	// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
+	// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
+	// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
+	// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
 	// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
 	// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
 	// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
