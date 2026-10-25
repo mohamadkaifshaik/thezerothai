@@ -27,6 +27,8 @@ Prerequisites for going beyond allowlist come from the plan (e.g. posts needs th
 ## Kill switch
 Set the flag to `off` (or lower the percent) and deploy; no data migration is needed. Document the trigger in the plan's rollout section.
 
+Where a background job also honours the flag, only mode `off` is the kill switch (`Registry.GloballyOff`); percent 0 or an empty allowlist is a rollout and stops nothing there. For `FEATURE_MEDIA`, only `off` makes the scheduled-post sweep hold posts that carry images PENDING (`docs/runbooks/posts.md` section 12, "Images held while `FEATURE_MEDIA` is off"; `docs/runbooks/media.md`). A flag read in a job takes effect per revision, like every flag.
+
 ## Retire
 Once `on` and the minimum supported client no longer reads it, remove the env vars but keep reporting the name
 (`NewRetired`). Never reuse a retired name.

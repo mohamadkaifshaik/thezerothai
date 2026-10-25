@@ -84,7 +84,7 @@ func TestSweepHandler_MethodAndDeadline(t *testing.T) {
 
 func TestSweepHandler_OneLinePerRunWith204EvenWhenItemsFail(t *testing.T) {
 	sw := &fakeSweeper{reads: 17, res: SweepResult{
-		Outcome: SweepOK, Due: 9, Published: 4, Cancelled: 1, Transient: 1, Deferred: 2, Noop: 1, SkippedBadPath: 1, Undecodable: 1,
+		Outcome: SweepOK, Due: 9, Published: 4, Cancelled: 1, Transient: 1, Deferred: 2, HeldMedia: 4, Noop: 1, SkippedBadPath: 1, Undecodable: 1,
 		MaxLateness: 7 * time.Minute, Failed: map[ScheduledFailure]int{FailureMediaUnavailable: 2, FailureExpired: 1},
 	}}
 	rec, logs := serveSweep(t, sw, http.MethodPost)
@@ -97,7 +97,7 @@ func TestSweepHandler_OneLinePerRunWith204EvenWhenItemsFail(t *testing.T) {
 	}
 	m := lastJSONLine(t, logs)
 	want := map[string]float64{
-		"due": 9, "published": 4, "cancelled": 1, "expired": 1, "transient": 1, "deferred": 2, "noop": 1, "skipped_bad_path": 1,
+		"due": 9, "published": 4, "cancelled": 1, "expired": 1, "transient": 1, "deferred": 2, "held_media": 4, "noop": 1, "skipped_bad_path": 1,
 		"undecodable": 1, "max_lateness_ms": 420000, "fs_reads": 17, "fs_writes": 0, "failed_total": 3,
 	}
 	for k, v := range want {
