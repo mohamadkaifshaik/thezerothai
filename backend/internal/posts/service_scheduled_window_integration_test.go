@@ -90,6 +90,7 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 				ready, done sync.WaitGroup
 				mu          sync.Mutex
 				outcomes    = map[scheduleOutcome]int{}
+				unknownBy   = map[string]int{} // the gRPC code of each unknown outcome, for the log
 				otherErrs   []string
 			)
 			start := make(chan struct{}) // released together so the calls overlap
@@ -107,8 +108,11 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 					mu.Lock()
 					defer mu.Unlock()
 					outcomes[out]++
-					if out == outcomeOther {
+					switch out {
+					case outcomeOther:
 						otherErrs = append(otherErrs, err.Error())
+					case outcomeUnknown:
+						unknownBy[status.Code(err).String()]++
 					}
 				}()
 			}
@@ -136,7 +140,7 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 				dist = append(dist, fmt.Sprintf("%s=%d", k, v))
 			}
 			sort.Strings(dist)
-			t.Logf("%d callers: outcomes [%s]; stored items %d; quotas.schedules %d", callers, strings.Join(dist, " "), stored, e.schedules(t, "alice"))
+			t.Logf("%d callers: outcomes [%s] unknown by code %v; stored items %d; quotas.schedules %d", callers, strings.Join(dist, " "), unknownBy, stored, e.schedules(t, "alice"))
 
 			if len(otherErrs) > 0 {
 				t.Errorf("unexpected errors (not a window rejection or a retryable transaction error): %v", otherErrs)

@@ -132,13 +132,13 @@ func TestSchedule_StoresTheDocumentedItem(t *testing.T) {
 	if e.repo.lastCreate.QuotaLimit != 50 {
 		t.Errorf("quota limit = %d, want 50 for an established account", e.repo.lastCreate.QuotaLimit)
 	}
-	// scheduled doc 1 + pending count 1 + window count 1 + quotas 1; writes: doc + quotas.schedules.
+	// scheduled doc 1 + pending count 1 + quotas 1 + window count 1 (both in the transaction); writes: doc + quotas.schedules.
 	wantReads(t, c, 4, 2)
-	if e.repo.lastPendingLimit != 26 || e.repo.lastWindowLimit != 4 {
-		t.Errorf("count limits = %d / %d, want 26 / 4 (every query has a Limit)", e.repo.lastPendingLimit, e.repo.lastWindowLimit)
+	if e.repo.lastPendingLimit != 26 || e.repo.lastCreate.WindowCap != 3 {
+		t.Errorf("pending limit %d, window cap %d, want 26 and 3 (the repository counts WindowCap+1)", e.repo.lastPendingLimit, e.repo.lastCreate.WindowCap)
 	}
-	if !e.repo.lastWindowCenter.Equal(p.PublishAt) {
-		t.Errorf("window centre = %v, want the stored minute %v", e.repo.lastWindowCenter, p.PublishAt)
+	if !e.repo.lastCreate.PublishAt.Equal(p.PublishAt) {
+		t.Errorf("window centre = %v, want the stored minute %v", e.repo.lastCreate.PublishAt, p.PublishAt)
 	}
 }
 
@@ -306,8 +306,8 @@ func TestSchedule_ReplayWinsOverTheLeadTimeAndTheCaps(t *testing.T) {
 				t.Fatalf("replay = %+v, %v; want the stored item", again, err)
 			}
 			wantReads(t, c, 1, 0)
-			if e.repo.pendingCounts != 1 || e.repo.windowCounts != 1 || e.repo.creates != 1 {
-				t.Errorf("the replay ran counts or a create: pending %d window %d creates %d", e.repo.pendingCounts, e.repo.windowCounts, e.repo.creates)
+			if e.repo.pendingCounts != 1 || e.repo.windowEvals != 1 || e.repo.creates != 1 {
+				t.Errorf("the replay ran counts or a create: pending %d window %d creates %d", e.repo.pendingCounts, e.repo.windowEvals, e.repo.creates)
 			}
 		})
 	}
@@ -457,8 +457,8 @@ func TestSchedule_PendingCap(t *testing.T) {
 				t.Errorf("limit = %q", ae.Metadata["limit"])
 			}
 			wantReads(t, c, 2, 0) // replay lookup + pending count (documented 3 with the interceptor)
-			if e.repo.lastPendingLimit != tt.max+1 || e.repo.windowCounts != 0 || e.repo.creates != 0 {
-				t.Errorf("limit %d windowCounts %d creates %d", e.repo.lastPendingLimit, e.repo.windowCounts, e.repo.creates)
+			if e.repo.lastPendingLimit != tt.max+1 || e.repo.windowEvals != 0 || e.repo.creates != 0 {
+				t.Errorf("limit %d windowEvals %d creates %d", e.repo.lastPendingLimit, e.repo.windowEvals, e.repo.creates)
 			}
 		})
 	}
@@ -501,11 +501,107 @@ func TestSchedule_WindowCap(t *testing.T) {
 			if ae.Metadata["limit"] != "scheduled_window" {
 				t.Errorf("limit = %q", ae.Metadata["limit"])
 			}
-			wantReads(t, c, 3, 0) // replay lookup + pending + window (documented 4 with the interceptor)
-			if e.repo.creates != 0 {
-				t.Error("the transaction ran")
+			// replay lookup + pending count (outside), quotas + window count + the document of this id (inside the
+			// transaction; the rejection path checks whether a concurrent duplicate committed it): the documented 6 with
+			// the interceptor.
+			wantReads(t, c, 5, 0)
+			if e.repo.creates != 1 || e.repo.windowEvals != 1 {
+				t.Errorf("transactions %d window counts %d, want 1 and 1: the window is decided inside the transaction", e.repo.creates, e.repo.windowEvals)
+			}
+			// The rejection wrote nothing: the seeded items and the FAILED one are all there is, and no quota was charged.
+			if got := len(e.repo.docs[schedUID]); got != len(tt.items)+1 || e.repo.schedules[schedUID] != 0 {
+				t.Errorf("documents %d (seeded %d + 1 failed), schedules %d: a rejected call must write nothing", got, len(tt.items), e.repo.schedules[schedUID])
 			}
 		})
+	}
+}
+
+// TestSchedule_WindowCapIsExactAndEvaluatedPerAttempt: the window check lives inside the transaction attempt. An attempt
+// that saw room but lost the commit to a concurrent winner is retried, and the retry counts again: with the cap at 3, two
+// seeded items and a winner that commits during attempt 1, attempt 2 sees 3 and the call is rejected with nothing written.
+func TestSchedule_WindowCapIsExactAndEvaluatedPerAttempt(t *testing.T) {
+	e := newSchedSvcEnv()
+	at := e.clock.Add(time.Hour)
+	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at.Add(time.Minute)))
+	e.repo.attemptWinners = map[int]*ScheduledPost{1: e.pendingAt(2, at)}
+
+	_, c, err := e.schedule(e.validIn())
+	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
+	if ae.Metadata["limit"] != "scheduled_window" {
+		t.Errorf("limit = %q, want scheduled_window", ae.Metadata["limit"])
+	}
+	if e.repo.windowEvals != 2 {
+		t.Errorf("window counts = %d, want 2: the second attempt must count again", e.repo.windowEvals)
+	}
+	// get 1 + pending 1 + attempt 1 (quotas, window) 2 + attempt 2 (quotas, window, the document of this id) 3 = 7, 0 writes.
+	wantReads(t, c, 7, 0)
+	if got := len(e.repo.docs[schedUID]); got != 3 || e.repo.schedules[schedUID] != 0 {
+		t.Errorf("documents = %d (2 seeded + the winner), schedules = %d: the loser must write nothing", got, e.repo.schedules[schedUID])
+	}
+
+	// The control: the same winner on a window with room afterwards (cap 4) lets the retry succeed, so the first attempt's
+	// answer is not what decides.
+	e = newSchedSvcEnv()
+	e.svc.schedule.WindowCap = 4
+	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at.Add(time.Minute)))
+	e.repo.attemptWinners = map[int]*ScheduledPost{1: e.pendingAt(2, at)}
+	if _, c, err = e.schedule(e.validIn()); err != nil {
+		t.Fatalf("with room for the retry: %v", err)
+	}
+	wantReads(t, c, 6, 2)
+	if e.repo.windowEvals != 2 || len(e.repo.docs[schedUID]) != 4 {
+		t.Errorf("window counts %d documents %d, want 2 and 4", e.repo.windowEvals, len(e.repo.docs[schedUID]))
+	}
+}
+
+// TestSchedule_ConcurrentDuplicateAtTheWindowEdge: a duplicate of a call that just committed finds a full window whose
+// count includes the winner's own document. That is a replay, not LIMIT_REACHED: the repository answers ErrScheduledExists
+// (1 extra read on this rejection path) and the service answers from the winner's document.
+func TestSchedule_ConcurrentDuplicateAtTheWindowEdge(t *testing.T) {
+	e := newSchedSvcEnv()
+	in := e.validIn()
+	winner, _, err := newSchedSvcEnv().schedule(in) // what the winning call stored
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := e.clock.Add(time.Hour)
+	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at)) // cap 3: one more fits
+	e.repo.attemptWinners = map[int]*ScheduledPost{1: winner}                                     // commits during attempt 1
+
+	got, c, err := e.schedule(in)
+	if err != nil || got.ID != winner.ID {
+		t.Fatalf("got %+v, %v; want the winner's item", got, err)
+	}
+	// get 1 + pending 1 + attempt 1 (quotas, window) 2 + attempt 2 (quotas, window, own document) 3 + the winner's document 1.
+	wantReads(t, c, 8, 0)
+}
+
+// TestSchedule_WindowIsCheckedBeforeTheDailyCap keeps the order of the rules from when the window count ran outside the
+// transaction: a caller over both caps hears LIMIT_REACHED, and the daily quota is not charged.
+func TestSchedule_WindowIsCheckedBeforeTheDailyCap(t *testing.T) {
+	e := newSchedSvcEnv()
+	at := e.clock.Add(time.Hour)
+	for n := 0; n < 3; n++ {
+		e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(n, at))
+	}
+	e.repo.schedules[schedUID] = 50 // the daily cap is spent too
+	_, _, err := e.schedule(e.validIn())
+	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
+	if ae.Metadata["limit"] != "scheduled_window" {
+		t.Errorf("limit = %q, want scheduled_window", ae.Metadata["limit"])
+	}
+}
+
+// TestSchedule_WindowCapBelowOneFailsClosed: a misconfigured limit is an internal error, never "no window cap".
+func TestSchedule_WindowCapBelowOneFailsClosed(t *testing.T) {
+	e := newSchedSvcEnv()
+	e.svc.schedule.WindowCap = 0
+	_, _, err := e.schedule(e.validIn())
+	if err == nil || errors.As(err, new(*apierr.Error)) {
+		t.Fatalf("err = %v, want an unshaped internal error", err)
+	}
+	if len(e.repo.docs[schedUID]) != 0 {
+		t.Error("something was stored")
 	}
 }
 
@@ -619,7 +715,7 @@ func TestSchedule_UnexpectedErrorsAreScrubbed(t *testing.T) {
 	}{
 		{"replay lookup", func(e *schedSvcEnv) { e.repo.getErr = leak }},
 		{"pending count", func(e *schedSvcEnv) { e.repo.countPendingErr = leak }},
-		{"window count", func(e *schedSvcEnv) { e.repo.countWindowErr = leak }},
+		{"window count (in the transaction)", func(e *schedSvcEnv) { e.repo.windowErr = leak }},
 		{"transaction", func(e *schedSvcEnv) { e.repo.createErr = leak }},
 		{"profile", func(e *schedSvcEnv) { e.dir.profileErr = leak }},
 	}

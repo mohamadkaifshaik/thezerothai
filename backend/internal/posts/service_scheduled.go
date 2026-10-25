@@ -50,7 +50,7 @@ type ScheduleLimits struct {
 	// transaction).
 	MaxPending int
 	// WindowCap is the most PENDING items within +/-ScheduledWindowRadius of a new publish_at
-	// (SCHEDULED_PER_AUTHOR_PER_RUN, soft).
+	// (SCHEDULED_PER_AUTHOR_PER_RUN, >= 1). Exact: the count runs inside the schedule transaction.
 	WindowCap int
 	// MinLead and Horizon bound publish_at: now+MinLead <= publish_at <= now+Horizon.
 	MinLead, Horizon time.Duration
@@ -88,15 +88,23 @@ type Scheduler interface {
 	//
 	// Firestore, worst case (keep the SchedulePost proto comment and the integration budget assertions in sync):
 	//
-	//	reads : interceptor 1 (caller users, cached) + scheduled doc 1 + pending count() 1 + window count() 1 + quotas 1
-	//	        + media <= 4 = 9. A create that loses a race (AlreadyExists) adds 1 read of the winner's doc, and a
-	//	        transaction retry under contention re-reads quotas and the media (up to 5 more per retry)
+	//	reads : interceptor 1 (caller users, cached) + scheduled doc 1 + pending count() 1 + quotas 1 + window count() 1
+	//	        (both inside the transaction) + media <= 4 = 9. A create that loses a race (AlreadyExists) adds 1 read of
+	//	        the winner's doc, and a transaction retry under contention re-reads quotas, the window count and the
+	//	        media (up to 6 more per retry)
 	//	typical (no media): 5 with a cold interceptor read, 4 of them the service's own; replay 2; at the pending cap 3;
-	//	        at the window cap 4; at the daily cap 5 (the cap is checked before the media read)
+	//	        at the window cap 6 (+ the document of this key: a full window that holds it is a concurrent duplicate,
+	//	        answered as a replay); at the daily cap 5 (checked after the window, before the media read)
 	//	writes: scheduled doc + quotas.schedules = 2 (replay and every cap: 0); + 1 TTL delete when it reaches a
 	//	        terminal state. The posts daily quota is charged at publish, not here.
 	//
-	// The two count() calls are charged to the request's budget.Counter by hand (the store wrappers do not see
+	// Exact and soft: the window cap (WindowCap items within +/-4 min) and the daily quota are exact, both decided
+	// inside the transaction after the quotas read that serialises one user's concurrent calls. The pending cap is
+	// soft: its count() runs outside the transaction (reading up to MaxPending+1 documents inside it would blow the
+	// read budget), so concurrent calls can overshoot it by the number in flight, bounded by the daily quota and the
+	// rate bucket's burst of 10.
+	//
+	// Both count() calls are charged to the request's budget.Counter by hand (the store wrappers do not see
 	// aggregations). The service's own reads exclude the interceptor's, so a unit budget is one less than above.
 	Schedule(ctx context.Context, uid string, in ScheduleInput) (*ScheduledPost, error)
 	// ListScheduled returns one page of uid's PENDING and FAILED items, publish_at ascending (page size rule:
@@ -193,21 +201,20 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, apierr.Validation("publish_at", "publish_at is too far ahead")
 	}
 
-	// 6. The caps. Both counts run outside the transaction, so both are soft by the in-flight overshoot (ADR-0021 D4);
-	// each is 1 read, charged to the request budget by the repository.
+	// 6. The caps. What is exact and what is soft (ADR-0021 D4, pending.md 2.16):
+	//   - The pending cap is SOFT. Its count() runs here, outside the transaction (1 read, charged by the repository),
+	//     because reading up to MaxPending+1 documents inside it would blow the read budget. Concurrent calls can overshoot
+	//     it by the number in flight, which the exact daily quota (SchedulesPerDay, a transactional counter) and the
+	//     CreatePost-shared rate bucket's burst of 10 per instance bound.
+	//   - The window cap (WindowCap items within +/-ScheduledWindowRadius) is EXACT. It is not checked here: step 8's
+	//     transaction counts the window after reading quotas/{uid}, which concurrent calls of one user all read and write,
+	//     so a retried loser counts the winner's committed document. It answers ErrScheduledWindowFull.
 	pending, err := s.scheduled.CountPending(ctx, uid, s.schedule.MaxPending+1)
 	if err != nil {
 		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule pending count: %w", err), uid)
 	}
 	if pending >= int64(s.schedule.MaxPending) {
 		return nil, limitReached(ctx, limitScheduledPending, "you have too many scheduled posts; cancel one first")
-	}
-	inWindow, err := s.scheduled.CountWindow(ctx, uid, publishAt, s.schedule.WindowCap+1)
-	if err != nil {
-		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule window count: %w", err), uid)
-	}
-	if inWindow >= int64(s.schedule.WindowCap) {
-		return nil, limitReached(ctx, limitScheduledWindow, "too many posts are scheduled around that time; pick another time")
 	}
 
 	// 7. The account age picks the daily quota tier. The profile is the interceptor's cached read (0 extra reads).
@@ -224,9 +231,10 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		quotaLimit = s.schedule.NewAccountSchedulesPerDay
 	}
 
-	// 8. The transaction: quotas (1 read), media (<= 4 reads), then Create + quotas.schedules (2 writes).
+	// 8. The transaction: quotas (1 read), the window count (1 read, the exact window cap), media (<= 4 reads), then
+	// Create + quotas.schedules (2 writes).
 	created, err := s.scheduled.CreateScheduled(ctx, ScheduledCreateParams{
-		UID: uid, ID: id, PublishAt: publishAt, RequestHash: hash, Now: now, QuotaLimit: quotaLimit,
+		UID: uid, ID: id, PublishAt: publishAt, RequestHash: hash, Now: now, QuotaLimit: quotaLimit, WindowCap: s.schedule.WindowCap,
 		Draft:    ScheduledDraft{Text: parsed.Text, ReplyPolicy: policy, PaidPartnership: in.PaidPartnership, MadeWithAI: in.MadeWithAI},
 		MediaIDs: in.MediaIDs, MediaAlts: in.MediaAltTexts,
 	})
@@ -241,6 +249,8 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 			return nil, logger.ScrubErr(fmt.Errorf("posts: schedule concurrent duplicate lookup: %w", gerr), uid)
 		}
 		return s.answerStored(ctx, winner, hash)
+	case errors.Is(err, ErrScheduledWindowFull):
+		return nil, limitReached(ctx, limitScheduledWindow, "too many posts are scheduled around that time; pick another time")
 	case errors.Is(err, ErrMediaNotReady):
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
 			"one of the images is not ready; upload it again")

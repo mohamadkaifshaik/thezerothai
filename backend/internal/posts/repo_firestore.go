@@ -60,8 +60,9 @@ type FirestoreRepo struct {
 	client *firestore.Client
 	w      WriteDeps     // CreatePost collaborators, set by SetWriters
 	links  ReleaseStager // engagement's reposts-doc seam (P5), set by SetRepostLinks
-	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn; an Aborted
-	// error makes the SDK retry the transaction. Never set outside tests.
+	// attemptHook is a test seam: called inside every CreatePost attempt after the id is drawn (and at the start of every
+	// CreateScheduled attempt, before its first read, with the scheduled id); an Aborted error makes the SDK retry the
+	// transaction. Never set outside tests.
 	attemptHook func(attempt int, id string) error
 	// moderationReadHook is a test seam: HideAuthor/RestoreAuthor call it between reading a page and committing
 	// its batch, so a test can change a post in that window. Never set outside tests.
