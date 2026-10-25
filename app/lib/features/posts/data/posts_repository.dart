@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
+
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
@@ -104,6 +106,88 @@ class PostsRepository {
       ],
     );
     return view;
+  }
+
+  /// Schedules a new root post (`SchedulePost`, ADR-0021 D4). [idempotencyKey]
+  /// must be reused for every retry of the same request (the server answers a
+  /// lost response with the stored item) and replaced when the text, media,
+  /// audience or [publishAt] changed. [publishAt] goes out as UTC; the server
+  /// truncates it to the minute and the returned item carries the time it
+  /// stored, which is the one to show. Nothing is inserted into any feed: the
+  /// post exists only once the server publishes it.
+  ///
+  /// Never sends reply, quote or poll fields (the request has none). Like
+  /// [createPost] it is not sent while a sub-feature it needs is known to be
+  /// off (`scheduled_posts`, `media`, `reply_audience`).
+  Future<pb.ScheduledPost> schedulePost({
+    required String idempotencyKey,
+    required String text,
+    required DateTime publishAt,
+    List<String> mediaIds = const [],
+    List<String> mediaAltTexts = const [],
+    ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+  }) async {
+    final response = await _gate.run(
+      () => _apiClient.posts.schedulePost(
+        pb.SchedulePostRequest(
+          idempotencyKey: idempotencyKey,
+          text: text,
+          mediaIds: mediaIds,
+          mediaAltTexts: mediaAltTexts,
+          replyPolicy: replyPolicy,
+          publishAt: Timestamp.fromDateTime(publishAt.toUtc()),
+        ),
+      ),
+      requires: [
+        kFeatureScheduledPosts,
+        if (mediaIds.isNotEmpty) kPostsSubFeatureMedia,
+        if (replyPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED)
+          kFeatureReplyAudience,
+      ],
+    );
+    return response.scheduledPost;
+  }
+
+  /// One page of the caller's PENDING and FAILED scheduled posts, oldest
+  /// publish time first (`ListScheduledPosts`: 1 + page Firestore reads).
+  /// Pass the previous page's `next_page_token` for the next one. Needs only
+  /// the posts flag: a caller outside the scheduling rollout can still list
+  /// what they scheduled.
+  Future<pb.ListScheduledPostsResponse> listScheduledPosts({
+    String pageToken = '',
+    int pageSize = 20,
+  }) {
+    return _guardedRead(
+      () => _gate.run(
+        () => _apiClient.posts.listScheduledPosts(
+          pb.ListScheduledPostsRequest(
+            pageSize: pageSize,
+            pageToken: pageToken,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Cancels a PENDING scheduled post, or dismisses a FAILED one
+  /// (`CancelScheduledPost`). Returns the item's current state: PUBLISHED
+  /// means it was too late to cancel (not an error). The server only
+  /// format-validates [idempotencyKey]; pass a fresh one per tap. NOT_FOUND
+  /// ([NotFoundException]) means the item is gone already (cleaned up after
+  /// 7 days).
+  Future<pb.ScheduledPost> cancelScheduledPost({
+    required String scheduledId,
+    required String idempotencyKey,
+  }) async {
+    final response = await _gate.run(
+      () => _apiClient.posts.cancelScheduledPost(
+        pb.CancelScheduledPostRequest(
+          idempotencyKey: idempotencyKey,
+          scheduledId: scheduledId,
+        ),
+      ),
+    );
+    return response.scheduledPost;
   }
 
   /// Runs a read RPC unless a RATE_LIMITED answer is still held (the held

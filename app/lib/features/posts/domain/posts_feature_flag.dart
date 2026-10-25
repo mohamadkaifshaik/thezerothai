@@ -7,6 +7,15 @@ import '../../../core/network/app_exception.dart';
 /// `'posts'` anywhere else.
 const kFeaturePosts = 'posts';
 
+/// Name of the scheduled-posts flag as exposed through
+/// `GetMeResponse.enabled_features` (ADR-0021 D4, `FEATURE_SCHEDULED_POSTS`),
+/// and the `metadata["feature"]` of its FEATURE_DISABLED answer. The schedule
+/// UI exists only when both this and [kFeaturePosts] are listed; a
+/// FEATURE_DISABLED answer for it hides the UI for the session (the
+/// [PostsFeatureGate] remembers it like a sub-feature). Never hardcode
+/// `'scheduled_posts'` anywhere else.
+const kFeatureScheduledPosts = 'scheduled_posts';
+
 /// Sub-feature names the server puts in `metadata["feature"]` of a
 /// FEATURE_DISABLED CreatePost (ADR-0010 D2), checked in this order.
 const kPostsSubFeatureReplies = 'replies';
