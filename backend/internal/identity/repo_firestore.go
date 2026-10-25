@@ -180,6 +180,26 @@ func (r *FirestoreRepo) GetProfile(ctx context.Context, uid string) (Profile, er
 	return d.toProfile(uid), nil
 }
 
+// ProfileInTx implements TxProfiles: 1 read through the caller's transaction, never cached, status unfiltered. The
+// errors carry no uid (the caller scrubs Firestore's own text, which names the document path).
+func (r *FirestoreRepo) ProfileInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Profile, error) {
+	snap, err := tx.Get(r.userRef(uid))
+	budget.FromContext(ctx).AddReads(1)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return Profile{}, ErrNotFound
+		}
+		return Profile{}, fmt.Errorf("identity: get profile in transaction: %w", err)
+	}
+	var d userDoc
+	if err := snap.DataTo(&d); err != nil {
+		return Profile{}, fmt.Errorf("identity: decode profile in transaction: %w", err)
+	}
+	return d.toProfile(uid), nil
+}
+
+var _ TxProfiles = (*FirestoreRepo)(nil)
+
 // ResolveHandle: 1 read.
 func (r *FirestoreRepo) ResolveHandle(ctx context.Context, handleLower string) (string, error) {
 	snap, err := r.handleRef(handleLower).Get(ctx)

@@ -316,12 +316,29 @@ module "scheduler" {
   push_base_url                     = local.api_url
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
 
-  # dev + prod combined must stay <= 3 jobs (Cloud Scheduler free tier is per
-  # billing account). Prod runs the real cron; dev's list is empty.
+  # Cloud Scheduler's free tier is 3 jobs PER BILLING ACCOUNT, shared by dev and prod. Count today:
+  #   prod: 2  (daily-maintenance, publish-scheduled)
+  #   dev : 0  (envs/dev has jobs = {})
+  #   total: 2 of 3 free. Keep the third slot free as headroom; any job beyond the third on the billing account is
+  #   paid (about $0.10/month) and needs an ADR. ADR-0021 (founder decision 1) also assumes no Scheduler job lives
+  #   outside dzeroth-dev and dzeroth-prod: confirm that before every prod apply that adds a job.
+  # Dev stays empty on purpose: exercise a cron route in dev by calling it directly (ADR-0021 D1).
   jobs = {
     "daily-maintenance" = {
       schedule = "0 3 * * *"
       path     = "/internal/cron/daily-maintenance"
+    }
+
+    # ADR-0021 D1: the scheduled-post publish sweep. The route answers 204, or 500 only when its due query fails
+    # (the module retries 3 times), and its handler runs under a 25 s deadline. The deadline chain is
+    # handler 25 s < Cloud Run request timeout 30 s < this attempt deadline 60 s, so Scheduler never cancels an
+    # attempt that Cloud Run would still finish. Overlapping runs (a retry and the next tick) are safe because the
+    # publish is guarded by the PENDING state. Apply this job only after 100% of traffic serves a revision that has
+    # the route; until then a tick reaches PlaceholderHandler and gets a harmless 202.
+    "publish-scheduled" = {
+      schedule                 = var.publish_scheduled_schedule
+      path                     = "/internal/cron/publish-scheduled"
+      attempt_deadline_seconds = 60
     }
   }
 

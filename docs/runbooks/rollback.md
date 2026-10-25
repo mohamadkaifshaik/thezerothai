@@ -112,7 +112,8 @@ traffic split. Two consequences:
 - **Order for any rollback once a lifecycle flag has been on:** (1) set `FEATURE_ACCOUNT_LIFECYCLE=off` and shift traffic
   to that revision (see `account-deletion.md` section 6, step 4), (2) check no account is `DELETING` and no export is
   `PENDING` (Firestore console, `users` and `exports`), (3) only then roll back, (4) after new code serves again, run
-  `gcloud scheduler jobs run daily-maintenance --project <project> --location asia-south1` to resume stuck work.
+  `gcloud scheduler jobs run daily-maintenance --project <project> --location asia-south1` to resume stuck work
+  (prod only: dev has no Scheduler job, so call the route directly, see "A deletion is stuck", step 3, in `account-deletion.md`).
   Never enable `FEATURE_ACCOUNT_LIFECYCLE` while a v0.1.0 revision holds any traffic.
 
 For a rollback between two P8-aware revisions, messages that failed repeatedly end in the DLQ topic `jobs-dlq`. That

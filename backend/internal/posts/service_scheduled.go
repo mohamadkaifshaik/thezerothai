@@ -1,7 +1,7 @@
 // service_scheduled.go is the service layer of scheduled posts (ADR-0021 D4, CMP-D3): SchedulePost, ListScheduledPosts
 // and CancelScheduledPost. They touch only users/{caller}/scheduled (plus quotas/{caller} and the caller's media docs
 // inside the schedule transaction); another user's id is simply absent from the path built from the token uid, so it is
-// NOT_FOUND exactly like an unknown id. The publish sweep (CMP-D4) is a separate change.
+// NOT_FOUND exactly like an unknown id. The publish sweep (CMP-D4) lives in service_sweep.go.
 package posts
 
 import (

@@ -294,7 +294,9 @@ Symptom: a user is `DELETING` for longer than about an hour, or the DLQ tile mov
    has no pull subscription, so nothing is lost that the backstop cannot rebuild.
 3. The Cloud Scheduler job `daily-maintenance` calls `/internal/cron/daily-maintenance`, which re-publishes stuck
    `DELETING` accounts and `PENDING` exports (resuming from the saved step). To run it now:
-   `gcloud scheduler jobs run daily-maintenance --project <project> --location asia-south1`.
+   `gcloud scheduler jobs run daily-maintenance --project <project> --location asia-south1`. This works in prod only:
+   dev has no Scheduler job, so there POST to the route with an OIDC token for the pubsub-push service account
+   (the curl and the opt-in grant are in ADR-0021 D1).
 4. The backstop only reads accounts with no progress for an hour, oldest progress first, 50 per page and up to 4 pages
    (200) per run, so fresh deletions never hide a stuck one (L-6 fixed). WARN `backstop_page_full` (fields `query`,
    `pages`, `cursor_at`) means the 4th page was full: more than 200 jobs are stuck at once, which is itself an
