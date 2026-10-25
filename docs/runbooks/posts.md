@@ -44,19 +44,44 @@ now runs a `scheduled` step after `reports`; a user with nothing scheduled costs
 
 SchedulePost caps and reads (pending.md 2.16). Exact: the per-account window cap (`SCHEDULED_PER_AUTHOR_PER_RUN` PENDING items, default 3,
 within +/-4 min of `publish_at`; `LIMIT_REACHED` `limit=scheduled_window`) and the daily quota (`QUOTA_SCHEDULES_PER_DAY`). Both are decided
-inside the schedule transaction, after it reads `quotas/{uid}`, which every concurrent call of one account reads and writes, so a retried
-loser counts the winner's committed document; the window check runs again on every attempt. Soft, on purpose: the pending cap
-(`SCHEDULED_MAX_PENDING`, 25; `limit=scheduled_pending`). Its `count()` runs outside the transaction because reading up to 26 documents
-inside it would blow the read budget, so concurrent calls can overshoot it by the number in flight, bounded by the exact daily quota (50,
-10 for new accounts) and the CreatePost-shared rate bucket (burst 10 per instance). A full window that holds the same key's own document is a
-concurrent duplicate and is answered as a replay, not as `scheduled_window`. Reads, service's own (add the interceptor's profile read when
-cold): typical 4 (doc, pending count, quotas, window count), worst 8 with four images, replay 1, at the pending cap 2, at the window cap 5
-(the extra read is the key's own document), at the daily cap 4; a conflicted transaction attempt is retried and re-reads quotas, the window
-count and the media. Writes 2, or 0 for a replay and every cap. A burst of many SchedulePost calls from ONE account queues on its `quotas`
-document: the losers retry (5 attempts, 5 s deadline) and a few may end ABORTED or DEADLINE_EXCEEDED, which clients see as INTERNAL (a commit
-that timed out on our side can still have landed). That is the account's own burst, not an outage; retrying with the same
-`idempotency_key` is safe, it returns the stored item or schedules once. Many accounts doing it at once is the signal for
-`docs/runbooks/abuse-spike.md`.
+inside the schedule transaction, after it reads `quotas/{uid}`, which every schedule by one account reads and writes, so of two racing calls
+only one commits. Dev and prod run Firestore in `OPTIMISTIC` mode (`infra/terraform/modules/firestore/main.tf`): the loser is rejected ABORTED
+at commit, the transaction retries, and the retry recounts the window and sees the winner's committed document; the window check runs again
+on every attempt, and must stay after the quotas read. Soft, on purpose: the pending cap (`SCHEDULED_MAX_PENDING`, 25;
+`limit=scheduled_pending`). Its `count()` runs outside the transaction because reading up to 26 documents inside it would blow the read
+budget, so concurrent calls can overshoot it by the number in flight, bounded by the exact daily quota (50, 10 for new accounts) and the
+CreatePost-shared rate bucket (burst 10 per instance).
+
+What is proven and what is not. PROVEN, on the emulator only (its transactions are lock-based, not optimistic): ten simultaneous calls of one
+account for one minute never leave more than the cap stored, and never reject while fewer than the cap are stored
+(`TestSchedulerIT_ConcurrentWindowCap`, run about 180 times, with and without an existing `quotas` document), and each attempt of a retried
+transaction counts afresh (`TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt`). REASONED for prod: optimistic mode plus an existing
+`quotas/{uid}` document makes the cap exact, by the commit conflict on that document. UNVERIFIED until the dev smoke (pending 2.16): (a) a
+brand-new account with no `quotas/{uid}` document yet, where exactness needs Firestore to treat a not-found read as a conflict when another
+transaction creates the document; (b) the transactional aggregation `count()` on real Firestore, the first one in the codebase (the other
+`count()` calls run outside transactions). If (b) is unsupported, every SchedulePost would fail with INTERNAL, which is invisible while
+`FEATURE_SCHEDULED_POSTS` is off, so run the dev smoke before the flag leaves `off` anywhere.
+
+Reads, service's own (add the interceptor's profile read when cold): typical 4 (doc, pending count, quotas, window count), worst 8 with four
+images, replay 1, at the pending cap 2, at the window cap 5 (the extra read is the key's own document, see below), at the daily cap 4; a
+conflicted transaction attempt is retried and re-reads quotas, the window count and the media. Writes 2, or 0 for a replay and every cap.
+A rejection at the window cap now opens a transaction and costs 5 service reads (6 with the interceptor), where the old outside count cost 3
+(4). Ceilings for one account hammering a full window: the CreatePost-shared 10/min per-instance bucket alone would allow about 14,400
+calls a day, about 72k reads a day on one instance (was 43.2k) against the 50k/day free quota; the ADR-0010 D5 per-uid read budget
+(`READ_BUDGET_PER_UID_PER_DAY`, 2,000, per instance lifetime; it covers SchedulePost and charges errored calls too) stops one account near
+2.4k reads per instance lifetime, so the 72k figure needs deliberate instance cycling (D5 residual R2, accepted). Trigger for an in-instance
+negative cache of full windows: `limit=scheduled_window` volume in the logs (`jsonPayload.posts_op="schedule"` and
+`jsonPayload.limit="scheduled_window"`), a sustained rate from one or a few `uid_hash` values; not before.
+
+Duplicates. A full window that holds the same key's own document is a concurrent duplicate (the first call committed it) and is answered as a
+replay, not as `scheduled_window`; that is the extra read. A concurrent duplicate that loses at the DAILY cap still gets `QUOTA_EXCEEDED`, not
+a replay (ADR-0021 known limit; the same holds at the pending cap): only the window path answers a replay, and a client retrying with the same
+`idempotency_key` after any cap error gets the stored item.
+
+A burst of many SchedulePost calls from ONE account contends on its `quotas` document: the losers retry (5 attempts, 5 s deadline) and a few
+may end ABORTED or DEADLINE_EXCEEDED, which clients see as INTERNAL (a commit that timed out on our side can still have landed). That is the
+account's own burst, not an outage; retrying with the same `idempotency_key` is safe, it returns the stored item or schedules once. Many
+accounts doing it at once is the signal for `docs/runbooks/abuse-spike.md`.
 
 Replay after losing permission (accepted behaviour, CMP-B2 review): enforcement runs before the idempotency lookup, so retrying
 a CreatePost whose reply already exists, after the caller lost the right to reply (blocked by the root author, root hidden or deleted,
