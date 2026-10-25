@@ -3,6 +3,7 @@ package posts
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -46,6 +49,11 @@ func TestSweepMediaHold_HeldItemIsLeftUntouched(t *testing.T) {
 	if res.Outcome != SweepOK || res.Due != 1 || res.HeldMedia != 1 || res.Published != 0 || res.Deferred != 0 || res.Transient != 0 ||
 		res.Noop != 0 || res.WriteFailed != 0 || len(res.Failed) != 0 || res.Cancelled != 0 {
 		t.Fatalf("res = %+v, want one due item, all of it in HeldMedia", res)
+	}
+	// A held item is still a due item: it counts toward the oldest lateness (item 1 is due 10 minutes minus 1 s ago), which
+	// is what makes max_lateness_ms rise during a hold (runbook, "Images held while FEATURE_MEDIA is off").
+	if want := 10*time.Minute - time.Second; res.MaxLateness != want {
+		t.Errorf("MaxLateness = %v, want %v: held items must count", res.MaxLateness, want)
 	}
 	// The due query's one read and nothing else: no transaction, no state write, no attempt.
 	if c.Reads() != 1 || c.Writes() != 0 {
@@ -274,7 +282,7 @@ func TestSweepMediaHold_RunLineCountsHeldItemsAndLeaksNothing(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &m); err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]float64{"held_media": 2, "due": 2, "published": 0, "deferred": 0, "noop": 0, "fs_reads": 2, "fs_writes": 0, "failed_total": 0} {
+	for k, want := range map[string]float64{"held_media": 2, "due": 2, "published": 0, "deferred": 0, "noop": 0, "fs_reads": 2, "fs_writes": 0, "failed_total": 0, "max_lateness_ms": 599000} {
 		if got, ok := m[k].(float64); !ok || got != want {
 			t.Errorf("%s = %v, want %v", k, m[k], want)
 		}
@@ -285,6 +293,83 @@ func TestSweepMediaHold_RunLineCountsHeldItemsAndLeaksNothing(t *testing.T) {
 	for _, leak := range []string{"uid-alice", it.ID, "secret draft text", sweepMediaID(1)} {
 		if strings.Contains(e.logs.String(), leak) {
 			t.Errorf("the logs contain %q", leak)
+		}
+	}
+}
+
+// TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow PINS A KNOWN LIMIT of this PR; it describes behaviour nobody wants.
+// Held items are never written, so they keep their place at the head of the due query (ORDER BY publishAt) until they
+// expire, and they are filtered before the per-author cap, so a few authors' held items can fill the whole window
+// (SCHEDULED_SWEEP_LIMIT x SCHEDULED_SWEEP_MAX_PAGES = 100). Every newer due item, text-only ones of uninvolved users
+// included, is then not read at all. Adaptive paging is tracked as a follow-up; when it lands, this test is the one to
+// change. Operator guidance: docs/runbooks/posts.md section 12, "Known limit".
+func TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow(t *testing.T) {
+	// 4 authors x 25 held image items (SCHEDULED_MAX_PENDING), all older than one text-only item of a fifth author.
+	setup := func(t *testing.T, mut ...func(*SweepDeps, *sweepEnv)) (*sweepEnv, *ScheduledPost) {
+		t.Helper()
+		e, _ := mediaOffEnv(t, mut...)
+		for a := 0; a < 4; a++ {
+			for n := 1; n <= 25; n++ {
+				e.dueItem(fmt.Sprintf("uid-held-%d", a), n, withImages(n))
+			}
+		}
+		return e, e.dueItem("uid-late", 100)
+	}
+
+	t.Run("default window: the newer text-only item is not read, not published and not touched", func(t *testing.T) {
+		e, late := setup(t)
+		queried := e.repo.doc("uid-late", late.ID)
+
+		res, c, err := e.sweep(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Due != 100 || res.HeldMedia != 100 || res.Published != 0 || res.Deferred != 0 || len(res.Failed) != 0 {
+			t.Fatalf("res = %+v, want the window (100 due) entirely held and nothing published: the symptom the runbook names", res)
+		}
+		if e.repo.dueCalls != 2 || c.Reads() != 100 || c.Writes() != 0 || len(e.repo.callsOf("publish")) != 0 {
+			t.Errorf("due calls %d reads %d writes %d publishes %d, want 2 pages of 50, 100 reads, nothing else", e.repo.dueCalls, c.Reads(), c.Writes(), len(e.repo.callsOf("publish")))
+		}
+		if got := e.repo.doc("uid-late", late.ID); got.Status != ScheduledPending || !got.UpdateTime.Equal(queried.UpdateTime) {
+			t.Errorf("the text-only item = %+v, want it untouched (it was never read)", got)
+		}
+	})
+
+	t.Run("window raised past the held items: the text-only item publishes", func(t *testing.T) {
+		e, late := setup(t, func(d *SweepDeps, _ *sweepEnv) { d.Limits.MaxPages = 3 })
+
+		res, _, err := e.sweep(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Due != 101 || res.HeldMedia != 100 || res.Published != 1 {
+			t.Fatalf("res = %+v, want 101 due: 100 held and the text-only item published", res)
+		}
+		if got := e.repo.doc("uid-late", late.ID); got.Status != ScheduledPublished {
+			t.Errorf("the text-only item status = %v, want PUBLISHED", got.Status)
+		}
+	})
+}
+
+// posts checks three flags by name, and Registry.GloballyOff is TRUE for a name it does not know. A drift between a name
+// here and the spec the config registers would therefore silently stop the sweep (flag_off) or, for media, hold every
+// image item. The registry is built from these specs in apiserver.Build.
+func TestSweepMediaHold_FlagNamesMatchTheRegisteredSpecs(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		flag, specName, name string
+	}{
+		{"FEATURE_POSTS", cfg.FeaturePosts.Name, FlagName},
+		{"FEATURE_SCHEDULED_POSTS", cfg.FeatureScheduledPosts.Name, ScheduledPostsFlagName},
+		{"FEATURE_MEDIA (config spec)", cfg.FeatureMedia.Name, mediaFlagName},
+		{"FEATURE_MEDIA (media module)", media.FlagName, mediaFlagName},
+	}
+	for _, tc := range tests {
+		if tc.specName != tc.name {
+			t.Errorf("%s: the registered spec is named %q but posts checks %q", tc.flag, tc.specName, tc.name)
 		}
 	}
 }
