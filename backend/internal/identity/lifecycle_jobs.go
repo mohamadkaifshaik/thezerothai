@@ -91,18 +91,10 @@ func retry(r jobResult, outcome string, err error) jobResult {
 }
 
 // recoverPanic turns a panic in a job handler into a 500 (Pub/Sub or Scheduler retries) and an Error Reporting
-// entry. Only the panic type is logged: its value could carry a uid.
+// entry. Only the panic type is logged: its value could carry a uid. The behaviour lives in mw.RecoverHTTP, shared
+// with the posts publish sweep route.
 func (l *Lifecycle) recoverPanic(op string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if v := recover(); v != nil {
-				ctx := logger.WithTrace(r.Context(), logger.TraceFromRequest(r, l.projectID))
-				mw.ReportError(ctx, l.log.With(logger.TraceAttrs(ctx)...), op, logger.ScrubErr(fmt.Errorf("panic of type %T", v)))
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
+	return mw.RecoverHTTP(l.log, l.projectID, op, next)
 }
 
 // JobsHandler is the `/internal/pubsub/jobs` push handler. Mount it behind the OIDC verifier.

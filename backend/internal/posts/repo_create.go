@@ -85,6 +85,9 @@ type WriteDeps struct {
 	IDs         IDGenerator
 	// Media loads and claims a post's images inside the CreatePost transaction (P4). Nil rejects media ids.
 	Media MediaAttacher
+	// Profiles reads the author's users/{uid} inside the scheduled-post publish transaction (ADR-0021 CMP-D4). Only
+	// PublishScheduled needs it; CreatePost reads the cached directory profile instead.
+	Profiles identity.TxProfiles
 }
 
 // SetWriters supplies the CreatePost collaborators (a setter, like graph.FirestoreRepo.SetCounters, so the read

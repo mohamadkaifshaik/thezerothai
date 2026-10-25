@@ -139,6 +139,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if hashtags == nil {
 		hashtags = []string{}
 	}
+	snapshot, snapshotVersion := authorSnapshotOf(uid, author)
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
@@ -148,13 +149,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		MediaAlts:   in.MediaAltTexts,
 		Draft: Post{
 			AuthorID: uid,
-			Author: AuthorSnapshot{
-				UserID: uid, Handle: author.Handle, DisplayName: author.DisplayName,
-				AvatarURL: author.AvatarThumbURL, Verified: author.Verified,
-			},
-			Kind: KindPost, Text: parsed.Text,
+			Author:   snapshot,
+			Kind:     KindPost, Text: parsed.Text,
 			Hashtags: hashtags, Mentions: mentions,
-			Visibility: VisibilityPublic, SnapshotVersion: author.SnapshotVersion,
+			Visibility: VisibilityPublic, SnapshotVersion: snapshotVersion,
 			PaidPartnership: in.PaidPartnership, MadeWithAI: in.MadeWithAI,
 			ReplyPolicy: policy, // a reply's is replaced by the parent's in applyReply
 		},
@@ -346,4 +344,14 @@ func validateMedia(mediaIDs, alts []string) error {
 // featureDisabled is FEATURE_DISABLED with metadata["feature"] (ADR-0010 D2).
 func featureDisabled(feature string) error {
 	return flags.DisabledError().WithMeta("feature", feature)
+}
+
+// authorSnapshotOf is the denormalised author block a new post stores (handle, display name, thumbnail, verified) and the
+// profile snapshotVersion it was taken at (ADR-0003: the profile-snapshot job refreshes older versions). It is the one
+// place a post's author block is built from an identity.Profile: CreatePost (from the cached directory profile) and the
+// scheduled-post publish transaction (from the in-transaction profile) both use it, so the two can never disagree.
+func authorSnapshotOf(uid string, p identity.Profile) (AuthorSnapshot, int64) {
+	return AuthorSnapshot{
+		UserID: uid, Handle: p.Handle, DisplayName: p.DisplayName, AvatarURL: p.AvatarThumbURL, Verified: p.Verified,
+	}, p.SnapshotVersion
 }

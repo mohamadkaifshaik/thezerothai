@@ -241,6 +241,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Counters:    identityRepo,
 		IDs:         snowflakeNode,
 		Media:       postsMediaAttacher{lib: mediaMod.library},
+		// The publish sweep reads the author's users/{uid} inside its transaction (ADR-0021 L-7): never cached.
+		Profiles: identityRepo,
 	})
 	postsSvc := posts.New(posts.Deps{
 		Repo: postsRepo, Cache: postsCache, Events: postNotifier{slot: notifSlot},
@@ -258,6 +260,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			MaxPending: cfg.Scheduled.MaxPending, WindowCap: cfg.Scheduled.PerAuthorPerRun,
 			MinLead: cfg.Scheduled.MinLead, Horizon: cfg.Scheduled.Horizon, TerminalTTL: cfg.Scheduled.TerminalTTL,
 			SchedulesPerDay: int64(cfg.Quota.SchedulesPerDay), NewAccountSchedulesPerDay: int64(cfg.Quota.NewAccountSchedulesPerDay),
+		},
+		// The publish sweep (ADR-0021 CMP-D4) behind /internal/cron/publish-scheduled. Flags is the registry's kill-switch
+		// view (GloballyOff), so an allowlist or percent rollout still publishes every due item.
+		Sweep: posts.SweepDeps{
+			Repo: postsRepo, Flags: featureFlags, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
+			// A sweep-published post has no authenticated request behind it, so the recipient cap would not know the author is
+			// new (and the profile cache entry is evicted right after the publish): hand it the createdAt the publish read.
+			RecordAuthorAge: actorAges.Record,
+			Limits: posts.SweepLimits{
+				PerAuthorPerRun: cfg.Scheduled.PerAuthorPerRun, AuthorReadsWarn: cfg.Scheduled.AuthorReadsWarn,
+				Limit: cfg.Scheduled.SweepLimit, MaxPages: cfg.Scheduled.SweepMaxPages, Concurrency: cfg.Scheduled.SweepConcurrency,
+				MaxLateness: cfg.Scheduled.MaxLateness, MaxAttempts: cfg.Scheduled.MaxAttempts, TerminalTTL: cfg.Scheduled.TerminalTTL,
+			},
 		},
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
 
@@ -434,6 +449,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
 	routes.internal("/internal/cron/daily-maintenance", lifecycle.CronHandler())
+	// ADR-0021 D1: the scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline, its own
+	// budget counter and panic recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
+	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204 with 0 reads.
+	routes.internal("/internal/cron/publish-scheduled", posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID))
 	// ADR-0017 D3: the notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
