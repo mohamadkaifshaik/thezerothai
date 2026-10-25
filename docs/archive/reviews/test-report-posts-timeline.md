@@ -37,4 +37,4 @@ costs about 20 reads and 10 writes, matching the plan.
 
 ## Defects
 None open from testing. Review findings (code review, security review) are tracked in
-`docs/reviews/code-review-posts-timeline.md` and `docs/reviews/security-review-posts-timeline.md`; all were fixed.
+`docs/archive/reviews/code-review-posts-timeline.md` and `docs/archive/reviews/security-review-posts-timeline.md`; all were fixed.

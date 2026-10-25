@@ -168,7 +168,7 @@ All 66-plus budget/matrix cells pass. Areas covered by the emulator suites and t
    at prod or dev. T23/T24 run it on dev and on the prod `candidate`.
 4. **Firestore emulator vs production behavior:** budgets are counted at the repository wrapper, so they are exact for
    our own reads/writes. Transaction contention behavior differs on real Firestore (see the flaky test).
-5. No load test (T21, sre-performance) and no security re-test (T20 is a separate report, `docs/reviews/security-review-graph.md`).
+5. No load test (T21, sre-performance) and no security re-test (T20 is a separate report, `docs/archive/reviews/security-review-graph.md`).
 
 ## 8. Defects filed
 

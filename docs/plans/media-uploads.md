@@ -2,7 +2,7 @@
 Plan owner: backend-developer (resumed from planner's P4 outline in `docs/plans/phase1.md`) · Date: 2026-10-11 ·
 Stage: 0 (0 – ~300 DAU, pay-per-use only) · Flag: `FEATURE_MEDIA` (default **off** in every environment)
 Inputs: CLAUDE.md (rule 7), ADR-0005 (+ amendment: Vision cap), ADR-0003, ADR-0010, ADR-0011,
-`proto/dzeroth/media/v1/media.proto`, `docs/reviews/code-review-modern-ui-110.md` (M2), `docs/reviews/cost-model.md`,
+`proto/dzeroth/media/v1/media.proto`, `docs/archive/reviews/code-review-modern-ui-110.md` (M2), `docs/reviews/cost-model.md`,
 `docs/plans/phase1.md` §P4.
 
 ## Goal

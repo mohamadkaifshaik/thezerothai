@@ -22,10 +22,10 @@ Labels: **PASS**, **FAIL**, **ACCEPTED** (a risk you sign off), **GATED** (check
 | Plan with cost rows | PASS | `docs/plans/posts-and-timeline.md` (T1–T28, per-RPC budget table, rollout plan) |
 | ADR | PASS | `docs/adr/0010-posts-and-timelines-slice.md`, Accepted on merge of #69; amendment (M2 mentions, L5 blank-looking code points) committed 2026-10-05 and recorded as a founder decision |
 | CI on the release commit | PASS at the PR head `a292e25` (both jobs); **GATED at the merge commit** | `make ci` and `make test-int` success on run 37409092029. Later commits in this session are docs, Terraform and a loadtest helper: re-check on the final head |
-| Test report | PASS (caveats) | `docs/reviews/test-report-posts-timeline.md`, `VERDICT: PASS`; gaps listed there. Note: local `make test-int` prints a combined coverage below 70% on Go 1.24; CI (Go 1.26) is the gate |
-| Code review | PASS | `docs/reviews/code-review-posts-timeline.md`, APPROVE, no Blockers or Majors |
-| Security review | PASS (conditional) | `docs/reviews/security-review-posts-timeline.md`: 0 Critical, 0 High open; see §3 |
-| Cost report | PASS with one trigger | `docs/reviews/cost-report-posts-timeline.md`: 192.9 reads/DAU (ADR 182.6); 116% of the free read quota at 300 DAU; home older page 40–42 reads vs 30 planned (+33%, over the 1.4x trigger). See §4 |
+| Test report | PASS (caveats) | `docs/archive/reviews/test-report-posts-timeline.md`, `VERDICT: PASS`; gaps listed there. Note: local `make test-int` prints a combined coverage below 70% on Go 1.24; CI (Go 1.26) is the gate |
+| Code review | PASS | `docs/archive/reviews/code-review-posts-timeline.md`, APPROVE, no Blockers or Majors |
+| Security review | PASS (conditional) | `docs/archive/reviews/security-review-posts-timeline.md`: 0 Critical, 0 High open; see §3 |
+| Cost report | PASS with one trigger | `docs/archive/reviews/cost-report-posts-timeline.md`: 192.9 reads/DAU (ADR 182.6); 116% of the free read quota at 300 DAU; home older page 40–42 reads vs 30 planned (+33%, over the 1.4x trigger). See §4 |
 | Load smoke (T22) | PARTLY | `posts_create` full scale PASS (p95 14.8 ms). `timeline_read` only at reduced scale: p95 75 ms, 0 failures, but 55% of refreshes still return a gap and refresh averages 4.9 reads (cause unexplained, see the T22 status). Full-scale run OPEN (needs a bigger machine) |
 | No unapproved fixed-cost resource | PASS (repo) | T26 Terraform change is env vars only. Re-check with `cost-guard` on the plan output: **OPEN** |
 | Terraform plan reviewed | OPEN | No `terraform` or credentials in the authoring container; plan must be produced and read before any apply (founder preference: plan-then-OK) |
@@ -63,7 +63,7 @@ Labels: **PASS**, **FAIL**, **ACCEPTED** (a risk you sign off), **GATED** (check
 ## 3. Security: public-repo finding and residual risks
 - **Public-repo read-amplification finding (P0):** closure is the read-budget interceptor (T3) plus the negative handle cache
   and the uncapped-read guard. Test-name evidence to cite when marking it Closed: **OPEN, to be filled from
-  `docs/reviews/test-audit-posts-timeline-t19-t20.md` and the T20 integration tests by the reviewer** (not copied here to avoid
+  `docs/archive/reviews/test-audit-posts-timeline-t19-t20.md` and the T20 integration tests by the reviewer** (not copied here to avoid
   citing names I did not re-verify in this pass).
 - **ADR-0010 D5 R1/R2 (instance-cycling can exceed the per-uid read budget; ≈ 623k reads/day theoretical):** requires
   the **founder's recorded acceptance**: **OPEN**. Do not move past `allowlist` without it.

@@ -706,7 +706,7 @@ Order:
 - **Budget.** ≤ 11 requests per export (1 request + ≤ 10 polls).
 
 ### T16 — Emulator integration: deletion chain  [owner: tester] [size: M] [depends: T5, T7, T8, T11] [blocked: T1 accepted]
-- **Status:** Done (2026-10-09), report `docs/reviews/test-report-account-lifecycle.md`. Crash-resume at all 33 side effects of a complete deletion, 3 racing deliveries, the T11 sweep and counter invariants after every scenario, and the reference account (P 300, O 100, I 100, E 1) measured at 509 R / 300 W / 505 D in one delivery. Deviations: the graph/posts invariant checkers are unexported, so `requireInvariants` restates them; the fault-injection chain reaches the Auth emulator over REST because only `apiserver.go` may build the Admin SDK client (C2). **Amendment APPROVED by the founder 2026-10-18 (ADR-0016 amendment (b)):** the posts step gained phase 2 (delete the moderation `postRemovals` entries by `authorId`), +1 read per deletion on an account with none: the reference-account criteria are now 21 reads for the P=1 account and 517 + D for the P=300 account (were 20 and 516 + D). ADR-0021 (accepted 2026-10-23) adds the `scheduled` step (`users/{uid}/scheduled`, 1 read when empty) and the `scheduled` export section (1 read when empty), and the asserted constants moved with it: 22 reads for the P=1 account, `planDeleteReads` 518 + D, `refDeleteReadsBase` 519 + D, `refExportReads` 710. No multi-day spreading of a deletion (ADR-0011 decision 7). Evidence: `PurgeUser` phase 2 in `backend/internal/posts/purge.go`; the reference-account integration test asserts <= 517 + D reads (`planDeleteReads`; `make test-int` green on PR #140); estimated cost about $0.0012 per deletion at P=300 (all covered by the free tier), about $0.035 for a maximum-size account if fully billed (ADR-0011 maximum; post and engagement counts are uncapped). Note: the ADR-0011 formula constant `refDeleteReadsBase` is 518 + D (sums to 518 including the P5 engagement +3 and this +1); earlier text in ADR-0016 and ADR-0017 that said 514 / 513 was stale and is corrected.
+- **Status:** Done (2026-10-09), report `docs/archive/reviews/test-report-account-lifecycle.md`. Crash-resume at all 33 side effects of a complete deletion, 3 racing deliveries, the T11 sweep and counter invariants after every scenario, and the reference account (P 300, O 100, I 100, E 1) measured at 509 R / 300 W / 505 D in one delivery. Deviations: the graph/posts invariant checkers are unexported, so `requireInvariants` restates them; the fault-injection chain reaches the Auth emulator over REST because only `apiserver.go` may build the Admin SDK client (C2). **Amendment APPROVED by the founder 2026-10-18 (ADR-0016 amendment (b)):** the posts step gained phase 2 (delete the moderation `postRemovals` entries by `authorId`), +1 read per deletion on an account with none: the reference-account criteria are now 21 reads for the P=1 account and 517 + D for the P=300 account (were 20 and 516 + D). ADR-0021 (accepted 2026-10-23) adds the `scheduled` step (`users/{uid}/scheduled`, 1 read when empty) and the `scheduled` export section (1 read when empty), and the asserted constants moved with it: 22 reads for the P=1 account, `planDeleteReads` 518 + D, `refDeleteReadsBase` 519 + D, `refExportReads` 710. No multi-day spreading of a deletion (ADR-0011 decision 7). Evidence: `PurgeUser` phase 2 in `backend/internal/posts/purge.go`; the reference-account integration test asserts <= 517 + D reads (`planDeleteReads`; `make test-int` green on PR #140); estimated cost about $0.0012 per deletion at P=300 (all covered by the free tier), about $0.035 for a maximum-size account if fully billed (ADR-0011 maximum; post and engagement counts are uncapped). Note: the ADR-0011 formula constant `refDeleteReadsBase` is 518 + D (sums to 518 including the P5 engagement +3 and this +1); earlier text in ADR-0016 and ADR-0017 that said 514 / 513 was stale and is corrected.
 - **Description.**
   - Seed U with posts, edges both ways, blocks both ways, mutes, an export, a handle and quotas.
   - DeleteAccount → drive the job to completion.
@@ -749,7 +749,7 @@ Order:
     accounts: create profile → follow → post → request export → READY → download → delete → poll until the Auth user
     is gone → residue check.
   - Run `flutter test`, and check that every new screen has widget tests.
-  - Write `docs/reviews/test-report-account-lifecycle.md`.
+  - Write `docs/archive/reviews/test-report-account-lifecycle.md`.
 - **Acceptance criteria.**
   - Given `make ci` and `make test-int`, then both are green.
   - Given the report, then PASS, with measured ≤ budget for each RPC and job.
@@ -758,7 +758,7 @@ Order:
 - **Budget.** Per smoke run ≈ 30 reads, 15 writes, 15 deletes.
 
 ### T19 — Code review  [owner: code-reviewer] [size: S] [depends: T4–T15 (per PR)]
-- **Status:** Done (2026-10-09), report in `docs/reviews/code-review-account-lifecycle.md`: REQUEST CHANGES, B1 and M1-M3 fixed in #107, 0 open Blockers. Minor 6 (HashUID pepper) and Nit 1 (sleep poll) deferred.
+- **Status:** Done (2026-10-09), report in `docs/archive/reviews/code-review-account-lifecycle.md`: REQUEST CHANGES, B1 and M1-M3 fixed in #107, 0 open Blockers. Minor 6 (HashUID pepper) and Nit 1 (sleep poll) deferred.
 - **Description.** Review each PR against CLAUDE.md rules 1–11, the ADR and reuse-first:
   - no second limiter or signer;
   - the start gate is reused, not copied;
@@ -766,14 +766,14 @@ Order:
   - no reads in a loop;
   - budget comments match the code;
   - the URL is never logged.
-- **Acceptance criteria.** `docs/reviews/code-review-account-lifecycle.md` has 0 open Blockers.
+- **Acceptance criteria.** `docs/archive/reviews/code-review-account-lifecycle.md` has 0 open Blockers.
 - **Test notes.** —
 - **Observability.** Every new path has `fs_*` fields and an Error Reporting-visible ERROR path.
 - **Budget.** Verify the tables against the code.
 
 ### T20 — Security review: account lifecycle threat model  [owner: security-auditor] [size: M] [depends: T5, T7–T10, T13] [blocked: T1 accepted]
-- **Status:** Done (2026-10-08), report in `docs/reviews/security-review-account-lifecycle.md`; M-1, M-2, M-3, L-1 to L-4, L-6, L-7 fixed; L-5 fixed in the client (founder-accepted flag exception). Still open: on-device checks of Apple/Google/password re-auth, revoke and client delete.
-- **Description.** Write `docs/reviews/security-review-account-lifecycle.md`, covering:
+- **Status:** Done (2026-10-08), report in `docs/archive/reviews/security-review-account-lifecycle.md`; M-1, M-2, M-3, L-1 to L-4, L-6, L-7 fixed; L-5 fixed in the client (founder-accepted flag exception). Still open: on-device checks of Apple/Google/password re-auth, revoke and client delete.
+- **Description.** Write `docs/archive/reviews/security-review-account-lifecycle.md`, covering:
   - re-auth bypass (missing, forged or future `auth_time`);
   - the Q2/Q3 interceptor exemption (scope exactly one procedure);
   - IDOR and enumeration on `export_id`;
@@ -792,7 +792,7 @@ Order:
 - **Budget.** Not applicable.
 
 ### T21 — Cost report + cost-model rows 35–36  [owner: sre-performance] [size: S] [depends: T16, T17] [blocked: T1 accepted]
-- **Status:** Done (partial measurement), 2026-10-09 (branch `docs/p8-t21-cost-report`). Report: `docs/reviews/cost-report-account-lifecycle.md`;
+- **Status:** Done (partial measurement), 2026-10-09 (branch `docs/p8-t21-cost-report`). Report: `docs/archive/reviews/cost-report-account-lifecycle.md`;
   cost-model rows 35-36 replaced. All figures are derived from the code and ADR-0011, not emulator-measured (T16/T17 not
   yet re-run for budgets). Acceptance: slice share at 300 DAU is 0.7% reads / 0.5% writes / 0.8% deletes at the ADR rate
   and 3.9% / 1.5% / 2.5% at 1 deletion + 2 exports per day; crossover restated (released scope about 258 DAU, whole product

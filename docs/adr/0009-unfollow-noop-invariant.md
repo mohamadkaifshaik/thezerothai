@@ -3,7 +3,7 @@ Status: Accepted (2026-09-30)
 Date: 2026-09-30
 Deciders: architect, founder (accepted 2026-09-30)
 
-Inputs: `docs/reviews/graph-code-review.md:69-71` (N4), ADR-0008 (D3, D10, A2, B1), `docs/plans/graph.md` (T7, T27),
+Inputs: `docs/archive/reviews/graph-code-review.md:69-71` (N4), ADR-0008 (D3, D10, A2, B1), `docs/plans/graph.md` (T7, T27),
 PR #58 (`feat/graph-t27-lazy-cleanup`, open). Line numbers are for `origin/main` at `bf81b23` (after PR #59 and #60).
 
 ## Context
@@ -235,7 +235,7 @@ Tickets. The planner numbers them into `docs/plans/graph.md`. No proto, index or
   - `graph.proto:37-38`: comment only. "Not following ⇒ NONE" also covers the documented invariant. `buf breaking` is
     unaffected.
   - The ADR-0008 D3 invariant 1: add a pointer to this ADR in a new amendment note. Don't edit the Accepted text.
-  - `docs/reviews/graph-code-review.md:69-71`: mark N4 closed.
+  - `docs/archive/reviews/graph-code-review.md:69-71`: mark N4 closed.
   - `docs/plans/graph.md` T7 (`:389-391`) and the Risks table (`:976`): add a reference to the invariant.
 - **frontend-developer:** nothing. Unfollow's contract is unchanged.
 - **sre-performance:** nothing. The cost model is unchanged.

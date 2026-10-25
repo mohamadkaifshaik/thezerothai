@@ -369,7 +369,7 @@ body. The header is a separate widget listed in `docs/ui-catalog.md` so the two 
 Status: Accepted. Deciders: architect. No fixed cost and no non-negotiable rule bends, so no founder sign-off is
 required. The founder is informed through the v0.2.0 readiness doc.
 
-Inputs: T16a emulator measurements (M4), `docs/reviews/security-review-graph.md` (L2, L3, L5, I2, §4),
+Inputs: T16a emulator measurements (M4), `docs/archive/reviews/security-review-graph.md` (L2, L3, L5, I2, §4),
 `backend/internal/graph/repo_firestore.go` (Mute, `followRef`), `backend/internal/graph/rpcs.go`,
 `backend/internal/identity/validate.go` (`userIDRe`). Three questions came up during M4 verification. This amendment
 answers them. It **refines D9 (Mute row), D10 (lazy clean-up) and D2 (uid-shape assumption), and supersedes the
@@ -586,7 +586,7 @@ Status: Accepted. Deciders: architect; founder (B2, keep `directory.Forget` sema
 architect on 2026-09-30, confirmed by the founder's review and merge of this amendment). No fixed cost and no
 non-negotiable rule bends.
 
-Inputs: `docs/reviews/loadtest-graph.md` (T18, PR #32), `docs/reviews/test-report-graph.md` (T17, PR #34),
+Inputs: `docs/archive/reviews/loadtest-graph.md` (T18, PR #32), `docs/archive/reviews/test-report-graph.md` (T17, PR #34),
 `docs/reviews/cost-model.md` and `cost-report-v0.2.0.md` (T21, PR #33), `backend/internal/graph/rpcs.go`
 (`directory.Forget` after committed Follow, Unfollow, Block and Unblock), `backend/internal/identity/service.go`
 (`GetProfile`). This amendment **supersedes A2's Follow planning value and the A2 table's Follow-created planning
@@ -720,7 +720,7 @@ Documentation only; no decision in this ADR changes and the D3 text above stays 
   0-read Unfollow budget (A2, B1) stands. The ops paths that could break it (deleting `users/{uid}` before the purge
   finishes, un-deleting after purge step 1, `CACHE_TTL` above 60 s, half the 120 s start gate) are closed by ADR-0009 E:
   `docs/runbooks/account-deletion.md` and the `CACHE_TTL ≤ 60 s` startup check.
-- Review item N4 (`docs/reviews/graph-code-review.md`) is closed by ADR-0009. Cost impact: $0, +0 reads/writes.
+- Review item N4 (`docs/archive/reviews/graph-code-review.md`) is closed by ADR-0009. Cost impact: $0, +0 reads/writes.
 
 ## Handoff
 - **backend-developer:** T3 `pkg/platform/flags` per D6 (salted bucketing, fail-fast parsing, retirement rule) and
