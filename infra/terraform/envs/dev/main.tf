@@ -338,17 +338,33 @@ module "scheduler" {
 // by hand. Deliberately:
 //  - roles/iam.serviceAccountOpenIdTokenCreator only (iam.serviceAccounts.getOpenIdToken). Never
 //    serviceAccountTokenCreator: that also grants getAccessToken, signBlob and signJwt, which the curl does not need.
-//  - bound on the pubsub-push SA only, with an IAM condition that makes the grant stop working at
-//    cron_test_invoker_expiry (30 days is the intended maximum; the variable validations make an unbounded grant
-//    impossible). After the expiry the binding is inert but stays in the policy: clear the variables and apply.
+//  - bound on the pubsub-push SA only, to ONE person (user:, never a service account or group), with an IAM
+//    condition that makes the grant stop working at cron_test_invoker_expiry. The variable validations fix the format
+//    (UTC only) and the precondition below bounds the value: in the future and at most 31 days after the plan
+//    (30 days is the intended maximum), so an unbounded grant cannot be planned. After the expiry the binding is inert
+//    but stays in the policy, and the precondition then fails local plans until both variables are cleared and applied
+//    (that deletes the binding). A token minted just before the expiry stays valid for up to an hour after it.
 //  - not in envs/prod. A token minted for the pubsub-push SA is accepted by EVERY /internal/* route (the verifier's
 //    allowlist is not per route), so this stays a short, named, dev-only convenience.
+//  - CI plans dev with the variables.tf defaults (no tfvars), so while the binding exists every PR's `plan (dev)`
+//    shows this resource as a destroy. That is the known artifact of a local-only opt-in, not a real change: CI never
+//    applies. The precondition, like the one in modules/cloud-run-api, never fires there (count is 0).
 resource "google_service_account_iam_member" "cron_test_invoker_openid" {
   count = var.cron_test_invoker == "" ? 0 : 1
 
   service_account_id = module.iam.pubsub_push_service_account_name
   role               = "roles/iam.serviceAccountOpenIdTokenCreator"
   member             = var.cron_test_invoker
+
+  lifecycle {
+    precondition {
+      condition = (
+        timecmp(var.cron_test_invoker_expiry, plantimestamp()) > 0 &&
+        timecmp(var.cron_test_invoker_expiry, timeadd(plantimestamp(), "744h")) <= 0
+      )
+      error_message = "cron_test_invoker_expiry must be in the future and at most 31 days after this plan (ADR-0021 D1, security review L-5). If it has expired: remove cron_test_invoker and cron_test_invoker_expiry from terraform.tfvars and apply (that deletes the binding). To renew: set a new expiry at most 30 days out."
+    }
+  }
 
   condition {
     title       = "cron-test-invoker-expiry"

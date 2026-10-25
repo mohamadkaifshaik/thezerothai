@@ -531,24 +531,24 @@ variable "feature_profile_snapshot_percent" {
 # envs/prod has no such variable on purpose. Whether to set them is the founder's decision (docs/pending.md).
 
 variable "cron_test_invoker" {
-  description = "Principal allowed to mint an OIDC identity token for the dev pubsub-push service account, to curl a cron route by hand (ADR-0021 D1), as \"user:someone@example.com\" or \"serviceAccount:name@project.iam.gserviceaccount.com\". Empty (default) = no grant is created. Needs cron_test_invoker_expiry. Groups, domains, allUsers and allAuthenticatedUsers are refused."
+  description = "The one person allowed to mint an OIDC identity token for the dev pubsub-push service account, to curl a cron route by hand (ADR-0021 D1), as \"user:someone@example.com\". Empty (default) = no grant is created. Needs cron_test_invoker_expiry. Service accounts, groups, domains, allUsers and allAuthenticatedUsers are refused: a service account would hand the grant to everything that can act as it (security review L-2)."
   type        = string
   default     = ""
 
   validation {
-    condition     = var.cron_test_invoker == "" || can(regex("^(user|serviceAccount):[^@[:space:]:]+@[^@[:space:]:]+$", var.cron_test_invoker))
-    error_message = "cron_test_invoker must be empty or a single principal such as \"user:someone@example.com\" or \"serviceAccount:name@project.iam.gserviceaccount.com\" (no group:, domain:, allUsers or allAuthenticatedUsers)."
+    condition     = var.cron_test_invoker == "" || can(regex("^user:[^@[:space:]:]+@[^@[:space:]:]+$", var.cron_test_invoker))
+    error_message = "cron_test_invoker must be empty or a single person such as \"user:someone@example.com\" (no serviceAccount:, group:, domain:, allUsers or allAuthenticatedUsers)."
   }
 }
 
 variable "cron_test_invoker_expiry" {
-  description = "RFC 3339 timestamp, for example \"2026-11-24T00:00:00Z\", after which the cron_test_invoker grant stops working (IAM condition request.time < expiry). Required whenever cron_test_invoker is set. 30 days after the apply is the intended maximum. Empty (default) = no grant."
+  description = "UTC timestamp in the exact form \"2026-11-24T00:00:00Z\" after which the cron_test_invoker grant stops working (IAM condition request.time < expiry). Required whenever cron_test_invoker is set. The resource's precondition refuses an expiry that is already past or more than 31 days after the plan (30 days is the intended maximum, one day of slack). Empty (default) = no grant."
   type        = string
   default     = ""
 
   validation {
-    condition     = var.cron_test_invoker_expiry == "" || can(timeadd(var.cron_test_invoker_expiry, "0s"))
-    error_message = "cron_test_invoker_expiry must be an RFC 3339 timestamp such as \"2026-11-24T00:00:00Z\"."
+    condition     = var.cron_test_invoker_expiry == "" || (can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", var.cron_test_invoker_expiry)) && can(timeadd(var.cron_test_invoker_expiry, "0s")))
+    error_message = "cron_test_invoker_expiry must be a UTC timestamp in the form \"2026-11-24T00:00:00Z\" (no offsets, no fractions)."
   }
 
   validation {
