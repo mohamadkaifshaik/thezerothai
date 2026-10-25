@@ -90,8 +90,8 @@ Step "osv-scanner (go.mod + pubspec.lock)" in `ci.yml` scans `backend/go.mod` an
 **fails on any finding** not listed in `osv-scanner.toml`. It is fail-on-any because OSV frequently has no CVSS score for
 Go advisories, so a High/Critical threshold would pass everything. Call analysis is disabled; `govulncheck` (blocking) is
 the reachability gate.
-- Ignores are per-ID, carry a `reason`, and have `ignoreUntil` (currently GO-2026-5932 x/crypto and GO-2026-6443 grpc,
-  until 2026-11-30, both unreachable per govulncheck). Never add a blanket ignore. When one expires, the job fails:
+- Ignores are per-ID, carry a `reason`, and have `ignoreUntil` (currently GO-2026-5932 x/crypto/openpgp, which has no fix and is not imported,
+  until 2027-02-28, unreachable per govulncheck). Never add a blanket ignore. When one expires, the job fails:
   re-check, then either bump the dependency (preferred) or renew with a fresh reason.
 - Run locally from the repo root: `osv-scanner scan --config=osv-scanner.toml --no-call-analysis=go -L backend/go.mod -L app/pubspec.lock`.
 

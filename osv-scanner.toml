@@ -3,16 +3,10 @@
 # "High/Critical only" gate would silently pass everything). Ignores must be narrow (one ID), carry a reason,
 # and expire (ignoreUntil) so they resurface. See docs/runbooks/dependency-updates.md.
 
-# golang.org/x/crypto 0.57.0: no fixed version published; `govulncheck ./...` (blocking in ci.yml) reports the
-# vulnerable symbol is not reachable from our call graph. Re-check when x/crypto ships a fix.
+# golang.org/x/crypto: the advisory is the unmaintained x/crypto/openpgp package. It has no fixed version and will
+# not get one. We do not import openpgp (it is only a transitive module), and `govulncheck ./...` (blocking in
+# ci.yml) finds no reachable call. Renew until a dependency drops x/crypto/openpgp or the advisory is withdrawn.
 [[IgnoredVulns]]
 id = "GO-2026-5932"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "Unreachable: no call path from backend/ per govulncheck; no fixed x/crypto release yet. Tracked by issue #46."
-
-# google.golang.org/grpc 1.84.0: the fix exists only as a 1.85.0-dev pseudo-version; not reachable per govulncheck.
-# Take the fix when grpc 1.85.0 is released (Dependabot gomod PR).
-[[IgnoredVulns]]
-id = "GO-2026-6443"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "Unreachable: no call path from backend/ per govulncheck; fix only in a dev pseudo-version. Bump on grpc 1.85.0 GA. Tracked by issue #46."
+ignoreUntil = 2027-02-28T00:00:00Z
+reason = "Unreachable: no call path from backend/ per govulncheck; the advisory has no fix (unmaintained package we do not import)."
