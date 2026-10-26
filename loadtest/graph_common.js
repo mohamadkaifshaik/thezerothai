@@ -48,10 +48,11 @@ export function mintUsers(n, handlePrefix) {
 }
 
 // rpcCall posts a Connect JSON unary call to any service (T22 reuses it for PostService/TimelineService).
-export function rpcCall(service, method, body, idToken, rpcTag) {
+// extraTags (optional) adds k6 tags next to rpc, e.g. { pass: 'cold', page_size: '20' } (engagement_bookmarks_list).
+export function rpcCall(service, method, body, idToken, rpcTag, extraTags) {
   return http.post(`${API_URL}/${service}/${method}`, JSON.stringify(body), {
     headers: authHeaders(idToken),
-    tags: { rpc: rpcTag || method },
+    tags: Object.assign({ rpc: rpcTag || method }, extraTags || {}),
   });
 }
 
