@@ -1,7 +1,7 @@
 # UI W6: composer extras remainder (polls, drafts on the device, GIFs from the device)
 Plan owner: planner · Date: 2026-10-26 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **New backend surface:**
 
-> **Decision (founder, 2026-10-27):** F2 = yes (the natural-key vote doc is the idempotency record). **GIFs are deferred out of W6:** tickets W6-3, W6-9, W6-10, W6-16, W6-18, W6-23 and W6-24 are Deferred, `FEATURE_GIF` is not created, and F9 to F11 are moot until a later wave. The W6 cost line is polls + drafts only (about INR 0.3 / 4 / 22 per month at 300 / 1,000 / 3,000 DAU).
+> **Decision (founder, 2026-10-27):** F2 = yes (the natural-key vote doc is the idempotency record). GIFs stay in W6: a same-day deferral was withdrawn; F9 to F11 proceed on their stated defaults, with F11 (server-side frame-sampled SafeSearch, which has the API read the uploaded GIF) to be confirmed in ADR W6-1.
 - a poll definition and its counters on `posts/{postId}` (posts module);
 - one write RPC, `VotePoll`, and one new collection, `pollVotes` (engagement module, the ADR-0018 likes pattern);
 - `image/gif` in the media pipeline (media module).
@@ -62,7 +62,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` and `docs/pending.md` sectio
 - **F8. What a draft keeps.** **Text, poll, reply audience and disclosure labels. Photos and GIFs are not kept in v1:** the "Save post?" prompt says "Photos aren't saved in drafts" when photos are attached. Alternatives, both rejected for v1:
   - compressed image bytes on the device: up to about 9 MiB per draft, plus a draft cap and private photos at rest on shared devices;
   - uploaded media ids: READY images are public by link (ADR-0021 L-9), and PENDING ones expire after 2 days.
-- **F9. Where GIFs come from (🔒 roadmap gate "GIF provider terms").** **Your 2026-10-22 decision stands: v1 is a GIF file picked from the device, uploaded through our media pipeline (this plan). A provider picker comes only after Klipy's production terms are verified in writing.** **Deferred with GIFs (founder, 2026-10-27).**
+- **F9. Where GIFs come from (🔒 roadmap gate "GIF provider terms").** **Your 2026-10-22 decision stands: v1 is a GIF file picked from the device, uploaded through our media pipeline (this plan). A provider picker comes only after Klipy's production terms are verified in writing.**
   - The 2026-10-22 research, not re-verified here: Tenor's API shut down on 2026-06-30, and GIPHY is not free for production (its free keys are capped at about 100 calls an hour).
   - The brief for this plan proposed a client-side picker with a restricted key. That is the deferred picker design, W6-23 and W6-24, both conditional.
   - When the picker unlocks, **default (a): copy the chosen GIF through our pipeline.** SafeSearch and the caps apply, no third-party URL appears in posts, and the CSP does not change. This is allowed only if the terms permit re-hosting.
@@ -72,13 +72,13 @@ They are tracked in `docs/plans/composer-w15-w6.md` and `docs/pending.md` sectio
     - content can change after posting;
     - moderation becomes the provider's rating filter instead of SafeSearch.
   - A key used straight from the client at about 100 calls an hour is exhausted by a handful of users. Any picker therefore needs a production key or a server-side cache; W6-23 decides.
-- **F10. GIF size and playback.** **Deferred with GIFs (founder, 2026-10-27).**
+- **F10. GIF size and playback.**
   - **At most 2 MiB (the existing `MaxFullBytes`, so the signed URLs do not change), at most 1,280 px on the long edge, at most 300 frames.**
   - **One GIF per post, not mixed with photos or a poll, and not in scheduled posts (v1).**
   - **Feeds show a static first-frame thumbnail with a "GIF" badge; a tap plays the full file.** "Reduce motion" is respected.
 
   Alternative: autoplay in feeds. It moves about 5× more bytes: GIF egress is about INR 1,660/month at 3,000 DAU instead of about 311 (Cost).
-- **F11. GIF moderation (an architect proposal; you accept the residual risk).** Cloud Vision's list of supported formats is believed to say that an animated GIF is screened on its **first frame only**. **UNVERIFIED: W6-1 must confirm it.** If so, a harmless first frame can carry explicit later frames. Options: **Deferred with GIFs (founder, 2026-10-27).**
+- **F11. GIF moderation (an architect proposal; you accept the residual risk).** Cloud Vision's list of supported formats is believed to say that an animated GIF is screened on its **first frame only**. **UNVERIFIED: W6-1 must confirm it.** If so, a harmless first frame can carry explicit later frames. Options:
   - **(a) Default: sample frames on the server in FinalizeUpload.**
     1. Read the GIF from the private upload bucket (at most 2 MiB, 1 Class B operation, inside the existing free GCS egress).
     2. Decode it under hard guards (A10).
@@ -88,7 +88,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` and `docs/pending.md` sectio
     Clients still upload straight to GCS. **But the API would now read a whole uploaded object (up to 2 MiB) instead of today's 512-byte magic-byte check.** Whether that is consistent with `CLAUDE.md` rule 7 ("media never passes through the API") is **your call, part of accepting F11 (a)**: this plan reads the rule as being about client uploads, not about the server reading an object to moderate it. If you read it strictly, choose (b).
   - (b) Screen the first frame only, accept GIFs only from accounts older than 7 days, and rely on report-driven review.
   - (c) No animation: flatten every GIF to a still. That is today's behaviour, not a GIF feature.
-- **F12. Flags.** **Three: `FEATURE_POLLS` (server), `FEATURE_DRAFTS` (client-only, registered so `GetMe` reports it) and `FEATURE_GIF` (server).** The later picker gets `FEATURE_GIF_SEARCH`, registered only when W6-24 lands. **GIFs deferred (founder, 2026-10-27): two flags for now, `FEATURE_GIF` is not created.**
+- **F12. Flags.** **Three: `FEATURE_POLLS` (server), `FEATURE_DRAFTS` (client-only, registered so `GetMe` reports it) and `FEATURE_GIF` (server).** The later picker gets `FEATURE_GIF_SEARCH`, registered only when W6-24 lands.
 
 ## What exists already (verified on `main` d2ff011)
 | Piece | State | W6 delta |
@@ -356,28 +356,28 @@ Effect on the quotas (additive):
 | --- | --- | --- | --- | --- | --- | --- |
 | W6-1 | ADR-0028 (or the next free number) "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | Open |
 | W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | Open |
-| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | Deferred (founder, 2026-10-27: GIFs deferred) |
+| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | Open |
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | Open |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
 | W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
-| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | Deferred (founder, 2026-10-27: GIFs deferred) |
-| W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Deferred (founder, 2026-10-27: GIFs deferred) |
+| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | Open |
+| W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Open |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
 | W6-14 | Drafts store: drift table (schema v7), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | Open |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
-| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Deferred (founder, 2026-10-27: GIFs deferred) |
+| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
-| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Deferred (founder, 2026-10-27: GIFs deferred) |
+| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Open |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
 | W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Open |
 | W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Open |
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
-| W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Deferred (founder, 2026-10-27: GIFs deferred) |
-| W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Deferred (founder, 2026-10-27: GIFs deferred) |
+| W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open |
+| W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
