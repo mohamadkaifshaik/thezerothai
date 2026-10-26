@@ -355,6 +355,15 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Removes the device setting [key] (no-op when absent). For settings keyed
+  /// by an account (e.g. the push opt-in "Not now"), when that account is
+  /// deleted.
+  Future<void> deleteSetting(String key) {
+    return (delete(
+      appSettingEntries,
+    )..where((t) => t.settingKey.equals(key))).go();
+  }
+
   /// Wipes all cached data. Called on sign-out so the next user on a shared
   /// device never sees a stale profile or follow list (privacy: CLAUDE.md
   /// rule 10). Device settings ([AppSettingEntries]) are kept on purpose.

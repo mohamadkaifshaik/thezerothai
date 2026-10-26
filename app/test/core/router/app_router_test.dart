@@ -13,6 +13,7 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/notifications/data/push_opt_in_store.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
@@ -24,6 +25,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../support/fake_push_opt_in_store.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
@@ -153,6 +156,7 @@ void main() {
           value: MockAccountRepository(),
         ),
         RepositoryProvider<AuthRepository>.value(value: MockAuthRepository()),
+        RepositoryProvider<PushOptInStore>.value(value: FakePushOptInStore()),
         RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
       ],
     );

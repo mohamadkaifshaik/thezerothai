@@ -14,10 +14,18 @@ enum BookmarksListStatus { loading, ready, loadingMore, error }
 /// Bookmarks" with an Undo, once.
 @immutable
 class BookmarkRemoval {
-  const BookmarkRemoval({required this.view, required this.serial});
+  const BookmarkRemoval({
+    required this.view,
+    required this.serial,
+    required this.session,
+  });
 
   /// The row that left the list.
   final pb.PostView view;
+
+  /// The repository's session generation when the row left: an Undo from
+  /// another session (sign-out, sign-in as someone else) must send nothing.
+  final int session;
 
   /// Distinguishes two removals of the same row.
   final int serial;

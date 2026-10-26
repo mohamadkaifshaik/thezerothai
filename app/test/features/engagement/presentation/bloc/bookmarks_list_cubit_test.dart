@@ -382,12 +382,59 @@ void main() {
       expect(cubit.state.failure, isNull);
     });
 
+    group('Undo with a stale session (W2-14 L-5)', () {
+      setUp(() async {
+        server.pages[''] = () => bookmarksPage([3, 2, 1]);
+        await cubit.load();
+        await repo.setBookmarked(postId(2), saved: false, server: true);
+      });
+
+      test('after sign-out and sign-in as another account, Undo sends '
+          'nothing', () async {
+        final removal = cubit.state.removal!;
+        final sent = server.toggles.length;
+
+        // Sign-out, then the next account opens the same screen.
+        overlay.reset();
+        epoch.end();
+        server.pages[''] = () => bookmarksPage([8]);
+        await cubit.load();
+
+        await cubit.restore(removal);
+
+        expect(server.toggles, hasLength(sent), reason: 'no AddBookmark');
+        expect(ids(cubit.state), [postId(8)]);
+        expect(repo.isBookmarked(postId(2)), isFalse);
+      });
+
+      test('after sign-out with no new load, Undo sends nothing', () async {
+        final removal = cubit.state.removal!;
+        final sent = server.toggles.length;
+        overlay.reset();
+        epoch.end();
+
+        await cubit.restore(removal);
+
+        expect(server.toggles, hasLength(sent));
+      });
+
+      test('on a closed cubit Undo sends nothing', () async {
+        final removal = cubit.state.removal!;
+        final sent = server.toggles.length;
+        await cubit.close();
+
+        await cubit.restore(removal);
+
+        expect(server.toggles, hasLength(sent));
+      });
+    });
+
     test('restore (Undo) re-adds through the repository and the row comes '
         'back in place', () async {
       await repo.setBookmarked(postId(2), saved: false, server: true);
       expect(ids(cubit.state), [postId(3), postId(1)]);
 
-      await cubit.restore(cubit.state.removal!.view);
+      await cubit.restore(cubit.state.removal!);
 
       expect(server.toggles.last, isA<eng.AddBookmarkRequest>());
       expect(ids(cubit.state), [postId(3), postId(2), postId(1)]);
@@ -401,7 +448,7 @@ void main() {
         common.ErrorReason.ERROR_REASON_UNSPECIFIED,
       );
 
-      await cubit.restore(cubit.state.removal!.view);
+      await cubit.restore(cubit.state.removal!);
 
       expect(ids(cubit.state), [postId(3), postId(1)]);
       expect(cubit.state.failure!.saving, isTrue);
