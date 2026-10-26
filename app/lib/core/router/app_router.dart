@@ -246,7 +246,77 @@ class AppRouter {
     ],
   );
 
+  // W2-9: the shared link a visitor cold-opened, kept in memory (never in a
+  // visible URL) while the redirects send them through the splash, sign-in and
+  // onboarding. Web sign-in is popup-only, so the page does not reload in
+  // between. Only ever a value [deepLinkTarget] returned.
+  String? _pendingTarget;
+
+  // True once a signed-in visitor has settled on a page: from then on a link
+  // is never stashed again, so signing out and in (maybe as someone else)
+  // goes Home instead of replaying the old location.
+  bool _landed = false;
+
+  static final _deepLinkPatterns = [
+    RegExp(r'^/post/\d{19}$'),
+    RegExp(r'^/u/[^/]+$'),
+    RegExp(r'^/profile/[^/]+$'),
+  ];
+
+  /// The path of [uri] when it is a link worth keeping through the splash,
+  /// sign-in and onboarding (`/post/<19 digits>`, `/u/<id>`,
+  /// `/profile/<handle>`), else null. Only a relative, path-only URI is kept:
+  /// an absolute URL, `//host`, any other route, a query or a fragment never
+  /// becomes a target (no open redirect, no state smuggled in). The returned
+  /// value is the bare path.
+  static String? deepLinkTarget(Uri uri) {
+    if (uri.hasScheme || uri.hasAuthority) return null;
+    final path = uri.path;
+    for (final pattern in _deepLinkPatterns) {
+      if (pattern.hasMatch(path)) return path;
+    }
+    return null;
+  }
+
+  /// The routes a visitor passes through on the way to their target: the
+  /// pending target survives them and is dropped on arrival anywhere else.
+  static bool _isHopPath(String path) =>
+      path == '/' ||
+      path == signInPath ||
+      path == signUpPath ||
+      path == onboardingPath;
+
+  String get _landingPath => _pendingTarget ?? homePath;
+
   String? _redirect(BuildContext context, GoRouterState state) {
+    final result = _resolve(state);
+    // Bookkeeping that is safe to repeat: go_router can call a redirect more
+    // than once for the same location (one auth change and one onboarding
+    // change each refresh it), so landing never consumes the target. Leaving
+    // a shareable location stashes it until the visitor has landed; settling
+    // on any other non-hop page forgets it.
+    final from = state.uri.path;
+    final hop = _isHopPath(from);
+    if (result != null) {
+      final target = deepLinkTarget(state.uri);
+      if (target != null && !_landed) {
+        _pendingTarget = target;
+      } else if (!hop) {
+        _pendingTarget = null;
+      }
+    } else if (!hop) {
+      // Only a settled, ready session counts: while GetMe is loading the
+      // visitor may still be bounced to onboarding and must keep the target.
+      if (_authBloc.state.status == AuthStatus.authenticated &&
+          _onboardingBloc.state.status == OnboardingStatus.ready) {
+        _landed = true;
+      }
+      if (from != _pendingTarget) _pendingTarget = null;
+    }
+    return result;
+  }
+
+  String? _resolve(GoRouterState state) {
     final authState = _authBloc.state;
     final loc = state.matchedLocation;
     final isAuthRoute = loc == signInPath || loc == signUpPath;
@@ -261,7 +331,7 @@ class AppRouter {
 
     // Signed in (authenticated or needsEmailVerification).
     if (isAuthRoute || loc == '/') {
-      return homePath;
+      return _landingPath;
     }
     if (authState.status == AuthStatus.needsEmailVerification) {
       // AuthGate renders the verification prompt in place; no URL change.
@@ -276,7 +346,7 @@ class AppRouter {
             ? null
             : onboardingPath;
       case OnboardingStatus.ready:
-        if (loc == onboardingPath) return homePath;
+        if (loc == onboardingPath) return _landingPath;
         // Only meaningful without a profile; Settings has the real entry.
         if (loc == onboardingDeletePath) return settingsPath;
         return _graphFlagRedirect(loc) ??
