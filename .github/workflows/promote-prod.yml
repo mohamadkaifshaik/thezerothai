@@ -16,7 +16,7 @@ name: Promote prod
 #      ^v[0-9]+\.[0-9]+\.[0-9]+$, a docs/reviews/release-<tag>-readiness.md
 #      with `VERDICT: GO` must exist for that exact tag, and the revision
 #      currently holding the `candidate` traffic tag must be provably built from
-#      that same tag (not a stale rc left over from a different release).
+#      that same tag (not a stale candidate left over from a different release).
 # CLAUDE.md rule: "Never shift prod traffic without a passing
 # production-reviewer verdict" — enforced by the VERDICT: GO check below on
 # every run (both the 10% and the 100% stage), since each stage is a
@@ -36,7 +36,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Percentage of traffic to shift to the rc revision"
+        description: "Percentage of traffic to shift to the candidate revision"
         required: true
         type: choice
         options:
@@ -53,7 +53,7 @@ concurrency:
 
 jobs:
   promote:
-    name: "Promote rc (stage=${{ github.event.inputs.stage }})"
+    name: "Promote candidate (stage=${{ github.event.inputs.stage }})"
     runs-on: ubuntu-latest
     environment: prod # deployment policy restricts this to tag refs matching v* (GitHub Free-compatible)
     steps:
@@ -119,7 +119,7 @@ jobs:
           # Exact Cloud SDK pin (issue #46 / L6); bump per docs/runbooks/dependency-updates.md.
           version: "587.0.0"
 
-      - name: Resolve the rc revision and verify it matches this tag
+      - name: Resolve the candidate revision and verify it matches this tag
         id: rc_rev
         env:
           RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
@@ -146,22 +146,22 @@ jobs:
 
           # release-prod.yml pushes the image with `ko build -t "${RELEASE_TAG}"`, so
           # <repo>/api:<RELEASE_TAG> is a real Artifact Registry tag. Cloud Run pins a
-          # revision to a digest (repo/api@sha256:...). Proving "the revision behind rc
+          # revision to a digest (repo/api@sha256:...). Proving "the revision behind the candidate tag
           # was built from this git tag" = the digest the release tag points to equals
-          # the revision's digest. This catches a stale rc left over from a different
-          # release (the rc traffic tag moves on every release-prod run).
+          # the revision's digest. This catches a stale candidate left over from a different
+          # release (the `candidate` traffic tag moves on every release-prod run).
           # (`gcloud artifacts docker tags list <image@digest>` returns NOT_FOUND and
           # reports tags as full resource paths, so it can't be used for this; verified.)
           repo_image="${image%@*}"
           rev_digest=$(gcloud artifacts docker images describe "${image}" --format='value(image_summary.digest)')
           tag_digest=$(gcloud artifacts docker images describe "${repo_image}:${RELEASE_TAG}" --format='value(image_summary.digest)' || true)
           if [ -z "${rev_digest}" ] || [ "${rev_digest}" != "${tag_digest}" ]; then
-            echo "::error::rc revision '${revision}' (${rev_digest:-unknown digest}) is not the image tagged '${RELEASE_TAG}' (${tag_digest:-tag not found}); rc points at a different release. Re-run release-prod.yml for ${RELEASE_TAG}, then retry this promotion."
+            echo "::error::candidate revision '${revision}' (${rev_digest:-unknown digest}) is not the image tagged '${RELEASE_TAG}' (${tag_digest:-tag not found}); the candidate tag points at a different release. Re-run release-prod.yml for ${RELEASE_TAG}, then retry this promotion."
             exit 1
           fi
 
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
-          echo "Verified rc revision ${revision} (image ${image}) matches tag ${RELEASE_TAG}"
+          echo "Verified candidate revision ${revision} (image ${image}) matches tag ${RELEASE_TAG}"
 
       # Deliberately no `working-directory:` here — firebase-tools reads
       # firebase.json from the step's cwd with no upward directory search, so
@@ -172,9 +172,9 @@ jobs:
       #
       # Security audit L5: this MUST run before either traffic shift below
       # (stage 10 or 100), not just before stage 100 — indexes have to be
-      # READY before the rc revision serves any live traffic, not only before
+      # READY before the candidate revision serves any live traffic, not only before
       # it serves all of it. release-prod.yml already deployed the same
-      # rules/indexes for this tag before staging the rc revision, so this is
+      # rules/indexes for this tag before staging the candidate revision, so this is
       # normally a fast, idempotent no-op; it's a safety net if promotion
       # happens before that had time to finish building, or if rules/indexes
       # changed since (they shouldn't, for a tag that's already built).
