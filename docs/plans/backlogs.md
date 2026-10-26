@@ -8,8 +8,8 @@ Single place for everything deferred from the X-research UI programme (W0 `docs/
 | B-02 | Light-theme disabled-pill and selected-row colours | Not observed on X yet; marked "to confirm" in `app_theme.dart` | Capture on x.com light theme (tab must be the active tab of its window) |
 | B-03 | Profile banner upload (replace the flat 3:1 band) | No media RPC for covers | architect: ADR + proto + media-pipeline change |
 | B-04 | Profile header search icon | Search does not exist yet | Search wave |
-| B-05 | Profile app-bar name fades in only after the header name scrolls away | Needs scroll tracking; name is currently always visible in both places | Small frontend ticket |
-| B-06 | Profile: keep scroll position and a sticky tab bar when switching Posts/Replies | Each tab is its own feed, switching returns to the top | Frontend ticket (nested scroll / `NestedScrollView`) |
+| B-05 | Profile app-bar name fades in only after the header name scrolls away | Needs scroll tracking; name is currently always visible in both places | Closed by W3-13 |
+| B-06 | Profile: keep scroll position and a sticky tab bar when switching Posts/Replies | Each tab is its own feed, switching returns to the top | Closed by W3-13 (`NestedScrollView`) |
 | B-07 | Home "Following" tab is the only tab | Custom list tabs arrive with Lists | Lists wave |
 | B-08 | Share action on posts (the right-aligned slot exists, no handler) | Planned as W2-8 (`docs/plans/ui-w2-engagement-composer-basics.md`): Copy link + native share sheet | Closed by W2-8 |
 | B-09 | Mentions tab: decide whether quotes count; load more automatically while filtered | Only mention + reply rows are included; empty filtered view offers a manual "look through older" button | Product decision |
