@@ -6,15 +6,19 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_store.dart';
+import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
+import 'package:dzeroth/features/notifications/presentation/bloc/push_opt_in_cubit.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/notifications/presentation/notifications_screen.dart';
+import 'package:dzeroth/features/notifications/presentation/widgets/notification_row.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pb.dart'
     as pb;
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
+import 'package:dzeroth/shared/widgets/app_surface.dart';
 import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -23,6 +27,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/fake_push_messaging.dart';
+import '../../../support/fake_push_opt_in_store.dart';
 import '../../../support/notifications_fixtures.dart';
 
 class MockNotificationsRepository extends Mock
@@ -37,6 +42,8 @@ void main() {
   late UnreadBadgeCubit badge;
   late FakePushMessaging messaging;
   late PushCubit push;
+  late PushOptInCubit optIn;
+  late FakePushOptInStore optInStore;
   late List<String> visited;
 
   setUpAll(() {
@@ -49,6 +56,8 @@ void main() {
     badge = UnreadBadgeCubit();
     messaging = FakePushMessaging(supported: false);
     push = PushCubit(messaging: messaging, repository: repo);
+    optInStore = FakePushOptInStore();
+    optIn = PushOptInCubit(store: optInStore, push: push);
     visited = [];
     when(() => repo.enabled).thenReturn(true);
     when(() => repo.sinceRefresh).thenReturn(null);
@@ -58,6 +67,7 @@ void main() {
   });
 
   tearDown(() async {
+    await optIn.close();
     await push.close();
     await badge.close();
   });
@@ -78,6 +88,9 @@ void main() {
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(enabledFeatures: features),
     );
+    await optIn.close();
+    optIn = PushOptInCubit(store: optInStore, push: push);
+    await optIn.load('uid-a');
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -112,6 +125,7 @@ void main() {
             BlocProvider<OnboardingBloc>.value(value: onboarding),
             BlocProvider<UnreadBadgeCubit>.value(value: badge),
             BlocProvider<PushCubit>.value(value: push),
+            BlocProvider<PushOptInCubit>.value(value: optIn),
           ],
           child: MediaQuery(
             data: MediaQueryData(
@@ -419,7 +433,7 @@ void main() {
     expect(find.text('Turn on'), findsNothing);
   });
 
-  testWidgets('push prompt asks the OS only on the tap', (tester) async {
+  testWidgets('opt-in card asks the OS only on the tap', (tester) async {
     final supported = FakePushMessaging();
     final p = PushCubit(messaging: supported, repository: repo);
     addTearDown(p.close);
@@ -438,6 +452,7 @@ void main() {
 
     await open(tester);
 
+    expect(find.text('Turn on notifications'), findsOneWidget);
     expect(find.text('Turn on'), findsOneWidget);
     expect(supported.permissionRequests, 0);
 
@@ -446,6 +461,120 @@ void main() {
 
     expect(supported.permissionRequests, 1);
     expect(find.text('Turn on'), findsNothing);
+    expect(find.text('Turn on notifications'), findsNothing);
+  });
+
+  group('push opt-in card (W2-12)', () {
+    setUp(() async {
+      when(() => repo.deviceId(any())).thenAnswer((_) async => 'd');
+      when(
+        () => repo.registerDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+          fcmToken: any(named: 'fcmToken'),
+          platform: any(named: 'platform'),
+        ),
+      ).thenAnswer((_) async {});
+      stubList(snapshotOfNotifs([notif('a', minutesAgo: 1)], since: 's'));
+      await push.close();
+      messaging = FakePushMessaging();
+      push = PushCubit(messaging: messaging, repository: repo);
+      await push.start();
+    });
+
+    testWidgets('sits at the top, above the rows, below the tabs', (
+      tester,
+    ) async {
+      await open(tester);
+
+      final card = tester.getTopLeft(find.text('Turn on notifications')).dy;
+      expect(card, greaterThan(tester.getBottomLeft(find.text('Mentions')).dy));
+      expect(
+        card,
+        lessThan(tester.getTopLeft(find.byType(NotificationRow).first).dy),
+      );
+    });
+
+    testWidgets('Not now removes it and stays removed for 30 days', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Turn on notifications'), findsNothing);
+      expect(optInStore.records.keys, ['uid-a']);
+
+      await open(tester);
+      expect(find.text('Turn on notifications'), findsNothing);
+    });
+
+    testWidgets('a denial leaves the one-line settings hint', (tester) async {
+      messaging.nextPermissionAnswer = PushPermission.denied;
+      await open(tester);
+      await tester.tap(find.text('Turn on'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Turn on notifications'), findsNothing);
+      expect(
+        find.text('Notifications are off in your device settings'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the notifications flag off: not even the screen builds it', (
+      tester,
+    ) async {
+      await open(tester, features: const {});
+
+      expect(find.text('Turn on notifications'), findsNothing);
+    });
+
+    for (final entry in {
+      'dark': appDarkTheme,
+      'light': appLightTheme,
+    }.entries) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            'responsive ${entry.key} ${width.toInt()}dp x$scale: one card '
+            'above the rows, no overflow, inside the column',
+            (tester) async {
+              await open(
+                tester,
+                theme: entry.value,
+                size: Size(width, 1200),
+                textScale: scale,
+              );
+
+              expect(tester.takeException(), isNull);
+              expect(find.text('Turn on notifications'), findsOneWidget);
+              expect(
+                tester.getSize(find.byType(AppSurface).first).width,
+                lessThanOrEqualTo(AppBreakpoints.mobile),
+              );
+            },
+          );
+        }
+      }
+    }
+
+    for (final dark in [false, true]) {
+      testWidgets(
+        '320dp, 2.0 text, ${dark ? 'dark' : 'light'}: card and rows without overflow',
+        (tester) async {
+          await open(
+            tester,
+            theme: dark ? appDarkTheme : appLightTheme,
+            size: const Size(320, 640),
+            textScale: 2,
+          );
+
+          expect(tester.takeException(), isNull);
+          expect(find.text('Turn on notifications'), findsOneWidget);
+        },
+      );
+    }
   });
 
   testWidgets('narrow width, 2x text and dark theme: no overflow', (

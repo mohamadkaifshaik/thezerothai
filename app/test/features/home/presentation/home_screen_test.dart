@@ -4,6 +4,10 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
+import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
+import 'package:dzeroth/features/notifications/data/push_messaging.dart';
+import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
+import 'package:dzeroth/features/notifications/presentation/bloc/push_opt_in_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -14,9 +18,11 @@ import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/widgets/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/app_surface.dart';
 import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:flutter/material.dart';
@@ -26,11 +32,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/fake_push_messaging.dart';
+import '../../../support/fake_push_opt_in_store.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/timeline_fixtures.dart';
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
+
+class MockNotificationsRepository extends Mock
+    implements NotificationsRepository {}
 
 void main() {
   const feed = FeedKey.home();
@@ -38,7 +49,15 @@ void main() {
   late MockPostsRepository posts;
   late MockOnboardingBloc onboardingBloc;
   late PendingPostsCubit pending;
+  late FakePushMessaging pushMessaging;
+  late FakePushOptInStore optInStore;
+  late PushCubit push;
+  late PushOptInCubit optIn;
   Duration? since;
+
+  setUpAll(() {
+    registerFallbackValue(DevicePlatform.DEVICE_PLATFORM_ANDROID);
+  });
 
   setUp(() {
     since = null;
@@ -46,13 +65,32 @@ void main() {
     posts = MockPostsRepository();
     onboardingBloc = MockOnboardingBloc();
     pending = PendingPostsCubit();
+    pushMessaging = FakePushMessaging();
+    optInStore = FakePushOptInStore();
+    final notifications = MockNotificationsRepository();
+    when(() => notifications.enabled).thenReturn(true);
+    when(() => notifications.deviceId(any())).thenAnswer((_) async => 'd');
+    when(
+      () => notifications.registerDevice(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        deviceId: any(named: 'deviceId'),
+        fcmToken: any(named: 'fcmToken'),
+        platform: any(named: 'platform'),
+      ),
+    ).thenAnswer((_) async {});
+    push = PushCubit(messaging: pushMessaging, repository: notifications);
+    optIn = PushOptInCubit(store: optInStore, push: push);
     when(() => timeline.sinceRefresh(feed)).thenAnswer((_) => since);
     when(() => timeline.sinceRefreshAttempt(feed)).thenAnswer((_) => since);
     when(() => timeline.rateLimitedFor()).thenReturn(null);
     when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
   });
 
-  tearDown(() => pending.close());
+  tearDown(() async {
+    await pending.close();
+    await optIn.close();
+    await push.close();
+  });
 
   TransitionBuilder scaled(double textScale) =>
       (context, child) => MediaQuery(
@@ -109,6 +147,8 @@ void main() {
           providers: [
             BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
             BlocProvider<PendingPostsCubit>.value(value: pending),
+            BlocProvider<PushCubit>.value(value: push),
+            BlocProvider<PushOptInCubit>.value(value: optIn),
           ],
           child: router == null
               ? MaterialApp(
@@ -560,6 +600,128 @@ void main() {
         }
       }
     }
+  });
+
+  group('push opt-in card (W2-12)', () {
+    const title = 'Turn on notifications';
+    const on = {'posts', 'notifications'};
+
+    Future<void> ready() async {
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+      await push.start();
+      await optIn.load('uid-a');
+    }
+
+    testWidgets('shows once above the composer row and the feed', (
+      tester,
+    ) async {
+      await ready();
+      await open(tester, features: on);
+
+      expect(find.text(title), findsOneWidget);
+      final card = tester.getTopLeft(find.text(title)).dy;
+      expect(
+        card,
+        greaterThan(tester.getBottomLeft(find.text('Following')).dy),
+      );
+      expect(card, lessThan(tester.getTopLeft(find.text('Write a post')).dy));
+      expect(card, lessThan(tester.getTopLeft(find.text('post 2')).dy));
+    });
+
+    testWidgets('a refresh does not add a second card', (tester) async {
+      await ready();
+      await open(tester, features: on);
+
+      stubRefresh(snapshotOf([3, 2, 1], since: 's2'));
+      await tester.fling(
+        find.byType(CustomScrollView),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('post 3'), findsOneWidget);
+      expect(find.text(title), findsOneWidget);
+    });
+
+    testWidgets('the notifications flag off: no card', (tester) async {
+      await ready();
+      await open(tester);
+
+      expect(find.text(title), findsNothing);
+    });
+
+    testWidgets('Not now hides it', (tester) async {
+      await ready();
+      await open(tester, features: on);
+
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(title), findsNothing);
+      expect(optInStore.records.keys, ['uid-a']);
+    });
+
+    testWidgets('a denial shows nothing on Home, not even the hint', (
+      tester,
+    ) async {
+      pushMessaging.nextPermissionAnswer = PushPermission.denied;
+      await ready();
+      await open(tester, features: on);
+
+      await tester.tap(find.text('Turn on'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(title), findsNothing);
+      expect(find.textContaining('device settings'), findsNothing);
+    });
+
+    for (final entry in {
+      'dark': appDarkTheme,
+      'light': appLightTheme,
+    }.entries) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            'responsive ${entry.key} ${width.toInt()}dp x$scale: one card, no '
+            'overflow, inside the feed column',
+            (tester) async {
+              tester.view.physicalSize = Size(width, 1600);
+              tester.view.devicePixelRatio = 1;
+              addTearDown(tester.view.reset);
+              await ready();
+
+              await open(
+                tester,
+                features: on,
+                theme: entry.value,
+                textScale: scale,
+              );
+
+              expect(tester.takeException(), isNull);
+              expect(find.text(title), findsOneWidget);
+              expect(find.text('post 2'), findsOneWidget);
+              expect(
+                tester.getSize(find.byType(AppSurface).first).width,
+                lessThanOrEqualTo(AppBreakpoints.mobile),
+              );
+            },
+          );
+        }
+      }
+    }
+
+    testWidgets('320dp, 2.0 text: no overflow', (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await ready();
+      await open(tester, features: on, textScale: 2);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(title), findsOneWidget);
+    });
   });
 
   group('composer entry row', () {

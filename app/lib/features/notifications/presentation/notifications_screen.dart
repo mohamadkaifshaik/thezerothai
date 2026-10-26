@@ -25,6 +25,7 @@ import 'bloc/push_cubit.dart';
 import 'bloc/unread_badge_cubit.dart';
 import 'notifications_error_messages.dart';
 import 'widgets/notification_row.dart';
+import 'widgets/push_opt_in_card.dart';
 
 /// `/notifications` (P6, ADR-0017): the cached list renders at once, one
 /// throttled `since_token` refresh follows, and opening it marks everything
@@ -144,7 +145,14 @@ class _NotificationsViewState extends State<_NotificationsView>
                           ),
                         ),
                       ),
-                      _inset(inset, const _PushPrompt()),
+                      _inset(
+                        inset,
+                        const SliverToBoxAdapter(
+                          child: PushOptInCard(
+                            placement: PushOptInPlacement.notifications,
+                          ),
+                        ),
+                      ),
                       if (state.notice != null)
                         _inset(
                           inset,
@@ -314,60 +322,5 @@ class _NotificationsViewState extends State<_NotificationsView>
       );
     }
     return const SizedBox(height: AppSpacing.lg);
-  }
-}
-
-/// The in-app push prompt: shown only where push exists (iOS/Android), only
-/// while the OS has not been asked. The OS dialog opens on the tap, never at
-/// app start.
-class _PushPrompt extends StatelessWidget {
-  const _PushPrompt();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<PushCubit, PushState>(
-      buildWhen: (a, b) => a.canPrompt != b.canPrompt,
-      builder: (context, state) {
-        if (!state.canPrompt) {
-          return const SliverToBoxAdapter(child: SizedBox.shrink());
-        }
-        final theme = Theme.of(context);
-        final colors = theme.colorScheme;
-        return SliverToBoxAdapter(
-          child: Container(
-            margin: const EdgeInsets.all(AppSpacing.md),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: colors.surfaceContainer,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: colors.outlineVariant),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.notifications_active_outlined,
-                  color: colors.primary,
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Text(
-                    'Get a heads-up when someone follows or mentions you.',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, AppSpacing.minTapTarget),
-                  ),
-                  onPressed: () => context.read<PushCubit>().enable(),
-                  child: const Text('Turn on'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 }
