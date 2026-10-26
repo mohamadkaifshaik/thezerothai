@@ -21,12 +21,26 @@ const rpcDeadline = 8 * time.Second
 // Server adapts Service to engagementv1connect.EngagementServiceHandler.
 type Server struct {
 	engagementv1connect.UnimplementedEngagementServiceHandler
-	svc   Service
-	flags posts.FlagChecker
+	svc       Service
+	bookmarks Bookmarks
+	flags     posts.FlagChecker
 }
 
+// ServerOption customises NewServer.
+type ServerOption func(*Server)
+
+// WithBookmarks supplies the bookmark service behind AddBookmark and RemoveBookmark (ADR-0023). Without it both answer
+// Unimplemented after the flag gate.
+func WithBookmarks(b Bookmarks) ServerOption { return func(s *Server) { s.bookmarks = b } }
+
 // NewServer builds the Connect handler. Use with engagementv1connect.NewEngagementServiceHandler.
-func NewServer(svc Service, fc posts.FlagChecker) *Server { return &Server{svc: svc, flags: fc} }
+func NewServer(svc Service, fc posts.FlagChecker, opts ...ServerOption) *Server {
+	s := &Server{svc: svc, flags: fc}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
 
 var _ engagementv1connect.EngagementServiceHandler = (*Server)(nil)
 

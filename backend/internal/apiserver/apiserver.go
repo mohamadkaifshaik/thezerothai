@@ -281,6 +281,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// links), so the links are bound here, once, synchronously, before ListenAndServe.
 	engagementRepo := engagement.NewFirestoreRepo(fsClient, engagement.WriteDeps{
 		Quotas: quota.New(fsClient), Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
+		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs (ADR-0023 D4)
 	})
 	engagementMod, err := engagement.New(engagement.Deps{
 		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
@@ -288,13 +289,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		LikesPerDay: int64(cfg.Quota.LikesPerDay), NewAccountLikesPerDay: int64(cfg.Quota.NewAccountLikesPerDay),
 		PostsPerDay: int64(cfg.Quota.PostsPerDay), NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow: cfg.Quota.NewAccountWindow, CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
+		// Bookmarks (ADR-0023 D4): the repo is the engagement repo, the quota and the cap are config, not literals.
+		BookmarkRepo: engagementRepo, BookmarksPerDay: int64(cfg.Quota.BookmarksPerDay),
+		NewAccountBookmarksPerDay: int64(cfg.Quota.NewAccountBookmarksPerDay), BookmarksMaxPerUser: cfg.Quota.BookmarksMaxPerUser,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
 	}
 	postsRepo.SetRepostLinks(engagementMod)
 	postsSvc.(interface{ SetRepostLinks(posts.RepostLinks) }).SetRepostLinks(engagementMod)
-	engagementServer := engagement.NewServer(engagementMod, featureFlags)
+	engagementServer := engagement.NewServer(engagementMod, featureFlags, engagement.WithBookmarks(engagementMod))
 	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod), posts.WithScheduler(postsSvc.(posts.Scheduler)))
 	// The removal log is built only when FEATURE_REMOVED_IDS is not off: off means no instance cache, no reads and
 	// no reset of cached client feeds (timeline treats a nil Removals as "no removed_ids"). Allowlist and percent
@@ -341,6 +345,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// FEATURE_SCHEDULED_POSTS is on, because documents outlive the flag; the step runs after reports, before identity.
 	if err := registerScheduledLifecycle(lifecycle, postsRepo); err != nil {
 		return nil, nil, fmt.Errorf("scheduled lifecycle registry: %w", err)
+	}
+	// bookmarks (ADR-0023 D6, D8): the erase step and export section are registered whether or not FEATURE_BOOKMARKS is
+	// on; the step runs after scheduled, before identity.
+	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
+		return nil, nil, fmt.Errorf("bookmarks lifecycle registry: %w", err)
 	}
 	moderationSvc := moderation.New(moderation.Deps{
 		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,

@@ -206,6 +206,13 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	e.seedScheduled(t, a.uid, key("sched-pending"), "PENDING")
 	e.seedScheduled(t, a.uid, key("sched-cancelled"), "CANCELLED")
 
+	// ADR-0023 D8: two bookmarks in the `bookmarks` section, newest first; the section never carries the post's content.
+	for i, at := range []time.Time{time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC), time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)} {
+		if _, err := e.fs.Doc(fmt.Sprintf("users/%s/bookmarks/%019d", a.uid, 701+i)).Set(ctx, map[string]any{"createdAt": at}); err != nil {
+			t.Fatalf("seed bookmark: %v", err)
+		}
+	}
+
 	fHandle, _ := e.profileOf(t, f)
 	for i, text := range []string{
 		"plain ascii post #golden",

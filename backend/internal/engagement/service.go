@@ -59,6 +59,14 @@ type Deps struct {
 	NewAccountPostsPerDay int64
 	NewAccountWindow      time.Duration
 
+	// BookmarkRepo is the storage of AddBookmark and RemoveBookmark (ADR-0023); nil answers them with an internal error.
+	// BookmarksPerDay and NewAccountBookmarksPerDay are the daily AddBookmark quota (200 / 50), BookmarksMaxPerUser the
+	// per-user cap (1,000); all come from config.Quota.
+	BookmarkRepo              BookmarkRepo
+	BookmarksPerDay           int64
+	NewAccountBookmarksPerDay int64
+	BookmarksMaxPerUser       int
+
 	// CacheTTL and CacheEntries size the userLikes cache (config.CacheTTL; 0 entries = default).
 	CacheTTL     time.Duration
 	CacheEntries int
@@ -262,6 +270,10 @@ func noteRejected(ctx context.Context, err error) {
 		switch {
 		case ae.Reason == commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED:
 			logger.SetRequestField(ctx, fieldOutcome, "rejected:quota_exceeded")
+		case ae.Reason == commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED:
+			logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		case ae.Reason == commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED:
+			logger.SetRequestField(ctx, fieldOutcome, "rejected:key_reused")
 		case ae.Code == connect.CodeNotFound:
 			logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
 		default:

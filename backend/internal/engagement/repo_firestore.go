@@ -1,5 +1,5 @@
 // repo_firestore.go is the Firestore implementation of Repo (ADR-0018 D2, D3). Collections owned here:
-// likes/{postId}_{uid}, reposts/{postId}_{uid} and userLikes/{uid}. Every write that touches another module's
+// likes/{postId}_{uid}, reposts/{postId}_{uid} and userLikes/{uid} (bookmarks: repo_bookmarks.go). Every write that touches another module's
 // document goes through that module's seam (posts.EngagementWriter, identity.Counters), appended to the batch or
 // transaction this file commits.
 //
@@ -19,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -51,6 +52,8 @@ type WriteDeps struct {
 	Writer   posts.EngagementWriter
 	Counters identity.Counters
 	IDs      IDGenerator
+	// Idempotency stores the idempotency docs of AddBookmark and RemoveBookmark (ADR-0023 D4); only they use it.
+	Idempotency *idempotency.Store
 }
 
 // FirestoreRepo implements Repo (and Eraser, Exporter, the job's queries) against the shared client.
@@ -86,6 +89,8 @@ type repostDoc struct {
 type userLikesDoc struct {
 	Recent        []string `firestore:"recent"`
 	RecentReposts []string `firestore:"recentReposts"`
+	// Bookmarks is the complete bookmark set (ADR-0023 D3). Only repo_bookmarks.go writes it, always field-level.
+	Bookmarks []string `firestore:"bookmarks"`
 }
 
 func docID(postID, uid string) string { return postID + "_" + uid }

@@ -29,22 +29,24 @@ const (
 		1 /* P7 reports step */ +
 		3 /* P5 engagement: likes, reposts and the posts copy-phase queries, one read each when empty (ADR-0018 D7, D14) */ +
 		1 /* posts phase 2: the user's postRemovals entries by authorId, one read when empty (ADR-0016 amendment 2026-10-18 (b)) */ +
-		1 /* scheduled step: users/{uid}/scheduled page query, one read when empty (ADR-0021) */
+		1 /* scheduled step: users/{uid}/scheduled page query, one read when empty (ADR-0021) */ +
+		1 /* bookmarks step: users/{uid}/bookmarks page query, one read when empty (ADR-0023 D6) */
 	refDeleteWrites  = refFollowing + 2*refFollowers
 	refDeleteDeletes = refPosts + refFollowing + refFollowers + 1 + 3 + 1 + 1 /* P5 userLikes doc */
 	// Plan T16 acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D;
 	// +3 R for the P6 notifications step (ADR-0017 D10) and +1 R for the P7 reports step (ADR-0016 D5): 513 R +
 	// job state. The P4 media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
 	// the account-deletion plan owner (docs/plans/account-deletion-export.md T16).
-	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */ + 1 /* postRemovals by authorId */ + 1 /* scheduled step, ADR-0021 */
+	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */ + 1 /* postRemovals by authorId */ + 1 /* scheduled step, ADR-0021 */ + 1 /* bookmarks step, ADR-0023 D6 */
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
 	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6
 	// notifications section (ADR-0017 D10: the devices query and one notifications page; an empty query bills 1
 	// read), + 1 for the P7 reports section (ADR-0016 D5: one read per page of reports the account filed, minimum 1
 	// for the empty page) = 707, + 2 for the P5 engagement section (ADR-0018 D7: the likes and reposts queries, one
 	// read each when empty) = 709, + 1 for the ADR-0021 scheduled section (one read per page of users/{uid}/scheduled
-	// documents, minimum 1 for the empty page) = 710 (+ the lease claim and status writes of the L-4 amendment).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1
+	// documents, minimum 1 for the empty page) = 710, + 1 for the ADR-0023 bookmarks section (one read per page of
+	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711 (+ the lease claim and status writes of the L-4 amendment).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1 + 1
 	refExportWrites = 2
 )
 

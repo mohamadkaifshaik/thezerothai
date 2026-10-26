@@ -76,14 +76,13 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	}
 	// Defence in depth: authors were removed before querying, but a stale cached entry or a replayed own write
 	// must never surface a blocked or muted author's post. The caller's own posts are always kept.
-	engaged := s.engagementOn(uid)
 	keep := func(p *posts.Post) bool {
 		return isPublic(p) && (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID)) &&
 			embedAllowed(snap, uid, p)
 	}
 	page := Merge(res.sources, limit, keep)
 
-	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, engaged, page.Items), RemovedIds: removed}
+	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, page.Items), RemovedIds: removed}
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -261,18 +260,13 @@ func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.
 	return it
 }
 
-// engagementOn is FEATURE_ENGAGEMENT for uid. It gates only viewer-flag hydration (the userLikes read); the
-// embedded-author filter is a privacy rule and applies regardless.
-func (s *Server) engagementOn(uid string) bool {
-	return s.deps.Viewer != nil && s.deps.Flags != nil && s.deps.Flags.Enabled(uid, posts.EngagementFlagName)
-}
-
-// toViews renders a page with the viewer's flags: one cached userLikes read per request when engaged (0 when the
-// page is empty), else every flag false.
-func (s *Server) toViews(ctx context.Context, uid string, engaged bool, ps []*posts.Post) []*postsv1.PostView {
+// toViews renders a page with the viewer's state: one cached userLikes read per request when FEATURE_ENGAGEMENT or
+// FEATURE_BOOKMARKS is on for uid (0 when the page is empty; posts.HydrateViewer), else every flag false. Without
+// engagement only the bookmarks are hydrated, so no like or repost flag leaks (ADR-0023 D5).
+func (s *Server) toViews(ctx context.Context, uid string, ps []*posts.Post) []*postsv1.PostView {
 	var vs posts.ViewerSet
-	if engaged && len(ps) > 0 {
-		vs = s.deps.Viewer.Viewer(ctx, uid)
+	if len(ps) > 0 {
+		vs = posts.HydrateViewer(ctx, s.deps.Flags, s.deps.Viewer, uid)
 	}
 	out := make([]*postsv1.PostView, 0, len(ps))
 	for _, p := range ps {
@@ -363,14 +357,13 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	if err != nil {
 		return nil, err
 	}
-	engaged := s.engagementOn(caller)
 	// The embed filter is a privacy rule, not a viewer feature: it applies whatever the caller's
-	// FEATURE_ENGAGEMENT state is (the flag only gates viewer-flag hydration).
+	// FEATURE_ENGAGEMENT state is (the flags only gate viewer-flag hydration).
 	items, err := s.filterEmbeds(ctx, caller, target, res.page.Items)
 	if err != nil {
 		return nil, err
 	}
-	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, engaged, items), RemovedIds: removed}
+	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, items), RemovedIds: removed}
 	it := s.tokens(f, md, tok, res.page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)

@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -18,10 +19,10 @@ func (v *stubViewer) Viewer(_ context.Context, _ string) posts.ViewerSet {
 	return posts.ViewerSet{}
 }
 
-// offFor enables every flag except the named one.
-type offFor struct{ name string }
+// offFor enables every flag except the named ones.
+type offFor struct{ names []string }
 
-func (o offFor) Enabled(_, flag string) bool { return flag != o.name }
+func (o offFor) Enabled(_, flag string) bool { return !slices.Contains(o.names, flag) }
 
 // flagOffRig is a rig whose server has FEATURE_ENGAGEMENT off for everyone but a non-nil Viewer wired in, so a
 // regression that gates the privacy filter on the flag (or on a nil Viewer) is caught at the RPC.
@@ -30,7 +31,7 @@ func flagOffRig(t *testing.T) (*rig, *stubViewer) {
 	r := newRig(t)
 	v := &stubViewer{}
 	r.srv = NewServer(Deps{
-		Flags: offFor{posts.EngagementFlagName}, Viewer: v, Posts: r.posts, Graph: r.graph, Directory: r.dir,
+		Flags: offFor{[]string{posts.EngagementFlagName, posts.BookmarksFlagName}}, Viewer: v, Posts: r.posts, Graph: r.graph, Directory: r.dir,
 		CursorKey: testKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: r.clock.Now,
 	})
 	return r, v

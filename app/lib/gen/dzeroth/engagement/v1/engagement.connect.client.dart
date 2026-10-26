@@ -110,7 +110,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// Idempotency (rule 4): idempotency/{hash(uid, "AddBookmark", key)} is stored in the same transaction (TTL'd); a
   /// replay returns the stored state with 0 writes even if the bookmark was removed since, and a different post_id
   /// under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
-  /// fresh key succeeds with 0 writes (the bookmark doc's Create fails AlreadyExists; bookmarked_at is unchanged).
+  /// fresh key succeeds with 1 write, the idempotency doc, so a late retry replays (bookmarked_at is unchanged).
   /// Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
   /// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
   /// adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
@@ -121,7 +121,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
   /// 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
   /// writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
-  /// 0. Already bookmarked, at the cap, or at the quota: writes 0.
+  /// 0. Already bookmarked: writes 1 (idempotency). At the cap or at the quota: writes 0.
   Future<dzerothengagementv1engagement.AddBookmarkResponse> addBookmark(
     dzerothengagementv1engagement.AddBookmarkRequest input, {
     connect.Headers? headers,
@@ -141,13 +141,13 @@ extension type EngagementServiceClient (connect.Transport _transport) {
 
   /// Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
   /// no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
-  /// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 0 writes.
+  /// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 1 write (the idempotency doc).
   /// Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state with 0
   /// writes, so a late retry never removes a bookmark that was added again after it.
   /// One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
-  /// idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the 0-write no-op.
+  /// idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the no-op (1 write: idempotency).
   /// Firestore: reads 2 cold / 1 warm (interceptor, idempotency); writes 2 (idempotency, userLikes) + 1 delete + 1
-  /// TTL delete later; a no-op or replay writes 0.
+  /// TTL delete later; a no-op writes 1 (idempotency), a replay 0.
   Future<dzerothengagementv1engagement.RemoveBookmarkResponse> removeBookmark(
     dzerothengagementv1engagement.RemoveBookmarkRequest input, {
     connect.Headers? headers,

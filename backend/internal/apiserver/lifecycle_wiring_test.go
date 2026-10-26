@@ -189,7 +189,7 @@ func TestRegisterLifecycleModules(t *testing.T) {
 }
 
 // TestRegisterLifecycle_FullOrder pins the deletion order and the export sections exactly as Build registers them
-// (registerLifecycleModules, then engagement, reports and scheduled). The step names are persisted in
+// (registerLifecycleModules, then engagement, reports, scheduled and bookmarks). The step names are persisted in
 // users/{uid}.deletionJob.step and the section names are keys of the export file, so a reorder or rename strands
 // in-flight deletions or breaks exports already handed out (ADR-0011 Q1, ADR-0021: `scheduled` runs after the
 // existing steps and before identity).
@@ -214,16 +214,22 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerScheduledLifecycle(l, postsRepo); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "identity", "auth_delete", "users_doc"}
+	if err := registerBookmarkLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}
 	if err := registerScheduledLifecycle(l, postsRepo); err == nil {
 		t.Error("registering the scheduled step twice was accepted")
+	}
+	if err := registerBookmarkLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err == nil {
+		t.Error("registering the bookmarks step twice was accepted")
 	}
 }
 
@@ -243,6 +249,25 @@ func TestScheduledSection(t *testing.T) {
 		t.Errorf("section %q = %q", s.Name(), buf.String())
 	}
 	if got := scheduledEraserStep(posts.NewScheduledEraser(nil)).Name(); got != "scheduled" {
+		t.Errorf("step name = %q", got)
+	}
+}
+
+type fakeBookmarkSource struct{}
+
+func (fakeBookmarkSource) ExportBookmarksPage(context.Context, string, *posts.Position, int) ([]engagement.ExportedBookmark, error) {
+	return nil, nil
+}
+
+// TestBookmarkSection: the section is named `bookmarks` and streams what engagement.BookmarkExporter writes; the step
+// is named `bookmarks` (its name is persisted in deletionJob.step) and has its own checkpoint type.
+func TestBookmarkSection(t *testing.T) {
+	s := bookmarkSection{engagement.NewBookmarkExporter(fakeBookmarkSource{})}
+	var buf bytes.Buffer
+	if s.Name() != "bookmarks" || s.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != "{\"bookmarks\":[]}\n" {
+		t.Errorf("section %q = %q", s.Name(), buf.String())
+	}
+	if got := bookmarkEraserStep(engagement.NewBookmarkEraser(nil)).Name(); got != "bookmarks" {
 		t.Errorf("step name = %q", got)
 	}
 }

@@ -352,12 +352,12 @@ func TestSweepResidue_CatchesWhatItShouldAndOnlyThat(t *testing.T) {
 	}
 
 	// An unknown root collection or subcollection fails the sweep by name (the runtime twin of the source guard).
-	put("bookmarks/b1", map[string]any{"x": 1})
+	put("pinboards/b1", map[string]any{"x": 1})
 	put("users/"+gone+"/drafts/d1", map[string]any{"x": 1})
 	rec := &recordingT{}
 	sweepResidue(rec, c, gone)
 	joined := strings.Join(rec.errors, "\n")
-	for _, name := range []string{`root collection "bookmarks"`, `subcollection "drafts"`} {
+	for _, name := range []string{`root collection "pinboards"`, `subcollection "drafts"`} {
 		if !strings.Contains(joined, name) {
 			t.Errorf("the sweep did not name %s; it reported: %q", name, joined)
 		}

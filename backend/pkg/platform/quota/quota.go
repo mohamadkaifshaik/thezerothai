@@ -45,6 +45,9 @@ const (
 	// Schedules counts SchedulePost calls that wrote a scheduled doc (ADR-0021 D4, review L-4). A replay is not
 	// charged; CancelScheduledPost and ListScheduledPosts never are. The posts quota is charged at publish, not here.
 	Schedules Kind = "schedules"
+	// Bookmarks counts AddBookmark calls that wrote a bookmark (ADR-0023 D4). A replay and an already bookmarked post
+	// are not charged; RemoveBookmark and ListBookmarks never are.
+	Bookmarks Kind = "bookmarks"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -85,6 +88,9 @@ type Record struct {
 	// Sets the whole record, so a revision built without this field zeroes it on that user's next quota'd call
 	// (ADR-0021 review I-3): a persistent counter must never live here.
 	Schedules int64 `firestore:"schedules"`
+	// Bookmarks counts AddBookmark writes (ADR-0023 D4). Absent in older docs, so it decodes as 0. Like Schedules it lives
+	// in the Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	Bookmarks int64 `firestore:"bookmarks"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -107,6 +113,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.SnapshotEdits
 	case Schedules:
 		return r.Schedules
+	case Bookmarks:
+		return r.Bookmarks
 	default:
 		return 0
 	}
@@ -132,6 +140,8 @@ func (r *Record) increment(k Kind, n int64) {
 		r.SnapshotEdits += n
 	case Schedules:
 		r.Schedules += n
+	case Bookmarks:
+		r.Bookmarks += n
 	}
 }
 

@@ -16,7 +16,7 @@ func TestTimelines_ExistingQuotesDisplayWithQuotesFlagOff(t *testing.T) {
 	mk := func() *rig {
 		r := newRig(t)
 		r.srv = NewServer(Deps{
-			Flags: offFor{"quotes"}, Viewer: &stubViewer{}, Posts: r.posts, Graph: r.graph, Directory: r.dir,
+			Flags: offFor{[]string{"quotes"}}, Viewer: &stubViewer{}, Posts: r.posts, Graph: r.graph, Directory: r.dir,
 			CursorKey: testKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: r.clock.Now,
 		})
 		return r

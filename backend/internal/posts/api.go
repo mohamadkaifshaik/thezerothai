@@ -350,31 +350,66 @@ type PostDeleteJobs interface {
 // still required.
 const EngagementFlagName = "engagement"
 
-// ViewerSet is what a viewer has liked and reposted, from one userLikes read (ADR-0018 D5). The zero value means
-// "nothing", which is also what every flag is while FEATURE_ENGAGEMENT is off. A ViewerSet is read-only.
+// BookmarksFlagName is the wire name of FEATURE_BOOKMARKS (ADR-0023 D5); engagement.BookmarksFlagName is the same
+// string and gates its own RPCs. Here it only widens viewer-state hydration (HydrateViewer).
+const BookmarksFlagName = "bookmarks"
+
+// ViewerSet is what a viewer has liked, reposted and bookmarked, from one userLikes read (ADR-0018 D5, ADR-0023 D3).
+// The zero value means "nothing", which is also what every flag is while FEATURE_ENGAGEMENT is off. A ViewerSet is
+// read-only.
 type ViewerSet struct {
-	liked, reposted map[string]struct{}
+	liked, reposted, bookmarked map[string]struct{}
 }
 
-// NewViewerSet builds a ViewerSet from post-id lists.
+// NewViewerSet builds a ViewerSet from post-id lists (no bookmarks).
 func NewViewerSet(liked, reposted []string) ViewerSet {
-	v := ViewerSet{liked: make(map[string]struct{}, len(liked)), reposted: make(map[string]struct{}, len(reposted))}
+	return NewViewerSetWithBookmarks(liked, reposted, nil)
+}
+
+// NewViewerSetWithBookmarks is NewViewerSet plus the ids the viewer bookmarked (userLikes.bookmarks, ADR-0023 D3).
+func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
+	v := ViewerSet{
+		liked: make(map[string]struct{}, len(liked)), reposted: make(map[string]struct{}, len(reposted)),
+		bookmarked: make(map[string]struct{}, len(bookmarked)),
+	}
 	for _, id := range liked {
 		v.liked[id] = struct{}{}
 	}
 	for _, id := range reposted {
 		v.reposted[id] = struct{}{}
 	}
+	for _, id := range bookmarked {
+		v.bookmarked[id] = struct{}{}
+	}
 	return v
+}
+
+// BookmarksOnly returns v without its liked and reposted sets: what a viewer with FEATURE_BOOKMARKS on but
+// FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags (ADR-0023 D5).
+func (v ViewerSet) BookmarksOnly() ViewerSet { return ViewerSet{bookmarked: v.bookmarked} }
+
+// Bookmarked reports whether the viewer bookmarked the item; for a REPOST item it describes the original
+// (embedded.post_id), as Flags does.
+//
+// TODO(bookmarked_by_viewer): not on the wire yet. PostView.bookmarked_by_viewer = 6 is the architect's founder-gated
+// follow-up (ADR-0023 D3 handoff); ToView must set it from this method once the field exists.
+func (v ViewerSet) Bookmarked(p *Post) bool {
+	_, ok := v.bookmarked[viewerID(p)]
+	return ok
+}
+
+// viewerID is the id viewer flags are keyed by: the post itself, or the original for a REPOST item.
+func viewerID(p *Post) string {
+	if p.Kind == KindRepost && p.Embedded != nil && p.Embedded.PostID != "" {
+		return p.Embedded.PostID
+	}
+	return p.ID
 }
 
 // Flags returns the viewer's flags for an item. For a REPOST item they describe the original (embedded.post_id),
 // as the PostView proto documents.
 func (v ViewerSet) Flags(p *Post) (liked, reposted bool) {
-	id := p.ID
-	if p.Kind == KindRepost && p.Embedded != nil && p.Embedded.PostID != "" {
-		id = p.Embedded.PostID
-	}
+	id := viewerID(p)
 	_, liked = v.liked[id]
 	_, reposted = v.reposted[id]
 	return liked, reposted
@@ -382,9 +417,29 @@ func (v ViewerSet) Flags(p *Post) (liked, reposted bool) {
 
 // ViewerFlags is implemented by engagement and consumed by the GetPost/GetThread handlers and the timelines. One
 // call is one cached userLikes read per request; a failed read degrades to the zero ViewerSet (never an error).
-// Callers invoke it only when FEATURE_ENGAGEMENT is on for the viewer, so the off path performs no read.
+// Callers go through HydrateViewer, which invokes it only when FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the
+// viewer, so the off path performs no read.
 type ViewerFlags interface {
 	Viewer(ctx context.Context, uid string) ViewerSet
+}
+
+// HydrateViewer is the one place that decides whether and how a request hydrates viewer state: nothing (0 reads) when
+// neither FEATURE_ENGAGEMENT nor FEATURE_BOOKMARKS is on for uid, the full set with engagement on, and the bookmarks
+// alone (liked and reposted stripped) with only FEATURE_BOOKMARKS on. Cost: one cached userLikes read, 0 extra
+// (ADR-0023 D3, D5). Staleness bound: the userLikes instance cache TTL (60 s).
+func HydrateViewer(ctx context.Context, fc FlagChecker, vf ViewerFlags, uid string) ViewerSet {
+	if vf == nil || fc == nil {
+		return ViewerSet{}
+	}
+	engagement := fc.Enabled(uid, EngagementFlagName)
+	if !engagement && !fc.Enabled(uid, BookmarksFlagName) {
+		return ViewerSet{}
+	}
+	vs := vf.Viewer(ctx, uid)
+	if !engagement {
+		return vs.BookmarksOnly()
+	}
+	return vs
 }
 
 // ReleaseStager is the part of RepostLinks the clean-up paths (opsctl takedown, the account purge) need: the
