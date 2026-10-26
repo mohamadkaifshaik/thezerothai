@@ -24,6 +24,7 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -218,6 +219,20 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || gp.Msg.GetPost().GetLikedByViewer() || gp.Msg.GetPost().GetRepostedByViewer() {
 		t.Fatalf("GetPost with engagement off = %v, %v: liked/reposted flags must stay false", gp, err)
 	}
+	// ... but the bookmark itself is on the wire (bookmarks-only hydration, ADR-0023 D3/D5), only for the caller who
+	// made it: the author sees false for the same post.
+	if !gp.Msg.GetPost().GetBookmarkedByViewer() {
+		t.Fatalf("GetPost bookmarked_by_viewer = false for the caller's bookmark, want true: %v", gp)
+	}
+	if ga, err := e.posts.GetPost(ctx, authed(a.token, &postsv1.GetPostRequest{PostId: pid})); err != nil || ga.Msg.GetPost().GetBookmarkedByViewer() {
+		t.Fatalf("GetPost by the author = %v, %v: another user's bookmark must not show", ga, err)
+	}
+	// The timelines carry it too: the author's profile timeline as seen by B, liked/reposted still false.
+	if ut, err := e.timeline.GetUserTimeline(ctx, authed(b.token, &timelinev1.GetUserTimelineRequest{UserId: a.uid, PageSize: 10})); err != nil ||
+		len(ut.Msg.GetPosts()) != 1 || !ut.Msg.GetPosts()[0].GetBookmarkedByViewer() ||
+		ut.Msg.GetPosts()[0].GetLikedByViewer() || ut.Msg.GetPosts()[0].GetRepostedByViewer() {
+		t.Fatalf("GetUserTimeline = %v, %v: want bookmarked_by_viewer only", ut, err)
+	}
 
 	// Replay: the stored state, 5 reads at most and 0 writes.
 	st, err = e.add(b, addKey, pid)
@@ -233,6 +248,10 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	other := e.post(t, a, "another")
 	_, err = e.add(b, addKey, other)
 	assertReason(t, wireError(t, err, connect.CodeInvalidArgument), commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+	// ... and a post B never bookmarked is false.
+	if go1, err := e.posts.GetPost(ctx, authed(b.token, &postsv1.GetPostRequest{PostId: other})); err != nil || go1.Msg.GetPost().GetBookmarkedByViewer() {
+		t.Fatalf("GetPost of a post outside the set = %v, %v: bookmarked_by_viewer must be false", go1, err)
+	}
 
 	// A fresh key for the bookmarked post: success, 1 write (the idempotency doc), no quota charge.
 	st, err = e.add(b, contractKey("bm-add"), pid)
@@ -255,6 +274,10 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	}
 	if e.bookmarkDocExists(t, b.uid, pid) || len(e.bookmarkIDs(t, b.uid)) != 0 {
 		t.Error("bookmark or its array entry survived RemoveBookmark")
+	}
+	// The viewer set follows the write (the instance cache is updated from it): the removed bookmark reads false.
+	if gr, err := e.posts.GetPost(ctx, authed(b.token, &postsv1.GetPostRequest{PostId: pid})); err != nil || gr.Msg.GetPost().GetBookmarkedByViewer() {
+		t.Fatalf("GetPost after RemoveBookmark = %v, %v: bookmarked_by_viewer must be false", gr, err)
 	}
 	if rec, _ := e.fs.Doc("userLikes/" + b.uid).Get(ctx); rec != nil {
 		if v, _ := rec.DataAt("recent"); fmt.Sprint(v) != "["+pid+"]" {

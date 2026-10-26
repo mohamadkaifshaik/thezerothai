@@ -73,12 +73,14 @@ func embeddedToProto(e *Embedded) *postsv1.EmbeddedPost {
 	return out
 }
 
-// ToView converts a Post to the PostView the clients render, with the viewer's like/repost flags from vs (the
-// zero ViewerSet gives false/false, which is what every response carried before P5) and the viewer's reply hint
-// (replyPermissionFor, 0 reads; never flag-gated, it only describes stored data).
+// ToView converts a Post to the PostView the clients render, with the viewer's like/repost/bookmark flags from vs
+// (the zero ViewerSet gives false/false/false, which is what every response carried before P5) and the viewer's reply
+// hint (replyPermissionFor, 0 reads; never flag-gated, it only describes stored data). bookmarked_by_viewer is
+// ViewerSet.Bookmarked (ADR-0023 D3): HydrateViewer decides whether the set is filled, so this adds no read.
 func ToView(p *Post, vs ViewerSet, viewer string) *postsv1.PostView {
 	liked, reposted := vs.Flags(p)
 	return &postsv1.PostView{Post: ToProto(p), LikedByViewer: liked, RepostedByViewer: reposted,
+		BookmarkedByViewer:    vs.Bookmarked(p),
 		ViewerReplyPermission: replyPermissionFor(p, viewer)}
 }
 
