@@ -149,14 +149,30 @@ type Profile struct {
 	// 96 px avatar for lists; empty if none.
 	AvatarThumbUrl string `protobuf:"bytes,6,opt,name=avatar_thumb_url,json=avatarThumbUrl,proto3" json:"avatar_thumb_url,omitempty"`
 	// Always false until private accounts ship (ADR-0008 D1).
-	IsPrivate      bool                   `protobuf:"varint,7,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
-	Verified       bool                   `protobuf:"varint,8,opt,name=verified,proto3" json:"verified,omitempty"`
-	FollowersCount int64                  `protobuf:"varint,9,opt,name=followers_count,json=followersCount,proto3" json:"followers_count,omitempty"`
-	FollowingCount int64                  `protobuf:"varint,10,opt,name=following_count,json=followingCount,proto3" json:"following_count,omitempty"`
-	PostsCount     int64                  `protobuf:"varint,11,opt,name=posts_count,json=postsCount,proto3" json:"posts_count,omitempty"`
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	IsPrivate      bool  `protobuf:"varint,7,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
+	Verified       bool  `protobuf:"varint,8,opt,name=verified,proto3" json:"verified,omitempty"`
+	FollowersCount int64 `protobuf:"varint,9,opt,name=followers_count,json=followersCount,proto3" json:"followers_count,omitempty"`
+	FollowingCount int64 `protobuf:"varint,10,opt,name=following_count,json=followingCount,proto3" json:"following_count,omitempty"`
+	PostsCount     int64 `protobuf:"varint,11,opt,name=posts_count,json=postsCount,proto3" json:"posts_count,omitempty"`
+	// Clients render "Joined Month YYYY" from this (ADR-0024 D2; no extra field).
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Profile extras (ADR-0024). Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
+	// pinned_post_id is withheld while the flag is globally off (D3, D9).
+	// 1500 x 500 banner (cover image, 3:1; ADR-0024 D1); empty if none. A new banner has a new URL (immutable object).
+	BannerUrl string `protobuf:"bytes,13,opt,name=banner_url,json=bannerUrl,proto3" json:"banner_url,omitempty"`
+	// 600 x 200 banner for small layouts; empty if none.
+	BannerThumbUrl string `protobuf:"bytes,14,opt,name=banner_thumb_url,json=bannerThumbUrl,proto3" json:"banner_thumb_url,omitempty"`
+	// Free-text location, <= 30 code points, single line (ADR-0024 D2); empty if none.
+	Location string `protobuf:"bytes,15,opt,name=location,proto3" json:"location,omitempty"`
+	// An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme (ADR-0024 D2); empty if none.
+	// Show the host only (punycode for a non-ASCII host) and open it outside the app. The server never fetches it.
+	Website string `protobuf:"bytes,16,opt,name=website,proto3" json:"website,omitempty"`
+	// The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
+	// globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
+	// Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
+	PinnedPostId  string `protobuf:"bytes,17,opt,name=pinned_post_id,json=pinnedPostId,proto3" json:"pinned_post_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Profile) Reset() {
@@ -271,6 +287,41 @@ func (x *Profile) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Profile) GetBannerUrl() string {
+	if x != nil {
+		return x.BannerUrl
+	}
+	return ""
+}
+
+func (x *Profile) GetBannerThumbUrl() string {
+	if x != nil {
+		return x.BannerThumbUrl
+	}
+	return ""
+}
+
+func (x *Profile) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
+}
+
+func (x *Profile) GetWebsite() string {
+	if x != nil {
+		return x.Website
+	}
+	return ""
+}
+
+func (x *Profile) GetPinnedPostId() string {
+	if x != nil {
+		return x.PinnedPostId
+	}
+	return ""
 }
 
 type CreateProfileRequest struct {
@@ -725,6 +776,22 @@ type UpdateProfileRequest struct {
 	// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar.
 	AvatarMediaId *string `protobuf:"bytes,4,opt,name=avatar_media_id,json=avatarMediaId,proto3,oneof" json:"avatar_media_id,omitempty"`
 	IsPrivate     *bool   `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
+	// ADR-0024 profile extras: the four fields below need FEATURE_PROFILE_EXTRAS on for the caller (see UpdateProfile).
+	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
+	// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
+	// MEDIA_NOT_READY, one answer for every cause. A replaced banner's objects are kept until account deletion.
+	BannerMediaId *string `protobuf:"bytes,6,opt,name=banner_media_id,json=bannerMediaId,proto3,oneof" json:"banner_media_id,omitempty"`
+	// <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
+	// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it (ADR-0024 D2).
+	Location *string `protobuf:"bytes,7,opt,name=location,proto3,oneof" json:"location,omitempty"`
+	// <= 100 characters after trim; an absolute URL with scheme https or http, a non-empty host, no userinfo and no
+	// control, whitespace or bidi characters; else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "website".
+	// Stored as typed with the scheme lower-cased. "" clears it (ADR-0024 D2).
+	Website *string `protobuf:"bytes,8,opt,name=website,proto3,oneof" json:"website,omitempty"`
+	// The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins (ADR-0024 D3). Every other
+	// case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
+	// metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
+	PinnedPostId  *string `protobuf:"bytes,9,opt,name=pinned_post_id,json=pinnedPostId,proto3,oneof" json:"pinned_post_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -792,6 +859,34 @@ func (x *UpdateProfileRequest) GetIsPrivate() bool {
 		return *x.IsPrivate
 	}
 	return false
+}
+
+func (x *UpdateProfileRequest) GetBannerMediaId() string {
+	if x != nil && x.BannerMediaId != nil {
+		return *x.BannerMediaId
+	}
+	return ""
+}
+
+func (x *UpdateProfileRequest) GetLocation() string {
+	if x != nil && x.Location != nil {
+		return *x.Location
+	}
+	return ""
+}
+
+func (x *UpdateProfileRequest) GetWebsite() string {
+	if x != nil && x.Website != nil {
+		return *x.Website
+	}
+	return ""
+}
+
+func (x *UpdateProfileRequest) GetPinnedPostId() string {
+	if x != nil && x.PinnedPostId != nil {
+		return *x.PinnedPostId
+	}
+	return ""
 }
 
 type UpdateProfileResponse struct {
@@ -1246,7 +1341,7 @@ var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa1\x03\n" +
+	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc6\x04\n" +
 	"\aProfile\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1264,7 +1359,13 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\vposts_count\x18\v \x01(\x03R\n" +
 	"postsCount\x129\n" +
 	"\n" +
-	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"z\n" +
+	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"banner_url\x18\r \x01(\tR\tbannerUrl\x12(\n" +
+	"\x10banner_thumb_url\x18\x0e \x01(\tR\x0ebannerThumbUrl\x12\x1a\n" +
+	"\blocation\x18\x0f \x01(\tR\blocation\x12\x18\n" +
+	"\awebsite\x18\x10 \x01(\tR\awebsite\x12$\n" +
+	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\"z\n" +
 	"\x14CreateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1288,18 +1389,27 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +
 	"\x06target\"L\n" +
 	"\x12GetProfileResponse\x126\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\x8b\x02\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xe3\x03\n" +
 	"\x14UpdateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12&\n" +
 	"\fdisplay_name\x18\x02 \x01(\tH\x00R\vdisplayName\x88\x01\x01\x12\x15\n" +
 	"\x03bio\x18\x03 \x01(\tH\x01R\x03bio\x88\x01\x01\x12+\n" +
 	"\x0favatar_media_id\x18\x04 \x01(\tH\x02R\ravatarMediaId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"is_private\x18\x05 \x01(\bH\x03R\tisPrivate\x88\x01\x01B\x0f\n" +
+	"is_private\x18\x05 \x01(\bH\x03R\tisPrivate\x88\x01\x01\x12+\n" +
+	"\x0fbanner_media_id\x18\x06 \x01(\tH\x04R\rbannerMediaId\x88\x01\x01\x12\x1f\n" +
+	"\blocation\x18\a \x01(\tH\x05R\blocation\x88\x01\x01\x12\x1d\n" +
+	"\awebsite\x18\b \x01(\tH\x06R\awebsite\x88\x01\x01\x12)\n" +
+	"\x0epinned_post_id\x18\t \x01(\tH\aR\fpinnedPostId\x88\x01\x01B\x0f\n" +
 	"\r_display_nameB\x06\n" +
 	"\x04_bioB\x12\n" +
 	"\x10_avatar_media_idB\r\n" +
-	"\v_is_private\"O\n" +
+	"\v_is_privateB\x12\n" +
+	"\x10_banner_media_idB\v\n" +
+	"\t_locationB\n" +
+	"\n" +
+	"\b_websiteB\x11\n" +
+	"\x0f_pinned_post_id\"O\n" +
 	"\x15UpdateProfileResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"]\n" +
 	"\x13ChangeHandleRequest\x12'\n" +

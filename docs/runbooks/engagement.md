@@ -10,6 +10,7 @@ Cleanup (the `post_delete` job, Eraser, export) is never flag-gated. Kill switch
 | `engagement` | `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]` / `feature_engagement*` | LikePost, UnlikePost, RepostPost, UndoRepost, viewer flags; required by `quotes` | off |
 | `quotes` | `FEATURE_QUOTES[_ALLOWLIST\|_PERCENT]` / `feature_quotes*` | `CreatePost.quote_of_post_id` only (needs `engagement` on too; ADR-0018 amendment 2026-10-18) | off |
 | `bookmarks` | `FEATURE_BOOKMARKS[_ALLOWLIST\|_PERCENT]` / `feature_bookmarks*` | AddBookmark needs it on for the caller; ListBookmarks and RemoveBookmark only need it not globally off (ADR-0023 D5); needs FEATURE_POSTS, not `engagement`. All three RPCs are live behind it (W2-3, W2-4). The runbook is `docs/runbooks/bookmarks.md` | off |
+| `likes_list` | `FEATURE_LIKES_LIST[_ALLOWLIST|_PERCENT]` / `feature_likes_list*` | ListLikedPosts needs it on for the caller (ADR-0024 D6, D9); needs FEATURE_POSTS, not `engagement`. Without it: `FEATURE_DISABLED` `feature=likes_list`, 0 reads. W3-4 registers the flag and the gate only: the handler answers Unimplemented behind it until W3-10. Rate limit `RATE_LIMIT_LIKES_LIST_PER_MIN` (10/min per instance). Kill switch: set it to `off` and deploy, nothing stored changes | off |
 
 Quote rollback: set `FEATURE_QUOTES=off` (or lower the percent) and deploy. New quotes are refused with `FEATURE_DISABLED`
 `feature=quotes`; existing quotes keep displaying (display never consults the flag), likes and reposts are unaffected.

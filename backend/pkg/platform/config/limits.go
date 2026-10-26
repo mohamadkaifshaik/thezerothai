@@ -36,6 +36,22 @@ type RateLimitConfig struct {
 	// and 20k deletes a day free quotas.
 	BookmarkMutationsPerDay int64
 
+	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket (ADR-0024 D10), env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
+	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
+	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60 (0 reads warm). All are per instance, so the
+	// effective ceiling is x max-instances (30, 30 and 180 per minute with 3).
+	SuggestionsPerUserPerMinute         int
+	LikesListPerUserPerMinute           int
+	ProfileRelationshipPerUserPerMinute int
+
+	// SuggestionsCallsPerDay is the in-memory daily cap on ListSuggestedUsers calls (one counter per uid per instance,
+	// ratelimit.DailyCap), env SUGGESTIONS_CALLS_PER_DAY, logged as limit_name "suggestions_daily" (ADR-0024 D10).
+	//
+	// Default 50. Worst case per account per day: 50 calls x 42 cold reads x 3 instances (the cap is per instance) = 6,300
+	// reads, already bounded by the per-uid daily read budget (READ_BUDGET_PER_UID_PER_DAY, ADR-0010 D5). A warm call costs
+	// 1 read (the per-viewer cache, SUGGESTIONS_CACHE_TTL).
+	SuggestionsCallsPerDay int64
+
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
 	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is

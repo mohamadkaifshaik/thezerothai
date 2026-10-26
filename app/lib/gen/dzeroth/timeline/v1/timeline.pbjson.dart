@@ -21,6 +21,25 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
 import '../../common/v1/common.pbjson.dart' as $1;
 import '../../posts/v1/posts.pbjson.dart' as $0;
 
+@$core.Deprecated('Use userTimelineTabDescriptor instead')
+const UserTimelineTab$json = {
+  '1': 'UserTimelineTab',
+  '2': [
+    {'1': 'USER_TIMELINE_TAB_UNSPECIFIED', '2': 0},
+    {'1': 'USER_TIMELINE_TAB_POSTS', '2': 1},
+    {'1': 'USER_TIMELINE_TAB_REPLIES', '2': 2},
+    {'1': 'USER_TIMELINE_TAB_MEDIA', '2': 3},
+    {'1': 'USER_TIMELINE_TAB_REPOSTS', '2': 4},
+  ],
+};
+
+/// Descriptor for `UserTimelineTab`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List userTimelineTabDescriptor = $convert.base64Decode(
+    'Cg9Vc2VyVGltZWxpbmVUYWISIQodVVNFUl9USU1FTElORV9UQUJfVU5TUEVDSUZJRUQQABIbCh'
+    'dVU0VSX1RJTUVMSU5FX1RBQl9QT1NUUxABEh0KGVVTRVJfVElNRUxJTkVfVEFCX1JFUExJRVMQ'
+    'AhIbChdVU0VSX1RJTUVMSU5FX1RBQl9NRURJQRADEh0KGVVTRVJfVElNRUxJTkVfVEFCX1JFUE'
+    '9TVFMQBA==');
+
 @$core.Deprecated('Use getHomeTimelineRequestDescriptor instead')
 const GetHomeTimelineRequest$json = {
   '1': 'GetHomeTimelineRequest',
@@ -72,6 +91,14 @@ const GetUserTimelineRequest$json = {
     {'1': 'page_size', '3': 3, '4': 1, '5': 5, '10': 'pageSize'},
     {'1': 'page_token', '3': 4, '4': 1, '5': 9, '10': 'pageToken'},
     {'1': 'since_token', '3': 5, '4': 1, '5': 9, '10': 'sinceToken'},
+    {
+      '1': 'tab',
+      '3': 6,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.timeline.v1.UserTimelineTab',
+      '10': 'tab'
+    },
   ],
 };
 
@@ -80,7 +107,8 @@ final $typed_data.Uint8List getUserTimelineRequestDescriptor = $convert.base64De
     'ChZHZXRVc2VyVGltZWxpbmVSZXF1ZXN0EhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBInCg9pbm'
     'NsdWRlX3JlcGxpZXMYAiABKAhSDmluY2x1ZGVSZXBsaWVzEhsKCXBhZ2Vfc2l6ZRgDIAEoBVII'
     'cGFnZVNpemUSHQoKcGFnZV90b2tlbhgEIAEoCVIJcGFnZVRva2VuEh8KC3NpbmNlX3Rva2VuGA'
-    'UgASgJUgpzaW5jZVRva2Vu');
+    'UgASgJUgpzaW5jZVRva2VuEjYKA3RhYhgGIAEoDjIkLmR6ZXJvdGgudGltZWxpbmUudjEuVXNl'
+    'clRpbWVsaW5lVGFiUgN0YWI=');
 
 @$core.Deprecated('Use getUserTimelineResponseDescriptor instead')
 const GetUserTimelineResponse$json = {

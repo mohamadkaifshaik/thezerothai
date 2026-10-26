@@ -38,6 +38,11 @@ class Profile extends $pb.GeneratedMessage {
     $fixnum.Int64? followingCount,
     $fixnum.Int64? postsCount,
     $0.Timestamp? createdAt,
+    $core.String? bannerUrl,
+    $core.String? bannerThumbUrl,
+    $core.String? location,
+    $core.String? website,
+    $core.String? pinnedPostId,
   }) {
     final result = Profile._();
     if (userId != null) result.userId = userId;
@@ -52,6 +57,11 @@ class Profile extends $pb.GeneratedMessage {
     if (followingCount != null) result.followingCount = followingCount;
     if (postsCount != null) result.postsCount = postsCount;
     if (createdAt != null) result.createdAt = createdAt;
+    if (bannerUrl != null) result.bannerUrl = bannerUrl;
+    if (bannerThumbUrl != null) result.bannerThumbUrl = bannerThumbUrl;
+    if (location != null) result.location = location;
+    if (website != null) result.website = website;
+    if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
     return result;
   }
 
@@ -82,6 +92,11 @@ class Profile extends $pb.GeneratedMessage {
     ..aInt64(11, _omitFieldNames ? '' : 'postsCount')
     ..aOM<$0.Timestamp>(12, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $0.Timestamp.$_createMessage)
+    ..aOS(13, _omitFieldNames ? '' : 'bannerUrl')
+    ..aOS(14, _omitFieldNames ? '' : 'bannerThumbUrl')
+    ..aOS(15, _omitFieldNames ? '' : 'location')
+    ..aOS(16, _omitFieldNames ? '' : 'website')
+    ..aOS(17, _omitFieldNames ? '' : 'pinnedPostId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -209,6 +224,7 @@ class Profile extends $pb.GeneratedMessage {
   @$pb.TagNumber(11)
   void clearPostsCount() => $_clearField(11);
 
+  /// Clients render "Joined Month YYYY" from this (ADR-0024 D2; no extra field).
   @$pb.TagNumber(12)
   $0.Timestamp get createdAt => $_getN(11);
   @$pb.TagNumber(12)
@@ -219,6 +235,61 @@ class Profile extends $pb.GeneratedMessage {
   void clearCreatedAt() => $_clearField(12);
   @$pb.TagNumber(12)
   $0.Timestamp ensureCreatedAt() => $_ensure(11);
+
+  /// Profile extras (ADR-0024). Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
+  /// pinned_post_id is withheld while the flag is globally off (D3, D9).
+  /// 1500 x 500 banner (cover image, 3:1; ADR-0024 D1); empty if none. A new banner has a new URL (immutable object).
+  @$pb.TagNumber(13)
+  $core.String get bannerUrl => $_getSZ(12);
+  @$pb.TagNumber(13)
+  set bannerUrl($core.String value) => $_setString(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasBannerUrl() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearBannerUrl() => $_clearField(13);
+
+  /// 600 x 200 banner for small layouts; empty if none.
+  @$pb.TagNumber(14)
+  $core.String get bannerThumbUrl => $_getSZ(13);
+  @$pb.TagNumber(14)
+  set bannerThumbUrl($core.String value) => $_setString(13, value);
+  @$pb.TagNumber(14)
+  $core.bool hasBannerThumbUrl() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearBannerThumbUrl() => $_clearField(14);
+
+  /// Free-text location, <= 30 code points, single line (ADR-0024 D2); empty if none.
+  @$pb.TagNumber(15)
+  $core.String get location => $_getSZ(14);
+  @$pb.TagNumber(15)
+  set location($core.String value) => $_setString(14, value);
+  @$pb.TagNumber(15)
+  $core.bool hasLocation() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearLocation() => $_clearField(15);
+
+  /// An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme (ADR-0024 D2); empty if none.
+  /// Show the host only (punycode for a non-ASCII host) and open it outside the app. The server never fetches it.
+  @$pb.TagNumber(16)
+  $core.String get website => $_getSZ(15);
+  @$pb.TagNumber(16)
+  set website($core.String value) => $_setString(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasWebsite() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearWebsite() => $_clearField(16);
+
+  /// The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
+  /// globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
+  /// Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
+  @$pb.TagNumber(17)
+  $core.String get pinnedPostId => $_getSZ(16);
+  @$pb.TagNumber(17)
+  set pinnedPostId($core.String value) => $_setString(16, value);
+  @$pb.TagNumber(17)
+  $core.bool hasPinnedPostId() => $_has(16);
+  @$pb.TagNumber(17)
+  void clearPinnedPostId() => $_clearField(17);
 }
 
 class CreateProfileRequest extends $pb.GeneratedMessage {
@@ -815,6 +886,10 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     $core.String? bio,
     $core.String? avatarMediaId,
     $core.bool? isPrivate,
+    $core.String? bannerMediaId,
+    $core.String? location,
+    $core.String? website,
+    $core.String? pinnedPostId,
   }) {
     final result = UpdateProfileRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -822,6 +897,10 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     if (bio != null) result.bio = bio;
     if (avatarMediaId != null) result.avatarMediaId = avatarMediaId;
     if (isPrivate != null) result.isPrivate = isPrivate;
+    if (bannerMediaId != null) result.bannerMediaId = bannerMediaId;
+    if (location != null) result.location = location;
+    if (website != null) result.website = website;
+    if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
     return result;
   }
 
@@ -844,6 +923,10 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'bio')
     ..aOS(4, _omitFieldNames ? '' : 'avatarMediaId')
     ..aOB(5, _omitFieldNames ? '' : 'isPrivate')
+    ..aOS(6, _omitFieldNames ? '' : 'bannerMediaId')
+    ..aOS(7, _omitFieldNames ? '' : 'location')
+    ..aOS(8, _omitFieldNames ? '' : 'website')
+    ..aOS(9, _omitFieldNames ? '' : 'pinnedPostId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -914,6 +997,54 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   $core.bool hasIsPrivate() => $_has(4);
   @$pb.TagNumber(5)
   void clearIsPrivate() => $_clearField(5);
+
+  /// ADR-0024 profile extras: the four fields below need FEATURE_PROFILE_EXTRAS on for the caller (see UpdateProfile).
+  /// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
+  /// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
+  /// MEDIA_NOT_READY, one answer for every cause. A replaced banner's objects are kept until account deletion.
+  @$pb.TagNumber(6)
+  $core.String get bannerMediaId => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set bannerMediaId($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasBannerMediaId() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearBannerMediaId() => $_clearField(6);
+
+  /// <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
+  /// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it (ADR-0024 D2).
+  @$pb.TagNumber(7)
+  $core.String get location => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set location($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasLocation() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearLocation() => $_clearField(7);
+
+  /// <= 100 characters after trim; an absolute URL with scheme https or http, a non-empty host, no userinfo and no
+  /// control, whitespace or bidi characters; else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "website".
+  /// Stored as typed with the scheme lower-cased. "" clears it (ADR-0024 D2).
+  @$pb.TagNumber(8)
+  $core.String get website => $_getSZ(7);
+  @$pb.TagNumber(8)
+  set website($core.String value) => $_setString(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasWebsite() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearWebsite() => $_clearField(8);
+
+  /// The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins (ADR-0024 D3). Every other
+  /// case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
+  /// metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
+  @$pb.TagNumber(9)
+  $core.String get pinnedPostId => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set pinnedPostId($core.String value) => $_setString(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasPinnedPostId() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearPinnedPostId() => $_clearField(9);
 }
 
 class UpdateProfileResponse extends $pb.GeneratedMessage {
@@ -1623,7 +1754,14 @@ class IdentityServiceApi {
   /// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
   /// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
   /// (writes = author's post count; limited to 1 toggle/day).
-  /// Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
+  /// Profile extras (ADR-0024 D1-D3, D9): banner_media_id, location, website and pinned_post_id need
+  /// FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the caller; any of them set while it is off =>
+  /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes. The display_name, bio
+  /// and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+  /// and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
+  /// Firestore: reads 2 cold / 1 warm (users + avatar media), +1 per banner resolve (the media doc), +1 per pin check
+  /// (the post, cache-first: 1 cold / 0 warm); 4 worst cold with a banner and a pin, planning 2 (ADR-0024 D13);
+  /// writes 1 (+ async jobs above).
   $async.Future<UpdateProfileResponse> updateProfile(
           $pb.ClientContext? ctx, UpdateProfileRequest request) =>
       _client.invoke<UpdateProfileResponse>(ctx, 'IdentityService',

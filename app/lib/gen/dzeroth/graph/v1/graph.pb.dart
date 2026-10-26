@@ -1393,6 +1393,274 @@ class GetRelationshipsResponse extends $pb.GeneratedMessage {
   $pb.PbList<Relationship> get relationships => $_getList(0);
 }
 
+class GetProfileRelationshipRequest extends $pb.GeneratedMessage {
+  factory GetProfileRelationshipRequest({
+    $core.String? userId,
+  }) {
+    final result = GetProfileRelationshipRequest._();
+    if (userId != null) result.userId = userId;
+    return result;
+  }
+
+  GetProfileRelationshipRequest._();
+
+  factory GetProfileRelationshipRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetProfileRelationshipRequest()..mergeFromBuffer(data, registry);
+  factory GetProfileRelationshipRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetProfileRelationshipRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetProfileRelationshipRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.graph.v1'),
+      createEmptyInstance: GetProfileRelationshipRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'userId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetProfileRelationshipRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetProfileRelationshipRequest copyWith(
+          void Function(GetProfileRelationshipRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetProfileRelationshipRequest))
+          as GetProfileRelationshipRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetProfileRelationshipRequest() / GetProfileRelationshipRequest.new instead')
+  static GetProfileRelationshipRequest create() =>
+      GetProfileRelationshipRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetProfileRelationshipRequest._();
+  @$core.override
+  GetProfileRelationshipRequest createEmptyInstance() =>
+      GetProfileRelationshipRequest._();
+  @$core.pragma('dart2js:noInline')
+  static GetProfileRelationshipRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetProfileRelationshipRequest>(
+          GetProfileRelationshipRequest.$_createMessage);
+  static GetProfileRelationshipRequest? _defaultInstance;
+
+  /// The profile's owner. [A-Za-z0-9-]{1,128}.
+  @$pb.TagNumber(1)
+  $core.String get userId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set userId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUserId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUserId() => $_clearField(1);
+}
+
+class GetProfileRelationshipResponse extends $pb.GeneratedMessage {
+  factory GetProfileRelationshipResponse({
+    Relationship? relationship,
+    $core.bool? followedBy,
+  }) {
+    final result = GetProfileRelationshipResponse._();
+    if (relationship != null) result.relationship = relationship;
+    if (followedBy != null) result.followedBy = followedBy;
+    return result;
+  }
+
+  GetProfileRelationshipResponse._();
+
+  factory GetProfileRelationshipResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetProfileRelationshipResponse()..mergeFromBuffer(data, registry);
+  factory GetProfileRelationshipResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetProfileRelationshipResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetProfileRelationshipResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.graph.v1'),
+      createEmptyInstance: GetProfileRelationshipResponse.$_createMessage)
+    ..aOM<Relationship>(1, _omitFieldNames ? '' : 'relationship',
+        subBuilder: Relationship.$_createMessage)
+    ..aOB(2, _omitFieldNames ? '' : 'followedBy')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetProfileRelationshipResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetProfileRelationshipResponse copyWith(
+          void Function(GetProfileRelationshipResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetProfileRelationshipResponse))
+          as GetProfileRelationshipResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetProfileRelationshipResponse() / GetProfileRelationshipResponse.new instead')
+  static GetProfileRelationshipResponse create() =>
+      GetProfileRelationshipResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetProfileRelationshipResponse._();
+  @$core.override
+  GetProfileRelationshipResponse createEmptyInstance() =>
+      GetProfileRelationshipResponse._();
+  @$core.pragma('dart2js:noInline')
+  static GetProfileRelationshipResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetProfileRelationshipResponse>(
+          GetProfileRelationshipResponse.$_createMessage);
+  static GetProfileRelationshipResponse? _defaultInstance;
+
+  /// The caller's relationship to user_id, as GetRelationships reports it.
+  @$pb.TagNumber(1)
+  Relationship get relationship => $_getN(0);
+  @$pb.TagNumber(1)
+  set relationship(Relationship value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasRelationship() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRelationship() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Relationship ensureRelationship() => $_ensure(0);
+
+  /// True when user_id follows the caller ("Follows you"). Up to 60 s stale on other instances.
+  @$pb.TagNumber(2)
+  $core.bool get followedBy => $_getBF(1);
+  @$pb.TagNumber(2)
+  set followedBy($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFollowedBy() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFollowedBy() => $_clearField(2);
+}
+
+class ListSuggestedUsersRequest extends $pb.GeneratedMessage {
+  factory ListSuggestedUsersRequest({
+    $core.int? maxResults,
+  }) {
+    final result = ListSuggestedUsersRequest._();
+    if (maxResults != null) result.maxResults = maxResults;
+    return result;
+  }
+
+  ListSuggestedUsersRequest._();
+
+  factory ListSuggestedUsersRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedUsersRequest()..mergeFromBuffer(data, registry);
+  factory ListSuggestedUsersRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedUsersRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListSuggestedUsersRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.graph.v1'),
+      createEmptyInstance: ListSuggestedUsersRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'maxResults')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedUsersRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedUsersRequest copyWith(
+          void Function(ListSuggestedUsersRequest) updates) =>
+      super.copyWith((message) => updates(message as ListSuggestedUsersRequest))
+          as ListSuggestedUsersRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListSuggestedUsersRequest() / ListSuggestedUsersRequest.new instead')
+  static ListSuggestedUsersRequest create() => ListSuggestedUsersRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListSuggestedUsersRequest._();
+  @$core.override
+  ListSuggestedUsersRequest createEmptyInstance() =>
+      ListSuggestedUsersRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListSuggestedUsersRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListSuggestedUsersRequest>(
+          ListSuggestedUsersRequest.$_createMessage);
+  static ListSuggestedUsersRequest? _defaultInstance;
+
+  /// 0 => 5; clamped to 1..5.
+  @$pb.TagNumber(1)
+  $core.int get maxResults => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set maxResults($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasMaxResults() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMaxResults() => $_clearField(1);
+}
+
+class ListSuggestedUsersResponse extends $pb.GeneratedMessage {
+  factory ListSuggestedUsersResponse({
+    $core.Iterable<UserListItem>? users,
+  }) {
+    final result = ListSuggestedUsersResponse._();
+    if (users != null) result.users.addAll(users);
+    return result;
+  }
+
+  ListSuggestedUsersResponse._();
+
+  factory ListSuggestedUsersResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedUsersResponse()..mergeFromBuffer(data, registry);
+  factory ListSuggestedUsersResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSuggestedUsersResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListSuggestedUsersResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.graph.v1'),
+      createEmptyInstance: ListSuggestedUsersResponse.$_createMessage)
+    ..pPM<UserListItem>(1, _omitFieldNames ? '' : 'users',
+        subBuilder: UserListItem.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedUsersResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSuggestedUsersResponse copyWith(
+          void Function(ListSuggestedUsersResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as ListSuggestedUsersResponse))
+          as ListSuggestedUsersResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListSuggestedUsersResponse() / ListSuggestedUsersResponse.new instead')
+  static ListSuggestedUsersResponse create() => ListSuggestedUsersResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListSuggestedUsersResponse._();
+  @$core.override
+  ListSuggestedUsersResponse createEmptyInstance() =>
+      ListSuggestedUsersResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListSuggestedUsersResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListSuggestedUsersResponse>(
+          ListSuggestedUsersResponse.$_createMessage);
+  static ListSuggestedUsersResponse? _defaultInstance;
+
+  /// Best first. Each row has user and relationship; since is unset. May be empty.
+  @$pb.TagNumber(1)
+  $pb.PbList<UserListItem> get users => $_getList(0);
+}
+
 class ListFollowersRequest extends $pb.GeneratedMessage {
   factory ListFollowersRequest({
     $core.String? userId,
@@ -2061,7 +2329,8 @@ class GraphServiceApi {
           ctx, 'GraphService', 'Unmute', request, UnmuteResponse());
 
   /// Caller's relationship to up to 50 users, computed from the caller's graph doc only (1 read, cached 60 s).
-  /// Does not report whether the target follows the caller (that would cost 1 read per user).
+  /// Does not report whether the target follows the caller (that would cost 1 read per user; GetProfileRelationship
+  /// does, for one user).
   /// Never reflects blocks against the caller: a user who blocked the caller looks like a stranger (only the
   /// caller's own blocking/muting bits are reported). The caller's own id => NONE.
   /// Firestore: reads 1/0.5 (graph cached 60 s), writes 0.
@@ -2069,6 +2338,45 @@ class GraphServiceApi {
           $pb.ClientContext? ctx, GetRelationshipsRequest request) =>
       _client.invoke<GetRelationshipsResponse>(ctx, 'GraphService',
           'GetRelationships', request, GetRelationshipsResponse());
+
+  /// The caller's relationship to ONE user for a profile header, plus followed_by ("Follows you", ADR-0024 D7).
+  /// relationship is exactly what GetRelationships computes from the caller's graph snapshot; followed_by is whether
+  /// follows/{user_id}_{caller} exists. Single target by contract: there is no batch form, and list rows never carry
+  /// followed_by (1 read per row). Clients call it instead of GetRelationships([user_id]) for the header.
+  /// NOT_FOUND, byte-identical to GetProfile's missing-user error, when the target is missing or not ACTIVE, or has
+  /// blocked the caller (the edge is then never read). The caller's own id => NONE and followed_by false, 0 extra
+  /// reads. A caller who blocks the target gets blocking = true and followed_by = false (Block removed both edges).
+  /// Staleness: the edge is cached 60 s per (caller, target) on the instance; this instance evicts the pair when the
+  /// target follows or unfollows the caller and on a Block either way; other instances converge within 60 s.
+  /// Flag: FEATURE_GRAPH, like every GraphService RPC. Rate limit: RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
+  /// 60/min/uid per instance (at most 180/min with 3 instances). Charged to the per-uid daily read budget.
+  /// Firestore: reads 3 cold (interceptor, caller graph, edge doc; +1 if the caller's blockedBy overflowed,
+  /// ADR-0008 D2; the target's status comes from the identity directory, cache-first and usually warm from the
+  /// header's GetProfile) / 0 warm, planning 1; writes 0. user_id: [A-Za-z0-9-]{1,128}.
+  $async.Future<GetProfileRelationshipResponse> getProfileRelationship(
+          $pb.ClientContext? ctx, GetProfileRelationshipRequest request) =>
+      _client.invoke<GetProfileRelationshipResponse>(ctx, 'GraphService',
+          'GetProfileRelationship', request, GetProfileRelationshipResponse());
+
+  /// "Who to follow" for the caller (ADR-0024 D8): at most max_results users, no cursor, never a scan. Source
+  /// (behind a server-side interface; clients must not assume it): friends of friends from one query over the
+  /// follows of the caller's 30 newest followees (<= 30 edges), ranked by how many of them follow each candidate,
+  /// ties broken by a per-day stable order; a curated server list fills in when the caller follows fewer than 3
+  /// accounts or fewer than 3 candidates are found. Never returns the caller, anyone the caller follows or has
+  /// requested, blocks, mutes, or is blocked by, or a user who is not ACTIVE. Each row carries relationship;
+  /// since is unset. Results may change once a day per caller; the client caches them 24 h.
+  /// Needs FEATURE_FOLLOW_SUGGESTIONS (wire name "follow_suggestions") on for the caller, and FEATURE_GRAPH; else
+  /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "follow_suggestions", 0 reads.
+  /// Rate limits: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances), and
+  /// SUGGESTIONS_CALLS_PER_DAY, 50 calls/uid/IST day per instance (150 with 3) => RATE_LIMITED,
+  /// metadata["limit"] = "suggestions_daily". Charged to the per-uid daily read budget (ADR-0010 D5).
+  /// Firestore: hard cap 42 reads cold (interceptor 1, caller graph 1, follows edges <= 30, user hydration <= 10),
+  /// 12 on the curated path (1 + 1 + 10); warm (per-viewer instance cache, 1 h) 1, the interceptor; planning 25.
+  /// Writes 0.
+  $async.Future<ListSuggestedUsersResponse> listSuggestedUsers(
+          $pb.ClientContext? ctx, ListSuggestedUsersRequest request) =>
+      _client.invoke<ListSuggestedUsersResponse>(ctx, 'GraphService',
+          'ListSuggestedUsers', request, ListSuggestedUsersResponse());
 
   /// Followers of a user, newest first. NOT_FOUND if the target is missing, not active, or blocked the caller.
   /// Rows for users the caller blocks or who blocked the caller are dropped (pages may be short; follow

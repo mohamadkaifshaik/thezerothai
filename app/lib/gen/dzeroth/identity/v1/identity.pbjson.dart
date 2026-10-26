@@ -75,6 +75,11 @@ const Profile$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'createdAt'
     },
+    {'1': 'banner_url', '3': 13, '4': 1, '5': 9, '10': 'bannerUrl'},
+    {'1': 'banner_thumb_url', '3': 14, '4': 1, '5': 9, '10': 'bannerThumbUrl'},
+    {'1': 'location', '3': 15, '4': 1, '5': 9, '10': 'location'},
+    {'1': 'website', '3': 16, '4': 1, '5': 9, '10': 'website'},
+    {'1': 'pinned_post_id', '3': 17, '4': 1, '5': 9, '10': 'pinnedPostId'},
   ],
 };
 
@@ -87,7 +92,10 @@ final $typed_data.Uint8List profileDescriptor = $convert.base64Decode(
     'aWZpZWQYCCABKAhSCHZlcmlmaWVkEicKD2ZvbGxvd2Vyc19jb3VudBgJIAEoA1IOZm9sbG93ZX'
     'JzQ291bnQSJwoPZm9sbG93aW5nX2NvdW50GAogASgDUg5mb2xsb3dpbmdDb3VudBIfCgtwb3N0'
     'c19jb3VudBgLIAEoA1IKcG9zdHNDb3VudBI5CgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLn'
-    'Byb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0');
+    'Byb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0Eh0KCmJhbm5lcl91cmwYDSABKAlSCWJhbm5l'
+    'clVybBIoChBiYW5uZXJfdGh1bWJfdXJsGA4gASgJUg5iYW5uZXJUaHVtYlVybBIaCghsb2NhdG'
+    'lvbhgPIAEoCVIIbG9jYXRpb24SGAoHd2Vic2l0ZRgQIAEoCVIHd2Vic2l0ZRIkCg5waW5uZWRf'
+    'cG9zdF9pZBgRIAEoCVIMcGlubmVkUG9zdElk');
 
 @$core.Deprecated('Use createProfileRequestDescriptor instead')
 const CreateProfileRequest$json = {
@@ -273,12 +281,52 @@ const UpdateProfileRequest$json = {
       '10': 'isPrivate',
       '17': true
     },
+    {
+      '1': 'banner_media_id',
+      '3': 6,
+      '4': 1,
+      '5': 9,
+      '9': 4,
+      '10': 'bannerMediaId',
+      '17': true
+    },
+    {
+      '1': 'location',
+      '3': 7,
+      '4': 1,
+      '5': 9,
+      '9': 5,
+      '10': 'location',
+      '17': true
+    },
+    {
+      '1': 'website',
+      '3': 8,
+      '4': 1,
+      '5': 9,
+      '9': 6,
+      '10': 'website',
+      '17': true
+    },
+    {
+      '1': 'pinned_post_id',
+      '3': 9,
+      '4': 1,
+      '5': 9,
+      '9': 7,
+      '10': 'pinnedPostId',
+      '17': true
+    },
   ],
   '8': [
     {'1': '_display_name'},
     {'1': '_bio'},
     {'1': '_avatar_media_id'},
     {'1': '_is_private'},
+    {'1': '_banner_media_id'},
+    {'1': '_location'},
+    {'1': '_website'},
+    {'1': '_pinned_post_id'},
   ],
 };
 
@@ -287,8 +335,12 @@ final $typed_data.Uint8List updateProfileRequestDescriptor = $convert.base64Deco
     'ChRVcGRhdGVQcm9maWxlUmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW1wb3'
     'RlbmN5S2V5EiYKDGRpc3BsYXlfbmFtZRgCIAEoCUgAUgtkaXNwbGF5TmFtZYgBARIVCgNiaW8Y'
     'AyABKAlIAVIDYmlviAEBEisKD2F2YXRhcl9tZWRpYV9pZBgEIAEoCUgCUg1hdmF0YXJNZWRpYU'
-    'lkiAEBEiIKCmlzX3ByaXZhdGUYBSABKAhIA1IJaXNQcml2YXRliAEBQg8KDV9kaXNwbGF5X25h'
-    'bWVCBgoEX2Jpb0ISChBfYXZhdGFyX21lZGlhX2lkQg0KC19pc19wcml2YXRl');
+    'lkiAEBEiIKCmlzX3ByaXZhdGUYBSABKAhIA1IJaXNQcml2YXRliAEBEisKD2Jhbm5lcl9tZWRp'
+    'YV9pZBgGIAEoCUgEUg1iYW5uZXJNZWRpYUlkiAEBEh8KCGxvY2F0aW9uGAcgASgJSAVSCGxvY2'
+    'F0aW9uiAEBEh0KB3dlYnNpdGUYCCABKAlIBlIHd2Vic2l0ZYgBARIpCg5waW5uZWRfcG9zdF9p'
+    'ZBgJIAEoCUgHUgxwaW5uZWRQb3N0SWSIAQFCDwoNX2Rpc3BsYXlfbmFtZUIGCgRfYmlvQhIKEF'
+    '9hdmF0YXJfbWVkaWFfaWRCDQoLX2lzX3ByaXZhdGVCEgoQX2Jhbm5lcl9tZWRpYV9pZEILCglf'
+    'bG9jYXRpb25CCgoIX3dlYnNpdGVCEQoPX3Bpbm5lZF9wb3N0X2lk');
 
 @$core.Deprecated('Use updateProfileResponseDescriptor instead')
 const UpdateProfileResponse$json = {

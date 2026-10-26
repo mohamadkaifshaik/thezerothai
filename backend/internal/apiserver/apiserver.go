@@ -109,7 +109,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureUIShell, cfg.FeatureRemovedIDs)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeatureUIShell, cfg.FeatureRemovedIDs)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 
 	// --- modules ---
@@ -145,6 +145,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		BlocksPerDay:            int64(cfg.Quota.BlocksPerDay),
 		NewAccountBlocksPerDay:  int64(cfg.Quota.NewAccountBlocksPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
+		// ADR-0024 D8, D10: the ListSuggestedUsers limits and the curated SUGGESTED_USER_IDS list (W3-12 reads them).
+		Suggestions: graph.SuggestionLimits{
+			SampleFollowees: cfg.Suggestions.SampleFollowees, EdgeLimit: cfg.Suggestions.EdgeLimit,
+			HydrateMax: cfg.Suggestions.HydrateMax, MaxResults: cfg.Suggestions.MaxResults,
+			CacheTTL: cfg.Suggestions.CacheTTL, CuratedUIDs: cfg.Suggestions.UserIDs,
+		},
 	})
 	// The Firebase Auth admin client is built once, here, and handed only to identity (IAM control C2): the account
 	// lifecycle and the M2 sign-up check (CreateProfile refuses a token whose Auth user was deleted or disabled).

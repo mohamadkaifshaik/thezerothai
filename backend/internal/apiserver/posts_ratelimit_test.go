@@ -11,6 +11,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
+	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
@@ -35,6 +36,9 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 		{"report content 5/min (ADR-0016)", moderationv1connect.ModerationServiceReportContentProcedure, 5},
 		{"add bookmark 30/min (ADR-0023, shared with remove)", engagementv1connect.EngagementServiceAddBookmarkProcedure, 30},
 		{"list bookmarks 10/min (ADR-0023)", engagementv1connect.EngagementServiceListBookmarksProcedure, 10},
+		{"list suggested users 10/min (ADR-0024 D10)", graphv1connect.GraphServiceListSuggestedUsersProcedure, 10},
+		{"list liked posts 10/min (ADR-0024 D10)", engagementv1connect.EngagementServiceListLikedPostsProcedure, 10},
+		{"get profile relationship 60/min (ADR-0024 D10, own bucket)", graphv1connect.GraphServiceGetProfileRelationshipProcedure, 60},
 		{"get post 60/min (default bucket)", postsv1connect.PostServiceGetPostProcedure, 60},
 	}
 	cfg := defaultRateLimitCfg()
