@@ -95,6 +95,7 @@ void main() {
   late EngagementCubit engagement;
   late BookmarksRepository bookmarksRepo;
   late BookmarksCubit cubit;
+  late SessionEpoch epoch;
   late List<_Call> calls;
   String? pushed;
 
@@ -115,7 +116,7 @@ void main() {
         }),
       ),
       gate: ServiceFeatureGate(isEnabled: () => true),
-      epoch: SessionEpoch(),
+      epoch: epoch = SessionEpoch(),
     );
   });
 
@@ -138,10 +139,12 @@ void main() {
     bool? bookmarkEnabled,
     String initialLocation = '/',
     bool barOnBookmarksRoute = false,
+    List<pb.PostView>? views,
+    Stream<OnboardingState>? onboardingStream,
   }) async {
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
+      onboardingStream ?? const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
         enabledFeatures: features,
@@ -159,8 +162,12 @@ void main() {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (var i = 0; i < bars; i++)
-                PostEngagementBar(view: view, bookmarkEnabled: bookmarkEnabled),
+              if (views != null)
+                for (final v in views)
+                  PostEngagementBar(view: v, bookmarkEnabled: bookmarkEnabled)
+              else
+                for (var i = 0; i < bars; i++)
+                  PostEngagementBar(view: view, bookmarkEnabled: bookmarkEnabled),
             ],
           ),
         ),
@@ -536,5 +543,232 @@ void main() {
   testWidgets('light theme: the filled icon is the accent', (tester) async {
     await pump(tester, _view(), serverState: true, theme: appLightTheme);
     expect(tester.widget<Icon>(filled()).color, const Color(0xFF1D9BF0));
+  });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): responsive matrix, rapid taps, sign-out and flag drop on
+  // the bookmark icon of the action row.
+  // ---------------------------------------------------------------------
+
+  group('W2-13 responsive matrix: action row with the bookmark icon', () {
+    for (final dark in [false, true]) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${dark ? 'dark' : 'light'} ${width.toInt()}dp x$scale: five slots '
+            'inside the row, no overflow, 48dp target',
+            (tester) async {
+              tester.view.physicalSize = Size(width, 900);
+              tester.view.devicePixelRatio = 1;
+              addTearDown(tester.view.reset);
+              final handle = tester.ensureSemantics();
+              await pump(
+                tester,
+                _view(),
+                serverState: true,
+                width: width,
+                textScale: scale,
+                theme: dark ? appDarkTheme : appLightTheme,
+              );
+
+              expect(tester.takeException(), isNull);
+              final row = tester.getRect(find.byType(PostEngagementBar));
+              for (final icon in [
+                Icons.chat_bubble_outline,
+                Icons.repeat,
+                Icons.favorite_border,
+                Icons.bookmark,
+              ]) {
+                expect(find.byIcon(icon), findsOneWidget, reason: '$icon');
+                final r = tester.getRect(find.byIcon(icon));
+                expect(
+                  row.inflate(0.5).contains(r.topLeft) &&
+                      row.inflate(0.5).contains(r.bottomRight),
+                  isTrue,
+                  reason: '$icon at $r is outside the row $row',
+                );
+              }
+              final target = tester.getSemantics(
+                find.bySemanticsLabel('Bookmarked'),
+              );
+              expect(target.rect.size.shortestSide, greaterThanOrEqualTo(48));
+              expect(
+                tester.widget<Icon>(filled()).color,
+                const Color(0xFF1D9BF0),
+              );
+              handle.dispose();
+            },
+          );
+        }
+      }
+    }
+  });
+
+  testWidgets('W2-13: three rapid taps while the first request runs: the '
+      'latest intent wins, one RPC, one toast', (tester) async {
+    await pump(tester, _view());
+
+    await tester.tap(outline()); // on: AddBookmark in flight
+    await tester.pump();
+    expect(calls, hasLength(1));
+    await tester.tap(filled()); // off: only recorded
+    await tester.pump();
+    expect(outline(), findsOneWidget);
+    await tester.tap(outline()); // on again: the same as in flight
+    await tester.pump();
+    expect(filled(), findsOneWidget);
+    expect(calls, hasLength(1), reason: 'one request at a time per post');
+
+    calls.single.ok(bookmarked: true);
+    await tester.pumpAndSettle();
+
+    expect(calls, hasLength(1), reason: 'the final intent equals the answer');
+    expect(filled(), findsOneWidget);
+    expect(find.text('Added to Bookmarks'), findsOneWidget);
+  });
+
+  testWidgets('W2-13: on then off while the first request runs: two RPCs with '
+      'two keys, back where it started, no toast', (tester) async {
+    await pump(tester, _view());
+
+    await tester.tap(outline());
+    await tester.pump();
+    await tester.tap(filled());
+    await tester.pump();
+    expect(outline(), findsOneWidget);
+    expect(calls, hasLength(1));
+
+    calls[0].ok(bookmarked: true);
+    await tester.pump();
+    await tester.pump();
+    expect(calls, hasLength(2), reason: 'the follow-up Remove');
+    expect(calls[0].input, isA<eng.AddBookmarkRequest>());
+    expect(calls[1].input, isA<eng.RemoveBookmarkRequest>());
+    expect(
+      (calls[0].input as eng.AddBookmarkRequest).idempotencyKey,
+      isNot((calls[1].input as eng.RemoveBookmarkRequest).idempotencyKey),
+    );
+    expect(outline(), findsOneWidget, reason: 'no flash of the filled icon');
+
+    calls[1].ok(bookmarked: false);
+    await tester.pumpAndSettle();
+
+    expect(outline(), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('Added to Bookmarks'), findsNothing);
+    expect(find.text('Removed from Bookmarks'), findsNothing);
+  });
+
+  testWidgets('W2-13: sign-out while the request runs: the late answer '
+      'changes nothing and toasts nothing', (tester) async {
+    await pump(tester, _view());
+    await tester.tap(outline());
+    await tester.pump();
+    expect(calls, hasLength(1));
+
+    // What AppWidget does on sign-out.
+    cubit.reset();
+    epoch.end();
+    await tester.pump();
+    expect(outline(), findsOneWidget);
+
+    calls.single.ok(bookmarked: true);
+    await tester.pumpAndSettle();
+
+    expect(outline(), findsOneWidget, reason: "not the next user's state");
+    expect(find.byType(SnackBar), findsNothing);
+    expect(bookmarksRepo.snapshot(), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('W2-13: sign-out while the request runs, then it fails: no '
+      'error toast for the next user', (tester) async {
+    await pump(tester, _view());
+    await tester.tap(outline());
+    await tester.pump();
+
+    cubit.reset();
+    epoch.end();
+    await tester.pump();
+    calls.single.answer.completeError(
+      serverError(
+        connect.Code.resourceExhausted,
+        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsNothing);
+    expect(cubit.state.failure, isNull);
+    expect(outline(), findsOneWidget);
+  });
+
+  testWidgets('W2-13: a REPOST row and its original on screen share one '
+      'entry: one tap flips both, one RPC for the original id, one toast', (
+    tester,
+  ) async {
+    await pump(tester, _view(), views: [_repostView(), _view()]);
+    expect(outline(), findsNWidgets(2));
+
+    await tester.tap(outline().first); // the REPOST row's icon
+    await tester.pump();
+    expect(filled(), findsNWidgets(2));
+    expect(calls, hasLength(1));
+    expect(calls.single.sentPostId, postId(1));
+
+    calls.single.ok(bookmarked: true);
+    await tester.pumpAndSettle();
+    expect(filled(), findsNWidgets(2));
+    expect(find.text('Added to Bookmarks'), findsOneWidget);
+
+    // Removing from the original's own card flips the REPOST row back.
+    await tester.tap(filled().last);
+    await tester.pump();
+    expect(outline(), findsNWidgets(2));
+    expect(calls, hasLength(2));
+    expect(calls[1].input, isA<eng.RemoveBookmarkRequest>());
+    expect(calls[1].sentPostId, postId(1));
+    calls[1].ok(bookmarked: false);
+    await tester.pumpAndSettle();
+    expect(find.text('Removed from Bookmarks'), findsOneWidget);
+  });
+
+  testWidgets('W2-13: GetMe drops "bookmarks" while the Add is in flight: the '
+      'icon goes with the flag, the late answer is harmless, it is back '
+      'filled when the flag returns', (tester) async {
+    final states = StreamController<OnboardingState>.broadcast();
+    addTearDown(states.close);
+    await pump(tester, _view(), onboardingStream: states.stream);
+    await tester.tap(outline());
+    await tester.pump();
+    expect(calls, hasLength(1));
+
+    states.add(
+      const OnboardingState(
+        status: OnboardingStatus.ready,
+        enabledFeatures: {'engagement', 'replies'},
+      ),
+    );
+    await tester.pump();
+    expect(outline(), findsNothing);
+    expect(filled(), findsNothing);
+
+    calls.single.ok(bookmarked: true);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    states.add(
+      const OnboardingState(
+        status: OnboardingStatus.ready,
+        enabledFeatures: {'engagement', 'replies', 'bookmarks'},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(filled(), findsOneWidget, reason: 'the add landed');
+    expect(
+      find.byType(SnackBar),
+      findsNothing,
+      reason: 'no stale toast replayed when the flag returns',
+    );
   });
 }
