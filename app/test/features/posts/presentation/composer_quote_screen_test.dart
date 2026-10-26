@@ -93,6 +93,7 @@ void main() {
     String quote = '',
     double textScale = 1,
     double width = 400,
+    ThemeData? theme,
   }) async {
     final router = GoRouter(
       routes: [
@@ -126,7 +127,7 @@ void main() {
           ],
           child: MaterialApp.router(
             routerConfig: router,
-            theme: appDarkTheme,
+            theme: theme ?? appDarkTheme,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context)
                   .copyWith(textScaler: TextScaler.linear(textScale)),
@@ -298,4 +299,65 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): a server FEATURE_DISABLED quotes on CreatePost, and the
+  // responsive matrix of the quote composer.
+  // ---------------------------------------------------------------------
+
+  testWidgets('W2-13: CreatePost answers FEATURE_DISABLED quotes: the draft '
+      'stays, the user is told in plain words, nothing throws', (tester) async {
+    features({'engagement', 'quotes'});
+    stubCreate(
+      () async => throw const FeatureDisabledException(
+        'raw server text',
+        feature: 'quotes',
+      ),
+    );
+    await open(tester, quote: quoted, withPreview: preview);
+
+    await tester.enterText(find.byType(TextField), 'my take');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('raw server text'), findsNothing, reason: 'no raw text');
+    expect(find.text('my take'), findsOneWidget, reason: 'the draft stays');
+    expect(find.byType(SnackBar), findsOneWidget);
+  });
+
+  for (final dark in [false, true]) {
+    for (final width in const [360.0, 600.0, 1200.0]) {
+      for (final scale in const [1.0, 1.3, 2.0]) {
+        testWidgets(
+          'W2-13 matrix: quote composer ${dark ? 'dark' : 'light'} '
+          '${width.toInt()}dp x$scale: preview, field and Post fit',
+          (tester) async {
+            features({'engagement', 'quotes'});
+            await open(
+              tester,
+              quote: quoted,
+              withPreview: preview,
+              textScale: scale,
+              width: width,
+              theme: dark ? appDarkTheme : appLightTheme,
+            );
+
+            expect(tester.takeException(), isNull);
+            expect(find.text('the quoted words'), findsOneWidget);
+            final post = tester.getRect(
+              find.widgetWithText(AppPillButton, 'Post'),
+            );
+            expect(post.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+            expect(post.left, greaterThanOrEqualTo(0));
+            expect(post.right, lessThanOrEqualTo(width));
+            final field = tester.getRect(find.byType(TextField));
+            expect(field.left, greaterThanOrEqualTo(0));
+            expect(field.right, lessThanOrEqualTo(width));
+          },
+        );
+      }
+    }
+  }
 }

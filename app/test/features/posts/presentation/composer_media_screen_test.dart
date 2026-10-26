@@ -683,4 +683,121 @@ void main() {
       }
     }
   });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): the alt text editor (W2-10) across the full responsive
+  // matrix, with the soft keyboard open, and across a resize over 600 dp.
+  // ---------------------------------------------------------------------
+
+  group('W2-13 alt text editor matrix', () {
+    final editor = find.byType(AltTextEditorView);
+    final field = find.descendant(of: editor, matching: find.byType(TextField));
+    Finder inEditor(Finder f) => find.descendant(of: editor, matching: f);
+
+    Future<void> openEditor(WidgetTester tester) async {
+      await tester.tap(
+        find.bySemanticsLabel(RegExp('(Add|Edit) description for photo')),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    for (final dark in [false, true]) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${dark ? 'dark' : 'light'} ${width.toInt()}dp x$scale: header, '
+            'preview, field and counter fit; 48dp Save and Cancel',
+            (tester) async {
+              await open(
+                tester,
+                theme: dark ? appDarkTheme : appLightTheme,
+                textScale: scale,
+                size: Size(width, 900),
+              );
+              await addPhotos(tester, ['a']);
+              await openEditor(tester);
+              await tester.enterText(field, 'a long description ' * 25);
+              await tester.pump();
+
+              expect(tester.takeException(), isNull);
+              expect(editor, findsOneWidget);
+              final screen = Rect.fromLTWH(0, 0, width, 900);
+              for (final target in [
+                inEditor(find.widgetWithText(AppPillButton, 'Save')),
+                inEditor(find.widgetWithText(TextButton, 'Cancel')),
+              ]) {
+                final r = tester.getRect(target);
+                expect(r.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+                expect(screen.inflate(0.5).contains(r.topLeft), isTrue);
+                expect(screen.inflate(0.5).contains(r.bottomRight), isTrue);
+              }
+              final fieldRect = tester.getRect(field);
+              expect(fieldRect.left, greaterThanOrEqualTo(0));
+              expect(fieldRect.right, lessThanOrEqualTo(width));
+              if (width >= 600) {
+                expect(tester.getRect(editor).width, lessThanOrEqualTo(440));
+              }
+            },
+          );
+        }
+      }
+    }
+
+    testWidgets('360 dp at 2.0 text scale with the soft keyboard open: Save '
+        'and Cancel stay reachable and nothing overflows', (tester) async {
+      await open(
+        tester,
+        theme: appDarkTheme,
+        textScale: 2,
+        size: const Size(360, 640),
+      );
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      await tester.enterText(field, 'a cat on a sofa');
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      for (final target in [
+        inEditor(find.widgetWithText(AppPillButton, 'Save')),
+        inEditor(find.widgetWithText(TextButton, 'Cancel')),
+      ]) {
+        final r = tester.getRect(target);
+        expect(r.bottom, lessThanOrEqualTo(640 - 300 + 0.5));
+        expect(r.top, greaterThanOrEqualTo(0));
+      }
+      await tester.tap(inEditor(find.widgetWithText(AppPillButton, 'Save')));
+      await tester.pumpAndSettle();
+      expect(editor, findsNothing);
+      expect(find.text('ALT'), findsOneWidget);
+    });
+
+    testWidgets('resizing across 600 dp while the editor is open keeps the '
+        'text and does not throw', (tester) async {
+      await open(tester, size: const Size(500, 900));
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+      await tester.enterText(field, 'half typed');
+      await tester.pump();
+
+      for (final width in [700.0, 520.0, 1200.0, 360.0]) {
+        tester.view.physicalSize = Size(width, 900);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: 'at $width dp');
+        expect(editor, findsOneWidget, reason: 'at $width dp');
+        expect(
+          tester.widget<TextField>(field).controller!.text,
+          'half typed',
+          reason: 'at $width dp',
+        );
+      }
+      await tester.tap(inEditor(find.widgetWithText(AppPillButton, 'Save')));
+      await tester.pumpAndSettle();
+      expect(editor, findsNothing);
+      expect(find.text('ALT'), findsOneWidget);
+    });
+  });
 }
