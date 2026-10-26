@@ -63,9 +63,9 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 
 | ID | Ticket | Owner | Size | Status |
 | --- | --- | --- | --- | --- |
-| W3-1 | ADR-0024: profile and graph completion (banner, meta, pin, tabs, likes list, follows-you, suggestions; budgets, flags, limits, seams) | architect | M | Done (PR pending) |
-| W3-2 | Proto + indexes for ADR-0024: identity, media, timeline, engagement, graph protos; two composite indexes, `users` fieldOverrides + `field-overrides.ack`; `firestore-data-model` rows | architect | M | Open |
-| W3-3 | ADR-0025: private accounts and follow requests (amends ADR-0008 D1), with its proto comment changes | architect | M | Done (PR pending) |
+| W3-1 | ADR-0024: profile and graph completion (banner, meta, pin, tabs, likes list, follows-you, suggestions; budgets, flags, limits, seams) | architect | M | Done (merged #325) |
+| W3-2 | Proto + indexes for ADR-0024: identity, media, timeline, engagement, graph protos; two composite indexes, `users` fieldOverrides + `field-overrides.ack`; `firestore-data-model` rows | architect | M | Done (PR pending): D13 protos (Profile 13-17, UpdateProfileRequest 6-9, `MEDIA_PURPOSE_BANNER` 3, `UserTimelineTab` + `GetUserTimelineRequest.tab` 6, `ListLikedPosts`, `GetProfileRelationship`, `ListSuggestedUsers`) with budget comments, `buf lint` / `buf breaking` clean, no generated code (W3-4); D14 indexes + five `users` overrides, ack re-hashed (35 overrides; founder-gated files); skill rows; ADR-0024 and ADR-0025 Accepted |
+| W3-3 | ADR-0025: private accounts and follow requests (amends ADR-0008 D1), with its proto comment changes | architect | M | Done (merged #325) |
 | W3-4 | `make proto`; register the four Part A flags, config, rate limits, ceilings, Terraform vars; flag guards | backend-developer | S | Open |
 | W3-5 | media: `MEDIA_PURPOSE_BANNER` (sizes, avatar Racy rule, resolver, purge coverage) | backend-developer | S | Open |
 | W3-6 | identity: banner, location, website, `pinned_post_id` on `Profile` / `UpdateProfile`; `PinChecker` consumer interface; export fields | backend-developer | M | Open |

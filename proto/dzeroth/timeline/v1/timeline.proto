@@ -17,12 +17,14 @@ syntax = "proto3";
 // - Cold-open and since_token refresh responses return a fresh since_token; persist it with the cached items.
 //   Scroll (page_token) and gap-fill responses return no since_token: keep the one you have.
 // - Tokens are bound to the caller, the feed (and for user timelines the target and tab) and the token kind,
-//   and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
-//   VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token and call with no
-//   token (cold open). After a rejected page_token, or a rejected since_token (amended by ADR-0016 D10), REPLACE the
-//   cached feed with the cold open, do not merge into it: a since_token is also rejected when the server cannot list
-//   removed_ids completely (below), it answers exactly as for an expired token, so the client cannot tell the two
-//   apart. Scroll down from the cold open's next_page_token.
+//   and expire after 30 days (ADR-0010 D14). For user timelines "tab" is the EFFECTIVE tab (ADR-0024 D5): POSTS
+//   and UNSPECIFIED + include_replies=false bind the same feed, as do REPLIES and UNSPECIFIED + true, so every
+//   pre-W3 token stays valid; a token used on another tab is rejected like a foreign one. An expired, foreign or
+//   tampered token => INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads:
+//   drop that token and call with no token (cold open). After a rejected page_token, or a rejected since_token
+//   (amended by ADR-0016 D10), REPLACE the cached feed with the cold open, do not merge into it: a since_token is
+//   also rejected when the server cannot list removed_ids completely (below), it answers exactly as for an expired
+//   token, so the client cannot tell the two apart. Scroll down from the cold open's next_page_token.
 // - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
 //   account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
 //   Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
@@ -90,7 +92,17 @@ service TimelineService {
   // A since_token refresh also consults the removal log (removed_ids), scoped to the profile's author, with the same
   // cost rules as GetHomeTimeline: the shared refresh is detached from the caller's budget; a token older than the
   // instance's log cache adds at most 107 reads (one window query). Behind FEATURE_REMOVED_IDS: 0 reads while off.
-
+  // Tabs (ADR-0024 D5): tab = UNSPECIFIED (the default, every pre-W3 client) means "use include_replies" exactly as
+  // above; any other tab WINS and include_replies is ignored with no error. POSTS and REPLIES are the two feeds above
+  // and stay ungated. MEDIA (the author's posts with their own images, replies and quotes included, REPOSTs
+  // excluded) and REPOSTS (the author's REPOST items) need FEATURE_PROFILE_TABS (wire name "profile_tabs") on for
+  // the caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_tabs", 0 reads. Same
+  // NOT_FOUND, block, mute and embed rules as the Posts tab (a REPOST whose embedded author the caller blocks or
+  // mutes, or who blocks the caller, is dropped; a QUOTE carries embed_viewer_state), same since_token,
+  // gap_page_token and removed_ids behaviour. MEDIA and REPOSTS use one Limit(page_size) query per page and no
+  // instance cache. Rate limit: the GetUserTimeline bucket, shared by every tab.
+  // Firestore (MEDIA or REPOSTS): reads 24 cold at page 20 / 54 at page 50 (interceptor, target users, caller
+  // graph, page, userLikes), 20 warm at page 20 (planning 20), writes 0.
   rpc GetUserTimeline(GetUserTimelineRequest) returns (GetUserTimelineResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -119,12 +131,31 @@ message GetHomeTimelineResponse {
   repeated string removed_ids = 5;
 }
 
+// The profile tab a GetUserTimeline call reads (ADR-0024 D5).
+enum UserTimelineTab {
+  // Use include_replies (false = POSTS, true = REPLIES), exactly as before the tab field existed.
+  USER_TIMELINE_TAB_UNSPECIFIED = 0;
+  // Root posts (isReply == false).
+  USER_TIMELINE_TAB_POSTS = 1;
+  // All of the author's posts, replies included.
+  USER_TIMELINE_TAB_REPLIES = 2;
+  // The author's posts with their own images (hasMedia == true), replies and quotes included, REPOSTs excluded.
+  // Needs FEATURE_PROFILE_TABS.
+  USER_TIMELINE_TAB_MEDIA = 3;
+  // The author's REPOST items (kind == REPOST). Needs FEATURE_PROFILE_TABS.
+  USER_TIMELINE_TAB_REPOSTS = 4;
+}
+
 message GetUserTimelineRequest {
   string user_id = 1;
+  // Read only while tab is UNSPECIFIED; ignored (no error) when tab is set.
   bool include_replies = 2;
   int32 page_size = 3;
   string page_token = 4;
   string since_token = 5;
+  // UNSPECIFIED => include_replies decides. Any other value wins over include_replies. Tokens are bound to the
+  // effective tab (see the token contract).
+  UserTimelineTab tab = 6;
 }
 
 message GetUserTimelineResponse {

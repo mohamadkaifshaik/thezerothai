@@ -66,7 +66,14 @@ service IdentityService {
   // is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
   // (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
   // (writes = author's post count; limited to 1 toggle/day).
-  // Firestore: reads 2/1 (users + avatar media), writes 1/1 (+ async jobs above).
+  // Profile extras (ADR-0024 D1-D3, D9): banner_media_id, location, website and pinned_post_id need
+  // FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the caller; any of them set while it is off =>
+  // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes. The display_name, bio
+  // and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+  // and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
+  // Firestore: reads 2 cold / 1 warm (users + avatar media), +1 per banner resolve (the media doc), +1 per pin check
+  // (the post, cache-first: 1 cold / 0 warm); 4 worst cold with a banner and a pin, planning 2 (ADR-0024 D13);
+  // writes 1 (+ async jobs above).
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
 
   // Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
@@ -141,7 +148,23 @@ message Profile {
   int64 followers_count = 9;
   int64 following_count = 10;
   int64 posts_count = 11;
+  // Clients render "Joined Month YYYY" from this (ADR-0024 D2; no extra field).
   google.protobuf.Timestamp created_at = 12;
+  // Profile extras (ADR-0024). Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
+  // pinned_post_id is withheld while the flag is globally off (D3, D9).
+  // 1500 x 500 banner (cover image, 3:1; ADR-0024 D1); empty if none. A new banner has a new URL (immutable object).
+  string banner_url = 13;
+  // 600 x 200 banner for small layouts; empty if none.
+  string banner_thumb_url = 14;
+  // Free-text location, <= 30 code points, single line (ADR-0024 D2); empty if none.
+  string location = 15;
+  // An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme (ADR-0024 D2); empty if none.
+  // Show the host only (punycode for a non-ASCII host) and open it outside the app. The server never fetches it.
+  string website = 16;
+  // The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
+  // globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
+  // Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
+  string pinned_post_id = 17;
 }
 
 message CreateProfileRequest {
@@ -197,6 +220,22 @@ message UpdateProfileRequest {
   // A READY media id with purpose AVATAR owned by the caller; "" removes the avatar.
   optional string avatar_media_id = 4;
   optional bool is_private = 5;
+  // ADR-0024 profile extras: the four fields below need FEATURE_PROFILE_EXTRAS on for the caller (see UpdateProfile).
+  // A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
+  // Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
+  // MEDIA_NOT_READY, one answer for every cause. A replaced banner's objects are kept until account deletion.
+  optional string banner_media_id = 6;
+  // <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
+  // else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it (ADR-0024 D2).
+  optional string location = 7;
+  // <= 100 characters after trim; an absolute URL with scheme https or http, a non-empty host, no userinfo and no
+  // control, whitespace or bidi characters; else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "website".
+  // Stored as typed with the scheme lower-cased. "" clears it (ADR-0024 D2).
+  optional string website = 8;
+  // The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins (ADR-0024 D3). Every other
+  // case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
+  // metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
+  optional string pinned_post_id = 9;
 }
 
 message UpdateProfileResponse {
