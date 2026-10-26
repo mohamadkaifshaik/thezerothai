@@ -168,8 +168,7 @@ void main() {
         ),
         GoRoute(
           path: '/compose',
-          builder: (context, state) =>
-              ComposerScreen(quoteOfPostId: quote, quoteUiEnabled: true),
+          builder: (context, state) => ComposerScreen(quoteOfPostId: quote),
         ),
         GoRoute(
           path: '/scheduled',
@@ -264,7 +263,11 @@ void main() {
     });
 
     testWidgets('not offered when quoting', (tester) async {
-      await open(tester, features: {...both, 'engagement'}, quote: postId(5));
+      await open(
+        tester,
+        features: {...both, 'engagement', 'quotes'},
+        quote: postId(5),
+      );
       expect(scheduleIcon(), findsNothing);
     });
 

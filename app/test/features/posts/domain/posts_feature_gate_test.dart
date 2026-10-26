@@ -45,4 +45,28 @@ void main() {
     await disableAll(gate);
     expect(refreshes, 2);
   });
+
+  test('FEATURE_DISABLED quotes hides only the quotes sub-feature until '
+      'reset (W2-11: the server still decides)', () async {
+    final gate = PostsFeatureGate(isPostsEnabled: () => true);
+    expect(gate.subFeatureEnabled(kPostsSubFeatureQuotes), isTrue);
+
+    await expectLater(
+      gate.run<void>(
+        () async => throw serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          metadata: {'feature': kPostsSubFeatureQuotes},
+        ),
+      ),
+      throwsA(isA<FeatureDisabledException>()),
+    );
+
+    expect(gate.subFeatureEnabled(kPostsSubFeatureQuotes), isFalse);
+    expect(gate.subFeatureEnabled(kPostsSubFeatureReplies), isTrue);
+    expect(gate.postsEnabled, isTrue);
+
+    gate.reset();
+    expect(gate.subFeatureEnabled(kPostsSubFeatureQuotes), isTrue);
+  });
 }
