@@ -4,8 +4,8 @@ import 'app_exception.dart';
 /// daily read budget is one budget per uid across every RPC, so a limit
 /// answered to one read screen holds all of them; there are no exemptions).
 ///
-/// One instance is created per app session and shared by the timeline and
-/// posts/threads repositories only (see `bootstrap.dart`); other repositories'
+/// One instance is created per app session and shared by the timeline,
+/// posts/threads and bookmarks-list reads only (see `bootstrap.dart`); other repositories'
 /// reads (profile, graph lists) do not consult it yet. Writes never do.
 /// Sign-out [clear]s it.
 /// Callers [check] before sending (and throw what it returns) and [record]

@@ -58,3 +58,21 @@ String engagementErrorMessage(
           : "Couldn't update your like. Please try again.",
   };
 }
+
+/// "Bookmarks aren't available right now": ListBookmarks was refused with
+/// FEATURE_DISABLED, i.e. bookmarks are switched off for everyone. A state of
+/// its own on the Bookmarks screen, not an error with Retry.
+const kBookmarksUnavailableTitle = "Bookmarks aren't available right now";
+
+/// The banner over the Bookmarks list when a refresh or page failed and the
+/// rows already loaded stay.
+String bookmarksListNoticeMessage(AppException error) {
+  return switch (error) {
+    final RateLimitedException e => rateLimitedMessage(e),
+    NetworkException() =>
+      "You're offline. Showing the bookmarks already loaded.",
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
+    _ => "Couldn't refresh your bookmarks.",
+  };
+}

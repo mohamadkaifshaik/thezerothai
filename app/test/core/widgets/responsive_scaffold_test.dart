@@ -457,6 +457,83 @@ void main() {
     });
   });
 
+  group('rail-only destinations (Bookmarks, W2-7)', () {
+    const withBookmarks = [
+      AppNavDestination(
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: 'Home',
+      ),
+      AppNavDestination(
+        icon: Icons.bookmark_border,
+        selectedIcon: Icons.bookmark,
+        label: 'Bookmarks',
+        railOnly: true,
+      ),
+      AppNavDestination(
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: 'Profile',
+      ),
+    ];
+
+    Widget scaffold({int? selected, ValueChanged<int>? onSelected}) =>
+        ResponsiveScaffold(
+          selectedIndex: selected,
+          onDestinationSelected: onSelected ?? (_) {},
+          destinations: withBookmarks,
+          body: const SizedBox.expand(),
+        );
+
+    testWidgets('the phone bar leaves it out; indexes map to the full list', (
+      tester,
+    ) async {
+      int? picked;
+      await _pump(tester, scaffold(selected: 2, onSelected: (i) => picked = i));
+
+      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+      // Profile (index 2 of 3) is the second cell and shows selected.
+      expect(find.byIcon(Icons.person), findsOneWidget);
+      expect(find.byIcon(Icons.home_outlined), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.person));
+      expect(picked, 2);
+      await tester.tap(find.byIcon(Icons.home_outlined));
+      expect(picked, 0);
+    });
+
+    testWidgets('selecting it selects no cell of the phone bar', (
+      tester,
+    ) async {
+      await _pump(tester, scaffold(selected: 1));
+
+      expect(find.byIcon(Icons.home), findsNothing);
+      expect(find.byIcon(Icons.person), findsNothing);
+      expect(find.byIcon(Icons.bookmark), findsNothing);
+    });
+
+    for (final width in [600.0, 1200.0]) {
+      testWidgets('the ${width.toInt()}dp rail shows it, selected, and reports '
+          'its index', (tester) async {
+        int? picked;
+        await _pump(
+          tester,
+          scaffold(selected: 1, onSelected: (i) => picked = i),
+          width: width,
+        );
+
+        expect(find.byType(AppBottomBar), findsNothing);
+        final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+        expect(rail.destinations, hasLength(3));
+        expect(rail.selectedIndex, 1);
+        expect(find.byIcon(Icons.bookmark), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.person_outline));
+        expect(picked, 2);
+      });
+    }
+  });
+
   forEachThemeAndWidth('does not overflow at any theme, width or text scale', (
     tester,
     env,

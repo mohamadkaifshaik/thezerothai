@@ -9,7 +9,12 @@ class AppNavDestination {
     required this.label,
     this.badgeLabel = '',
     this.badgeSemanticLabel,
+    this.railOnly = false,
   });
+
+  /// Shown by the navigation rail (>= 600dp) only: below that the bottom bar
+  /// leaves it out and the drawer carries the entry (Bookmarks).
+  final bool railOnly;
 
   final IconData icon;
   final IconData selectedIcon;
