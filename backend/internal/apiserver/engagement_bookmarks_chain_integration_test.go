@@ -41,6 +41,7 @@ const (
 func bookmarksOn(c *config.Config) {
 	relaxLimits(c)
 	c.RateLimit.BookmarksPerUserPerMinute = 1_000_000
+	c.RateLimit.BookmarksListPerUserPerMinute = 1_000_000
 	c.FeatureBookmarks = flags.Spec{Name: "bookmarks", Mode: flags.On}
 }
 

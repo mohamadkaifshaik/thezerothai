@@ -9,7 +9,7 @@ Cleanup (the `post_delete` job, Eraser, export) is never flag-gated. Kill switch
 |---|---|---|---|
 | `engagement` | `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]` / `feature_engagement*` | LikePost, UnlikePost, RepostPost, UndoRepost, viewer flags; required by `quotes` | off |
 | `quotes` | `FEATURE_QUOTES[_ALLOWLIST\|_PERCENT]` / `feature_quotes*` | `CreatePost.quote_of_post_id` only (needs `engagement` on too; ADR-0018 amendment 2026-10-18) | off |
-| `bookmarks` | `FEATURE_BOOKMARKS[_ALLOWLIST\|_PERCENT]` / `feature_bookmarks*` | AddBookmark needs it on for the caller; ListBookmarks and RemoveBookmark only need it not globally off (ADR-0023 D5); needs FEATURE_POSTS, not `engagement`. AddBookmark and RemoveBookmark are live behind it (W2-3); ListBookmarks answers Unimplemented until W2-4. The runbook is `docs/runbooks/bookmarks.md` | off |
+| `bookmarks` | `FEATURE_BOOKMARKS[_ALLOWLIST\|_PERCENT]` / `feature_bookmarks*` | AddBookmark needs it on for the caller; ListBookmarks and RemoveBookmark only need it not globally off (ADR-0023 D5); needs FEATURE_POSTS, not `engagement`. All three RPCs are live behind it (W2-3, W2-4). The runbook is `docs/runbooks/bookmarks.md` | off |
 
 Quote rollback: set `FEATURE_QUOTES=off` (or lower the percent) and deploy. New quotes are refused with `FEATURE_DISABLED`
 `feature=quotes`; existing quotes keep displaying (display never consults the flag), likes and reposts are unaffected.
@@ -100,7 +100,7 @@ Taking a user off the allowlist stops their Add only, they can still Remove. The
 | Add returns `NOT_FOUND "post not found"` for a post the user saw | The post is deleted, taken down, or its author (or a quoted author) blocks the user: the same answer and bytes as GetPost, by design (no block oracle) |
 | `INTERNAL` from Add or Remove with `txn_attempts` at 4+ or a deadline | Contention: one user's concurrent adds all lock their `quotas` and `userLikes` docs and serialise; the transaction retries 4 times inside 5 s and then gives up without writing. The client retries (same key). Sustained = a client bug or a script; the 30/min per-instance rate limit bounds it |
 | Bookmarked state missing on a card | Viewer state comes from `userLikes.bookmarks`, cached 60 s per instance. The wire field `PostView.bookmarked_by_viewer` does not exist yet (architect follow-up), so clients keep a local set until it ships |
-| Bookmark exists in the subcollection but not in the array (or the reverse) | Not expected: every writer changes both in one transaction. Add then answers success and writes only its idempotency doc (it cannot heal it); the ListBookmarks prune (W2-4) and the account eraser delete by doc. File a bug with the uid hash |
+| Bookmark exists in the subcollection but not in the array (or the reverse) | Not expected: every writer changes both in one transaction. Add then answers success and writes only its idempotency doc (it cannot heal it); the ListBookmarks prune (it removes the id from the array too, for a missing post only) and the account eraser delete by doc. File a bug with the uid hash |
 
 Replays: a replayed Add returns its stored `bookmarked: true` even if the bookmark was removed since, and a replayed
 Remove returns `false` even if it was added again; neither writes, so a late retry never undoes a newer toggle. The two no-op paths (Add of an

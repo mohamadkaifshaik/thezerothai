@@ -96,21 +96,28 @@ func (r *FirestoreRepo) ClearBookmarkSet(ctx context.Context, uid string) error 
 
 // ExportBookmarksPage implements BookmarkExportSource.
 func (r *FirestoreRepo) ExportBookmarksPage(ctx context.Context, uid string, after *posts.Position, limit int) ([]ExportedBookmark, error) {
+	return r.pageBookmarks(ctx, "export", uid, after, min(max(limit, 1), bookmarkPage))
+}
+
+// pageBookmarks is the one bookmark list query, shared by the export (pages of 500) and ListBookmarks (pages of <= 50):
+// createdAt DESC, __name__ DESC, served by the automatic single-field index, resumed with StartAfter by value. The
+// caller clamps limit; reads: one per document, minimum 1 (an empty query bills 1).
+func (r *FirestoreRepo) pageBookmarks(ctx context.Context, op, uid string, after *posts.Position, limit int) ([]ExportedBookmark, error) {
 	col := r.client.Collection(usersCollection).Doc(uid).Collection(bookmarksCollection)
 	q := col.OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
 	if after != nil {
 		q = q.StartAfter(after.CreatedAt, col.Doc(after.ID))
 	}
-	docs, err := q.Limit(min(max(limit, 1), bookmarkPage)).Documents(ctx).GetAll()
+	docs, err := q.Limit(limit).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return nil, fmt.Errorf("engagement: export bookmarks %s: query: %w", logger.HashUID(uid), err)
+		return nil, fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err)
 	}
 	out := make([]ExportedBookmark, 0, len(docs))
 	for _, s := range docs {
 		var d bookmarkDoc
 		if err := s.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("engagement: export decode bookmark %s: %w", s.Ref.ID, err)
+			return nil, fmt.Errorf("engagement: %s decode bookmark %s: %w", op, s.Ref.ID, err)
 		}
 		out = append(out, ExportedBookmark{PostID: s.Ref.ID, BookmarkedAt: d.CreatedAt.UTC()})
 	}

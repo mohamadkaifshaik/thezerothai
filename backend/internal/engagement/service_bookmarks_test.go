@@ -3,6 +3,7 @@ package engagement
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -22,6 +23,53 @@ type fakeBMRepo struct {
 	addErr, rmErr error
 	adds          []AddBookmarkParams
 	removes       []RemoveBookmarkParams
+
+	// List and prune (W2-4): rows is the user's list, newest first, served by position and limit like the real query.
+	rows       []ExportedBookmark
+	listErr    error
+	pruneErr   error
+	listCalls  []listCall
+	pruneCalls [][]string
+}
+
+type listCall struct {
+	after *posts.Position
+	limit int
+}
+
+func (f *fakeBMRepo) ListPage(_ context.Context, _ string, after *posts.Position, limit int) ([]ExportedBookmark, error) {
+	f.listCalls = append(f.listCalls, listCall{after, limit})
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var out []ExportedBookmark
+	for _, r := range f.rows {
+		if after != nil {
+			below := r.BookmarkedAt.Before(after.CreatedAt) || (r.BookmarkedAt.Equal(after.CreatedAt) && r.PostID < after.ID)
+			if !below {
+				continue
+			}
+		}
+		if len(out) == limit {
+			break
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (f *fakeBMRepo) Prune(_ context.Context, _ string, ids []string) error {
+	f.pruneCalls = append(f.pruneCalls, append([]string(nil), ids...))
+	if f.pruneErr == nil {
+		var keep []ExportedBookmark
+		for _, r := range f.rows {
+			if !slices.Contains(ids, r.PostID) {
+				keep = append(keep, r)
+			}
+		}
+		f.rows = keep
+	}
+	return f.pruneErr
 }
 
 func (f *fakeBMRepo) Add(_ context.Context, p AddBookmarkParams) (BookmarkResult, error) {

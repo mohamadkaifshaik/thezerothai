@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 )
 
 // FlagName is the wire name RPCs check (FEATURE_ENGAGEMENT <-> "engagement", ADR-0018 D8). It is the same string
@@ -186,6 +187,31 @@ type Bookmarks interface {
 	// RemoveBookmark removes uid's bookmark of postID. No visibility check and no quota. Reads 1 (idempotency);
 	// writes 2 (idempotency doc, userLikes) + 1 delete; a missing bookmark writes 1 (the idempotency doc); a replay writes 0.
 	RemoveBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
+	// ListBookmarks returns one page of uid's bookmarks, newest first, as live posts (ADR-0023 D2, D6). pageSize 0 is
+	// 20, clamped to 50; pageToken is empty for the first page. A foreign, expired or tampered token is VALIDATION
+	// page_token with 0 reads. Reads cold: the bookmark query 1 + len(page) (an empty list: 1), GetMany <= len(page)
+	// (0 for cached posts), the caller's graph snapshot 1 and userLikes 1, each only when a row is left to render
+	// (cached 60 s); 41 at page 20 and 101 at page 50, 43 / 103 with the interceptor's own read. Writes 0; a page that
+	// prunes missing posts writes 1 (userLikes) and deletes 1 per pruned row.
+	ListBookmarks(ctx context.Context, uid string, pageSize int32, pageToken string) (BookmarkPage, error)
+}
+
+// BookmarkRow is one bookmark the caller sees now: the live post and the time it was bookmarked.
+type BookmarkRow struct {
+	Post         *posts.Post
+	BookmarkedAt time.Time
+}
+
+// BookmarkPage is one page of ListBookmarks. Rows may be shorter than the page size: rows whose post is missing,
+// hidden or by a blocked or muted author are dropped after the read (ADR-0023 D6), so the client keeps following
+// NextPageToken until it is empty.
+type BookmarkPage struct {
+	// Rows are newest bookmarked first.
+	Rows []BookmarkRow
+	// Viewer is the caller's viewer state for Rows (posts.HydrateViewer): the zero set when no row is left.
+	Viewer posts.ViewerSet
+	// NextPageToken is "" when this was the last page.
+	NextPageToken string
 }
 
 // BookmarkOutcome says what a BookmarkRepo call did.
@@ -233,4 +259,15 @@ type BookmarkRepo interface {
 	Add(ctx context.Context, p AddBookmarkParams) (BookmarkResult, error)
 	// Remove runs the RemoveBookmark transaction. It returns ErrIdempotencyKeyReused like Add.
 	Remove(ctx context.Context, p RemoveBookmarkParams) (BookmarkResult, error)
+	// ListPage returns uid's bookmarks strictly after `after` (nil = from the newest), newest first by
+	// (createdAt, post id), at most limit (clamped to 1..MaxListPage). Reads: len(result), minimum 1; the same query as
+	// the export (ExportBookmarksPage).
+	ListPage(ctx context.Context, uid string, after *posts.Position, limit int) ([]ExportedBookmark, error)
+	// Prune deletes the bookmark docs of ids (posts that no longer exist) and removes the ids from
+	// userLikes.bookmarks, in one batch: 0 reads, 1 write (the field-level userLikes update) and 1 delete per id.
+	// Blind: a doc another request already pruned is deleted again without error. At most MaxListPage ids.
+	Prune(ctx context.Context, uid string, ids []string) error
 }
+
+// MaxListPage is the largest ListBookmarks page (CLAUDE.md rule 5).
+const MaxListPage = limits.MaxPageSize

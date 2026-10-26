@@ -3,9 +3,10 @@ package engagement
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
-	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -28,22 +29,20 @@ type bookmarkCall struct {
 	name string
 	// perCaller is true for the RPC that needs the flag on for the caller (AddBookmark).
 	perCaller bool
-	// ticket is the ticket the Unimplemented answer names; empty when the RPC is implemented (the stub service answers).
-	ticket string
-	call   func(*Server, context.Context) error
+	call      func(*Server, context.Context) error
 }
 
 func bookmarkCalls() []bookmarkCall {
 	return []bookmarkCall{
-		{"AddBookmark", true, "", func(s *Server, ctx context.Context) error {
+		{"AddBookmark", true, func(s *Server, ctx context.Context) error {
 			_, err := s.AddBookmark(ctx, connect.NewRequest(&engagementv1.AddBookmarkRequest{}))
 			return err
 		}},
-		{"RemoveBookmark", false, "", func(s *Server, ctx context.Context) error {
+		{"RemoveBookmark", false, func(s *Server, ctx context.Context) error {
 			_, err := s.RemoveBookmark(ctx, connect.NewRequest(&engagementv1.RemoveBookmarkRequest{}))
 			return err
 		}},
-		{"ListBookmarks", false, "W2-4", func(s *Server, ctx context.Context) error {
+		{"ListBookmarks", false, func(s *Server, ctx context.Context) error {
 			_, err := s.ListBookmarks(ctx, connect.NewRequest(&engagementv1.ListBookmarksRequest{}))
 			return err
 		}},
@@ -60,7 +59,12 @@ func featureDisabledErr(err error) *apierr.Error {
 }
 
 // stubBookmarks is the Bookmarks service behind the handlers: it answers every call with the requested id.
-type stubBookmarks struct{ calls []string }
+type stubBookmarks struct {
+	calls []string
+	// page and err are what ListBookmarks answers.
+	page BookmarkPage
+	err  error
+}
 
 func (s *stubBookmarks) AddBookmark(_ context.Context, uid, key, postID string) (BookmarkState, error) {
 	s.calls = append(s.calls, "add:"+uid+":"+key+":"+postID)
@@ -72,23 +76,21 @@ func (s *stubBookmarks) RemoveBookmark(_ context.Context, uid, key, postID strin
 	return BookmarkState{PostID: postID}, nil
 }
 
+func (s *stubBookmarks) ListBookmarks(_ context.Context, uid string, pageSize int32, token string) (BookmarkPage, error) {
+	s.calls = append(s.calls, fmt.Sprintf("list:%s:%d:%s", uid, pageSize, token))
+	return s.page, s.err
+}
+
 // bmServer is the handler under test: the stub engagement service, the stub bookmark service, the given flags.
 func bmServer(fl posts.FlagChecker) *Server {
 	return NewServer(&stubSvc{}, fl, WithBookmarks(&stubBookmarks{}))
 }
 
-// assertPassedGate checks the post-gate answer: Add and Remove reach the stub service and succeed; ListBookmarks answers
-// CodeUnimplemented naming the ticket that fills it in.
-func assertPassedGate(t *testing.T, err error, c bookmarkCall) {
+// assertPassedGate checks the post-gate answer: all three handlers reach the stub service and succeed.
+func assertPassedGate(t *testing.T, err error, _ bookmarkCall) {
 	t.Helper()
-	if c.ticket == "" {
-		if err != nil {
-			t.Fatalf("err = %v, want the stub service to answer", err)
-		}
-		return
-	}
-	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), c.ticket) {
-		t.Fatalf("err = %v, want Unimplemented naming %s", err, c.ticket)
+	if err != nil {
+		t.Fatalf("err = %v, want the stub service to answer", err)
 	}
 }
 
@@ -218,5 +220,64 @@ func TestBookmarks_EnabledFeaturesOnlyForAllowlisted(t *testing.T) {
 	off := flags.NewRegistry(flags.Spec{Name: BookmarksFlagName, Mode: flags.Off, Allowlist: allow})
 	if got := off.EnabledFeatures("in"); slices.Contains(got, "bookmarks") {
 		t.Errorf("EnabledFeatures with the flag off = %v, want no bookmarks", got)
+	}
+}
+
+// TestListBookmarks_MapsRowsToProto: each row is the live PostView (viewer flags from the page's ViewerSet) plus the
+// bookmark time, in order, with the token passed through; the request's page_size and page_token reach the service
+// with the caller's uid from the token, never from the request.
+func TestListBookmarks_MapsRowsToProto(t *testing.T) {
+	at := time.Date(2026, 10, 26, 9, 30, 0, 0, time.UTC)
+	liked := &posts.Post{ID: pidA, AuthorID: "author", Kind: posts.KindPost, Text: "hello", LikeCount: 4}
+	plain := &posts.Post{ID: pidB, AuthorID: "author", Kind: posts.KindPost}
+	stub := &stubBookmarks{page: BookmarkPage{
+		Rows:          []BookmarkRow{{Post: liked, BookmarkedAt: at}, {Post: plain, BookmarkedAt: at.Add(-time.Hour)}},
+		Viewer:        posts.NewViewerSet([]string{pidA}, nil),
+		NextPageToken: "next-token",
+	}}
+	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "bookmarks", Mode: flags.On})
+	srv := NewServer(&stubSvc{}, reg, WithBookmarks(stub))
+	resp, err := srv.ListBookmarks(uidCtx("caller"), connect.NewRequest(&engagementv1.ListBookmarksRequest{PageSize: 7, PageToken: "tok"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"list:caller:7:tok"}; !slices.Equal(stub.calls, want) {
+		t.Fatalf("service calls = %v, want %v", stub.calls, want)
+	}
+	m := resp.Msg
+	if m.GetNextPageToken() != "next-token" || len(m.GetBookmarks()) != 2 {
+		t.Fatalf("response = %v", m)
+	}
+	b0, b1 := m.GetBookmarks()[0], m.GetBookmarks()[1]
+	if b0.GetPost().GetPost().GetPostId() != pidA || !b0.GetPost().GetLikedByViewer() || b0.GetPost().GetPost().GetText() != "hello" {
+		t.Errorf("row 0 = %v, want the live post %s liked by the viewer", b0, pidA)
+	}
+	if b1.GetPost().GetPost().GetPostId() != pidB || b1.GetPost().GetLikedByViewer() {
+		t.Errorf("row 1 = %v", b1)
+	}
+	if !b0.GetBookmarkedAt().AsTime().Equal(at) || !b1.GetBookmarkedAt().AsTime().Equal(at.Add(-time.Hour)) {
+		t.Errorf("bookmarked_at = %v, %v", b0.GetBookmarkedAt().AsTime(), b1.GetBookmarkedAt().AsTime())
+	}
+	// A service error passes through untouched (the service maps its own errors).
+	stub.err = apierr.Validation("page_token", "page_token is invalid or expired")
+	if _, err := srv.ListBookmarks(uidCtx("caller"), connect.NewRequest(&engagementv1.ListBookmarksRequest{})); err == nil {
+		t.Error("service error swallowed")
+	}
+	// An empty page is a response with no rows, not nil.
+	stub.err, stub.page = nil, BookmarkPage{}
+	resp, err = srv.ListBookmarks(uidCtx("caller"), connect.NewRequest(&engagementv1.ListBookmarksRequest{}))
+	if err != nil || resp.Msg == nil || len(resp.Msg.GetBookmarks()) != 0 || resp.Msg.GetNextPageToken() != "" {
+		t.Errorf("empty page = %v, %v", resp, err)
+	}
+}
+
+// A Server built without the bookmark service answers Unimplemented after the flag gate for every RPC, reading nothing.
+func TestBookmarkServer_NotWired(t *testing.T) {
+	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "bookmarks", Mode: flags.On})
+	srv := NewServer(&stubSvc{}, reg)
+	for _, c := range bookmarkCalls() {
+		if err := c.call(srv, uidCtx("u")); connect.CodeOf(err) != connect.CodeUnimplemented {
+			t.Errorf("%s: err = %v, want Unimplemented", c.name, err)
+		}
 	}
 }

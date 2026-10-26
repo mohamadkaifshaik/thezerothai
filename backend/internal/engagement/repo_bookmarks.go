@@ -18,8 +18,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -243,4 +245,38 @@ func (r *FirestoreRepo) Remove(ctx context.Context, p RemoveBookmarkParams) (Boo
 	default:
 		return BookmarkResult{}, err
 	}
+}
+
+// ListPage implements BookmarkRepo: the one bookmark query (pageBookmarks), clamped to MaxListPage. Reads: one per
+// document, minimum 1; the path is built from uid, never from the request.
+func (r *FirestoreRepo) ListPage(ctx context.Context, uid string, after *posts.Position, limit int) ([]ExportedBookmark, error) {
+	return r.pageBookmarks(ctx, "list", uid, after, min(max(limit, 1), MaxListPage))
+}
+
+// Prune implements BookmarkRepo (ADR-0023 D2, the ListBlockedUsers T27 precedent): one batch holding a blind Delete of
+// each bookmark doc and one field-level update of userLikes.bookmarks (Set with MergeAll + ArrayRemove, so the
+// liked and reposted sets are untouched and a missing doc is created holding only the empty set, as RemoveBookmark
+// does). 0 reads; 1 write and len(ids) deletes. Blind on purpose: an Exists precondition would fail the whole batch
+// when a concurrent prune already deleted one row, leaving the others for the next open. Snowflake ids are never
+// reused, so a pruned id cannot name a new post.
+func (r *FirestoreRepo) Prune(ctx context.Context, uid string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if len(ids) > MaxListPage {
+		return fmt.Errorf("engagement: prune %d bookmarks exceeds %d", len(ids), MaxListPage)
+	}
+	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		b.Delete(r.bookmarkRef(uid, id))
+		args[i] = id
+	}
+	b.Set(r.userLikesRef(uid), map[string]any{
+		"bookmarks": firestore.ArrayRemove(args...), "updatedAt": r.now().UTC(),
+	}, firestore.MergeAll)
+	if err := b.Commit(ctx); err != nil {
+		return fmt.Errorf("engagement: prune bookmarks %s: %w", logger.HashUID(uid), err)
+	}
+	return nil
 }

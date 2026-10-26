@@ -17,15 +17,33 @@ eraser step, the export section and the list prune (cleanup must run after the f
 
 ## Posts that go away: no fan-out (D6)
 Deleting, taking down or purging a post writes nothing to its bookmarkers. Consequences, all by design:
-- **Hidden rows.** ListBookmarks (W2-4) drops a row whose post is missing, hidden by a moderator (`TAKEN_DOWN`, `SUSPENDED_AUTHOR`) or whose author
+- **Hidden rows.** ListBookmarks drops a row whose post is missing, hidden by a moderator (`TAKEN_DOWN`, `SUSPENDED_AUTHOR`) or whose author
   (or a quote's embedded author) is blocked, blocks or is muted by the viewer. Hidden and blocked rows are kept, so a restore or an
-  unblock brings them back. A page may therefore be short or empty with `next_page_token` set.
+  unblock brings them back. A page may therefore be short or empty with `next_page_token` set: the client keeps following the token until it is empty (the server never refills a page). A hidden row costs its `GetMany` read on every open until it is restored or removed. When the viewer's `blockedBy` overflowed (10,000 entries), a foreign quote's embedded author fails closed (dropped, counted as blocked) rather than costing a read per row.
 - **Lazy prune.** A row whose post no longer exists is deleted, together with its `userLikes.bookmarks` entry, in one best-effort batch on the
-  owner's next open, once. Skipped under `DEGRADED_MODE=readonly`. Snowflake ids are never reused, so it is safe. The request line carries
+  owner's next open, once: 1 write (the `userLikes` field update) and 1 delete per row, 0 extra reads, inside the request itself (nothing runs after the response). Only a row whose post is confirmed missing by `GetMany` is pruned, never one that merely failed to load: a `GetMany` error fails the call and prunes nothing. The deletes are blind (no `Exists`), so two simultaneous opens may both delete the same row (a harmless extra delete). Skipped under `DEGRADED_MODE=readonly`; a failed batch logs WARN `engagement_bookmark_prune_failed` (counts and uid hash only), the page is still served and the next open retries. Snowflake ids are never reused, so it is safe. The request line carries
   `rows_dropped` by cause and `rows_pruned`.
 - **The residue.** Until the prune (or the bookmarker's own deletion) a bookmark doc holds a post id that resolves to nothing, under the
   bookmarker's own path. It holds no uid of the post's author and no content. This is narrower than the orphaned likes the founder accepted in
   ADR-0018. There is no collection-group query, no index and no field override for it.
+
+## Listing (W2-4)
+| Case | Reads (cold) | Writes / deletes |
+|---|---|---|
+| ListBookmarks, page 20 / page 50 | 43 / 103: interceptor 1, query 1 per row, GetMany 1 per row not in the instance post cache, caller graph 1, userLikes 1 | 0 |
+| Same, posts cached (warm) | 1 + page (the query); graph and userLikes cached 60 s | 0 |
+| Empty list | 2: interceptor + the empty query (billed as 1); nothing else is read | 0 |
+| Foreign, tampered or expired token (24 h TTL) | 0 from the handler (VALIDATION `page_token`, decided before any read) | 0 |
+| A page that finds missing posts | as above | 1 write + 1 delete per pruned row |
+
+The token is sealed (AES-GCM) and bound to `bookmarks|<uid>`; it resumes after the last row the query returned, kept or dropped, and is
+issued whenever the query came back full, so an exactly-full last page ends with one empty page (1 read). Graph and userLikes are read only
+when a live row is left to filter or render. Viewer state follows the timelines (`posts.HydrateViewer`: nothing when neither
+FEATURE_ENGAGEMENT nor FEATURE_BOOKMARKS is on for the caller). The single request line carries `rows_returned`, `rows_dropped`,
+`rows_dropped_missing`, `rows_dropped_hidden`, `rows_dropped_blocked`, `rows_dropped_muted` and `rows_pruned`.
+Symptoms: many `rows_dropped_hidden` for one user is a takedown or suspension that has not been restored (kept on purpose); a steady
+`rows_dropped_missing` with `rows_pruned=0` means the prune is failing or `DEGRADED_MODE=readonly` (look for the WARN above); read cost
+above 43 / 103 means a code change, not data.
 
 ## Account deletion and export (W2-5)
 | Path | Reads | Writes / deletes | Notes |
