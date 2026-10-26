@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
-import 'package:dzeroth/core/feature_flags/quote_ui.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/app_pill_button.dart';
@@ -94,7 +93,6 @@ void main() {
     String quote = '',
     double textScale = 1,
     double width = 400,
-    bool quoteUiEnabled = true,
   }) async {
     final router = GoRouter(
       routes: [
@@ -104,11 +102,8 @@ void main() {
         ),
         GoRoute(
           path: '/compose',
-          builder: (context, state) => ComposerScreen(
-            quoteOfPostId: quote,
-            quotePreview: withPreview,
-            quoteUiEnabled: quoteUiEnabled,
-          ),
+          builder: (context, state) =>
+              ComposerScreen(quoteOfPostId: quote, quotePreview: withPreview),
         ),
       ],
     );
@@ -148,7 +143,7 @@ void main() {
   testWidgets('shows the Quote title, hint and the quoted post', (
     tester,
   ) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     await open(tester, quote: quoted, withPreview: preview);
 
     expect(find.text('Quote'), findsOneWidget);
@@ -161,7 +156,7 @@ void main() {
   testWidgets('without a preview (page reload) it still quotes', (
     tester,
   ) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     await open(tester, quote: quoted);
 
     expect(find.text('Quoting a post'), findsOneWidget);
@@ -169,7 +164,7 @@ void main() {
   });
 
   testWidgets('Post sends quote_of_post_id and closes', (tester) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     stubCreate(() async => postView(9));
     await open(tester, quote: quoted, withPreview: preview);
 
@@ -194,7 +189,7 @@ void main() {
   testWidgets('NOT_FOUND shows the quote wording and keeps the text', (
     tester,
   ) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     stubCreate(() async => throw const NotFoundException('post not found'));
     await open(tester, quote: quoted, withPreview: preview);
 
@@ -211,7 +206,7 @@ void main() {
   });
 
   testWidgets('281 characters disable Post, like a plain post', (tester) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     await open(tester, quote: quoted, withPreview: preview);
 
     await tester.enterText(find.byType(TextField), 'a' * 281);
@@ -220,76 +215,70 @@ void main() {
     expect(find.text('-1'), findsOneWidget);
     expect(
       tester
-          .widget<AppPillButton>(
-            find.widgetWithText(AppPillButton, 'Post'),
-          )
+          .widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Post'))
           .onPressed,
       isNull,
     );
   });
 
-  testWidgets('engagement flag off: not available, no composer', (
+  void expectNotAvailable() {
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Quote'), findsOneWidget);
+    verifyNever(
+      () => repo.createPost(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        text: any(named: 'text'),
+        quoteOfPostId: any(named: 'quoteOfPostId'),
+      ),
+    );
+  }
+
+  // W2-11: /compose?quote=<id> works only with `engagement` AND `quotes` in
+  // GetMe.enabled_features; every other combination is the "not available"
+  // state (no composer that could only fail).
+  for (final c in <(String, Set<String>)>[
+    ('neither flag', {}),
+    ('engagement only', {'engagement'}),
+    ('quotes only', {'quotes'}),
+  ]) {
+    testWidgets('quote route with ${c.$1}: not available, no composer', (
+      tester,
+    ) async {
+      features(c.$2);
+      await open(tester, quote: quoted, withPreview: preview);
+
+      expectNotAvailable();
+    });
+  }
+
+  testWidgets('quote route with engagement + quotes: the composer opens', (
     tester,
   ) async {
-    features({});
+    features({'engagement', 'quotes'});
     await open(tester, quote: quoted, withPreview: preview);
 
-    expect(find.byType(TextField), findsNothing);
-    expect(find.text('Quote'), findsOneWidget);
-    verifyNever(
-      () => repo.createPost(
-        idempotencyKey: any(named: 'idempotencyKey'),
-        text: any(named: 'text'),
-        quoteOfPostId: any(named: 'quoteOfPostId'),
-      ),
-    );
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Add a comment'), findsOneWidget);
   });
 
-  testWidgets('quote UI switch off (MVP): not available even with flags on', (
-    tester,
-  ) async {
+  testWidgets('server FEATURE_DISABLED quotes (remembered) hides it even '
+      'with both flags in GetMe', (tester) async {
+    features({'engagement', 'quotes'});
+    when(() => repo.subFeatureEnabled('quotes')).thenReturn(false);
+    await open(tester, quote: quoted, withPreview: preview);
+
+    expectNotAvailable();
+  });
+
+  testWidgets('quotes off leaves a plain /compose unchanged', (tester) async {
     features({'engagement'});
-    await open(
-      tester,
-      quote: quoted,
-      withPreview: preview,
-      quoteUiEnabled: false,
-    );
-
-    expect(find.byType(TextField), findsNothing);
-    expect(find.text('Quote'), findsOneWidget);
-    verifyNever(
-      () => repo.createPost(
-        idempotencyKey: any(named: 'idempotencyKey'),
-        text: any(named: 'text'),
-        quoteOfPostId: any(named: 'quoteOfPostId'),
-      ),
-    );
-  });
-
-  test('the shipped default keeps quote creation off', () {
-    expect(kQuoteUiEnabled, isFalse);
-  });
-
-  testWidgets('quote switch off leaves a plain /compose unchanged', (
-    tester,
-  ) async {
-    features({'engagement'});
-    await open(tester, quoteUiEnabled: false);
+    await open(tester);
 
     expect(find.text('New post'), findsOneWidget);
   });
 
-  testWidgets('quotes sub-feature known off: not available', (tester) async {
-    features({'engagement'});
-    when(() => repo.subFeatureEnabled('quotes')).thenReturn(false);
-    await open(tester, quote: quoted, withPreview: preview);
-
-    expect(find.byType(TextField), findsNothing);
-  });
-
   testWidgets('a plain /compose is unchanged', (tester) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     await open(tester);
 
     expect(find.text('New post'), findsOneWidget);
@@ -298,7 +287,7 @@ void main() {
   });
 
   testWidgets('large text on a narrow phone does not overflow', (tester) async {
-    features({'engagement'});
+    features({'engagement', 'quotes'});
     await open(
       tester,
       quote: quoted,

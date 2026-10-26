@@ -14,6 +14,7 @@ class PushState {
   const PushState({
     this.supported = false,
     this.permission = PushPermission.notDetermined,
+    this.permissionKnown = false,
     this.requesting = false,
     this.received = 0,
   });
@@ -21,6 +22,12 @@ class PushState {
   /// iOS/Android with the flag on. False on web: no prompt, no token.
   final bool supported;
   final PushPermission permission;
+
+  /// [permission] was read from the OS (by `start` or `enable`). Before that
+  /// it is only the default, so a user who already granted push would look
+  /// like "not asked yet"; the opt-in card waits for this.
+  final bool permissionKnown;
+
   final bool requesting;
 
   /// Foreground messages received this session (the screen refreshes when it
@@ -34,12 +41,14 @@ class PushState {
   PushState copyWith({
     bool? supported,
     PushPermission? permission,
+    bool? permissionKnown,
     bool? requesting,
     int? received,
   }) {
     return PushState(
       supported: supported ?? this.supported,
       permission: permission ?? this.permission,
+      permissionKnown: permissionKnown ?? this.permissionKnown,
       requesting: requesting ?? this.requesting,
       received: received ?? this.received,
     );
@@ -111,7 +120,7 @@ class PushCubit extends Cubit<PushState> {
     try {
       final permission = await _messaging.permission();
       if (stale()) return;
-      emit(state.copyWith(permission: permission));
+      emit(state.copyWith(permission: permission, permissionKnown: true));
       _subs
         ..add(_messaging.onTokenRefresh.listen((token) => _register(token)))
         ..add(
@@ -137,7 +146,13 @@ class PushCubit extends Cubit<PushState> {
     try {
       final permission = await _messaging.requestPermission();
       if (isClosed) return;
-      emit(state.copyWith(permission: permission, requesting: false));
+      emit(
+        state.copyWith(
+          permission: permission,
+          permissionKnown: true,
+          requesting: false,
+        ),
+      );
       if (permission == PushPermission.granted) await _register();
     } catch (error, stack) {
       onUnexpectedError?.call(error, stack);

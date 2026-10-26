@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
-import '../../../core/feature_flags/quote_ui.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -19,7 +18,6 @@ import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
-import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
 import '../../media/data/media_uploader.dart';
@@ -36,6 +34,7 @@ import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
+import 'quote_gate.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
@@ -54,31 +53,17 @@ const kComposerInputCap = 1000;
 /// composer: the same screen and the same 280 limit, with a preview of the
 /// quoted post ([quotePreview], a frozen snapshot passed by the router; null
 /// after a page reload) under the text field. It needs the `engagement` flag
-/// and the `quotes` sub-feature; without them it shows "not available"
-/// instead of a composer that could only fail.
+/// and the `quotes` flag (see [quoteCreationAllowed]); without them it shows
+/// "not available" instead of a composer that could only fail.
 class ComposerScreen extends StatelessWidget {
-  const ComposerScreen({
-    super.key,
-    this.quoteOfPostId = '',
-    this.quotePreview,
-    this.quoteUiEnabled = kQuoteUiEnabled,
-  });
+  const ComposerScreen({super.key, this.quoteOfPostId = '', this.quotePreview});
 
   final String quoteOfPostId;
   final pb.EmbeddedPost? quotePreview;
 
-  /// Quote creation switch (MVP build: off, see [kQuoteUiEnabled]); off shows
-  /// the "not available" state for `/compose?quote=<id>`.
-  final bool quoteUiEnabled;
-
   @override
   Widget build(BuildContext context) {
-    if (quoteOfPostId.isNotEmpty &&
-        !(quoteUiEnabled &&
-            featureEnabledSnapshot(context, kFeatureEngagement) &&
-            context.read<PostsRepository>().subFeatureEnabled(
-              kPostsSubFeatureQuotes,
-            ))) {
+    if (quoteOfPostId.isNotEmpty && !quoteCreationAllowed(context)) {
       return Scaffold(
         appBar: AppBar(
           leading: IconButton(

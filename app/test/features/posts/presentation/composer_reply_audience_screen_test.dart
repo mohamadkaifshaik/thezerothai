@@ -117,8 +117,7 @@ void main() {
         ),
         GoRoute(
           path: '/compose',
-          builder: (context, state) =>
-              ComposerScreen(quoteOfPostId: quote, quoteUiEnabled: true),
+          builder: (context, state) => ComposerScreen(quoteOfPostId: quote),
         ),
       ],
     );
@@ -170,7 +169,11 @@ void main() {
   testWidgets('hidden when the quote composer has no flag either', (
     tester,
   ) async {
-    await open(tester, features: const {'engagement'}, quote: postId(5));
+    await open(
+      tester,
+      features: const {'engagement', 'quotes'},
+      quote: postId(5),
+    );
     expect(find.textContaining('can reply'), findsNothing);
   });
 
@@ -193,7 +196,7 @@ void main() {
   testWidgets('shown on a quote', (tester) async {
     await open(
       tester,
-      features: const {'reply_audience', 'engagement'},
+      features: const {'reply_audience', 'engagement', 'quotes'},
       quote: postId(5),
     );
     expect(link('Everyone can reply'), findsOneWidget);
