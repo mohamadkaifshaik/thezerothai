@@ -3,6 +3,8 @@ Status: Accepted (founder, 2026-10-26, by merging PR #305 with every recommended
 Date: 2026-10-26
 Deciders: architect (proposal); founder accepts by merging. Four founder questions are below.
 
+> Note (2026-10-26, W2-3 implementation): the two no-op paths (AddBookmark of an already bookmarked post, RemoveBookmark of a missing bookmark) store the TTL'd idempotency doc, 1 write each, where the Decision and the Cost table below say 0 writes. Without it a late retry of a no-op Remove key could delete a bookmark added again after it, which the rule-4 guarantee in the proto forbids. The decision is unchanged; a rare path costs one more write. The rows below are left as written.
+
 Plan: `docs/plans/ui-w2-engagement-composer-basics.md` (ticket W2-1; roadmap W2 row; backlog B-30 closed by that plan). That plan's
 questions 4-7, which are tagged for the architect, are answered in D9.
 Related: ADR-0003 (data model, quotas), ADR-0008 (graph snapshot), ADR-0010 (D5 read budget, D6 visibility matrix,
