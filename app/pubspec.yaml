@@ -17,6 +17,9 @@ dependencies:
 
   # Navigation
   go_router: ^18.1.1
+  # usePathUrlStrategy() on web (W2-9); a no-op on mobile.
+  flutter_web_plugins:
+    sdk: flutter
 
   # Generated Connect-RPC / protobuf client (app/lib/gen) runtime deps
   connectrpc: ^2.0.1
