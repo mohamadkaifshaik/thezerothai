@@ -31,7 +31,7 @@ Deleting, taking down or purging a post writes nothing to its bookmarkers. Conse
 | Case | Reads (cold) | Writes / deletes |
 |---|---|---|
 | ListBookmarks, page 20 / page 50 | 43 / 103: interceptor 1, query 1 per row, GetMany 1 per row not in the instance post cache, caller graph 1, userLikes 1 | 0 |
-| Same, posts cached (warm) | 1 + page (the query); graph and userLikes cached 60 s | 0 |
+| Same, posts cached (warm) | the page itself, 20 / 50 (measured, W2-15), while the interceptor profile, graph and userLikes are cached (60 s); each expired one adds 1 (the proto comment's "1 + page" is that ceiling with one expired); graph and userLikes cached 60 s | 0 |
 | Empty list | 2: interceptor + the empty query (billed as 1); nothing else is read | 0 |
 | Foreign, tampered or expired token (24 h TTL) | 0 from the handler (VALIDATION `page_token`, decided before any read) | 0 |
 | A page that finds missing posts | as above | 1 write + 1 delete per pruned row |
@@ -63,9 +63,20 @@ as a field, so the exemption removes no query. This array is the only source of 
 (ADR-0023 D3), and nothing re-syncs it from the subcollection (not even a repeated AddBookmark of an existing bookmark, which writes only the idempotency doc). If the
 array is ever missing entries that bookmark docs have, a `userLikes` write was not field-level (the ADR-0021 I-3 class of bug): treat that as a code defect, not data.
 
+## Cost trigger (ADR-0023, measured in W2-15)
+The Stage 2 trigger (ADR-0023 stage ladder, `docs/reviews/cost-model.md` section 6): **ListBookmarks reads above 15% of the daily Firestore reads, or the section 6 Firestore trigger (more than 1.5M reads/day or a bill above $30/month), sustained 7 days**. It needs an ADR (a `bookmarks` table or Memorystore); nothing in this runbook changes the design. Modelled share: 16.9 of 248.7 reads per DAU = 6.8%; 15% is about 2.2x the modelled list usage. The plan's rollback line is bookmark reads per DAU above twice the model, i.e. above about 37 (the model: 18.56 reads, 1.42 writes, 0.62 deletes per DAU per day; AddBookmark 3 warm / 4 planning, RemoveBookmark 2, ListBookmarks 43 / 40 per cold page of 20 and 20 warm).
+
+Measure it (read-only; the rpc string is `/dzeroth.engagement.v1.EngagementService/ListBookmarks`). **Denominator, primary: the Cloud Monitoring metric `firestore.googleapis.com/document/read_count`** (daily sum for the project; "daily Firestore reads" literally, including cron, job and fan-out reads). **Numerator: the sum of `fs_reads` on the ListBookmarks request lines.** The log-only cross-check below sums `fs_reads` over every line that carries it, not just `message="request"`: the notification fan-out (`notification_delivery`), the account jobs (`lifecycle_jobs.go`) and the scheduled-post sweep log their reads on their own lines; `removal_log_reads` rides the request line next to `fs_reads` and is added; `fanout_fs_reads` duplicates `fs_reads` on the fan-out line and is not added; the WARN line `scheduled_author_reads` repeats reads already in the sweep total and is skipped (cost-model section 9). One 24-hour share:
+```
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="api" AND jsonPayload.fs_reads:*' \
+  --project=dzeroth-prod --freshness=1d --limit=200000 --format=json \
+| jq '[.[].jsonPayload | select(.message != "scheduled_author_reads")] | {all_reads: (map((.fs_reads // 0) + (.removal_log_reads // 0)) | add // 0), list_reads: (map(select((.rpc // "") | endswith("/ListBookmarks")) | (.fs_reads // 0)) | add // 0)} | .share_pct = (if .all_reads == 0 then 0 else ((1000 * .list_reads / .all_reads) | round / 10) end)'
+```
+For the share against the metric, divide `list_reads` by that day's `document/read_count`. Run it once a day (prod while the flag is on there; dev for the allowlist); 7 consecutive days with `share_pct` above 15 fires the trigger. Logs Explorer cannot sum, so its filter only isolates the lines: `jsonPayload.rpc="/dzeroth.engagement.v1.EngagementService/ListBookmarks"`; with Log Analytics enabled the same numerator is `SELECT SUM(CAST(JSON_VALUE(json_payload.fs_reads) AS INT64)) ... WHERE JSON_VALUE(json_payload.rpc) LIKE '%/ListBookmarks'` (it is not enabled at Stage 0). Cross-check the denominator against the Cloud Monitoring metric `firestore.googleapis.com/document/read_count` (daily sum; it also counts cron and fan-out reads). `make cost PROJECT_ID=...` prints the same request lines (`rpc`, `fs_reads`, last 50) but no share column. Per-user spread: `read_budget_spent` on the list lines; a user at the 1,000 cap paging 50 rows cold uses the whole 2,000 daily read budget in about 19 pages (`limit=read_budget_daily`, cost-model section 11). The emulator smoke that produced these numbers: `make loadtest SCENARIO=engagement_bookmarks_list` and `node loadtest/analyze_bookmarks.js api.log` (`loadtest/README.md`).
+
 ## Quick reference
 - Caps and limits: 1,000 bookmarks per user (`LIMIT_REACHED limit=bookmarks`), 200 adds per IST day and 50 for accounts younger than
   `QUOTA_NEW_ACCOUNT_WINDOW` (`QUOTA_EXCEEDED quota=bookmarks`), 30/min Add+Remove and 10/min List per instance.
 - Replays: Add and Remove both store an idempotency doc, including their no-op paths (an already bookmarked post, a missing bookmark: 1 write),
   so a late retry of any key replays instead of re-executing and never undoes a newer toggle.
-- Cost: `docs/adr/0023-bookmarks.md` "Cost impact"; the feature adds about 18.2 reads, 1.4 writes and 0.5 deletes per DAU per day.
+- Cost: `docs/adr/0023-bookmarks.md` "Cost impact" (about 18.2 reads, 1.4 writes, 0.5 deletes per DAU per day); re-based in `docs/reviews/cost-model.md` (W2-15) to 18.56 / 1.42 / 0.62, about INR 6.4 a month at 300 DAU. The Stage 2 trigger and its query are in "Cost trigger" above.
