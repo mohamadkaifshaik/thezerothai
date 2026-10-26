@@ -186,7 +186,7 @@ class _BookmarksViewState extends State<_BookmarksView> {
           child: AppMainColumn(
             child: Column(
               children: [
-                AppBackHeader(title: 'Bookmarks', onBack: _back),
+                AppBackHeader(title: 'History', onBack: _back),
                 AppTabBar(
                   semanticLabel: 'Bookmarks',
                   selectedIndex: 0,

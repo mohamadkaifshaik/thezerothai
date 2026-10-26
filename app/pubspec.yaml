@@ -17,6 +17,9 @@ dependencies:
 
   # Navigation
   go_router: ^18.1.1
+  # usePathUrlStrategy() on web (W2-9); a no-op on mobile.
+  flutter_web_plugins:
+    sdk: flutter
 
   # Generated Connect-RPC / protobuf client (app/lib/gen) runtime deps
   connectrpc: ^2.0.1
@@ -45,6 +48,9 @@ dependencies:
   logging: ^1.3.0
   stream_transform: ^2.1.2
   url_launcher: ^6.3.3
+  # Native share sheet for "Share via..." (W2-8). BSD-3-Clause; no native
+  # project edits are needed (see share_plus's setup notes).
+  share_plus: ^13.3.1
   # NFC for the composer's code-point counter (ADR-0010 D9 step 3). Pure Dart.
   unorm_dart: ^0.3.0
   image: ^4.12.0

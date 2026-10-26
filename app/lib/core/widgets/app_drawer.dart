@@ -57,7 +57,7 @@ class AppDrawer extends StatelessWidget {
                 isFeatureEnabled(context, kFeaturePosts))
               _DrawerRow(
                 icon: Icons.bookmark_border,
-                label: 'Bookmarks',
+                label: 'History',
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.bookmarksPath)),
               ),

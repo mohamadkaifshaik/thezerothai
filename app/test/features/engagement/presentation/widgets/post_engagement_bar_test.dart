@@ -3,6 +3,8 @@ import 'dart:ui' show Tristate;
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/share/native_share.dart';
+import 'package:dzeroth/core/share/share_links.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
@@ -15,9 +17,11 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/engagement/v1/engagement.pb.dart' as eng;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
+import 'package:dzeroth/shared/widgets/post_action_bar.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +32,17 @@ import '../../../../support/posts_fixtures.dart';
 class MockEngagementRepository extends Mock implements EngagementRepository {}
 
 class MockPostsRepository extends Mock implements PostsRepository {}
+
+class _FakeNativeShare implements NativeShare {
+  @override
+  bool get isAvailable => true;
+
+  final calls = <({String url, Rect? anchor})>[];
+
+  @override
+  Future<void> shareUrl(String url, {Rect? anchor}) async =>
+      calls.add((url: url, anchor: anchor));
+}
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -114,6 +129,7 @@ void main() {
     bool showReply = true,
     Set<String> features = const {'engagement', 'replies', 'quotes'},
     ThemeData? theme,
+    ShareLinks? shareLinks,
   }) async {
     whenListen(
       onboarding,
@@ -154,20 +170,23 @@ void main() {
       ],
     );
     await tester.pumpWidget(
-      RepositoryProvider<PostsRepository>.value(
-        value: posts,
-        child: MultiBlocProvider(
-          providers: [
-            BlocProvider<OnboardingBloc>.value(value: onboarding),
-            BlocProvider<EngagementCubit>.value(value: cubit),
-          ],
-          child: MaterialApp.router(
-            routerConfig: router,
-            theme: theme ?? appDarkTheme,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
+      ShareLinksScope(
+        links: shareLinks,
+        child: RepositoryProvider<PostsRepository>.value(
+          value: posts,
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<OnboardingBloc>.value(value: onboarding),
+              BlocProvider<EngagementCubit>.value(value: cubit),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              theme: theme ?? appDarkTheme,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!,
+              ),
             ),
           ),
         ),
@@ -185,7 +204,9 @@ void main() {
     ).thenAnswer((_) => answer());
   }
 
-  testWidgets('shows counts, reply/repost/like and no Share', (tester) async {
+  testWidgets('shows counts, reply/repost/like and no Share without a scope', (
+    tester,
+  ) async {
     await pump(tester, _view(liked: true, likes: 1200));
 
     expect(find.text('1.2K'), findsOneWidget);
@@ -582,5 +603,83 @@ void main() {
     expect(pushedExtra, isA<pb.EmbeddedPost>());
     expect((pushedExtra as pb.EmbeddedPost).postId, postId(1));
     expect((pushedExtra as pb.EmbeddedPost).text, 'original');
+  });
+
+  group('share (W2-8)', () {
+    late List<String> clipboard;
+    late _FakeNativeShare native;
+    late ShareLinks links;
+
+    setUp(() {
+      clipboard = [];
+      native = _FakeNativeShare();
+      links = ShareLinks(origin: 'https://dzeroth.com', nativeShare: native);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              clipboard.add((call.arguments as Map)['text'] as String);
+            }
+            return null;
+          });
+    });
+    tearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    testWidgets('is the right-most action and labelled', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester, _view(), shareLinks: links);
+
+      final share = find.byIcon(Icons.ios_share);
+      expect(share, findsOneWidget);
+      expect(find.bySemanticsLabel('Share'), findsOneWidget);
+      final bar = tester.getRect(find.byType(PostActionBar));
+      expect(bar.right - tester.getRect(share).right, lessThan(24));
+      handle.dispose();
+    });
+
+    testWidgets('a plain row copies its own link', (tester) async {
+      await pump(tester, _view(), shareLinks: links);
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Copy link'));
+      await tester.pumpAndSettle();
+
+      expect(clipboard, ['https://dzeroth.com/post/${postId(1)}']);
+      expect(find.text('Copied to clipboard'), findsOneWidget);
+    });
+
+    testWidgets('a REPOST row shares the original, at 1200dp too', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1200, 800);
+      addTearDown(tester.view.reset);
+      await pump(tester, _repostView(), width: 500, shareLinks: links);
+      final shareCenter = tester.getCenter(find.byIcon(Icons.ios_share));
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      await tester.tap(find.text('Share via...'));
+      await tester.pumpAndSettle();
+
+      expect(native.calls.single.url, 'https://dzeroth.com/post/${postId(1)}');
+      // The popover anchor is the Share button (a reorder of the row fails here).
+      expect(native.calls.single.anchor!.contains(shareCenter), isTrue);
+      expect(clipboard, isEmpty);
+    });
+
+    testWidgets('sends no request and needs no flag beyond the bar', (
+      tester,
+    ) async {
+      await pump(tester, _view(), shareLinks: links);
+      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Copy link'));
+      await tester.pumpAndSettle();
+
+      verifyZeroInteractions(repo);
+    });
   });
 }
