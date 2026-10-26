@@ -117,7 +117,7 @@ func (e *listEnv) seed(n int) {
 	for i := n; i >= 1; i-- {
 		id := pid(i)
 		e.bm.rows = append(e.bm.rows, ExportedBookmark{PostID: id, BookmarkedAt: e.now.Add(-time.Duration(n-i+1) * time.Minute)})
-		e.rd.docs[id] = &posts.Post{ID: id, AuthorID: "author", Kind: posts.KindPost}
+		e.rd.docs[id] = &posts.Post{ID: id, AuthorID: "author", Kind: posts.KindPost, Visibility: posts.VisibilityPublic}
 	}
 }
 
@@ -296,7 +296,15 @@ func TestListBookmarks_DropRules(t *testing.T) {
 		{"quote of an unrelated author", snapOf([]string{"x"}, nil, nil), quote("", "a", "e"), "", ""},
 		{"quote with a tombstone", snapOf([]string{"e"}, nil, nil), &posts.Post{AuthorID: "a", Kind: posts.KindQuote, EmbeddedAuthorID: "e", Embedded: &posts.Embedded{Unavailable: true}}, "", ""},
 		{"overflow fails a foreign embedded author closed", graph.Snapshot{BlockedByOverflow: true}, quote("", "a", "e"), "", "blocked"},
-		{"overflow leaves a plain post alone", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: "a"}, "", ""},
+		{"overflow fails a foreign direct author closed (W2-14 L-1)", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: "a"}, "", "blocked"},
+		{"overflow keeps the caller's own post", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: caller}, "", ""},
+		{"overflow keeps the caller's own quote of a foreign author", graph.Snapshot{BlockedByOverflow: true}, quote("", caller, "e"), "", ""},
+		// W2-14 L-2: the same 0-read check Viewable applies. A non-public post needs the caller to follow its author.
+		{"followers-only, not followed", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", "hidden"},
+		{"followers-only, followed", graph.Snapshot{Following: map[string]bool{"a": true}}, &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", ""},
+		{"followers-only, followed someone else", graph.Snapshot{Following: map[string]bool{"x": true}}, &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", "hidden"},
+		{"followers-only, the caller's own", snapOf(nil, nil, nil), &posts.Post{AuthorID: caller, Visibility: posts.VisibilityFollowers}, "", ""},
+		{"no recorded visibility fails closed, like Viewable", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Visibility: "UNKNOWN"}, "", "hidden"},
 		{"own post", snapOf([]string{"viewer"}, nil, []string{"viewer"}), &posts.Post{AuthorID: caller}, "", ""},
 		{"own quote of a blocked author", snapOf([]string{"e"}, nil, nil), quote("", caller, "e"), "", ""},
 		{"quote of the caller's own post", snapOf(nil, nil, nil), quote("", "a", caller), "", ""},
@@ -309,6 +317,9 @@ func TestListBookmarks_DropRules(t *testing.T) {
 			e.bm.rows = []ExportedBookmark{{PostID: id, BookmarkedAt: e.now}}
 			if tt.post != nil {
 				p := *tt.post
+				if p.Visibility == "" {
+					p.Visibility = posts.VisibilityPublic
+				}
 				p.ID, p.Moderation = id, tt.hide
 				e.rd.docs[id] = &p
 			}
