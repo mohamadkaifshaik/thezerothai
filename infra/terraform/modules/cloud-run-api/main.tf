@@ -1,7 +1,7 @@
 // Cloud Run v2 service `api` — the entire backend modular monolith.
 // Request-based billing only: min 0 (scales to zero; the only exception is the ADR-0022 credit mode, a
-// SERVICE-level min 1 in prod until 2026-12-22 under `# cost-approved: ADR-0022 until:2026-12-22`), max 3 (cost cap +
-// blast-radius cap), 1 vCPU / 512Mi, CPU allocated only during requests,
+// SERVICE-level min 1 in prod until 2026-12-22, carried on the caller's line by a `# cost-approved: ADR-0022`
+// marker with its until date), max 3 (cost cap + blast-radius cap), 1 vCPU / 512Mi, CPU allocated only during requests,
 // concurrency 80, 30s timeout. Public invoker: authn is Firebase ID tokens
 // checked in Go, not IAM — this is what lets us skip a load balancer/IAP.
 
