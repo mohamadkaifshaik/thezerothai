@@ -12,6 +12,9 @@ import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/media_feature_flag.dart';
+import 'package:dzeroth/features/media/presentation/widgets/alt_text_editor.dart';
+import 'package:dzeroth/features/media/presentation/widgets/attachment_grid.dart';
+import 'package:dzeroth/shared/widgets/app_form_header.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -138,9 +141,7 @@ void main() {
   }
 
   AppPillButton postButton(WidgetTester tester) =>
-      tester.widget<AppPillButton>(
-        find.widgetWithText(AppPillButton, 'Post'),
-      );
+      tester.widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Post'));
 
   Future<void> addPhotos(WidgetTester tester, List<String> tags) async {
     picker.next = [for (final t in tags) imageBytes(t)];
@@ -404,5 +405,282 @@ void main() {
     );
     expect(add.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
     expect(add.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+  });
+
+  group('alt text editor (W2-10)', () {
+    final editor = find.byType(AltTextEditorView);
+    final editorField = find.descendant(
+      of: editor,
+      matching: find.byType(TextField),
+    );
+    final editorCancel = find.descendant(
+      of: editor,
+      matching: find.text('Cancel'),
+    );
+    final tileAlt = find.descendant(
+      of: find.byType(AttachmentTile),
+      matching: find.byType(TextButton),
+    );
+
+    Future<void> openEditor(WidgetTester tester) async {
+      await tester.tap(
+        find.bySemanticsLabel(RegExp('(Add|Edit) description for photo')),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
+      await tester.pumpAndSettle();
+    }
+
+    String fieldText(WidgetTester tester) =>
+        tester.widget<TextField>(editorField).controller!.text;
+
+    testWidgets('opens from the tile with preview, title, field and counter', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await open(tester);
+      await addPhotos(tester, ['a']);
+      expect(find.text('+ ALT'), findsOneWidget);
+
+      await openEditor(tester);
+
+      expect(editor, findsOneWidget);
+      expect(find.text('Description'), findsWidgets);
+      expect(
+        find.descendant(of: editor, matching: find.byType(Image)),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Photo being described'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          RegExp('Characters remaining: $kMaxAltTextLength'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.widgetWithText(AppPillButton, 'Save'), findsOneWidget);
+      expect(editorCancel, findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('the counter follows the text', (tester) async {
+      final handle = tester.ensureSemantics();
+      await open(tester);
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+
+      await tester.enterText(editorField, 'a cat');
+      await tester.pump();
+
+      expect(
+        find.bySemanticsLabel(
+          RegExp('Characters remaining: ${kMaxAltTextLength - 5}'),
+        ),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+
+    testWidgets('Save writes the text into the attachment, the tile reads ALT '
+        'and Post sends it unchanged', (tester) async {
+      stubHappyUpload(media);
+      await open(tester);
+      await addPhotos(tester, ['a']);
+
+      await openEditor(tester);
+      await tester.enterText(editorField, '  a cat on a sofa ');
+      await save(tester);
+
+      expect(editor, findsNothing);
+      expect(find.text('ALT'), findsOneWidget);
+      expect(find.text('+ ALT'), findsNothing);
+      expect(
+        find.bySemanticsLabel('Edit description for photo 1'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
+      await tester.pumpAndSettle();
+      verify(
+        () => posts.createPost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: any(named: 'text'),
+          replyToPostId: any(named: 'replyToPostId'),
+          mediaIds: ['m1'],
+          mediaAltTexts: ['a cat on a sofa'],
+        ),
+      ).called(1);
+    });
+
+    testWidgets('a set description is shown again and can be cleared', (
+      tester,
+    ) async {
+      await open(tester);
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+      await tester.enterText(editorField, 'first');
+      await save(tester);
+
+      await openEditor(tester);
+      expect(fieldText(tester), 'first');
+      await tester.enterText(editorField, '');
+      await save(tester);
+
+      expect(find.text('+ ALT'), findsOneWidget);
+    });
+
+    testWidgets('Cancel discards the edit', (tester) async {
+      await open(tester);
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+      await tester.enterText(editorField, 'first');
+      await save(tester);
+
+      await openEditor(tester);
+      await tester.enterText(editorField, 'something else');
+      await tester.tap(editorCancel);
+      await tester.pumpAndSettle();
+
+      expect(editor, findsNothing);
+      await openEditor(tester);
+      expect(fieldText(tester), 'first');
+    });
+
+    testWidgets('over the limit: the counter says so and Save is off', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await open(tester);
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+      AppPillButton saveButton() => tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Save'),
+      );
+
+      await tester.enterText(editorField, 'x' * (kMaxAltTextLength + 3));
+      await tester.pump();
+      expect(
+        find.bySemanticsLabel(RegExp('Characters over the limit: 3')),
+        findsOneWidget,
+      );
+      expect(saveButton().onPressed, isNull);
+
+      await tester.enterText(editorField, 'x' * kMaxAltTextLength);
+      await tester.pump();
+      expect(saveButton().onPressed, isNotNull);
+      handle.dispose();
+    });
+
+    testWidgets('the limit counts code points like the cubit (emoji)', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await open(tester);
+      await addPhotos(tester, ['a']);
+      await openEditor(tester);
+
+      // A family emoji is one grapheme but 5 code points.
+      await tester.enterText(editorField, '\u{1F468}‍\u{1F469}‍\u{1F467}');
+      await tester.pump();
+
+      expect(
+        find.bySemanticsLabel(
+          RegExp('Characters remaining: ${kMaxAltTextLength - 5}'),
+        ),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+
+    for (final cancel in [false, true]) {
+      testWidgets(
+        'focus returns to the tile button after ${cancel ? 'Cancel' : 'Save'}',
+        (tester) async {
+          await open(tester);
+          await addPhotos(tester, ['a']);
+          await openEditor(tester);
+          expect(
+            tester.widget<TextButton>(tileAlt).focusNode!.hasFocus,
+            isFalse,
+          );
+
+          if (cancel) {
+            await tester.tap(editorCancel);
+            await tester.pumpAndSettle();
+          } else {
+            await tester.enterText(editorField, 'a cat');
+            await save(tester);
+          }
+
+          expect(
+            tester.widget<TextButton>(tileAlt).focusNode!.hasFocus,
+            isTrue,
+          );
+        },
+      );
+    }
+
+    for (final (width, fullScreen) in [
+      (360.0, true),
+      (599.0, true),
+      (600.0, false),
+      (1200.0, false),
+    ]) {
+      testWidgets(
+        'at $width dp it is ${fullScreen ? 'full-screen' : 'a centred dialog'}',
+        (tester) async {
+          await open(tester, size: Size(width, 900));
+          await addPhotos(tester, ['a']);
+          await openEditor(tester);
+
+          expect(
+            find.byType(Dialog),
+            fullScreen ? findsNothing : findsOneWidget,
+          );
+          final box = tester.getRect(
+            find.descendant(of: editor, matching: find.byType(AppFormHeader)),
+          );
+          if (fullScreen) {
+            expect(box.left, 0);
+            expect(box.width, width);
+          } else {
+            expect(box.width, lessThanOrEqualTo(440));
+            expect(box.center.dx, closeTo(width / 2, 0.5));
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    for (final dark in [false, true]) {
+      for (final scale in [1.0, 1.3, 2.0]) {
+        testWidgets('${dark ? 'dark' : 'light'}, text scale $scale, 320 dp: no '
+            'overflow, 48dp Save and Cancel', (tester) async {
+          await open(
+            tester,
+            theme: dark ? appDarkTheme : appLightTheme,
+            textScale: scale,
+            size: const Size(320, 640),
+          );
+          await addPhotos(tester, ['a']);
+          await openEditor(tester);
+          await tester.enterText(editorField, 'a long description ' * 20);
+          await tester.pump();
+
+          expect(tester.takeException(), isNull);
+          for (final target in [
+            find.widgetWithText(AppPillButton, 'Save'),
+            find.widgetWithText(TextButton, 'Cancel'),
+          ]) {
+            expect(
+              tester.getSize(target).height,
+              greaterThanOrEqualTo(AppSpacing.minTapTarget),
+            );
+          }
+        });
+      }
+    }
   });
 }
