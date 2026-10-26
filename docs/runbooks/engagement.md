@@ -9,7 +9,7 @@ Cleanup (the `post_delete` job, Eraser, export) is never flag-gated. Kill switch
 |---|---|---|---|
 | `engagement` | `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]` / `feature_engagement*` | LikePost, UnlikePost, RepostPost, UndoRepost, viewer flags; required by `quotes` | off |
 | `quotes` | `FEATURE_QUOTES[_ALLOWLIST\|_PERCENT]` / `feature_quotes*` | `CreatePost.quote_of_post_id` only (needs `engagement` on too; ADR-0018 amendment 2026-10-18) | off |
-| `bookmarks` | `FEATURE_BOOKMARKS[_ALLOWLIST\|_PERCENT]` / `feature_bookmarks*` | AddBookmark needs it on for the caller; ListBookmarks and RemoveBookmark only need it not globally off (ADR-0023 D5); needs FEATURE_POSTS, not `engagement`. W2-2 registers the flag and the gate only: the handlers answer Unimplemented behind it until W2-3 / W2-4 | off |
+| `bookmarks` | `FEATURE_BOOKMARKS[_ALLOWLIST\|_PERCENT]` / `feature_bookmarks*` | AddBookmark needs it on for the caller; ListBookmarks and RemoveBookmark only need it not globally off (ADR-0023 D5); needs FEATURE_POSTS, not `engagement`. AddBookmark and RemoveBookmark are live behind it (W2-3); ListBookmarks answers Unimplemented until W2-4. The runbook is `docs/runbooks/bookmarks.md` | off |
 
 Quote rollback: set `FEATURE_QUOTES=off` (or lower the percent) and deploy. New quotes are refused with `FEATURE_DISABLED`
 `feature=quotes`; existing quotes keep displaying (display never consults the flag), likes and reposts are unaffected.
@@ -83,3 +83,27 @@ A LikePost that joined another request's in-flight like of the same post (same i
 then left returns CANCELED / DEADLINE_EXCEEDED (not INTERNAL, not in Error Reporting). Its request log does not
 carry the transaction's `fs_reads` / `fs_writes`: the leader's request owns them. The leader never abandons its
 flight, so a committed like always updates the counter hook, the cache and the notification.
+
+## 8. Bookmarks: AddBookmark and RemoveBookmark (ADR-0023, W2-3)
+Data: `users/{uid}/bookmarks/{postId}` = `{createdAt}` (a thin doc, no copy of the post), `userLikes/{uid}.bookmarks` (the
+complete set, at most `BOOKMARKS_MAX_PER_USER` = 1,000), `quotas/{uid}.bookmarks`, `idempotency/{hash}` (24 h TTL). Nothing
+is emitted or notified; a bookmark is private to its owner. **Kill switch: `FEATURE_BOOKMARKS=off` and deploy** (Add and
+Remove then answer `FEATURE_DISABLED feature=bookmarks`, 0 reads); no data migration is needed and existing bookmarks stay.
+Taking a user off the allowlist stops their Add only, they can still Remove. The request line carries `engagement_op`
+(`add_bookmark` / `remove_bookmark`), `outcome` (`done`, `replay`, `noop`, `not_found`, `rejected:limit_reached`,
+`rejected:quota_exceeded`, `rejected:key_reused`), `fs_reads`, `fs_writes`, `fs_deletes` and `txn_attempts`.
+
+| Symptom | Cause and action |
+|---|---|
+| `LIMIT_REACHED limit=bookmarks` | The user holds 1,000 bookmarks (exact: counted from `userLikes.bookmarks` inside the transaction). Expected; they remove some. Raising `BOOKMARKS_MAX_PER_USER` past 2,000 needs ADR-0023 D7's maths redone |
+| `QUOTA_EXCEEDED quota=bookmarks` | 200 adds per IST day, 50 for an account younger than `QUOTA_NEW_ACCOUNT_WINDOW` (`QUOTA_BOOKMARKS_PER_DAY`, `QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY`). A replay or an already bookmarked post is not charged. A spike across many accounts is spam: `docs/runbooks/abuse-spike.md` |
+| Add returns `NOT_FOUND "post not found"` for a post the user saw | The post is deleted, taken down, or its author (or a quoted author) blocks the user: the same answer and bytes as GetPost, by design (no block oracle) |
+| `INTERNAL` from Add or Remove with `txn_attempts` at 4+ or a deadline | Contention: one user's concurrent adds all lock their `quotas` and `userLikes` docs and serialise; the transaction retries 4 times inside 5 s and then gives up without writing. The client retries (same key). Sustained = a client bug or a script; the 30/min per-instance rate limit bounds it |
+| Bookmarked state missing on a card | Viewer state comes from `userLikes.bookmarks`, cached 60 s per instance. The wire field `PostView.bookmarked_by_viewer` does not exist yet (architect follow-up), so clients keep a local set until it ships |
+| Bookmark exists in the subcollection but not in the array (or the reverse) | Not expected: every writer changes both in one transaction. Add then answers success and writes only its idempotency doc (it cannot heal it); the ListBookmarks prune (W2-4) and the account eraser delete by doc. File a bug with the uid hash |
+
+Replays: a replayed Add returns its stored `bookmarked: true` even if the bookmark was removed since, and a replayed
+Remove returns `false` even if it was added again; neither writes, so a late retry never undoes a newer toggle. The two no-op paths (Add of an
+already bookmarked post, Remove of a missing bookmark) also store their idempotency doc, so they cost 1 write, not 0, and a late retry
+of their key replays too. Account deletion and export of the `users/{uid}/bookmarks` subcollection, the prune and the residue are in
+`docs/runbooks/bookmarks.md`.

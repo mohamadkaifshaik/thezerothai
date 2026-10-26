@@ -1,6 +1,6 @@
 // server_bookmarks.go holds the Connect handlers of bookmarks (ADR-0023): AddBookmark, RemoveBookmark and
-// ListBookmarks. This file is the flag gate and nothing else yet (W2-2): once it passes, every RPC answers
-// Unimplemented naming the ticket that fills it in (W2-3 Add and Remove, W2-4 List), so no path reads or writes.
+// ListBookmarks. The flag gate (W2-2) runs first on every RPC; Add and Remove then call the Bookmarks service (W2-3).
+// ListBookmarks answers Unimplemented naming its ticket (W2-4) until it lands, so that path reads and writes nothing.
 package engagement
 
 import (
@@ -49,8 +49,8 @@ func (s *Server) guardBookmarks(ctx context.Context, who bookmarkCaller) (string
 	return uid, nil
 }
 
-// bookmarkStub runs the flag gate and then answers Unimplemented. The three handlers share it so the gate cannot drift
-// between them; W2-3 and W2-4 replace the Unimplemented answer with the Service call, one handler at a time.
+// bookmarkStub runs the flag gate and then answers Unimplemented. The handlers share the gate so it cannot drift
+// between them; W2-4 replaces the last Unimplemented answer (ListBookmarks) with the Service call.
 func (s *Server) bookmarkStub(ctx context.Context, rpc, ticket string, who bookmarkCaller) error {
 	if _, err := s.guardBookmarks(ctx, who); err != nil {
 		return err
@@ -58,16 +58,54 @@ func (s *Server) bookmarkStub(ctx context.Context, rpc, ticket string, who bookm
 	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not implemented yet (ticket %s)", rpc, ticket))
 }
 
-// AddBookmark is behind FEATURE_POSTS and FEATURE_BOOKMARKS on for the caller. Worst case (when W2-3 lands) 7 reads
-// cold, 4 writes; today 0 reads and 0 writes (Unimplemented after the flag gate).
-func (s *Server) AddBookmark(ctx context.Context, _ *connect.Request[engagementv1.AddBookmarkRequest]) (*connect.Response[engagementv1.AddBookmarkResponse], error) {
-	return nil, s.bookmarkStub(ctx, "AddBookmark", "W2-3", callerEnabled)
+// bookmarkCall is the shared shell of Add and Remove: the flag gate, the RPC deadline, the service call.
+func (s *Server) bookmarkCall(ctx context.Context, rpc string, who bookmarkCaller, fn func(context.Context, Bookmarks, string) (BookmarkState, error)) (*engagementv1.BookmarkState, error) {
+	uid, err := s.guardBookmarks(ctx, who)
+	if err != nil {
+		return nil, err
+	}
+	if s.bookmarks == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	defer cancel()
+	st, err := fn(ctx, s.bookmarks, uid)
+	if err != nil {
+		return nil, err
+	}
+	return &engagementv1.BookmarkState{PostId: st.PostID, Bookmarked: st.Bookmarked}, nil
 }
 
-// RemoveBookmark is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off. Worst case (when W2-3 lands)
-// 2 reads cold, 2 writes and 1 delete; today 0 reads and 0 writes (Unimplemented after the flag gate).
-func (s *Server) RemoveBookmark(ctx context.Context, _ *connect.Request[engagementv1.RemoveBookmarkRequest]) (*connect.Response[engagementv1.RemoveBookmarkResponse], error) {
-	return nil, s.bookmarkStub(ctx, "RemoveBookmark", "W2-3", notGloballyOff)
+// AddBookmark is behind FEATURE_POSTS and FEATURE_BOOKMARKS on for the caller (not FEATURE_ENGAGEMENT); the rules are
+// Bookmarks.AddBookmark. Worst case: 7 reads cold (interceptor 1, visibility check 3, idempotency, quotas, userLikes;
+// +2 for a REPOST id, +1 on blockedBy overflow), 3 warm; 4 writes (bookmark, idempotency doc, quotas, userLikes) and
+// 1 TTL delete later. A replay costs 5 cold / 1 warm reads, 0 writes; an existing bookmark writes 1 (the idempotency doc, so a late retry replays); the cap and the quota
+// write 0.
+//
+//nolint:dupl // mirrors RemoveBookmark over distinct generated proto types
+func (s *Server) AddBookmark(ctx context.Context, req *connect.Request[engagementv1.AddBookmarkRequest]) (*connect.Response[engagementv1.AddBookmarkResponse], error) {
+	st, err := s.bookmarkCall(ctx, "AddBookmark", callerEnabled, func(ctx context.Context, b Bookmarks, uid string) (BookmarkState, error) {
+		return b.AddBookmark(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&engagementv1.AddBookmarkResponse{State: st}), nil
+}
+
+// RemoveBookmark is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off; the rules are
+// Bookmarks.RemoveBookmark. Worst case: 2 reads cold (interceptor 1, idempotency), 1 warm; 2 writes (idempotency doc,
+// userLikes) and 1 delete, plus 1 TTL delete later. A missing bookmark writes 1 (the idempotency doc); a replay writes 0.
+//
+//nolint:dupl // mirrors AddBookmark over distinct generated proto types
+func (s *Server) RemoveBookmark(ctx context.Context, req *connect.Request[engagementv1.RemoveBookmarkRequest]) (*connect.Response[engagementv1.RemoveBookmarkResponse], error) {
+	st, err := s.bookmarkCall(ctx, "RemoveBookmark", notGloballyOff, func(ctx context.Context, b Bookmarks, uid string) (BookmarkState, error) {
+		return b.RemoveBookmark(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId())
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&engagementv1.RemoveBookmarkResponse{State: st}), nil
 }
 
 // ListBookmarks is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off. Worst case (when W2-4 lands)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -52,7 +53,7 @@ func newRepoEnv(t *testing.T) *repoEnv {
 		t.Fatal(err)
 	}
 	pr := posts.NewFirestoreRepo(client)
-	repo := NewFirestoreRepo(client, WriteDeps{Quotas: quota.New(client), Writer: pr, Counters: countersStub{client}, IDs: node})
+	repo := NewFirestoreRepo(client, WriteDeps{Quotas: quota.New(client), Writer: pr, Counters: countersStub{client}, IDs: node, Idempotency: idempotency.New(client)})
 	return &repoEnv{client: client, repo: repo, posts: pr}
 }
 

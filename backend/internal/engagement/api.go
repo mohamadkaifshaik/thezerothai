@@ -5,6 +5,9 @@
 //
 // Operations are state-setting and keyed by (post, caller), so a replay or ten concurrent calls converge on one
 // effect (ADR-0018 D3): the idempotency_key is validated for format and needs no stored record.
+//
+// Bookmarks (ADR-0023) also live here: users/{uid}/bookmarks/{postId} and userLikes.bookmarks, behind the Bookmarks and
+// BookmarkRepo seams. Unlike likes they store an idempotency doc (rule 4), and they emit no event.
 package engagement
 
 import (
@@ -21,7 +24,7 @@ const FlagName = posts.EngagementFlagName
 
 // BookmarksFlagName is the wire name of FEATURE_BOOKMARKS (ADR-0023 D5). AddBookmark needs it on for the caller;
 // ListBookmarks and RemoveBookmark only need it not globally off. It is independent of FlagName (engagement).
-const BookmarksFlagName = "bookmarks"
+const BookmarksFlagName = posts.BookmarksFlagName
 
 // Limits (ADR-0018 D7, D8).
 const (
@@ -62,10 +65,13 @@ type Service interface {
 	UndoRepost(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
 }
 
-// UserLikes is the userLikes/{uid} document: the ids the user liked and reposted most recently, newest last.
+// UserLikes is the userLikes/{uid} document: the ids the user liked and reposted most recently, newest last, and the
+// complete bookmark set.
 type UserLikes struct {
 	Recent        []string
 	RecentReposts []string
+	// Bookmarks is the complete set of the user's bookmarked post ids (ADR-0023 D3), at most the per-user cap.
+	Bookmarks []string
 }
 
 // Repo is the storage seam service.go depends on; repo_firestore.go implements it, tests use a fake.
@@ -152,4 +158,79 @@ var (
 	// ErrPostGone is returned by Repo.Like and Repo.Repost when the target was deleted between the visibility
 	// check and the commit. The service maps it to the one NOT_FOUND "post not found" answer.
 	ErrPostGone = errors.New("engagement: post no longer exists")
+	// ErrBookmarkLimit is returned by BookmarkRepo.Add when userLikes.bookmarks already holds MaxPerUser ids. The service
+	// maps it to FAILED_PRECONDITION + LIMIT_REACHED limit=bookmarks.
+	ErrBookmarkLimit = errors.New("engagement: bookmark limit reached")
+	// ErrIdempotencyKeyReused is returned by BookmarkRepo when the key was used before for a different post_id. The
+	// service maps it to INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED.
+	ErrIdempotencyKeyReused = errors.New("engagement: idempotency key reused with a different request")
 )
+
+// BookmarkState is the caller's bookmark state of one post after AddBookmark or RemoveBookmark (ADR-0023).
+type BookmarkState struct {
+	// PostID is the post the action applied to: the original when AddBookmark named a REPOST.
+	PostID string
+	// Bookmarked is true after AddBookmark (also for a post that was already bookmarked), false after RemoveBookmark.
+	Bookmarked bool
+}
+
+// Bookmarks is the bookmark seam of the module (ADR-0023 D1): the Connect handler depends on it, a later split into
+// its own service changes no caller. It reads posts only through posts.Engagement.Viewable, emits no event and
+// notifies nobody; a bookmark is private to the caller.
+type Bookmarks interface {
+	// AddBookmark bookmarks postID (a REPOST id: its original) for uid. Reads cold: the visibility check 3 (+2 for a
+	// REPOST id, +1 on blockedBy overflow; 0 warm) + idempotency + quotas + userLikes = 6, 7 with the interceptor's own
+	// read (3 warm); a replay stops after the idempotency read (5 cold / 1 warm). Writes 4 (bookmark,
+	// idempotency doc, quotas, userLikes); an existing bookmark writes 1 (the idempotency doc, so a late retry replays); a replay, the cap and the quota write 0.
+	AddBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
+	// RemoveBookmark removes uid's bookmark of postID. No visibility check and no quota. Reads 1 (idempotency);
+	// writes 2 (idempotency doc, userLikes) + 1 delete; a missing bookmark writes 1 (the idempotency doc); a replay writes 0.
+	RemoveBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
+}
+
+// BookmarkOutcome says what a BookmarkRepo call did.
+type BookmarkOutcome int
+
+const (
+	// BookmarkWritten means the transaction committed its writes.
+	BookmarkWritten BookmarkOutcome = iota
+	// BookmarkReplayed means the idempotency doc already existed: the stored state is returned, nothing was written.
+	BookmarkReplayed
+	// BookmarkUnchanged means the state already held (Add of an existing bookmark, Remove of a missing one): 1 write (the idempotency doc).
+	BookmarkUnchanged
+)
+
+// AddBookmarkParams is one AddBookmark transaction.
+type AddBookmarkParams struct {
+	UID string
+	// PostID is the original's id (the service resolved a REPOST id): the bookmark doc id.
+	PostID string
+	// IdemKey is idempotency.Key(uid, "AddBookmark", key); RequestHash is the hash of the post_id as sent.
+	IdemKey, RequestHash string
+	// QuotaLimit is the daily AddBookmark limit for this caller (200, or 50 for a new account); MaxPerUser is the
+	// hard cap of bookmarks (1,000).
+	QuotaLimit int64
+	MaxPerUser int
+}
+
+// RemoveBookmarkParams is one RemoveBookmark transaction.
+type RemoveBookmarkParams struct {
+	UID, PostID string
+	// IdemKey is idempotency.Key(uid, "RemoveBookmark", key); RequestHash is the hash of the post_id as sent.
+	IdemKey, RequestHash string
+}
+
+// BookmarkResult is the outcome of a BookmarkRepo call. State is the stored one on a replay.
+type BookmarkResult struct {
+	Outcome BookmarkOutcome
+	State   BookmarkState
+}
+
+// BookmarkRepo is the storage seam of the bookmark service; repo_bookmarks.go implements it, tests use a fake.
+type BookmarkRepo interface {
+	// Add runs the AddBookmark transaction (ADR-0023 D4). It returns ErrBookmarkLimit at the cap, a
+	// quota.ExceededError at the daily quota and ErrIdempotencyKeyReused for a key used with another post_id.
+	Add(ctx context.Context, p AddBookmarkParams) (BookmarkResult, error)
+	// Remove runs the RemoveBookmark transaction. It returns ErrIdempotencyKeyReused like Add.
+	Remove(ctx context.Context, p RemoveBookmarkParams) (BookmarkResult, error)
+}

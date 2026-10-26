@@ -31,9 +31,9 @@ Branches: `feat/ui-w2-N-<slug>` off `main` (not stacked: the backend chain and t
 | --- | --- | --- | --- | --- |
 | W2-1 | ADR-0023 + bookmark RPCs in `engagement.proto`; after founder Q2, `PostView.bookmarked_by_viewer` and the `userLikes.bookmarks` index exemption | architect | M | Todo |
 | W2-2 | `make proto`, register `FEATURE_BOOKMARKS` and the bookmark config (quota, cap, rate limits) in config, registry, ceiling and Terraform vars; flag-guarded handlers in the engagement module | backend-developer | S | Done (PR pending): flag, config, rate limits, ceiling, Terraform and the gate on the three handlers (Unimplemented behind it until W2-3 / W2-4); generated Go and Dart code |
-| W2-3 | `engagement.Bookmarks` / `BookmarkRepo`: `AddBookmark` / `RemoveBookmark` (thin doc, idempotency doc, daily quota, cap 1,000, `userLikes.bookmarks[]`), viewer-state hydration | backend-developer | M | Todo |
+| W2-3 | `engagement.Bookmarks` / `BookmarkRepo`: `AddBookmark` / `RemoveBookmark` (thin doc, idempotency doc, daily quota, cap 1,000, `userLikes.bookmarks[]`), viewer-state hydration | backend-developer | M | Done (PR pending; ships with W2-5 in one PR, T11 guard): `engagement.Bookmarks` / `BookmarkRepo`, AddBookmark and RemoveBookmark with the thin doc, idempotency doc, `quota.Bookmarks`, cap and `userLikes.bookmarks[]`; `ViewerSet.bookmarked` hydrated through `posts.HydrateViewer` (not on the wire until `PostView.bookmarked_by_viewer` exists). The no-op paths (an already bookmarked post, a missing bookmark) store their idempotency doc: 1 write, so a late retry replays |
 | W2-4 | `ListBookmarks` (limit 20 / max 50, opaque cursor, live posts via `GetMany`, D6 drop rules, lazy prune, read budget) | backend-developer | M | Todo |
-| W2-5 | Bookmarks lifecycle: `bookmarks` eraser step (after `scheduled`, before `identity`), export section, guard row + fixture rename, runbook | backend-developer | M | Todo |
+| W2-5 | Bookmarks lifecycle: `bookmarks` eraser step (after `scheduled`, before `identity`), export section, guard row + fixture rename, runbook | backend-developer | M | Done (PR pending; ships with W2-3 in one PR, T11 guard): `BookmarkEraser` step `bookmarks`, export section `bookmarks`, T11 row and fixture rename, `docs/runbooks/bookmarks.md` |
 | W2-6 | Client bookmark action: right group of the action row, optimistic toggle, toast, quota / cap errors | frontend-developer | M | Todo |
 | W2-7 | Bookmarks screen `/bookmarks` + drawer and rail entry, live rows, short-page paging, empty state | frontend-developer | M | Todo |
 | W2-8 | Share: menu (Copy link, Share via...), canonical URL helper, `share_plus` | frontend-developer | S | Todo |
@@ -53,7 +53,7 @@ Cost line (ADR-0023 "Cost impact"; cold reads include the account-status interce
 |---|---|---|---|
 | AddBookmark | 7 / 3 | 4 (bookmark, idempotency, quota, `userLikes`) | +1 TTL later |
 | AddBookmark replay | 5 / 1 | 0 | 0 |
-| RemoveBookmark | 2 / 1 | 2 | 1 (+1 TTL later) |
+| RemoveBookmark | 2 / 1 | 2 (no-op: 1) | 1 (+1 TTL later) |
 | ListBookmarks, page 20 / 50 | 43 / 103 (posts warm: 1 + page; empty: 2) | 0 | 1 per lazily pruned row, once |
 | Viewer state on timelines, GetPost, GetThread | +0 with `engagement` on (+1 cold, cached 60 s, with only `bookmarks` on) | 0 | 0 |
 
@@ -92,18 +92,18 @@ The flag is registered in `config.go` and in `flags.NewRegistry` (`apiserver.go`
 - It `Create`s the thin doc `{createdAt}` and the idempotency doc, charges `quotas.bookmarks`, and writes `ArrayUnion` into `userLikes.bookmarks` (field-level `Set` + `MergeAll`, never a whole-doc write, per ADR-0023 D3).
 - A REPOST id bookmarks its original.
 - A replay returns the stored result (5 cold / 1 warm reads, 0 writes).
-- An existing bookmark is success with 0 writes and no quota charge.
+- An existing bookmark is success with no quota charge and 1 write (its idempotency doc, so a late retry replays).
 - A missing, deleted, hidden or blocking-author post returns NOT_FOUND "post not found", byte-identical to GetPost.
 - At 1,000 bookmarks (exact, from the array length) it returns `LIMIT_REACHED` `limit=bookmarks`.
 - Over 200 adds a day (50 for accounts younger than 24 h) it returns `QUOTA_EXCEEDED` `quota=bookmarks`. The new `quota.Bookmarks` kind ships with its `Record` field and its `valueFor` / `increment` cases.
 
-RemoveBookmark reads only the idempotency doc. It then runs `Delete(bookmark, Exists)`, `Create` on the idempotency doc and `ArrayRemove`. There is no visibility check and no quota; a missing bookmark is a 0-write no-op.
+RemoveBookmark reads only the idempotency doc. It then runs `Delete(bookmark, Exists)`, `Create` on the idempotency doc and `ArrayRemove`. There is no visibility check and no quota; a missing bookmark is a no-op that writes only its idempotency doc (1 write), so a late retry replays.
 
 `ViewerSet` gains `bookmarked`, hydrated whenever `engagement` or `bookmarks` is on for the viewer. Over 30 calls/min per user returns RATE_LIMITED. A bookmark emits no notification and no `Events`, and nothing about it is visible to the post's author. Tests: unit, emulator integration, `budgettest` at 7 (Add) and 2 (Remove), flag off/allowlist/on, and replay after Remove. Observability: one slog line per call (`uid_hash`, outcome, `fs_reads`); Error Reporting on internal errors. Flag: `FEATURE_BOOKMARKS`. Seam: `engagement.Bookmarks` / `BookmarkRepo`; posts are read only through `posts.Engagement.Viewable`. Cost:
 
 | RPC | Reads cold / warm | Writes | Deletes |
 |---|---|---|---|
-| AddBookmark | 7 / 3 | 4 | +1 TTL later |
+| AddBookmark | 7 / 3 | 4 (existing bookmark: 1) | +1 TTL later |
 | RemoveBookmark | 2 / 1 | 2 | 1 (+1 TTL later) |
 
 **W2-4 List** [depends: W2-2]. Given 25 bookmarks, a first call returns the newest 20 and a `next_page_token`, and the second call returns 5 and `""`. `page_size` 0 gives 20, clamped to 50. A foreign or tampered token returns INVALID_ARGUMENT VALIDATION `page_token` with 0 reads. The cursor is bound to `bookmarks|<uid>` with a 24 h TTL.

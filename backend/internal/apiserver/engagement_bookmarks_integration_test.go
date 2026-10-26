@@ -5,7 +5,8 @@ package apiserver
 // Wire contract of the bookmark flag gate (ADR-0023 D5, ticket W2-2) over the real Build chain: GetMe.enabled_features
 // lists "bookmarks" only for the allowlisted caller; with the flag off all three RPCs answer FAILED_PRECONDITION +
 // FEATURE_DISABLED (metadata feature=bookmarks) with 0 Firestore reads; in allowlist mode a caller outside the list is
-// refused AddBookmark only, while Remove and List pass the gate (Unimplemented until W2-3 / W2-4). Helpers come from
+// refused AddBookmark only, while Remove and List pass the gate (a passed gate shows as INVALID_ARGUMENT from Add and Remove,
+// whose placeholder post id fails validation with 0 reads, and as Unimplemented from List until W2-4). Helpers come from
 // posts_contract_test.go and posts_restricted_test.go.
 
 import (
@@ -23,6 +24,15 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
+
+// passedGate reports whether err shows the flag gate was passed: Add and Remove then reject the placeholder post id as
+// INVALID_ARGUMENT, ListBookmarks answers Unimplemented until W2-4.
+func passedGate(rpc string, err error) bool {
+	if rpc == "ListBookmarks" {
+		return connect.CodeOf(err) == connect.CodeUnimplemented
+	}
+	return connect.CodeOf(err) == connect.CodeInvalidArgument
+}
 
 func bookmarkRPCs(c engagementv1connect.EngagementServiceClient, token string) map[string]error {
 	ctx := context.Background()
@@ -75,10 +85,10 @@ func TestBookmarksContract_AllowlistCohort(t *testing.T) {
 	}
 
 	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, env.url)
-	// Inside: every RPC passes the gate (Unimplemented until W2-3 / W2-4).
+	// Inside: every RPC passes the gate.
 	for name, err := range bookmarkRPCs(eng, insideToken) {
-		if connect.CodeOf(err) != connect.CodeUnimplemented {
-			t.Errorf("inside %s: err = %v, want Unimplemented", name, err)
+		if !passedGate(name, err) {
+			t.Errorf("inside %s: err = %v, want the gate passed", name, err)
 		}
 	}
 	// Outside: AddBookmark is refused, Remove and List still pass the gate.
@@ -91,8 +101,8 @@ func TestBookmarksContract_AllowlistCohort(t *testing.T) {
 			}
 			continue
 		}
-		if connect.CodeOf(err) != connect.CodeUnimplemented {
-			t.Errorf("outside %s: err = %v, want Unimplemented (gate open)", name, err)
+		if !passedGate(name, err) {
+			t.Errorf("outside %s: err = %v, want the gate passed", name, err)
 		}
 	}
 }

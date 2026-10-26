@@ -8,6 +8,18 @@
       "password"
     ]
   },
+  "bookmarks": {
+    "bookmarks": [
+      {
+        "bookmarkedAt": "<time>",
+        "postId": "0000000000000000702"
+      },
+      {
+        "bookmarkedAt": "<time>",
+        "postId": "0000000000000000701"
+      }
+    ]
+  },
   "engagement": {
     "likes": [],
     "reposts": []

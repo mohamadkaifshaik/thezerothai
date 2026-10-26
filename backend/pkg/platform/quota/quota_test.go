@@ -221,3 +221,48 @@ func TestSchedulesKind(t *testing.T) {
 		t.Errorf("valueFor(Posts) = %d, want 0: schedules must not leak into other kinds", got)
 	}
 }
+
+// TestBookmarksKind: the bookmarks counter (ADR-0023 D4) reserves like the others, is independent of every other kind
+// (including likes and schedules, which share the whole-record Set), and rejects with QUOTA_EXCEEDED quota=bookmarks.
+func TestBookmarksKind(t *testing.T) {
+	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
+	tests := []struct {
+		name     string
+		rec      Record
+		limit    int64
+		wantErr  bool
+		wantUsed int64
+	}{
+		{"first bookmark of the day", Record{Day: Today()}, 200, false, 1},
+		{"last one that fits", Record{Day: Today(), Bookmarks: 199}, 200, false, 200},
+		{"at the daily cap", Record{Day: Today(), Bookmarks: 200}, 200, true, 200},
+		{"new-account cap of 50", Record{Day: Today(), Bookmarks: 50}, 50, true, 50},
+		{"likes at their own cap do not block bookmarks", Record{Day: Today(), Likes: 500}, 200, false, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBatch{}
+			err := CheckAndReserve(b, ref, tt.rec, Bookmarks, tt.limit)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Metadata["quota"] != "bookmarks" || len(b.sets) != 0 {
+					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED quota=bookmarks and nothing written", err, len(b.sets))
+				}
+				return
+			}
+			got := b.sets[0].(Record)
+			if got.Bookmarks != tt.wantUsed || got.Likes != tt.rec.Likes || got.Schedules != tt.rec.Schedules {
+				t.Errorf("record = %+v, want Bookmarks %d and the other kinds untouched", got, tt.wantUsed)
+			}
+		})
+	}
+	if got := (Record{Bookmarks: 7}).valueFor(Bookmarks); got != 7 {
+		t.Errorf("valueFor(Bookmarks) = %d, want 7", got)
+	}
+	if got := (Record{Bookmarks: 7}).valueFor(Likes); got != 0 {
+		t.Errorf("valueFor(Likes) = %d, want 0: bookmarks must not leak into other kinds", got)
+	}
+}

@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	fbauth "firebase.google.com/go/v4/auth"
 
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
@@ -272,7 +273,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo))} {
+	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo))} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, crashStep{s, plan}); err != nil {
 			t.Fatal(err)
 		}
@@ -367,6 +368,8 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	// Scheduled posts live under users/{uid}/scheduled, which deleting users/{uid} does not remove (ADR-0021).
 	e.seedScheduled(t, r.a.uid, "rich-sched-pending-0001", "PENDING")
 	e.seedScheduled(t, r.a.uid, "rich-sched-cancelled-01", "CANCELLED")
+	// Bookmarks live under users/{uid}/bookmarks (ADR-0023), also not removed with users/{uid}.
+	e.seedBookmarks(t, r.a.uid, 3)
 
 	exp, err := e.identity.RequestAccountExport(ctx, authed(r.a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "rich-export-" + r.a.uid[:12]}))
 	e.call(t, "RequestAccountExport", err)
@@ -393,6 +396,21 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	}
 	slices.Sort(r.cohort)
 	return r
+}
+
+// seedBookmarks writes n users/{uid}/bookmarks documents and the matching userLikes.bookmarks set (ADR-0023 D3).
+func (e *lifecycleEnv) seedBookmarks(t *testing.T, uid string, n int) {
+	t.Helper()
+	ids := make([]string, n)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("%019d", 900+i)
+		if _, err := e.fs.Doc("users/"+uid+"/bookmarks/"+ids[i]).Set(context.Background(), map[string]any{"createdAt": time.Now().UTC().Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatalf("seed bookmark: %v", err)
+		}
+	}
+	if _, err := e.fs.Doc("userLikes/"+uid).Set(context.Background(), map[string]any{"bookmarks": ids}, firestore.MergeAll); err != nil {
+		t.Fatalf("seed userLikes.bookmarks: %v", err)
+	}
 }
 
 // seedScheduled writes one users/{uid}/scheduled document in the stored shape (ADR-0021): a PENDING one holds a draft,
@@ -492,6 +510,12 @@ func (e *lifecycleEnv) requireRichErased(t *testing.T, r richAccount) {
 	}
 	if docs, err := e.fs.Doc("users/" + r.a.uid).Collection("scheduled").Limit(1).Documents(ctx).GetAll(); err != nil || len(docs) != 0 {
 		t.Errorf("users/{uid}/scheduled survived the scheduled step: %d docs, err %v", len(docs), err)
+	}
+	if docs, err := e.fs.Doc("users/" + r.a.uid).Collection("bookmarks").Limit(1).Documents(ctx).GetAll(); err != nil || len(docs) != 0 {
+		t.Errorf("users/{uid}/bookmarks survived the bookmarks step: %d docs, err %v", len(docs), err)
+	}
+	if fsDocExists(t, e.fs, "userLikes/"+r.a.uid) {
+		t.Error("userLikes survived (or the bookmarks step recreated it)")
 	}
 	for _, other := range []testUser{r.blockedByA, r.blocksA, r.mutedByA} {
 		if !fsDocExists(t, e.fs, "users/"+other.uid) {

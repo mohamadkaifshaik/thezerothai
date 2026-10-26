@@ -11,6 +11,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
@@ -27,18 +28,18 @@ type bookmarkCall struct {
 	name string
 	// perCaller is true for the RPC that needs the flag on for the caller (AddBookmark).
 	perCaller bool
-	// ticket is the ticket the Unimplemented answer names.
+	// ticket is the ticket the Unimplemented answer names; empty when the RPC is implemented (the stub service answers).
 	ticket string
 	call   func(*Server, context.Context) error
 }
 
 func bookmarkCalls() []bookmarkCall {
 	return []bookmarkCall{
-		{"AddBookmark", true, "W2-3", func(s *Server, ctx context.Context) error {
+		{"AddBookmark", true, "", func(s *Server, ctx context.Context) error {
 			_, err := s.AddBookmark(ctx, connect.NewRequest(&engagementv1.AddBookmarkRequest{}))
 			return err
 		}},
-		{"RemoveBookmark", false, "W2-3", func(s *Server, ctx context.Context) error {
+		{"RemoveBookmark", false, "", func(s *Server, ctx context.Context) error {
 			_, err := s.RemoveBookmark(ctx, connect.NewRequest(&engagementv1.RemoveBookmarkRequest{}))
 			return err
 		}},
@@ -58,17 +59,42 @@ func featureDisabledErr(err error) *apierr.Error {
 	return nil
 }
 
-// assertUnimplemented checks the post-gate answer: CodeUnimplemented naming the ticket that fills the RPC in.
-func assertUnimplemented(t *testing.T, err error, ticket string) {
+// stubBookmarks is the Bookmarks service behind the handlers: it answers every call with the requested id.
+type stubBookmarks struct{ calls []string }
+
+func (s *stubBookmarks) AddBookmark(_ context.Context, uid, key, postID string) (BookmarkState, error) {
+	s.calls = append(s.calls, "add:"+uid+":"+key+":"+postID)
+	return BookmarkState{PostID: postID, Bookmarked: true}, nil
+}
+
+func (s *stubBookmarks) RemoveBookmark(_ context.Context, uid, key, postID string) (BookmarkState, error) {
+	s.calls = append(s.calls, "remove:"+uid+":"+key+":"+postID)
+	return BookmarkState{PostID: postID}, nil
+}
+
+// bmServer is the handler under test: the stub engagement service, the stub bookmark service, the given flags.
+func bmServer(fl posts.FlagChecker) *Server {
+	return NewServer(&stubSvc{}, fl, WithBookmarks(&stubBookmarks{}))
+}
+
+// assertPassedGate checks the post-gate answer: Add and Remove reach the stub service and succeed; ListBookmarks answers
+// CodeUnimplemented naming the ticket that fills it in.
+func assertPassedGate(t *testing.T, err error, c bookmarkCall) {
 	t.Helper()
-	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), ticket) {
-		t.Fatalf("err = %v, want Unimplemented naming %s", err, ticket)
+	if c.ticket == "" {
+		if err != nil {
+			t.Fatalf("err = %v, want the stub service to answer", err)
+		}
+		return
+	}
+	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), c.ticket) {
+		t.Fatalf("err = %v, want Unimplemented naming %s", err, c.ticket)
 	}
 }
 
 // TestBookmarkServer_FlagMatrix (ADR-0023 D5): AddBookmark needs FEATURE_BOOKMARKS on for the caller; ListBookmarks
 // and RemoveBookmark only need it not globally off. FEATURE_POSTS is needed by all three and FEATURE_ENGAGEMENT by
-// none. Whatever the outcome, no Firestore read, write or delete is charged: the handlers have no repo yet.
+// none. Whatever the outcome, no Firestore read, write or delete is charged: the stub service has no repo.
 func TestBookmarkServer_FlagMatrix(t *testing.T) {
 	const in, out = "in-cohort", "out-of-cohort"
 	// Uids on both sides of a 50% bucket, found by probing the real registry.
@@ -117,9 +143,9 @@ func TestBookmarkServer_FlagMatrix(t *testing.T) {
 			}
 			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
 				ctx, counter := budget.WithCounter(uidCtx(tt.uid))
-				err := c.call(NewServer(&stubSvc{}, flags.NewRegistry(tt.reg...)), ctx)
+				err := c.call(bmServer(flags.NewRegistry(tt.reg...)), ctx)
 				if want {
-					assertUnimplemented(t, err, c.ticket)
+					assertPassedGate(t, err, c)
 				} else if featureDisabledErr(err) == nil {
 					t.Fatalf("err = %#v, want FAILED_PRECONDITION FEATURE_DISABLED", err)
 				}
@@ -134,12 +160,12 @@ func TestBookmarkServer_DisabledShape(t *testing.T) {
 	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "bookmarks", Mode: flags.Off})
 	postsOff := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.Off}, flags.Spec{Name: "bookmarks", Mode: flags.On})
 	for _, c := range bookmarkCalls() {
-		ae := featureDisabledErr(c.call(NewServer(&stubSvc{}, reg), uidCtx("u")))
+		ae := featureDisabledErr(c.call(bmServer(reg), uidCtx("u")))
 		if ae == nil || ae.Metadata["feature"] != "bookmarks" {
 			t.Errorf("%s: bookmarks gate error = %#v, want FEATURE_DISABLED with feature=bookmarks", c.name, ae)
 		}
 		// FEATURE_POSTS off: the same code and reason, but not naming bookmarks.
-		ae = featureDisabledErr(c.call(NewServer(&stubSvc{}, postsOff), uidCtx("u")))
+		ae = featureDisabledErr(c.call(bmServer(postsOff), uidCtx("u")))
 		if ae == nil || ae.Metadata["feature"] != "" {
 			t.Errorf("%s: posts gate error = %#v, want FEATURE_DISABLED without a feature", c.name, ae)
 		}
@@ -152,10 +178,10 @@ func TestBookmarkServer_UnauthenticatedAndNilFlags(t *testing.T) {
 	on := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "bookmarks", Mode: flags.On})
 	for _, c := range bookmarkCalls() {
 		var ae *apierr.Error
-		if err := c.call(NewServer(&stubSvc{}, on), context.Background()); !errors.As(err, &ae) || ae.Code != connect.CodeUnauthenticated {
+		if err := c.call(bmServer(on), context.Background()); !errors.As(err, &ae) || ae.Code != connect.CodeUnauthenticated {
 			t.Errorf("%s: err = %v, want Unauthenticated", c.name, err)
 		}
-		if err := c.call(NewServer(&stubSvc{}, nil), uidCtx("u")); featureDisabledErr(err) == nil {
+		if err := c.call(bmServer(nil), uidCtx("u")); featureDisabledErr(err) == nil {
 			t.Errorf("%s with nil flags: err = %v, want FEATURE_DISABLED", c.name, err)
 		}
 	}
@@ -170,8 +196,8 @@ func TestBookmarkServer_CheckerWithoutGloballyOff(t *testing.T) {
 	fl := kindOnlyFlags{on: map[string]map[string]bool{"posts": {"in": true, "out": true}, "bookmarks": {"in": true}}}
 	for _, c := range bookmarkCalls() {
 		for uid, want := range map[string]bool{"in": true, "out": false} {
-			err := c.call(NewServer(&stubSvc{}, fl), uidCtx(uid))
-			if got := connect.CodeOf(err) == connect.CodeUnimplemented; got != want {
+			err := c.call(bmServer(fl), uidCtx(uid))
+			if got := featureDisabledErr(err) == nil; got != want {
 				t.Errorf("%s as %s: passed the gate = %v (err %v), want %v", c.name, uid, got, err, want)
 			}
 		}

@@ -69,13 +69,10 @@ func NewServer(svc Service, fc FlagChecker, opts ...ServerOption) *Server {
 	return s
 }
 
-// viewerSet is the caller's ViewerSet: one cached userLikes read when FEATURE_ENGAGEMENT is on for uid, else the
-// empty set with no read (ADR-0018 D5).
+// viewerSet is the caller's ViewerSet: one cached userLikes read when FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for
+// uid, else the empty set with no read (ADR-0018 D5, ADR-0023 D5; HydrateViewer).
 func (s *Server) viewerSet(ctx context.Context, uid string) ViewerSet {
-	if s.viewer == nil || s.flags == nil || !s.flags.Enabled(uid, EngagementFlagName) {
-		return ViewerSet{}
-	}
-	return s.viewer.Viewer(ctx, uid)
+	return HydrateViewer(ctx, s.flags, s.viewer, uid)
 }
 
 var _ postsv1connect.PostServiceHandler = (*Server)(nil)

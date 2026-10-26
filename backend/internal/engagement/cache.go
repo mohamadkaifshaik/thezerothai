@@ -14,15 +14,18 @@ const DefaultCacheEntries = 5_000
 // likesState is one cached userLikes document plus the lookup sets. It is immutable: updates build a new state
 // (copy on write), so a ViewerSet handed to a request never changes under it.
 type likesState struct {
-	recent, reposts []string
-	set             posts.ViewerSet
+	recent, reposts, bookmarks []string
+	set                        posts.ViewerSet
 }
 
-func newLikesState(recent, reposts []string) *likesState {
-	return &likesState{recent: recent, reposts: reposts, set: posts.NewViewerSet(recent, reposts)}
+func newLikesState(recent, reposts, bookmarks []string) *likesState {
+	return &likesState{
+		recent: recent, reposts: reposts, bookmarks: bookmarks,
+		set: posts.NewViewerSetWithBookmarks(recent, reposts, bookmarks),
+	}
 }
 
-// userCache is the per-instance userLikes cache (ADR-0018 D7): 60 s TTL like every other cache, updated in place
+// userCache is the per-instance userLikes cache (ADR-0018 D7, plus the bookmarks set of ADR-0023 D3): 60 s TTL like every other cache, updated in place
 // by this instance's own writes. Absence means "unknown": an own write never creates an entry (it would hide the
 // user's other likes), the next read loads the document.
 type userCache struct {
@@ -42,7 +45,7 @@ func newUserCache(ttl time.Duration, entries int) *userCache {
 func (c *userCache) get(uid string) (*likesState, bool) { return c.lru.Get(uid) }
 
 func (c *userCache) set(uid string, ul UserLikes) *likesState {
-	st := newLikesState(ul.Recent, ul.RecentReposts)
+	st := newLikesState(ul.Recent, ul.RecentReposts, ul.Bookmarks)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lru.Set(uid, st)
@@ -59,9 +62,21 @@ func (c *userCache) update(uid string, fn func(recent, reposts []string) ([]stri
 		return nil
 	}
 	r, p := fn(append([]string(nil), st.recent...), append([]string(nil), st.reposts...))
-	next := newLikesState(r, p)
+	next := newLikesState(r, p, st.bookmarks)
 	c.lru.Set(uid, next)
 	return next
+}
+
+// updateBookmarks is update for userLikes.bookmarks: it applies fn to a present entry (liked and reposted ids are kept)
+// and leaves an absent entry alone, for the same reason update does.
+func (c *userCache) updateBookmarks(uid string, fn func(bookmarks []string) []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st, ok := c.lru.Get(uid)
+	if !ok {
+		return
+	}
+	c.lru.Set(uid, newLikesState(st.recent, st.reposts, fn(append([]string(nil), st.bookmarks...))))
 }
 
 func (c *userCache) delete(uid string) {

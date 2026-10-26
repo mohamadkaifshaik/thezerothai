@@ -97,6 +97,12 @@ var lifecycleCollections = []collectionRow{
 	// document; the export section lists every document and the draft wherever one is still held. The documents hold
 	// only the owner's data (no other user's uid, D2 copies none), so no residue allowlist entry exists.
 	{Name: "scheduled", Sub: true, Disposition: erasedByStep, Step: "scheduled", Section: "scheduled", Owner: "posts", Cite: "ADR-0021"},
+	// ADR-0023 D6, D8 (W2-5): bookmarks live under users/{uid}/bookmarks as {createdAt} keyed by the post id, a subcollection
+	// that deleting users/{uid} does not remove. The `bookmarks` step (engagement.BookmarkEraser, BeforeIdentity after
+	// scheduled) deletes every document and clears userLikes.bookmarks; the export section lists post id and time. The
+	// documents hold only the owner's data (no other user's uid), so no residue allowlist entry exists, and a post's
+	// deletion fans nothing out to its bookmarkers (the owner's list hides and prunes the row).
+	{Name: "bookmarks", Sub: true, Disposition: erasedByStep, Step: "bookmarks", Section: "bookmarks", Owner: "engagement", Cite: "ADR-0023 D6, D8"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 }
 
@@ -281,6 +287,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerScheduledLifecycle(l, posts.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerBookmarkLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -318,7 +327,7 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 		rows []collectionRow
 		want string
 	}{
-		{"new collection constant without a row", append(slices.Clone(real), collectionRef{"bookmarks", "bookmarksCollection at x.go:1"}), lifecycleCollections, `"bookmarks"`},
+		{"new collection constant without a row", append(slices.Clone(real), collectionRef{"pinboards", "pinboardsCollection at x.go:1"}), lifecycleCollections, `"pinboards"`},
 		{"row names an unregistered step", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "likes2", Disposition: erasedByStep, Step: "engagement2", ExportNote: "n", Owner: "o", Cite: "c"}), `step "engagement2" is not registered`},
 		{"row names an unregistered section", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "x", Disposition: erasedByStep, Step: "graph", Section: "likes", Owner: "o", Cite: "c"}), `export section "likes" is not registered`},
 		{"pending row for a collection the code writes", []collectionRef{{"followRequests", "followRequestsCollection at m.go:1"}}, lifecycleCollections, `still pendingEraser`},
@@ -368,7 +377,7 @@ func TestLifecycleCollections_AllowlistIsCited(t *testing.T) {
 	}{
 		{"idempotency", "uid", true}, {"graph", "blocked", true}, {"graph", "muted", true}, {"posts", "mentionIds", true},
 		{"graph", "blockedBy", false}, {"graph", "following", false}, {"posts", "authorId", false}, {"follows", "followerId", false},
-		{"exports", "uid", false}, {"handles", "uid", false}, {"users", "__name__", false}, {"bookmarks", "uid", false},
+		{"exports", "uid", false}, {"handles", "uid", false}, {"users", "__name__", false}, {"pinboards", "uid", false},
 	} {
 		if got := allowed(tt.collection, tt.field); got != tt.want {
 			t.Errorf("allowed(%q, %q) = %v, want %v", tt.collection, tt.field, got, tt.want)
@@ -377,8 +386,8 @@ func TestLifecycleCollections_AllowlistIsCited(t *testing.T) {
 	if row, ok := rowFor("exports"); !ok || row.Step != "identity" {
 		t.Errorf("rowFor(exports) = %+v, %v", row, ok)
 	}
-	if _, ok := rowFor("bookmarks"); ok {
-		t.Error("rowFor(bookmarks) found a row")
+	if _, ok := rowFor("pinboards"); ok {
+		t.Error("rowFor(pinboards) found a row")
 	}
 	// 5 (ADR-0011 Q10) + 2 reports entries (ADR-0016 D5: reports about the account are kept until resolved + 90 d).
 	if got, want := len(residueAllowlist), 7; got != want {
