@@ -6,6 +6,10 @@ abstract interface class PushOptInStore {
   Future<DateTime?> readNotNow(String uid);
 
   Future<void> writeNotNow(String uid, DateTime at);
+
+  /// Drops the record of [uid]. Called when that account is deleted (W2-14
+  /// L-6: the uid must not outlive the account); a plain sign-out keeps it.
+  Future<void> forget(String uid);
 }
 
 /// Keeps the record in `AppSettingEntries` under a per-uid key, so two
@@ -32,4 +36,7 @@ class DatabasePushOptInStore implements PushOptInStore {
     key(uid),
     at.toUtc().millisecondsSinceEpoch.toString(),
   );
+
+  @override
+  Future<void> forget(String uid) => _database.deleteSetting(key(uid));
 }

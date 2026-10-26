@@ -166,11 +166,22 @@ class AppConfig {
 
   /// The origin shared post links are built on. Empty [definedOrigin] means
   /// the build's default: [kProdShareOrigin] for [FirebaseEnv.prod],
-  /// [kDevShareOrigin] for [FirebaseEnv.dev]. An override must be an `https`
-  /// origin (host, optional port) with no path, query, fragment or user info;
-  /// one trailing slash is dropped. Anything else throws [AppConfigError], so
-  /// a typo cannot put a wrong or credential-bearing host into links that
-  /// users send to other people.
+  /// [kDevShareOrigin] for [FirebaseEnv.dev]. An override must be a bare
+  /// `https` origin, and the value returned is the canonical one (lower-case
+  /// scheme and host, no trailing slash, no default port):
+  ///
+  /// - the host is ASCII `[a-z0-9-]` labels with at least one dot (no IP
+  ///   literal, no single label such as `localhost`, no trailing dot, no
+  ///   IDN: write the punycode form), matched after lower-casing;
+  /// - no user info, path, query, fragment, whitespace, control character,
+  ///   backslash or percent sign anywhere in the input; one trailing slash
+  ///   is dropped;
+  /// - an explicit port (1-65535) is allowed only on a host that is not one
+  ///   of the two defaults ([kProdShareOrigin], [kDevShareOrigin]); `:443`
+  ///   is dropped as the https default.
+  ///
+  /// Anything else throws [AppConfigError], so a typo cannot put a wrong or
+  /// credential-bearing host into links that users send to other people.
   ///
   /// The page's own `Uri.base` is deliberately not a fallback: a localhost or
   /// preview-channel origin would end up in shared links.
@@ -185,27 +196,53 @@ class AppConfig {
         FirebaseEnv.prod => kProdShareOrigin,
       };
     }
-    final trimmed = definedOrigin.endsWith('/')
-        ? definedOrigin.substring(0, definedOrigin.length - 1)
-        : definedOrigin;
-    final uri = Uri.tryParse(trimmed);
-    final valid =
-        uri != null &&
-        uri.scheme == 'https' &&
-        uri.host.isNotEmpty &&
-        uri.userInfo.isEmpty &&
-        !uri.hasQuery &&
-        !uri.hasFragment &&
-        uri.path.isEmpty &&
-        !trimmed.endsWith('?') &&
-        !trimmed.endsWith('#');
-    if (!valid) {
+    final origin = _canonicalShareOrigin(definedOrigin);
+    if (origin == null) {
       throw AppConfigError(
         'PUBLIC_WEB_ORIGIN must be an https origin such as '
-        '$kProdShareOrigin (no path, query, fragment or user info).',
+        '$kProdShareOrigin (ASCII host with a dot; no path, query, fragment, '
+        'user info or IP address).',
       );
     }
-    return trimmed;
+    return origin;
+  }
+
+  static final _unsafeOriginChars = RegExp(r'[\x00-\x20\x7f\%]');
+  static final _originHost = RegExp(r'^[a-z0-9-]+(\.[a-z0-9-]+)+$');
+  static final _numericTld = RegExp(r'\.[0-9]+$');
+
+  /// The canonical form of [raw], or null when it is not a bare https origin
+  /// (see [resolveShareOrigin]).
+  static String? _canonicalShareOrigin(String raw) {
+    // Parsers differ on these; none belongs in an origin.
+    if (_unsafeOriginChars.hasMatch(raw)) return null;
+    final trimmed = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+    // `?`, `#` and a bare `:` leave no trace in a parsed Uri.
+    if (trimmed.endsWith('?') ||
+        trimmed.endsWith('#') ||
+        trimmed.endsWith(':')) {
+      return null;
+    }
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        !uri.hasAuthority ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        uri.path.isNotEmpty) {
+      return null;
+    }
+    final host = uri.host.toLowerCase();
+    // A numeric last label is an IPv4 address, never a registrable name.
+    if (!_originHost.hasMatch(host) || _numericTld.hasMatch(host)) return null;
+    final port = uri.hasPort ? uri.port : 443;
+    if (port < 1 || port > 65535) return null;
+    final isDefaultHost =
+        'https://$host' == kProdShareOrigin ||
+        'https://$host' == kDevShareOrigin;
+    if (port != 443 && isDefaultHost) return null;
+    return port == 443 ? 'https://$host' : 'https://$host:$port';
   }
 
   /// Resolves [apiBaseUrl] from an explicit `--dart-define=API_BASE_URL=...`

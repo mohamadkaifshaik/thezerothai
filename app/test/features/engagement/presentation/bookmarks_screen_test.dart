@@ -594,6 +594,25 @@ void main() {
       );
     });
 
+    testWidgets('leaving the screen takes the Undo snackbar with it (its '
+        'cubit is gone) (W2-14 L-5)', (tester) async {
+      server.pages[''] = () => _rows([2, 1]);
+      await open(tester);
+      await tester.tap(filledBookmark().first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Undo'), findsOneWidget);
+      final sent = server.toggles.length;
+
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('came from'), findsOneWidget);
+      expect(removedSnack(), findsNothing);
+      expect(find.text('Undo'), findsNothing);
+      expect(server.toggles, hasLength(sent));
+    });
+
     testWidgets('the Undo snackbar leaves by itself', (tester) async {
       server.pages[''] = () => _rows([2, 1]);
       await open(tester);

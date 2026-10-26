@@ -113,6 +113,16 @@ void main() {
         AppRouter.deepLinkTarget(Uri.parse('/profile/maria')),
         '/profile/maria',
       );
+      // The edges of the grammars (I-1).
+      for (final good in [
+        '/u/${'a' * 128}',
+        '/u/A-1',
+        '/profile/abc',
+        '/profile/Maria_99',
+        '/profile/${'a' * 15}',
+      ]) {
+        expect(AppRouter.deepLinkTarget(Uri.parse(good)), good, reason: good);
+      }
       // A query and a fragment are dropped, never carried along.
       expect(
         AppRouter.deepLinkTarget(Uri.parse('/profile/maria?x=1#frag')),
@@ -136,6 +146,23 @@ void main() {
         '/u/a/b',
         '/profile/',
         '/profile/maria/followers',
+        // I-1: encoded slashes, CR/LF and other characters outside the uid
+        // and handle grammars never become a target.
+        '/u/a%2Fb',
+        '/u/a%2fb',
+        '/u/abc%0D%0Adef',
+        '/u/abc%0Adef',
+        '/u/abc%20',
+        '/u/..%2F..',
+        '/u/ab_c',
+        '/u/${'a' * 129}',
+        '/profile/ma%2Fria',
+        '/profile/maria%0D%0A',
+        '/profile/%0D%0Amaria',
+        '/profile/ma.ria',
+        '/profile/ma-ria',
+        '/profile/ab',
+        '/profile/${'a' * 16}',
         '/settings',
         '/settings/delete-account',
         '/compose',

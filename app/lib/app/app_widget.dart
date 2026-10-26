@@ -131,13 +131,23 @@ class _AppWidgetState extends State<AppWidget> {
   );
   // The "Turn on notifications" card's memory (W2-12): one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
+  // The store is also provided to the tree: Delete account forgets the
+  // deleted uid's record there (W2-14 L-6).
+  late final PushOptInStore _pushOptInStore = DatabasePushOptInStore(
+    widget.database,
+  );
   late final PushOptInCubit _pushOptIn = PushOptInCubit(
-    store: DatabasePushOptInStore(widget.database),
+    store: _pushOptInStore,
     push: widget.pushCubit,
   );
   late final ServicePausedCubit _servicePaused =
       widget.servicePausedCubit ?? ServicePausedCubit();
   late final StreamSubscription<AuthState> _authSub;
+  // The one messenger of the app: sign-out clears its snackbars, so an Undo or
+  // Retry of the previous account never lives into the next session (W2-14
+  // L-5).
+  final GlobalKey<ScaffoldMessengerState> _messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
   // The appearance choice (System / Light / Dark), saved on the device.
   late final ThemeModeCubit _themeMode = ThemeModeCubit(
     DatabaseThemeModeStore(widget.database),
@@ -155,6 +165,7 @@ class _AppWidgetState extends State<AppWidget> {
     _authSub = widget.authBloc.stream.listen((state) {
       unawaited(_pushOptIn.load(state.user?.uid));
       if (state.status == AuthStatus.unauthenticated) {
+        _messengerKey.currentState?.clearSnackBars();
         _pendingPosts.clear();
         _engagement.reset();
         _bookmarks.reset();
@@ -233,6 +244,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.accountRepository),
         RepositoryProvider.value(value: widget.authRepository),
         RepositoryProvider.value(value: widget.database),
+        RepositoryProvider<PushOptInStore>.value(value: _pushOptInStore),
         RepositoryProvider<UnexpectedErrorReporter>.value(
           value: reportUnexpectedError,
         ),
@@ -265,6 +277,7 @@ class _AppWidgetState extends State<AppWidget> {
             builder: (context, mode) => MaterialApp.router(
               title: 'Dzeroth',
               debugShowCheckedModeBanner: false,
+              scaffoldMessengerKey: _messengerKey,
               theme: appLightTheme,
               darkTheme: appDarkTheme,
               themeMode: mode,
