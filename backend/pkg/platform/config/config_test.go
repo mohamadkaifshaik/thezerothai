@@ -29,7 +29,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_REPORTS", "FEATURE_REPORTS_ALLOWLIST", "FEATURE_REPORTS_PERCENT",
 		"RATE_LIMIT_REPORT_PER_MIN", "QUOTA_REPORTS_PER_DAY", "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY",
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
-		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY", "K_SERVICE", "CLOUD_RUN_JOB", "FIRESTORE_EMULATOR_HOST", "PUBSUB_EMULATOR_HOST", "STORAGE_EMULATOR_HOST",
+		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY", "BOOKMARK_MUTATIONS_PER_DAY", "K_SERVICE", "CLOUD_RUN_JOB", "FIRESTORE_EMULATOR_HOST", "PUBSUB_EMULATOR_HOST", "STORAGE_EMULATOR_HOST",
 		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
 		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST", "TIMELINE_TOKEN_TTL",
 		"FEATURE_CONTENT_DISCLOSURE", "FEATURE_CONTENT_DISCLOSURE_ALLOWLIST", "FEATURE_CONTENT_DISCLOSURE_PERCENT",
@@ -670,6 +670,44 @@ func TestLoad_AuthEmulator(t *testing.T) {
 			}
 			if err == nil && cfg.AuthEmulator != tt.wantEmulate {
 				t.Errorf("AuthEmulator = %v, want %v", cfg.AuthEmulator, tt.wantEmulate)
+			}
+		})
+	}
+}
+
+// TestLoad_BookmarkMutationsPerDay (W2-14 M-1): the AddBookmark + RemoveBookmark daily call cap defaults to 1,500
+// (200 adds + a 1,000 clear-out + headroom), takes an override, and refuses a value that would lock every user out.
+func TestLoad_BookmarkMutationsPerDay(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		want    int64
+		wantErr string
+	}{
+		{name: "default", want: 1500},
+		{name: "override", env: map[string]string{"BOOKMARK_MUTATIONS_PER_DAY": "300"}, want: 300},
+		{name: "zero", env: map[string]string{"BOOKMARK_MUTATIONS_PER_DAY": "0"}, wantErr: "BOOKMARK_MUTATIONS_PER_DAY must be > 0"},
+		{name: "negative", env: map[string]string{"BOOKMARK_MUTATIONS_PER_DAY": "-5"}, wantErr: "BOOKMARK_MUTATIONS_PER_DAY must be > 0"},
+		{name: "unparsable", env: map[string]string{"BOOKMARK_MUTATIONS_PER_DAY": "lots"}, wantErr: "BOOKMARK_MUTATIONS_PER_DAY"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cfg, err := Load()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load() error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.RateLimit.BookmarkMutationsPerDay != tc.want {
+				t.Errorf("BookmarkMutationsPerDay = %d, want %d", cfg.RateLimit.BookmarkMutationsPerDay, tc.want)
 			}
 		})
 	}

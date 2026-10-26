@@ -91,14 +91,15 @@ is emitted or notified; a bookmark is private to its owner. **Kill switch: `FEAT
 Remove then answer `FEATURE_DISABLED feature=bookmarks`, 0 reads); no data migration is needed and existing bookmarks stay.
 Taking a user off the allowlist stops their Add only, they can still Remove. The request line carries `engagement_op`
 (`add_bookmark` / `remove_bookmark`), `outcome` (`done`, `replay`, `noop`, `not_found`, `rejected:limit_reached`,
-`rejected:quota_exceeded`, `rejected:key_reused`), `fs_reads`, `fs_writes`, `fs_deletes` and `txn_attempts`.
+`rejected:quota_exceeded`, `rejected:key_reused`, `contention`), `fs_reads`, `fs_writes`, `fs_deletes` and `txn_attempts`.
 
 | Symptom | Cause and action |
 |---|---|
 | `LIMIT_REACHED limit=bookmarks` | The user holds 1,000 bookmarks (exact: counted from `userLikes.bookmarks` inside the transaction). Expected; they remove some. Raising `BOOKMARKS_MAX_PER_USER` past 2,000 needs ADR-0023 D7's maths redone |
 | `QUOTA_EXCEEDED quota=bookmarks` | 200 adds per IST day, 50 for an account younger than `QUOTA_NEW_ACCOUNT_WINDOW` (`QUOTA_BOOKMARKS_PER_DAY`, `QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY`). A replay or an already bookmarked post is not charged. A spike across many accounts is spam: `docs/runbooks/abuse-spike.md` |
 | Add returns `NOT_FOUND "post not found"` for a post the user saw | The post is deleted, taken down, or its author (or a quoted author) blocks the user: the same answer and bytes as GetPost, by design (no block oracle) |
-| `INTERNAL` from Add or Remove with `txn_attempts` at 4+ or a deadline | Contention: one user's concurrent adds all lock their `quotas` and `userLikes` docs and serialise; the transaction retries 4 times inside 5 s and then gives up without writing. The client retries (same key). Sustained = a client bug or a script; the 30/min per-instance rate limit bounds it |
+| `UNAVAILABLE` (retry after 1 s) from Add or Remove, `outcome=contention`, WARN `engagement_bookmark_contention`, `txn_attempts` at 4+ or a deadline | Contention (W2-14 L-3, no longer INTERNAL): one user's concurrent adds all lock their `quotas` and `userLikes` docs and serialise; the transaction retries 4 times inside 5 s and then gives up without writing. The client retries (same key). Sustained = a client bug or a script; the 30/min per-instance rate limit and the `bookmark_mutation_daily` cap bound it |
+| `RESOURCE_EXHAUSTED` with `limit_name=bookmark_mutation_daily` | The user made more than `BOOKMARK_MUTATIONS_PER_DAY` (1,500) Add + Remove calls on this instance today (W2-14 M-1). A legitimate heavy day is about 1,200; see `docs/runbooks/bookmarks.md` quick reference for the sum. Many hashes at once = a script farm: `docs/runbooks/abuse-spike.md` |
 | Bookmarked state missing on a card | Viewer state comes from `userLikes.bookmarks`, cached 60 s per instance. The wire field `PostView.bookmarked_by_viewer` does not exist yet (architect follow-up), so clients keep a local set until it ships |
 | Bookmark exists in the subcollection but not in the array (or the reverse) | Not expected: every writer changes both in one transaction. Add then answers success and writes only its idempotency doc (it cannot heal it); the ListBookmarks prune (it removes the id from the array too, for a missing post only) and the account eraser delete by doc. File a bug with the uid hash |
 

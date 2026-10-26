@@ -236,6 +236,8 @@ locals {
     { name = "BOOKMARKS_MAX_PER_USER", value = "1000" },
     { name = "RATE_LIMIT_BOOKMARKS_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", value = "10" },
+    # W2-14 M-1: shared AddBookmark + RemoveBookmark daily call cap (limit_name bookmark_mutation_daily). Must match the config.go default.
+    { name = "BOOKMARK_MUTATIONS_PER_DAY", value = "1500" },
     { name = "FEATURE_UI_SHELL", value = var.feature_ui_shell },
     { name = "FEATURE_UI_SHELL_ALLOWLIST", value = var.feature_ui_shell_allowlist },
     { name = "FEATURE_UI_SHELL_PERCENT", value = tostring(var.feature_ui_shell_percent) },
