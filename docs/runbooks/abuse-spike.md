@@ -62,6 +62,7 @@ is in the error metadata the client sees, not in the log line, so identify it by
 - List scraping: `jsonPayload.limit_name="graph_list_daily"` (the per-uid daily cap on ListFollowers, ListFollowing,
   ListBlockedUsers and ListMutedUsers). Sort by `uid_hash`.
 - Bulk mutation replays: `jsonPayload.limit_name="graph_mutation_daily"`.
+- Bookmark no-op churn (Add of an already bookmarked post, Remove of a missing one): `jsonPayload.limit_name="bookmark_mutation_daily"` (`BOOKMARK_MUTATIONS_PER_DAY`, shared by AddBookmark and RemoveBookmark; `docs/runbooks/bookmarks.md`).
 - Read scraping / read-budget exhaustion (ADR-0010 D5, T3). **Logs Explorer filters only: Log Analytics is not
   enabled (no SQL, no `<log view>`).** Base filter as in section 1. Narrow with one of:
   - `jsonPayload.limit_name="read_budget_daily"`: the per-uid daily Firestore read budget is spent
