@@ -16,6 +16,7 @@ import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
@@ -259,9 +260,12 @@ class AppRouter {
 
   static final _deepLinkPatterns = [
     RegExp(r'^/post/\d{19}$'),
-    RegExp(r'^/u/[^/]+$'),
-    RegExp(r'^/profile/[^/]+$'),
+    // A uid is Firebase's alphanumeric id. No `%`: `%2F` and `%0D%0A` never
+    // become part of a target (W2-14 I-1).
+    RegExp(r'^/u/[A-Za-z0-9-]{1,128}$'),
   ];
+
+  static final _profilePath = RegExp(r'^/profile/([^/]+)$');
 
   /// The path of [uri] when it is a link worth keeping through the splash,
   /// sign-in and onboarding (`/post/<19 digits>`, `/u/<id>`,
@@ -274,6 +278,12 @@ class AppRouter {
     final path = uri.path;
     for (final pattern in _deepLinkPatterns) {
       if (pattern.hasMatch(path)) return path;
+    }
+    // A handle follows the identity grammar (`kHandlePattern`; typed links may
+    // use any case, callers lowercase before validating).
+    final handle = _profilePath.firstMatch(path)?.group(1);
+    if (handle != null && kHandlePattern.hasMatch(handle.toLowerCase())) {
+      return path;
     }
     return null;
   }

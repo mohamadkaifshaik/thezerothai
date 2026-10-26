@@ -25,4 +25,15 @@ class FakePushOptInStore implements PushOptInStore {
     if (failWrites) throw StateError('disk write failed');
     records[uid] = at;
   }
+
+  /// The uids [forget] was called with, in order.
+  final List<String> forgotten = [];
+  bool failForget = false;
+
+  @override
+  Future<void> forget(String uid) async {
+    forgotten.add(uid);
+    if (failForget) throw StateError('disk delete failed');
+    records.remove(uid);
+  }
 }

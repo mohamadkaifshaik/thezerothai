@@ -196,7 +196,13 @@ class BookmarksListCubit extends Cubit<BookmarksListState> {
 
   /// Undo of a removal: bookmarks [view]'s post again (through the
   /// repository, like the card's icon). The row comes back at its place.
-  Future<void> restore(pb.PostView view) async {
+  ///
+  /// Does nothing when this cubit is closed or the session is no longer the
+  /// one the row left in (W2-14 L-5): a stale Undo must not send AddBookmark
+  /// under the next account's token.
+  Future<void> restore(BookmarkRemoval removal) async {
+    if (isClosed || _repository.sessionGeneration != removal.session) return;
+    final view = removal.view;
     final id = engagementTargetId(view.post);
     // A rolled-back Undo is not a new removal: no second Undo snackbar.
     _restoring.add(id);
@@ -312,7 +318,11 @@ class BookmarksListCubit extends Cubit<BookmarksListState> {
         hidden: hidden,
         removal: removed == null
             ? null
-            : BookmarkRemoval(view: removed, serial: ++_serial),
+            : BookmarkRemoval(
+                view: removed,
+                serial: ++_serial,
+                session: _seenSession,
+              ),
       ),
     );
   }

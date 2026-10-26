@@ -79,6 +79,17 @@ class _BookmarksView extends StatefulWidget {
 class _BookmarksViewState extends State<_BookmarksView> {
   final ScrollController _controller = ScrollController();
 
+  // The "Removed from Bookmarks" snackbar while it is up. Its Undo belongs to
+  // this screen's cubit (closed on leave), so leaving takes the bar with it.
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _removalBar;
+  ScaffoldMessengerState? _messenger;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messenger = ScaffoldMessenger.maybeOf(context);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +98,15 @@ class _BookmarksViewState extends State<_BookmarksView> {
 
   @override
   void dispose() {
+    final bar = _removalBar;
+    final messenger = _messenger;
+    if (bar != null && messenger != null) {
+      // After this frame: the messenger is rebuilt outside the unmount (and
+      // may be gone itself, with the whole app).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (messenger.mounted) bar.close();
+      });
+    }
     _controller
       ..removeListener(_maybeLoadMore)
       ..dispose();
@@ -115,19 +135,24 @@ class _BookmarksViewState extends State<_BookmarksView> {
 
   void _showRemoval(BuildContext context, BookmarkRemoval removal) {
     final cubit = context.read<BookmarksListCubit>();
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: const Text('Removed from Bookmarks'),
-          // An Undo has no use after a few seconds: do not keep it.
-          persist: false,
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () => unawaited(cubit.restore(removal.view)),
-          ),
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    final bar = messenger.showSnackBar(
+      SnackBar(
+        content: const Text('Removed from Bookmarks'),
+        // An Undo has no use after a few seconds: do not keep it.
+        persist: false,
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => unawaited(cubit.restore(removal)),
         ),
-      );
+      ),
+    );
+    _removalBar = bar;
+    unawaited(
+      bar.closed.then((_) {
+        if (identical(_removalBar, bar)) _removalBar = null;
+      }),
+    );
     cubit.removalShown();
   }
 
