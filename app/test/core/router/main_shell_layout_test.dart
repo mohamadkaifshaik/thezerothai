@@ -102,6 +102,10 @@ void main() {
               page('/notifications', 'notifications body'),
         ),
         GoRoute(
+          path: '/bookmarks',
+          builder: (context, state) => page('/bookmarks', 'bookmarks body'),
+        ),
+        GoRoute(
           path: '/profile/:handle',
           builder: (context, state) => page(
             '/profile/${state.pathParameters['handle']}',
@@ -555,6 +559,80 @@ void main() {
     });
   });
 
+  group('Bookmarks entry (W2-7)', () {
+    const on = {'posts', 'bookmarks'};
+
+    for (final width in [600.0, 1300.0]) {
+      testWidgets('${width.toInt()}dp: a rail destination between Home and '
+          'Profile that opens /bookmarks', (tester) async {
+        await pump(tester, width: width, flags: on);
+
+        final rail = find.byType(NavigationRail);
+        expect(
+          find.descendant(
+            of: rail,
+            matching: find.byIcon(Icons.bookmark_border),
+          ),
+          findsOneWidget,
+        );
+        final labels = tester
+            .widget<NavigationRail>(rail)
+            .destinations
+            .map((d) => (d.label as Text).data)
+            .toList();
+        expect(labels, ['Home', 'Bookmarks', 'Profile']);
+
+        await tester.tap(find.byIcon(Icons.bookmark_border));
+        await tester.pumpAndSettle();
+        expect(find.text('bookmarks body'), findsOneWidget);
+        // And it is the selected one there.
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+        expect(find.byIcon(Icons.bookmark), findsOneWidget);
+      });
+    }
+
+    testWidgets('phone: not in the bottom bar, no cell selected on the page', (
+      tester,
+    ) async {
+      await pump(tester, flags: on, location: '/bookmarks');
+
+      expect(find.text('bookmarks body'), findsOneWidget);
+      expect(find.byType(AppBottomBar), findsOneWidget);
+      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+      expect(find.byIcon(Icons.bookmark), findsNothing);
+      expect(find.byIcon(Icons.home), findsNothing);
+      expect(find.byIcon(Icons.person), findsNothing);
+      // Home and Profile still lead where they did.
+      await tester.tap(find.byIcon(Icons.home_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('home body'), findsOneWidget);
+    });
+
+    testWidgets('phone: no compose button on the page', (tester) async {
+      await pump(tester, flags: on, location: '/bookmarks');
+
+      expect(find.byTooltip('New post'), findsNothing);
+    });
+
+    testWidgets('absent with bookmarks off, with posts off and with ui_shell '
+        'off, at every width', (tester) async {
+      for (final width in [360.0, 600.0, 1300.0]) {
+        for (final (flags, newShell) in [
+          (const {'posts'}, true),
+          (const {'bookmarks'}, true),
+          (on, false),
+        ]) {
+          await pump(tester, width: width, flags: flags, newShell: newShell);
+          expect(
+            find.byIcon(Icons.bookmark_border),
+            findsNothing,
+            reason: '$flags shell=$newShell ${width}dp',
+          );
+        }
+      }
+    });
+  });
+
   testWidgets('showComposeFabAt follows the D2 table', (tester) async {
     final results = <String, bool>{};
     whenListen(
@@ -570,6 +648,7 @@ void main() {
             for (final path in [
               '/home',
               '/notifications',
+              '/bookmarks',
               '/settings/blocked',
               '/profile/ada',
               '/post/1',
@@ -585,6 +664,7 @@ void main() {
     expect(results, {
       '/home': false,
       '/notifications': false,
+      '/bookmarks': false,
       '/settings/blocked': false,
       '/profile/ada': true,
       '/post/1': true,
