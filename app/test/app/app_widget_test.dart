@@ -296,6 +296,34 @@ void main() {
     expect(optIn.state.canOffer, isFalse);
   });
 
+  testWidgets('sign-out clears the snackbars: no stale Undo into the next '
+      'session (W2-14 L-5)', (tester) async {
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: ready(),
+    );
+    ScaffoldMessenger.of(tester.element(find.byType(Scaffold).first))
+        .showSnackBar(
+          SnackBar(
+            content: const Text('Removed from Bookmarks'),
+            action: SnackBarAction(label: 'Undo', onPressed: () {}),
+          ),
+        );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Undo'), findsOneWidget);
+
+    authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Removed from Bookmarks'), findsNothing);
+    expect(find.text('Undo'), findsNothing);
+  });
+
   testWidgets('a foreground push bumps the badge outside the list', (
     tester,
   ) async {

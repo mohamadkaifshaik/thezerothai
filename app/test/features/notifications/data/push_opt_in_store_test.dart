@@ -61,4 +61,28 @@ void main() {
       expect(await store.readNotNow('uid-a'), isNotNull);
     },
   );
+
+  test(
+    'forget removes that uid only; a sign-out wipe keeps both (L-6)',
+    () async {
+      await store.writeNotNow('uid-a', DateTime.now().toUtc());
+      await store.writeNotNow('uid-b', DateTime.now().toUtc());
+
+      // Plain sign-out: both stay.
+      await database.clearAll();
+      expect(await store.readNotNow('uid-a'), isNotNull);
+      expect(await store.readNotNow('uid-b'), isNotNull);
+
+      // Account deletion: the deleted uid's key is gone from the table.
+      await store.forget('uid-a');
+      expect(await store.readNotNow('uid-a'), isNull);
+      expect(await database.readSetting('push_opt_in_not_now:uid-a'), isNull);
+      expect(await store.readNotNow('uid-b'), isNotNull);
+    },
+  );
+
+  test('forgetting a uid with no record is a no-op', () async {
+    await store.forget('uid-a');
+    expect(await store.readNotNow('uid-a'), isNull);
+  });
 }

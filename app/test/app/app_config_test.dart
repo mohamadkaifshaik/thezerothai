@@ -132,6 +132,62 @@ void main() {
       }
     });
 
+    test('the W2-14 probes are refused (L-4)', () {
+      for (final bad in [
+        // Newline, space, percent-encoded fragment, backslash.
+        'https://a.com\nb',
+        'https://a.com\r\nb',
+        'https://dzeroth.com\n',
+        'https://a b.com',
+        'https://evil.com%23.dzeroth.com',
+        r'https://evil.com\@dzeroth.com',
+        // Trailing dot, IDN, IP literals, single label.
+        'https://dzeroth.com.',
+        'https://bücher.example',
+        'https://münchen.de',
+        'https://[::1]',
+        'https://[::1]:8443',
+        'https://127.0.0.1',
+        'https://127.0.0.1:8443',
+        'https://2130706433.1',
+        'https://localhost',
+        // Ports: empty, out of range, non-default on a default host.
+        'https://a.com:',
+        'https://a.com:0',
+        'https://a.com:99999',
+        'https://a.com:abc',
+        'https://dzeroth.com:8443',
+        'https://DZEROTH-DEV.web.app:444',
+        // User info, path, query, fragment, wrong shape.
+        'https://user@dzeroth.com',
+        'https://dzeroth.com/x',
+        'https://dzeroth.com?',
+        'https://dzeroth.com#',
+        'https:a.com',
+        'https:///a.com',
+        '//',
+        '/',
+        'https:',
+        'https://-',
+        'ftp://dzeroth.com',
+      ]) {
+        expect(() => resolve(bad), throwsA(isA<AppConfigError>()), reason: bad);
+      }
+    });
+
+    test('an accepted origin comes back canonical (L-4)', () {
+      expect(resolve('HTTPS://DZEROTH.COM'), 'https://dzeroth.com');
+      expect(resolve('https://DZEROTH.COM/'), 'https://dzeroth.com');
+      expect(resolve('https://dzeroth.com:443'), 'https://dzeroth.com');
+      expect(resolve('https://Example.Test:8443'), 'https://example.test:8443');
+      expect(
+        resolve('https://xn--bcher-kva.example'),
+        'https://xn--bcher-kva.example',
+      );
+      expect(resolve('https://a-b.c1.example'), 'https://a-b.c1.example');
+      expect(resolve('https://app.example2'), 'https://app.example2');
+    });
+
     test('fromEnvironment carries the dev default', () {
       expect(
         AppConfig.fromEnvironment().shareOrigin,
