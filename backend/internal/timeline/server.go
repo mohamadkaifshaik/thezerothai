@@ -73,7 +73,7 @@ var _ timelinev1connect.TimelineServiceHandler = (*Server)(nil)
 //
 // Budget (ADR-0004, ADR-0010 D17), reads, counting the account-status interceptor's caller `users` read:
 // ceiling 2 + C + 2*page where C = ceil((F+1)/30), 269 at F = 5,000 and page 50 (2 = interceptor + caller
-// graph; +1 userLikes with FEATURE_ENGAGEMENT on, cached 60 s). Authors covered by a fresh author-recent entry are removed
+// graph; +1 userLikes with FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS on, cached 60 s). Authors covered by a fresh author-recent entry are removed
 // before chunking, so the queries are ceil(uncovered/30). Planning: refresh 4 + new posts, older page and cold
 // open 30 (F = 60, page 20). Writes 0.
 //

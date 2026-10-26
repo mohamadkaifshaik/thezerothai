@@ -546,7 +546,7 @@ class Post extends $pb.GeneratedMessage {
 }
 
 /// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
-/// FEATURE_ENGAGEMENT is on for the caller; otherwise both are false and no userLikes read happens (ADR-0010 D3).
+/// FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens (ADR-0010 D3).
 /// For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
 class PostView extends $pb.GeneratedMessage {
   factory PostView({
@@ -555,6 +555,7 @@ class PostView extends $pb.GeneratedMessage {
     $core.bool? repostedByViewer,
     ReplyPermission? viewerReplyPermission,
     EmbedViewerState? embedViewerState,
+    $core.bool? bookmarkedByViewer,
   }) {
     final result = PostView._();
     if (post != null) result.post = post;
@@ -563,6 +564,8 @@ class PostView extends $pb.GeneratedMessage {
     if (viewerReplyPermission != null)
       result.viewerReplyPermission = viewerReplyPermission;
     if (embedViewerState != null) result.embedViewerState = embedViewerState;
+    if (bookmarkedByViewer != null)
+      result.bookmarkedByViewer = bookmarkedByViewer;
     return result;
   }
 
@@ -588,6 +591,7 @@ class PostView extends $pb.GeneratedMessage {
         enumValues: ReplyPermission.values)
     ..aE<EmbedViewerState>(5, _omitFieldNames ? '' : 'embedViewerState',
         enumValues: EmbedViewerState.values)
+    ..aOB(6, _omitFieldNames ? '' : 'bookmarkedByViewer')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -661,6 +665,21 @@ class PostView extends $pb.GeneratedMessage {
   $core.bool hasEmbedViewerState() => $_has(4);
   @$pb.TagNumber(5)
   void clearEmbedViewerState() => $_clearField(5);
+
+  /// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
+  /// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
+  /// 0 extra reads when FEATURE_ENGAGEMENT is on for the viewer (the userLikes read already happens), +1 cold read
+  /// (cached 60 s) when only FEATURE_BOOKMARKS is on; absent (false) when neither flag is on for the viewer. Staleness
+  /// bound: the userLikes instance cache TTL (60 s). With only bookmarks on, liked_by_viewer and reposted_by_viewer
+  /// stay false.
+  @$pb.TagNumber(6)
+  $core.bool get bookmarkedByViewer => $_getBF(5);
+  @$pb.TagNumber(6)
+  set bookmarkedByViewer($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasBookmarkedByViewer() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearBookmarkedByViewer() => $_clearField(6);
 }
 
 class CreatePostRequest extends $pb.GeneratedMessage {
@@ -2108,12 +2127,12 @@ class PostServiceApi {
   /// A single post. NOT_FOUND ("post not found", byte-identical in every case) if the post is missing or
   /// deleted, hidden by visibility, the author blocks the caller, or the author is SUSPENDED, DELETING or gone.
   /// A caller who blocks or mutes the author still gets the post; the client shows a banner (ADR-0010 D6).
-  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT is off for the caller (ADR-0010 D3);
-  /// with it on they come from userLikes/{caller} (cache-first, 60 s). A REPOST or QUOTE whose embedded author
+  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
+  /// with either on they come from userLikes/{caller} (cache-first, 60 s): liked / reposted only with engagement, bookmarked_by_viewer with either. A REPOST or QUOTE whose embedded author
   /// blocks the caller is NOT_FOUND like a post by that author.
   /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
   /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-  /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement on. Writes 0.
+  /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
   /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
   /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
   $async.Future<GetPostResponse> getPost(

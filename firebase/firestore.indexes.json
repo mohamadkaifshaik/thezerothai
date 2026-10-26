@@ -129,6 +129,7 @@
 
     { "collectionGroup": "userLikes", "fieldPath": "recent", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },
+    { "collectionGroup": "userLikes", "fieldPath": "bookmarks", "indexes": [] },
 
     { "collectionGroup": "media", "fieldPath": "blurhash", "indexes": [] },
 

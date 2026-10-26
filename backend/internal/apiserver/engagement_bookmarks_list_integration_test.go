@@ -124,6 +124,13 @@ func TestListBookmarksChain_PagingAndColdBudget(t *testing.T) {
 	if b0.GetPost().GetLikedByViewer() || b0.GetPost().GetRepostedByViewer() {
 		t.Error("like/repost flags leaked with FEATURE_ENGAGEMENT off")
 	}
+	// Every row is a bookmark of the caller, so every row says so (ADR-0023 D3), from the userLikes read the page
+	// already made (the 43-read budget above is unchanged).
+	for i, row := range p1.GetBookmarks() {
+		if !row.GetPost().GetBookmarkedByViewer() {
+			t.Errorf("row %d: bookmarked_by_viewer = false on the caller's own bookmark list", i)
+		}
+	}
 	if got := r.lastOutcome(rpcListBookmarks); got != "done" {
 		t.Errorf("outcome = %q", got)
 	}

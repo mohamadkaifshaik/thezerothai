@@ -57,7 +57,8 @@ type Server struct {
 type ServerOption func(*Server)
 
 // WithViewerFlags supplies the engagement implementation of viewer flags (liked/reposted by the caller). Without
-// it, or with FEATURE_ENGAGEMENT off for the caller, every flag is false and no userLikes read happens.
+// it, or with both FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS off for the caller, every flag is false and no userLikes read happens
+// (with only bookmarks on, only bookmarked_by_viewer is set; HydrateViewer).
 func WithViewerFlags(v ViewerFlags) ServerOption { return func(s *Server) { s.viewer = v } }
 
 // NewServer builds the Connect handler. Use with postsv1connect.NewPostServiceHandler.
@@ -140,7 +141,8 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 }
 
 // GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags come from one
-// cached userLikes read while FEATURE_ENGAGEMENT is on for the caller (ADR-0018 D5), else they are false.
+// cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (ADR-0018 D5, ADR-0023 D5: with only
+// bookmarks on just bookmarked_by_viewer is set), else they are false and nothing is read.
 // viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
 // a reply in a restricted conversation is UNKNOWN. Never flag-gated.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {

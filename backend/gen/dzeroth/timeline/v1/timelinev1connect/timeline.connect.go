@@ -88,15 +88,15 @@ type TimelineServiceClient interface {
 	// Filtering (ADR-0010 D6): authors the caller blocks, who block the caller (even if a stale following list
 	// still names them) or whom the caller mutes are dropped; the caller's own posts are always kept. Authors
 	// who are SUSPENDED or DELETING are not filtered at Stage 0 (moderation takedown / purge removes their posts).
-	// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT is off for the caller (ADR-0010 D3);
-	// with it on, one cached userLikes read hydrates the page (P5). A REPOST or QUOTE whose embedded author the caller
+	// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
+	// with either on, one cached userLikes read hydrates the page (P5; liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
 	// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
 	// describe its original.
 	// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
 	// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
 	// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
 	//
-	//	account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT on) / planning: refresh
+	//	account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS on) / planning: refresh
 	//	4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
 	//	cold open 30 (F=60, page 20), writes 0.
 	//
@@ -169,15 +169,15 @@ type TimelineServiceHandler interface {
 	// Filtering (ADR-0010 D6): authors the caller blocks, who block the caller (even if a stale following list
 	// still names them) or whom the caller mutes are dropped; the caller's own posts are always kept. Authors
 	// who are SUSPENDED or DELETING are not filtered at Stage 0 (moderation takedown / purge removes their posts).
-	// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT is off for the caller (ADR-0010 D3);
-	// with it on, one cached userLikes read hydrates the page (P5). A REPOST or QUOTE whose embedded author the caller
+	// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
+	// with either on, one cached userLikes read hydrates the page (P5; liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
 	// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
 	// describe its original.
 	// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
 	// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
 	// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
 	//
-	//	account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT on) / planning: refresh
+	//	account-status interceptor + graph; +1 userLikes with FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS on) / planning: refresh
 	//	4 + new posts (F=60: C=3, graph expired because refreshes are >= 60 s apart), older page or
 	//	cold open 30 (F=60, page 20), writes 0.
 	//
