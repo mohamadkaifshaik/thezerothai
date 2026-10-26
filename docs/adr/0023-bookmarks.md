@@ -1,5 +1,5 @@
 # 0023. Bookmarks
-Status: Proposed
+Status: Accepted (founder, 2026-10-26, by merging PR #305 with every recommended default: Q1 Y thin doc, Q2 B `userLikes.bookmarks[]`, Q3 cap 1,000, Q4 keep the rule-4 idempotency doc)
 Date: 2026-10-26
 Deciders: architect (proposal); founder accepts by merging. Four founder questions are below.
 
