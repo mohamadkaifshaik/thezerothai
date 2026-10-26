@@ -13,7 +13,10 @@ import '../../../../shared/widgets/post_action_bar.dart';
 import '../../../posts/data/posts_repository.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';
+import '../../domain/bookmarks_feature_flag.dart';
 import '../../domain/engagement_entry.dart';
+import '../bloc/bookmarks_cubit.dart';
+import '../bloc/bookmarks_state.dart';
 import '../bloc/engagement_cubit.dart';
 import '../bloc/engagement_state.dart';
 import '../engagement_error_messages.dart';
@@ -84,6 +87,7 @@ class PostEngagementBar extends StatelessWidget {
     // disabled, with a why-less hint. Advisory only (I-4): UNSPECIFIED and
     // UNKNOWN stay enabled, and a server refusal still shows its own message.
     final replyBlocked = replies && replyKnownNotAllowed(view);
+    final bookmarksOn = isFeatureEnabled(context, kFeatureBookmarks);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -108,22 +112,35 @@ class PostEngagementBar extends StatelessWidget {
       builder: (context, state) {
         final entry = state.entries[target];
         final current = entry != null && entry.matches(view) ? entry : shown;
-        return PostActionBar(
-          showDisabled: false,
-          replyDisabledHint: replyBlocked ? kReplyNotAllowedHint : null,
-          replyCount: view.post.replyCount.toInt(),
-          repostCount: current.repostCount ?? 0,
-          likeCount: current.likeCount ?? 0,
-          liked: current.liked,
-          reposted: current.reposted,
-          actions: PostActions(
-            onReply: replies && !replyBlocked
-                ? () => context.push(AppRouter.postPath(target))
-                : null,
-            onLike: () =>
-                cubit.setLiked(target, liked: !current.liked, shown: shown),
-            onRepost: () => _repost(context, cubit, target, current, shown),
-          ),
+        Widget bar({bool bookmarked = false, VoidCallback? onBookmark}) =>
+            PostActionBar(
+              showDisabled: false,
+              replyDisabledHint: replyBlocked ? kReplyNotAllowedHint : null,
+              replyCount: view.post.replyCount.toInt(),
+              repostCount: current.repostCount ?? 0,
+              likeCount: current.likeCount ?? 0,
+              liked: current.liked,
+              reposted: current.reposted,
+              bookmarked: bookmarked,
+              actions: PostActions(
+                onReply: replies && !replyBlocked
+                    ? () => context.push(AppRouter.postPath(target))
+                    : null,
+                onLike: () =>
+                    cubit.setLiked(target, liked: !current.liked, shown: shown),
+                onRepost: () => _repost(context, cubit, target, current, shown),
+                onBookmark: onBookmark,
+              ),
+            );
+        // Bookmarks (ADR-0023): the icon exists only with the `bookmarks`
+        // flag, and only here, where the action row is (so `engagement` too).
+        // Flag off: no BookmarksCubit is read at all.
+        if (!bookmarksOn) return bar();
+        return _BookmarkBinding(
+          view: view,
+          target: target,
+          builder: (saved, toggle) =>
+              bar(bookmarked: saved, onBookmark: toggle),
         );
       },
     );
@@ -166,5 +183,93 @@ class PostEngagementBar extends StatelessWidget {
           );
         }
     }
+  }
+}
+
+/// The bookmark icon of one target: reads its state from the session's
+/// [BookmarksCubit], toggles through it, and shows its one snackbar (the
+/// "Added to Bookmarks" / "Removed from Bookmarks" toast, or the typed error
+/// after a rollback) from the card of that target.
+///
+/// Rebuilds only when the entry of that one target changes. The toast's
+/// "View" action exists only when [BookmarksCubit.viewRoute] is set (W2-7).
+class _BookmarkBinding extends StatelessWidget {
+  const _BookmarkBinding({
+    required this.view,
+    required this.target,
+    required this.builder,
+  });
+
+  final pb.PostView view;
+  final String target;
+  final Widget Function(bool saved, VoidCallback toggle) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<BookmarksCubit>();
+    return BlocListener<BookmarksCubit, BookmarksState>(
+      listenWhen: (before, after) =>
+          after.failure != null &&
+          after.failure!.postId == target &&
+          before.failure?.serial != after.failure!.serial,
+      listener: (context, state) {
+        final failure = state.failure!;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                engagementErrorMessage(
+                  failure.error,
+                  action: failure.saving
+                      ? EngagementAction.bookmark
+                      : EngagementAction.unbookmark,
+                ),
+              ),
+            ),
+          );
+        cubit.failureShown();
+      },
+      child: BlocListener<BookmarksCubit, BookmarksState>(
+        listenWhen: (before, after) =>
+            after.notice != null &&
+            after.notice!.postId == target &&
+            before.notice?.serial != after.notice!.serial,
+        listener: (context, state) {
+          final route = cubit.viewRoute;
+          // Captured now: the card may be gone when "View" is tapped.
+          final router = GoRouter.of(context);
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  state.notice!.saved
+                      ? 'Added to Bookmarks'
+                      : 'Removed from Bookmarks',
+                ),
+                action: state.notice!.saved && route != null
+                    ? SnackBarAction(
+                        label: 'View',
+                        onPressed: () => unawaited(router.push(route)),
+                      )
+                    : null,
+              ),
+            );
+          cubit.noticeShown();
+        },
+        child: BlocBuilder<BookmarksCubit, BookmarksState>(
+          buildWhen: (before, after) =>
+              before.entries[target] != after.entries[target],
+          builder: (context, state) {
+            final saved = cubit.isBookmarked(target, view);
+            return builder(
+              saved,
+              () => unawaited(cubit.setBookmarked(target, view, saved: !saved)),
+            );
+          },
+        ),
+      ),
+    );
   }
 }

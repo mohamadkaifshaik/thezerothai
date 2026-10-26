@@ -25,7 +25,7 @@ Deleting, taking down or purging a post writes nothing to its bookmarkers. Conse
   `rows_dropped` by cause and `rows_pruned`.
 - **The residue.** Until the prune (or the bookmarker's own deletion) a bookmark doc holds a post id that resolves to nothing, under the
   bookmarker's own path. It holds no uid of the post's author and no content. This is narrower than the orphaned likes the founder accepted in
-  ADR-0018. There is no collection-group query, no index and no field override for it.
+  ADR-0018. There is no collection-group query and no index for it (the only override is the `userLikes.bookmarks` array exemption, below).
 
 ## Listing (W2-4)
 | Case | Reads (cold) | Writes / deletes |
@@ -54,6 +54,14 @@ above 43 / 103 means a code change, not data.
 The step name is persisted in `deletionJob.step`: never rename it. `userLikes` is deleted by the earlier `engagement` step; the `bookmarks`
 step clears the field with an `Update` so it can never recreate that document. If a deletion stalls on `bookmarks`, the cause is a failed
 batch or Update (the job retries and logs `engagement_purge_bookmarks` per page); the account-deletion runbook's stuck-job procedure applies.
+
+## Index exemption (`userLikes.bookmarks`)
+`firebase/firestore.indexes.json` exempts `userLikes.bookmarks` from single-field indexing (`indexes: []`, like `recent` and `recentReposts`; its hash is in
+`firebase/field-overrides.ack`, both founder-gated). Deploy it (`firebase deploy --only firestore:indexes`; dev: the deploy-dev run, prod: the release) **before
+`FEATURE_BOOKMARKS` leaves `off` in that project**, or each of up to 1,000 array entries is indexed (about 140 KB per user at the cap). Nothing queries `bookmarks`
+as a field, so the exemption removes no query. This array is the only source of `bookmarked_by_viewer` on every card, thread row, timeline row and ListBookmarks row
+(ADR-0023 D3), and nothing re-syncs it from the subcollection (not even a repeated AddBookmark of an existing bookmark, which writes only the idempotency doc). If the
+array is ever missing entries that bookmark docs have, a `userLikes` write was not field-level (the ADR-0021 I-3 class of bug): treat that as a code defect, not data.
 
 ## Quick reference
 - Caps and limits: 1,000 bookmarks per user (`LIMIT_REACHED limit=bookmarks`), 200 adds per IST day and 50 for accounts younger than

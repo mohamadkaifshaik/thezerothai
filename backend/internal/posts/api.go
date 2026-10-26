@@ -389,10 +389,7 @@ func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 func (v ViewerSet) BookmarksOnly() ViewerSet { return ViewerSet{bookmarked: v.bookmarked} }
 
 // Bookmarked reports whether the viewer bookmarked the item; for a REPOST item it describes the original
-// (embedded.post_id), as Flags does.
-//
-// TODO(bookmarked_by_viewer): not on the wire yet. PostView.bookmarked_by_viewer = 6 is the architect's founder-gated
-// follow-up (ADR-0023 D3 handoff); ToView must set it from this method once the field exists.
+// (embedded.post_id), as Flags does. ToView puts it on the wire as PostView.bookmarked_by_viewer.
 func (v ViewerSet) Bookmarked(p *Post) bool {
 	_, ok := v.bookmarked[viewerID(p)]
 	return ok

@@ -7,19 +7,27 @@ import '../../core/theme/app_theme.dart';
 /// the owning bloc (e.g. `context.read<TimelineBloc>().add(...)`); the bar
 /// itself holds no state. A null callback disables that action.
 class PostActions {
-  const PostActions({this.onReply, this.onRepost, this.onLike, this.onShare});
+  const PostActions({
+    this.onReply,
+    this.onRepost,
+    this.onLike,
+    this.onBookmark,
+    this.onShare,
+  });
 
   final VoidCallback? onReply;
   final VoidCallback? onRepost;
   final VoidCallback? onLike;
+  final VoidCallback? onBookmark;
   final VoidCallback? onShare;
 }
 
-/// Reply / repost / like / share: 16dp outline icons (in 48dp tap boxes) with
-/// compact counts. Every visible counted action (reply, repost, like) gets an
-/// equal, left-aligned slot, so two actions (replies off) sit next to each
-/// other instead of at opposite edges; Share, when offered, is right-aligned
-/// after them. The liked / reposted state uses the like / repost colours and
+/// Reply / repost / like / bookmark / share: 16dp outline icons (in 48dp tap
+/// boxes) with compact counts. Every visible counted action (reply, repost,
+/// like) gets an equal, left-aligned slot, so two actions (replies off) sit
+/// next to each other instead of at opposite edges; Bookmark and Share, when
+/// offered, are right-aligned after them (Bookmark filled and accent when
+/// bookmarked). The liked / reposted state uses the like / repost colours and
 /// is announced as `selected`. Rendered by `PostCard` only when it is given
 /// [PostActions] (the engagement bar, P5).
 class PostActionBar extends StatelessWidget {
@@ -31,6 +39,7 @@ class PostActionBar extends StatelessWidget {
     this.likeCount = 0,
     this.liked = false,
     this.reposted = false,
+    this.bookmarked = false,
     this.showDisabled = true,
     this.replyDisabledHint,
   });
@@ -41,6 +50,9 @@ class PostActionBar extends StatelessWidget {
   final int likeCount;
   final bool liked;
   final bool reposted;
+
+  /// Bookmark is filled and accent-coloured, and announced as `selected`.
+  final bool bookmarked;
 
   /// Show an action whose callback is null (greyed out). False hides it, so
   /// a bar can offer only what the caller's flags allow (no Share until it
@@ -90,6 +102,17 @@ class PostActionBar extends StatelessWidget {
               activeColor: colors.like,
               onPressed: actions.onLike,
             ),
+          ),
+        // Bookmark and Share sit together at the right edge (X's action row);
+        // alone, Bookmark takes the flush-right place Share would have.
+        // Offered only with a callback (never as a disabled placeholder).
+        if (actions.onBookmark != null)
+          _ActionButton(
+            icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
+            label: bookmarked ? 'Bookmarked' : 'Bookmark',
+            active: bookmarked,
+            alignEnd: !_shows(actions.onShare),
+            onPressed: actions.onBookmark,
           ),
         if (_shows(actions.onShare))
           _ActionButton(

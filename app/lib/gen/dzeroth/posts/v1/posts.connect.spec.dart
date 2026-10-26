@@ -113,12 +113,12 @@ abstract final class PostService {
   /// A single post. NOT_FOUND ("post not found", byte-identical in every case) if the post is missing or
   /// deleted, hidden by visibility, the author blocks the caller, or the author is SUSPENDED, DELETING or gone.
   /// A caller who blocks or mutes the author still gets the post; the client shows a banner (ADR-0010 D6).
-  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT is off for the caller (ADR-0010 D3);
-  /// with it on they come from userLikes/{caller} (cache-first, 60 s). A REPOST or QUOTE whose embedded author
+  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
+  /// with either on they come from userLikes/{caller} (cache-first, 60 s): liked / reposted only with engagement, bookmarked_by_viewer with either. A REPOST or QUOTE whose embedded author
   /// blocks the caller is NOT_FOUND like a post by that author.
   /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
   /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
-  /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement on. Writes 0.
+  /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
   /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
   /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
   static const getPost = connect.Spec(

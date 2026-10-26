@@ -822,7 +822,7 @@ func (x *Post) GetMadeWithAi() bool {
 }
 
 // A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
-// FEATURE_ENGAGEMENT is on for the caller; otherwise both are false and no userLikes read happens (ADR-0010 D3).
+// FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens (ADR-0010 D3).
 // For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
 type PostView struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -836,8 +836,15 @@ type PostView struct {
 	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set it:
 	// they drop such rows (ADR-0018 D13).
 	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
+	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
+	// 0 extra reads when FEATURE_ENGAGEMENT is on for the viewer (the userLikes read already happens), +1 cold read
+	// (cached 60 s) when only FEATURE_BOOKMARKS is on; absent (false) when neither flag is on for the viewer. Staleness
+	// bound: the userLikes instance cache TTL (60 s). With only bookmarks on, liked_by_viewer and reposted_by_viewer
+	// stay false.
+	BookmarkedByViewer bool `protobuf:"varint,6,opt,name=bookmarked_by_viewer,json=bookmarkedByViewer,proto3" json:"bookmarked_by_viewer,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *PostView) Reset() {
@@ -903,6 +910,13 @@ func (x *PostView) GetEmbedViewerState() EmbedViewerState {
 		return x.EmbedViewerState
 	}
 	return EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+}
+
+func (x *PostView) GetBookmarkedByViewer() bool {
+	if x != nil {
+		return x.BookmarkedByViewer
+	}
+	return false
 }
 
 type CreatePostRequest struct {
@@ -1926,13 +1940,14 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\freply_policy\x18\x12 \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\vreplyPolicy\x12)\n" +
 	"\x10paid_partnership\x18\x13 \x01(\bR\x0fpaidPartnership\x12 \n" +
 	"\fmade_with_ai\x18\x14 \x01(\bR\n" +
-	"madeWithAi\"\xb9\x02\n" +
+	"madeWithAi\"\xeb\x02\n" +
 	"\bPostView\x12*\n" +
 	"\x04post\x18\x01 \x01(\v2\x16.dzeroth.posts.v1.PostR\x04post\x12&\n" +
 	"\x0fliked_by_viewer\x18\x02 \x01(\bR\rlikedByViewer\x12,\n" +
 	"\x12reposted_by_viewer\x18\x03 \x01(\bR\x10repostedByViewer\x12Y\n" +
 	"\x17viewer_reply_permission\x18\x04 \x01(\x0e2!.dzeroth.posts.v1.ReplyPermissionR\x15viewerReplyPermission\x12P\n" +
-	"\x12embed_viewer_state\x18\x05 \x01(\x0e2\".dzeroth.posts.v1.EmbedViewerStateR\x10embedViewerState\"\xf6\x02\n" +
+	"\x12embed_viewer_state\x18\x05 \x01(\x0e2\".dzeroth.posts.v1.EmbedViewerStateR\x10embedViewerState\x120\n" +
+	"\x14bookmarked_by_viewer\x18\x06 \x01(\bR\x12bookmarkedByViewer\"\xf6\x02\n" +
 	"\x11CreatePostRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +

@@ -357,6 +357,13 @@ const PostView$json = {
       '6': '.dzeroth.posts.v1.EmbedViewerState',
       '10': 'embedViewerState'
     },
+    {
+      '1': 'bookmarked_by_viewer',
+      '3': 6,
+      '4': 1,
+      '5': 8,
+      '10': 'bookmarkedByViewer'
+    },
   ],
 };
 
@@ -367,7 +374,8 @@ final $typed_data.Uint8List postViewDescriptor = $convert.base64Decode(
     'aWV3ZXIYAyABKAhSEHJlcG9zdGVkQnlWaWV3ZXISWQoXdmlld2VyX3JlcGx5X3Blcm1pc3Npb2'
     '4YBCABKA4yIS5kemVyb3RoLnBvc3RzLnYxLlJlcGx5UGVybWlzc2lvblIVdmlld2VyUmVwbHlQ'
     'ZXJtaXNzaW9uElAKEmVtYmVkX3ZpZXdlcl9zdGF0ZRgFIAEoDjIiLmR6ZXJvdGgucG9zdHMudj'
-    'EuRW1iZWRWaWV3ZXJTdGF0ZVIQZW1iZWRWaWV3ZXJTdGF0ZQ==');
+    'EuRW1iZWRWaWV3ZXJTdGF0ZVIQZW1iZWRWaWV3ZXJTdGF0ZRIwChRib29rbWFya2VkX2J5X3Zp'
+    'ZXdlchgGIAEoCFISYm9va21hcmtlZEJ5Vmlld2Vy');
 
 @$core.Deprecated('Use createPostRequestDescriptor instead')
 const CreatePostRequest$json = {

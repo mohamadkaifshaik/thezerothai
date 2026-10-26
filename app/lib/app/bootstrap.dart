@@ -18,7 +18,9 @@ import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../features/engagement/domain/engagement_feature_flag.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/media_repository.dart';
@@ -178,6 +180,20 @@ Future<void> bootstrap() async {
     gate: engagementGate,
     store: timelineStore,
   );
+  // Bookmarks (ADR-0023): AddBookmark is gated by the `bookmarks` flag (0
+  // RPCs while off); the overlay lives in session memory and ends with the
+  // shared SessionEpoch (sign-out).
+  final bookmarksGate = buildServiceGate(
+    onboardingBloc,
+    kFeatureBookmarks,
+    onUnexpectedError: reportUnexpectedError,
+  );
+  final bookmarksRepository = BookmarksRepository(
+    apiClient: apiClient,
+    gate: bookmarksGate,
+    epoch: database.sessionEpoch,
+    onUnexpectedError: reportUnexpectedError,
+  );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,
     store: NotificationsStore(database),
@@ -240,6 +256,7 @@ Future<void> bootstrap() async {
       notificationsRepository: notificationsRepository,
       moderationRepository: moderationRepository,
       engagementRepository: engagementRepository,
+      bookmarksRepository: bookmarksRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,

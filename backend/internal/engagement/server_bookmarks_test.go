@@ -232,7 +232,7 @@ func TestListBookmarks_MapsRowsToProto(t *testing.T) {
 	plain := &posts.Post{ID: pidB, AuthorID: "author", Kind: posts.KindPost}
 	stub := &stubBookmarks{page: BookmarkPage{
 		Rows:          []BookmarkRow{{Post: liked, BookmarkedAt: at}, {Post: plain, BookmarkedAt: at.Add(-time.Hour)}},
-		Viewer:        posts.NewViewerSet([]string{pidA}, nil),
+		Viewer:        posts.NewViewerSetWithBookmarks([]string{pidA}, nil, []string{pidA}),
 		NextPageToken: "next-token",
 	}}
 	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "bookmarks", Mode: flags.On})
@@ -249,10 +249,10 @@ func TestListBookmarks_MapsRowsToProto(t *testing.T) {
 		t.Fatalf("response = %v", m)
 	}
 	b0, b1 := m.GetBookmarks()[0], m.GetBookmarks()[1]
-	if b0.GetPost().GetPost().GetPostId() != pidA || !b0.GetPost().GetLikedByViewer() || b0.GetPost().GetPost().GetText() != "hello" {
+	if b0.GetPost().GetPost().GetPostId() != pidA || !b0.GetPost().GetLikedByViewer() || !b0.GetPost().GetBookmarkedByViewer() || b0.GetPost().GetPost().GetText() != "hello" {
 		t.Errorf("row 0 = %v, want the live post %s liked by the viewer", b0, pidA)
 	}
-	if b1.GetPost().GetPost().GetPostId() != pidB || b1.GetPost().GetLikedByViewer() {
+	if b1.GetPost().GetPost().GetPostId() != pidB || b1.GetPost().GetLikedByViewer() || b1.GetPost().GetBookmarkedByViewer() {
 		t.Errorf("row 1 = %v", b1)
 	}
 	if !b0.GetBookmarkedAt().AsTime().Equal(at) || !b1.GetBookmarkedAt().AsTime().Equal(at.Add(-time.Hour)) {

@@ -3,8 +3,10 @@ import 'package:flutter/foundation.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../domain/engagement_entry.dart';
 
-/// Which action failed (picks the wording of the snackbar).
-enum EngagementAction { like, unlike, repost, undoRepost }
+/// Which action failed (picks the wording of the snackbar). `bookmark` /
+/// `unbookmark` are used only by `engagementErrorMessage`, for the failures
+/// of `BookmarksCubit`.
+enum EngagementAction { like, unlike, repost, undoRepost, bookmark, unbookmark }
 
 /// One failed action, shown once by the card of [postId] and then cleared.
 @immutable
