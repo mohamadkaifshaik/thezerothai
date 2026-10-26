@@ -65,4 +65,71 @@ abstract final class EngagementService {
     dzerothengagementv1engagement.UndoRepostRequest.new,
     dzerothengagementv1engagement.UndoRepostResponse.new,
   );
+
+  /// Bookmark a post. A REPOST id bookmarks its original (the returned post_id). The post must be visible to the
+  /// caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author, or a QUOTE whose embedded
+  /// author blocks the caller => NOT_FOUND "post not found", 0 writes).
+  /// Idempotency (rule 4): idempotency/{hash(uid, "AddBookmark", key)} is stored in the same transaction (TTL'd); a
+  /// replay returns the stored state with 0 writes even if the bookmark was removed since, and a different post_id
+  /// under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
+  /// fresh key succeeds with 0 writes (the bookmark doc's Create fails AlreadyExists; bookmarked_at is unchanged).
+  /// Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
+  /// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
+  /// adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
+  /// metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
+  /// One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
+  /// the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
+  /// caller's bookmarked post ids, which hydrates viewer state with no extra read; ADR-0023 D3).
+  /// Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
+  /// 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
+  /// writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
+  /// 0. Already bookmarked, at the cap, or at the quota: writes 0.
+  static const addBookmark = connect.Spec(
+    '/$name/AddBookmark',
+    connect.StreamType.unary,
+    dzerothengagementv1engagement.AddBookmarkRequest.new,
+    dzerothengagementv1engagement.AddBookmarkResponse.new,
+  );
+
+  /// Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
+  /// no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
+  /// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 0 writes.
+  /// Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state with 0
+  /// writes, so a late retry never removes a bookmark that was added again after it.
+  /// One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
+  /// idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the 0-write no-op.
+  /// Firestore: reads 2 cold / 1 warm (interceptor, idempotency); writes 2 (idempotency, userLikes) + 1 delete + 1
+  /// TTL delete later; a no-op or replay writes 0.
+  static const removeBookmark = connect.Spec(
+    '/$name/RemoveBookmark',
+    connect.StreamType.unary,
+    dzerothengagementv1engagement.RemoveBookmarkRequest.new,
+    dzerothengagementv1engagement.RemoveBookmarkResponse.new,
+  );
+
+  /// The caller's bookmarks, most recently bookmarked first, each rendered from the LIVE post (current text, author
+  /// snapshot and counts; viewer flags as in timelines). page_size 0 => 20, clamped to 1..50. Opaque page_token
+  /// bound to the caller (cursor (bookmarkedAt, postId)); expired, foreign or tampered => INVALID_ARGUMENT +
+  /// VALIDATION metadata["field"] = "page_token", 0 reads: drop it and reload the first page.
+  /// Client contract: there is no since_token and no removed_ids. On every open, REPLACE the cached first page with
+  /// the response, then scroll with next_page_token.
+  /// Rows are dropped after the read (ADR-0023 D2): the post is missing (deleted, or its author's account was
+  /// purged), hidden by a moderator (takedown or author suspension), or its author (or a QUOTE's embedded author) is
+  /// blocked by, blocks, or is muted by the caller (the ADR-0010 D6 Home column). A page may therefore be short or
+  /// empty while next_page_token is non-empty: keep following it while it is non-empty. A post whose author is
+  /// DELETING is shown until the purge deletes it, as in Home.
+  /// A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
+  /// userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
+  /// brings them back. No pruning under DEGRADED_MODE=readonly.
+  /// Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
+  /// caller graph, userLikes for viewer flags; graph and userLikes cached 60 s): 43 at page 20, 103 at page 50; an
+  /// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
+  /// (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
+  static const listBookmarks = connect.Spec(
+    '/$name/ListBookmarks',
+    connect.StreamType.unary,
+    dzerothengagementv1engagement.ListBookmarksRequest.new,
+    dzerothengagementv1engagement.ListBookmarksResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
 }

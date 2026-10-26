@@ -3,17 +3,20 @@
 // Source: dzeroth/engagement/v1/engagement.proto
 
 // Engagement: likes and reposts (Phase 1 slice P5, ADR-0018). Owner module: backend/internal/engagement.
-// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}. The counters (likeCount,
+// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
+// users/{uid}/bookmarks/{postId}. The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query (ADR-0003); a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
 //
-// Behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every RPC is
-// FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on.
+// Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
+// like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
+// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT.
 //
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
-// [A-Za-z0-9_-]. The operations are state-setting and keyed by (post_id, caller) so a replay or ten concurrent
-// calls converge on one effect; the key is validated but needs no stored record. Acting on a REPOST post id acts
+// [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
+// concurrent calls converge on one effect; for them the key is validated but needs no stored record (ADR-0018). The
+// bookmark mutations store it (CLAUDE.md rule 4, ADR-0023 D4). Acting on a REPOST post id acts
 // on the post it reposts (the original), never on the repost document. Like and Repost need the target to be
 // visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author => NOT_FOUND
 // "post not found").
@@ -60,6 +63,15 @@ const (
 	// EngagementServiceUndoRepostProcedure is the fully-qualified name of the EngagementService's
 	// UndoRepost RPC.
 	EngagementServiceUndoRepostProcedure = "/dzeroth.engagement.v1.EngagementService/UndoRepost"
+	// EngagementServiceAddBookmarkProcedure is the fully-qualified name of the EngagementService's
+	// AddBookmark RPC.
+	EngagementServiceAddBookmarkProcedure = "/dzeroth.engagement.v1.EngagementService/AddBookmark"
+	// EngagementServiceRemoveBookmarkProcedure is the fully-qualified name of the EngagementService's
+	// RemoveBookmark RPC.
+	EngagementServiceRemoveBookmarkProcedure = "/dzeroth.engagement.v1.EngagementService/RemoveBookmark"
+	// EngagementServiceListBookmarksProcedure is the fully-qualified name of the EngagementService's
+	// ListBookmarks RPC.
+	EngagementServiceListBookmarksProcedure = "/dzeroth.engagement.v1.EngagementService/ListBookmarks"
 )
 
 // EngagementServiceClient is a client for the dzeroth.engagement.v1.EngagementService service.
@@ -96,6 +108,54 @@ type EngagementServiceClient interface {
 	// users.postsCount, ArrayRemove on userLikes.recentReposts. Firestore: reads 1 (+ the original for the returned
 	// counts, cache first), writes 3 + 2 deletes.
 	UndoRepost(context.Context, *connect.Request[v1.UndoRepostRequest]) (*connect.Response[v1.UndoRepostResponse], error)
+	// Bookmark a post. A REPOST id bookmarks its original (the returned post_id). The post must be visible to the
+	// caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author, or a QUOTE whose embedded
+	// author blocks the caller => NOT_FOUND "post not found", 0 writes).
+	// Idempotency (rule 4): idempotency/{hash(uid, "AddBookmark", key)} is stored in the same transaction (TTL'd); a
+	// replay returns the stored state with 0 writes even if the bookmark was removed since, and a different post_id
+	// under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
+	// fresh key succeeds with 0 writes (the bookmark doc's Create fails AlreadyExists; bookmarked_at is unchanged).
+	// Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
+	// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
+	// adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
+	// metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
+	// One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
+	// the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
+	// caller's bookmarked post ids, which hydrates viewer state with no extra read; ADR-0023 D3).
+	// Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
+	// 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
+	// writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
+	// 0. Already bookmarked, at the cap, or at the quota: writes 0.
+	AddBookmark(context.Context, *connect.Request[v1.AddBookmarkRequest]) (*connect.Response[v1.AddBookmarkResponse], error)
+	// Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
+	// no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
+	// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 0 writes.
+	// Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state with 0
+	// writes, so a late retry never removes a bookmark that was added again after it.
+	// One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
+	// idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the 0-write no-op.
+	// Firestore: reads 2 cold / 1 warm (interceptor, idempotency); writes 2 (idempotency, userLikes) + 1 delete + 1
+	// TTL delete later; a no-op or replay writes 0.
+	RemoveBookmark(context.Context, *connect.Request[v1.RemoveBookmarkRequest]) (*connect.Response[v1.RemoveBookmarkResponse], error)
+	// The caller's bookmarks, most recently bookmarked first, each rendered from the LIVE post (current text, author
+	// snapshot and counts; viewer flags as in timelines). page_size 0 => 20, clamped to 1..50. Opaque page_token
+	// bound to the caller (cursor (bookmarkedAt, postId)); expired, foreign or tampered => INVALID_ARGUMENT +
+	// VALIDATION metadata["field"] = "page_token", 0 reads: drop it and reload the first page.
+	// Client contract: there is no since_token and no removed_ids. On every open, REPLACE the cached first page with
+	// the response, then scroll with next_page_token.
+	// Rows are dropped after the read (ADR-0023 D2): the post is missing (deleted, or its author's account was
+	// purged), hidden by a moderator (takedown or author suspension), or its author (or a QUOTE's embedded author) is
+	// blocked by, blocks, or is muted by the caller (the ADR-0010 D6 Home column). A page may therefore be short or
+	// empty while next_page_token is non-empty: keep following it while it is non-empty. A post whose author is
+	// DELETING is shown until the purge deletes it, as in Home.
+	// A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
+	// userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
+	// brings them back. No pruning under DEGRADED_MODE=readonly.
+	// Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
+	// caller graph, userLikes for viewer flags; graph and userLikes cached 60 s): 43 at page 20, 103 at page 50; an
+	// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
+	// (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
+	ListBookmarks(context.Context, *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error)
 }
 
 // NewEngagementServiceClient constructs a client for the dzeroth.engagement.v1.EngagementService
@@ -133,15 +193,37 @@ func NewEngagementServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(engagementServiceMethods.ByName("UndoRepost")),
 			connect.WithClientOptions(opts...),
 		),
+		addBookmark: connect.NewClient[v1.AddBookmarkRequest, v1.AddBookmarkResponse](
+			httpClient,
+			baseURL+EngagementServiceAddBookmarkProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("AddBookmark")),
+			connect.WithClientOptions(opts...),
+		),
+		removeBookmark: connect.NewClient[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse](
+			httpClient,
+			baseURL+EngagementServiceRemoveBookmarkProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("RemoveBookmark")),
+			connect.WithClientOptions(opts...),
+		),
+		listBookmarks: connect.NewClient[v1.ListBookmarksRequest, v1.ListBookmarksResponse](
+			httpClient,
+			baseURL+EngagementServiceListBookmarksProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("ListBookmarks")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // engagementServiceClient implements EngagementServiceClient.
 type engagementServiceClient struct {
-	likePost   *connect.Client[v1.LikePostRequest, v1.LikePostResponse]
-	unlikePost *connect.Client[v1.UnlikePostRequest, v1.UnlikePostResponse]
-	repostPost *connect.Client[v1.RepostPostRequest, v1.RepostPostResponse]
-	undoRepost *connect.Client[v1.UndoRepostRequest, v1.UndoRepostResponse]
+	likePost       *connect.Client[v1.LikePostRequest, v1.LikePostResponse]
+	unlikePost     *connect.Client[v1.UnlikePostRequest, v1.UnlikePostResponse]
+	repostPost     *connect.Client[v1.RepostPostRequest, v1.RepostPostResponse]
+	undoRepost     *connect.Client[v1.UndoRepostRequest, v1.UndoRepostResponse]
+	addBookmark    *connect.Client[v1.AddBookmarkRequest, v1.AddBookmarkResponse]
+	removeBookmark *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
+	listBookmarks  *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
 }
 
 // LikePost calls dzeroth.engagement.v1.EngagementService.LikePost.
@@ -162,6 +244,21 @@ func (c *engagementServiceClient) RepostPost(ctx context.Context, req *connect.R
 // UndoRepost calls dzeroth.engagement.v1.EngagementService.UndoRepost.
 func (c *engagementServiceClient) UndoRepost(ctx context.Context, req *connect.Request[v1.UndoRepostRequest]) (*connect.Response[v1.UndoRepostResponse], error) {
 	return c.undoRepost.CallUnary(ctx, req)
+}
+
+// AddBookmark calls dzeroth.engagement.v1.EngagementService.AddBookmark.
+func (c *engagementServiceClient) AddBookmark(ctx context.Context, req *connect.Request[v1.AddBookmarkRequest]) (*connect.Response[v1.AddBookmarkResponse], error) {
+	return c.addBookmark.CallUnary(ctx, req)
+}
+
+// RemoveBookmark calls dzeroth.engagement.v1.EngagementService.RemoveBookmark.
+func (c *engagementServiceClient) RemoveBookmark(ctx context.Context, req *connect.Request[v1.RemoveBookmarkRequest]) (*connect.Response[v1.RemoveBookmarkResponse], error) {
+	return c.removeBookmark.CallUnary(ctx, req)
+}
+
+// ListBookmarks calls dzeroth.engagement.v1.EngagementService.ListBookmarks.
+func (c *engagementServiceClient) ListBookmarks(ctx context.Context, req *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error) {
+	return c.listBookmarks.CallUnary(ctx, req)
 }
 
 // EngagementServiceHandler is an implementation of the dzeroth.engagement.v1.EngagementService
@@ -199,6 +296,54 @@ type EngagementServiceHandler interface {
 	// users.postsCount, ArrayRemove on userLikes.recentReposts. Firestore: reads 1 (+ the original for the returned
 	// counts, cache first), writes 3 + 2 deletes.
 	UndoRepost(context.Context, *connect.Request[v1.UndoRepostRequest]) (*connect.Response[v1.UndoRepostResponse], error)
+	// Bookmark a post. A REPOST id bookmarks its original (the returned post_id). The post must be visible to the
+	// caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author, or a QUOTE whose embedded
+	// author blocks the caller => NOT_FOUND "post not found", 0 writes).
+	// Idempotency (rule 4): idempotency/{hash(uid, "AddBookmark", key)} is stored in the same transaction (TTL'd); a
+	// replay returns the stored state with 0 writes even if the bookmark was removed since, and a different post_id
+	// under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
+	// fresh key succeeds with 0 writes (the bookmark doc's Create fails AlreadyExists; bookmarked_at is unchanged).
+	// Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
+	// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
+	// adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
+	// metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
+	// One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
+	// the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
+	// caller's bookmarked post ids, which hydrates viewer state with no extra read; ADR-0023 D3).
+	// Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
+	// 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
+	// writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
+	// 0. Already bookmarked, at the cap, or at the quota: writes 0.
+	AddBookmark(context.Context, *connect.Request[v1.AddBookmarkRequest]) (*connect.Response[v1.AddBookmarkResponse], error)
+	// Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
+	// no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
+	// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 0 writes.
+	// Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state with 0
+	// writes, so a late retry never removes a bookmark that was added again after it.
+	// One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
+	// idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the 0-write no-op.
+	// Firestore: reads 2 cold / 1 warm (interceptor, idempotency); writes 2 (idempotency, userLikes) + 1 delete + 1
+	// TTL delete later; a no-op or replay writes 0.
+	RemoveBookmark(context.Context, *connect.Request[v1.RemoveBookmarkRequest]) (*connect.Response[v1.RemoveBookmarkResponse], error)
+	// The caller's bookmarks, most recently bookmarked first, each rendered from the LIVE post (current text, author
+	// snapshot and counts; viewer flags as in timelines). page_size 0 => 20, clamped to 1..50. Opaque page_token
+	// bound to the caller (cursor (bookmarkedAt, postId)); expired, foreign or tampered => INVALID_ARGUMENT +
+	// VALIDATION metadata["field"] = "page_token", 0 reads: drop it and reload the first page.
+	// Client contract: there is no since_token and no removed_ids. On every open, REPLACE the cached first page with
+	// the response, then scroll with next_page_token.
+	// Rows are dropped after the read (ADR-0023 D2): the post is missing (deleted, or its author's account was
+	// purged), hidden by a moderator (takedown or author suspension), or its author (or a QUOTE's embedded author) is
+	// blocked by, blocks, or is muted by the caller (the ADR-0010 D6 Home column). A page may therefore be short or
+	// empty while next_page_token is non-empty: keep following it while it is non-empty. A post whose author is
+	// DELETING is shown until the purge deletes it, as in Home.
+	// A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
+	// userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
+	// brings them back. No pruning under DEGRADED_MODE=readonly.
+	// Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
+	// caller graph, userLikes for viewer flags; graph and userLikes cached 60 s): 43 at page 20, 103 at page 50; an
+	// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
+	// (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
+	ListBookmarks(context.Context, *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error)
 }
 
 // NewEngagementServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -232,6 +377,25 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 		connect.WithSchema(engagementServiceMethods.ByName("UndoRepost")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engagementServiceAddBookmarkHandler := connect.NewUnaryHandler(
+		EngagementServiceAddBookmarkProcedure,
+		svc.AddBookmark,
+		connect.WithSchema(engagementServiceMethods.ByName("AddBookmark")),
+		connect.WithHandlerOptions(opts...),
+	)
+	engagementServiceRemoveBookmarkHandler := connect.NewUnaryHandler(
+		EngagementServiceRemoveBookmarkProcedure,
+		svc.RemoveBookmark,
+		connect.WithSchema(engagementServiceMethods.ByName("RemoveBookmark")),
+		connect.WithHandlerOptions(opts...),
+	)
+	engagementServiceListBookmarksHandler := connect.NewUnaryHandler(
+		EngagementServiceListBookmarksProcedure,
+		svc.ListBookmarks,
+		connect.WithSchema(engagementServiceMethods.ByName("ListBookmarks")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.engagement.v1.EngagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngagementServiceLikePostProcedure:
@@ -242,6 +406,12 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 			engagementServiceRepostPostHandler.ServeHTTP(w, r)
 		case EngagementServiceUndoRepostProcedure:
 			engagementServiceUndoRepostHandler.ServeHTTP(w, r)
+		case EngagementServiceAddBookmarkProcedure:
+			engagementServiceAddBookmarkHandler.ServeHTTP(w, r)
+		case EngagementServiceRemoveBookmarkProcedure:
+			engagementServiceRemoveBookmarkHandler.ServeHTTP(w, r)
+		case EngagementServiceListBookmarksProcedure:
+			engagementServiceListBookmarksHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -265,4 +435,16 @@ func (UnimplementedEngagementServiceHandler) RepostPost(context.Context, *connec
 
 func (UnimplementedEngagementServiceHandler) UndoRepost(context.Context, *connect.Request[v1.UndoRepostRequest]) (*connect.Response[v1.UndoRepostResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.UndoRepost is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) AddBookmark(context.Context, *connect.Request[v1.AddBookmarkRequest]) (*connect.Response[v1.AddBookmarkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.AddBookmark is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) RemoveBookmark(context.Context, *connect.Request[v1.RemoveBookmarkRequest]) (*connect.Response[v1.RemoveBookmarkResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.RemoveBookmark is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) ListBookmarks(context.Context, *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.ListBookmarks is not implemented"))
 }

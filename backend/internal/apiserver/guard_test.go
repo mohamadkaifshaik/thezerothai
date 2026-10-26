@@ -71,7 +71,9 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.UserTimelinePerMinute = 30
 	cfg.RateLimit.PostCreatePerMinute = 10
 	cfg.RateLimit.PostDeletePerMinute = 20
-	cfg.RateLimit.ReportPerMinute = 5 // ADR-0016
+	cfg.RateLimit.ReportPerMinute = 5                // ADR-0016
+	cfg.RateLimit.BookmarksPerUserPerMinute = 30     // ADR-0023 D4: Add and Remove share it
+	cfg.RateLimit.BookmarksListPerUserPerMinute = 10 // ADR-0023 D4
 	return cfg
 }
 

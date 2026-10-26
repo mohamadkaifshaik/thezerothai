@@ -70,6 +70,13 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// reposts by quota.Posts, and every read by the ADR-0010 D5 read budget.
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
+	// ADR-0023 D4: AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
+	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded per day by quota.Bookmarks (200, 50 for new
+	// accounts) and the cap, every call by the ADR-0010 D5 read budget. DEGRADED_MODE=readonly rejects Add and Remove through
+	// their idempotency level, with no list here.
+	rlBookmarks := ratelimit.NewLimiter(cfg.RateLimit.BookmarksPerUserPerMinute, idleBucketTTL)
+	rlBookmarksList := ratelimit.NewLimiter(cfg.RateLimit.BookmarksListPerUserPerMinute, idleBucketTTL)
+
 	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
 	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
 	// and Vision spend by VISION_MONTHLY_CAP.
@@ -89,6 +96,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceUnlikePostProcedure:          rlEngagement,
 			engagementv1connect.EngagementServiceRepostPostProcedure:          rlEngagement,
 			engagementv1connect.EngagementServiceUndoRepostProcedure:          rlEngagement,
+			engagementv1connect.EngagementServiceAddBookmarkProcedure:         rlBookmarks,
+			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:      rlBookmarks,
+			engagementv1connect.EngagementServiceListBookmarksProcedure:       rlBookmarksList,
 			mediav1connect.MediaServiceCreateUploadProcedure:                  rlMedia,
 			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMedia,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,

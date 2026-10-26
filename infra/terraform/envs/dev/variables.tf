@@ -359,6 +359,34 @@ variable "feature_quotes_percent" {
   }
 }
 
+variable "feature_bookmarks" {
+  description = "FEATURE_BOOKMARKS rollout mode for bookmarks (ADR-0023; AddBookmark needs it on for the caller, List and Remove only need it not off): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_bookmarks)
+    error_message = "feature_bookmarks must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_bookmarks_allowlist" {
+  description = "FEATURE_BOOKMARKS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_bookmarks_percent" {
+  description = "FEATURE_BOOKMARKS_PERCENT: 0-100, only meaningful when feature_bookmarks = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_bookmarks_percent >= 0 && var.feature_bookmarks_percent <= 100 && floor(var.feature_bookmarks_percent) == var.feature_bookmarks_percent
+    error_message = "feature_bookmarks_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_ui_shell" {
   description = "FEATURE_UI_SHELL rollout mode for the new app shell (client-only; bottom bar + avatar drawer, account chip, rail): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

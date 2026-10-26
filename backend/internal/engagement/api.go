@@ -19,6 +19,10 @@ import (
 // posts.EngagementFlagName gates the quote path and viewer flags with.
 const FlagName = posts.EngagementFlagName
 
+// BookmarksFlagName is the wire name of FEATURE_BOOKMARKS (ADR-0023 D5). AddBookmark needs it on for the caller;
+// ListBookmarks and RemoveBookmark only need it not globally off. It is independent of FlagName (engagement).
+const BookmarksFlagName = "bookmarks"
+
 // Limits (ADR-0018 D7, D8).
 const (
 	// MaxRecentLikes and MaxRecentReposts bound userLikes.recent / recentReposts (newest last).

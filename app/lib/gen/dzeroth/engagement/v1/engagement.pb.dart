@@ -15,6 +15,10 @@ import 'dart:core' as $core;
 
 import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
+import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
+    as $1;
+
+import '../../posts/v1/posts.pb.dart' as $0;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
@@ -665,6 +669,566 @@ class UndoRepostResponse extends $pb.GeneratedMessage {
   PostEngagement ensureEngagement() => $_ensure(0);
 }
 
+/// The caller's bookmark state of one post after AddBookmark or RemoveBookmark (ADR-0023).
+class BookmarkState extends $pb.GeneratedMessage {
+  factory BookmarkState({
+    $core.String? postId,
+    $core.bool? bookmarked,
+  }) {
+    final result = BookmarkState._();
+    if (postId != null) result.postId = postId;
+    if (bookmarked != null) result.bookmarked = bookmarked;
+    return result;
+  }
+
+  BookmarkState._();
+
+  factory BookmarkState.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      BookmarkState()..mergeFromBuffer(data, registry);
+  factory BookmarkState.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      BookmarkState()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'BookmarkState',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: BookmarkState.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'postId')
+    ..aOB(2, _omitFieldNames ? '' : 'bookmarked')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BookmarkState clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BookmarkState copyWith(void Function(BookmarkState) updates) =>
+      super.copyWith((message) => updates(message as BookmarkState))
+          as BookmarkState;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use BookmarkState() / BookmarkState.new instead')
+  static BookmarkState create() => BookmarkState._();
+  static $pb.GeneratedMessage $_createMessage() => BookmarkState._();
+  @$core.override
+  BookmarkState createEmptyInstance() => BookmarkState._();
+  @$core.pragma('dart2js:noInline')
+  static BookmarkState getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<BookmarkState>(
+          BookmarkState.$_createMessage);
+  static BookmarkState? _defaultInstance;
+
+  /// The post the action applied to: the original when AddBookmark named a REPOST. Pass this id to RemoveBookmark.
+  @$pb.TagNumber(1)
+  $core.String get postId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set postId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPostId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPostId() => $_clearField(1);
+
+  /// True after AddBookmark (including a post that was already bookmarked), false after RemoveBookmark.
+  @$pb.TagNumber(2)
+  $core.bool get bookmarked => $_getBF(1);
+  @$pb.TagNumber(2)
+  set bookmarked($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasBookmarked() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearBookmarked() => $_clearField(2);
+}
+
+class AddBookmarkRequest extends $pb.GeneratedMessage {
+  factory AddBookmarkRequest({
+    $core.String? idempotencyKey,
+    $core.String? postId,
+  }) {
+    final result = AddBookmarkRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (postId != null) result.postId = postId;
+    return result;
+  }
+
+  AddBookmarkRequest._();
+
+  factory AddBookmarkRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AddBookmarkRequest()..mergeFromBuffer(data, registry);
+  factory AddBookmarkRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AddBookmarkRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'AddBookmarkRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: AddBookmarkRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'postId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AddBookmarkRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AddBookmarkRequest copyWith(void Function(AddBookmarkRequest) updates) =>
+      super.copyWith((message) => updates(message as AddBookmarkRequest))
+          as AddBookmarkRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use AddBookmarkRequest() / AddBookmarkRequest.new instead')
+  static AddBookmarkRequest create() => AddBookmarkRequest._();
+  static $pb.GeneratedMessage $_createMessage() => AddBookmarkRequest._();
+  @$core.override
+  AddBookmarkRequest createEmptyInstance() => AddBookmarkRequest._();
+  @$core.pragma('dart2js:noInline')
+  static AddBookmarkRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<AddBookmarkRequest>(
+          AddBookmarkRequest.$_createMessage);
+  static AddBookmarkRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get postId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set postId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPostId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPostId() => $_clearField(2);
+}
+
+class AddBookmarkResponse extends $pb.GeneratedMessage {
+  factory AddBookmarkResponse({
+    BookmarkState? state,
+  }) {
+    final result = AddBookmarkResponse._();
+    if (state != null) result.state = state;
+    return result;
+  }
+
+  AddBookmarkResponse._();
+
+  factory AddBookmarkResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AddBookmarkResponse()..mergeFromBuffer(data, registry);
+  factory AddBookmarkResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AddBookmarkResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'AddBookmarkResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: AddBookmarkResponse.$_createMessage)
+    ..aOM<BookmarkState>(1, _omitFieldNames ? '' : 'state',
+        subBuilder: BookmarkState.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AddBookmarkResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AddBookmarkResponse copyWith(void Function(AddBookmarkResponse) updates) =>
+      super.copyWith((message) => updates(message as AddBookmarkResponse))
+          as AddBookmarkResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use AddBookmarkResponse() / AddBookmarkResponse.new instead')
+  static AddBookmarkResponse create() => AddBookmarkResponse._();
+  static $pb.GeneratedMessage $_createMessage() => AddBookmarkResponse._();
+  @$core.override
+  AddBookmarkResponse createEmptyInstance() => AddBookmarkResponse._();
+  @$core.pragma('dart2js:noInline')
+  static AddBookmarkResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<AddBookmarkResponse>(
+          AddBookmarkResponse.$_createMessage);
+  static AddBookmarkResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  BookmarkState get state => $_getN(0);
+  @$pb.TagNumber(1)
+  set state(BookmarkState value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasState() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearState() => $_clearField(1);
+  @$pb.TagNumber(1)
+  BookmarkState ensureState() => $_ensure(0);
+}
+
+class RemoveBookmarkRequest extends $pb.GeneratedMessage {
+  factory RemoveBookmarkRequest({
+    $core.String? idempotencyKey,
+    $core.String? postId,
+  }) {
+    final result = RemoveBookmarkRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (postId != null) result.postId = postId;
+    return result;
+  }
+
+  RemoveBookmarkRequest._();
+
+  factory RemoveBookmarkRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RemoveBookmarkRequest()..mergeFromBuffer(data, registry);
+  factory RemoveBookmarkRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RemoveBookmarkRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RemoveBookmarkRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: RemoveBookmarkRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'postId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RemoveBookmarkRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RemoveBookmarkRequest copyWith(
+          void Function(RemoveBookmarkRequest) updates) =>
+      super.copyWith((message) => updates(message as RemoveBookmarkRequest))
+          as RemoveBookmarkRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RemoveBookmarkRequest() / RemoveBookmarkRequest.new instead')
+  static RemoveBookmarkRequest create() => RemoveBookmarkRequest._();
+  static $pb.GeneratedMessage $_createMessage() => RemoveBookmarkRequest._();
+  @$core.override
+  RemoveBookmarkRequest createEmptyInstance() => RemoveBookmarkRequest._();
+  @$core.pragma('dart2js:noInline')
+  static RemoveBookmarkRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RemoveBookmarkRequest>(
+          RemoveBookmarkRequest.$_createMessage);
+  static RemoveBookmarkRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  /// The original post id (BookmarkState.post_id), never a REPOST id.
+  @$pb.TagNumber(2)
+  $core.String get postId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set postId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPostId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPostId() => $_clearField(2);
+}
+
+class RemoveBookmarkResponse extends $pb.GeneratedMessage {
+  factory RemoveBookmarkResponse({
+    BookmarkState? state,
+  }) {
+    final result = RemoveBookmarkResponse._();
+    if (state != null) result.state = state;
+    return result;
+  }
+
+  RemoveBookmarkResponse._();
+
+  factory RemoveBookmarkResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RemoveBookmarkResponse()..mergeFromBuffer(data, registry);
+  factory RemoveBookmarkResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RemoveBookmarkResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RemoveBookmarkResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: RemoveBookmarkResponse.$_createMessage)
+    ..aOM<BookmarkState>(1, _omitFieldNames ? '' : 'state',
+        subBuilder: BookmarkState.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RemoveBookmarkResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RemoveBookmarkResponse copyWith(
+          void Function(RemoveBookmarkResponse) updates) =>
+      super.copyWith((message) => updates(message as RemoveBookmarkResponse))
+          as RemoveBookmarkResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use RemoveBookmarkResponse() / RemoveBookmarkResponse.new instead')
+  static RemoveBookmarkResponse create() => RemoveBookmarkResponse._();
+  static $pb.GeneratedMessage $_createMessage() => RemoveBookmarkResponse._();
+  @$core.override
+  RemoveBookmarkResponse createEmptyInstance() => RemoveBookmarkResponse._();
+  @$core.pragma('dart2js:noInline')
+  static RemoveBookmarkResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RemoveBookmarkResponse>(
+          RemoveBookmarkResponse.$_createMessage);
+  static RemoveBookmarkResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  BookmarkState get state => $_getN(0);
+  @$pb.TagNumber(1)
+  set state(BookmarkState value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasState() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearState() => $_clearField(1);
+  @$pb.TagNumber(1)
+  BookmarkState ensureState() => $_ensure(0);
+}
+
+class ListBookmarksRequest extends $pb.GeneratedMessage {
+  factory ListBookmarksRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ListBookmarksRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListBookmarksRequest._();
+
+  factory ListBookmarksRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListBookmarksRequest()..mergeFromBuffer(data, registry);
+  factory ListBookmarksRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListBookmarksRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListBookmarksRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: ListBookmarksRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListBookmarksRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListBookmarksRequest copyWith(void Function(ListBookmarksRequest) updates) =>
+      super.copyWith((message) => updates(message as ListBookmarksRequest))
+          as ListBookmarksRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListBookmarksRequest() / ListBookmarksRequest.new instead')
+  static ListBookmarksRequest create() => ListBookmarksRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListBookmarksRequest._();
+  @$core.override
+  ListBookmarksRequest createEmptyInstance() => ListBookmarksRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListBookmarksRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListBookmarksRequest>(
+          ListBookmarksRequest.$_createMessage);
+  static ListBookmarksRequest? _defaultInstance;
+
+  /// 0 => 20, max 50 (clamped).
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  /// Opaque, bound to the caller. Empty => the first page (most recently bookmarked).
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+/// One saved post as the caller sees it now.
+class Bookmark extends $pb.GeneratedMessage {
+  factory Bookmark({
+    $0.PostView? post,
+    $1.Timestamp? bookmarkedAt,
+  }) {
+    final result = Bookmark._();
+    if (post != null) result.post = post;
+    if (bookmarkedAt != null) result.bookmarkedAt = bookmarkedAt;
+    return result;
+  }
+
+  Bookmark._();
+
+  factory Bookmark.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Bookmark()..mergeFromBuffer(data, registry);
+  factory Bookmark.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Bookmark()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Bookmark',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: Bookmark.$_createMessage)
+    ..aOM<$0.PostView>(1, _omitFieldNames ? '' : 'post',
+        subBuilder: $0.PostView.$_createMessage)
+    ..aOM<$1.Timestamp>(2, _omitFieldNames ? '' : 'bookmarkedAt',
+        subBuilder: $1.Timestamp.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Bookmark clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Bookmark copyWith(void Function(Bookmark) updates) =>
+      super.copyWith((message) => updates(message as Bookmark)) as Bookmark;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use Bookmark() / Bookmark.new instead')
+  static Bookmark create() => Bookmark._();
+  static $pb.GeneratedMessage $_createMessage() => Bookmark._();
+  @$core.override
+  Bookmark createEmptyInstance() => Bookmark._();
+  @$core.pragma('dart2js:noInline')
+  static Bookmark getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<Bookmark>(Bookmark.$_createMessage);
+  static Bookmark? _defaultInstance;
+
+  /// The live post (never a stored copy), with the caller's viewer flags.
+  @$pb.TagNumber(1)
+  $0.PostView get post => $_getN(0);
+  @$pb.TagNumber(1)
+  set post($0.PostView value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  $0.PostView ensurePost() => $_ensure(0);
+
+  /// When the caller bookmarked it (server time); the list order.
+  @$pb.TagNumber(2)
+  $1.Timestamp get bookmarkedAt => $_getN(1);
+  @$pb.TagNumber(2)
+  set bookmarkedAt($1.Timestamp value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasBookmarkedAt() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearBookmarkedAt() => $_clearField(2);
+  @$pb.TagNumber(2)
+  $1.Timestamp ensureBookmarkedAt() => $_ensure(1);
+}
+
+class ListBookmarksResponse extends $pb.GeneratedMessage {
+  factory ListBookmarksResponse({
+    $core.Iterable<Bookmark>? bookmarks,
+    $core.String? nextPageToken,
+  }) {
+    final result = ListBookmarksResponse._();
+    if (bookmarks != null) result.bookmarks.addAll(bookmarks);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ListBookmarksResponse._();
+
+  factory ListBookmarksResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListBookmarksResponse()..mergeFromBuffer(data, registry);
+  factory ListBookmarksResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListBookmarksResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListBookmarksResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: ListBookmarksResponse.$_createMessage)
+    ..pPM<Bookmark>(1, _omitFieldNames ? '' : 'bookmarks',
+        subBuilder: Bookmark.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListBookmarksResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListBookmarksResponse copyWith(
+          void Function(ListBookmarksResponse) updates) =>
+      super.copyWith((message) => updates(message as ListBookmarksResponse))
+          as ListBookmarksResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListBookmarksResponse() / ListBookmarksResponse.new instead')
+  static ListBookmarksResponse create() => ListBookmarksResponse._();
+  static $pb.GeneratedMessage $_createMessage() => ListBookmarksResponse._();
+  @$core.override
+  ListBookmarksResponse createEmptyInstance() => ListBookmarksResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListBookmarksResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListBookmarksResponse>(
+          ListBookmarksResponse.$_createMessage);
+  static ListBookmarksResponse? _defaultInstance;
+
+  /// Most recently bookmarked first. May be shorter than page_size (rows dropped after the read, see ListBookmarks).
+  @$pb.TagNumber(1)
+  $pb.PbList<Bookmark> get bookmarks => $_getList(0);
+
+  /// "" => no more bookmarks.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
 class EngagementServiceApi {
   final $pb.RpcClient _client;
 
@@ -717,6 +1281,66 @@ class EngagementServiceApi {
           $pb.ClientContext? ctx, UndoRepostRequest request) =>
       _client.invoke<UndoRepostResponse>(ctx, 'EngagementService', 'UndoRepost',
           request, UndoRepostResponse());
+
+  /// Bookmark a post. A REPOST id bookmarks its original (the returned post_id). The post must be visible to the
+  /// caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author, or a QUOTE whose embedded
+  /// author blocks the caller => NOT_FOUND "post not found", 0 writes).
+  /// Idempotency (rule 4): idempotency/{hash(uid, "AddBookmark", key)} is stored in the same transaction (TTL'd); a
+  /// replay returns the stored state with 0 writes even if the bookmark was removed since, and a different post_id
+  /// under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
+  /// fresh key succeeds with 0 writes (the bookmark doc's Create fails AlreadyExists; bookmarked_at is unchanged).
+  /// Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
+  /// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
+  /// adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
+  /// metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
+  /// One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
+  /// the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
+  /// caller's bookmarked post ids, which hydrates viewer state with no extra read; ADR-0023 D3).
+  /// Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
+  /// 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
+  /// writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
+  /// 0. Already bookmarked, at the cap, or at the quota: writes 0.
+  $async.Future<AddBookmarkResponse> addBookmark(
+          $pb.ClientContext? ctx, AddBookmarkRequest request) =>
+      _client.invoke<AddBookmarkResponse>(ctx, 'EngagementService',
+          'AddBookmark', request, AddBookmarkResponse());
+
+  /// Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
+  /// no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
+  /// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 0 writes.
+  /// Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state with 0
+  /// writes, so a late retry never removes a bookmark that was added again after it.
+  /// One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
+  /// idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the 0-write no-op.
+  /// Firestore: reads 2 cold / 1 warm (interceptor, idempotency); writes 2 (idempotency, userLikes) + 1 delete + 1
+  /// TTL delete later; a no-op or replay writes 0.
+  $async.Future<RemoveBookmarkResponse> removeBookmark(
+          $pb.ClientContext? ctx, RemoveBookmarkRequest request) =>
+      _client.invoke<RemoveBookmarkResponse>(ctx, 'EngagementService',
+          'RemoveBookmark', request, RemoveBookmarkResponse());
+
+  /// The caller's bookmarks, most recently bookmarked first, each rendered from the LIVE post (current text, author
+  /// snapshot and counts; viewer flags as in timelines). page_size 0 => 20, clamped to 1..50. Opaque page_token
+  /// bound to the caller (cursor (bookmarkedAt, postId)); expired, foreign or tampered => INVALID_ARGUMENT +
+  /// VALIDATION metadata["field"] = "page_token", 0 reads: drop it and reload the first page.
+  /// Client contract: there is no since_token and no removed_ids. On every open, REPLACE the cached first page with
+  /// the response, then scroll with next_page_token.
+  /// Rows are dropped after the read (ADR-0023 D2): the post is missing (deleted, or its author's account was
+  /// purged), hidden by a moderator (takedown or author suspension), or its author (or a QUOTE's embedded author) is
+  /// blocked by, blocks, or is muted by the caller (the ADR-0010 D6 Home column). A page may therefore be short or
+  /// empty while next_page_token is non-empty: keep following it while it is non-empty. A post whose author is
+  /// DELETING is shown until the purge deletes it, as in Home.
+  /// A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
+  /// userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
+  /// brings them back. No pruning under DEGRADED_MODE=readonly.
+  /// Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
+  /// caller graph, userLikes for viewer flags; graph and userLikes cached 60 s): 43 at page 20, 103 at page 50; an
+  /// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
+  /// (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
+  $async.Future<ListBookmarksResponse> listBookmarks(
+          $pb.ClientContext? ctx, ListBookmarksRequest request) =>
+      _client.invoke<ListBookmarksResponse>(ctx, 'EngagementService',
+          'ListBookmarks', request, ListBookmarksResponse());
 }
 
 const $core.bool _omitFieldNames =

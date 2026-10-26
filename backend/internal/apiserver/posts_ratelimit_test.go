@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
@@ -32,6 +33,8 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 		{"create post 10/min", postsv1connect.PostServiceCreatePostProcedure, 10},
 		{"delete post 20/min", postsv1connect.PostServiceDeletePostProcedure, 20},
 		{"report content 5/min (ADR-0016)", moderationv1connect.ModerationServiceReportContentProcedure, 5},
+		{"add bookmark 30/min (ADR-0023, shared with remove)", engagementv1connect.EngagementServiceAddBookmarkProcedure, 30},
+		{"list bookmarks 10/min (ADR-0023)", engagementv1connect.EngagementServiceListBookmarksProcedure, 10},
 		{"get post 60/min (default bucket)", postsv1connect.PostServiceGetPostProcedure, 60},
 	}
 	cfg := defaultRateLimitCfg()
@@ -164,5 +167,33 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 	}
 	if err := invoke(procs[3]); err != nil {
 		t.Errorf("ListScheduledPosts must not draw on the create bucket: %v", err)
+	}
+}
+
+// TestBookmarkBuckets_AddAndRemoveShareOne (ADR-0023 D4): AddBookmark and RemoveBookmark draw on the SAME per-user
+// bucket (RATE_LIMIT_BOOKMARKS_PER_MIN), ListBookmarks has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN), and none of
+// them is on the read-budget exemption or charge-only lists.
+func TestBookmarkBuckets_AddAndRemoveShareOne(t *testing.T) {
+	rl := RateLimitConfig(defaultRateLimitCfg())
+	add := rl.PerProcedure[engagementv1connect.EngagementServiceAddBookmarkProcedure]
+	rem := rl.PerProcedure[engagementv1connect.EngagementServiceRemoveBookmarkProcedure]
+	list := rl.PerProcedure[engagementv1connect.EngagementServiceListBookmarksProcedure]
+	if add == nil || add != rem {
+		t.Error("AddBookmark and RemoveBookmark must share one limiter instance")
+	}
+	if list == nil || list == add {
+		t.Error("ListBookmarks must have its own limiter")
+	}
+	for _, p := range []string{
+		engagementv1connect.EngagementServiceAddBookmarkProcedure,
+		engagementv1connect.EngagementServiceRemoveBookmarkProcedure,
+		engagementv1connect.EngagementServiceListBookmarksProcedure,
+	} {
+		if _, exempt := rl.ReadBudgetExempt[p]; exempt {
+			t.Errorf("%s is on the read-budget exemption list; the list must stay empty", p)
+		}
+		if _, charge := rl.ReadBudgetChargeOnly[p]; charge {
+			t.Errorf("%s is charge-only; only the account operations may be", p)
+		}
 	}
 }

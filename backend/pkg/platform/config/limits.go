@@ -19,6 +19,12 @@ type RateLimitConfig struct {
 	// ReportPerMinute is the ReportContent bucket (ADR-0016), env RATE_LIMIT_REPORT_PER_MIN, default 5.
 	ReportPerMinute int
 
+	// BookmarksPerUserPerMinute is the AddBookmark + RemoveBookmark bucket (ADR-0023 D4), env RATE_LIMIT_BOOKMARKS_PER_MIN,
+	// default 30; BookmarksListPerUserPerMinute is ListBookmarks, env RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, default 10. Both
+	// are per instance (effective ceiling x max-instances).
+	BookmarksPerUserPerMinute     int
+	BookmarksListPerUserPerMinute int
+
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
 	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is
@@ -125,4 +131,10 @@ type QuotaConfig struct {
 	// accounts younger than NewAccountWindow.
 	SchedulesPerDay           int
 	NewAccountSchedulesPerDay int
+
+	// BookmarksPerDay/NewAccountBookmarksPerDay cap AddBookmark writes per IST day (ADR-0023 D4, quota.Bookmarks); Remove
+	// and List are never quota-gated. BookmarksMaxPerUser is the hard cap of bookmarks a user can hold (LIMIT_REACHED).
+	BookmarksPerDay           int
+	NewAccountBookmarksPerDay int
+	BookmarksMaxPerUser       int
 }
