@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../domain/media_feature_flag.dart';
 import '../bloc/attachments_cubit.dart';
+import 'alt_text_editor.dart';
 
 /// The composer's picked images: a single row of removable preview tiles
 /// (at most [kMaxPostImages]) with per-image state (processing, upload
@@ -52,7 +52,7 @@ class AttachmentGrid extends StatelessWidget {
 }
 
 /// One preview tile; see [AttachmentGrid].
-class AttachmentTile extends StatelessWidget {
+class AttachmentTile extends StatefulWidget {
   const AttachmentTile({
     super.key,
     required this.attachment,
@@ -65,6 +65,27 @@ class AttachmentTile extends StatelessWidget {
   final int position;
   final int total;
   final bool enabled;
+
+  @override
+  State<AttachmentTile> createState() => _AttachmentTileState();
+}
+
+class _AttachmentTileState extends State<AttachmentTile> {
+  /// On the "+ ALT" / "ALT" button, so focus returns to it when the editor
+  /// closes (a touch tap does not focus a button, and the route would
+  /// otherwise restore nothing).
+  final FocusNode _altFocus = FocusNode(debugLabel: 'attachment alt text');
+
+  Attachment get attachment => widget.attachment;
+  int get position => widget.position;
+  int get total => widget.total;
+  bool get enabled => widget.enabled;
+
+  @override
+  void dispose() {
+    _altFocus.dispose();
+    super.dispose();
+  }
 
   String get _label {
     final base = 'Photo $position of $total';
@@ -83,11 +104,14 @@ class AttachmentTile extends StatelessWidget {
 
   Future<void> _describe(BuildContext context) async {
     final cubit = context.read<AttachmentsCubit>();
-    final text = await showDialog<String>(
-      context: context,
-      builder: (_) => _AltTextDialog(initial: attachment.altText),
+    final id = attachment.id;
+    final text = await showAltTextEditor(
+      context,
+      initial: attachment.altText,
+      preview: attachment.previewBytes,
     );
-    if (text != null) cubit.setAltText(attachment.id, text);
+    if (text != null && !cubit.isClosed) cubit.setAltText(id, text);
+    if (mounted) _altFocus.requestFocus();
   }
 
   @override
@@ -169,6 +193,7 @@ class AttachmentTile extends StatelessWidget {
                     bottom: 0,
                     start: 0,
                     child: TextButton(
+                      focusNode: _altFocus,
                       onPressed: enabled && !_uploading
                           ? () => _describe(context)
                           : null,
@@ -244,55 +269,6 @@ class _Status extends StatelessWidget {
           text,
           style: Theme.of(context).textTheme.labelSmall,
           textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-}
-
-class _AltTextDialog extends StatefulWidget {
-  const _AltTextDialog({required this.initial});
-
-  final String initial;
-
-  @override
-  State<_AltTextDialog> createState() => _AltTextDialogState();
-}
-
-class _AltTextDialogState extends State<_AltTextDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initial,
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Describe this photo'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        minLines: 2,
-        maxLines: 5,
-        maxLength: kMaxAltTextLength,
-        textCapitalization: TextCapitalization.sentences,
-        decoration: const InputDecoration(
-          hintText: 'For people who cannot see the photo',
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Save'),
         ),
       ],
     );

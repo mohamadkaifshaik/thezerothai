@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'alt_text_chip.dart';
 
 /// A post's attached images (0-4), rounded and bordered. One image keeps its
 /// own aspect ratio (clamped to 4:5 .. 16:9 so a tall image cannot take over
@@ -124,7 +125,7 @@ class _MediaTile extends StatelessWidget {
         ? (media.url.isNotEmpty ? media.url : media.thumbUrl)
         : media.thumbUrl;
     final placeholder = ColoredBox(color: colors.surfaceContainerHigh);
-    return Semantics(
+    final image = Semantics(
       image: true,
       label: media.altText.isEmpty ? 'Image' : media.altText,
       excludeSemantics: true,
@@ -153,6 +154,21 @@ class _MediaTile extends StatelessWidget {
                 );
               },
             ),
+    );
+    final alt = media.altText;
+    if (alt.isEmpty) return image;
+    // The ALT chip is a sibling of the image's semantics node (which excludes
+    // its subtree), so a screen reader reaches both.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        image,
+        PositionedDirectional(
+          bottom: 0,
+          start: 0,
+          child: AltTextChip(text: alt),
+        ),
+      ],
     );
   }
 }
