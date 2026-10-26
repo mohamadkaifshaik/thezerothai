@@ -1,6 +1,6 @@
 // server_bookmarks.go holds the Connect handlers of bookmarks (ADR-0023): AddBookmark, RemoveBookmark and
 // ListBookmarks. The flag gate (W2-2) runs first on every RPC; Add and Remove then call the Bookmarks service (W2-3).
-// ListBookmarks answers Unimplemented naming its ticket (W2-4) until it lands, so that path reads and writes nothing.
+// ListBookmarks (W2-4) then calls Bookmarks.ListBookmarks and renders each row with posts.ToView.
 package engagement
 
 import (
@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -49,25 +50,25 @@ func (s *Server) guardBookmarks(ctx context.Context, who bookmarkCaller) (string
 	return uid, nil
 }
 
-// bookmarkStub runs the flag gate and then answers Unimplemented. The handlers share the gate so it cannot drift
-// between them; W2-4 replaces the last Unimplemented answer (ListBookmarks) with the Service call.
-func (s *Server) bookmarkStub(ctx context.Context, rpc, ticket string, who bookmarkCaller) error {
-	if _, err := s.guardBookmarks(ctx, who); err != nil {
-		return err
+// bookmarkEntry is the shared front of the three handlers: the flag gate, then the wiring check and the RPC deadline.
+func (s *Server) bookmarkEntry(ctx context.Context, rpc string, who bookmarkCaller) (context.Context, context.CancelFunc, string, error) {
+	uid, err := s.guardBookmarks(ctx, who)
+	if err != nil {
+		return nil, nil, "", err
 	}
-	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not implemented yet (ticket %s)", rpc, ticket))
+	if s.bookmarks == nil {
+		return nil, nil, "", connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	return ctx, cancel, uid, nil
 }
 
 // bookmarkCall is the shared shell of Add and Remove: the flag gate, the RPC deadline, the service call.
 func (s *Server) bookmarkCall(ctx context.Context, rpc string, who bookmarkCaller, fn func(context.Context, Bookmarks, string) (BookmarkState, error)) (*engagementv1.BookmarkState, error) {
-	uid, err := s.guardBookmarks(ctx, who)
+	ctx, cancel, uid, err := s.bookmarkEntry(ctx, rpc, who)
 	if err != nil {
 		return nil, err
 	}
-	if s.bookmarks == nil {
-		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
-	}
-	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
 	defer cancel()
 	st, err := fn(ctx, s.bookmarks, uid)
 	if err != nil {
@@ -108,8 +109,28 @@ func (s *Server) RemoveBookmark(ctx context.Context, req *connect.Request[engage
 	return connect.NewResponse(&engagementv1.RemoveBookmarkResponse{State: st}), nil
 }
 
-// ListBookmarks is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off. Worst case (when W2-4 lands)
-// 43 reads cold at page 20 and 103 at page 50; today 0 reads and 0 writes (Unimplemented after the flag gate).
-func (s *Server) ListBookmarks(ctx context.Context, _ *connect.Request[engagementv1.ListBookmarksRequest]) (*connect.Response[engagementv1.ListBookmarksResponse], error) {
-	return nil, s.bookmarkStub(ctx, "ListBookmarks", "W2-4", notGloballyOff)
+// ListBookmarks is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off; the rules are
+// Bookmarks.ListBookmarks. The caller can only read their own subcollection (the path comes from the token uid, the
+// page token is bound to bookmarks|<uid>). Worst case reads cold: 43 at page 20 and 103 at page 50 (interceptor 1,
+// bookmark query 1 + page, GetMany <= page, graph snapshot 1, userLikes 1), 2 for an empty list, 1 + page when the
+// posts are cached (warm); a foreign, expired or tampered token is VALIDATION page_token with 0 reads. Writes 0; a
+// page that finds bookmarks of deleted posts prunes them: 1 write (userLikes) and 1 delete per row, 0 extra reads,
+// once per row.
+func (s *Server) ListBookmarks(ctx context.Context, req *connect.Request[engagementv1.ListBookmarksRequest]) (*connect.Response[engagementv1.ListBookmarksResponse], error) {
+	ctx, cancel, uid, err := s.bookmarkEntry(ctx, "ListBookmarks", notGloballyOff)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	page, err := s.bookmarks.ListBookmarks(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	out := &engagementv1.ListBookmarksResponse{NextPageToken: page.NextPageToken, Bookmarks: make([]*engagementv1.Bookmark, 0, len(page.Rows))}
+	for _, r := range page.Rows {
+		out.Bookmarks = append(out.Bookmarks, &engagementv1.Bookmark{
+			Post: posts.ToView(r.Post, page.Viewer, uid), BookmarkedAt: timestamppb.New(r.BookmarkedAt),
+		})
+	}
+	return connect.NewResponse(out), nil
 }

@@ -292,6 +292,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// Bookmarks (ADR-0023 D4): the repo is the engagement repo, the quota and the cap are config, not literals.
 		BookmarkRepo: engagementRepo, BookmarksPerDay: int64(cfg.Quota.BookmarksPerDay),
 		NewAccountBookmarksPerDay: int64(cfg.Quota.NewAccountBookmarksPerDay), BookmarksMaxPerUser: cfg.Quota.BookmarksMaxPerUser,
+		// ListBookmarks (ADR-0023 D2, D6): the graph snapshot filters blocked and muted authors, the flags decide viewer-state
+		// hydration, the cursor key seals the page tokens, and readonly mode skips the lazy prune.
+		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)

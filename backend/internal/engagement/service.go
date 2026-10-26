@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -66,6 +67,14 @@ type Deps struct {
 	BookmarksPerDay           int64
 	NewAccountBookmarksPerDay int64
 	BookmarksMaxPerUser       int
+	// ListBookmarks (ADR-0023 D2, D6): Graph filters blocked and muted authors (one cached snapshot per page), Flags
+	// decides viewer-state hydration (posts.HydrateViewer), CursorKey seals the page tokens (config.CursorHMACKey) and
+	// ReadOnly (DEGRADED_MODE=readonly) skips the lazy prune. Without Graph or CursorKey the list answers an internal
+	// error; Flags nil hydrates nothing.
+	Graph     graph.Reader
+	Flags     posts.FlagChecker
+	CursorKey []byte
+	ReadOnly  bool
 
 	// CacheTTL and CacheEntries size the userLikes cache (config.CacheTTL; 0 entries = default).
 	CacheTTL     time.Duration
