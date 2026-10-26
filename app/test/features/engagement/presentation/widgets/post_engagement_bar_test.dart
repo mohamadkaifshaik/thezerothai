@@ -113,6 +113,7 @@ void main() {
     double textScale = 1,
     bool showReply = true,
     Set<String> features = const {'engagement', 'replies', 'quotes'},
+    ThemeData? theme,
   }) async {
     whenListen(
       onboarding,
@@ -162,7 +163,7 @@ void main() {
           ],
           child: MaterialApp.router(
             routerConfig: router,
-            theme: appDarkTheme,
+            theme: theme ?? appDarkTheme,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context)
                   .copyWith(textScaler: TextScaler.linear(textScale)),
@@ -520,5 +521,66 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
+  });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): the repost / quote sheet (W2-11) across the responsive
+  // matrix.
+  // ---------------------------------------------------------------------
+
+  group('W2-13 responsive matrix: repost sheet with Quote', () {
+    for (final dark in [false, true]) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${dark ? 'dark' : 'light'} ${width.toInt()}dp x$scale: both rows '
+            'visible, 48dp, inside the screen',
+            (tester) async {
+              tester.view.physicalSize = Size(width, 900);
+              tester.view.devicePixelRatio = 1;
+              addTearDown(tester.view.reset);
+              final handle = tester.ensureSemantics();
+              await pump(
+                tester,
+                _view(),
+                width: width,
+                textScale: scale,
+                theme: dark ? appDarkTheme : appLightTheme,
+              );
+
+              await tester.tap(find.byIcon(Icons.repeat));
+              await tester.pumpAndSettle();
+
+              expect(tester.takeException(), isNull);
+              for (final label in ['Repost', 'Quote']) {
+                expect(find.text(label), findsOneWidget);
+                final row = tester.getSemantics(find.bySemanticsLabel(label));
+                expect(row.rect.height, greaterThanOrEqualTo(48));
+                final box = tester.getRect(find.text(label));
+                expect(box.left, greaterThanOrEqualTo(0));
+                expect(box.right, lessThanOrEqualTo(width));
+                expect(box.bottom, lessThanOrEqualTo(900));
+              }
+              handle.dispose();
+            },
+          );
+        }
+      }
+    }
+  });
+
+  testWidgets('W2-13: Quote from a REPOST row quotes the original, with the '
+      'original as the preview', (tester) async {
+    await pump(tester, _repostView());
+
+    await tester.tap(find.byIcon(Icons.repeat));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Quote'));
+    await tester.pumpAndSettle();
+
+    expect(pushedLocation, '/compose?quote=${postId(1)}');
+    expect(pushedExtra, isA<pb.EmbeddedPost>());
+    expect((pushedExtra as pb.EmbeddedPost).postId, postId(1));
+    expect((pushedExtra as pb.EmbeddedPost).text, 'original');
   });
 }
