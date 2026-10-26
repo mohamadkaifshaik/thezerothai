@@ -1,5 +1,5 @@
 # 0024. Profile and graph completion (W3 Part A)
-Status: Proposed
+Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default)
 Date: 2026-10-27
 Deciders: architect (proposal); the founder accepts by merging. The first W3 implementation PR flips the status, as
 #306 did for ADR-0023. Nine founder questions are listed below, each with a recommended default.

@@ -1,5 +1,5 @@
 # 0025. Private accounts and follow requests (W3 Part B; amends ADR-0008 D1)
-Status: Proposed
+Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default)
 Date: 2026-10-27
 Deciders: architect (proposal); founder. Merging this ADR is the founder's acceptance **and** the founder's explicit
 reversal of ADR-0008 D1, the deferral the founder accepted on 2026-09-28. The first Part B implementation PR flips
