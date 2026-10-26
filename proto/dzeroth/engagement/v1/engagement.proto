@@ -1,21 +1,27 @@
 syntax = "proto3";
 
 // Engagement: likes and reposts (Phase 1 slice P5, ADR-0018). Owner module: backend/internal/engagement.
-// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}. The counters (likeCount,
+// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
+// users/{uid}/bookmarks/{postId}. The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query (ADR-0003); a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
 //
-// Behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every RPC is
-// FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on.
+// Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
+// like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
+// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT.
 //
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
-// [A-Za-z0-9_-]. The operations are state-setting and keyed by (post_id, caller) so a replay or ten concurrent
-// calls converge on one effect; the key is validated but needs no stored record. Acting on a REPOST post id acts
+// [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
+// concurrent calls converge on one effect; for them the key is validated but needs no stored record (ADR-0018). The
+// bookmark mutations store it (CLAUDE.md rule 4, ADR-0023 D4). Acting on a REPOST post id acts
 // on the post it reposts (the original), never on the repost document. Like and Repost need the target to be
 // visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author => NOT_FOUND
 // "post not found").
 package dzeroth.engagement.v1;
+
+import "dzeroth/posts/v1/posts.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1";
 
@@ -55,6 +61,72 @@ service EngagementService {
   // users.postsCount, ArrayRemove on userLikes.recentReposts. Firestore: reads 1 (+ the original for the returned
   // counts, cache first), writes 3 + 2 deletes.
   rpc UndoRepost(UndoRepostRequest) returns (UndoRepostResponse);
+
+  // Bookmarks (ADR-0023). Private to the caller: the three RPCs only ever touch users/{caller}/bookmarks and never
+  // take a user id; nobody else can list, count or learn of a bookmark, and no event or notification is emitted.
+  // There is no bookmark count on posts. FEATURE_POSTS must be on. AddBookmark needs FEATURE_BOOKMARKS (wire name
+  // "bookmarks") on for the caller; ListBookmarks and RemoveBookmark only need it not globally off, so a caller
+  // outside the allowlist or percent bucket can still see and remove what they saved. Otherwise
+  // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "bookmarks", 0 reads.
+  // The bookmark doc holds only the post id (the doc id) and the time it was bookmarked: never a copy of the
+  // post's text, media or author (ADR-0023 D2), so the list renders the live post.
+  // AddBookmark and RemoveBookmark share the per-user bucket RATE_LIMIT_BOOKMARKS_PER_MIN (30/min per instance,
+  // so at most 90/min with 3 instances); ListBookmarks has RATE_LIMIT_BOOKMARKS_LIST_PER_MIN (10/min per instance).
+  // Every call is charged to the per-uid daily read budget (ADR-0010 D5). DEGRADED_MODE=readonly rejects Add and
+  // Remove; ListBookmarks still answers.
+
+  // Bookmark a post. A REPOST id bookmarks its original (the returned post_id). The post must be visible to the
+  // caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author, or a QUOTE whose embedded
+  // author blocks the caller => NOT_FOUND "post not found", 0 writes).
+  // Idempotency (rule 4): idempotency/{hash(uid, "AddBookmark", key)} is stored in the same transaction (TTL'd); a
+  // replay returns the stored state with 0 writes even if the bookmark was removed since, and a different post_id
+  // under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
+  // fresh key succeeds with 0 writes (the bookmark doc's Create fails AlreadyExists; bookmarked_at is unchanged).
+  // Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
+  // the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
+  // adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
+  // metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
+  // One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
+  // the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
+  // caller's bookmarked post ids, which hydrates viewer state with no extra read; ADR-0023 D3).
+  // Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
+  // 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
+  // writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
+  // 0. Already bookmarked, at the cap, or at the quota: writes 0.
+  rpc AddBookmark(AddBookmarkRequest) returns (AddBookmarkResponse);
+
+  // Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
+  // no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
+  // invisible. Not charged to a daily quota. Idempotent: not bookmarked => success with 0 writes.
+  // Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state with 0
+  // writes, so a late retry never removes a bookmark that was added again after it.
+  // One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
+  // idempotency doc and ArrayRemove userLikes/{uid}.bookmarks; a failed Exists is the 0-write no-op.
+  // Firestore: reads 2 cold / 1 warm (interceptor, idempotency); writes 2 (idempotency, userLikes) + 1 delete + 1
+  // TTL delete later; a no-op or replay writes 0.
+  rpc RemoveBookmark(RemoveBookmarkRequest) returns (RemoveBookmarkResponse);
+
+  // The caller's bookmarks, most recently bookmarked first, each rendered from the LIVE post (current text, author
+  // snapshot and counts; viewer flags as in timelines). page_size 0 => 20, clamped to 1..50. Opaque page_token
+  // bound to the caller (cursor (bookmarkedAt, postId)); expired, foreign or tampered => INVALID_ARGUMENT +
+  // VALIDATION metadata["field"] = "page_token", 0 reads: drop it and reload the first page.
+  // Client contract: there is no since_token and no removed_ids. On every open, REPLACE the cached first page with
+  // the response, then scroll with next_page_token.
+  // Rows are dropped after the read (ADR-0023 D2): the post is missing (deleted, or its author's account was
+  // purged), hidden by a moderator (takedown or author suspension), or its author (or a QUOTE's embedded author) is
+  // blocked by, blocks, or is muted by the caller (the ADR-0010 D6 Home column). A page may therefore be short or
+  // empty while next_page_token is non-empty: keep following it while it is non-empty. A post whose author is
+  // DELETING is shown until the purge deletes it, as in Home.
+  // A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
+  // userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
+  // brings them back. No pruning under DEGRADED_MODE=readonly.
+  // Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
+  // caller graph, userLikes for viewer flags; graph and userLikes cached 60 s): 43 at page 20, 103 at page 50; an
+  // empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
+  // (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
+  rpc ListBookmarks(ListBookmarksRequest) returns (ListBookmarksResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 // The post's engagement as the caller now sees it. Counts are the instance's best knowledge (the post doc read
@@ -105,4 +177,53 @@ message UndoRepostRequest {
 
 message UndoRepostResponse {
   PostEngagement engagement = 1;
+}
+
+// The caller's bookmark state of one post after AddBookmark or RemoveBookmark (ADR-0023).
+message BookmarkState {
+  // The post the action applied to: the original when AddBookmark named a REPOST. Pass this id to RemoveBookmark.
+  string post_id = 1;
+  // True after AddBookmark (including a post that was already bookmarked), false after RemoveBookmark.
+  bool bookmarked = 2;
+}
+
+message AddBookmarkRequest {
+  string idempotency_key = 1;
+  string post_id = 2;
+}
+
+message AddBookmarkResponse {
+  BookmarkState state = 1;
+}
+
+message RemoveBookmarkRequest {
+  string idempotency_key = 1;
+  // The original post id (BookmarkState.post_id), never a REPOST id.
+  string post_id = 2;
+}
+
+message RemoveBookmarkResponse {
+  BookmarkState state = 1;
+}
+
+message ListBookmarksRequest {
+  // 0 => 20, max 50 (clamped).
+  int32 page_size = 1;
+  // Opaque, bound to the caller. Empty => the first page (most recently bookmarked).
+  string page_token = 2;
+}
+
+// One saved post as the caller sees it now.
+message Bookmark {
+  // The live post (never a stored copy), with the caller's viewer flags.
+  dzeroth.posts.v1.PostView post = 1;
+  // When the caller bookmarked it (server time); the list order.
+  google.protobuf.Timestamp bookmarked_at = 2;
+}
+
+message ListBookmarksResponse {
+  // Most recently bookmarked first. May be shorter than page_size (rows dropped after the read, see ListBookmarks).
+  repeated Bookmark bookmarks = 1;
+  // "" => no more bookmarks.
+  string next_page_token = 2;
 }

@@ -83,7 +83,7 @@ These come from the memory notes of earlier sessions. Claude should confirm each
 |---|---|---|---|
 | 3.1 | Both | TODO | ADR-0020 accent-colour amendment (agenda of 2026-10-24). |
 | 3.2 | Both | TODO | UI wave W1.5 capture session (post detail, composer modal states, another user's profile, light-theme gaps), then the W1.5 client plan. |
-| 3.3 | Claude | TODO | W2 plan (bookmarks, share, alt text, quote UI, hashtag tap-through, push opt-in), with the bookmarks ADR from the architect. |
+| 3.3 | Claude | DONE | W2 plan written 2026-10-26 (`docs/plans/ui-w2-engagement-composer-basics.md`) with ADR-0023 (Proposed) on the same branch; tracking moved to 3.11. |
 | 3.4 | Claude | TODO | UI W0 leftovers: the W0-10 flag and pixel goldens (deferred). |
 | 3.5 | Both | TODO | Authenticated smoke path for prod releases (work packages WP1 to WP3; prod credentials were lost and need a reset). |
 | 3.6 | Both | WAIT | v0.4.1 prod hotfix watch window to 2026-10-28. |
@@ -91,6 +91,7 @@ These come from the memory notes of earlier sessions. Claude should confirm each
 | 3.8 | Claude | TODO | Plan items per `docs/plans/roadmap.md`: W3 (profiles), W4 (search and Explore), W5 (Lists and Communities), W6 remainder (polls, drafts, GIF), W7 (DMs), W8 (UI shells). Spaces are dropped. |
 | 3.9 | Founder | TODO | Terms of Service: a DRAFT exists on branch `docs/terms-of-service-draft` (216 lines, `docs/legal/terms-of-service-DRAFT.md`; PR #149 was closed unmerged on 2026-10-21, so it is not on `main` and `docs/plans/phase1.md` points at a file that is not there). Review it with legal advice, then reopen it as a PR or replace it. Needed before real users. |
 | 3.10 | Claude | TODO | Dev Terraform drift: a FULL `terraform apply` in `envs/dev` is not safe. The plan (a) strips the dev Android API key's package and SHA-1 restriction (`android_allowed_applications` is empty in `main.tf`; the live key was restricted in the console), and (b) holds the unapplied #244 Firestore TTL field `scheduled.expireAt`. A targeted apply must also name `-target=module.budget.google_pubsub_topic.billing_alerts` (a pending state move), or Terraform refuses with "Moved resource instances excluded by targeting". Fix: declare the restriction in the apikeys module (or `ignore_changes` it), apply the TTL field with your OK, then a full dev plan should show only the known noise. The dev changes of 2026-10-26 (grant, flag, cleanup) were all targeted applies. |
+| 3.11 | Both | TODO | **UI wave W2** (bookmarks, share, alt text, quote UI, push opt-in card): plan `docs/plans/ui-w2-engagement-composer-basics.md`, tickets W2-1 to W2-16, all Todo; bookmarks need ADR-0023 (three RPCs in the engagement service; you accept it by merging and answer its four questions: doc shape, viewer-state array vs client-only, cap 1,000, keep the rule-4 idempotency doc; about INR 6 a month at 300 daily users) and a new `FEATURE_BOOKMARKS` whose dev ceiling goes into `scripts/promotion/flag-ceiling.json` (your review). Your decisions in the plan, each with a default: hashtag tap-through moves to W4 with search (default yes), the share link host (`https://dzeroth.com` in prod, `https://dzeroth-dev.web.app` in dev), the screen name "Bookmarks". Optional: capture X's share menu, bookmark toast and alt-text dialog (roadmap section 5); the tickets use X-like defaults until then. |
 
 ---
 
