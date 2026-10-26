@@ -73,5 +73,5 @@ Expand → deploy code that handles both → backfill with a throttled job (resp
 - Web: `flutter build web --release` (built inside `promote-prod.yml` at `stage=100`, from the release tag, before
   traffic shifts) → `firebase deploy --only hosting` (Firebase Hosting keeps previous releases; rollback in one click
   / `firebase hosting:clone`).
-- Minimum-supported-version check at app start (Firebase Remote Config, free) for forced upgrades.
+- Minimum-supported-version check at app start for forced upgrades: the API serves the minimum build number as plain server config (an env var like the `FEATURE_*` flags; no Firebase Remote Config, no new client dependency) and the app compares it on launch. Not built yet; it is a store-launch item on the `production-readiness` checklist.
 - CI builds: GitHub Actions (free minutes for public repos; private repos have a monthly allowance — macOS minutes count 10×, so build iOS only on release tags).

@@ -96,7 +96,7 @@ prints the expected hashes). To debug without breaking users, temporarily rename
 - **Android**: Play Console staged rollout (10% → 50% → 100%) can be **halted** from the Play Console at any stage
   without a new build; halting stops the percentage from increasing further. A full rollback to the previous version
   requires a new release (Play does not support "undo" past what users have already installed) — use a forced-upgrade
-  check (Firebase Remote Config, per `release-rollout` skill) to push affected users back down if the new version is
+  check (a minimum-supported-version served by the API as server config, per the `release-rollout` skill) to push affected users back down if the new version is
   broken in a way that can't be server-side-flagged off.
 - **iOS**: TestFlight phased release can similarly be paused from App Store Connect. A shipped App Store release
   cannot be pulled back from users' devices; use server-side feature flags / a minimum-supported-version bump to
