@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +13,7 @@ import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../auth/presentation/bloc/auth_state.dart';
+import '../../notifications/data/push_opt_in_store.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
@@ -71,9 +74,18 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   late final AccountCubit _cubit;
   final _handleController = TextEditingController();
 
+  // The account being deleted, read before anything signs it out (the auth
+  // listener below can fire after the user is already gone).
+  late final String? _uid;
+  late final PushOptInStore _optInStore;
+  late final UnexpectedErrorReporter _reportUnexpected;
+
   @override
   void initState() {
     super.initState();
+    _uid = context.read<AuthBloc>().state.user?.uid;
+    _optInStore = context.read<PushOptInStore>();
+    _reportUnexpected = context.read<UnexpectedErrorReporter>();
     _cubit = AccountCubit(
       accountRepository: context.read<AccountRepository>(),
       authRepository: context.read<AuthRepository>(),
@@ -96,8 +108,27 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     if (state.status != AccountStatus.deleted) return;
     // Show the final page first (it is reachable signed out), then sign out;
     // the session-wiring listener wipes the drift caches.
-    context.go(AppRouter.accountDeletedPath);
-    context.read<AuthBloc>().add(const AuthSignOutRequested());
+    final router = GoRouter.of(context);
+    final auth = context.read<AuthBloc>();
+    unawaited(
+      _forgetAccount().whenComplete(() {
+        router.go(AppRouter.accountDeletedPath);
+        auth.add(const AuthSignOutRequested());
+      }),
+    );
+  }
+
+  /// The deleted account's "Not now" record goes with it (W2-14 L-6): the
+  /// device setting survives a plain sign-out on purpose, but the uid of a
+  /// deleted account must not. A storage failure never blocks the final page.
+  Future<void> _forgetAccount() async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      await _optInStore.forget(uid);
+    } catch (error, stack) {
+      _reportUnexpected.call(error, stack);
+    }
   }
 
   @override
@@ -115,7 +146,14 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       listenWhen: (previous, current) =>
           current.status == AuthStatus.unauthenticated &&
           _cubit.state.status == AccountStatus.working,
-      listener: (context, _) => context.go(AppRouter.accountDeletedPath),
+      listener: (context, _) {
+        final router = GoRouter.of(context);
+        unawaited(
+          _forgetAccount().whenComplete(
+            () => router.go(AppRouter.accountDeletedPath),
+          ),
+        );
+      },
       child: BlocConsumer<AccountCubit, AccountState>(
         bloc: _cubit,
         listener: _onState,
