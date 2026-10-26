@@ -1,5 +1,5 @@
 # Reports, takedown and suspension (P7)
-Plan owner: P7 slice agent · Date: 2026-10-10 · Target release: v0.3.0 (UGC store requirement) · Stage 0 ($0)
+Plan owner: P7 slice agent · Date: 2026-10-10 · Target release: v0.3.0 (UGC store requirement) · Stage 0 (free tier, per use past it)
 Inputs: CLAUDE.md, `docs/plans/phase1.md` P7, ADR-0008 (block), ADR-0010 D10, ADR-0011 Q1/Q10,
 `docs/adr/0016-reports-and-moderation-actions.md` (Accepted by the founder 2026-10-17), `proto/dzeroth/moderation/v1/moderation.proto`.
 

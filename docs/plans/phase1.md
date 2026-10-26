@@ -395,7 +395,7 @@ v0.4.0. v0.3.0 must still have **report + block** (P7), because any public UGC s
 | GCS Class B past 50k/month | ~54 DAU | ≈ $0.09/month | Pay-per-use; keep thumbnails + client disk cache |
 | Cloud Run egress to India | day 1 (the 1 GiB free is North America only) | ≈ $0.24/month | Already in `cost-model.md:109` |
 | **Web App Check enforcement** (M6) | only if enforced | **$8/month flat step** past 10k reCAPTCHA assessments | **Needs an ADR with cost.** Not planned. Founder decision D3 |
-| `min_instance_count = 1` | only if p95 > 800 ms warm | fixed monthly cost | **Needs an ADR.** Not planned |
+| `min_instance_count = 1` | only if p95 > 800 ms warm | fixed monthly cost (about INR 936/month) | **Credit mode only (ADR-0022, `docs/pending.md` 1.4):** prod service-level min instance 1 with `until:2026-12-22`, then back to 0. Outside the credit window it needs its own ADR |
 | New Pub/Sub topics (`post-delete`, `account-delete`, snapshot refresh) | P2/P4/P8 | $0 (≪ 10 GiB) | Architect: prefer **one shared `jobs` topic** + DLQ to keep Terraform small |
 | Cloud Scheduler | any new cron | 3 jobs/billing account; 1 used | New periodic work must reuse `daily-maintenance` |
 

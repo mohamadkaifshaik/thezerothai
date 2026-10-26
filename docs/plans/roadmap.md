@@ -1,12 +1,12 @@
 # Product roadmap: X-parity UI programme and everything-in-MVP waves
-Plan owner: planner · Date: 2026-10-23 · Stage 0 ($0) · **Planning document only: no code, proto, Firebase or infra change.**
+Plan owner: planner · Date: 2026-10-23 (wording 2026-10-26) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU) · **Planning document only: no code, proto, Firebase or infra change.**
 This is the canonical, tracked roadmap. It supersedes the phase list in `.claude/skills/mvp-roadmap/SKILL.md` where they differ, and decisions (1)-(3) of `docs/plans/phase1.md`.
 
 The underlying research lives in `docs/x_research/` (REA captures of x.com, 2026-10-22). That folder is **git-ignored** (`.gitignore:34`) because it holds screenshots with private messages and third-party posts, so it stays on the founder's machine only. Everything this roadmap needs from it is restated below; nothing here links into it as a requirement.
 
 ## 1. Inputs and rules
 - Founder decisions 2026-10-22: match **only X's colours** (dark `#000/#e7e9ea/#71767b/#2f3336`, light `#fff/#0f1419/#536471/#eff3f4`, accent `#1d9bf0`; no indigo, no gradient; own icons, copy and logo); Home = **Following only**; **everything in the feature inventory enters the MVP**, delivered through flagged waves; DMs v1 = server-mediated pull + push, **no E2E**; W8 = **UI shells only**, payments / ads / video each need a future approved ADR; GIF = device upload now, Klipy picker only after terms are verified; trends from **our own** hashtag counters; the 2026-10-18 deferrals of search, quote UI and hashtag UI are **reversed**.
-- `CLAUDE.md` still rules: $0 at Stage 0, scale to zero, per-RPC read/write budgets, a server flag per user-facing feature, ADR before any fixed-cost item, founder approval for any prod apply or traffic shift.
+- `CLAUDE.md` still rules: free tier first and per use past it (no fixed fee; Stage 0 is about INR 434/month at 300 DAU), scale to zero, per-RPC read/write budgets, a server flag per user-facing feature, ADR before any fixed-cost item, founder approval for any prod apply or traffic shift. Every wave builds on the Stage 0 rung of the `stage-ladder` skill and protects its seams; a rung moves only on a measured trigger, by ADR.
 - Evidence labels: the research docs use MEASURED / A11Y / ESTIMATED / NOT VERIFIED. Mapping to the request vocabulary: MEASURED = MEASURED, A11Y = OBSERVED, ESTIMATED = ESTIMATED, NOT VERIFIED = UNKNOWN; INFERRED is used where a conclusion was drawn from several observations. Dimensions are screenshot px / 1.25 = dp (Windows 125 %). No private X API, algorithm or source was inspected or copied.
 
 ## 2. Where we are (checked against `main` b6b0ce9 and merged PRs)

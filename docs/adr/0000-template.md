@@ -5,6 +5,7 @@ Deciders:
 ## Context
 ## Options
 ## Cost impact
+## Stage ladder
 ## Decision
 ## Consequences
 ## Handoff

@@ -8,7 +8,11 @@ description: Security review checklist for features, APIs, infra and releases us
 - [ ] Authz: ownership and visibility checks (private accounts, blocked/muted) on every read and write path.
 - [ ] Input validated in the Connect interceptor and again in the module (length, charset, NFC normalization, max 280 chars).
 - [ ] Rate limits: per-user daily quotas (Firestore counters on docs already written) + per-instance token buckets per uid and per IP.
-      Cloud Run `max-instances` caps blast radius and cost. (No Cloud Armor at Stage 0.)
+      Cloud Run `max-instances` caps blast radius and cost; it is a cost circuit breaker, not a defence. (No Cloud Armor at Stage 0.)
+      A per-instance limit is multiplied by the instance count: state the effective limit (per-instance × max-instances) in the review.
+- [ ] Scraping and enumeration: every public read (handle prefix search, hashtag `array-contains`, author `in` queries, profile and
+      thread pages, public-read media objects) has a `Limit`, a per-user quota and a rate limit; private accounts leak nothing through
+      counts, search results or media URLs; time-ordered Snowflake ids are treated as guessable (`stage-ladder` skill).
 - [ ] Firebase App Check enforced on the API (verify App Check token in Go) — blocks most scripted abuse for free.
 - [ ] Signup friction: email verification or Google/Apple sign-in required before posting; new accounts get lower quotas for 24 h.
 - [ ] Idempotency keys scoped per user; no IDOR — IDs never trusted without an ownership check.

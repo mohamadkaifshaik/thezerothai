@@ -232,7 +232,7 @@ otherwise lands in spam). Requests are handled per `docs/runbooks/account-deleti
 curl -fsS "$(terraform -chdir=infra/terraform/envs/dev output -raw cloud_run_url)/health"
 ```
 This needs one image deployed first, via `deploy-dev.yml` on a push to `main`.
-Then check the budget: Console → Billing → Budgets should list a $5 budget with 25/50/90/100% alerts.
+Then check the budget: Console → Billing → Budgets should list the Stage 0 budget for the env (`budget_amount` in its tfvars; the Terraform default is about $5, and Stage 0 as configured runs about INR 434/month at 300 DAU) with 25/50/90/100% alerts. In credit mode prod also carries the ADR-0022 gross budgets (`docs/pending.md` 1.2).
 
 ## 9. API key restrictions (security audit M3)
 

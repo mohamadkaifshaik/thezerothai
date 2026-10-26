@@ -15,12 +15,14 @@ Skip stages the plan marks N/A (e.g., no design change → skip 2) — every sub
 | 2 | Design (only if contract/data model changes) | `architect` | ADR + `proto/` + Firestore model/index changes; `make proto` passes |
 | 3 | Build API | `backend-developer` | code + tests; `make ci` green |
 | 3 | Build client (parallel with 3) | `frontend-developer` | screens + widget tests; `flutter analyze` clean |
-| 4 | Test | `tester` | `docs/reviews/test-report-<slug>.md` = PASS (incl. budget assertions) |
-| 5 | Review (parallel) | `code-reviewer`, `security-auditor` | APPROVE, no Critical/High |
-| 6 | Cost & perf | `sre-performance` | cost-model updated; emulator load smoke; free quotas hold |
-| 7 | Stage | `production-deployer` | deployed to dev; prod `candidate` tagged revision with no traffic, smoke passes |
+| 4 | Test | `tester` | `docs/reviews/test-report-<slug>.md` ends `VERDICT: PASS` (incl. budget assertions and flag modes) |
+| 5 | Review (parallel) | `code-reviewer`, `security-auditor` | `APPROVE`; `SECURITY: CLEAR` (no Critical/High) |
+| 6 | Cost & perf | `sre-performance` | cost-model updated; emulator load smoke; `BUDGET: HOLDS` |
+| 7 | Stage | `production-deployer` | deployed to dev; after the founder's tag, prod `candidate` revision at 0% traffic, smoke passes |
 | 8 | Gate | `production-reviewer` | `VERDICT: GO` |
-| 9 | Release | `production-deployer` | 10% → 100% traffic, watched 15 min (ask human before 100%) |
+| 9 | Release | founder via `promote-prod.yml` (ADR-0019); `production-deployer` watches | 10% → 100% traffic, watched 15 min between steps; release record in `docs/releases/` |
+
+Every ticket carries a `Seam:` line (`stage-ladder`); stage 5 treats a bypassed seam as a Blocker.
 
 Loop rule: any REQUEST CHANGES / FAIL goes back to the owning developer agent with the findings,
 then re-runs the failing stage only. Max 3 loops before escalating to the human.

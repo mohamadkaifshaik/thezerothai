@@ -1,5 +1,5 @@
 # UI W1: core surfaces (client-only)
-Plan owner: planner · Stage 0 ($0) · **Client-only: 0 new RPCs, 0 Firestore reads/writes, no proto, Terraform or Firebase change** · Flag: the shell stays behind `ui_shell`; W1 changes are in-place polish of existing screens
+Plan owner: planner · Stage 0 (free tier, per use past it) · **Client-only: 0 new RPCs, 0 Firestore reads/writes, no proto, Terraform or Firebase change** · Flag: the shell stays behind `ui_shell`; W1 changes are in-place polish of existing screens
 Source: `docs/x_research/14_mvp_structured_plan.md` (W1), W0 plan `docs/plans/ui-w0-foundations.md`, ADR-0020 (Accepted).
 Branches are stacked (`feat/ui-w1-N-<slug>` off the previous one); one ticket per PR; merge `origin/main` into the branch.
 

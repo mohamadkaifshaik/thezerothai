@@ -19,9 +19,13 @@ Problem, constraints, current stage (CLAUDE.md), measured numbers (DAU, reads/da
 ### B. <option>  — pros / cons / cost: ...
 
 ## Cost impact
-- Fixed monthly cost added: $X (0 if pay-per-use)
-- Free-tier quota consumed: reads/writes/day, requests, GB
+- Fixed monthly cost added: INR X (0 if pay-per-use; the credit window of ADR-0022 lifts nothing after 2026-12-26)
+- Free-tier quota consumed: reads/writes/day, requests, GB, Vision units, egress to India
 - Trigger that justifies it (from free-tier-budget §6)
+
+## Stage ladder (stage-ladder skill)
+- Stage 0 choice made here, and the seam (interface, cursor, event envelope) that keeps it swappable
+- Stage 2/3 target for the same concern, and the measured trigger that would move to it
 
 ## Decision
 What and why, in one paragraph.
@@ -36,8 +40,8 @@ Positive, negative, follow-up work, what would make us revisit.
 - tester: ...
 ```
 
-Rules: number sequentially, never edit an Accepted ADR's decision — supersede it. An ADR adding a fixed monthly cost needs
-the human founder's explicit approval recorded in Deciders.
+Rules: the next number is the highest existing plus one (0012–0015 are intentionally unused); never edit an Accepted ADR's
+decision — supersede it, or add a dated amendment note. Only the founder accepts an ADR (the merge of the ADR PR is the
+acceptance). An ADR adding a fixed monthly cost needs the founder's explicit approval recorded in Deciders.
 
-Seed ADRs: 0001 Free-tier-first architecture (exists) · 0002 Firestore data model · 0003 Pull timeline with incremental refresh ·
-0004 Client-side media processing · 0005 Search via Firestore prefix/hashtags · 0006 ID generation · 0007 Auth & App Check.
+Existing ADRs: the directory `docs/adr/` is the list; read the ones the plan names before writing a new one.

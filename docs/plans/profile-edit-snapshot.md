@@ -1,5 +1,5 @@
 # Profile edit + author-snapshot refresh job (Phase 1 slice P2)
-Plan owner: backend (resumed 2026-10-11) · Stage 0 ($0) · Flag: `FEATURE_PROFILE_SNAPSHOT` (wire name `profile_snapshot`, default OFF everywhere)
+Plan owner: backend (resumed 2026-10-11) · Stage 0 (free tier, per use past it) · Flag: `FEATURE_PROFILE_SNAPSHOT` (wire name `profile_snapshot`, default OFF everywhere)
 Inputs: CLAUDE.md, `docs/plans/phase1.md` P2, ADR-0003 ("Author snapshot refresh", "Quotas"), ADR-0011 (shared `jobs` topic),
 `backend/internal/identity/{service,lifecycle_jobs}.go`, `backend/internal/posts/snapshot.go`.
 

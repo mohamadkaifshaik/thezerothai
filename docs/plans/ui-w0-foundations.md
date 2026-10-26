@@ -1,5 +1,5 @@
 # UI wave W0: foundations (colour system, tokens, shared chrome, responsive shell)
-Plan owner: planner (DRAFT 2026-10-22) · Stage 0 ($0) · **Client-only: 0 RPCs, 0 Firestore reads/writes, no proto, Terraform or Firebase change** · Flag: none for the theme; the shell change has an optional kill switch (decision D3)
+Plan owner: planner (DRAFT 2026-10-22) · Stage 0 (free tier, per use past it) · **Client-only: 0 RPCs, 0 Firestore reads/writes, no proto, Terraform or Firebase change** · Flag: none for the theme; the shell change has an optional kill switch (decision D3)
 Inputs: `CLAUDE.md`, `docs/x_research/` (`02`, `03`, `04`, `05`, `10_light_dark_theme.md`, `11`, `12`, `14_mvp_structured_plan.md`, `screens/`, `screens/mobile/`, `screens/light/`), `docs/ui-catalog.md`, `app/lib/core/theme/app_theme.dart`, `app/lib/core/widgets/responsive_scaffold.dart`, `app/lib/core/router/main_shell.dart`, `app/lib/shared/widgets/*`.
 Skills to follow: `reuse-first`, `flutter-feature`, `flutter-modern-ui`, `testing-strategy`, `pr-workflow`.
 
