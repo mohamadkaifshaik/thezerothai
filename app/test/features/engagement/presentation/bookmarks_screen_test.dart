@@ -725,4 +725,78 @@ void main() {
       }
     }
   });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): rapid un-bookmarking, Undo after sign-out.
+  // ---------------------------------------------------------------------
+
+  group('W2-13 un-bookmark in a burst', () {
+    testWidgets('three rows removed in a row leave one Undo, and it restores '
+        'only the last row removed', (tester) async {
+      server.pages[''] = () => _rows([4, 3, 2, 1]);
+      await open(tester);
+
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(filledBookmark().at(0)); // rows 4, 3, 2 in turn
+        await tester.pump();
+      }
+      await tester.pump(const Duration(milliseconds: 800));
+
+      expect(rows(), findsOneWidget);
+      expect(removedSnack(), findsOneWidget, reason: 'one snackbar, not three');
+      expect(find.text('Undo'), findsOneWidget);
+      expect(
+        server.toggles.whereType<eng.RemoveBookmarkRequest>().map(
+          (r) => r.postId,
+        ),
+        [postId(4), postId(3), postId(2)],
+      );
+
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saved post number 2'), findsOneWidget);
+      expect(find.text('Saved post number 3'), findsNothing);
+      expect(find.text('Saved post number 4'), findsNothing);
+      expect(find.text('Saved post number 1'), findsOneWidget);
+      expect(
+        server.toggles.whereType<eng.AddBookmarkRequest>().map((r) => r.postId),
+        [postId(2)],
+      );
+    });
+  });
+
+  group('W2-13 sign-out with an Undo snackbar up', () {
+    testWidgets('Undo after the session ended sends no AddBookmark', (
+      tester,
+    ) async {
+      server.pages[''] = () => _rows([2, 1]);
+      await open(tester);
+      await tester.tap(filledBookmark().first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Undo'), findsOneWidget);
+      expect(server.toggles, hasLength(1));
+
+      // What AppWidget does on sign-out.
+      overlay.reset();
+      epoch.end();
+      await tester.pumpAndSettle(const Duration(milliseconds: 50));
+
+      // The snackbar lives on the app-level messenger, so it may still be up
+      // (a new session on the same device could press it).
+      final undoUp = find.text('Undo').evaluate().isNotEmpty;
+      printOnFailure('W2-13: Undo still up after sign-out: $undoUp');
+      if (undoUp) {
+        await tester.tap(find.text('Undo'), warnIfMissed: false);
+        await tester.pumpAndSettle();
+      }
+
+      expect(
+        server.toggles.whereType<eng.AddBookmarkRequest>(),
+        isEmpty,
+        reason: "the previous user's Undo must not write under a new session",
+      );
+    });
+  });
 }

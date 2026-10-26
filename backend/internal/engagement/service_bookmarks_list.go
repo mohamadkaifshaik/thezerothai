@@ -72,13 +72,13 @@ func (d dropTally) total() int { return d.missing + d.hidden + d.blocked + d.mut
 // blockCause applies the ADR-0010 D6 Home column to a live, visible post for viewer uid: causeBlocked when the author
 // or the QUOTE/REPOST's embedded author is in the caller's blocked or blockedBy set, causeMuted when in the muted set,
 // "" otherwise. The caller's own posts are kept, copies of others included (as timeline.embedAllowed does). When the
-// caller's blockedBy overflowed it cannot prove a foreign embedded author does not block it, so that copy fails
-// closed, with no extra read per row.
+// caller's blockedBy overflowed it cannot prove a foreign author (the post's own, or the embedded copy's) does not
+// block it, so a foreign row fails closed, with no extra read per row (as posts contextUsable and GetThread do; W2-14 L-1).
 func blockCause(snap graph.Snapshot, uid string, p *posts.Post) string {
 	if p.AuthorID == uid {
 		return ""
 	}
-	if a := p.AuthorID; snap.Blocked[a] || snap.BlockedBy[a] {
+	if a := p.AuthorID; snap.Blocked[a] || snap.BlockedBy[a] || snap.BlockedByOverflow {
 		return causeBlocked
 	}
 	if snap.Muted[p.AuthorID] {
@@ -89,12 +89,19 @@ func blockCause(snap graph.Snapshot, uid string, p *posts.Post) string {
 		return ""
 	}
 	switch {
-	case snap.Blocked[e] || snap.BlockedBy[e] || snap.BlockedByOverflow:
+	case snap.Blocked[e] || snap.BlockedBy[e]:
 		return causeBlocked
 	case snap.Muted[e]:
 		return causeMuted
 	}
 	return ""
+}
+
+// privateToViewer reports whether p is not public and its author is not the caller or someone the caller follows: the same
+// 0-read check posts Viewable applies (a non-public post needs an accepted follow). Bookmarks must never be a side door to
+// followers-only posts once private accounts ship (W2-14 L-2). The row is counted under rows_dropped_hidden, not pruned.
+func privateToViewer(snap graph.Snapshot, uid string, p *posts.Post) bool {
+	return p.AuthorID != uid && p.Visibility != posts.VisibilityPublic && !snap.Following[p.AuthorID]
 }
 
 // listBookmarks implements Bookmarks.ListBookmarks. Reads, in this order and each only when needed: the page query
@@ -123,7 +130,7 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 	limit := limits.ClampPageSize(pageSize)
 	rows, err := repo.ListPage(ctx, uid, after, limit)
 	if err != nil {
-		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: %w", err), uid)
+		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: %w", err), uid, afterID(after))
 	}
 	var page BookmarkPage
 	if len(rows) >= limit {
@@ -140,7 +147,7 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 	}
 	live, err := s.d.Reader.GetMany(ctx, postIDs)
 	if err != nil {
-		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: load posts: %w", err), uid)
+		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: load posts: %w", err), append([]string{uid}, postIDs...)...)
 	}
 	var (
 		tally    dropTally
@@ -171,6 +178,10 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 			continue
 		case causeMuted:
 			tally.muted++
+			continue
+		}
+		if privateToViewer(snap, uid, p) {
+			tally.hidden++ // followers-only and the caller does not follow the author (kept: a follow brings it back)
 			continue
 		}
 		page.Rows = append(page.Rows, BookmarkRow{Post: p, BookmarkedAt: r.BookmarkedAt})

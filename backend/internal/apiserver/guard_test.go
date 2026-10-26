@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -74,6 +75,7 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.ReportPerMinute = 5                // ADR-0016
 	cfg.RateLimit.BookmarksPerUserPerMinute = 30     // ADR-0023 D4: Add and Remove share it
 	cfg.RateLimit.BookmarksListPerUserPerMinute = 10 // ADR-0023 D4
+	cfg.RateLimit.BookmarkMutationsPerDay = 1500     // W2-14 M-1: Add and Remove share one daily call cap
 	return cfg
 }
 
@@ -403,5 +405,128 @@ func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
 	}
 	if err := call("uid-other"); err != nil {
 		t.Errorf("another uid must be unaffected: %v", err)
+	}
+}
+
+// bookmarkMutationProcedures are the two bookmark RPCs that write an idempotency doc even when they change nothing
+// (an already bookmarked Add, a Remove of a missing bookmark) and reserve no quota; they share one daily call cap.
+var bookmarkMutationProcedures = []string{
+	engagementv1connect.EngagementServiceAddBookmarkProcedure,
+	engagementv1connect.EngagementServiceRemoveBookmarkProcedure,
+}
+
+// bookmarkMutationViolations asserts the W2-14 M-1 wiring (mirrors the graph_mutation_daily shape): AddBookmark and
+// RemoveBookmark each have a DailyCaps entry named bookmark_mutation_daily, both entries hold the SAME DailyCap
+// (one counter per uid, so Add + Remove draw on one budget), and ListBookmarks (a read, covered by the read budget)
+// has none.
+func bookmarkMutationViolations(rl ratelimit.Config) []string {
+	var out []string
+	var first *ratelimit.DailyCap
+	for _, p := range bookmarkMutationProcedures {
+		named, ok := rl.DailyCaps[p]
+		switch {
+		case !ok || named.Cap == nil || named.Name != "bookmark_mutation_daily":
+			out = append(out, "bookmark mutation "+p+" has no bookmark_mutation_daily DailyCaps entry")
+		case first == nil:
+			first = named.Cap
+		case named.Cap != first:
+			out = append(out, "bookmark mutation "+p+" does not share the bookmark_mutation_daily DailyCap with the other bookmark mutation")
+		}
+	}
+	if _, ok := rl.DailyCaps[engagementv1connect.EngagementServiceListBookmarksProcedure]; ok {
+		out = append(out, "ListBookmarks must not be on the bookmark_mutation_daily cap (a read: the read budget covers it)")
+	}
+	return out
+}
+
+// TestBookmarkMutationDailyCap_Guard proves the M-1 guard passes on the shipped wiring and can fail.
+func TestBookmarkMutationDailyCap_Guard(t *testing.T) {
+	remove := engagementv1connect.EngagementServiceRemoveBookmarkProcedure
+	tests := []struct {
+		name   string
+		mutate func(*ratelimit.Config)
+		want   string // "" = no violation
+	}{
+		{"unmutated", func(*ratelimit.Config) {}, ""},
+		{"remove loses its cap", func(c *ratelimit.Config) { delete(c.DailyCaps, remove) }, "bookmark mutation " + remove},
+		{"remove has a nil cap", func(c *ratelimit.Config) {
+			c.DailyCaps[remove] = ratelimit.NamedDailyCap{Name: "bookmark_mutation_daily"}
+		}, "bookmark mutation " + remove},
+		{"remove is renamed", func(c *ratelimit.Config) {
+			n := c.DailyCaps[remove]
+			n.Name = "graph_mutation_daily"
+			c.DailyCaps[remove] = n
+		}, "bookmark mutation " + remove},
+		{"remove gets its own counter", func(c *ratelimit.Config) {
+			c.DailyCaps[remove] = ratelimit.NamedDailyCap{Name: "bookmark_mutation_daily", Cap: ratelimit.NewDailyCap(1500)}
+		}, "does not share"},
+		{"list joins the cap", func(c *ratelimit.Config) {
+			c.DailyCaps[engagementv1connect.EngagementServiceListBookmarksProcedure] = c.DailyCaps[remove]
+		}, "ListBookmarks must not"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rl := RateLimitConfig(defaultRateLimitCfg())
+			tt.mutate(&rl)
+			got := strings.Join(bookmarkMutationViolations(rl), "\n")
+			if tt.want == "" && got != "" {
+				t.Fatalf("unexpected violations: %s", got)
+			}
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Fatalf("violations %q do not contain %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBookmarkMutationDailyCap_StopsTheCapPlusFirstCall (W2-14 M-1): through the wired interceptor, AddBookmark and
+// RemoveBookmark draw on ONE per-uid daily budget, so the (cap+1)-th call of the day is ResourceExhausted whichever
+// of the two it is, and another user is untouched (the name is asserted by the guard test above).
+func TestBookmarkMutationDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
+	const dailyCap = 10
+	cfg := defaultRateLimitCfg()
+	cfg.RateLimit.PerUserPerMinute = 100000
+	cfg.RateLimit.PerIPPerMinute = 100000
+	cfg.RateLimit.BookmarksPerUserPerMinute = 100000
+	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
+	cfg.RateLimit.BookmarkMutationsPerDay = dailyCap
+	rl := RateLimitConfig(cfg)
+
+	uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get("X-Test-Uid"), SignInProvider: authn.SignInProviderGoogle}), req)
+		}
+	})
+	opts := connect.WithInterceptors(uidOf, ratelimit.Interceptor(rl))
+	mux := http.NewServeMux()
+	for _, p := range bookmarkMutationProcedures {
+		mux.Handle(p, connect.NewUnaryHandler(p,
+			func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+			}, opts))
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	invoke := func(uid, proc string) error {
+		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
+		req := connect.NewRequest(&commonv1.ErrorDetail{})
+		req.Header().Set("X-Test-Uid", uid)
+		_, err := c.CallUnary(context.Background(), req)
+		return err
+	}
+	for i := 0; i < dailyCap; i++ {
+		if err := invoke("uid-bm", bookmarkMutationProcedures[i%2]); err != nil {
+			t.Fatalf("bookmark mutation %d must pass: %v", i+1, err)
+		}
+	}
+	for _, p := range bookmarkMutationProcedures {
+		err := invoke("uid-bm", p)
+		var ce *connect.Error
+		if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
+			t.Fatalf("%s after %d calls: err = %v, want ResourceExhausted", p, dailyCap, err)
+		}
+	}
+	if err := invoke("uid-other", bookmarkMutationProcedures[1]); err != nil {
+		t.Fatalf("another user must not share the counter: %v", err)
 	}
 }

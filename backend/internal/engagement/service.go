@@ -285,6 +285,8 @@ func noteRejected(ctx context.Context, err error) {
 			logger.SetRequestField(ctx, fieldOutcome, "rejected:key_reused")
 		case ae.Code == connect.CodeNotFound:
 			logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
+		case ae.Code == connect.CodeUnavailable:
+			logger.SetRequestField(ctx, fieldOutcome, outcomeContention)
 		default:
 			logger.SetRequestField(ctx, fieldOutcome, "rejected:"+ae.Code.String())
 		}

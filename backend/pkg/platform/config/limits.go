@@ -25,6 +25,17 @@ type RateLimitConfig struct {
 	BookmarksPerUserPerMinute     int
 	BookmarksListPerUserPerMinute int
 
+	// BookmarkMutationsPerDay is the in-memory daily cap on AddBookmark + RemoveBookmark calls combined (one counter per
+	// uid per instance, ratelimit.DailyCap), env BOOKMARK_MUTATIONS_PER_DAY, logged as limit_name "bookmark_mutation_daily"
+	// (W2-14 security review M-1). An already bookmarked Add and a Remove of a missing bookmark reserve no quota but each
+	// store an idempotency doc (1 write + 1 TTL delete), so the 30/min bucket alone left them unbounded.
+	//
+	// Default 1,500: QUOTA_BOOKMARKS_PER_DAY 200 adds + a full clear-out of the BOOKMARKS_MAX_PER_USER 1,000 cap = 1,200
+	// legitimate calls, plus 300 for retries and undo churn. Worst case per account per day: 1,500 calls x 3 instances
+	// (max-instances 3, the cap is per instance) = 4,500 idempotency writes + 4,500 TTL deletes, against the 20k writes
+	// and 20k deletes a day free quotas.
+	BookmarkMutationsPerDay int64
+
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
 	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is

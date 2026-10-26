@@ -70,12 +70,17 @@ func (r *FirestoreRepo) PurgeBookmarksPage(ctx context.Context, uid string) (int
 	if len(docs) == 0 {
 		return 0, nil
 	}
+	ids := make([]string, len(docs))
+	for i, d := range docs {
+		ids[i] = d.Ref.ID
+	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}
 	if err := b.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("engagement: purge bookmarks %s: %w", logger.HashUID(uid), err)
+		// The commit error names the deleted documents' paths: redact the uid and the bookmarked post ids (W2-14 I-4).
+		return 0, logger.RedactErr(fmt.Errorf("engagement: purge bookmarks %s: %w", logger.HashUID(uid), err), append([]string{uid}, ids...)...)
 	}
 	return len(docs), nil
 }
@@ -111,17 +116,26 @@ func (r *FirestoreRepo) pageBookmarks(ctx context.Context, op, uid string, after
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return nil, fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err)
+		// The query error names the collection path and the StartAfter document (a post id): redact both (W2-14 I-4).
+		return nil, logger.RedactErr(fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err), uid, afterID(after))
 	}
 	out := make([]ExportedBookmark, 0, len(docs))
 	for _, s := range docs {
 		var d bookmarkDoc
 		if err := s.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("engagement: %s decode bookmark %s: %w", op, s.Ref.ID, err)
+			return nil, logger.RedactErr(fmt.Errorf("engagement: %s decode bookmark %s: %w", op, s.Ref.ID, err), uid, s.Ref.ID)
 		}
 		out = append(out, ExportedBookmark{PostID: s.Ref.ID, BookmarkedAt: d.CreatedAt.UTC()})
 	}
 	return out, nil
+}
+
+// afterID is the page cursor's post id, "" for the first page, for logger.RedactErr.
+func afterID(after *posts.Position) string {
+	if after == nil {
+		return ""
+	}
+	return after.ID
 }
 
 // BookmarkCheckpoint resumes BookmarkEraser.PurgeUser across calls. The zero value starts from the beginning. Deleted
