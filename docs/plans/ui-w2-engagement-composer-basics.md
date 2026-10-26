@@ -30,7 +30,7 @@ Branches: `feat/ui-w2-N-<slug>` off `main` (not stacked: the backend chain and t
 | ID | Ticket | Owner | Size | Status |
 | --- | --- | --- | --- | --- |
 | W2-1 | ADR-0023 + bookmark RPCs in `engagement.proto`; after founder Q2, `PostView.bookmarked_by_viewer` and the `userLikes.bookmarks` index exemption | architect | M | Todo |
-| W2-2 | `make proto`, register `FEATURE_BOOKMARKS` and the bookmark config (quota, cap, rate limits) in config, registry, ceiling and Terraform vars; flag-guarded handlers in the engagement module | backend-developer | S | Todo |
+| W2-2 | `make proto`, register `FEATURE_BOOKMARKS` and the bookmark config (quota, cap, rate limits) in config, registry, ceiling and Terraform vars; flag-guarded handlers in the engagement module | backend-developer | S | Done (PR pending): flag, config, rate limits, ceiling, Terraform and the gate on the three handlers (Unimplemented behind it until W2-3 / W2-4); generated Go and Dart code |
 | W2-3 | `engagement.Bookmarks` / `BookmarkRepo`: `AddBookmark` / `RemoveBookmark` (thin doc, idempotency doc, daily quota, cap 1,000, `userLikes.bookmarks[]`), viewer-state hydration | backend-developer | M | Todo |
 | W2-4 | `ListBookmarks` (limit 20 / max 50, opaque cursor, live posts via `GetMany`, D6 drop rules, lazy prune, read budget) | backend-developer | M | Todo |
 | W2-5 | Bookmarks lifecycle: `bookmarks` eraser step (after `scheduled`, before `identity`), export section, guard row + fixture rename, runbook | backend-developer | M | Todo |

@@ -167,6 +167,11 @@ type Config struct {
 	// sweep (a no-op while off). FEATURE_SCHEDULED_POSTS[_ALLOWLIST|_PERCENT], default off in every environment. It
 	// leaves off only after 100% of traffic is on a revision that stores it (ADR-0021 L-1).
 	FeatureScheduledPosts flags.Spec
+	// FeatureBookmarks is the ADR-0023 D5 flag (wire name `bookmarks`) gating AddBookmark (on for the caller),
+	// ListBookmarks and RemoveBookmark (only not globally off, so a caller dropped from the allowlist can still list and
+	// remove what they saved). FEATURE_DISABLED feature=bookmarks otherwise. FEATURE_BOOKMARKS[_ALLOWLIST|_PERCENT],
+	// default off in every environment; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT.
+	FeatureBookmarks flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -410,6 +415,9 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_POST_CREATE_PER_MIN", 10, &rl.PostCreatePerMinute},
 		{"RATE_LIMIT_POST_DELETE_PER_MIN", 20, &rl.PostDeletePerMinute},
 		{"RATE_LIMIT_REPORT_PER_MIN", 5, &rl.ReportPerMinute},
+		// ADR-0023 D4: AddBookmark and RemoveBookmark share one bucket (30/min); ListBookmarks has its own (10/min).
+		{"RATE_LIMIT_BOOKMARKS_PER_MIN", 30, &rl.BookmarksPerUserPerMinute},
+		{"RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", 10, &rl.BookmarksListPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -574,6 +582,26 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
+	// ADR-0023 D4: 200 AddBookmark writes/day, 50 for accounts younger than the new-account window, and a hard cap of
+	// 1,000 bookmarks per user (the userLikes array length is the exact cap check).
+	if q.BookmarksPerDay, err = getInt("QUOTA_BOOKMARKS_PER_DAY", 200); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountBookmarksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY", 50); err != nil {
+		return Config{}, err
+	}
+	if q.BookmarksMaxPerUser, err = getInt("BOOKMARKS_MAX_PER_USER", 1000); err != nil {
+		return Config{}, err
+	}
+	for name, v := range map[string]int{
+		"QUOTA_BOOKMARKS_PER_DAY":             q.BookmarksPerDay,
+		"QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY": q.NewAccountBookmarksPerDay,
+		"BOOKMARKS_MAX_PER_USER":              q.BookmarksMaxPerUser,
+	} {
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
+		}
+	}
 	scheduled, err := loadScheduled()
 	if err != nil {
 		return Config{}, err
@@ -700,6 +728,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureBookmarks, err := flags.LoadSpec("BOOKMARKS", "bookmarks", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -780,6 +812,7 @@ func Load() (Config, error) {
 		FeatureContentDisclosure:  featureContentDisclosure,
 		FeatureReplyAudience:      featureReplyAudience,
 		FeatureScheduledPosts:     featureScheduledPosts,
+		FeatureBookmarks:          featureBookmarks,
 		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,

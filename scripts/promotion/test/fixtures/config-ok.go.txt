@@ -15,5 +15,6 @@
 	featureContentDisclosure, err := flags.LoadSpec("CONTENT_DISCLOSURE", "content_disclosure", flags.Off)
 	featureReplyAudience, err := flags.LoadSpec("REPLY_AUDIENCE", "reply_audience", flags.Off)
 	featureScheduledPosts, err := flags.LoadSpec("SCHEDULED_POSTS", "scheduled_posts", flags.Off)
+	featureBookmarks, err := flags.LoadSpec("BOOKMARKS", "bookmarks", flags.Off)
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)

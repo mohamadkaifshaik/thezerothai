@@ -5,17 +5,20 @@
 // source: dzeroth/engagement/v1/engagement.proto
 
 // Engagement: likes and reposts (Phase 1 slice P5, ADR-0018). Owner module: backend/internal/engagement.
-// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}. The counters (likeCount,
+// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
+// users/{uid}/bookmarks/{postId}. The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query (ADR-0003); a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
 //
-// Behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every RPC is
-// FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on.
+// Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
+// like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
+// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT.
 //
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
-// [A-Za-z0-9_-]. The operations are state-setting and keyed by (post_id, caller) so a replay or ten concurrent
-// calls converge on one effect; the key is validated but needs no stored record. Acting on a REPOST post id acts
+// [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
+// concurrent calls converge on one effect; for them the key is validated but needs no stored record (ADR-0018). The
+// bookmark mutations store it (CLAUDE.md rule 4, ADR-0023 D4). Acting on a REPOST post id acts
 // on the post it reposts (the original), never on the repost document. Like and Repost need the target to be
 // visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author => NOT_FOUND
 // "post not found").
@@ -23,8 +26,10 @@
 package engagementv1
 
 import (
+	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -510,11 +515,422 @@ func (x *UndoRepostResponse) GetEngagement() *PostEngagement {
 	return nil
 }
 
+// The caller's bookmark state of one post after AddBookmark or RemoveBookmark (ADR-0023).
+type BookmarkState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The post the action applied to: the original when AddBookmark named a REPOST. Pass this id to RemoveBookmark.
+	PostId string `protobuf:"bytes,1,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
+	// True after AddBookmark (including a post that was already bookmarked), false after RemoveBookmark.
+	Bookmarked    bool `protobuf:"varint,2,opt,name=bookmarked,proto3" json:"bookmarked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BookmarkState) Reset() {
+	*x = BookmarkState{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BookmarkState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BookmarkState) ProtoMessage() {}
+
+func (x *BookmarkState) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BookmarkState.ProtoReflect.Descriptor instead.
+func (*BookmarkState) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BookmarkState) GetPostId() string {
+	if x != nil {
+		return x.PostId
+	}
+	return ""
+}
+
+func (x *BookmarkState) GetBookmarked() bool {
+	if x != nil {
+		return x.Bookmarked
+	}
+	return false
+}
+
+type AddBookmarkRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	PostId         string                 `protobuf:"bytes,2,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AddBookmarkRequest) Reset() {
+	*x = AddBookmarkRequest{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddBookmarkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddBookmarkRequest) ProtoMessage() {}
+
+func (x *AddBookmarkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddBookmarkRequest.ProtoReflect.Descriptor instead.
+func (*AddBookmarkRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *AddBookmarkRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *AddBookmarkRequest) GetPostId() string {
+	if x != nil {
+		return x.PostId
+	}
+	return ""
+}
+
+type AddBookmarkResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	State         *BookmarkState         `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddBookmarkResponse) Reset() {
+	*x = AddBookmarkResponse{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddBookmarkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddBookmarkResponse) ProtoMessage() {}
+
+func (x *AddBookmarkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddBookmarkResponse.ProtoReflect.Descriptor instead.
+func (*AddBookmarkResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AddBookmarkResponse) GetState() *BookmarkState {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+type RemoveBookmarkRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	// The original post id (BookmarkState.post_id), never a REPOST id.
+	PostId        string `protobuf:"bytes,2,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveBookmarkRequest) Reset() {
+	*x = RemoveBookmarkRequest{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveBookmarkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveBookmarkRequest) ProtoMessage() {}
+
+func (x *RemoveBookmarkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveBookmarkRequest.ProtoReflect.Descriptor instead.
+func (*RemoveBookmarkRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RemoveBookmarkRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *RemoveBookmarkRequest) GetPostId() string {
+	if x != nil {
+		return x.PostId
+	}
+	return ""
+}
+
+type RemoveBookmarkResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	State         *BookmarkState         `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveBookmarkResponse) Reset() {
+	*x = RemoveBookmarkResponse{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveBookmarkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveBookmarkResponse) ProtoMessage() {}
+
+func (x *RemoveBookmarkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveBookmarkResponse.ProtoReflect.Descriptor instead.
+func (*RemoveBookmarkResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RemoveBookmarkResponse) GetState() *BookmarkState {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+type ListBookmarksRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 => 20, max 50 (clamped).
+	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Opaque, bound to the caller. Empty => the first page (most recently bookmarked).
+	PageToken     string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBookmarksRequest) Reset() {
+	*x = ListBookmarksRequest{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBookmarksRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBookmarksRequest) ProtoMessage() {}
+
+func (x *ListBookmarksRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBookmarksRequest.ProtoReflect.Descriptor instead.
+func (*ListBookmarksRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListBookmarksRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListBookmarksRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+// One saved post as the caller sees it now.
+type Bookmark struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The live post (never a stored copy), with the caller's viewer flags.
+	Post *v1.PostView `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`
+	// When the caller bookmarked it (server time); the list order.
+	BookmarkedAt  *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=bookmarked_at,json=bookmarkedAt,proto3" json:"bookmarked_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Bookmark) Reset() {
+	*x = Bookmark{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Bookmark) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Bookmark) ProtoMessage() {}
+
+func (x *Bookmark) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Bookmark.ProtoReflect.Descriptor instead.
+func (*Bookmark) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *Bookmark) GetPost() *v1.PostView {
+	if x != nil {
+		return x.Post
+	}
+	return nil
+}
+
+func (x *Bookmark) GetBookmarkedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.BookmarkedAt
+	}
+	return nil
+}
+
+type ListBookmarksResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Most recently bookmarked first. May be shorter than page_size (rows dropped after the read, see ListBookmarks).
+	Bookmarks []*Bookmark `protobuf:"bytes,1,rep,name=bookmarks,proto3" json:"bookmarks,omitempty"`
+	// "" => no more bookmarks.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBookmarksResponse) Reset() {
+	*x = ListBookmarksResponse{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBookmarksResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBookmarksResponse) ProtoMessage() {}
+
+func (x *ListBookmarksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBookmarksResponse.ProtoReflect.Descriptor instead.
+func (*ListBookmarksResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListBookmarksResponse) GetBookmarks() []*Bookmark {
+	if x != nil {
+		return x.Bookmarks
+	}
+	return nil
+}
+
+func (x *ListBookmarksResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 var File_dzeroth_engagement_v1_engagement_proto protoreflect.FileDescriptor
 
 const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\n" +
-	"&dzeroth/engagement/v1/engagement.proto\x12\x15dzeroth.engagement.v1\"\xc1\x01\n" +
+	"&dzeroth/engagement/v1/engagement.proto\x12\x15dzeroth.engagement.v1\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x01\n" +
 	"\x0ePostEngagement\x12\x17\n" +
 	"\apost_id\x18\x01 \x01(\tR\x06postId\x12\x1d\n" +
 	"\n" +
@@ -550,7 +966,32 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\x12UndoRepostResponse\x12E\n" +
 	"\n" +
 	"engagement\x18\x01 \x01(\v2%.dzeroth.engagement.v1.PostEngagementR\n" +
-	"engagement2\x99\x03\n" +
+	"engagement\"H\n" +
+	"\rBookmarkState\x12\x17\n" +
+	"\apost_id\x18\x01 \x01(\tR\x06postId\x12\x1e\n" +
+	"\n" +
+	"bookmarked\x18\x02 \x01(\bR\n" +
+	"bookmarked\"V\n" +
+	"\x12AddBookmarkRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
+	"\apost_id\x18\x02 \x01(\tR\x06postId\"Q\n" +
+	"\x13AddBookmarkResponse\x12:\n" +
+	"\x05state\x18\x01 \x01(\v2$.dzeroth.engagement.v1.BookmarkStateR\x05state\"Y\n" +
+	"\x15RemoveBookmarkRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
+	"\apost_id\x18\x02 \x01(\tR\x06postId\"T\n" +
+	"\x16RemoveBookmarkResponse\x12:\n" +
+	"\x05state\x18\x01 \x01(\v2$.dzeroth.engagement.v1.BookmarkStateR\x05state\"R\n" +
+	"\x14ListBookmarksRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"{\n" +
+	"\bBookmark\x12.\n" +
+	"\x04post\x18\x01 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x04post\x12?\n" +
+	"\rbookmarked_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\fbookmarkedAt\"~\n" +
+	"\x15ListBookmarksResponse\x12=\n" +
+	"\tbookmarks\x18\x01 \x03(\v2\x1f.dzeroth.engagement.v1.BookmarkR\tbookmarks\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xdf\x05\n" +
 	"\x11EngagementService\x12[\n" +
 	"\bLikePost\x12&.dzeroth.engagement.v1.LikePostRequest\x1a'.dzeroth.engagement.v1.LikePostResponse\x12a\n" +
 	"\n" +
@@ -558,7 +999,10 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\n" +
 	"RepostPost\x12(.dzeroth.engagement.v1.RepostPostRequest\x1a).dzeroth.engagement.v1.RepostPostResponse\x12a\n" +
 	"\n" +
-	"UndoRepost\x12(.dzeroth.engagement.v1.UndoRepostRequest\x1a).dzeroth.engagement.v1.UndoRepostResponseBKZIgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1b\x06proto3"
+	"UndoRepost\x12(.dzeroth.engagement.v1.UndoRepostRequest\x1a).dzeroth.engagement.v1.UndoRepostResponse\x12d\n" +
+	"\vAddBookmark\x12).dzeroth.engagement.v1.AddBookmarkRequest\x1a*.dzeroth.engagement.v1.AddBookmarkResponse\x12m\n" +
+	"\x0eRemoveBookmark\x12,.dzeroth.engagement.v1.RemoveBookmarkRequest\x1a-.dzeroth.engagement.v1.RemoveBookmarkResponse\x12o\n" +
+	"\rListBookmarks\x12+.dzeroth.engagement.v1.ListBookmarksRequest\x1a,.dzeroth.engagement.v1.ListBookmarksResponse\"\x03\x90\x02\x01BKZIgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1b\x06proto3"
 
 var (
 	file_dzeroth_engagement_v1_engagement_proto_rawDescOnce sync.Once
@@ -572,36 +1016,57 @@ func file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP() []byte {
 	return file_dzeroth_engagement_v1_engagement_proto_rawDescData
 }
 
-var file_dzeroth_engagement_v1_engagement_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_dzeroth_engagement_v1_engagement_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_dzeroth_engagement_v1_engagement_proto_goTypes = []any{
-	(*PostEngagement)(nil),     // 0: dzeroth.engagement.v1.PostEngagement
-	(*LikePostRequest)(nil),    // 1: dzeroth.engagement.v1.LikePostRequest
-	(*LikePostResponse)(nil),   // 2: dzeroth.engagement.v1.LikePostResponse
-	(*UnlikePostRequest)(nil),  // 3: dzeroth.engagement.v1.UnlikePostRequest
-	(*UnlikePostResponse)(nil), // 4: dzeroth.engagement.v1.UnlikePostResponse
-	(*RepostPostRequest)(nil),  // 5: dzeroth.engagement.v1.RepostPostRequest
-	(*RepostPostResponse)(nil), // 6: dzeroth.engagement.v1.RepostPostResponse
-	(*UndoRepostRequest)(nil),  // 7: dzeroth.engagement.v1.UndoRepostRequest
-	(*UndoRepostResponse)(nil), // 8: dzeroth.engagement.v1.UndoRepostResponse
+	(*PostEngagement)(nil),         // 0: dzeroth.engagement.v1.PostEngagement
+	(*LikePostRequest)(nil),        // 1: dzeroth.engagement.v1.LikePostRequest
+	(*LikePostResponse)(nil),       // 2: dzeroth.engagement.v1.LikePostResponse
+	(*UnlikePostRequest)(nil),      // 3: dzeroth.engagement.v1.UnlikePostRequest
+	(*UnlikePostResponse)(nil),     // 4: dzeroth.engagement.v1.UnlikePostResponse
+	(*RepostPostRequest)(nil),      // 5: dzeroth.engagement.v1.RepostPostRequest
+	(*RepostPostResponse)(nil),     // 6: dzeroth.engagement.v1.RepostPostResponse
+	(*UndoRepostRequest)(nil),      // 7: dzeroth.engagement.v1.UndoRepostRequest
+	(*UndoRepostResponse)(nil),     // 8: dzeroth.engagement.v1.UndoRepostResponse
+	(*BookmarkState)(nil),          // 9: dzeroth.engagement.v1.BookmarkState
+	(*AddBookmarkRequest)(nil),     // 10: dzeroth.engagement.v1.AddBookmarkRequest
+	(*AddBookmarkResponse)(nil),    // 11: dzeroth.engagement.v1.AddBookmarkResponse
+	(*RemoveBookmarkRequest)(nil),  // 12: dzeroth.engagement.v1.RemoveBookmarkRequest
+	(*RemoveBookmarkResponse)(nil), // 13: dzeroth.engagement.v1.RemoveBookmarkResponse
+	(*ListBookmarksRequest)(nil),   // 14: dzeroth.engagement.v1.ListBookmarksRequest
+	(*Bookmark)(nil),               // 15: dzeroth.engagement.v1.Bookmark
+	(*ListBookmarksResponse)(nil),  // 16: dzeroth.engagement.v1.ListBookmarksResponse
+	(*v1.PostView)(nil),            // 17: dzeroth.posts.v1.PostView
+	(*timestamppb.Timestamp)(nil),  // 18: google.protobuf.Timestamp
 }
 var file_dzeroth_engagement_v1_engagement_proto_depIdxs = []int32{
-	0, // 0: dzeroth.engagement.v1.LikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	0, // 1: dzeroth.engagement.v1.UnlikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	0, // 2: dzeroth.engagement.v1.RepostPostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	0, // 3: dzeroth.engagement.v1.UndoRepostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
-	1, // 4: dzeroth.engagement.v1.EngagementService.LikePost:input_type -> dzeroth.engagement.v1.LikePostRequest
-	3, // 5: dzeroth.engagement.v1.EngagementService.UnlikePost:input_type -> dzeroth.engagement.v1.UnlikePostRequest
-	5, // 6: dzeroth.engagement.v1.EngagementService.RepostPost:input_type -> dzeroth.engagement.v1.RepostPostRequest
-	7, // 7: dzeroth.engagement.v1.EngagementService.UndoRepost:input_type -> dzeroth.engagement.v1.UndoRepostRequest
-	2, // 8: dzeroth.engagement.v1.EngagementService.LikePost:output_type -> dzeroth.engagement.v1.LikePostResponse
-	4, // 9: dzeroth.engagement.v1.EngagementService.UnlikePost:output_type -> dzeroth.engagement.v1.UnlikePostResponse
-	6, // 10: dzeroth.engagement.v1.EngagementService.RepostPost:output_type -> dzeroth.engagement.v1.RepostPostResponse
-	8, // 11: dzeroth.engagement.v1.EngagementService.UndoRepost:output_type -> dzeroth.engagement.v1.UndoRepostResponse
-	8, // [8:12] is the sub-list for method output_type
-	4, // [4:8] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0,  // 0: dzeroth.engagement.v1.LikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	0,  // 1: dzeroth.engagement.v1.UnlikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	0,  // 2: dzeroth.engagement.v1.RepostPostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	0,  // 3: dzeroth.engagement.v1.UndoRepostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
+	9,  // 4: dzeroth.engagement.v1.AddBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
+	9,  // 5: dzeroth.engagement.v1.RemoveBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
+	17, // 6: dzeroth.engagement.v1.Bookmark.post:type_name -> dzeroth.posts.v1.PostView
+	18, // 7: dzeroth.engagement.v1.Bookmark.bookmarked_at:type_name -> google.protobuf.Timestamp
+	15, // 8: dzeroth.engagement.v1.ListBookmarksResponse.bookmarks:type_name -> dzeroth.engagement.v1.Bookmark
+	1,  // 9: dzeroth.engagement.v1.EngagementService.LikePost:input_type -> dzeroth.engagement.v1.LikePostRequest
+	3,  // 10: dzeroth.engagement.v1.EngagementService.UnlikePost:input_type -> dzeroth.engagement.v1.UnlikePostRequest
+	5,  // 11: dzeroth.engagement.v1.EngagementService.RepostPost:input_type -> dzeroth.engagement.v1.RepostPostRequest
+	7,  // 12: dzeroth.engagement.v1.EngagementService.UndoRepost:input_type -> dzeroth.engagement.v1.UndoRepostRequest
+	10, // 13: dzeroth.engagement.v1.EngagementService.AddBookmark:input_type -> dzeroth.engagement.v1.AddBookmarkRequest
+	12, // 14: dzeroth.engagement.v1.EngagementService.RemoveBookmark:input_type -> dzeroth.engagement.v1.RemoveBookmarkRequest
+	14, // 15: dzeroth.engagement.v1.EngagementService.ListBookmarks:input_type -> dzeroth.engagement.v1.ListBookmarksRequest
+	2,  // 16: dzeroth.engagement.v1.EngagementService.LikePost:output_type -> dzeroth.engagement.v1.LikePostResponse
+	4,  // 17: dzeroth.engagement.v1.EngagementService.UnlikePost:output_type -> dzeroth.engagement.v1.UnlikePostResponse
+	6,  // 18: dzeroth.engagement.v1.EngagementService.RepostPost:output_type -> dzeroth.engagement.v1.RepostPostResponse
+	8,  // 19: dzeroth.engagement.v1.EngagementService.UndoRepost:output_type -> dzeroth.engagement.v1.UndoRepostResponse
+	11, // 20: dzeroth.engagement.v1.EngagementService.AddBookmark:output_type -> dzeroth.engagement.v1.AddBookmarkResponse
+	13, // 21: dzeroth.engagement.v1.EngagementService.RemoveBookmark:output_type -> dzeroth.engagement.v1.RemoveBookmarkResponse
+	16, // 22: dzeroth.engagement.v1.EngagementService.ListBookmarks:output_type -> dzeroth.engagement.v1.ListBookmarksResponse
+	16, // [16:23] is the sub-list for method output_type
+	9,  // [9:16] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_engagement_v1_engagement_proto_init() }
@@ -615,7 +1080,7 @@ func file_dzeroth_engagement_v1_engagement_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_engagement_v1_engagement_proto_rawDesc), len(file_dzeroth_engagement_v1_engagement_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

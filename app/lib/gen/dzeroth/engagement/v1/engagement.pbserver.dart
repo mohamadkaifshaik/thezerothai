@@ -15,31 +15,43 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'engagement.pb.dart' as $0;
+import 'engagement.pb.dart' as $3;
 import 'engagement.pbjson.dart';
 
 export 'engagement.pb.dart';
 
 abstract class EngagementServiceBase extends $pb.GeneratedService {
-  $async.Future<$0.LikePostResponse> likePost(
-      $pb.ServerContext ctx, $0.LikePostRequest request);
-  $async.Future<$0.UnlikePostResponse> unlikePost(
-      $pb.ServerContext ctx, $0.UnlikePostRequest request);
-  $async.Future<$0.RepostPostResponse> repostPost(
-      $pb.ServerContext ctx, $0.RepostPostRequest request);
-  $async.Future<$0.UndoRepostResponse> undoRepost(
-      $pb.ServerContext ctx, $0.UndoRepostRequest request);
+  $async.Future<$3.LikePostResponse> likePost(
+      $pb.ServerContext ctx, $3.LikePostRequest request);
+  $async.Future<$3.UnlikePostResponse> unlikePost(
+      $pb.ServerContext ctx, $3.UnlikePostRequest request);
+  $async.Future<$3.RepostPostResponse> repostPost(
+      $pb.ServerContext ctx, $3.RepostPostRequest request);
+  $async.Future<$3.UndoRepostResponse> undoRepost(
+      $pb.ServerContext ctx, $3.UndoRepostRequest request);
+  $async.Future<$3.AddBookmarkResponse> addBookmark(
+      $pb.ServerContext ctx, $3.AddBookmarkRequest request);
+  $async.Future<$3.RemoveBookmarkResponse> removeBookmark(
+      $pb.ServerContext ctx, $3.RemoveBookmarkRequest request);
+  $async.Future<$3.ListBookmarksResponse> listBookmarks(
+      $pb.ServerContext ctx, $3.ListBookmarksRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'LikePost':
-        return $0.LikePostRequest();
+        return $3.LikePostRequest();
       case 'UnlikePost':
-        return $0.UnlikePostRequest();
+        return $3.UnlikePostRequest();
       case 'RepostPost':
-        return $0.RepostPostRequest();
+        return $3.RepostPostRequest();
       case 'UndoRepost':
-        return $0.UndoRepostRequest();
+        return $3.UndoRepostRequest();
+      case 'AddBookmark':
+        return $3.AddBookmarkRequest();
+      case 'RemoveBookmark':
+        return $3.RemoveBookmarkRequest();
+      case 'ListBookmarks':
+        return $3.ListBookmarksRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -49,13 +61,19 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'LikePost':
-        return likePost(ctx, request as $0.LikePostRequest);
+        return likePost(ctx, request as $3.LikePostRequest);
       case 'UnlikePost':
-        return unlikePost(ctx, request as $0.UnlikePostRequest);
+        return unlikePost(ctx, request as $3.UnlikePostRequest);
       case 'RepostPost':
-        return repostPost(ctx, request as $0.RepostPostRequest);
+        return repostPost(ctx, request as $3.RepostPostRequest);
       case 'UndoRepost':
-        return undoRepost(ctx, request as $0.UndoRepostRequest);
+        return undoRepost(ctx, request as $3.UndoRepostRequest);
+      case 'AddBookmark':
+        return addBookmark(ctx, request as $3.AddBookmarkRequest);
+      case 'RemoveBookmark':
+        return removeBookmark(ctx, request as $3.RemoveBookmarkRequest);
+      case 'ListBookmarks':
+        return listBookmarks(ctx, request as $3.ListBookmarksRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
