@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
@@ -401,4 +403,145 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): the opt-in card across the responsive matrix, and a
+  // fast double tap on "Turn on".
+  // ---------------------------------------------------------------------
+
+  group('W2-13 responsive matrix', () {
+    for (final dark in [false, true]) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          testWidgets(
+            '${dark ? 'dark' : 'light'} ${width.toInt()}dp x$scale: both '
+            'placements fit, 48dp actions, text inside the screen',
+            (tester) async {
+              await open(
+                tester,
+                theme: dark ? appDarkTheme : appLightTheme,
+                size: Size(width, 900),
+                textScale: scale,
+                placements: const [
+                  PushOptInPlacement.home,
+                  PushOptInPlacement.notifications,
+                ],
+              );
+
+              expect(tester.takeException(), isNull);
+              expect(find.text('Turn on notifications'), findsNWidgets(2));
+              expect(find.text('Turn on'), findsNWidgets(2));
+              expect(find.text('Not now'), findsNWidgets(2));
+              for (final f in [
+                find.byType(AppPillButton),
+                find.widgetWithText(TextButton, 'Not now'),
+              ]) {
+                for (var i = 0; i < 2; i++) {
+                  expect(
+                    tester.getSize(f.at(i)).height,
+                    greaterThanOrEqualTo(48),
+                  );
+                }
+              }
+              final title = tester.getRect(
+                find.text('Turn on notifications').first,
+              );
+              expect(title.left, greaterThanOrEqualTo(0));
+              expect(title.right, lessThanOrEqualTo(width));
+            },
+          );
+        }
+      }
+    }
+  });
+
+  group('W2-13 double tap', () {
+    testWidgets('two taps on "Turn on" before a frame ask the OS once and '
+        'register one device', (tester) async {
+      await open(tester);
+
+      await tester.tap(find.text('Turn on'));
+      await tester.tap(find.text('Turn on'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(messaging.permissionRequests, 1);
+      verify(
+        () => repo.registerDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+          fcmToken: any(named: 'fcmToken'),
+          platform: any(named: 'platform'),
+        ),
+      ).called(1);
+      expect(find.text('Turn on notifications'), findsNothing);
+    });
+
+    testWidgets('a double tap on "Turn on" that is denied asks once and shows '
+        'one hint', (tester) async {
+      messaging.nextPermissionAnswer = PushPermission.denied;
+      await open(tester, placements: const [PushOptInPlacement.notifications]);
+
+      await tester.tap(find.text('Turn on'));
+      await tester.tap(find.text('Turn on'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(messaging.permissionRequests, 1);
+      expect(find.text(hint), findsOneWidget);
+      verifyNever(
+        () => repo.registerDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+          fcmToken: any(named: 'fcmToken'),
+          platform: any(named: 'platform'),
+        ),
+      );
+    });
+  });
+
+  testWidgets('W2-13: while the OS dialog is still open a second tap does not ask '
+      'again; the answer registers once', (tester) async {
+    final held = _HeldPermissionMessaging();
+    await optIn.close();
+    await push.close();
+    push = PushCubit(messaging: held, repository: repo);
+    optIn = PushOptInCubit(store: store, push: push, now: () => now);
+    await open(tester);
+
+    await tester.tap(find.text('Turn on'));
+    await tester.pump();
+    expect(held.permissionRequests, 1);
+    expect(find.text('Turn on'), findsOneWidget, reason: 'busy, still there');
+    await tester.tap(find.text('Turn on'));
+    await tester.pump();
+    expect(held.permissionRequests, 1, reason: 'the second tap was ignored');
+    await push.enable(); // a stray programmatic second call is ignored too
+    expect(held.permissionRequests, 1);
+
+    held.gate.complete(PushPermission.granted);
+    await tester.pumpAndSettle();
+
+    expect(held.permissionRequests, 1);
+    verify(
+      () => repo.registerDevice(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        deviceId: any(named: 'deviceId'),
+        fcmToken: any(named: 'fcmToken'),
+        platform: any(named: 'platform'),
+      ),
+    ).called(1);
+  });
+}
+
+/// A messaging fake whose OS permission dialog stays open until [gate] completes.
+class _HeldPermissionMessaging extends FakePushMessaging {
+  final Completer<PushPermission> gate = Completer<PushPermission>();
+
+  @override
+  Future<PushPermission> requestPermission() {
+    permissionRequests++;
+    return gate.future.then((answer) {
+      currentPermission = answer;
+      return answer;
+    });
+  }
 }
