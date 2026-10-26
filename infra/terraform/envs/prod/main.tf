@@ -36,7 +36,7 @@ module "iam" {
   # reads them, release-prod only creates new ones) and must not be able to delete the v* release tags.
 
   # prod deploys ONLY from version tags — see release-rollout skill
-  # (tag v* -> --no-traffic --tag rc -> smoke -> manual GO -> traffic shift).
+  # (tag v* -> --no-traffic --tag candidate -> smoke -> VERDICT: GO -> founder dispatches promote-prod 10% then 100%).
   deploy_ref_condition   = "assertion.ref.startsWith('refs/tags/v')"
   deploy_ref_description = "version tags only (refs/tags/v*)"
 

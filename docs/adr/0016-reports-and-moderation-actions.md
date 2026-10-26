@@ -4,6 +4,11 @@ Date: 2026-10-10 (amended 2026-10-17: D10 decided, D2/D3 corrections; founder ap
 Deciders: architect (proposed by the P7 slice agent), founder (decisions delegated to the lead 2026-10-10, recorded in
 `docs/plans/reports.md` "Decisions (delegated 2026-10-10)"; ADR accepted 2026-10-17).
 
+> Note (2026-10-26): the "$0 at Stage 0" figures below are the planning assumption of the time and are kept as
+> history. The measured model (ADR-0022, `docs/reviews/cost-model.md`) puts Stage 0 as configured at about
+> INR 434 / 1,626 / 3,396 per month at 300 / 1,000 / 3,000 DAU (egress to India, Vision past 1,000 units, Firestore
+> reads past about 215 DAU). The prime directive forbids a fixed monthly fee, not a per-use bill. No decision changes.
+
 Plan: `docs/plans/reports.md` (P7). Builds on ADR-0003 (`reports` row), ADR-0005 (moderation), ADR-0008 (block UI,
 D9), ADR-0010 (D6 visibility matrix, **D10 suspension obligation**, D19 Q-E) and ADR-0011 (Q1 eraser order, Q10 residue).
 

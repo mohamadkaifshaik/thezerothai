@@ -2,7 +2,7 @@ name: Release prod
 
 # Tag v* (push, or workflow_dispatch run against that tag ref) -> build &
 # push image -> deploy to prod Cloud Run with --no-traffic --tag candidate -> smoke
-# test the rc URL -> build mobile release artifacts.
+# test the candidate URL -> build mobile release artifacts.
 #
 # This workflow NEVER shifts prod traffic and NEVER deploys Firebase Hosting.
 # Promotion (10% -> 100%, plus the prod web deploy) is a separate, manual
@@ -134,7 +134,7 @@ jobs:
             --no-traffic --tag=candidate \
             --quiet
 
-      - name: Resolve rc revision URL
+      - name: Resolve candidate revision URL
         id: rc_url
         env:
           SERVICE: ${{ vars.PROD_SERVICE_NAME }}
@@ -151,9 +151,9 @@ jobs:
             exit 1
           fi
           echo "url=${url}" >> "$GITHUB_OUTPUT"
-          echo "rc revision: ${url}"
+          echo "candidate revision: ${url}"
 
-      - name: Smoke test rc revision (/health)
+      - name: Smoke test candidate revision (/health)
         env:
           RC_URL: ${{ steps.rc_url.outputs.url }}
         run: |

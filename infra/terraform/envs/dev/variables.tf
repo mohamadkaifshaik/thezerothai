@@ -74,7 +74,7 @@ variable "image" {
 }
 
 variable "budget_amount" {
-  description = "Monthly budget in budget_currency_code units (~$5 at Stage 0)."
+  description = "Monthly budget alert threshold in budget_currency_code units. Stage 0 as configured costs about INR 434/month at 300 DAU (ADR-0022, docs/reviews/cost-model.md); this is an alert, not a fixed fee."
   type        = number
   default     = 500
 }

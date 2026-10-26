@@ -5,7 +5,7 @@ description: Target design and implementation rules for premium, modern X/Twitte
 
 # Flutter modern UI
 
-This skill defines the **target design**. It does not authorize unrelated refactors or feature changes. Inspect existing screens, tokens, BLoCs, models, routing and tests first; apply incrementally, reuse existing components (`reuse-first`, `docs/ui-catalog.md`), keep diffs small, and leave screens that already comply alone. Keep BLoC. Never touch ranking/rank-cron code.
+This skill defines the **target design**. It does not authorize unrelated refactors or feature changes. Inspect existing screens, tokens, BLoCs, models, routing and tests first; apply incrementally, reuse existing components (`reuse-first`, `docs/ui-catalog.md`), keep diffs small, and leave screens that already comply alone. Keep BLoC. Home is chronological Following only (founder, 2026-10-22); no client-side ranking.
 
 ## State management boundary (BLoC only)
 - All high-density components (feeds, action bars, profile views) are driven strictly by `BlocBuilder` or `BlocConsumer` over freezed bloc states. No Riverpod/`ConsumerWidget`/`AsyncNotifier`, and no state held in widgets beyond ephemeral UI (focus, animation).
@@ -19,8 +19,7 @@ This skill defines the **target design**. It does not authorize unrelated refact
 
 ## Tokens
 - Spacing: 8dp grid (4dp only for icon↔text micro-gaps). Use existing spacing tokens; add missing ones to `lib/core/theme/`, never inline magic numbers.
-- **Superseded 2026-10-22 (ADR-0020, Accepted):** the colour system follows X (dark `#000000 / #e7e9ea / #71767b / #2f3336`, light `#ffffff / #0f1419 / #536471 / #eff3f4`, accent `#1d9bf0`; no indigo, no gradient). The palette and the "never pure `#000`" rule in the next bullet no longer apply; use `context.appColors` and see `docs/ui-catalog.md`.
-- Dark palette (founder decision 2026-10-21, ADR-free: tokens only): background `0xFF070A11`, surfaces layering lighter `0xFF0C101A` / `0xFF101623` / `0xFF151C2C` / `0xFF1B2436`, text `0xFFEDF3FF`, border `0xFF212A3A`, accent `0xFF6A91FF`, tertiary `0xFF9A7BFF` (all in `core/theme/app_theme.dart`, contrast asserted in `app_theme_test.dart`); primary text soft off-white, secondary muted; never pure black text on light, never pure `#000` surfaces. Borders: 1dp, low-contrast divider color. All text ≥ AA contrast. Light theme must remain working.
+- Colours (ADR-0020, Accepted 2026-10-22): the colour system follows X and nothing else. Dark: background `#000000`, text `#e7e9ea`, secondary `#71767b`, border `#2f3336`. Light: background `#ffffff`, text `#0f1419`, secondary `#536471`, border `#eff3f4`. Accent `#1d9bf0`; like `#f91880`, repost `#00ba7c`. No indigo, no gradient, no brand tint on surfaces. Always read tokens through `context.appColors` / `core/theme/app_theme.dart` (contrast asserted in `app_theme_test.dart`), never literals. Borders 1dp in the border token. All text ≥ AA contrast. Light theme must remain working. (The 2026-10-21 indigo palette with background `0xFF070A11` is retired; if you meet it in old code, migrate to the tokens.)
 - Typography: from `Theme.of(context).textTheme`/tokens only; respect dynamic type (no fixed-height text boxes).
 - Icons: one consistent outline set (the project's existing one); 20–24dp visuals inside 48dp targets.
 

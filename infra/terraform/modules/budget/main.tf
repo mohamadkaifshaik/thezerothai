@@ -1,4 +1,5 @@
-// Billing budget: ~$5/month (in the billing account's currency), alerts at 25/50/90/100% actual spend + 100%
+// Billing budget in the billing account's currency. Stage 0 as configured runs about INR 434/month at 300 DAU
+// (ADR-0022, docs/reviews/cost-model.md; the directive forbids a fixed fee, not a per-use bill). Alerts at 25/50/90/100% actual spend + 100%
 // forecast, emailed to founders AND published to a Pub/Sub topic so a future
 // automation (e.g. a tiny Cloud Function flipping DEGRADED_MODE) can react.
 //

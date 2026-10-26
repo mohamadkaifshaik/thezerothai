@@ -44,9 +44,11 @@ Post detail = post doc + `posts where conversationId == root order by createdAt 
 Accounts with many followers are read by many users → the author-recent cache makes them *cheaper*, not more expensive.
 No special handling at Stage 0.
 
-## Path to Stage 2 (ADR required)
-When reads > ~1.5M/day: materialize per-user timelines in Memorystore (push for authors < 10k followers, pull merge for
-larger), keeping Firestore as source of truth. The RPC contract and cursor format stay the same, so clients don't change.
+## Path to Stage 2 (ADR required; `stage-ladder` skill, timeline row)
+When reads > ~1.5M/day (`free-tier-budget` §6): materialize per-user timelines in Memorystore (push for authors < 10k
+followers, pull merge for larger), keeping Firestore as source of truth. The RPC contract and cursor format stay the same,
+so clients don't change. To keep that true now: the merge lives behind the `timeline` module interface, never in the
+handler; cursors are opaque and versioned; the per-instance cache sits behind an interface with a stated staleness bound.
 
 ## Rules
 - Ranking ("For You") is a separate module that consumes the same candidates; the chronological feed never depends on it.

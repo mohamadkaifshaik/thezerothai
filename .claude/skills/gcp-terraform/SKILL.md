@@ -23,7 +23,7 @@ infra/terraform/
     secrets            # only what can't be env config (≤ 6 active versions across the project)
     budget             # google_billing_budget: $5, thresholds 0.25/0.5/0.9/1.0 + forecast 1.0, pubsub topic billing-alerts;
                        #   net per project + gross `credit-runway` custom-period budget (ADR-0022)
-    monitoring         # 1 dashboard (reads, writes, requests, instances, egress), 1 uptime check on /healthz, ≤ 3 alert policies
+    monitoring         # 1 dashboard (reads, writes, requests, instances, egress), 1 uptime check on /health, ≤ 3 alert policies
     firebase           # google_firebase_project, web/android/ios apps, hosting site; App Check config
   envs/{dev,prod}/{main.tf,variables.tf,terraform.tfvars,backend.tf}
 ```

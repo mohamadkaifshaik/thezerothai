@@ -10,6 +10,11 @@ standing invariant in ADR-0009; no decision here changes.
 Date: 2026-09-28
 Deciders: architect, founder (D1: private accounts and follow requests deferred — founder decision, 2026-09-28)
 
+> Note (2026-10-26): the "$0 at Stage 0" figures below are the planning assumption of the time and are kept as
+> history. The measured model (ADR-0022, `docs/reviews/cost-model.md`) puts Stage 0 as configured at about
+> INR 434 / 1,626 / 3,396 per month at 300 / 1,000 / 3,000 DAU (egress to India, Vision past 1,000 units, Firestore
+> reads past about 215 DAU). The prime directive forbids a fixed monthly fee, not a per-use bill. No decision changes.
+
 Inputs: `docs/plans/graph.md` (questions Q1–Q13), CLAUDE.md, ADR-0002, ADR-0003, ADR-0004, ADR-0006 (+ amendments
 2026-09-27 and 2026-09-28), `docs/reviews/cost-model.md`, `docs/reviews/release-v0.1.0-readiness.md` §4 (L9, R-N8, R-N12).
 Contract: `dzeroth.graph.v1.GraphService`; changes to `identity.v1` and `common.v1` listed in D5.

@@ -1,5 +1,5 @@
 # Composer: W1.5 conformance + W6 reply audience, content disclosure, scheduled posts
-Plan owner: planner · Stage 0 ($0) · **DRAFT, not accepted.** Part 1 is client-only. Part 2 needs an architect ADR + proto change before any code, and a founder OK (new proto fields; possibly a scheduler job).
+Plan owner: planner · Stage 0 (free tier, per use past it) · **DRAFT, not accepted.** Part 1 is client-only. Part 2 needs an architect ADR + proto change before any code, and a founder OK (new proto fields; possibly a scheduler job).
 Source: `docs/x_research/screens/composer.md` (captured 2026-10-23, local, git-ignored), `docs/plans/roadmap.md` (W1.5, W6, B-29), existing `app/lib/features/posts/presentation/composer_screen.dart`.
 Branches: `feat/composer-<id>-<slug>`; one ticket per PR; merge `origin/main` into the branch. Every user-facing Part 2 feature ships behind its own `FEATURE_*` flag (see `flag-rollout`).
 

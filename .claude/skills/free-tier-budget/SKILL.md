@@ -37,10 +37,13 @@ For each RPC write a row:
 Then: `daily reads = Σ(typical reads × calls per DAU) × DAU` and compare to **80% of quota** (40k reads, 16k writes).
 Keep the running table for the whole product in `docs/reviews/cost-model.md` (sre-performance owns it).
 
-Reference numbers for Stage 0 planning (update from real metrics once live):
-- ~80–150 reads and ~15–25 writes per DAU per day with caching → **free up to roughly 250–500 DAU**.
-- Past that, Firestore overage is on the order of cents per 100k operations (check current Firestore pricing for
-  the chosen location) → ~1k DAU is typically a few USD/month. That's the plan: pay-per-use, no step changes.
+Reference numbers for Stage 0 planning (`docs/reviews/cost-model.md` and ADR-0022 hold the measured model; update from
+real metrics once live):
+- The whole-product model is about 215 reads per DAU per day with caching, so **Firestore reads pass the free 50k/day at
+  about 215 DAU**; writes and deletes stay inside quota far longer.
+- Stage 0 as configured is **not $0 at real traffic**: about INR 434 / 1,626 / 3,396 per month at 300 / 1,000 / 3,000 DAU.
+  Egress to India is never free, Vision SafeSearch is paid past 1,000 units a month (2 units per image), and Firestore
+  overage is cents per 100k operations. That's the plan: pay-per-use, no fixed fee, no step changes.
 - Cloud Run: ~15–30 requests per DAU/day → 2M requests ≈ 2k–4k DAU. Not the binding limit.
 - Media: ~300 KB per image (full + thumb). 5 GB ≈ 15k images; after that ~$0.02/GB-month.
 
@@ -74,7 +77,7 @@ Reference numbers for Stage 0 planning (update from real metrics once live):
 - One dashboard (Terraform) with those 5 charts. Keep alert policies to a small handful — check Cloud Monitoring pricing for alerting before adding more.
 - Weekly: sre-performance appends actuals vs model to `docs/reviews/cost-model.md`.
 
-## 6. Scale-up triggers (need an ADR; any one sustained 7 days)
+## 6. Scale-up triggers (need an ADR; any one sustained 7 days; the `stage-ladder` skill maps each to the seam it moves)
 | Signal | Next step (roughly in order of cost) |
 |---|---|
 | Firestore > 1.5M reads/day or bill > $30/month | Tighten caching → Memorystore Basic 1 GB timeline cache or Cloud SQL (ADR) |

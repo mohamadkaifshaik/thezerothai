@@ -1,6 +1,7 @@
 // Cloud Run v2 service `api` — the entire backend modular monolith.
-// Request-based billing only: min 0 (scales to zero), max 3 (cost cap +
-// blast-radius cap), 1 vCPU / 512Mi, CPU allocated only during requests,
+// Request-based billing only: min 0 (scales to zero; the only exception is the ADR-0022 credit mode, a
+// SERVICE-level min 1 in prod until 2026-12-22, carried on the caller's line by a `# cost-approved: ADR-0022`
+// marker with its until date), max 3 (cost cap + blast-radius cap), 1 vCPU / 512Mi, CPU allocated only during requests,
 // concurrency 80, 30s timeout. Public invoker: authn is Firebase ID tokens
 // checked in Go, not IAM — this is what lets us skip a load balancer/IAP.
 
@@ -13,7 +14,7 @@ resource "google_cloud_run_v2_service" "api" {
   # ADR-0022 (credit mode): SERVICE-level minimum instances, never revision-level. A revision-level minimum starts
   # every revision that holds a traffic tag (prod tags `candidate`) and keeps it warm; a service-level minimum is split
   # across the revisions that are in the traffic split (Cloud Run min-instances doc, "Apply minimum instances at
-  # service-level versus revision-level"). Default 0 = Stage 0: cost-guard (gcp-terraform skill) blocks raising it
+  # service-level versus revision-level"). Default 0 = Stage 0 (scale to zero): cost-guard (gcp-terraform skill) blocks raising it
   # without `# cost-approved: ADR-NNNN`, and the caller carries that marker on the line that passes a non-zero value.
   scaling {
     min_instance_count = var.min_instance_count
