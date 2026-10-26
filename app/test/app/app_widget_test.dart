@@ -21,6 +21,7 @@ import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
+import 'package:dzeroth/features/notifications/presentation/bloc/push_opt_in_cubit.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -267,6 +268,32 @@ void main() {
 
     expect(badge.state, 0);
     expect(messaging.tokenDeletes, 1);
+  });
+
+  testWidgets('the push opt-in record follows the signed-in account (W2-12)', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: ready(),
+    );
+    final optIn = BlocProvider.of<PushOptInCubit>(
+      tester.element(find.byType(MaterialApp)),
+    );
+    // The record is read from the real in-memory database.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    expect(optIn.state.uid, 'uid-1');
+    expect(optIn.state.loaded, isTrue);
+
+    authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    expect(optIn.state.uid, isNull);
+    expect(optIn.state.canOffer, isFalse);
   });
 
   testWidgets('a foreground push bumps the badge outside the list', (

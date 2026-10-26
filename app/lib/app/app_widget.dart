@@ -25,8 +25,10 @@ import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/moderation/data/moderation_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
+import '../features/notifications/data/push_opt_in_store.dart';
 import '../features/notifications/domain/notifications_feature_flag.dart';
 import '../features/notifications/presentation/bloc/push_cubit.dart';
+import '../features/notifications/presentation/bloc/push_opt_in_cubit.dart';
 import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -120,6 +122,12 @@ class _AppWidgetState extends State<AppWidget> {
   late final BookmarksCubit _bookmarks = BookmarksCubit(
     repository: widget.bookmarksRepository,
   );
+  // The "Turn on notifications" card's memory (W2-12): one "Not now" per
+  // account for Home and Notifications; keyed by the signed-in uid.
+  late final PushOptInCubit _pushOptIn = PushOptInCubit(
+    store: DatabasePushOptInStore(widget.database),
+    push: widget.pushCubit,
+  );
   late final ServicePausedCubit _servicePaused =
       widget.servicePausedCubit ?? ServicePausedCubit();
   late final StreamSubscription<AuthState> _authSub;
@@ -138,6 +146,7 @@ class _AppWidgetState extends State<AppWidget> {
     super.initState();
     unawaited(_themeMode.load());
     _authSub = widget.authBloc.stream.listen((state) {
+      unawaited(_pushOptIn.load(state.user?.uid));
       if (state.status == AuthStatus.unauthenticated) {
         _pendingPosts.clear();
         _engagement.reset();
@@ -148,6 +157,7 @@ class _AppWidgetState extends State<AppWidget> {
         unawaited(widget.pushCubit.stop());
       }
     });
+    unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
     widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
     widget.pushCubit.onForeground = _onForegroundPush;
     // Every fresh GetMe (a new flag-set instance) seeds the badge, and
@@ -198,6 +208,7 @@ class _AppWidgetState extends State<AppWidget> {
     _engagement.close();
     _bookmarks.close();
     _themeMode.close();
+    _pushOptIn.close();
     super.dispose();
   }
 
@@ -236,6 +247,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: _engagement),
           BlocProvider.value(value: _bookmarks),
           BlocProvider.value(value: widget.pushCubit),
+          BlocProvider.value(value: _pushOptIn),
           BlocProvider.value(value: widget.unreadBadgeCubit),
           BlocProvider.value(value: _themeMode),
           BlocProvider.value(value: _servicePaused),

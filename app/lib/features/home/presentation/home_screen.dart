@@ -7,6 +7,7 @@ import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
+import '../../notifications/presentation/widgets/push_opt_in_card.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_state.dart';
 import '../../posts/data/posts_repository.dart';
@@ -78,6 +79,11 @@ class HomeScreen extends StatelessWidget {
                   onChanged: (_) {},
                   tabs: const [AppTab(label: 'Following')],
                 ),
+              ),
+              // One opt-in card above the feed (W2-12); hidden unless the
+              // notifications flag is on and push can be offered.
+              const SliverToBoxAdapter(
+                child: PushOptInCard(placement: PushOptInPlacement.home),
               ),
               if (canCompose)
                 const SliverToBoxAdapter(child: HomeComposerEntry()),

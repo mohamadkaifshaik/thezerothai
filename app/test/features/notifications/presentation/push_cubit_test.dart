@@ -105,6 +105,36 @@ void main() {
     },
   );
 
+  test(
+    'permissionKnown is false until start or enable has read the OS',
+    () async {
+      messaging.currentPermission = PushPermission.granted;
+      final cubit = build();
+      addTearDown(cubit.close);
+
+      // Only the default: a granted user would look like "not asked yet".
+      expect(cubit.state.canPrompt, isTrue);
+      expect(cubit.state.permissionKnown, isFalse);
+
+      await cubit.start();
+      expect(cubit.state.permission, PushPermission.granted);
+      expect(cubit.state.permissionKnown, isTrue);
+
+      await cubit.stop();
+      expect(cubit.state.permissionKnown, isFalse);
+    },
+  );
+
+  test('enable marks the answer as known', () async {
+    messaging.nextPermissionAnswer = PushPermission.denied;
+    final cubit = build();
+    addTearDown(cubit.close);
+
+    await cubit.enable();
+
+    expect(cubit.state.permissionKnown, isTrue);
+  });
+
   test('enable (the explicit tap) asks the OS then registers once', () async {
     final cubit = build();
     addTearDown(cubit.close);
