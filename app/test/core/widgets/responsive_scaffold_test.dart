@@ -457,7 +457,7 @@ void main() {
     });
   });
 
-  group('rail-only destinations (Bookmarks, W2-7)', () {
+  group('rail-only destinations (History, W2-7)', () {
     const withBookmarks = [
       AppNavDestination(
         icon: Icons.home_outlined,
@@ -467,7 +467,7 @@ void main() {
       AppNavDestination(
         icon: Icons.bookmark_border,
         selectedIcon: Icons.bookmark,
-        label: 'Bookmarks',
+        label: 'History',
         railOnly: true,
       ),
       AppNavDestination(

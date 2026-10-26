@@ -316,7 +316,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(AppBackHeader),
-            matching: find.text('Bookmarks'),
+            matching: find.text('History'),
           ),
           findsOneWidget,
         );
@@ -695,7 +695,7 @@ void main() {
 
               expect(tester.takeException(), isNull);
               expect(rows(), findsWidgets);
-              expect(find.text('Bookmarks'), findsWidgets);
+              expect(find.text('History'), findsWidgets);
               expect(filledBookmark(), findsWidgets);
               // The column is capped on wide screens.
               final header = tester.getSize(find.byType(AppBackHeader)).width;

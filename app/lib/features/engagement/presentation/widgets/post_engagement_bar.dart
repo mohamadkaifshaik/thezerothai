@@ -6,9 +6,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
+import '../../../../core/share/share_links.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post_action_bar.dart';
+import '../../../../shared/widgets/post_share_menu.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';
 import '../../../posts/presentation/quote_gate.dart';
@@ -46,8 +48,9 @@ pb.EmbeddedPost quotePreviewOf(pb.PostView view) {
 ///   rebuilds one card, not the list. A cubit entry older than the row (the
 ///   feed refreshed since) is ignored: the newer server data wins.
 /// - Reply opens the post (its thread has the composer) and is offered only
-///   with the `replies` sub-feature and [showReply]; Share does not exist
-///   yet, so it is not offered; Quote is in the repost sheet when
+///   with the `replies` sub-feature and [showReply]; Share (W2-8) opens the
+///   share menu for the target's link and needs a `ShareLinksScope` above (no
+///   scope, no Share; no RPC either way); Quote is in the repost sheet when
 ///   [quoteCreationAllowed] (`engagement` + `quotes` in the flag set, and no
 ///   remembered server FEATURE_DISABLED for `quotes`).
 /// - A failed action shows one snackbar (from the card of that target),
@@ -91,6 +94,7 @@ class PostEngagementBar extends StatelessWidget {
     final replyBlocked = replies && replyKnownNotAllowed(view);
     final flagOn = isFeatureEnabled(context, kFeatureBookmarks);
     final bookmarksOn = bookmarkEnabled ?? flagOn;
+    final shareLinks = ShareLinksScope.maybeOf(context);
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -133,6 +137,16 @@ class PostEngagementBar extends StatelessWidget {
                     cubit.setLiked(target, liked: !current.liked, shown: shown),
                 onRepost: () => _repost(context, cubit, target, current, shown),
                 onBookmark: onBookmark,
+                onShare: shareLinks == null
+                    ? null
+                    : () => unawaited(
+                        showPostShareMenu(
+                          context,
+                          url: shareLinks.postUrl(target),
+                          nativeShare: shareLinks.nativeShare,
+                          anchor: trailingTargetRect(context),
+                        ),
+                      ),
               ),
             );
         // Bookmarks (ADR-0023): the icon exists only with the `bookmarks`

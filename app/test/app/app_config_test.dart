@@ -94,4 +94,49 @@ void main() {
       expect(config.firebaseEnv, FirebaseEnv.dev);
     });
   });
+  group('AppConfig.resolveShareOrigin', () {
+    String resolve(String defined, [FirebaseEnv env = FirebaseEnv.dev]) =>
+        AppConfig.resolveShareOrigin(definedOrigin: defined, firebaseEnv: env);
+
+    test('defaults follow the Firebase env', () {
+      expect(resolve('', FirebaseEnv.prod), 'https://dzeroth.com');
+      expect(resolve('', FirebaseEnv.dev), 'https://dzeroth-dev.web.app');
+    });
+
+    test('an https origin override wins, one trailing slash dropped', () {
+      expect(
+        resolve('https://staging.example.test', FirebaseEnv.prod),
+        'https://staging.example.test',
+      );
+      expect(
+        resolve('https://example.test:8443/'),
+        'https://example.test:8443',
+      );
+    });
+
+    test('anything that is not a bare https origin is refused', () {
+      for (final bad in [
+        'http://example.test',
+        'example.test',
+        '//example.test',
+        'https://',
+        'https://example.test/app',
+        'https://example.test//',
+        'https://example.test?x=1',
+        'https://example.test/?x=1',
+        'https://example.test#top',
+        'https://user:pw@example.test',
+        'javascript:alert(1)',
+      ]) {
+        expect(() => resolve(bad), throwsA(isA<AppConfigError>()), reason: bad);
+      }
+    });
+
+    test('fromEnvironment carries the dev default', () {
+      expect(
+        AppConfig.fromEnvironment().shareOrigin,
+        'https://dzeroth-dev.web.app',
+      );
+    });
+  });
 }

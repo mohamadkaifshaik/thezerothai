@@ -580,7 +580,7 @@ void main() {
             .destinations
             .map((d) => (d.label as Text).data)
             .toList();
-        expect(labels, ['Home', 'Bookmarks', 'Profile']);
+        expect(labels, ['Home', 'History', 'Profile']);
 
         await tester.tap(find.byIcon(Icons.bookmark_border));
         await tester.pumpAndSettle();

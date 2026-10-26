@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
+import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_mode_cubit.dart';
@@ -64,6 +65,7 @@ class AppWidget extends StatefulWidget {
     required this.pushCubit,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
+    this.shareLinks,
   });
 
   final AuthBloc authBloc;
@@ -96,6 +98,10 @@ class AppWidget extends StatefulWidget {
   /// Drives the full-screen "service paused" state (ADR-0022); bootstrap
   /// shares it with the API client. Null (tests) means never paused.
   final ServicePausedCubit? servicePausedCubit;
+
+  /// The share origin and native share sheet for the post Share action (W2-8),
+  /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
+  final ShareLinks? shareLinks;
 
   /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
   final MediaRepository mediaRepository;
@@ -253,38 +259,41 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: _themeMode),
           BlocProvider.value(value: _servicePaused),
         ],
-        child: BlocBuilder<ThemeModeCubit, ThemeMode>(
-          builder: (context, mode) => MaterialApp.router(
-            title: 'Dzeroth',
-            debugShowCheckedModeBanner: false,
-            theme: appLightTheme,
-            darkTheme: appDarkTheme,
-            themeMode: mode,
-            routerConfig: _appRouter.router,
-            builder: (context, child) {
-              final dark = Theme.of(context).brightness == Brightness.dark;
-              final surface = Theme.of(context).colorScheme.surface;
-              // The web theme colour and the status-bar icons follow the
-              // theme (a top bar that is not an `AppBar` sets neither).
-              return Title(
-                title: 'Dzeroth',
-                color: surface,
-                child: AnnotatedRegion<SystemUiOverlayStyle>(
-                  value: SystemUiOverlayStyle(
-                    statusBarColor: Colors.transparent,
-                    statusBarIconBrightness: dark
-                        ? Brightness.light
-                        : Brightness.dark,
-                    statusBarBrightness: dark
-                        ? Brightness.dark
-                        : Brightness.light,
+        child: ShareLinksScope(
+          links: widget.shareLinks,
+          child: BlocBuilder<ThemeModeCubit, ThemeMode>(
+            builder: (context, mode) => MaterialApp.router(
+              title: 'Dzeroth',
+              debugShowCheckedModeBanner: false,
+              theme: appLightTheme,
+              darkTheme: appDarkTheme,
+              themeMode: mode,
+              routerConfig: _appRouter.router,
+              builder: (context, child) {
+                final dark = Theme.of(context).brightness == Brightness.dark;
+                final surface = Theme.of(context).colorScheme.surface;
+                // The web theme colour and the status-bar icons follow the
+                // theme (a top bar that is not an `AppBar` sets neither).
+                return Title(
+                  title: 'Dzeroth',
+                  color: surface,
+                  child: AnnotatedRegion<SystemUiOverlayStyle>(
+                    value: SystemUiOverlayStyle(
+                      statusBarColor: Colors.transparent,
+                      statusBarIconBrightness: dark
+                          ? Brightness.light
+                          : Brightness.dark,
+                      statusBarBrightness: dark
+                          ? Brightness.dark
+                          : Brightness.light,
+                    ),
+                    child: _PausedOverlay(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   ),
-                  child: _PausedOverlay(
-                    child: child ?? const SizedBox.shrink(),
-                  ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),

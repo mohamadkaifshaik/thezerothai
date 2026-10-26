@@ -55,8 +55,8 @@ class PostActionBar extends StatelessWidget {
   final bool bookmarked;
 
   /// Show an action whose callback is null (greyed out). False hides it, so
-  /// a bar can offer only what the caller's flags allow (no Share until it
-  /// exists, no Reply while replies are off).
+  /// a bar can offer only what the caller's flags allow (no Share without a
+  /// share link scope, no Reply while replies are off).
   final bool showDisabled;
 
   /// When set, Reply is shown disabled whatever [showDisabled] says, and

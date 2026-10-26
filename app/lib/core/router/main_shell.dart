@@ -66,7 +66,7 @@ class MainShell extends StatelessWidget {
         AppNavDestination(
           icon: Icons.bookmark_border,
           selectedIcon: Icons.bookmark,
-          label: 'Bookmarks',
+          label: 'History',
           railOnly: true,
         ),
       ),

@@ -185,7 +185,7 @@ void main() {
         ]) {
           await pump(tester, profile: _alice, flags: flags);
           await openDrawer(tester);
-          expect(find.text('Bookmarks'), findsNothing, reason: '$flags');
+          expect(find.text('History'), findsNothing, reason: '$flags');
           expect(find.text('Settings'), findsOneWidget);
         }
       });
@@ -196,14 +196,14 @@ void main() {
         await openDrawer(tester);
 
         final y = [
-          for (final l in ['Profile', 'Bookmarks', 'Settings'])
+          for (final l in ['Profile', 'History', 'Settings'])
             tester.getTopLeft(find.text(l)).dy,
         ];
         expect(y[0], lessThan(y[1]));
         expect(y[1], lessThan(y[2]));
         expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
 
-        await tester.tap(find.text('Bookmarks'));
+        await tester.tap(find.text('History'));
         await tester.pumpAndSettle();
 
         expect(find.byType(AppDrawer), findsNothing);

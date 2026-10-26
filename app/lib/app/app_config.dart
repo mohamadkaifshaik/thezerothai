@@ -24,6 +24,11 @@ import 'package:flutter/foundation.dart';
 /// Firebase project a build is wired to (see `lib/firebase_options*.dart`).
 enum FirebaseEnv { dev, prod }
 
+/// The default share origins (founder, W2-8): the prod custom domain and the
+/// dev Hosting site.
+const String kProdShareOrigin = 'https://dzeroth.com';
+const String kDevShareOrigin = 'https://dzeroth-dev.web.app';
+
 @immutable
 class AppConfig {
   const AppConfig({
@@ -36,6 +41,7 @@ class AppConfig {
     required this.appleServiceId,
     required this.appleRedirectUri,
     required this.firebaseEnv,
+    required this.shareOrigin,
   });
 
   /// Base URL of the Connect-RPC API (Cloud Run `api` service, or its local
@@ -78,6 +84,12 @@ class AppConfig {
   /// `--dart-define=FIREBASE_ENV=prod`; see [resolveFirebaseEnv].
   final FirebaseEnv firebaseEnv;
 
+  /// Public origin of the web app, used to build the links people share
+  /// (`<origin>/post/<id>`): `https://dzeroth.com` for prod builds,
+  /// `https://dzeroth-dev.web.app` for dev ones, or the validated
+  /// `--dart-define=PUBLIC_WEB_ORIGIN=...` override. See [resolveShareOrigin].
+  final String shareOrigin;
+
   static const String _appleServiceIdDefine = String.fromEnvironment(
     'APPLE_SERVICE_ID',
   );
@@ -106,12 +118,17 @@ class AppConfig {
     const appleServiceId = _appleServiceIdDefine;
     const appleRedirectUri = String.fromEnvironment('APPLE_REDIRECT_URI');
     const definedFirebaseEnv = String.fromEnvironment('FIREBASE_ENV');
+    const definedShareOrigin = String.fromEnvironment('PUBLIC_WEB_ORIGIN');
 
     final firebaseEnv = resolveFirebaseEnv(definedFirebaseEnv);
     final apiBaseUrl = resolveApiBaseUrl(
       definedApiBaseUrl: definedApiBaseUrl,
       releaseMode: kReleaseMode,
       isWeb: kIsWeb,
+    );
+    final shareOrigin = resolveShareOrigin(
+      definedOrigin: definedShareOrigin,
+      firebaseEnv: firebaseEnv,
     );
 
     return AppConfig(
@@ -124,6 +141,7 @@ class AppConfig {
       appleServiceId: appleServiceId,
       appleRedirectUri: appleRedirectUri,
       firebaseEnv: firebaseEnv,
+      shareOrigin: shareOrigin,
     );
   }
 
@@ -144,6 +162,50 @@ class AppConfig {
           'Unknown FIREBASE_ENV "$definedFirebaseEnv" (expected dev or prod).',
         );
     }
+  }
+
+  /// The origin shared post links are built on. Empty [definedOrigin] means
+  /// the build's default: [kProdShareOrigin] for [FirebaseEnv.prod],
+  /// [kDevShareOrigin] for [FirebaseEnv.dev]. An override must be an `https`
+  /// origin (host, optional port) with no path, query, fragment or user info;
+  /// one trailing slash is dropped. Anything else throws [AppConfigError], so
+  /// a typo cannot put a wrong or credential-bearing host into links that
+  /// users send to other people.
+  ///
+  /// The page's own `Uri.base` is deliberately not a fallback: a localhost or
+  /// preview-channel origin would end up in shared links.
+  @visibleForTesting
+  static String resolveShareOrigin({
+    required String definedOrigin,
+    required FirebaseEnv firebaseEnv,
+  }) {
+    if (definedOrigin.isEmpty) {
+      return switch (firebaseEnv) {
+        FirebaseEnv.dev => kDevShareOrigin,
+        FirebaseEnv.prod => kProdShareOrigin,
+      };
+    }
+    final trimmed = definedOrigin.endsWith('/')
+        ? definedOrigin.substring(0, definedOrigin.length - 1)
+        : definedOrigin;
+    final uri = Uri.tryParse(trimmed);
+    final valid =
+        uri != null &&
+        uri.scheme == 'https' &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty &&
+        !uri.hasQuery &&
+        !uri.hasFragment &&
+        uri.path.isEmpty &&
+        !trimmed.endsWith('?') &&
+        !trimmed.endsWith('#');
+    if (!valid) {
+      throw AppConfigError(
+        'PUBLIC_WEB_ORIGIN must be an https origin such as '
+        '$kProdShareOrigin (no path, query, fragment or user info).',
+      );
+    }
+    return trimmed;
   }
 
   /// Resolves [apiBaseUrl] from an explicit `--dart-define=API_BASE_URL=...`
