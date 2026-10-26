@@ -3,6 +3,11 @@ Status: Accepted — founder confirmed Firestore location `asia-south1` and prod
 Date: 2026-09-26
 Deciders: architect, founder
 
+> Note (2026-10-26): the "$0 at Stage 0" figures below are the planning assumption of the time and are kept as
+> history. The measured model (ADR-0022, `docs/reviews/cost-model.md`) puts Stage 0 as configured at about
+> INR 434 / 1,626 / 3,396 per month at 300 / 1,000 / 3,000 DAU (egress to India, Vision past 1,000 units, Firestore
+> reads past about 215 DAU). The prime directive forbids a fixed monthly fee, not a per-use bill. No decision changes.
+
 ## Context
 Stage 0, $0/month. Two GCP projects on one billing account (`dzeroth-dev`, `dzeroth-prod`); local development on the
 Firebase Emulator Suite. Firestore free quota is per project (`(default)` DB); Cloud Run, Cloud Scheduler (3 jobs) and

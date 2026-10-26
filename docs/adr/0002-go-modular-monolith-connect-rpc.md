@@ -3,6 +3,9 @@ Status: Accepted
 Date: 2026-09-26
 Deciders: architect, founder
 
+> Note (2026-10-26): "Go 1.23+" in the decision is the version at the time of writing and is kept as history. The
+> module is on Go 1.26 (`backend/go.mod`; CLAUDE.md "Stack"; CI uses the latest 1.26.x). No decision changes.
+
 ## Context
 Stage 0 (0 – ~300 DAU, $0/month). ADR-0001 fixed the platform: one Cloud Run service `api` (min 0 / max 3,
 512 MiB, concurrency 80) in `asia-south1`, Firestore, GCS, Firebase. We need to decide how the backend code and the
