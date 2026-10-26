@@ -193,6 +193,7 @@ Future<void> bootstrap() async {
     gate: bookmarksGate,
     epoch: database.sessionEpoch,
     onUnexpectedError: reportUnexpectedError,
+    rateLimitHold: rateLimitHold,
   );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,

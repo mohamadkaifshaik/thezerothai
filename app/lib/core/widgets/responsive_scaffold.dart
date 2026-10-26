@@ -21,8 +21,9 @@ export 'app_nav_destination.dart';
 ///   one. The cluster is centred.
 ///
 /// Mirrors X's web layout (`docs/x_research/screens/_shared.md`). The
-/// destinations are the high-frequency ones only; Profile/Settings/Sign out
-/// live in the drawer and the account chip menu.
+/// destinations are the high-frequency ones only; Settings/Sign out live in
+/// the drawer and the account chip menu. A destination marked
+/// `AppNavDestination.railOnly` (Bookmarks) is left out of the phone bar.
 class ResponsiveScaffold extends StatefulWidget {
   const ResponsiveScaffold({
     super.key,
@@ -86,6 +87,15 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   }
 
   Widget _narrow(BuildContext context) {
+    // The bar leaves out the rail-only destinations; indexes are translated
+    // both ways (the selection of a rail-only one is "none").
+    final bar = <int>[
+      for (var i = 0; i < widget.destinations.length; i++)
+        if (!widget.destinations[i].railOnly) i,
+    ];
+    final selected = widget.selectedIndex == null
+        ? -1
+        : bar.indexOf(widget.selectedIndex!);
     final scaffold = Scaffold(
       key: _scaffoldKey,
       drawer: widget.drawer,
@@ -98,9 +108,9 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
             )
           : null,
       bottomNavigationBar: AppBottomBar(
-        destinations: widget.destinations,
-        selectedIndex: widget.selectedIndex,
-        onSelected: widget.onDestinationSelected,
+        destinations: [for (final i in bar) widget.destinations[i]],
+        selectedIndex: selected < 0 ? null : selected,
+        onSelected: (index) => widget.onDestinationSelected(bar[index]),
       ),
     );
     if (widget.drawer == null) return scaffold;

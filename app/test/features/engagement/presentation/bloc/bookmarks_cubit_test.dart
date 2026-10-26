@@ -15,11 +15,12 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../support/fake_transport.dart';
 import '../../../../support/posts_fixtures.dart';
 
-pb.PostView _view() => pb.PostView(
+pb.PostView _view({bool? bookmarked}) => pb.PostView(
   post: pb.Post(
     postId: postId(1),
     author: common.AuthorSnapshot(userId: 'u1', handle: 'alice'),
   ),
+  bookmarkedByViewer: bookmarked,
 );
 
 void main() {
@@ -52,9 +53,55 @@ void main() {
 
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
-  test('the default server adapter is the single W2-1b hook: no flag yet', () {
-    expect(serverBookmarkedOf(_view()), isNull);
-    expect(cubit.serverStateOf(_view()), isNull);
+  group('the server flag (PostView.bookmarked_by_viewer, the one hook)', () {
+    test('serverBookmarkedOf reads the row flag', () {
+      expect(serverBookmarkedOf(_view(bookmarked: true)), isTrue);
+      expect(serverBookmarkedOf(_view(bookmarked: false)), isFalse);
+      expect(serverBookmarkedOf(_view()), isFalse, reason: 'absent is false');
+      expect(cubit.serverStateOf(_view(bookmarked: true)), isTrue);
+    });
+
+    test('a hydrated row shows bookmarked with no local toggle', () {
+      expect(cubit.state.entries, isEmpty);
+      expect(cubit.isBookmarked(postId(1), _view(bookmarked: true)), isTrue);
+      expect(cubit.isBookmarked(postId(1), _view(bookmarked: false)), isFalse);
+      expect(repo.snapshot(), isEmpty, reason: 'nothing was toggled');
+    });
+
+    test('a listed (untouched) entry yields to the server row: a row saying '
+        'false after a removal elsewhere is not shown bookmarked', () {
+      repo.recordListed([postId(1)]);
+
+      expect(cubit.isBookmarked(postId(1), _view(bookmarked: false)), isFalse);
+      expect(cubit.isBookmarked(postId(1), _view(bookmarked: true)), isTrue);
+    });
+
+    test('a stale local entry resolves per BookmarkEntry.resolve', () async {
+      final cached = _view(bookmarked: true);
+      // The user removes the bookmark on a row that said true.
+      unawaited(cubit.setBookmarked(postId(1), cached, saved: false));
+      await settle();
+      expect(cubit.isBookmarked(postId(1), cached), isFalse, reason: 'busy');
+      pending.single.complete(
+        eng.RemoveBookmarkResponse(
+          state: eng.BookmarkState(postId: postId(1), bookmarked: false),
+        ),
+      );
+      await settle();
+
+      // The cached row still says what it said when the user acted: the toggle
+      // wins. A refreshed row that says something else is newer and wins.
+      expect(cubit.isBookmarked(postId(1), cached), isFalse);
+      expect(cubit.isBookmarked(postId(1), _view(bookmarked: false)), isFalse);
+      final entry = cubit.state.entries[postId(1)]!;
+      expect(entry.resolve(true), isFalse);
+      expect(entry.resolve(false), isFalse);
+      // Bookmarked again elsewhere (a newer row says true while the entry
+      // started from false): the newer row wins.
+      const settled = BookmarkEntry(saved: false, touched: true, base: false);
+      expect(settled.resolve(true), isTrue, reason: 'newer row wins');
+      expect(settled.resolve(false), isFalse);
+    });
   });
 
   test('mirrors the optimistic entry, then the settled toast', () async {
@@ -100,7 +147,7 @@ void main() {
 
   test('reset (sign-out) forgets entries, toast and failure', () async {
     repo.recordListed([postId(1)]);
-    expect(cubit.isBookmarked(postId(1), _view()), isTrue);
+    expect(repo.isBookmarked(postId(1)), isTrue);
 
     cubit.reset();
 

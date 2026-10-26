@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
@@ -37,6 +39,7 @@ class MainShell extends StatelessWidget {
   /// with the `notifications` flag on (P6).
   static List<_Destination> _destinationsFor({
     required bool notifications,
+    required bool bookmarks,
     required bool settings,
   }) => [
     const _Destination(
@@ -54,6 +57,17 @@ class MainShell extends StatelessWidget {
           icon: Icons.notifications_none,
           selectedIcon: Icons.notifications,
           label: 'Notifications',
+        ),
+      ),
+    // Rail only (>= 600dp): below that the drawer carries the entry.
+    if (bookmarks)
+      const _Destination(
+        _Tab.bookmarks,
+        AppNavDestination(
+          icon: Icons.bookmark_border,
+          selectedIcon: Icons.bookmark,
+          label: 'Bookmarks',
+          railOnly: true,
         ),
       ),
     const _Destination(
@@ -79,6 +93,7 @@ class MainShell extends StatelessWidget {
   /// the new shell, where it is not a destination).
   _Tab? _selectedTab({required bool settingsTab}) {
     if (location.startsWith('/notifications')) return _Tab.notifications;
+    if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
     if (location.startsWith('/profile') || location.startsWith('/u/')) {
       return _Tab.profile;
     }
@@ -107,8 +122,15 @@ class MainShell extends StatelessWidget {
     final unread = notificationsEnabled
         ? context.select((UnreadBadgeCubit cubit) => cubit.state)
         : 0;
+    // Bookmarks entry points (rail here, drawer row): the new shell only,
+    // with `bookmarks` on for the caller, and `posts` (the route needs it).
+    final bookmarksEntry =
+        newShell &&
+        isFeatureEnabled(context, kFeatureBookmarks) &&
+        isFeatureEnabled(context, kFeaturePosts);
     final tabs = _destinationsFor(
       notifications: notificationsEnabled,
+      bookmarks: bookmarksEntry,
       settings: !newShell,
     );
     final selected = _selectedTab(settingsTab: !newShell);
@@ -179,6 +201,8 @@ class MainShell extends StatelessWidget {
             context.go('/home');
           case _Tab.notifications:
             context.go(AppRouter.notificationsPath);
+          case _Tab.bookmarks:
+            context.go(AppRouter.bookmarksPath);
           case _Tab.settings:
             context.go(AppRouter.settingsPath);
           case _Tab.profile:
@@ -232,7 +256,7 @@ class _SettingsMaster extends StatelessWidget {
   }
 }
 
-enum _Tab { home, notifications, profile, settings }
+enum _Tab { home, notifications, bookmarks, profile, settings }
 
 class _Destination {
   const _Destination(this.tab, this.destination);

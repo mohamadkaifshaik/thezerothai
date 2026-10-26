@@ -99,7 +99,7 @@ void main() {
       const Stream<OnboardingState>.empty(),
       initialState: const OnboardingState(
         status: OnboardingStatus.ready,
-        enabledFeatures: {'engagement', 'replies'},
+        enabledFeatures: {'engagement', 'replies', 'quotes'},
       ),
     );
   });
@@ -112,8 +112,7 @@ void main() {
     double width = 400,
     double textScale = 1,
     bool showReply = true,
-    Set<String> features = const {'engagement', 'replies'},
-    bool quoteUiEnabled = true,
+    Set<String> features = const {'engagement', 'replies', 'quotes'},
   }) async {
     whenListen(
       onboarding,
@@ -131,11 +130,7 @@ void main() {
             body: Center(
               child: SizedBox(
                 width: width,
-                child: PostEngagementBar(
-                  view: view,
-                  showReply: showReply,
-                  quoteUiEnabled: quoteUiEnabled,
-                ),
+                child: PostEngagementBar(view: view, showReply: showReply),
               ),
             ),
           ),
@@ -356,29 +351,33 @@ void main() {
       );
     });
 
-    testWidgets('Quote is not offered when the quote UI switch is off', (
-      tester,
-    ) async {
-      await pump(tester, _view(), quoteUiEnabled: false);
-
+    Future<void> expectQuoteAbsent(WidgetTester tester) async {
       await tester.tap(find.byIcon(Icons.repeat));
       await tester.pumpAndSettle();
 
       expect(find.text('Repost'), findsOneWidget);
       expect(find.text('Quote'), findsNothing);
-    });
+    }
 
-    testWidgets('Quote is not offered when the quotes sub-feature is off', (
-      tester,
-    ) async {
+    // W2-11: Quote needs `engagement` AND `quotes` in GetMe.enabled_features.
+    for (final c in <(String, Set<String>)>[
+      ('engagement only', {'engagement', 'replies'}),
+      ('quotes only', {'quotes', 'replies'}),
+      ('neither', {'replies'}),
+    ]) {
+      testWidgets('Quote is not offered with ${c.$1}', (tester) async {
+        await pump(tester, _view(), features: c.$2);
+
+        await expectQuoteAbsent(tester);
+      });
+    }
+
+    testWidgets('Quote is not offered after a server FEATURE_DISABLED quotes, '
+        'even with both flags in GetMe', (tester) async {
       when(() => posts.subFeatureEnabled('quotes')).thenReturn(false);
       await pump(tester, _view());
 
-      await tester.tap(find.byIcon(Icons.repeat));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Repost'), findsOneWidget);
-      expect(find.text('Quote'), findsNothing);
+      await expectQuoteAbsent(tester);
     });
 
     testWidgets('dismissing the sheet sends nothing', (tester) async {
@@ -448,23 +447,24 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('NOT_ALLOWED adds nothing with replies off or showReply false', (
-      tester,
-    ) async {
-      await pump(
-        tester,
-        withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
-        features: const {'engagement'},
-      );
-      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+    testWidgets(
+      'NOT_ALLOWED adds nothing with replies off or showReply false',
+      (tester) async {
+        await pump(
+          tester,
+          withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
+          features: const {'engagement'},
+        );
+        expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
 
-      await pump(
-        tester,
-        withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
-        showReply: false,
-      );
-      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
-    });
+        await pump(
+          tester,
+          withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
+          showReply: false,
+        );
+        expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+      },
+    );
 
     for (final permission in [
       ReplyPermission.REPLY_PERMISSION_UNSPECIFIED,

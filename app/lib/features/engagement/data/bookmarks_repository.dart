@@ -5,9 +5,11 @@ import 'package:uuid/uuid.dart';
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/network/rate_limit_hold.dart';
 import '../../../core/storage/session_epoch.dart';
 import '../../../gen/dzeroth/engagement/v1/engagement.pb.dart' as pb;
 import '../domain/bookmark_entry.dart';
+import '../domain/engagement_entry.dart' show engagementTargetId;
 
 /// Something the session's bookmark state did, for `BookmarksCubit`.
 sealed class BookmarkEvent {
@@ -101,18 +103,21 @@ class BookmarksRepository {
     required SessionEpoch epoch,
     Uuid? uuid,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
+    RateLimitHold? rateLimitHold,
   }) : _apiClient = apiClient,
        _gate = gate,
        _epoch = epoch,
        _seenEpoch = epoch.value,
        _uuid = uuid ?? const Uuid(),
-       _onUnexpectedError = onUnexpectedError;
+       _onUnexpectedError = onUnexpectedError,
+       _hold = rateLimitHold ?? RateLimitHold();
 
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
   final SessionEpoch _epoch;
   final Uuid _uuid;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+  final RateLimitHold _hold;
 
   final Map<String, _Rec> _recs = {};
   final StreamController<BookmarkEvent> _events =
@@ -162,6 +167,60 @@ class BookmarksRepository {
   /// Sign-out: forget everything; requests still in flight are ignored when
   /// they land.
   void clearSession() => _wipe();
+
+  /// Counts the times the session was forgotten (sign-out): a screen that
+  /// holds rows loaded before a change of this number drops them.
+  int get sessionGeneration {
+    _sync(notify: false);
+    return _generation;
+  }
+
+  /// One page of the caller's bookmarks (`ListBookmarks`, W2-4): the live
+  /// posts, newest bookmark first. Pass the previous page's
+  /// `next_page_token` for the next one; a page can be short, or empty, while
+  /// the token is not (the server drops hidden and blocked rows), so only an
+  /// empty token ends the list.
+  ///
+  /// - Deliberately NOT behind the `bookmarks` gate (ADR-0023 D5, like
+  ///   RemoveBookmark): a caller dropped from the allowlist still sees what
+  ///   they saved. Only a flag that is off for everyone answers
+  ///   FEATURE_DISABLED ([FeatureDisabledException]); that answer is not
+  ///   remembered by the gate.
+  /// - The page's posts are written into the local set ([recordListed])
+  ///   before this returns, so every row shows as bookmarked at once.
+  /// - Returns null, and records nothing, when the session ended while the
+  ///   request ran (sign-out): the page belongs to the previous user.
+  /// - Charged to the per-uid read budget, so a held RATE_LIMITED answer is
+  ///   thrown without sending (like the other read screens).
+  Future<pb.ListBookmarksResponse?> listBookmarks({
+    String pageToken = '',
+    int pageSize = 20,
+  }) async {
+    _sync();
+    final generation = _generation;
+    final held = _hold.check();
+    if (held != null) throw held;
+    final pb.ListBookmarksResponse response;
+    try {
+      response = await guardApiCall(
+        () => _apiClient.engagement.listBookmarks(
+          pb.ListBookmarksRequest(pageSize: pageSize, pageToken: pageToken),
+        ),
+      );
+    } on RateLimitedException catch (error) {
+      _hold.record(error);
+      rethrow;
+    } on UnknownApiException catch (error, stack) {
+      _onUnexpectedError?.call(error, stack);
+      rethrow;
+    }
+    if (generation != _generation || _staleEpoch) return null;
+    recordListed([
+      for (final bookmark in response.bookmarks)
+        engagementTargetId(bookmark.post.post),
+    ]);
+    return response;
+  }
 
   /// Bookmarks ([saved] true) or removes [postId]. [server] is the row's own
   /// flag right now (`null`: none), the starting point the first time.

@@ -58,14 +58,12 @@ class BookmarkEntry {
   int get hashCode => Object.hash(saved, busy, touched, base);
 }
 
-/// The server's own "bookmarked" flag of a feed row, or `null` when the row
-/// carries none. THE one place the client reads `PostView.bookmarked_by_viewer`
+/// The server's own "bookmarked" flag of a feed row (`false` when the viewer
+/// has neither `engagement` nor `bookmarks` on: the server then does not
+/// hydrate it). The type stays nullable for callers that inject a row without
+/// a flag. THE one place the client reads `PostView.bookmarked_by_viewer`
 /// (ADR-0023 D3, Q2 = B); everything else asks `BookmarksCubit`.
 ///
 /// For a REPOST row the flag describes the original, as `liked_by_viewer`
 /// does.
-bool? serverBookmarkedOf(pb.PostView view) {
-  // TODO(W2-1b): when PostView.bookmarked_by_viewer exists, replace the body
-  // with `return view.bookmarkedByViewer;` (the single line to flip).
-  return null;
-}
+bool? serverBookmarkedOf(pb.PostView view) => view.bookmarkedByViewer;

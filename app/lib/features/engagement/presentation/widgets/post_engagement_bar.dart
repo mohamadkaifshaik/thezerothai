@@ -5,14 +5,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
-import '../../../../core/feature_flags/quote_ui.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post_action_bar.dart';
-import '../../../posts/data/posts_repository.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';
+import '../../../posts/presentation/quote_gate.dart';
 import '../../domain/bookmarks_feature_flag.dart';
 import '../../domain/engagement_entry.dart';
 import '../bloc/bookmarks_cubit.dart';
@@ -49,7 +48,8 @@ pb.EmbeddedPost quotePreviewOf(pb.PostView view) {
 /// - Reply opens the post (its thread has the composer) and is offered only
 ///   with the `replies` sub-feature and [showReply]; Share does not exist
 ///   yet, so it is not offered; Quote is in the repost sheet when
-///   `PostsRepository.subFeatureEnabled('quotes')`.
+///   [quoteCreationAllowed] (`engagement` + `quotes` in the flag set, and no
+///   remembered server FEATURE_DISABLED for `quotes`).
 /// - A failed action shows one snackbar (from the card of that target),
 ///   with typed wording; it never auto-retries.
 class PostEngagementBar extends StatelessWidget {
@@ -58,10 +58,16 @@ class PostEngagementBar extends StatelessWidget {
     required this.view,
     this.showReply = true,
     this.onQuote,
-    this.quoteUiEnabled = kQuoteUiEnabled,
+    this.bookmarkEnabled,
   });
 
   final pb.PostView view;
+
+  /// Whether the bookmark icon exists. Null (the default) follows the
+  /// `bookmarks` flag of the caller; the Bookmarks screen passes true so a
+  /// user dropped from the allowlist can still remove what they saved
+  /// (ADR-0023 D5: Remove needs the flag only "not globally off").
+  final bool? bookmarkEnabled;
 
   /// Offer Reply (opens the post). The post screen, which has its own reply
   /// composer, turns it off for the focal post.
@@ -70,10 +76,6 @@ class PostEngagementBar extends StatelessWidget {
   /// Opens the quote composer for [view]. Defaults to `/compose?quote=<id>`
   /// with the preview as `extra`.
   final VoidCallback? onQuote;
-
-  /// Whether the repost sheet may offer Quote (MVP build: off, see
-  /// [kQuoteUiEnabled]).
-  final bool quoteUiEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +89,8 @@ class PostEngagementBar extends StatelessWidget {
     // disabled, with a why-less hint. Advisory only (I-4): UNSPECIFIED and
     // UNKNOWN stay enabled, and a server refusal still shows its own message.
     final replyBlocked = replies && replyKnownNotAllowed(view);
-    final bookmarksOn = isFeatureEnabled(context, kFeatureBookmarks);
+    final flagOn = isFeatureEnabled(context, kFeatureBookmarks);
+    final bookmarksOn = bookmarkEnabled ?? flagOn;
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -153,11 +156,9 @@ class PostEngagementBar extends StatelessWidget {
     EngagementEntry current,
     EngagementEntry shown,
   ) async {
-    final canQuote =
-        quoteUiEnabled &&
-        context.read<PostsRepository>().subFeatureEnabled(
-          kPostsSubFeatureQuotes,
-        );
+    // Quote needs `engagement` + `quotes` in GetMe.enabled_features and no
+    // remembered server FEATURE_DISABLED for it (W2-11).
+    final canQuote = quoteCreationAllowed(context);
     final choice = await showRepostSheet(
       context,
       reposted: current.reposted,
@@ -186,6 +187,12 @@ class PostEngagementBar extends StatelessWidget {
   }
 }
 
+/// Whether the page of [context] is the one the user sees. All pages of a
+/// navigator share one `ScaffoldMessenger`, so a card kept alive under
+/// another page must not replace that page's snackbar.
+bool _onTopRoute(BuildContext context) =>
+    ModalRoute.of(context)?.isCurrent ?? true;
+
 /// The bookmark icon of one target: reads its state from the session's
 /// [BookmarksCubit], toggles through it, and shows its one snackbar (the
 /// "Added to Bookmarks" / "Removed from Bookmarks" toast, or the typed error
@@ -213,6 +220,9 @@ class _BookmarkBinding extends StatelessWidget {
           after.failure!.postId == target &&
           before.failure?.serial != after.failure!.serial,
       listener: (context, state) {
+        // A card under another page (Home below the Bookmarks screen) stays
+        // quiet: the page on top shows its own snackbar.
+        if (!_onTopRoute(context)) return;
         final failure = state.failure!;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -236,9 +246,13 @@ class _BookmarkBinding extends StatelessWidget {
             after.notice!.postId == target &&
             before.notice?.serial != after.notice!.serial,
         listener: (context, state) {
+          if (!_onTopRoute(context)) return;
           final route = cubit.viewRoute;
           // Captured now: the card may be gone when "View" is tapped.
           final router = GoRouter.of(context);
+          // No "View" on the list it points to (it would stack a second one).
+          final viewing =
+              router.routeInformationProvider.value.uri.path == route;
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -248,7 +262,7 @@ class _BookmarkBinding extends StatelessWidget {
                       ? 'Added to Bookmarks'
                       : 'Removed from Bookmarks',
                 ),
-                action: state.notice!.saved && route != null
+                action: state.notice!.saved && route != null && !viewing
                     ? SnackBarAction(
                         label: 'View',
                         onPressed: () => unawaited(router.push(route)),
