@@ -11,7 +11,7 @@ Single place for everything deferred from the X-research UI programme (W0 `docs/
 | B-05 | Profile app-bar name fades in only after the header name scrolls away | Needs scroll tracking; name is currently always visible in both places | Small frontend ticket |
 | B-06 | Profile: keep scroll position and a sticky tab bar when switching Posts/Replies | Each tab is its own feed, switching returns to the top | Frontend ticket (nested scroll / `NestedScrollView`) |
 | B-07 | Home "Following" tab is the only tab | Custom list tabs arrive with Lists | Lists wave |
-| B-08 | Share action on posts (the right-aligned slot exists, no handler) | No share target defined | Product decision (copy link / OS share) |
+| B-08 | Share action on posts (the right-aligned slot exists, no handler) | Planned as W2-8 (`docs/plans/ui-w2-engagement-composer-basics.md`): Copy link + native share sheet | Closed by W2-8 |
 | B-09 | Mentions tab: decide whether quotes count; load more automatically while filtered | Only mention + reply rows are included; empty filtered view offers a manual "look through older" button | Product decision |
 | B-10 | "N new posts" as an inline bar | Kept as a floating pill to avoid layout shift | Revisit only if the founder wants inline |
 | B-11 | Capture remaining light-theme tabs for the research docs | REA capture times out on non-active tabs | Founder opens each tab |
@@ -27,9 +27,8 @@ Single place for everything deferred from the X-research UI programme (W0 `docs/
 | ID | Wave | Scope | Gate |
 | --- | --- | --- | --- |
 | B-29 | W1.5 | Capture post detail, composer modal and another user's profile on x.com, then a client-only conformance plan | Founder opens each tab for REA; no spec is invented for unobserved states |
-| B-30 | W2 | Bookmarks, share, alt text, quote UI, hashtag tap-through, push opt-in card | Reverses the 2026-10-18 deferrals (confirmed 2026-10-22); ADR + budgets per `free-tier-budget` |
 | B-31 | W3 | Cover image, Media / Reposts / Likes tabs, pinned post, who-to-follow, follow-requests UI, "Follows you" | ADR for cover and likes list; read cap for suggestions |
-| B-32 | W4 | Search (handle prefix, hashtags), suggestions, Explore, trends from own hashtag counters | Search module ADR; one scheduled sweep; no external news feed |
+| B-32 | W4 | Search (handle prefix, hashtags), suggestions, Explore, trends from own hashtag counters; hashtag tap-through (moved from W2, pending founder decision) | Search module ADR; one scheduled sweep; no external news feed |
 | B-33 | W5 | Lists, custom Home tabs from lists, communities | Plan + ADR; moderation story for communities |
 | B-34 | W6 | Polls, scheduled posts (one sweep job), drafts, GIFs (device upload now; Klipy picker only after terms are verified; Tenor API shut down 2026-06-30, Giphy is paid in production), reply audience | Terms check for GIF |
 | B-35 | W7 | Direct messages v1: server-mediated pull + push, **no E2E** | ADR (cost math); E2E is a future ADR |
