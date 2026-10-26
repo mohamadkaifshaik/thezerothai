@@ -76,6 +76,11 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.BookmarksPerUserPerMinute = 30     // ADR-0023 D4: Add and Remove share it
 	cfg.RateLimit.BookmarksListPerUserPerMinute = 10 // ADR-0023 D4
 	cfg.RateLimit.BookmarkMutationsPerDay = 1500     // W2-14 M-1: Add and Remove share one daily call cap
+	// ADR-0024 D10 (the config.Load defaults).
+	cfg.RateLimit.SuggestionsPerUserPerMinute = 10
+	cfg.RateLimit.LikesListPerUserPerMinute = 10
+	cfg.RateLimit.ProfileRelationshipPerUserPerMinute = 60
+	cfg.RateLimit.SuggestionsCallsPerDay = 50
 	return cfg
 }
 

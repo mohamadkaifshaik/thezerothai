@@ -1089,6 +1089,195 @@ func (x *GetRelationshipsResponse) GetRelationships() []*Relationship {
 	return nil
 }
 
+type GetProfileRelationshipRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The profile's owner. [A-Za-z0-9-]{1,128}.
+	UserId        string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetProfileRelationshipRequest) Reset() {
+	*x = GetProfileRelationshipRequest{}
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetProfileRelationshipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetProfileRelationshipRequest) ProtoMessage() {}
+
+func (x *GetProfileRelationshipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetProfileRelationshipRequest.ProtoReflect.Descriptor instead.
+func (*GetProfileRelationshipRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetProfileRelationshipRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type GetProfileRelationshipResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The caller's relationship to user_id, as GetRelationships reports it.
+	Relationship *Relationship `protobuf:"bytes,1,opt,name=relationship,proto3" json:"relationship,omitempty"`
+	// True when user_id follows the caller ("Follows you"). Up to 60 s stale on other instances.
+	FollowedBy    bool `protobuf:"varint,2,opt,name=followed_by,json=followedBy,proto3" json:"followed_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetProfileRelationshipResponse) Reset() {
+	*x = GetProfileRelationshipResponse{}
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetProfileRelationshipResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetProfileRelationshipResponse) ProtoMessage() {}
+
+func (x *GetProfileRelationshipResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetProfileRelationshipResponse.ProtoReflect.Descriptor instead.
+func (*GetProfileRelationshipResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetProfileRelationshipResponse) GetRelationship() *Relationship {
+	if x != nil {
+		return x.Relationship
+	}
+	return nil
+}
+
+func (x *GetProfileRelationshipResponse) GetFollowedBy() bool {
+	if x != nil {
+		return x.FollowedBy
+	}
+	return false
+}
+
+type ListSuggestedUsersRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 => 5; clamped to 1..5.
+	MaxResults    int32 `protobuf:"varint,1,opt,name=max_results,json=maxResults,proto3" json:"max_results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSuggestedUsersRequest) Reset() {
+	*x = ListSuggestedUsersRequest{}
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSuggestedUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSuggestedUsersRequest) ProtoMessage() {}
+
+func (x *ListSuggestedUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSuggestedUsersRequest.ProtoReflect.Descriptor instead.
+func (*ListSuggestedUsersRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListSuggestedUsersRequest) GetMaxResults() int32 {
+	if x != nil {
+		return x.MaxResults
+	}
+	return 0
+}
+
+type ListSuggestedUsersResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Best first. Each row has user and relationship; since is unset. May be empty.
+	Users         []*UserListItem `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSuggestedUsersResponse) Reset() {
+	*x = ListSuggestedUsersResponse{}
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSuggestedUsersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSuggestedUsersResponse) ProtoMessage() {}
+
+func (x *ListSuggestedUsersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSuggestedUsersResponse.ProtoReflect.Descriptor instead.
+func (*ListSuggestedUsersResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ListSuggestedUsersResponse) GetUsers() []*UserListItem {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
 type ListFollowersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -1100,7 +1289,7 @@ type ListFollowersRequest struct {
 
 func (x *ListFollowersRequest) Reset() {
 	*x = ListFollowersRequest{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[20]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1112,7 +1301,7 @@ func (x *ListFollowersRequest) String() string {
 func (*ListFollowersRequest) ProtoMessage() {}
 
 func (x *ListFollowersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[20]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1125,7 +1314,7 @@ func (x *ListFollowersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFollowersRequest.ProtoReflect.Descriptor instead.
 func (*ListFollowersRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{20}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListFollowersRequest) GetUserId() string {
@@ -1159,7 +1348,7 @@ type ListFollowersResponse struct {
 
 func (x *ListFollowersResponse) Reset() {
 	*x = ListFollowersResponse{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[21]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1171,7 +1360,7 @@ func (x *ListFollowersResponse) String() string {
 func (*ListFollowersResponse) ProtoMessage() {}
 
 func (x *ListFollowersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[21]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1184,7 +1373,7 @@ func (x *ListFollowersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFollowersResponse.ProtoReflect.Descriptor instead.
 func (*ListFollowersResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{21}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListFollowersResponse) GetUsers() []*UserListItem {
@@ -1212,7 +1401,7 @@ type ListFollowingRequest struct {
 
 func (x *ListFollowingRequest) Reset() {
 	*x = ListFollowingRequest{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[22]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1224,7 +1413,7 @@ func (x *ListFollowingRequest) String() string {
 func (*ListFollowingRequest) ProtoMessage() {}
 
 func (x *ListFollowingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[22]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1237,7 +1426,7 @@ func (x *ListFollowingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFollowingRequest.ProtoReflect.Descriptor instead.
 func (*ListFollowingRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{22}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListFollowingRequest) GetUserId() string {
@@ -1271,7 +1460,7 @@ type ListFollowingResponse struct {
 
 func (x *ListFollowingResponse) Reset() {
 	*x = ListFollowingResponse{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[23]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1283,7 +1472,7 @@ func (x *ListFollowingResponse) String() string {
 func (*ListFollowingResponse) ProtoMessage() {}
 
 func (x *ListFollowingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[23]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1296,7 +1485,7 @@ func (x *ListFollowingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFollowingResponse.ProtoReflect.Descriptor instead.
 func (*ListFollowingResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{23}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListFollowingResponse) GetUsers() []*UserListItem {
@@ -1323,7 +1512,7 @@ type ListBlockedUsersRequest struct {
 
 func (x *ListBlockedUsersRequest) Reset() {
 	*x = ListBlockedUsersRequest{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[24]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1335,7 +1524,7 @@ func (x *ListBlockedUsersRequest) String() string {
 func (*ListBlockedUsersRequest) ProtoMessage() {}
 
 func (x *ListBlockedUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[24]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1348,7 +1537,7 @@ func (x *ListBlockedUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBlockedUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListBlockedUsersRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{24}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ListBlockedUsersRequest) GetPageSize() int32 {
@@ -1375,7 +1564,7 @@ type ListBlockedUsersResponse struct {
 
 func (x *ListBlockedUsersResponse) Reset() {
 	*x = ListBlockedUsersResponse{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[25]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1387,7 +1576,7 @@ func (x *ListBlockedUsersResponse) String() string {
 func (*ListBlockedUsersResponse) ProtoMessage() {}
 
 func (x *ListBlockedUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[25]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1400,7 +1589,7 @@ func (x *ListBlockedUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBlockedUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListBlockedUsersResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{25}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ListBlockedUsersResponse) GetUsers() []*UserListItem {
@@ -1427,7 +1616,7 @@ type ListMutedUsersRequest struct {
 
 func (x *ListMutedUsersRequest) Reset() {
 	*x = ListMutedUsersRequest{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[26]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1439,7 +1628,7 @@ func (x *ListMutedUsersRequest) String() string {
 func (*ListMutedUsersRequest) ProtoMessage() {}
 
 func (x *ListMutedUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[26]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1452,7 +1641,7 @@ func (x *ListMutedUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMutedUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListMutedUsersRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{26}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListMutedUsersRequest) GetPageSize() int32 {
@@ -1479,7 +1668,7 @@ type ListMutedUsersResponse struct {
 
 func (x *ListMutedUsersResponse) Reset() {
 	*x = ListMutedUsersResponse{}
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[27]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1491,7 +1680,7 @@ func (x *ListMutedUsersResponse) String() string {
 func (*ListMutedUsersResponse) ProtoMessage() {}
 
 func (x *ListMutedUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[27]
+	mi := &file_dzeroth_graph_v1_graph_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1504,7 +1693,7 @@ func (x *ListMutedUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMutedUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListMutedUsersResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{27}
+	return file_dzeroth_graph_v1_graph_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListMutedUsersResponse) GetUsers() []*UserListItem {
@@ -1580,7 +1769,18 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\x17GetRelationshipsRequest\x12\x19\n" +
 	"\buser_ids\x18\x01 \x03(\tR\auserIds\"`\n" +
 	"\x18GetRelationshipsResponse\x12D\n" +
-	"\rrelationships\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.RelationshipR\rrelationships\"k\n" +
+	"\rrelationships\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.RelationshipR\rrelationships\"8\n" +
+	"\x1dGetProfileRelationshipRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x85\x01\n" +
+	"\x1eGetProfileRelationshipResponse\x12B\n" +
+	"\frelationship\x18\x01 \x01(\v2\x1e.dzeroth.graph.v1.RelationshipR\frelationship\x12\x1f\n" +
+	"\vfollowed_by\x18\x02 \x01(\bR\n" +
+	"followedBy\"<\n" +
+	"\x19ListSuggestedUsersRequest\x12\x1f\n" +
+	"\vmax_results\x18\x01 \x01(\x05R\n" +
+	"maxResults\"R\n" +
+	"\x1aListSuggestedUsersResponse\x124\n" +
+	"\x05users\x18\x01 \x03(\v2\x1e.dzeroth.graph.v1.UserListItemR\x05users\"k\n" +
 	"\x14ListFollowersRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
@@ -1615,7 +1815,7 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\x18FOLLOW_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11FOLLOW_STATE_NONE\x10\x01\x12\x1a\n" +
 	"\x16FOLLOW_STATE_FOLLOWING\x10\x02\x12\x1a\n" +
-	"\x16FOLLOW_STATE_REQUESTED\x10\x032\xe7\t\n" +
+	"\x16FOLLOW_STATE_REQUESTED\x10\x032\xe0\v\n" +
 	"\fGraphService\x12K\n" +
 	"\x06Follow\x12\x1f.dzeroth.graph.v1.FollowRequest\x1a .dzeroth.graph.v1.FollowResponse\x12Q\n" +
 	"\bUnfollow\x12!.dzeroth.graph.v1.UnfollowRequest\x1a\".dzeroth.graph.v1.UnfollowResponse\x12t\n" +
@@ -1625,7 +1825,9 @@ const file_dzeroth_graph_v1_graph_proto_rawDesc = "" +
 	"\aUnblock\x12 .dzeroth.graph.v1.UnblockRequest\x1a!.dzeroth.graph.v1.UnblockResponse\x12E\n" +
 	"\x04Mute\x12\x1d.dzeroth.graph.v1.MuteRequest\x1a\x1e.dzeroth.graph.v1.MuteResponse\x12K\n" +
 	"\x06Unmute\x12\x1f.dzeroth.graph.v1.UnmuteRequest\x1a .dzeroth.graph.v1.UnmuteResponse\x12n\n" +
-	"\x10GetRelationships\x12).dzeroth.graph.v1.GetRelationshipsRequest\x1a*.dzeroth.graph.v1.GetRelationshipsResponse\"\x03\x90\x02\x01\x12e\n" +
+	"\x10GetRelationships\x12).dzeroth.graph.v1.GetRelationshipsRequest\x1a*.dzeroth.graph.v1.GetRelationshipsResponse\"\x03\x90\x02\x01\x12\x80\x01\n" +
+	"\x16GetProfileRelationship\x12/.dzeroth.graph.v1.GetProfileRelationshipRequest\x1a0.dzeroth.graph.v1.GetProfileRelationshipResponse\"\x03\x90\x02\x01\x12t\n" +
+	"\x12ListSuggestedUsers\x12+.dzeroth.graph.v1.ListSuggestedUsersRequest\x1a,.dzeroth.graph.v1.ListSuggestedUsersResponse\"\x03\x90\x02\x01\x12e\n" +
 	"\rListFollowers\x12&.dzeroth.graph.v1.ListFollowersRequest\x1a'.dzeroth.graph.v1.ListFollowersResponse\"\x03\x90\x02\x01\x12e\n" +
 	"\rListFollowing\x12&.dzeroth.graph.v1.ListFollowingRequest\x1a'.dzeroth.graph.v1.ListFollowingResponse\"\x03\x90\x02\x01\x12n\n" +
 	"\x10ListBlockedUsers\x12).dzeroth.graph.v1.ListBlockedUsersRequest\x1a*.dzeroth.graph.v1.ListBlockedUsersResponse\"\x03\x90\x02\x01\x12h\n" +
@@ -1644,7 +1846,7 @@ func file_dzeroth_graph_v1_graph_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_graph_v1_graph_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dzeroth_graph_v1_graph_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_dzeroth_graph_v1_graph_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_dzeroth_graph_v1_graph_proto_goTypes = []any{
 	(FollowState)(0),                       // 0: dzeroth.graph.v1.FollowState
 	(*Relationship)(nil),                   // 1: dzeroth.graph.v1.Relationship
@@ -1667,21 +1869,25 @@ var file_dzeroth_graph_v1_graph_proto_goTypes = []any{
 	(*UnmuteResponse)(nil),                 // 18: dzeroth.graph.v1.UnmuteResponse
 	(*GetRelationshipsRequest)(nil),        // 19: dzeroth.graph.v1.GetRelationshipsRequest
 	(*GetRelationshipsResponse)(nil),       // 20: dzeroth.graph.v1.GetRelationshipsResponse
-	(*ListFollowersRequest)(nil),           // 21: dzeroth.graph.v1.ListFollowersRequest
-	(*ListFollowersResponse)(nil),          // 22: dzeroth.graph.v1.ListFollowersResponse
-	(*ListFollowingRequest)(nil),           // 23: dzeroth.graph.v1.ListFollowingRequest
-	(*ListFollowingResponse)(nil),          // 24: dzeroth.graph.v1.ListFollowingResponse
-	(*ListBlockedUsersRequest)(nil),        // 25: dzeroth.graph.v1.ListBlockedUsersRequest
-	(*ListBlockedUsersResponse)(nil),       // 26: dzeroth.graph.v1.ListBlockedUsersResponse
-	(*ListMutedUsersRequest)(nil),          // 27: dzeroth.graph.v1.ListMutedUsersRequest
-	(*ListMutedUsersResponse)(nil),         // 28: dzeroth.graph.v1.ListMutedUsersResponse
-	(*v1.AuthorSnapshot)(nil),              // 29: dzeroth.common.v1.AuthorSnapshot
-	(*timestamppb.Timestamp)(nil),          // 30: google.protobuf.Timestamp
+	(*GetProfileRelationshipRequest)(nil),  // 21: dzeroth.graph.v1.GetProfileRelationshipRequest
+	(*GetProfileRelationshipResponse)(nil), // 22: dzeroth.graph.v1.GetProfileRelationshipResponse
+	(*ListSuggestedUsersRequest)(nil),      // 23: dzeroth.graph.v1.ListSuggestedUsersRequest
+	(*ListSuggestedUsersResponse)(nil),     // 24: dzeroth.graph.v1.ListSuggestedUsersResponse
+	(*ListFollowersRequest)(nil),           // 25: dzeroth.graph.v1.ListFollowersRequest
+	(*ListFollowersResponse)(nil),          // 26: dzeroth.graph.v1.ListFollowersResponse
+	(*ListFollowingRequest)(nil),           // 27: dzeroth.graph.v1.ListFollowingRequest
+	(*ListFollowingResponse)(nil),          // 28: dzeroth.graph.v1.ListFollowingResponse
+	(*ListBlockedUsersRequest)(nil),        // 29: dzeroth.graph.v1.ListBlockedUsersRequest
+	(*ListBlockedUsersResponse)(nil),       // 30: dzeroth.graph.v1.ListBlockedUsersResponse
+	(*ListMutedUsersRequest)(nil),          // 31: dzeroth.graph.v1.ListMutedUsersRequest
+	(*ListMutedUsersResponse)(nil),         // 32: dzeroth.graph.v1.ListMutedUsersResponse
+	(*v1.AuthorSnapshot)(nil),              // 33: dzeroth.common.v1.AuthorSnapshot
+	(*timestamppb.Timestamp)(nil),          // 34: google.protobuf.Timestamp
 }
 var file_dzeroth_graph_v1_graph_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.graph.v1.Relationship.follow_state:type_name -> dzeroth.graph.v1.FollowState
-	29, // 1: dzeroth.graph.v1.UserListItem.user:type_name -> dzeroth.common.v1.AuthorSnapshot
-	30, // 2: dzeroth.graph.v1.UserListItem.since:type_name -> google.protobuf.Timestamp
+	33, // 1: dzeroth.graph.v1.UserListItem.user:type_name -> dzeroth.common.v1.AuthorSnapshot
+	34, // 2: dzeroth.graph.v1.UserListItem.since:type_name -> google.protobuf.Timestamp
 	1,  // 3: dzeroth.graph.v1.UserListItem.relationship:type_name -> dzeroth.graph.v1.Relationship
 	1,  // 4: dzeroth.graph.v1.FollowResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
 	1,  // 5: dzeroth.graph.v1.UnfollowResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
@@ -1691,41 +1897,47 @@ var file_dzeroth_graph_v1_graph_proto_depIdxs = []int32{
 	1,  // 9: dzeroth.graph.v1.MuteResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
 	1,  // 10: dzeroth.graph.v1.UnmuteResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
 	1,  // 11: dzeroth.graph.v1.GetRelationshipsResponse.relationships:type_name -> dzeroth.graph.v1.Relationship
-	2,  // 12: dzeroth.graph.v1.ListFollowersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	2,  // 13: dzeroth.graph.v1.ListFollowingResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	2,  // 14: dzeroth.graph.v1.ListBlockedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	2,  // 15: dzeroth.graph.v1.ListMutedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
-	3,  // 16: dzeroth.graph.v1.GraphService.Follow:input_type -> dzeroth.graph.v1.FollowRequest
-	5,  // 17: dzeroth.graph.v1.GraphService.Unfollow:input_type -> dzeroth.graph.v1.UnfollowRequest
-	7,  // 18: dzeroth.graph.v1.GraphService.ListFollowRequests:input_type -> dzeroth.graph.v1.ListFollowRequestsRequest
-	9,  // 19: dzeroth.graph.v1.GraphService.RespondToFollowRequest:input_type -> dzeroth.graph.v1.RespondToFollowRequestRequest
-	11, // 20: dzeroth.graph.v1.GraphService.Block:input_type -> dzeroth.graph.v1.BlockRequest
-	13, // 21: dzeroth.graph.v1.GraphService.Unblock:input_type -> dzeroth.graph.v1.UnblockRequest
-	15, // 22: dzeroth.graph.v1.GraphService.Mute:input_type -> dzeroth.graph.v1.MuteRequest
-	17, // 23: dzeroth.graph.v1.GraphService.Unmute:input_type -> dzeroth.graph.v1.UnmuteRequest
-	19, // 24: dzeroth.graph.v1.GraphService.GetRelationships:input_type -> dzeroth.graph.v1.GetRelationshipsRequest
-	21, // 25: dzeroth.graph.v1.GraphService.ListFollowers:input_type -> dzeroth.graph.v1.ListFollowersRequest
-	23, // 26: dzeroth.graph.v1.GraphService.ListFollowing:input_type -> dzeroth.graph.v1.ListFollowingRequest
-	25, // 27: dzeroth.graph.v1.GraphService.ListBlockedUsers:input_type -> dzeroth.graph.v1.ListBlockedUsersRequest
-	27, // 28: dzeroth.graph.v1.GraphService.ListMutedUsers:input_type -> dzeroth.graph.v1.ListMutedUsersRequest
-	4,  // 29: dzeroth.graph.v1.GraphService.Follow:output_type -> dzeroth.graph.v1.FollowResponse
-	6,  // 30: dzeroth.graph.v1.GraphService.Unfollow:output_type -> dzeroth.graph.v1.UnfollowResponse
-	8,  // 31: dzeroth.graph.v1.GraphService.ListFollowRequests:output_type -> dzeroth.graph.v1.ListFollowRequestsResponse
-	10, // 32: dzeroth.graph.v1.GraphService.RespondToFollowRequest:output_type -> dzeroth.graph.v1.RespondToFollowRequestResponse
-	12, // 33: dzeroth.graph.v1.GraphService.Block:output_type -> dzeroth.graph.v1.BlockResponse
-	14, // 34: dzeroth.graph.v1.GraphService.Unblock:output_type -> dzeroth.graph.v1.UnblockResponse
-	16, // 35: dzeroth.graph.v1.GraphService.Mute:output_type -> dzeroth.graph.v1.MuteResponse
-	18, // 36: dzeroth.graph.v1.GraphService.Unmute:output_type -> dzeroth.graph.v1.UnmuteResponse
-	20, // 37: dzeroth.graph.v1.GraphService.GetRelationships:output_type -> dzeroth.graph.v1.GetRelationshipsResponse
-	22, // 38: dzeroth.graph.v1.GraphService.ListFollowers:output_type -> dzeroth.graph.v1.ListFollowersResponse
-	24, // 39: dzeroth.graph.v1.GraphService.ListFollowing:output_type -> dzeroth.graph.v1.ListFollowingResponse
-	26, // 40: dzeroth.graph.v1.GraphService.ListBlockedUsers:output_type -> dzeroth.graph.v1.ListBlockedUsersResponse
-	28, // 41: dzeroth.graph.v1.GraphService.ListMutedUsers:output_type -> dzeroth.graph.v1.ListMutedUsersResponse
-	29, // [29:42] is the sub-list for method output_type
-	16, // [16:29] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	1,  // 12: dzeroth.graph.v1.GetProfileRelationshipResponse.relationship:type_name -> dzeroth.graph.v1.Relationship
+	2,  // 13: dzeroth.graph.v1.ListSuggestedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 14: dzeroth.graph.v1.ListFollowersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 15: dzeroth.graph.v1.ListFollowingResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 16: dzeroth.graph.v1.ListBlockedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	2,  // 17: dzeroth.graph.v1.ListMutedUsersResponse.users:type_name -> dzeroth.graph.v1.UserListItem
+	3,  // 18: dzeroth.graph.v1.GraphService.Follow:input_type -> dzeroth.graph.v1.FollowRequest
+	5,  // 19: dzeroth.graph.v1.GraphService.Unfollow:input_type -> dzeroth.graph.v1.UnfollowRequest
+	7,  // 20: dzeroth.graph.v1.GraphService.ListFollowRequests:input_type -> dzeroth.graph.v1.ListFollowRequestsRequest
+	9,  // 21: dzeroth.graph.v1.GraphService.RespondToFollowRequest:input_type -> dzeroth.graph.v1.RespondToFollowRequestRequest
+	11, // 22: dzeroth.graph.v1.GraphService.Block:input_type -> dzeroth.graph.v1.BlockRequest
+	13, // 23: dzeroth.graph.v1.GraphService.Unblock:input_type -> dzeroth.graph.v1.UnblockRequest
+	15, // 24: dzeroth.graph.v1.GraphService.Mute:input_type -> dzeroth.graph.v1.MuteRequest
+	17, // 25: dzeroth.graph.v1.GraphService.Unmute:input_type -> dzeroth.graph.v1.UnmuteRequest
+	19, // 26: dzeroth.graph.v1.GraphService.GetRelationships:input_type -> dzeroth.graph.v1.GetRelationshipsRequest
+	21, // 27: dzeroth.graph.v1.GraphService.GetProfileRelationship:input_type -> dzeroth.graph.v1.GetProfileRelationshipRequest
+	23, // 28: dzeroth.graph.v1.GraphService.ListSuggestedUsers:input_type -> dzeroth.graph.v1.ListSuggestedUsersRequest
+	25, // 29: dzeroth.graph.v1.GraphService.ListFollowers:input_type -> dzeroth.graph.v1.ListFollowersRequest
+	27, // 30: dzeroth.graph.v1.GraphService.ListFollowing:input_type -> dzeroth.graph.v1.ListFollowingRequest
+	29, // 31: dzeroth.graph.v1.GraphService.ListBlockedUsers:input_type -> dzeroth.graph.v1.ListBlockedUsersRequest
+	31, // 32: dzeroth.graph.v1.GraphService.ListMutedUsers:input_type -> dzeroth.graph.v1.ListMutedUsersRequest
+	4,  // 33: dzeroth.graph.v1.GraphService.Follow:output_type -> dzeroth.graph.v1.FollowResponse
+	6,  // 34: dzeroth.graph.v1.GraphService.Unfollow:output_type -> dzeroth.graph.v1.UnfollowResponse
+	8,  // 35: dzeroth.graph.v1.GraphService.ListFollowRequests:output_type -> dzeroth.graph.v1.ListFollowRequestsResponse
+	10, // 36: dzeroth.graph.v1.GraphService.RespondToFollowRequest:output_type -> dzeroth.graph.v1.RespondToFollowRequestResponse
+	12, // 37: dzeroth.graph.v1.GraphService.Block:output_type -> dzeroth.graph.v1.BlockResponse
+	14, // 38: dzeroth.graph.v1.GraphService.Unblock:output_type -> dzeroth.graph.v1.UnblockResponse
+	16, // 39: dzeroth.graph.v1.GraphService.Mute:output_type -> dzeroth.graph.v1.MuteResponse
+	18, // 40: dzeroth.graph.v1.GraphService.Unmute:output_type -> dzeroth.graph.v1.UnmuteResponse
+	20, // 41: dzeroth.graph.v1.GraphService.GetRelationships:output_type -> dzeroth.graph.v1.GetRelationshipsResponse
+	22, // 42: dzeroth.graph.v1.GraphService.GetProfileRelationship:output_type -> dzeroth.graph.v1.GetProfileRelationshipResponse
+	24, // 43: dzeroth.graph.v1.GraphService.ListSuggestedUsers:output_type -> dzeroth.graph.v1.ListSuggestedUsersResponse
+	26, // 44: dzeroth.graph.v1.GraphService.ListFollowers:output_type -> dzeroth.graph.v1.ListFollowersResponse
+	28, // 45: dzeroth.graph.v1.GraphService.ListFollowing:output_type -> dzeroth.graph.v1.ListFollowingResponse
+	30, // 46: dzeroth.graph.v1.GraphService.ListBlockedUsers:output_type -> dzeroth.graph.v1.ListBlockedUsersResponse
+	32, // 47: dzeroth.graph.v1.GraphService.ListMutedUsers:output_type -> dzeroth.graph.v1.ListMutedUsersResponse
+	33, // [33:48] is the sub-list for method output_type
+	18, // [18:33] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_graph_v1_graph_proto_init() }
@@ -1739,7 +1951,7 @@ func file_dzeroth_graph_v1_graph_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_graph_v1_graph_proto_rawDesc), len(file_dzeroth_graph_v1_graph_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   28,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

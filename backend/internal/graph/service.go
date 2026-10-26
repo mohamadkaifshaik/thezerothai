@@ -92,6 +92,9 @@ type Deps struct {
 	BlocksPerDay            int64
 	NewAccountBlocksPerDay  int64
 	NewAccountWindow        time.Duration
+
+	// Suggestions are the ListSuggestedUsers limits and curated list (ADR-0024 D8, D10; W3-12 reads them).
+	Suggestions SuggestionLimits
 }
 
 // service is the default Service implementation. It also implements Reader, FollowEvents, Eraser and
@@ -118,6 +121,7 @@ type service struct {
 	blocksPerDay            int64
 	newAccountBlocksPerDay  int64
 	newAccountWindow        time.Duration
+	suggestions             SuggestionLimits
 }
 
 // New builds the graph Service. Call SetDirectory once identity.Directory is available.
@@ -135,6 +139,7 @@ func New(d Deps) *service {
 		blocksPerDay:            d.BlocksPerDay,
 		newAccountBlocksPerDay:  d.NewAccountBlocksPerDay,
 		newAccountWindow:        d.NewAccountWindow,
+		suggestions:             d.Suggestions,
 	}
 	if s.events == nil {
 		s.events = s // the no-op Followed below

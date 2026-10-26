@@ -106,6 +106,10 @@ type Service interface {
 	ListFollowing(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error)
 	ListBlockedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
 	ListMutedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
+	// GetProfileRelationship is the ADR-0024 D7 header RPC: the caller's Relationship to one user plus followed_by.
+	GetProfileRelationship(ctx context.Context, callerUID, targetUID string) (ProfileRelationship, error)
+	// ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC: at most maxResults rows (0 => 5, clamped to 1..5), no cursor.
+	ListSuggestedUsers(ctx context.Context, callerUID string, maxResults int32) ([]ListItem, error)
 }
 
 // Reader is graph's read-only seam other modules use for filtering (ADR-0008: "the timeline, posts and

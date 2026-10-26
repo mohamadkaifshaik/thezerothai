@@ -1229,6 +1229,150 @@ class ListBookmarksResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+class ListLikedPostsRequest extends $pb.GeneratedMessage {
+  factory ListLikedPostsRequest({
+    $core.int? pageSize,
+    $core.String? pageToken,
+  }) {
+    final result = ListLikedPostsRequest._();
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListLikedPostsRequest._();
+
+  factory ListLikedPostsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListLikedPostsRequest()..mergeFromBuffer(data, registry);
+  factory ListLikedPostsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListLikedPostsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListLikedPostsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: ListLikedPostsRequest.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(2, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListLikedPostsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListLikedPostsRequest copyWith(
+          void Function(ListLikedPostsRequest) updates) =>
+      super.copyWith((message) => updates(message as ListLikedPostsRequest))
+          as ListLikedPostsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListLikedPostsRequest() / ListLikedPostsRequest.new instead')
+  static ListLikedPostsRequest create() => ListLikedPostsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListLikedPostsRequest._();
+  @$core.override
+  ListLikedPostsRequest createEmptyInstance() => ListLikedPostsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListLikedPostsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListLikedPostsRequest>(
+          ListLikedPostsRequest.$_createMessage);
+  static ListLikedPostsRequest? _defaultInstance;
+
+  /// 0 => 20, max 50 (clamped).
+  @$pb.TagNumber(1)
+  $core.int get pageSize => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set pageSize($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPageSize() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPageSize() => $_clearField(1);
+
+  /// Opaque, bound to the caller, 24 h TTL. Empty => the first page (most recently liked).
+  @$pb.TagNumber(2)
+  $core.String get pageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageToken() => $_clearField(2);
+}
+
+class ListLikedPostsResponse extends $pb.GeneratedMessage {
+  factory ListLikedPostsResponse({
+    $core.Iterable<$0.PostView>? posts,
+    $core.String? nextPageToken,
+  }) {
+    final result = ListLikedPostsResponse._();
+    if (posts != null) result.posts.addAll(posts);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ListLikedPostsResponse._();
+
+  factory ListLikedPostsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListLikedPostsResponse()..mergeFromBuffer(data, registry);
+  factory ListLikedPostsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListLikedPostsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListLikedPostsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: ListLikedPostsResponse.$_createMessage)
+    ..pPM<$0.PostView>(1, _omitFieldNames ? '' : 'posts',
+        subBuilder: $0.PostView.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListLikedPostsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListLikedPostsResponse copyWith(
+          void Function(ListLikedPostsResponse) updates) =>
+      super.copyWith((message) => updates(message as ListLikedPostsResponse))
+          as ListLikedPostsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListLikedPostsResponse() / ListLikedPostsResponse.new instead')
+  static ListLikedPostsResponse create() => ListLikedPostsResponse._();
+  static $pb.GeneratedMessage $_createMessage() => ListLikedPostsResponse._();
+  @$core.override
+  ListLikedPostsResponse createEmptyInstance() => ListLikedPostsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListLikedPostsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListLikedPostsResponse>(
+          ListLikedPostsResponse.$_createMessage);
+  static ListLikedPostsResponse? _defaultInstance;
+
+  /// Most recently liked first; the live posts with the caller's viewer flags. May be shorter than page_size (rows
+  /// dropped after the read, see ListLikedPosts).
+  @$pb.TagNumber(1)
+  $pb.PbList<$0.PostView> get posts => $_getList(0);
+
+  /// "" => no more likes.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
 class EngagementServiceApi {
   final $pb.RpcClient _client;
 
@@ -1341,6 +1485,31 @@ class EngagementServiceApi {
           $pb.ClientContext? ctx, ListBookmarksRequest request) =>
       _client.invoke<ListBookmarksResponse>(ctx, 'EngagementService',
           'ListBookmarks', request, ListBookmarksResponse());
+
+  /// The caller's own likes, most recently liked first (ADR-0024 D6). OWNER-ONLY: the request has no user id and
+  /// must never get one; the source is userLikes/{caller}.recent (the newest 1,000 likes, read through engagement's
+  /// 60 s cache), so nobody can list another user's likes. Likes older than the newest 1,000 are not listed, and there
+  /// is no liked-at time (recent[] stores none). Each row is the LIVE post (one cache-first posts GetMany of the
+  /// page's ids) with viewer flags from the same userLikes read (0 extra reads).
+  /// Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
+  /// FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
+  /// metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
+  /// (at most 30/min with 3 instances). Charged to the per-uid daily read budget (ADR-0010 D5).
+  /// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
+  /// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
+  /// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
+  /// following it while it is non-empty.
+  /// page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
+  /// resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
+  /// or trim between pages skips or repeats nothing beyond the rows changed at the page boundary. Expired, foreign or
+  /// tampered => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: reload the first page.
+  /// Client contract: no since_token, no removed_ids; on every open REPLACE the cached first page.
+  /// Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
+  /// 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
+  $async.Future<ListLikedPostsResponse> listLikedPosts(
+          $pb.ClientContext? ctx, ListLikedPostsRequest request) =>
+      _client.invoke<ListLikedPostsResponse>(ctx, 'EngagementService',
+          'ListLikedPosts', request, ListLikedPostsResponse());
 }
 
 const $core.bool _omitFieldNames =

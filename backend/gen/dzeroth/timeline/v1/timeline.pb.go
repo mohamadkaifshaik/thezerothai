@@ -21,12 +21,14 @@
 // - Cold-open and since_token refresh responses return a fresh since_token; persist it with the cached items.
 //   Scroll (page_token) and gap-fill responses return no since_token: keep the one you have.
 // - Tokens are bound to the caller, the feed (and for user timelines the target and tab) and the token kind,
-//   and expire after 30 days (ADR-0010 D14). An expired, foreign or tampered token => INVALID_ARGUMENT +
-//   VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop that token and call with no
-//   token (cold open). After a rejected page_token, or a rejected since_token (amended by ADR-0016 D10), REPLACE the
-//   cached feed with the cold open, do not merge into it: a since_token is also rejected when the server cannot list
-//   removed_ids completely (below), it answers exactly as for an expired token, so the client cannot tell the two
-//   apart. Scroll down from the cold open's next_page_token.
+//   and expire after 30 days (ADR-0010 D14). For user timelines "tab" is the EFFECTIVE tab (ADR-0024 D5): POSTS
+//   and UNSPECIFIED + include_replies=false bind the same feed, as do REPLIES and UNSPECIFIED + true, so every
+//   pre-W3 token stays valid; a token used on another tab is rejected like a foreign one. An expired, foreign or
+//   tampered token => INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads:
+//   drop that token and call with no token (cold open). After a rejected page_token, or a rejected since_token
+//   (amended by ADR-0016 D10), REPLACE the cached feed with the cold open, do not merge into it: a since_token is
+//   also rejected when the server cannot list removed_ids completely (below), it answers exactly as for an expired
+//   token, so the client cannot tell the two apart. Scroll down from the cold open's next_page_token.
 // - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
 //   account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
 //   Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
@@ -56,6 +58,68 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// The profile tab a GetUserTimeline call reads (ADR-0024 D5).
+type UserTimelineTab int32
+
+const (
+	// Use include_replies (false = POSTS, true = REPLIES), exactly as before the tab field existed.
+	UserTimelineTab_USER_TIMELINE_TAB_UNSPECIFIED UserTimelineTab = 0
+	// Root posts (isReply == false).
+	UserTimelineTab_USER_TIMELINE_TAB_POSTS UserTimelineTab = 1
+	// All of the author's posts, replies included.
+	UserTimelineTab_USER_TIMELINE_TAB_REPLIES UserTimelineTab = 2
+	// The author's posts with their own images (hasMedia == true), replies and quotes included, REPOSTs excluded.
+	// Needs FEATURE_PROFILE_TABS.
+	UserTimelineTab_USER_TIMELINE_TAB_MEDIA UserTimelineTab = 3
+	// The author's REPOST items (kind == REPOST). Needs FEATURE_PROFILE_TABS.
+	UserTimelineTab_USER_TIMELINE_TAB_REPOSTS UserTimelineTab = 4
+)
+
+// Enum value maps for UserTimelineTab.
+var (
+	UserTimelineTab_name = map[int32]string{
+		0: "USER_TIMELINE_TAB_UNSPECIFIED",
+		1: "USER_TIMELINE_TAB_POSTS",
+		2: "USER_TIMELINE_TAB_REPLIES",
+		3: "USER_TIMELINE_TAB_MEDIA",
+		4: "USER_TIMELINE_TAB_REPOSTS",
+	}
+	UserTimelineTab_value = map[string]int32{
+		"USER_TIMELINE_TAB_UNSPECIFIED": 0,
+		"USER_TIMELINE_TAB_POSTS":       1,
+		"USER_TIMELINE_TAB_REPLIES":     2,
+		"USER_TIMELINE_TAB_MEDIA":       3,
+		"USER_TIMELINE_TAB_REPOSTS":     4,
+	}
+)
+
+func (x UserTimelineTab) Enum() *UserTimelineTab {
+	p := new(UserTimelineTab)
+	*p = x
+	return p
+}
+
+func (x UserTimelineTab) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UserTimelineTab) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_timeline_v1_timeline_proto_enumTypes[0].Descriptor()
+}
+
+func (UserTimelineTab) Type() protoreflect.EnumType {
+	return &file_dzeroth_timeline_v1_timeline_proto_enumTypes[0]
+}
+
+func (x UserTimelineTab) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UserTimelineTab.Descriptor instead.
+func (UserTimelineTab) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_timeline_v1_timeline_proto_rawDescGZIP(), []int{0}
+}
 
 type GetHomeTimelineRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -203,14 +267,18 @@ func (x *GetHomeTimelineResponse) GetRemovedIds() []string {
 }
 
 type GetUserTimelineRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	UserId         string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	IncludeReplies bool                   `protobuf:"varint,2,opt,name=include_replies,json=includeReplies,proto3" json:"include_replies,omitempty"`
-	PageSize       int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken      string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	SinceToken     string                 `protobuf:"bytes,5,opt,name=since_token,json=sinceToken,proto3" json:"since_token,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	UserId string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// Read only while tab is UNSPECIFIED; ignored (no error) when tab is set.
+	IncludeReplies bool   `protobuf:"varint,2,opt,name=include_replies,json=includeReplies,proto3" json:"include_replies,omitempty"`
+	PageSize       int32  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken      string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	SinceToken     string `protobuf:"bytes,5,opt,name=since_token,json=sinceToken,proto3" json:"since_token,omitempty"`
+	// UNSPECIFIED => include_replies decides. Any other value wins over include_replies. Tokens are bound to the
+	// effective tab (see the token contract).
+	Tab           UserTimelineTab `protobuf:"varint,6,opt,name=tab,proto3,enum=dzeroth.timeline.v1.UserTimelineTab" json:"tab,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetUserTimelineRequest) Reset() {
@@ -276,6 +344,13 @@ func (x *GetUserTimelineRequest) GetSinceToken() string {
 		return x.SinceToken
 	}
 	return ""
+}
+
+func (x *GetUserTimelineRequest) GetTab() UserTimelineTab {
+	if x != nil {
+		return x.Tab
+	}
+	return UserTimelineTab_USER_TIMELINE_TAB_UNSPECIFIED
 }
 
 type GetUserTimelineResponse struct {
@@ -374,7 +449,7 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"sinceToken\x12$\n" +
 	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\x12\x1f\n" +
 	"\vremoved_ids\x18\x05 \x03(\tR\n" +
-	"removedIds\"\xb7\x01\n" +
+	"removedIds\"\xef\x01\n" +
 	"\x16GetUserTimelineRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
 	"\x0finclude_replies\x18\x02 \x01(\bR\x0eincludeReplies\x12\x1b\n" +
@@ -382,7 +457,8 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"\n" +
 	"page_token\x18\x04 \x01(\tR\tpageToken\x12\x1f\n" +
 	"\vsince_token\x18\x05 \x01(\tR\n" +
-	"sinceToken\"\xdb\x01\n" +
+	"sinceToken\x126\n" +
+	"\x03tab\x18\x06 \x01(\x0e2$.dzeroth.timeline.v1.UserTimelineTabR\x03tab\"\xdb\x01\n" +
 	"\x17GetUserTimelineResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x1f\n" +
@@ -390,7 +466,13 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"sinceToken\x12$\n" +
 	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\x12\x1f\n" +
 	"\vremoved_ids\x18\x05 \x03(\tR\n" +
-	"removedIds2\xf7\x01\n" +
+	"removedIds*\xac\x01\n" +
+	"\x0fUserTimelineTab\x12!\n" +
+	"\x1dUSER_TIMELINE_TAB_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17USER_TIMELINE_TAB_POSTS\x10\x01\x12\x1d\n" +
+	"\x19USER_TIMELINE_TAB_REPLIES\x10\x02\x12\x1b\n" +
+	"\x17USER_TIMELINE_TAB_MEDIA\x10\x03\x12\x1d\n" +
+	"\x19USER_TIMELINE_TAB_REPOSTS\x10\x042\xf7\x01\n" +
 	"\x0fTimelineService\x12q\n" +
 	"\x0fGetHomeTimeline\x12+.dzeroth.timeline.v1.GetHomeTimelineRequest\x1a,.dzeroth.timeline.v1.GetHomeTimelineResponse\"\x03\x90\x02\x01\x12q\n" +
 	"\x0fGetUserTimeline\x12+.dzeroth.timeline.v1.GetUserTimelineRequest\x1a,.dzeroth.timeline.v1.GetUserTimelineResponse\"\x03\x90\x02\x01BGZEgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1;timelinev1b\x06proto3"
@@ -407,26 +489,29 @@ func file_dzeroth_timeline_v1_timeline_proto_rawDescGZIP() []byte {
 	return file_dzeroth_timeline_v1_timeline_proto_rawDescData
 }
 
+var file_dzeroth_timeline_v1_timeline_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_dzeroth_timeline_v1_timeline_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_dzeroth_timeline_v1_timeline_proto_goTypes = []any{
-	(*GetHomeTimelineRequest)(nil),  // 0: dzeroth.timeline.v1.GetHomeTimelineRequest
-	(*GetHomeTimelineResponse)(nil), // 1: dzeroth.timeline.v1.GetHomeTimelineResponse
-	(*GetUserTimelineRequest)(nil),  // 2: dzeroth.timeline.v1.GetUserTimelineRequest
-	(*GetUserTimelineResponse)(nil), // 3: dzeroth.timeline.v1.GetUserTimelineResponse
-	(*v1.PostView)(nil),             // 4: dzeroth.posts.v1.PostView
+	(UserTimelineTab)(0),            // 0: dzeroth.timeline.v1.UserTimelineTab
+	(*GetHomeTimelineRequest)(nil),  // 1: dzeroth.timeline.v1.GetHomeTimelineRequest
+	(*GetHomeTimelineResponse)(nil), // 2: dzeroth.timeline.v1.GetHomeTimelineResponse
+	(*GetUserTimelineRequest)(nil),  // 3: dzeroth.timeline.v1.GetUserTimelineRequest
+	(*GetUserTimelineResponse)(nil), // 4: dzeroth.timeline.v1.GetUserTimelineResponse
+	(*v1.PostView)(nil),             // 5: dzeroth.posts.v1.PostView
 }
 var file_dzeroth_timeline_v1_timeline_proto_depIdxs = []int32{
-	4, // 0: dzeroth.timeline.v1.GetHomeTimelineResponse.posts:type_name -> dzeroth.posts.v1.PostView
-	4, // 1: dzeroth.timeline.v1.GetUserTimelineResponse.posts:type_name -> dzeroth.posts.v1.PostView
-	0, // 2: dzeroth.timeline.v1.TimelineService.GetHomeTimeline:input_type -> dzeroth.timeline.v1.GetHomeTimelineRequest
-	2, // 3: dzeroth.timeline.v1.TimelineService.GetUserTimeline:input_type -> dzeroth.timeline.v1.GetUserTimelineRequest
-	1, // 4: dzeroth.timeline.v1.TimelineService.GetHomeTimeline:output_type -> dzeroth.timeline.v1.GetHomeTimelineResponse
-	3, // 5: dzeroth.timeline.v1.TimelineService.GetUserTimeline:output_type -> dzeroth.timeline.v1.GetUserTimelineResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	5, // 0: dzeroth.timeline.v1.GetHomeTimelineResponse.posts:type_name -> dzeroth.posts.v1.PostView
+	0, // 1: dzeroth.timeline.v1.GetUserTimelineRequest.tab:type_name -> dzeroth.timeline.v1.UserTimelineTab
+	5, // 2: dzeroth.timeline.v1.GetUserTimelineResponse.posts:type_name -> dzeroth.posts.v1.PostView
+	1, // 3: dzeroth.timeline.v1.TimelineService.GetHomeTimeline:input_type -> dzeroth.timeline.v1.GetHomeTimelineRequest
+	3, // 4: dzeroth.timeline.v1.TimelineService.GetUserTimeline:input_type -> dzeroth.timeline.v1.GetUserTimelineRequest
+	2, // 5: dzeroth.timeline.v1.TimelineService.GetHomeTimeline:output_type -> dzeroth.timeline.v1.GetHomeTimelineResponse
+	4, // 6: dzeroth.timeline.v1.TimelineService.GetUserTimeline:output_type -> dzeroth.timeline.v1.GetUserTimelineResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_timeline_v1_timeline_proto_init() }
@@ -439,13 +524,14 @@ func file_dzeroth_timeline_v1_timeline_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_timeline_v1_timeline_proto_rawDesc), len(file_dzeroth_timeline_v1_timeline_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_dzeroth_timeline_v1_timeline_proto_goTypes,
 		DependencyIndexes: file_dzeroth_timeline_v1_timeline_proto_depIdxs,
+		EnumInfos:         file_dzeroth_timeline_v1_timeline_proto_enumTypes,
 		MessageInfos:      file_dzeroth_timeline_v1_timeline_proto_msgTypes,
 	}.Build()
 	File_dzeroth_timeline_v1_timeline_proto = out.File

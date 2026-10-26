@@ -39,6 +39,10 @@ abstract class GraphServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.UnmuteRequest request);
   $async.Future<$2.GetRelationshipsResponse> getRelationships(
       $pb.ServerContext ctx, $2.GetRelationshipsRequest request);
+  $async.Future<$2.GetProfileRelationshipResponse> getProfileRelationship(
+      $pb.ServerContext ctx, $2.GetProfileRelationshipRequest request);
+  $async.Future<$2.ListSuggestedUsersResponse> listSuggestedUsers(
+      $pb.ServerContext ctx, $2.ListSuggestedUsersRequest request);
   $async.Future<$2.ListFollowersResponse> listFollowers(
       $pb.ServerContext ctx, $2.ListFollowersRequest request);
   $async.Future<$2.ListFollowingResponse> listFollowing(
@@ -68,6 +72,10 @@ abstract class GraphServiceBase extends $pb.GeneratedService {
         return $2.UnmuteRequest();
       case 'GetRelationships':
         return $2.GetRelationshipsRequest();
+      case 'GetProfileRelationship':
+        return $2.GetProfileRelationshipRequest();
+      case 'ListSuggestedUsers':
+        return $2.ListSuggestedUsersRequest();
       case 'ListFollowers':
         return $2.ListFollowersRequest();
       case 'ListFollowing':
@@ -103,6 +111,11 @@ abstract class GraphServiceBase extends $pb.GeneratedService {
         return unmute(ctx, request as $2.UnmuteRequest);
       case 'GetRelationships':
         return getRelationships(ctx, request as $2.GetRelationshipsRequest);
+      case 'GetProfileRelationship':
+        return getProfileRelationship(
+            ctx, request as $2.GetProfileRelationshipRequest);
+      case 'ListSuggestedUsers':
+        return listSuggestedUsers(ctx, request as $2.ListSuggestedUsersRequest);
       case 'ListFollowers':
         return listFollowers(ctx, request as $2.ListFollowersRequest);
       case 'ListFollowing':

@@ -26,14 +26,20 @@ class MediaPurpose extends $pb.ProtobufEnum {
   static const MediaPurpose MEDIA_PURPOSE_AVATAR =
       MediaPurpose._(2, _omitEnumNames ? '' : 'MEDIA_PURPOSE_AVATAR');
 
+  /// Profile banner (cover image; exactly 1; 3:1, full 1500 x 500, thumb 600 x 200; ADR-0024 D1). Needs
+  /// FEATURE_PROFILE_EXTRAS as well as FEATURE_MEDIA. Set with IdentityService.UpdateProfile(banner_media_id).
+  static const MediaPurpose MEDIA_PURPOSE_BANNER =
+      MediaPurpose._(3, _omitEnumNames ? '' : 'MEDIA_PURPOSE_BANNER');
+
   static const $core.List<MediaPurpose> values = <MediaPurpose>[
     MEDIA_PURPOSE_UNSPECIFIED,
     MEDIA_PURPOSE_POST,
     MEDIA_PURPOSE_AVATAR,
+    MEDIA_PURPOSE_BANNER,
   ];
 
   static final $core.List<MediaPurpose?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 2);
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
   static MediaPurpose? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

@@ -384,6 +384,134 @@ variable "feature_bookmarks_percent" {
   }
 }
 
+variable "feature_profile_extras" {
+  description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates UpdateProfile banner, location, website and pin fields and CreateUpload(BANNER), which also needs media): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_profile_extras)
+    error_message = "feature_profile_extras must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_profile_extras_allowlist" {
+  description = "FEATURE_PROFILE_EXTRAS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_profile_extras_percent" {
+  description = "FEATURE_PROFILE_EXTRAS_PERCENT: 0-100, only meaningful when feature_profile_extras = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_profile_extras_percent >= 0 && var.feature_profile_extras_percent <= 100 && floor(var.feature_profile_extras_percent) == var.feature_profile_extras_percent
+    error_message = "feature_profile_extras_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_profile_tabs" {
+  description = "FEATURE_PROFILE_TABS rollout mode for profile_tabs (ADR-0024 D9; gates GetUserTimeline tab MEDIA and REPOSTS): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_profile_tabs)
+    error_message = "feature_profile_tabs must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_profile_tabs_allowlist" {
+  description = "FEATURE_PROFILE_TABS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_profile_tabs_percent" {
+  description = "FEATURE_PROFILE_TABS_PERCENT: 0-100, only meaningful when feature_profile_tabs = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_profile_tabs_percent >= 0 && var.feature_profile_tabs_percent <= 100 && floor(var.feature_profile_tabs_percent) == var.feature_profile_tabs_percent
+    error_message = "feature_profile_tabs_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_likes_list" {
+  description = "FEATURE_LIKES_LIST rollout mode for likes_list (ADR-0024 D9; gates ListLikedPosts): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_likes_list)
+    error_message = "feature_likes_list must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_likes_list_allowlist" {
+  description = "FEATURE_LIKES_LIST_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_likes_list_percent" {
+  description = "FEATURE_LIKES_LIST_PERCENT: 0-100, only meaningful when feature_likes_list = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_likes_list_percent >= 0 && var.feature_likes_list_percent <= 100 && floor(var.feature_likes_list_percent) == var.feature_likes_list_percent
+    error_message = "feature_likes_list_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_follow_suggestions" {
+  description = "FEATURE_FOLLOW_SUGGESTIONS rollout mode for follow_suggestions (ADR-0024 D9; gates ListSuggestedUsers (also needs graph)): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_follow_suggestions)
+    error_message = "feature_follow_suggestions must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_follow_suggestions_allowlist" {
+  description = "FEATURE_FOLLOW_SUGGESTIONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_follow_suggestions_percent" {
+  description = "FEATURE_FOLLOW_SUGGESTIONS_PERCENT: 0-100, only meaningful when feature_follow_suggestions = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_follow_suggestions_percent >= 0 && var.feature_follow_suggestions_percent <= 100 && floor(var.feature_follow_suggestions_percent) == var.feature_follow_suggestions_percent
+    error_message = "feature_follow_suggestions_percent must be an integer 0-100."
+  }
+}
+
+variable "suggested_user_ids" {
+  description = "SUGGESTED_USER_IDS: comma-separated Firebase uids of the curated 'who to follow' fallback (ADR-0024 D8), at most 20, not a secret. Empty = no curated fallback."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^([A-Za-z0-9-]{1,128}(,[A-Za-z0-9-]{1,128})*)?$", var.suggested_user_ids))
+    error_message = "suggested_user_ids must be comma-separated uids of [A-Za-z0-9-] (1-128 characters each), with no spaces."
+  }
+
+  validation {
+    condition     = var.suggested_user_ids == "" || length(split(",", var.suggested_user_ids)) <= 20
+    error_message = "suggested_user_ids may list at most 20 uids."
+  }
+}
+
 variable "feature_ui_shell" {
   description = "FEATURE_UI_SHELL rollout mode for the new app shell (client-only; bottom bar + avatar drawer, account chip, rail): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

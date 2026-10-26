@@ -68,6 +68,12 @@ const (
 	// GraphServiceGetRelationshipsProcedure is the fully-qualified name of the GraphService's
 	// GetRelationships RPC.
 	GraphServiceGetRelationshipsProcedure = "/dzeroth.graph.v1.GraphService/GetRelationships"
+	// GraphServiceGetProfileRelationshipProcedure is the fully-qualified name of the GraphService's
+	// GetProfileRelationship RPC.
+	GraphServiceGetProfileRelationshipProcedure = "/dzeroth.graph.v1.GraphService/GetProfileRelationship"
+	// GraphServiceListSuggestedUsersProcedure is the fully-qualified name of the GraphService's
+	// ListSuggestedUsers RPC.
+	GraphServiceListSuggestedUsersProcedure = "/dzeroth.graph.v1.GraphService/ListSuggestedUsers"
 	// GraphServiceListFollowersProcedure is the fully-qualified name of the GraphService's
 	// ListFollowers RPC.
 	GraphServiceListFollowersProcedure = "/dzeroth.graph.v1.GraphService/ListFollowers"
@@ -136,11 +142,43 @@ type GraphServiceClient interface {
 	// Firestore: reads 1/1, writes 1/1 (0 on no-op).
 	Unmute(context.Context, *connect.Request[v1.UnmuteRequest]) (*connect.Response[v1.UnmuteResponse], error)
 	// Caller's relationship to up to 50 users, computed from the caller's graph doc only (1 read, cached 60 s).
-	// Does not report whether the target follows the caller (that would cost 1 read per user).
+	// Does not report whether the target follows the caller (that would cost 1 read per user; GetProfileRelationship
+	// does, for one user).
 	// Never reflects blocks against the caller: a user who blocked the caller looks like a stranger (only the
 	// caller's own blocking/muting bits are reported). The caller's own id => NONE.
 	// Firestore: reads 1/0.5 (graph cached 60 s), writes 0.
 	GetRelationships(context.Context, *connect.Request[v1.GetRelationshipsRequest]) (*connect.Response[v1.GetRelationshipsResponse], error)
+	// The caller's relationship to ONE user for a profile header, plus followed_by ("Follows you", ADR-0024 D7).
+	// relationship is exactly what GetRelationships computes from the caller's graph snapshot; followed_by is whether
+	// follows/{user_id}_{caller} exists. Single target by contract: there is no batch form, and list rows never carry
+	// followed_by (1 read per row). Clients call it instead of GetRelationships([user_id]) for the header.
+	// NOT_FOUND, byte-identical to GetProfile's missing-user error, when the target is missing or not ACTIVE, or has
+	// blocked the caller (the edge is then never read). The caller's own id => NONE and followed_by false, 0 extra
+	// reads. A caller who blocks the target gets blocking = true and followed_by = false (Block removed both edges).
+	// Staleness: the edge is cached 60 s per (caller, target) on the instance; this instance evicts the pair when the
+	// target follows or unfollows the caller and on a Block either way; other instances converge within 60 s.
+	// Flag: FEATURE_GRAPH, like every GraphService RPC. Rate limit: RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
+	// 60/min/uid per instance (at most 180/min with 3 instances). Charged to the per-uid daily read budget.
+	// Firestore: reads 3 cold (interceptor, caller graph, edge doc; +1 if the caller's blockedBy overflowed,
+	// ADR-0008 D2; the target's status comes from the identity directory, cache-first and usually warm from the
+	// header's GetProfile) / 0 warm, planning 1; writes 0. user_id: [A-Za-z0-9-]{1,128}.
+	GetProfileRelationship(context.Context, *connect.Request[v1.GetProfileRelationshipRequest]) (*connect.Response[v1.GetProfileRelationshipResponse], error)
+	// "Who to follow" for the caller (ADR-0024 D8): at most max_results users, no cursor, never a scan. Source
+	// (behind a server-side interface; clients must not assume it): friends of friends from one query over the
+	// follows of the caller's 30 newest followees (<= 30 edges), ranked by how many of them follow each candidate,
+	// ties broken by a per-day stable order; a curated server list fills in when the caller follows fewer than 3
+	// accounts or fewer than 3 candidates are found. Never returns the caller, anyone the caller follows or has
+	// requested, blocks, mutes, or is blocked by, or a user who is not ACTIVE. Each row carries relationship;
+	// since is unset. Results may change once a day per caller; the client caches them 24 h.
+	// Needs FEATURE_FOLLOW_SUGGESTIONS (wire name "follow_suggestions") on for the caller, and FEATURE_GRAPH; else
+	// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "follow_suggestions", 0 reads.
+	// Rate limits: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances), and
+	// SUGGESTIONS_CALLS_PER_DAY, 50 calls/uid/IST day per instance (150 with 3) => RATE_LIMITED,
+	// metadata["limit"] = "suggestions_daily". Charged to the per-uid daily read budget (ADR-0010 D5).
+	// Firestore: hard cap 42 reads cold (interceptor 1, caller graph 1, follows edges <= 30, user hydration <= 10),
+	// 12 on the curated path (1 + 1 + 10); warm (per-viewer instance cache, 1 h) 1, the interceptor; planning 25.
+	// Writes 0.
+	ListSuggestedUsers(context.Context, *connect.Request[v1.ListSuggestedUsersRequest]) (*connect.Response[v1.ListSuggestedUsersResponse], error)
 	// Followers of a user, newest first. NOT_FOUND if the target is missing, not active, or blocked the caller.
 	// Rows for users the caller blocks or who blocked the caller are dropped (pages may be short; follow
 	// next_page_token). Each row carries the caller's relationship to that user (0 extra reads).
@@ -229,6 +267,20 @@ func NewGraphServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		getProfileRelationship: connect.NewClient[v1.GetProfileRelationshipRequest, v1.GetProfileRelationshipResponse](
+			httpClient,
+			baseURL+GraphServiceGetProfileRelationshipProcedure,
+			connect.WithSchema(graphServiceMethods.ByName("GetProfileRelationship")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		listSuggestedUsers: connect.NewClient[v1.ListSuggestedUsersRequest, v1.ListSuggestedUsersResponse](
+			httpClient,
+			baseURL+GraphServiceListSuggestedUsersProcedure,
+			connect.WithSchema(graphServiceMethods.ByName("ListSuggestedUsers")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		listFollowers: connect.NewClient[v1.ListFollowersRequest, v1.ListFollowersResponse](
 			httpClient,
 			baseURL+GraphServiceListFollowersProcedure,
@@ -271,6 +323,8 @@ type graphServiceClient struct {
 	mute                   *connect.Client[v1.MuteRequest, v1.MuteResponse]
 	unmute                 *connect.Client[v1.UnmuteRequest, v1.UnmuteResponse]
 	getRelationships       *connect.Client[v1.GetRelationshipsRequest, v1.GetRelationshipsResponse]
+	getProfileRelationship *connect.Client[v1.GetProfileRelationshipRequest, v1.GetProfileRelationshipResponse]
+	listSuggestedUsers     *connect.Client[v1.ListSuggestedUsersRequest, v1.ListSuggestedUsersResponse]
 	listFollowers          *connect.Client[v1.ListFollowersRequest, v1.ListFollowersResponse]
 	listFollowing          *connect.Client[v1.ListFollowingRequest, v1.ListFollowingResponse]
 	listBlockedUsers       *connect.Client[v1.ListBlockedUsersRequest, v1.ListBlockedUsersResponse]
@@ -320,6 +374,16 @@ func (c *graphServiceClient) Unmute(ctx context.Context, req *connect.Request[v1
 // GetRelationships calls dzeroth.graph.v1.GraphService.GetRelationships.
 func (c *graphServiceClient) GetRelationships(ctx context.Context, req *connect.Request[v1.GetRelationshipsRequest]) (*connect.Response[v1.GetRelationshipsResponse], error) {
 	return c.getRelationships.CallUnary(ctx, req)
+}
+
+// GetProfileRelationship calls dzeroth.graph.v1.GraphService.GetProfileRelationship.
+func (c *graphServiceClient) GetProfileRelationship(ctx context.Context, req *connect.Request[v1.GetProfileRelationshipRequest]) (*connect.Response[v1.GetProfileRelationshipResponse], error) {
+	return c.getProfileRelationship.CallUnary(ctx, req)
+}
+
+// ListSuggestedUsers calls dzeroth.graph.v1.GraphService.ListSuggestedUsers.
+func (c *graphServiceClient) ListSuggestedUsers(ctx context.Context, req *connect.Request[v1.ListSuggestedUsersRequest]) (*connect.Response[v1.ListSuggestedUsersResponse], error) {
+	return c.listSuggestedUsers.CallUnary(ctx, req)
 }
 
 // ListFollowers calls dzeroth.graph.v1.GraphService.ListFollowers.
@@ -396,11 +460,43 @@ type GraphServiceHandler interface {
 	// Firestore: reads 1/1, writes 1/1 (0 on no-op).
 	Unmute(context.Context, *connect.Request[v1.UnmuteRequest]) (*connect.Response[v1.UnmuteResponse], error)
 	// Caller's relationship to up to 50 users, computed from the caller's graph doc only (1 read, cached 60 s).
-	// Does not report whether the target follows the caller (that would cost 1 read per user).
+	// Does not report whether the target follows the caller (that would cost 1 read per user; GetProfileRelationship
+	// does, for one user).
 	// Never reflects blocks against the caller: a user who blocked the caller looks like a stranger (only the
 	// caller's own blocking/muting bits are reported). The caller's own id => NONE.
 	// Firestore: reads 1/0.5 (graph cached 60 s), writes 0.
 	GetRelationships(context.Context, *connect.Request[v1.GetRelationshipsRequest]) (*connect.Response[v1.GetRelationshipsResponse], error)
+	// The caller's relationship to ONE user for a profile header, plus followed_by ("Follows you", ADR-0024 D7).
+	// relationship is exactly what GetRelationships computes from the caller's graph snapshot; followed_by is whether
+	// follows/{user_id}_{caller} exists. Single target by contract: there is no batch form, and list rows never carry
+	// followed_by (1 read per row). Clients call it instead of GetRelationships([user_id]) for the header.
+	// NOT_FOUND, byte-identical to GetProfile's missing-user error, when the target is missing or not ACTIVE, or has
+	// blocked the caller (the edge is then never read). The caller's own id => NONE and followed_by false, 0 extra
+	// reads. A caller who blocks the target gets blocking = true and followed_by = false (Block removed both edges).
+	// Staleness: the edge is cached 60 s per (caller, target) on the instance; this instance evicts the pair when the
+	// target follows or unfollows the caller and on a Block either way; other instances converge within 60 s.
+	// Flag: FEATURE_GRAPH, like every GraphService RPC. Rate limit: RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
+	// 60/min/uid per instance (at most 180/min with 3 instances). Charged to the per-uid daily read budget.
+	// Firestore: reads 3 cold (interceptor, caller graph, edge doc; +1 if the caller's blockedBy overflowed,
+	// ADR-0008 D2; the target's status comes from the identity directory, cache-first and usually warm from the
+	// header's GetProfile) / 0 warm, planning 1; writes 0. user_id: [A-Za-z0-9-]{1,128}.
+	GetProfileRelationship(context.Context, *connect.Request[v1.GetProfileRelationshipRequest]) (*connect.Response[v1.GetProfileRelationshipResponse], error)
+	// "Who to follow" for the caller (ADR-0024 D8): at most max_results users, no cursor, never a scan. Source
+	// (behind a server-side interface; clients must not assume it): friends of friends from one query over the
+	// follows of the caller's 30 newest followees (<= 30 edges), ranked by how many of them follow each candidate,
+	// ties broken by a per-day stable order; a curated server list fills in when the caller follows fewer than 3
+	// accounts or fewer than 3 candidates are found. Never returns the caller, anyone the caller follows or has
+	// requested, blocks, mutes, or is blocked by, or a user who is not ACTIVE. Each row carries relationship;
+	// since is unset. Results may change once a day per caller; the client caches them 24 h.
+	// Needs FEATURE_FOLLOW_SUGGESTIONS (wire name "follow_suggestions") on for the caller, and FEATURE_GRAPH; else
+	// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "follow_suggestions", 0 reads.
+	// Rate limits: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances), and
+	// SUGGESTIONS_CALLS_PER_DAY, 50 calls/uid/IST day per instance (150 with 3) => RATE_LIMITED,
+	// metadata["limit"] = "suggestions_daily". Charged to the per-uid daily read budget (ADR-0010 D5).
+	// Firestore: hard cap 42 reads cold (interceptor 1, caller graph 1, follows edges <= 30, user hydration <= 10),
+	// 12 on the curated path (1 + 1 + 10); warm (per-viewer instance cache, 1 h) 1, the interceptor; planning 25.
+	// Writes 0.
+	ListSuggestedUsers(context.Context, *connect.Request[v1.ListSuggestedUsersRequest]) (*connect.Response[v1.ListSuggestedUsersResponse], error)
 	// Followers of a user, newest first. NOT_FOUND if the target is missing, not active, or blocked the caller.
 	// Rows for users the caller blocks or who blocked the caller are dropped (pages may be short; follow
 	// next_page_token). Each row carries the caller's relationship to that user (0 extra reads).
@@ -485,6 +581,20 @@ func NewGraphServiceHandler(svc GraphServiceHandler, opts ...connect.HandlerOpti
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	graphServiceGetProfileRelationshipHandler := connect.NewUnaryHandler(
+		GraphServiceGetProfileRelationshipProcedure,
+		svc.GetProfileRelationship,
+		connect.WithSchema(graphServiceMethods.ByName("GetProfileRelationship")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	graphServiceListSuggestedUsersHandler := connect.NewUnaryHandler(
+		GraphServiceListSuggestedUsersProcedure,
+		svc.ListSuggestedUsers,
+		connect.WithSchema(graphServiceMethods.ByName("ListSuggestedUsers")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	graphServiceListFollowersHandler := connect.NewUnaryHandler(
 		GraphServiceListFollowersProcedure,
 		svc.ListFollowers,
@@ -533,6 +643,10 @@ func NewGraphServiceHandler(svc GraphServiceHandler, opts ...connect.HandlerOpti
 			graphServiceUnmuteHandler.ServeHTTP(w, r)
 		case GraphServiceGetRelationshipsProcedure:
 			graphServiceGetRelationshipsHandler.ServeHTTP(w, r)
+		case GraphServiceGetProfileRelationshipProcedure:
+			graphServiceGetProfileRelationshipHandler.ServeHTTP(w, r)
+		case GraphServiceListSuggestedUsersProcedure:
+			graphServiceListSuggestedUsersHandler.ServeHTTP(w, r)
 		case GraphServiceListFollowersProcedure:
 			graphServiceListFollowersHandler.ServeHTTP(w, r)
 		case GraphServiceListFollowingProcedure:
@@ -584,6 +698,14 @@ func (UnimplementedGraphServiceHandler) Unmute(context.Context, *connect.Request
 
 func (UnimplementedGraphServiceHandler) GetRelationships(context.Context, *connect.Request[v1.GetRelationshipsRequest]) (*connect.Response[v1.GetRelationshipsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.graph.v1.GraphService.GetRelationships is not implemented"))
+}
+
+func (UnimplementedGraphServiceHandler) GetProfileRelationship(context.Context, *connect.Request[v1.GetProfileRelationshipRequest]) (*connect.Response[v1.GetProfileRelationshipResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.graph.v1.GraphService.GetProfileRelationship is not implemented"))
+}
+
+func (UnimplementedGraphServiceHandler) ListSuggestedUsers(context.Context, *connect.Request[v1.ListSuggestedUsersRequest]) (*connect.Response[v1.ListSuggestedUsersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.graph.v1.GraphService.ListSuggestedUsers is not implemented"))
 }
 
 func (UnimplementedGraphServiceHandler) ListFollowers(context.Context, *connect.Request[v1.ListFollowersRequest]) (*connect.Response[v1.ListFollowersResponse], error) {

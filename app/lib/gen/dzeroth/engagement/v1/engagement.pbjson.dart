@@ -332,6 +332,42 @@ final $typed_data.Uint8List listBookmarksResponseDescriptor = $convert.base64Dec
     'dhZ2VtZW50LnYxLkJvb2ttYXJrUglib29rbWFya3MSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJ'
     'Ug1uZXh0UGFnZVRva2Vu');
 
+@$core.Deprecated('Use listLikedPostsRequestDescriptor instead')
+const ListLikedPostsRequest$json = {
+  '1': 'ListLikedPostsRequest',
+  '2': [
+    {'1': 'page_size', '3': 1, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 2, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ListLikedPostsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listLikedPostsRequestDescriptor = $convert.base64Decode(
+    'ChVMaXN0TGlrZWRQb3N0c1JlcXVlc3QSGwoJcGFnZV9zaXplGAEgASgFUghwYWdlU2l6ZRIdCg'
+    'pwYWdlX3Rva2VuGAIgASgJUglwYWdlVG9rZW4=');
+
+@$core.Deprecated('Use listLikedPostsResponseDescriptor instead')
+const ListLikedPostsResponse$json = {
+  '1': 'ListLikedPostsResponse',
+  '2': [
+    {
+      '1': 'posts',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.PostView',
+      '10': 'posts'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `ListLikedPostsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listLikedPostsResponseDescriptor = $convert.base64Decode(
+    'ChZMaXN0TGlrZWRQb3N0c1Jlc3BvbnNlEjAKBXBvc3RzGAEgAygLMhouZHplcm90aC5wb3N0cy'
+    '52MS5Qb3N0Vmlld1IFcG9zdHMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJUg1uZXh0UGFnZVRv'
+    'a2Vu');
+
 const $core.Map<$core.String, $core.dynamic> EngagementServiceBase$json = {
   '1': 'EngagementService',
   '2': [
@@ -371,6 +407,12 @@ const $core.Map<$core.String, $core.dynamic> EngagementServiceBase$json = {
       '3': '.dzeroth.engagement.v1.ListBookmarksResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'ListLikedPosts',
+      '2': '.dzeroth.engagement.v1.ListLikedPostsRequest',
+      '3': '.dzeroth.engagement.v1.ListLikedPostsResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -401,6 +443,8 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.EmbeddedPost': $0.EmbeddedPost$json,
   '.google.protobuf.Timestamp': $1.Timestamp$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
+  '.dzeroth.engagement.v1.ListLikedPostsRequest': ListLikedPostsRequest$json,
+  '.dzeroth.engagement.v1.ListLikedPostsResponse': ListLikedPostsResponse$json,
 };
 
 /// Descriptor for `EngagementService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -418,4 +462,6 @@ final $typed_data.Uint8List engagementServiceDescriptor = $convert.base64Decode(
     'ZW1vdmVCb29rbWFya1JlcXVlc3QaLS5kemVyb3RoLmVuZ2FnZW1lbnQudjEuUmVtb3ZlQm9va2'
     '1hcmtSZXNwb25zZRJvCg1MaXN0Qm9va21hcmtzEisuZHplcm90aC5lbmdhZ2VtZW50LnYxLkxp'
     'c3RCb29rbWFya3NSZXF1ZXN0GiwuZHplcm90aC5lbmdhZ2VtZW50LnYxLkxpc3RCb29rbWFya3'
-    'NSZXNwb25zZSIDkAIB');
+    'NSZXNwb25zZSIDkAIBEnIKDkxpc3RMaWtlZFBvc3RzEiwuZHplcm90aC5lbmdhZ2VtZW50LnYx'
+    'Lkxpc3RMaWtlZFBvc3RzUmVxdWVzdBotLmR6ZXJvdGguZW5nYWdlbWVudC52MS5MaXN0TGlrZW'
+    'RQb3N0c1Jlc3BvbnNlIgOQAgE=');

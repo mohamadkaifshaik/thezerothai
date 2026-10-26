@@ -401,6 +401,78 @@ final $typed_data.Uint8List getRelationshipsResponseDescriptor =
         'ChhHZXRSZWxhdGlvbnNoaXBzUmVzcG9uc2USRAoNcmVsYXRpb25zaGlwcxgBIAMoCzIeLmR6ZX'
         'JvdGguZ3JhcGgudjEuUmVsYXRpb25zaGlwUg1yZWxhdGlvbnNoaXBz');
 
+@$core.Deprecated('Use getProfileRelationshipRequestDescriptor instead')
+const GetProfileRelationshipRequest$json = {
+  '1': 'GetProfileRelationshipRequest',
+  '2': [
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+  ],
+};
+
+/// Descriptor for `GetProfileRelationshipRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getProfileRelationshipRequestDescriptor =
+    $convert.base64Decode(
+        'Ch1HZXRQcm9maWxlUmVsYXRpb25zaGlwUmVxdWVzdBIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySW'
+        'Q=');
+
+@$core.Deprecated('Use getProfileRelationshipResponseDescriptor instead')
+const GetProfileRelationshipResponse$json = {
+  '1': 'GetProfileRelationshipResponse',
+  '2': [
+    {
+      '1': 'relationship',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.graph.v1.Relationship',
+      '10': 'relationship'
+    },
+    {'1': 'followed_by', '3': 2, '4': 1, '5': 8, '10': 'followedBy'},
+  ],
+};
+
+/// Descriptor for `GetProfileRelationshipResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getProfileRelationshipResponseDescriptor =
+    $convert.base64Decode(
+        'Ch5HZXRQcm9maWxlUmVsYXRpb25zaGlwUmVzcG9uc2USQgoMcmVsYXRpb25zaGlwGAEgASgLMh'
+        '4uZHplcm90aC5ncmFwaC52MS5SZWxhdGlvbnNoaXBSDHJlbGF0aW9uc2hpcBIfCgtmb2xsb3dl'
+        'ZF9ieRgCIAEoCFIKZm9sbG93ZWRCeQ==');
+
+@$core.Deprecated('Use listSuggestedUsersRequestDescriptor instead')
+const ListSuggestedUsersRequest$json = {
+  '1': 'ListSuggestedUsersRequest',
+  '2': [
+    {'1': 'max_results', '3': 1, '4': 1, '5': 5, '10': 'maxResults'},
+  ],
+};
+
+/// Descriptor for `ListSuggestedUsersRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSuggestedUsersRequestDescriptor =
+    $convert.base64Decode(
+        'ChlMaXN0U3VnZ2VzdGVkVXNlcnNSZXF1ZXN0Eh8KC21heF9yZXN1bHRzGAEgASgFUgptYXhSZX'
+        'N1bHRz');
+
+@$core.Deprecated('Use listSuggestedUsersResponseDescriptor instead')
+const ListSuggestedUsersResponse$json = {
+  '1': 'ListSuggestedUsersResponse',
+  '2': [
+    {
+      '1': 'users',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.graph.v1.UserListItem',
+      '10': 'users'
+    },
+  ],
+};
+
+/// Descriptor for `ListSuggestedUsersResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSuggestedUsersResponseDescriptor =
+    $convert.base64Decode(
+        'ChpMaXN0U3VnZ2VzdGVkVXNlcnNSZXNwb25zZRI0CgV1c2VycxgBIAMoCzIeLmR6ZXJvdGguZ3'
+        'JhcGgudjEuVXNlckxpc3RJdGVtUgV1c2Vycw==');
+
 @$core.Deprecated('Use listFollowersRequestDescriptor instead')
 const ListFollowersRequest$json = {
   '1': 'ListFollowersRequest',
@@ -599,6 +671,18 @@ const $core.Map<$core.String, $core.dynamic> GraphServiceBase$json = {
       '4': {'34': 1},
     },
     {
+      '1': 'GetProfileRelationship',
+      '2': '.dzeroth.graph.v1.GetProfileRelationshipRequest',
+      '3': '.dzeroth.graph.v1.GetProfileRelationshipResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'ListSuggestedUsers',
+      '2': '.dzeroth.graph.v1.ListSuggestedUsersRequest',
+      '3': '.dzeroth.graph.v1.ListSuggestedUsersResponse',
+      '4': {'34': 1},
+    },
+    {
       '1': 'ListFollowers',
       '2': '.dzeroth.graph.v1.ListFollowersRequest',
       '3': '.dzeroth.graph.v1.ListFollowersResponse',
@@ -653,6 +737,13 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.graph.v1.UnmuteResponse': UnmuteResponse$json,
   '.dzeroth.graph.v1.GetRelationshipsRequest': GetRelationshipsRequest$json,
   '.dzeroth.graph.v1.GetRelationshipsResponse': GetRelationshipsResponse$json,
+  '.dzeroth.graph.v1.GetProfileRelationshipRequest':
+      GetProfileRelationshipRequest$json,
+  '.dzeroth.graph.v1.GetProfileRelationshipResponse':
+      GetProfileRelationshipResponse$json,
+  '.dzeroth.graph.v1.ListSuggestedUsersRequest': ListSuggestedUsersRequest$json,
+  '.dzeroth.graph.v1.ListSuggestedUsersResponse':
+      ListSuggestedUsersResponse$json,
   '.dzeroth.graph.v1.ListFollowersRequest': ListFollowersRequest$json,
   '.dzeroth.graph.v1.ListFollowersResponse': ListFollowersResponse$json,
   '.dzeroth.graph.v1.ListFollowingRequest': ListFollowingRequest$json,
@@ -679,12 +770,17 @@ final $typed_data.Uint8List graphServiceDescriptor = $convert.base64Decode(
     'oeLmR6ZXJvdGguZ3JhcGgudjEuTXV0ZVJlc3BvbnNlEksKBlVubXV0ZRIfLmR6ZXJvdGguZ3Jh'
     'cGgudjEuVW5tdXRlUmVxdWVzdBogLmR6ZXJvdGguZ3JhcGgudjEuVW5tdXRlUmVzcG9uc2USbg'
     'oQR2V0UmVsYXRpb25zaGlwcxIpLmR6ZXJvdGguZ3JhcGgudjEuR2V0UmVsYXRpb25zaGlwc1Jl'
-    'cXVlc3QaKi5kemVyb3RoLmdyYXBoLnYxLkdldFJlbGF0aW9uc2hpcHNSZXNwb25zZSIDkAIBEm'
-    'UKDUxpc3RGb2xsb3dlcnMSJi5kemVyb3RoLmdyYXBoLnYxLkxpc3RGb2xsb3dlcnNSZXF1ZXN0'
-    'GicuZHplcm90aC5ncmFwaC52MS5MaXN0Rm9sbG93ZXJzUmVzcG9uc2UiA5ACARJlCg1MaXN0Rm'
-    '9sbG93aW5nEiYuZHplcm90aC5ncmFwaC52MS5MaXN0Rm9sbG93aW5nUmVxdWVzdBonLmR6ZXJv'
-    'dGguZ3JhcGgudjEuTGlzdEZvbGxvd2luZ1Jlc3BvbnNlIgOQAgESbgoQTGlzdEJsb2NrZWRVc2'
-    'VycxIpLmR6ZXJvdGguZ3JhcGgudjEuTGlzdEJsb2NrZWRVc2Vyc1JlcXVlc3QaKi5kemVyb3Ro'
-    'LmdyYXBoLnYxLkxpc3RCbG9ja2VkVXNlcnNSZXNwb25zZSIDkAIBEmgKDkxpc3RNdXRlZFVzZX'
-    'JzEicuZHplcm90aC5ncmFwaC52MS5MaXN0TXV0ZWRVc2Vyc1JlcXVlc3QaKC5kemVyb3RoLmdy'
-    'YXBoLnYxLkxpc3RNdXRlZFVzZXJzUmVzcG9uc2UiA5ACAQ==');
+    'cXVlc3QaKi5kemVyb3RoLmdyYXBoLnYxLkdldFJlbGF0aW9uc2hpcHNSZXNwb25zZSIDkAIBEo'
+    'ABChZHZXRQcm9maWxlUmVsYXRpb25zaGlwEi8uZHplcm90aC5ncmFwaC52MS5HZXRQcm9maWxl'
+    'UmVsYXRpb25zaGlwUmVxdWVzdBowLmR6ZXJvdGguZ3JhcGgudjEuR2V0UHJvZmlsZVJlbGF0aW'
+    '9uc2hpcFJlc3BvbnNlIgOQAgESdAoSTGlzdFN1Z2dlc3RlZFVzZXJzEisuZHplcm90aC5ncmFw'
+    'aC52MS5MaXN0U3VnZ2VzdGVkVXNlcnNSZXF1ZXN0GiwuZHplcm90aC5ncmFwaC52MS5MaXN0U3'
+    'VnZ2VzdGVkVXNlcnNSZXNwb25zZSIDkAIBEmUKDUxpc3RGb2xsb3dlcnMSJi5kemVyb3RoLmdy'
+    'YXBoLnYxLkxpc3RGb2xsb3dlcnNSZXF1ZXN0GicuZHplcm90aC5ncmFwaC52MS5MaXN0Rm9sbG'
+    '93ZXJzUmVzcG9uc2UiA5ACARJlCg1MaXN0Rm9sbG93aW5nEiYuZHplcm90aC5ncmFwaC52MS5M'
+    'aXN0Rm9sbG93aW5nUmVxdWVzdBonLmR6ZXJvdGguZ3JhcGgudjEuTGlzdEZvbGxvd2luZ1Jlc3'
+    'BvbnNlIgOQAgESbgoQTGlzdEJsb2NrZWRVc2VycxIpLmR6ZXJvdGguZ3JhcGgudjEuTGlzdEJs'
+    'b2NrZWRVc2Vyc1JlcXVlc3QaKi5kemVyb3RoLmdyYXBoLnYxLkxpc3RCbG9ja2VkVXNlcnNSZX'
+    'Nwb25zZSIDkAIBEmgKDkxpc3RNdXRlZFVzZXJzEicuZHplcm90aC5ncmFwaC52MS5MaXN0TXV0'
+    'ZWRVc2Vyc1JlcXVlc3QaKC5kemVyb3RoLmdyYXBoLnYxLkxpc3RNdXRlZFVzZXJzUmVzcG9uc2'
+    'UiA5ACAQ==');

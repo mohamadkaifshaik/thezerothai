@@ -11,7 +11,8 @@
 //
 // Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
 // like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
-// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT.
+// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT; nor does
+// ListLikedPosts, which has FEATURE_LIKES_LIST (ADR-0024 D6).
 //
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
 // [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
@@ -72,6 +73,9 @@ const (
 	// EngagementServiceListBookmarksProcedure is the fully-qualified name of the EngagementService's
 	// ListBookmarks RPC.
 	EngagementServiceListBookmarksProcedure = "/dzeroth.engagement.v1.EngagementService/ListBookmarks"
+	// EngagementServiceListLikedPostsProcedure is the fully-qualified name of the EngagementService's
+	// ListLikedPosts RPC.
+	EngagementServiceListLikedPostsProcedure = "/dzeroth.engagement.v1.EngagementService/ListLikedPosts"
 )
 
 // EngagementServiceClient is a client for the dzeroth.engagement.v1.EngagementService service.
@@ -156,6 +160,27 @@ type EngagementServiceClient interface {
 	// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
 	// (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
 	ListBookmarks(context.Context, *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error)
+	// The caller's own likes, most recently liked first (ADR-0024 D6). OWNER-ONLY: the request has no user id and
+	// must never get one; the source is userLikes/{caller}.recent (the newest 1,000 likes, read through engagement's
+	// 60 s cache), so nobody can list another user's likes. Likes older than the newest 1,000 are not listed, and there
+	// is no liked-at time (recent[] stores none). Each row is the LIVE post (one cache-first posts GetMany of the
+	// page's ids) with viewer flags from the same userLikes read (0 extra reads).
+	// Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
+	// FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
+	// metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
+	// (at most 30/min with 3 instances). Charged to the per-uid daily read budget (ADR-0010 D5).
+	// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
+	// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
+	// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
+	// following it while it is non-empty.
+	// page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
+	// resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
+	// or trim between pages skips or repeats nothing beyond the rows changed at the page boundary. Expired, foreign or
+	// tampered => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: reload the first page.
+	// Client contract: no since_token, no removed_ids; on every open REPLACE the cached first page.
+	// Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
+	// 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
+	ListLikedPosts(context.Context, *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error)
 }
 
 // NewEngagementServiceClient constructs a client for the dzeroth.engagement.v1.EngagementService
@@ -212,6 +237,13 @@ func NewEngagementServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listLikedPosts: connect.NewClient[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse](
+			httpClient,
+			baseURL+EngagementServiceListLikedPostsProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("ListLikedPosts")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -224,6 +256,7 @@ type engagementServiceClient struct {
 	addBookmark    *connect.Client[v1.AddBookmarkRequest, v1.AddBookmarkResponse]
 	removeBookmark *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
 	listBookmarks  *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
+	listLikedPosts *connect.Client[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse]
 }
 
 // LikePost calls dzeroth.engagement.v1.EngagementService.LikePost.
@@ -259,6 +292,11 @@ func (c *engagementServiceClient) RemoveBookmark(ctx context.Context, req *conne
 // ListBookmarks calls dzeroth.engagement.v1.EngagementService.ListBookmarks.
 func (c *engagementServiceClient) ListBookmarks(ctx context.Context, req *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error) {
 	return c.listBookmarks.CallUnary(ctx, req)
+}
+
+// ListLikedPosts calls dzeroth.engagement.v1.EngagementService.ListLikedPosts.
+func (c *engagementServiceClient) ListLikedPosts(ctx context.Context, req *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error) {
+	return c.listLikedPosts.CallUnary(ctx, req)
 }
 
 // EngagementServiceHandler is an implementation of the dzeroth.engagement.v1.EngagementService
@@ -344,6 +382,27 @@ type EngagementServiceHandler interface {
 	// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
 	// (userLikes ArrayRemove) and 1 delete per pruned row (a deleted post's bookmark is pruned once).
 	ListBookmarks(context.Context, *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error)
+	// The caller's own likes, most recently liked first (ADR-0024 D6). OWNER-ONLY: the request has no user id and
+	// must never get one; the source is userLikes/{caller}.recent (the newest 1,000 likes, read through engagement's
+	// 60 s cache), so nobody can list another user's likes. Likes older than the newest 1,000 are not listed, and there
+	// is no liked-at time (recent[] stores none). Each row is the LIVE post (one cache-first posts GetMany of the
+	// page's ids) with viewer flags from the same userLikes read (0 extra reads).
+	// Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
+	// FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
+	// metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
+	// (at most 30/min with 3 instances). Charged to the per-uid daily read budget (ADR-0010 D5).
+	// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
+	// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
+	// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
+	// following it while it is non-empty.
+	// page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
+	// resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
+	// or trim between pages skips or repeats nothing beyond the rows changed at the page boundary. Expired, foreign or
+	// tampered => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: reload the first page.
+	// Client contract: no since_token, no removed_ids; on every open REPLACE the cached first page.
+	// Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
+	// 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
+	ListLikedPosts(context.Context, *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error)
 }
 
 // NewEngagementServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -396,6 +455,13 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	engagementServiceListLikedPostsHandler := connect.NewUnaryHandler(
+		EngagementServiceListLikedPostsProcedure,
+		svc.ListLikedPosts,
+		connect.WithSchema(engagementServiceMethods.ByName("ListLikedPosts")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.engagement.v1.EngagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngagementServiceLikePostProcedure:
@@ -412,6 +478,8 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 			engagementServiceRemoveBookmarkHandler.ServeHTTP(w, r)
 		case EngagementServiceListBookmarksProcedure:
 			engagementServiceListBookmarksHandler.ServeHTTP(w, r)
+		case EngagementServiceListLikedPostsProcedure:
+			engagementServiceListLikedPostsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -447,4 +515,8 @@ func (UnimplementedEngagementServiceHandler) RemoveBookmark(context.Context, *co
 
 func (UnimplementedEngagementServiceHandler) ListBookmarks(context.Context, *connect.Request[v1.ListBookmarksRequest]) (*connect.Response[v1.ListBookmarksResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.ListBookmarks is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) ListLikedPosts(context.Context, *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.ListLikedPosts is not implemented"))
 }
