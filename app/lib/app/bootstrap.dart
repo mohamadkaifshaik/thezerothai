@@ -11,6 +11,7 @@ import '../core/network/api_client.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/rate_limit_hold.dart';
 import '../core/network/service_paused_cubit.dart';
+import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -261,6 +262,7 @@ Future<void> bootstrap() async {
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,
+      shareLinks: ShareLinks(origin: config.shareOrigin),
     ),
   );
 }
