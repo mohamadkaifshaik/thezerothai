@@ -68,6 +68,73 @@ void main() {
       expect(share.width, 16);
     });
 
+    testWidgets('Bookmark appears only with a callback; right-aligned, '
+        'outline then filled accent, labelled and selected', (tester) async {
+      final handle = tester.ensureSemantics();
+      var taps = 0;
+      await tester.pumpWidget(
+        _host(PostActionBar(actions: PostActions(onLike: () {}))),
+      );
+      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            showDisabled: false,
+            actions: PostActions(onLike: () {}, onBookmark: () => taps++),
+          ),
+        ),
+      );
+      final bar = tester.getRect(find.byType(PostActionBar));
+      final icon = tester.getRect(find.byIcon(Icons.bookmark_border));
+      expect(bar.right - icon.right, closeTo(0, 1));
+      expect(icon.width, 16);
+      final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
+      expect(off.rect.size.shortestSide, greaterThanOrEqualTo(48));
+      await tester.tap(find.byIcon(Icons.bookmark_border));
+      expect(taps, 1);
+
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            showDisabled: false,
+            bookmarked: true,
+            actions: PostActions(onLike: () {}, onBookmark: () {}),
+          ),
+        ),
+      );
+      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.bookmark)).color,
+        appDarkTheme.colorScheme.primary,
+      );
+      expect(find.bySemanticsLabel('Bookmarked'), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('Bookmark sits before Share when both are offered', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            actions: PostActions(
+              onLike: () {},
+              onBookmark: () {},
+              onShare: () {},
+            ),
+          ),
+        ),
+      );
+      final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
+      final share = tester.getRect(find.byIcon(Icons.ios_share));
+      final like = tester.getRect(find.byIcon(Icons.favorite_border));
+      expect(like.right, lessThan(bookmark.left));
+      expect(bookmark.right, lessThan(share.left));
+      final bar = tester.getRect(find.byType(PostActionBar));
+      expect(bar.right - share.right, closeTo(0, 1));
+    });
+
     testWidgets('liked and reposted use the like / repost colours and are '
         'announced as selected', (tester) async {
       final handle = tester.ensureSemantics();
