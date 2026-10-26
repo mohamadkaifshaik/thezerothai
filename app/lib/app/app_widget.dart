@@ -15,7 +15,9 @@ import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
+import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import '../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/image_picker_service.dart';
@@ -56,6 +58,7 @@ class AppWidget extends StatefulWidget {
     required this.notificationsRepository,
     required this.moderationRepository,
     required this.engagementRepository,
+    required this.bookmarksRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
@@ -76,6 +79,10 @@ class AppWidget extends StatefulWidget {
 
   /// Likes, reposts and quotes (P5, `FEATURE_ENGAGEMENT`).
   final EngagementRepository engagementRepository;
+
+  /// Bookmarks (W2-6, `FEATURE_BOOKMARKS`): the session overlay and
+  /// Add / RemoveBookmark.
+  final BookmarksRepository bookmarksRepository;
 
   /// Push registration and tap handling (P6); built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
@@ -108,6 +115,11 @@ class _AppWidgetState extends State<AppWidget> {
     repository: widget.engagementRepository,
     onUnexpectedError: reportUnexpectedError,
   );
+  // The session's bookmark overlay (W2-6); sign-out forgets it. W2-7 passes
+  // `viewRoute: AppRouter.bookmarksPath` so the toast gets its "View" action.
+  late final BookmarksCubit _bookmarks = BookmarksCubit(
+    repository: widget.bookmarksRepository,
+  );
   late final ServicePausedCubit _servicePaused =
       widget.servicePausedCubit ?? ServicePausedCubit();
   late final StreamSubscription<AuthState> _authSub;
@@ -129,6 +141,7 @@ class _AppWidgetState extends State<AppWidget> {
       if (state.status == AuthStatus.unauthenticated) {
         _pendingPosts.clear();
         _engagement.reset();
+        _bookmarks.reset();
         widget.unreadBadgeCubit.seed(0);
         _lastFeatures = null;
         _lastUnread = 0;
@@ -183,6 +196,7 @@ class _AppWidgetState extends State<AppWidget> {
     _onboardingSub.cancel();
     _pendingPosts.close();
     _engagement.close();
+    _bookmarks.close();
     _themeMode.close();
     super.dispose();
   }
@@ -212,6 +226,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.notificationsRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
         RepositoryProvider.value(value: widget.engagementRepository),
+        RepositoryProvider.value(value: widget.bookmarksRepository),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -219,6 +234,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.onboardingBloc),
           BlocProvider.value(value: _pendingPosts),
           BlocProvider.value(value: _engagement),
+          BlocProvider.value(value: _bookmarks),
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: widget.unreadBadgeCubit),
           BlocProvider.value(value: _themeMode),
