@@ -59,9 +59,16 @@ class PostEngagementBar extends StatelessWidget {
     this.showReply = true,
     this.onQuote,
     this.quoteUiEnabled = kQuoteUiEnabled,
+    this.bookmarkEnabled,
   });
 
   final pb.PostView view;
+
+  /// Whether the bookmark icon exists. Null (the default) follows the
+  /// `bookmarks` flag of the caller; the Bookmarks screen passes true so a
+  /// user dropped from the allowlist can still remove what they saved
+  /// (ADR-0023 D5: Remove needs the flag only "not globally off").
+  final bool? bookmarkEnabled;
 
   /// Offer Reply (opens the post). The post screen, which has its own reply
   /// composer, turns it off for the focal post.
@@ -87,7 +94,8 @@ class PostEngagementBar extends StatelessWidget {
     // disabled, with a why-less hint. Advisory only (I-4): UNSPECIFIED and
     // UNKNOWN stay enabled, and a server refusal still shows its own message.
     final replyBlocked = replies && replyKnownNotAllowed(view);
-    final bookmarksOn = isFeatureEnabled(context, kFeatureBookmarks);
+    final flagOn = isFeatureEnabled(context, kFeatureBookmarks);
+    final bookmarksOn = bookmarkEnabled ?? flagOn;
 
     return BlocConsumer<EngagementCubit, EngagementState>(
       listenWhen: (before, after) =>
@@ -186,6 +194,12 @@ class PostEngagementBar extends StatelessWidget {
   }
 }
 
+/// Whether the page of [context] is the one the user sees. All pages of a
+/// navigator share one `ScaffoldMessenger`, so a card kept alive under
+/// another page must not replace that page's snackbar.
+bool _onTopRoute(BuildContext context) =>
+    ModalRoute.of(context)?.isCurrent ?? true;
+
 /// The bookmark icon of one target: reads its state from the session's
 /// [BookmarksCubit], toggles through it, and shows its one snackbar (the
 /// "Added to Bookmarks" / "Removed from Bookmarks" toast, or the typed error
@@ -213,6 +227,9 @@ class _BookmarkBinding extends StatelessWidget {
           after.failure!.postId == target &&
           before.failure?.serial != after.failure!.serial,
       listener: (context, state) {
+        // A card under another page (Home below the Bookmarks screen) stays
+        // quiet: the page on top shows its own snackbar.
+        if (!_onTopRoute(context)) return;
         final failure = state.failure!;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -236,9 +253,13 @@ class _BookmarkBinding extends StatelessWidget {
             after.notice!.postId == target &&
             before.notice?.serial != after.notice!.serial,
         listener: (context, state) {
+          if (!_onTopRoute(context)) return;
           final route = cubit.viewRoute;
           // Captured now: the card may be gone when "View" is tapped.
           final router = GoRouter.of(context);
+          // No "View" on the list it points to (it would stack a second one).
+          final viewing =
+              router.routeInformationProvider.value.uri.path == route;
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -248,7 +269,7 @@ class _BookmarkBinding extends StatelessWidget {
                       ? 'Added to Bookmarks'
                       : 'Removed from Bookmarks',
                 ),
-                action: state.notice!.saved && route != null
+                action: state.notice!.saved && route != null && !viewing
                     ? SnackBarAction(
                         label: 'View',
                         onPressed: () => unawaited(router.push(route)),

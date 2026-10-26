@@ -115,10 +115,11 @@ class _AppWidgetState extends State<AppWidget> {
     repository: widget.engagementRepository,
     onUnexpectedError: reportUnexpectedError,
   );
-  // The session's bookmark overlay (W2-6); sign-out forgets it. W2-7 passes
-  // `viewRoute: AppRouter.bookmarksPath` so the toast gets its "View" action.
+  // The session's bookmark overlay (W2-6); sign-out forgets it. The toast's
+  // "View" opens the Bookmarks screen (W2-7).
   late final BookmarksCubit _bookmarks = BookmarksCubit(
     repository: widget.bookmarksRepository,
+    viewRoute: AppRouter.bookmarksPath,
   );
   late final ServicePausedCubit _servicePaused =
       widget.servicePausedCubit ?? ServicePausedCubit();

@@ -6,9 +6,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
+import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../shared/widgets/app_avatar.dart';
+import '../feature_flags/feature_flags.dart';
 import '../router/app_router.dart';
 import '../theme/app_theme.dart';
 
@@ -19,8 +22,9 @@ import '../theme/app_theme.dart';
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
-/// the profile header. Later waves add Bookmarks and Lists here, behind their
-/// flags.
+/// the profile header. Bookmarks (W2-7) sits between Profile and Settings
+/// with the `bookmarks` and `posts` flags on; later waves add Lists here,
+/// behind its flag.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -47,6 +51,15 @@ class AppDrawer extends StatelessWidget {
                   context,
                   () => context.go(AppRouter.profilePath(handle)),
                 ),
+              ),
+            // Needs `bookmarks` (the entry) and `posts` (the route).
+            if (isFeatureEnabled(context, kFeatureBookmarks) &&
+                isFeatureEnabled(context, kFeaturePosts))
+              _DrawerRow(
+                icon: Icons.bookmark_border,
+                label: 'Bookmarks',
+                onTap: () =>
+                    _go(context, () => context.go(AppRouter.bookmarksPath)),
               ),
             _DrawerRow(
               icon: Icons.settings_outlined,

@@ -9,6 +9,7 @@ import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
+import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
@@ -74,6 +75,9 @@ class AppRouter {
   // View), and a second page of the same ShellRoute under the composer breaks
   // the Navigator (duplicate page key).
   static const scheduledPostsPath = '/scheduled';
+  // W2-7: the Bookmarks list. A ShellRoute child (the rail marks it), needing
+  // only the `posts` flag; the entry points need `bookmarks` as well.
+  static const bookmarksPath = '/bookmarks';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
@@ -158,6 +162,11 @@ class AppRouter {
             path: notificationsPath,
             builder: (context, state) =>
                 const AuthGate(child: NotificationsScreen()),
+          ),
+          GoRoute(
+            path: bookmarksPath,
+            builder: (context, state) =>
+                const AuthGate(child: BookmarksScreen()),
           ),
           GoRoute(
             path: '/u/:userId',
@@ -274,6 +283,7 @@ class AppRouter {
             _accountFlagRedirect(loc) ??
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
+            _bookmarksFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
@@ -322,6 +332,18 @@ class AppRouter {
     return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
         ? null
         : settingsPath;
+  }
+
+  /// `/bookmarks` redirects Home unless `posts` is on for this caller (W2-7).
+  /// It does NOT need `bookmarks`: ListBookmarks and RemoveBookmark only need
+  /// the flag "not globally off" (ADR-0023 D5), so a user dropped from the
+  /// allowlist still reaches what they saved. A flag that is off for everyone
+  /// shows the list's own "not available" state.
+  String? _bookmarksFlagRedirect(String loc) {
+    if (loc != bookmarksPath) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
+        ? null
+        : homePath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');

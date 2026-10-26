@@ -92,9 +92,15 @@ class PostCard extends StatelessWidget {
     this.engagementEnabled = false,
     this.showReply = true,
     this.onOpenPost,
+    this.bookmarkEnabled,
   });
 
   final pb.PostView view;
+
+  /// Overrides whether the engagement row shows the bookmark icon: null
+  /// follows the `bookmarks` flag; the Bookmarks screen passes true (a caller
+  /// dropped from the allowlist can still remove what they saved).
+  final bool? bookmarkEnabled;
 
   /// Show full-size images instead of thumbnails: the detail view only. Every
   /// list keeps the default (thumbnails, review #110 M2).
@@ -371,7 +377,11 @@ class PostCard extends StatelessWidget {
                 ),
               ] else if (engagementEnabled) ...[
                 const SizedBox(height: AppSpacing.sm),
-                PostEngagementBar(view: view, showReply: showReply),
+                PostEngagementBar(
+                  view: view,
+                  showReply: showReply,
+                  bookmarkEnabled: bookmarkEnabled,
+                ),
               ] else
                 const SizedBox(height: AppSpacing.xs),
             ],

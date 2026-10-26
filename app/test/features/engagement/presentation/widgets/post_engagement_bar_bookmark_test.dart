@@ -135,6 +135,9 @@ void main() {
     double textScale = 1,
     int bars = 1,
     ThemeData? theme,
+    bool? bookmarkEnabled,
+    String initialLocation = '/',
+    bool barOnBookmarksRoute = false,
   }) async {
     whenListen(
       onboarding,
@@ -149,30 +152,31 @@ void main() {
       viewRoute: viewRoute,
       serverStateOf: (_) => serverState,
     );
-    final router = GoRouter(
-      routes: [
-        GoRoute(
-          path: '/',
-          builder: (context, state) => Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: width,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (var i = 0; i < bars; i++)
-                      PostEngagementBar(view: view),
-                  ],
-                ),
-              ),
-            ),
+    Widget page() => Scaffold(
+      body: Center(
+        child: SizedBox(
+          width: width,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < bars; i++)
+                PostEngagementBar(view: view, bookmarkEnabled: bookmarkEnabled),
+            ],
           ),
         ),
+      ),
+    );
+    final router = GoRouter(
+      initialLocation: initialLocation,
+      routes: [
+        GoRoute(path: '/', builder: (context, state) => page()),
         GoRoute(
           path: '/bookmarks',
           builder: (context, state) {
             pushed = state.uri.toString();
-            return const Scaffold(body: Text('bookmarks page'));
+            return barOnBookmarksRoute
+                ? page()
+                : const Scaffold(body: Text('bookmarks page'));
           },
         ),
       ],
@@ -275,6 +279,69 @@ void main() {
     expect(find.text('Added to Bookmarks'), findsOneWidget);
     expect(find.text('View'), findsNothing);
     expect(cubit.state.notice, isNull, reason: 'cleared once shown');
+  });
+
+  testWidgets('bookmarkEnabled: true shows the icon with the flag off '
+      '(a caller dropped from the allowlist can still remove)', (tester) async {
+    await pump(
+      tester,
+      _view(),
+      features: const {'engagement', 'replies'},
+      serverState: true,
+      bookmarkEnabled: true,
+    );
+    expect(filled(), findsOneWidget);
+
+    await tester.tap(filled());
+    await tester.pump();
+    expect(calls.single.input, isA<eng.RemoveBookmarkRequest>());
+    calls.single.ok(bookmarked: false);
+    await tester.pumpAndSettle();
+    expect(outline(), findsOneWidget);
+  });
+
+  testWidgets('bookmarkEnabled: false hides the icon even with the flag on', (
+    tester,
+  ) async {
+    await pump(tester, _view(), bookmarkEnabled: false);
+    expect(outline(), findsNothing);
+    expect(filled(), findsNothing);
+  });
+
+  testWidgets('no View action on the page View points to', (tester) async {
+    await pump(
+      tester,
+      _view(),
+      viewRoute: '/bookmarks',
+      initialLocation: '/bookmarks',
+      barOnBookmarksRoute: true,
+    );
+
+    await tester.tap(outline());
+    await tester.pump();
+    calls.single.ok(bookmarked: true);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Added to Bookmarks'), findsOneWidget);
+    expect(find.text('View'), findsNothing);
+  });
+
+  testWidgets('a card under another page stays quiet: only the page on top '
+      'toasts', (tester) async {
+    await pump(tester, _view(), viewRoute: '/bookmarks');
+    final router = GoRouter.of(tester.element(find.byType(PostEngagementBar)));
+    unawaited(router.push('/bookmarks'));
+    await tester.pumpAndSettle();
+    expect(find.text('bookmarks page'), findsOneWidget);
+
+    // The bookmark lands while the other page is on top.
+    unawaited(cubit.setBookmarked(postId(1), _view(), saved: true));
+    await tester.pump();
+    calls.single.ok(bookmarked: true);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Added to Bookmarks'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('with a view route the toast has a View action that opens it', (

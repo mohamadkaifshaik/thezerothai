@@ -57,6 +57,7 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     identity.Profile? profile,
+    Set<String> flags = const {},
     Size size = const Size(360, 800),
     Brightness brightness = Brightness.light,
     double textScale = 1,
@@ -67,6 +68,7 @@ void main() {
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
         profile: profile,
+        enabledFeatures: flags,
       ),
     );
     router = GoRouter(
@@ -95,6 +97,10 @@ void main() {
                   },
                 ),
               ],
+            ),
+            GoRoute(
+              path: 'bookmarks',
+              builder: (context, state) => const Text('bookmarks page'),
             ),
             GoRoute(
               path: 'settings',
@@ -166,6 +172,43 @@ void main() {
             .reduce((a, b) => a > b ? a : b);
         expect(height, greaterThanOrEqualTo(AppSize.drawerRow), reason: label);
       }
+    });
+
+    group('Bookmarks row (W2-7)', () {
+      testWidgets('needs both bookmarks and posts: absent otherwise', (
+        tester,
+      ) async {
+        for (final flags in <Set<String>>[
+          const {},
+          const {'bookmarks'},
+          const {'posts'},
+        ]) {
+          await pump(tester, profile: _alice, flags: flags);
+          await openDrawer(tester);
+          expect(find.text('Bookmarks'), findsNothing, reason: '$flags');
+          expect(find.text('Settings'), findsOneWidget);
+        }
+      });
+
+      testWidgets('sits between Profile and Settings, is 56dp, closes the '
+          'drawer and opens /bookmarks', (tester) async {
+        await pump(tester, profile: _alice, flags: {'posts', 'bookmarks'});
+        await openDrawer(tester);
+
+        final y = [
+          for (final l in ['Profile', 'Bookmarks', 'Settings'])
+            tester.getTopLeft(find.text(l)).dy,
+        ];
+        expect(y[0], lessThan(y[1]));
+        expect(y[1], lessThan(y[2]));
+        expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+
+        await tester.tap(find.text('Bookmarks'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AppDrawer), findsNothing);
+        expect(find.text('bookmarks page'), findsOneWidget);
+      });
     });
 
     testWidgets('never exceeds 85 % of a very narrow screen', (tester) async {
