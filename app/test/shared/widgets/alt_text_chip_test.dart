@@ -1,6 +1,8 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/alt_text_chip.dart';
+import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:dzeroth/shared/widgets/post_media.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -171,5 +173,112 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // W2-13 (tester): the chip across the responsive matrix, and inside a
+  // tappable card.
+  // ---------------------------------------------------------------------
+
+  group('W2-13 responsive matrix', () {
+    for (final dark in [false, true]) {
+      for (final width in const [360.0, 600.0, 1200.0]) {
+        for (final scale in const [1.0, 1.3, 2.0]) {
+          for (final images in const [1, 4]) {
+            testWidgets(
+              '$images image(s), ${dark ? 'dark' : 'light'} ${width.toInt()}dp '
+              'x$scale: chips inside their tiles, 48dp, sheet opens',
+              (tester) async {
+                tester.view.physicalSize = Size(width, 900);
+                tester.view.devicePixelRatio = 1;
+                addTearDown(tester.view.reset);
+                final column = width < 632 ? width - 32 : 600.0;
+                await tester.pumpWidget(
+                  _host(
+                    PostMedia(
+                      media: [
+                        for (var i = 0; i < images; i++) _ref(alt: 'image $i'),
+                      ],
+                    ),
+                    width: column,
+                    theme: dark ? appDarkTheme : appLightTheme,
+                    textScale: scale,
+                  ),
+                );
+
+                expect(chip, findsNWidgets(images));
+                expect(tester.takeException(), isNull);
+                final media = tester.getRect(find.byType(AspectRatio));
+                for (var i = 0; i < images; i++) {
+                  final target = tester.getRect(
+                    find
+                        .descendant(
+                          of: chip.at(i),
+                          matching: find.byType(ConstrainedBox),
+                        )
+                        .first,
+                  );
+                  expect(target.width, greaterThanOrEqualTo(48));
+                  expect(target.height, greaterThanOrEqualTo(48));
+                  expect(target.left, greaterThanOrEqualTo(media.left - 1));
+                  expect(target.bottom, lessThanOrEqualTo(media.bottom + 1));
+                }
+
+                await tester.tap(chip.first);
+                await tester.pumpAndSettle();
+                expect(find.byType(AltTextSheet), findsOneWidget);
+                expect(find.text('image 0'), findsOneWidget);
+                final sheet = tester.getRect(find.byType(AltTextSheet));
+                expect(sheet.width, lessThanOrEqualTo(width));
+                expect(tester.takeException(), isNull);
+              },
+            );
+          }
+        }
+      }
+    }
+  });
+
+  group('W2-13 inside a tappable card', () {
+    testWidgets('the chip opens the sheet and does not trigger the '
+        'card\'s own tap; the text beside it still does', (tester) async {
+      var opened = 0;
+      final view = pb.PostView(
+        post: pb.Post(
+          postId: '0108225137617092608',
+          text: 'a post with a described image',
+          author: common.AuthorSnapshot(userId: 'u1', handle: 'alice'),
+          media: [_ref(alt: 'a cat on a sofa')],
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appDarkTheme,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: InkWell(
+                onTap: () => opened++,
+                child: PostCard(view: view),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AltTextSheet), findsOneWidget);
+      expect(find.text('a cat on a sofa'), findsOneWidget);
+      expect(opened, 0, reason: 'the chip wins the gesture');
+
+      // Close the sheet, then a tap on the card text opens the post.
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(find.byType(AltTextSheet), findsNothing);
+      await tester.tap(find.text('a post with a described image'));
+      await tester.pumpAndSettle();
+      expect(opened, 1);
+    });
   });
 }
