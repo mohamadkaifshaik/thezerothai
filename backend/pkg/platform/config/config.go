@@ -452,6 +452,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.GraphMutationsPerDay = int64(graphMutationsPerDay)
+	// W2-14 M-1: ONE daily cap over AddBookmark + RemoveBookmark (limit_name "bookmark_mutation_daily"); see
+	// RateLimitConfig.BookmarkMutationsPerDay for the default's math. A cap of 0 would lock every user out of the RPCs.
+	bookmarkMutationsPerDay, err := getInt("BOOKMARK_MUTATIONS_PER_DAY", 1500)
+	if err != nil {
+		return Config{}, err
+	}
+	if bookmarkMutationsPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: BOOKMARK_MUTATIONS_PER_DAY must be > 0 (got %d)", bookmarkMutationsPerDay)
+	}
+	rl.BookmarkMutationsPerDay = int64(bookmarkMutationsPerDay)
 	readBudgetUID, err := getInt("READ_BUDGET_PER_UID_PER_DAY", 2000)
 	if err != nil {
 		return Config{}, err

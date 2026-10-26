@@ -8,13 +8,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 var _ Bookmarks = (*Module)(nil)
@@ -43,9 +48,24 @@ func (s *service) bookmarkRepoOrErr(uid string) (BookmarkRepo, error) {
 	return s.d.BookmarkRepo, nil
 }
 
+// outcomeContention is the request-line outcome of a bookmark write that kept losing lock races or ran out of its
+// transaction time: a retryable UNAVAILABLE, not a server fault (noteRejected maps every UNAVAILABLE of this module to it).
+const outcomeContention = "contention"
+
+// bookmarkBusyErr is the retryable answer for a write that exhausted its transaction retries or its 5 s txTimeout
+// (W2-14 L-3): UNAVAILABLE, never INTERNAL, so it neither reaches Error Reporting nor counts toward the rollback trigger,
+// and clients retry it like graph's contentionErr.
+func bookmarkBusyErr() error {
+	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
+		WithRetryAfter(time.Second)
+}
+
 // mapBookmarkErr turns a BookmarkRepo error into the handler's answer: the cap, the reused key, an already shaped
-// apierr (the daily quota) as they are, anything else a redacted internal error that reaches Error Reporting.
-func mapBookmarkErr(ctx context.Context, op, uid string, err error) error {
+// apierr (the daily quota) as they are; exhausted contention (Aborted after the bounded re-runs) or the transaction's own
+// 5 s timeout as a retryable UNAVAILABLE logged at WARN; a client that left as CANCELED / DEADLINE_EXCEEDED (no server
+// fault); anything else a redacted internal error that reaches Error Reporting. The raw uid and post id are redacted from
+// that chain (a Firestore error embeds document paths), so a log line cannot link a uid hash to a private bookmark id.
+func mapBookmarkErr(ctx context.Context, op, uid, postID string, err error) error {
 	var ae *apierr.Error
 	switch {
 	case errors.Is(err, ErrBookmarkLimit):
@@ -57,9 +77,20 @@ func mapBookmarkErr(ctx context.Context, op, uid string, err error) error {
 			"this idempotency_key was already used for a different request")
 	case errors.As(err, &ae):
 		return err
-	default:
-		return logger.RedactErr(fmt.Errorf("engagement: %s: %w", op, err), uid)
 	}
+	// The caller's own context ended (the client left or the RPC deadline passed): not a server fault. Checked before the
+	// timeout case, because the transaction's txTimeout is a child context and leaves ctx itself alive.
+	switch {
+	case errors.Is(ctx.Err(), context.Canceled):
+		return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled")
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded")
+	case store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
+		logger.SetRequestField(ctx, fieldOutcome, outcomeContention)
+		slog.WarnContext(ctx, "engagement_bookmark_contention", "op", op, "uid_hash", logger.HashUID(uid))
+		return bookmarkBusyErr()
+	}
+	return logger.RedactErr(fmt.Errorf("engagement: %s: %w", op, err), uid, postID)
 }
 
 // noteBookmarkOutcome records the request-line outcome of a BookmarkRepo result.
@@ -108,7 +139,7 @@ func (s *service) addBookmark(ctx context.Context, uid, key, postID string) (_ B
 		RequestHash: bookmarkRequestHash(postID), QuotaLimit: limit, MaxPerUser: s.d.BookmarksMaxPerUser,
 	})
 	if err != nil {
-		return BookmarkState{}, mapBookmarkErr(ctx, "add bookmark", uid, err)
+		return BookmarkState{}, mapBookmarkErr(ctx, "add bookmark", uid, postID, err)
 	}
 	noteBookmarkOutcome(ctx, res.Outcome)
 	// A replay says nothing about the set now (the bookmark may have been removed since): the cache is left alone.
@@ -138,7 +169,7 @@ func (s *service) removeBookmark(ctx context.Context, uid, key, postID string) (
 		UID: uid, PostID: postID, IdemKey: idempotency.Key(uid, rpcRemoveBookmark, key), RequestHash: bookmarkRequestHash(postID),
 	})
 	if err != nil {
-		return BookmarkState{}, mapBookmarkErr(ctx, "remove bookmark", uid, err)
+		return BookmarkState{}, mapBookmarkErr(ctx, "remove bookmark", uid, postID, err)
 	}
 	noteBookmarkOutcome(ctx, res.Outcome)
 	if res.Outcome != BookmarkReplayed {
