@@ -75,7 +75,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-10 | engagement: `ListLikedPosts` (owner-only, from `userLikes.recent`, live posts, drop rules) | backend-developer | M | Open |
 | W3-11 | graph: `GetProfileRelationship` ("Follows you", single target, +1 cold read) | backend-developer | S | Open |
 | W3-12 | graph: `ListSuggestedUsers` (friends of friends + curated fallback, hard cap, cache) | backend-developer | M | Open |
-| W3-13 | Profile header polish: sticky tab bar with per-tab scroll (B-06), app-bar name fade (B-05), "Joined Month YYYY" | frontend-developer | M | Open |
+| W3-13 | Profile header polish: sticky tab bar with per-tab scroll (B-06), app-bar name fade (B-05), "Joined Month YYYY" | frontend-developer | M | Done (PR pending): `NestedScrollView` with a pinned `PinnedHeaderSliver` tab bar, one `TimelineCubit` per opened tab (offset kept by a `PageStorageKey`), pull-to-refresh per tab, scroll-linked app-bar name fade (steps under reduced motion), "Joined Month YYYY" from `created_at` (B-05, B-06 closed). |
 | W3-14 | Profile header data: banner image, location and website in the meta row, "Follows you" chip, "Follow back" | frontend-developer | M | Open |
 | W3-15 | Edit profile: banner editor (3:1 crop, on-device resize, upload) and location / website fields | frontend-developer | M | Open |
 | W3-16 | Profile tabs: Reposts and Media (Posts · Replies · Reposts · Media) | frontend-developer | M | Open |
