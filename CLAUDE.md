@@ -43,7 +43,7 @@ A GCP credit that expires **2026-12-26** pays for a temporary profile. Dates: **
 | 2 — Growth           | 20k – 200k DAU | Funded by revenue      | ADR: Cloud SQL Postgres or keep Firestore; Memorystore; split hot services   |
 | 3 — Scale            | 200k+ DAU      | Funded                 | ADR: Spanner, GKE, multi-region, CDN + Cloud Armor                           |
 
-Moving up a stage requires an ADR with measured numbers (see scale-up triggers in `free-tier-budget`).
+Moving up a stage requires an ADR with measured numbers (see scale-up triggers in `free-tier-budget` and, per hot concern, the `stage-ladder` skill: Stage 0 choice, seam to protect, Stage 2/3 target, trigger).
 
 Stage 0 targets: p95 timeline read < 400 ms warm (cold start < 1.5 s), post create < 500 ms. Availability is whatever
 Cloud Run + Firestore give us (both regional, multi-zone managed) — no self-built HA.
