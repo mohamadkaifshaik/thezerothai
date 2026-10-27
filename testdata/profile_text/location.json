@@ -1,0 +1,36 @@
+{
+ "_comment": "Shared profile text fixture, field location (ADR-0024 D2, W3-22 L-2). See README.md in this directory for the schema and the rules. Backend-developer owns the Go side, frontend-developer the Dart side; change both runners in the same PR.",
+ "field": "location",
+ "accept": [
+  {"name": "plain", "raw": "Pune, India", "stored": "Pune, India"},
+  {"name": "trimmed", "raw": "  Pune  ", "stored": "Pune"},
+  {"name": "NFC composes e + combining acute", "raw": "Cafe\u0301", "stored": "Caf\u00e9"},
+  {"name": "clear", "raw": "", "stored": ""},
+  {"name": "whitespace only clears", "raw": "   ", "stored": ""},
+  {"name": "exactly 30 code points", "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "stored": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  {"name": "30 code points of multi-byte text", "raw": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5", "stored": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5"},
+  {"name": "30 emoji count 30 (not 60 UTF-16 units)", "raw": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00", "stored": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"},
+  {"name": "zero width joiner sequence is allowed", "raw": "\ud83d\udc69\u200d\ud83d\udcbb Pune", "stored": "\ud83d\udc69\u200d\ud83d\udcbb Pune"},
+  {"name": "trailing line separator is trimmed like any whitespace", "raw": "Pune\u2028", "stored": "Pune"},
+  {"name": "leading byte order mark is trimmed", "raw": "\ufeffPune", "stored": "Pune"}
+ ],
+ "reject": [
+  {"name": "31 code points", "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "why": "too long"},
+  {"name": "31 emoji", "raw": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00", "why": "too long, counted in code points"},
+  {"name": "newline", "raw": "Pune\u000aIndia", "why": "control"},
+  {"name": "carriage return", "raw": "Pune\u000dIndia", "why": "control"},
+  {"name": "vertical tab", "raw": "Pune\u000bIndia", "why": "control"},
+  {"name": "form feed", "raw": "Pune\u000cIndia", "why": "control"},
+  {"name": "tab", "raw": "Pune\u0009India", "why": "control"},
+  {"name": "NUL", "raw": "Pune\u0000India", "why": "control"},
+  {"name": "DEL", "raw": "Pune\u007fIndia", "why": "control"},
+  {"name": "C1 next line", "raw": "Pune\u0085India", "why": "control (Cc), also a line break"},
+  {"name": "line separator U+2028", "raw": "Pune\u2028India", "why": "L-2a: Zl draws a second header line"},
+  {"name": "paragraph separator U+2029", "raw": "Pune\u2029India", "why": "L-2a: Zp draws a second header line"},
+  {"name": "right-to-left override", "raw": "Pune\u202eIndia", "why": "bidi control"},
+  {"name": "left-to-right embedding", "raw": "Pune\u202aIndia", "why": "bidi control"},
+  {"name": "pop directional formatting", "raw": "Pune\u202cIndia", "why": "bidi control"},
+  {"name": "left-to-right isolate", "raw": "Pune\u2066India", "why": "bidi control"},
+  {"name": "pop directional isolate", "raw": "Pune\u2069India", "why": "bidi control"}
+ ]
+}

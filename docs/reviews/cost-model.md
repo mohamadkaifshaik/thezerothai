@@ -69,7 +69,7 @@ Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same w
 | `AccountStatusInterceptor` caller read on posts/timeline requests (measured unit: 1 cold, 0 warm; mix derived) | 1 / 0 / 1 per home refresh, 0.5 on the other 5.15 requests | 0 | 0 | — | 13.15 req | 10.6 | 0 | 0 |
 | **Posts + timeline subtotal (released in P1)** | | | | | **≈ 13.15 req** | **≈ 172.5** (ADR-0010: 162.2) | **≈ 4.05** | **≈ 1.05** |
 | MediaService.CreateUpload | 2 / 1 | 6 / 3.3 | 1 (idempotency TTL) | 150 (signBlob ×2/image) | 0.15 | 0.15 | 0.5 | 0.15 |
-| MediaService.FinalizeUpload | 5 / 1.7 | 5 / 2.7 | 0 | 800 (Vision + copies) | 0.15 | 0.25 | 0.4 | 0 |
+| MediaService.FinalizeUpload (2026-10-27 W3-22 M-3: +1 write per image, the screening claim; was 5 / 2.7 and 0.4 writes/DAU) | 5 / 1.7 | 9 / 4.4 | 0 | 800 (Vision + copies) | 0.15 | 0.25 | 0.66 | 0 |
 | [planned] Like (+in-batch notification) | 1 / 0 | 4 / 4 | ~0.9 (notification TTL) | 40 | 5 | 0 | 20.0 | 4.5 |
 | [planned] Unlike | 1 / 0 | 2 / 2 | 1 / 1 | 40 | 0.5 | 0 | 1.0 | 0.5 |
 | [planned] Repost (+notification) | 2 / 0.5 | 5 / 5 | 0 | 60 | 0.3 | 0.15 | 1.5 | 0 |
@@ -110,6 +110,8 @@ Method: `free-tier-budget` §2. Every RPC comment in `proto/` carries the same w
 | **Total with W2 and W3 Part A (used by the W3 lines of §3, §4, §5)** | | | | | **≈ 40.0 requests** | **≈ 300.2** | **≈ 33.6** | **≈ 8.4** |
 
 Home timeline = 136.7 reads/DAU/day (59% of all reads). Likes = 20 writes/DAU/day (63% of all writes).
+
+W3-22 M-3 note (2026-10-27): FinalizeUpload gained one write per image, the screening claim that stops concurrent calls from screening one image several times (`docs/runbooks/media.md`). The row above is updated (9 worst at n = 4, 4.4 planning, 0.66 writes/DAU instead of 0.4). The totals in this section and the figures derived from them in sections 3 to 5 are not recomputed: the delta is +0.26 writes/DAU, 0.8% of the 31.8 total, so no threshold moves. Fold it in at the next cost-model refresh.
 
 W2 notes (2026-10-26 W2-15; emulator runs in §11, ADR-0023 "Cost impact" is the source of the call mix):
 - **ListBookmarks matches the ADR: 43 and 103 on the first cold page, exactly.** Later cold pages of one open are 40 and 100 (the interceptor profile, caller graph and userLikes are cached for the rest of the open), so the per-open mean is below the ADR's flat 42 per page. Per DAU: 0.3 x 43 + 0.1 x 40 = **16.9** (ADR: 0.4 x 42 = 16.8). Warm (posts cached, inside the 60 s TTL) a page costs exactly the page size, 20 or 50, not "1 + page" as the proto comment and runbook say; "1 + page" stays the right ceiling when graph or userLikes have expired.

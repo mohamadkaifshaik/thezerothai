@@ -46,7 +46,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_PROFILE_TABS", "FEATURE_PROFILE_TABS_ALLOWLIST", "FEATURE_PROFILE_TABS_PERCENT",
 		"FEATURE_LIKES_LIST", "FEATURE_LIKES_LIST_ALLOWLIST", "FEATURE_LIKES_LIST_PERCENT",
 		"FEATURE_FOLLOW_SUGGESTIONS", "FEATURE_FOLLOW_SUGGESTIONS_ALLOWLIST", "FEATURE_FOLLOW_SUGGESTIONS_PERCENT",
-		"RATE_LIMIT_SUGGESTIONS_PER_MIN", "RATE_LIMIT_LIKES_LIST_PER_MIN", "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", "SUGGESTIONS_CALLS_PER_DAY",
+		"RATE_LIMIT_SUGGESTIONS_PER_MIN", "RATE_LIMIT_LIKES_LIST_PER_MIN", "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", "SUGGESTIONS_CALLS_PER_DAY", "PROFILE_UPDATES_PER_DAY",
 		"SUGGESTIONS_SAMPLE_FOLLOWEES", "SUGGESTIONS_EDGE_LIMIT", "SUGGESTIONS_HYDRATE_MAX", "SUGGESTIONS_MAX_RESULTS", "SUGGESTIONS_CACHE_TTL", "SUGGESTED_USER_IDS",
 	}
 	for _, k := range keys {
@@ -714,6 +714,44 @@ func TestLoad_BookmarkMutationsPerDay(t *testing.T) {
 			}
 			if cfg.RateLimit.BookmarkMutationsPerDay != tc.want {
 				t.Errorf("BookmarkMutationsPerDay = %d, want %d", cfg.RateLimit.BookmarkMutationsPerDay, tc.want)
+			}
+		})
+	}
+}
+
+// TestLoad_ProfileUpdatesPerDay (W3-22 L-4): the UpdateProfile daily call cap defaults to 100, takes an override, and
+// refuses a value that would lock every user out of editing their profile.
+func TestLoad_ProfileUpdatesPerDay(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		want    int64
+		wantErr string
+	}{
+		{name: "default", want: 100},
+		{name: "override", env: map[string]string{"PROFILE_UPDATES_PER_DAY": "25"}, want: 25},
+		{name: "zero", env: map[string]string{"PROFILE_UPDATES_PER_DAY": "0"}, wantErr: "PROFILE_UPDATES_PER_DAY must be > 0"},
+		{name: "negative", env: map[string]string{"PROFILE_UPDATES_PER_DAY": "-5"}, wantErr: "PROFILE_UPDATES_PER_DAY must be > 0"},
+		{name: "unparsable", env: map[string]string{"PROFILE_UPDATES_PER_DAY": "lots"}, wantErr: "PROFILE_UPDATES_PER_DAY"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cfg, err := Load()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load() error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.RateLimit.ProfileUpdatesPerDay != tc.want {
+				t.Errorf("ProfileUpdatesPerDay = %d, want %d", cfg.RateLimit.ProfileUpdatesPerDay, tc.want)
 			}
 		})
 	}

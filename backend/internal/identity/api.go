@@ -156,7 +156,9 @@ type Repo interface {
 	// transaction after the users/{uid} read and before any other read or write (ADR-0011 amendment M2: the
 	// Auth-user check); its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
 	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (profile Profile, replay bool, err error)
-	// UpdateProfile reads users/{uid}, applies mutate, writes the result back. Returns the new Profile.
+	// UpdateProfile reads users/{uid}, applies mutate, writes the result back and returns the new Profile. When mutate
+	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written: 1 read, 0 writes
+	// (W3-22 L-4).
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)
 	// ChangeHandle runs the rename transaction (ADR-0003): reads users/{uid} + handles/{new} (worst case 2
 	// reads, matching the proto doc comment). Every invariant — no-op (identical handle), case-only rename

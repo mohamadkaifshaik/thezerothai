@@ -70,7 +70,9 @@ type MediaServiceClient interface {
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
 	// Firestore: reads 2n+1 worst case (n media docs, Vision counter cached 60 s, +1 per item when the upload
-	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes n+1.
+	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes 2n+1 (per item one
+	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter). One call per
+	// image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 
@@ -141,7 +143,9 @@ type MediaServiceHandler interface {
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
 	// Firestore: reads 2n+1 worst case (n media docs, Vision counter cached 60 s, +1 per item when the upload
-	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes n+1.
+	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes 2n+1 (per item one
+	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter). One call per
+	// image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 

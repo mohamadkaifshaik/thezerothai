@@ -119,7 +119,9 @@ type IdentityServiceClient interface {
 	// and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
 	// Firestore: reads 2 cold / 1 warm (users + avatar media), +1 per banner resolve (the media doc), +1 per pin check
 	// (the post, cache-first: 1 cold / 0 warm); 4 worst cold with a banner and a pin, planning 2 (ADR-0024 D13);
-	// writes 1 (+ async jobs above).
+	// writes 1 (0 when the request changes nothing, W3-22 L-4; + async jobs above). Per-uid daily call cap
+	// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
+	// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, 0 reads.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
 	// Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.
@@ -343,7 +345,9 @@ type IdentityServiceHandler interface {
 	// and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
 	// Firestore: reads 2 cold / 1 warm (users + avatar media), +1 per banner resolve (the media doc), +1 per pin check
 	// (the post, cache-first: 1 cold / 0 warm); 4 worst cold with a banner and a pin, planning 2 (ADR-0024 D13);
-	// writes 1 (+ async jobs above).
+	// writes 1 (0 when the request changes nothing, W3-22 L-4; + async jobs above). Per-uid daily call cap
+	// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
+	// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, 0 reads.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
 	// Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.

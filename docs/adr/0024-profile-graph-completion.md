@@ -590,7 +590,10 @@ and charges the edge read to callers that never render the chip. B rejected.
      W3-12 asserts it in an emulator test rather than treating it as an open risk.
    - The "newest 30" is the tail of the `following` array, which `ArrayUnion` appends in follow order.
 3. Rank candidates (the `followeeId`s) by how many sampled followees follow them. Break ties by a stable hash of
-   `(caller, candidate, IST day)`, so the card changes daily but not on every call.
+   `(caller, candidate, IST day)`, so the card changes daily but not on every call. W3-22 L-5 (0 reads): a sampled
+   followee that the identity profile cache already knows is not ACTIVE is left out of the step-2 follower list, and each
+   sampled followee counts for at most its newest 3 usable edges, so one account that follows 30 others in a minute cannot
+   pick the whole card.
 4. Drop, at 0 reads from the snapshot: self, `following`, `requested`, `blocked`, `blockedBy`, `muted`.
 5. Hydrate at most `SUGGESTIONS_HYDRATE_MAX` (10) through `identity.Directory.GetProfiles`, which drops non-ACTIVE
    users. Return at most `max_results` (default and maximum `SUGGESTIONS_MAX_RESULTS` = 5) `UserListItem`s with
@@ -604,7 +607,9 @@ and charges the edge read to callers that never render the chip. B rejected.
   - Curated: 1 + 1 + 10 = **12**.
   - Planning 25. It never scans: no cursor, no target parameter, ≤ 5 results.
 - **Caches.**
-  - Per viewer on the instance for `SUGGESTIONS_CACHE_TTL` (1 h). A warm call costs 1 read, the interceptor.
+  - Per viewer on the instance for `SUGGESTIONS_CACHE_TTL` (1 h). A warm call costs 1 read, the interceptor, plus 1 when the
+    viewer's 60 s snapshot has expired: every warm hit is re-filtered against `graph/{uid}` (W3-22 L-1 amendment, 2026-10-27), so
+    a blocker added on another instance is hidden within 60 s. The 42 cold cap and the planning 25 do not change.
   - This instance's Follow removes the followed uid from the cached entry.
   - The client caches the result 24 h per uid (W3-19).
 - **Privacy.** It reveals follow edges of accounts the caller already follows, which `ListFollowing` already shows.
@@ -727,10 +732,10 @@ what the model multiplies.
 | `GetUserTimeline` REPOSTS, page 20 / 50 | same: 24 / 54; 20 warm (20) | 0 | 0 | 0.15 | 3.0 |
 | `GetPost` of a pinned post (existing RPC) | 4 / 0 (1) | 0 | 0 | 0.6 | 0.6 |
 | `UpdateProfile` with banner, meta or pin | 2 / 1 + 1 banner resolve + 1 pin check (4 worst cold, planning 2) | 1 | 0 | 0.03 | 0.06 |
-| `CreateUpload` + `FinalizeUpload`, BANNER | 2 / 1 + 5 / 1.7 (existing rows) | 3.3 + 2.7 | 1 (TTL) | 0.005 | 0.01 |
+| `CreateUpload` + `FinalizeUpload`, BANNER | 2 / 1 + 5 / 1.7 (existing rows) | 3.3 + 4.4 (the finalize was 2.7 before W3-22 M-3 added the screening claim write; the whole-product writes per DAU move by under 0.01) | 1 (TTL) | 0.005 | 0.01 |
 | `ListLikedPosts`, page 20 / 50 | 23 / 53 cold; 20 / 50 warm; empty 2 (22) | 0 | 0 | 0.2 | 4.4 |
 | `GetProfileRelationship` (replaces the header's `GetRelationships`) | 3 cold (+1 overflow) / 0 warm (1; +0.5 net over the replaced call) | 0 | 0 | 2 | 1.0 |
-| `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm (25) | 0 | 0 | 1.0 | 25.0 |
+| `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm, 2 when the 60 s snapshot expired (W3-22 L-1) (25) | 0 | 0 | 1.0 | 25.0 |
 | Pin clean-up in the `post_delete` job | 2 (the post, fresh, then `users/{uid}` in the transaction; Amendment 1 A5) | ≤ 1 (only when the deleted post was the pin) | 0 | 0.05 | 0.10 |
 | `opsctl backfill-has-media` (one-off per project) | 1 per post | 1 per post lacking the field | 0 | n/a | n/a |
 | **Part A total** | | | | **≈ 2.3 new requests** | **≈ 40.2** |
