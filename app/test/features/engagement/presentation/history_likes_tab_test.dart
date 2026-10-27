@@ -19,6 +19,7 @@ import 'package:dzeroth/features/engagement/presentation/bloc/likes_list_cubit.d
 import 'package:dzeroth/features/engagement/presentation/bookmarks_screen.dart';
 import 'package:dzeroth/features/engagement/presentation/engagement_error_messages.dart';
 import 'package:dzeroth/features/engagement/presentation/likes_tab.dart';
+import 'package:dzeroth/features/engagement/presentation/widgets/history_post_list.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -38,6 +39,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/bookmarks_fixtures.dart';
 import '../../../support/fake_transport.dart';
+import '../../../support/geometry.dart';
 import '../../../support/likes_fixtures.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
@@ -841,5 +843,164 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text(kLikesEmptyTitle), findsOneWidget);
     }, textScales: const [1.0, 2.0]);
+
+    // W3-21: the rest of the screen's states at every cell of the matrix
+    // (360 / 600 / 1200 dp, light / dark, text scale 1.0 / 1.3 / 2.0).
+    forEachThemeAndWidth(
+      'empty Likes copy and the tab row are inside the '
+      'screen (all cells)',
+      (tester, env) async {
+        await open(
+          tester,
+          location: '/bookmarks?tab=likes',
+          size: env.size,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+
+        expect(tester.takeException(), isNull);
+        for (final text in [kLikesEmptyTitle, kLikesEmptyBody]) {
+          expect(find.text(text), findsOneWidget);
+          expectInsideHorizontally(tester, find.text(text), env.size.width);
+        }
+        // The text-only tab row is content-sized and scrolls sideways when it
+        // is wider than the screen (the cut edge is its scroll cue), so a tab
+        // must be reachable, not necessarily in view at first.
+        for (final label in ['Bookmarks', 'Likes']) {
+          await tester.ensureVisible(tab(label));
+          await tester.pumpAndSettle();
+          expectInsideHorizontally(tester, tab(label), env.size.width);
+        }
+        expectMinTarget(tester, tabBar(), reason: 'tab row');
+      },
+      textScales: kMatrixTextScalesLarge,
+      height: 900,
+    );
+
+    forEachThemeAndWidth(
+      'the end note under the last row fits',
+      (tester, env) async {
+        server.pages[''] = () => likesPage([3, 2, 1]);
+        await open(
+          tester,
+          location: '/bookmarks?tab=likes',
+          size: env.size,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+        // At large text the rows push the note below the fold: scroll to it.
+        await tester.scrollUntilVisible(
+          find.text(kLikesEndNote),
+          300,
+          scrollable: find
+              .descendant(
+                of: find.byType(HistoryPostList),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+
+        expect(tester.takeException(), isNull);
+        expectInsideHorizontally(
+          tester,
+          find.text(kLikesEndNote),
+          env.size.width,
+        );
+      },
+      textScales: kMatrixTextScalesLarge,
+      height: 900,
+    );
+
+    forEachThemeAndWidth(
+      'a failed first page: the error view and a 48dp '
+      'Retry',
+      (tester, env) async {
+        server.pages[''] = () => throw serverError(
+          connect.Code.unavailable,
+          common.ErrorReason.ERROR_REASON_UNSPECIFIED,
+        );
+        await open(
+          tester,
+          location: '/bookmarks?tab=likes',
+          size: env.size,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(AppErrorView), findsOneWidget);
+        expectInsideHorizontally(
+          tester,
+          find.byType(AppErrorView),
+          env.size.width,
+        );
+        expectMinTarget(
+          tester,
+          find.ancestor(
+            of: find.text('Retry'),
+            matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+          ),
+          reason: 'Retry',
+        );
+      },
+      textScales: kMatrixTextScalesLarge,
+      height: 900,
+    );
+
+    forEachThemeAndWidth(
+      'a failed refresh: the banner words fit above the '
+      'rows',
+      (tester, env) async {
+        server.pages[''] = () => likesPage([2, 1]);
+        await open(
+          tester,
+          location: '/bookmarks?tab=likes',
+          size: env.size,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+        server.pages[''] = () => throw serverError(
+          connect.Code.unavailable,
+          common.ErrorReason.ERROR_REASON_UNSPECIFIED,
+        );
+        await tester.fling(
+          find.byType(PostCard).first,
+          const Offset(0, 400),
+          800,
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        const words = "You're offline. Showing the likes already loaded.";
+        expect(find.text(words), findsOneWidget);
+        expectInsideHorizontally(tester, find.text(words), env.size.width);
+        expect(rows(), findsWidgets);
+      },
+      textScales: kMatrixTextScalesLarge,
+      height: 900,
+    );
+
+    forEachThemeAndWidth(
+      'flag off: History with Bookmarks only, no tab row',
+      (tester, env) async {
+        bookmarks.pages[''] = () => bookmarksPage([2, 1]);
+        await open(
+          tester,
+          flags: _flagOff,
+          location: '/bookmarks?tab=likes',
+          size: env.size,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(tabBar(), findsNothing);
+        expect(find.text('History'), findsWidgets);
+        expect(rows(), findsWidgets);
+        expect(server.listCalls, 0);
+      },
+      textScales: kMatrixTextScalesLarge,
+      height: 900,
+    );
   });
 }
