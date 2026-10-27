@@ -29,9 +29,8 @@ all reads, against its own 10% review line (`docs/reviews/cost-model.md` section
 
 ## 1. Preconditions, with evidence (dev project `dzeroth-dev`, captured 2026-10-27, 14:37 to 14:46 UTC)
 
-Raw output of every command below is in the session scratchpad
-`C:/Users/skmk1/AppData/Local/Temp/claude/C--Users-skmk1-Documents-google-claude-project-project-thezerothai/82446087-214e-4b8c-b5e2-a0a0a55cc7f6/scratchpad/w3-24/`
-(files `1a-*`, `1b-*`, `1c-*`). It is session scoped: **re-run these commands before you act**, because the serving state changes with every merge.
+The raw output of every command below was kept outside the repository (the preparing session's scratchpad, files `1a-*`, `1b-*`, `1c-*`; some raw files hold uids, so none is
+committed). The summaries here are the evidence. **Re-run the commands before you act**, because the serving state changes with every merge.
 
 ### 1.1 The W3-2 indexes and field overrides are deployed and READY: PASS
 `gcloud firestore indexes composite list --project dzeroth-dev --format=json`, the `posts` rows (the last two are the W3-2 composites):
@@ -119,7 +118,7 @@ No scaling, image, traffic, IAM or other attribute changes.
 
 9 + 4 + 9 + 1 = 23. The expectation was only `PROFILE_UPDATES_PER_DAY` from #351, but W3-4's limit and percent vars were never applied to dev either
 (W2-16 applied only the nine bookmark vars). They equal the code defaults, so the only behaviour change is the four flags. Redacted plan text (uids
-as `<uid-n>`): scratchpad `2-plan-w3-24-dev.redacted.txt`; the uid-free list to compare against: `2-plan-compare-summary.txt`.
+as `<uid-n>`) and the uid-free list to compare against were kept in the preparing session (not committed); the command that produces the list is in step 2.
 
 **The known dev drift (`docs/pending.md` 3.10) is NOT in this plan; `-target` excludes it.** An untargeted plan from the same tree is `Plan: 1 to add, 2 to change,
 0 to destroy`: it adds the unapplied #244 TTL field `module.firestore.google_firestore_field.ttl["scheduled_expire_at"]`, changes `module.apikeys.google_apikeys_key.android`
@@ -127,7 +126,7 @@ as `<uid-n>`): scratchpad `2-plan-w3-24-dev.redacted.txt`; the uid-free list to 
 apply cannot touch the other two (the topic target is the 3.10 workaround for a state move; today a plan with the `api` target alone is identical, so it is harmless; keep
 both as the 2026-10-27 apply did). **Never run a full `terraform apply` in `envs/dev`, and apply only the saved plan file you reviewed.**
 
-Plans made and saved (scratchpad `tf/`): the one above (`w3-24-dev.tfplan`); the same without `SUGGESTED_USER_IDS` (`w3-24-dev-nosuggest.tfplan`, decision 2 = empty; still 0/1/0, `SUGGESTED_USER_IDS` added with an empty value); and a baseline with every W3 flag `off` (`baseline.tfplan`; 0/1/0 with the same 23 names, modes `off`). Saved plans are session scoped and
+Plans made and saved in the preparing session (not committed): the one above (`w3-24-dev.tfplan`); the same without `SUGGESTED_USER_IDS` (`w3-24-dev-nosuggest.tfplan`, decision 2 = empty; still 0/1/0, `SUGGESTED_USER_IDS` added with an empty value); and a baseline with every W3 flag `off` (`baseline.tfplan`; 0/1/0 with the same 23 names, modes `off`). Saved plans are session scoped and
 go stale when state changes: **re-plan from your checkout** (step 2).
 
 ### 2.2 Ceilings and validators (run on this branch, 2026-10-27)
@@ -137,7 +136,6 @@ go stale when state changes: **re-plan from your checkout** (step 2).
   before routing (step 4). The same validator runs inside `deploy-dev` on every candidate.
 - `check-flag-registry.sh`: `ok: 20 flags registered`. `check-until-dates.sh infra/terraform`: `ok: 11 until: marker(s) checked against 2026-10-27` (the example lines carry no
   `until:` marker). `check-field-overrides.sh`: `ok: fieldOverrides unchanged: 35 override(s)`. Fixture tests `scripts/promotion/test/run.sh` and `promote-test.sh`: @@PROMO_TESTS@@.
-  Output: scratchpad `3-*.txt`.
 - **The cohort.** The three uids are set-equal to `feature_bookmarks_allowlist`, `feature_engagement_allowlist` and `feature_media_allowlist` in your tfvars (checked without printing them; also
   equal to ui_shell, notifications, profile_snapshot, reports, replies, quotes, account_lifecycle and removed_ids). It matters: `likes_list` ramps with `bookmarks` and `engagement` on the
   same uids (the History drawer row needs `bookmarks`), the banner also needs `media`, and `follow_suggestions` needs `graph` (on in dev; ceiling `on`). Terraform does not check the subset rule.
@@ -149,7 +147,7 @@ Run everything from your **MAIN checkout** (the real `terraform.tfvars` is there
 
 **Step 0: pre-flight.**
 ```bash
-cd C:/Users/skmk1/Documents/google-claude-project/project/thezerothai && git pull --ff-only
+cd <the repo root of your MAIN checkout> && git pull --ff-only
 gh run list --workflow deploy-dev.yml --limit 3 --json status,conclusion,headSha   # none in_progress; the newest is success (this PR's own deploy included)
 ```
 Serialise with W4-24 and W5-19 (the other dev applies) and do not merge anything meanwhile.
@@ -166,9 +164,13 @@ quota is spent, rerun tomorrow. Details: `docs/runbooks/posts.md` section 13.
 
 **Step 2: the tfvars lines (decision 2) and the plan.** The lines copy the uids from the bookmarks cohort, so no uid is typed or pasted:
 ```bash
-cd C:/Users/skmk1/Documents/google-claude-project/project/thezerothai/infra/terraform/envs/dev
+cd infra/terraform/envs/dev                         # from the repo root of your MAIN checkout
+grep -q "^feature_profile_extras" terraform.tfvars && echo "STOP: the W3 lines are already in terraform.tfvars (a second append would redefine the keys)"
 UIDS=$(grep -E '^feature_bookmarks_allowlist[[:space:]]*=' terraform.tfvars | sed -E 's/^[^"]*"([^"]*)".*/\1/' | tr -d '\r')
 [ "$(printf '%s' "$UIDS" | tr ',' '\n' | grep -c .)" = 3 ] && echo "3 uids" || echo "STOP: not 3 uids"
+```
+Paste the next block only if the checks above printed `3 uids` and no `STOP` (a pasted block does not stop by itself):
+```bash
 cat >> terraform.tfvars <<EOF
 
 # W3 Part A rollout (ADR-0024, W3-24): the same 3 testers as bookmarks, engagement and media. Remove these lines to roll back.
@@ -194,7 +196,7 @@ Compare the plan with section 2.1, the uids shown as counts:
 terraform show -json "$PLAN" | jq -r '.resource_changes[] | select(.change.actions != ["no-op"]) | .address + "  " + (.change.actions | join(",")), ((.change.before.template[0].containers[0].env | map(.name)) as $had | .change.after.template[0].containers[0].env[] | select(.name as $n | ($had | index($n)) | not) | "  + env " + .name + "=" + (if (.name | test("ALLOWLIST|SUGGESTED_USER_IDS")) then ((.value | split(",") | map(select(. != "")) | length | tostring) + " uid(s)") else .value end))' | tr -d '\r'
 ```
 Expected: the line `module.cloud_run_api.google_cloud_run_v2_service.api  update`, the 23 `+ env` lines of section 2.1, and `Plan: 0 to add, 1 to change, 0 to destroy.` in the plan itself.
-**STOP and ask** (do not apply) on: any other resource; any destroy or replace; a removed or changed env entry; any attribute change other than `template.revision` and the added env
+**STOP and ask** (do not apply) on, for this first apply: any other resource; any destroy or replace; a removed or changed env entry; any attribute change other than `template.revision` and the added env
 entries; a flag mode other than `allowlist`; an allowlist count other than 3; a `FEATURE_*_PERCENT` other than 0. (If another deploy ran meanwhile the `revision` line just shows that newer name.)
 
 **Step 3: apply (decision 1, the saved plan only).**
@@ -254,7 +256,8 @@ call "$T" identity UpdateProfile "{\"idempotencyKey\":\"w3-$N-prof-0001\",\"loca
 field '[.profile.location, .profile.website] | join(" ")'                                                                                              # Mumbai https://example.com
 # 3. Banner: in the app, see the table. 4. Pin one of the tester's own posts.
 call "$T" timeline GetUserTimeline "{\"userId\":\"$MY_UID\",\"pageSize\":20,\"tab\":\"USER_TIMELINE_TAB_POSTS\"}"
-POST_ID=$(field '.posts[0].post.postId')
+POST_ID=$(field '[.posts[] | select(.post.kind != "POST_KIND_REPOST")][0].post.postId // empty')   # a REPOST cannot be pinned
+[ -n "$POST_ID" ] || echo "STOP: the tester has no pinnable post; post something first (an empty id would send a clear)"
 call "$T" identity UpdateProfile "{\"idempotencyKey\":\"w3-$N-pin-0001\",\"pinnedPostId\":\"$POST_ID\"}"
 field '.profile.pinnedPostId != ""'                                                                                                                    # true
 # 5. The four tabs (Media and Reposts need the two W3-2 indexes: a 500 here with "requires an index" in the logs means one is not READY: stop).
@@ -275,7 +278,7 @@ call "$T" identity UpdateProfile "{\"idempotencyKey\":\"w3-$N-clr-0001\",\"locat
 
 | Step | In the app (web `https://dzeroth-dev.web.app` or the device) | Expect | Cold `fs_reads` / writes (cost-model section 2 W3 block, section 12) |
 |---|---|---|---|
-| 1 | Reload; the features appear | `HTTP 200 ok` and all four names | 1 (interceptor) / 0 |
+| 1 | Reload; the features appear | `HTTP 200 ok` and all four names | 1 to 2 / 0 (GetMe row of section 2) |
 | 2 | Edit profile shows the location and website fields; the profile header shows both | `HTTP 200 ok`, `Mumbai https://example.com` | 4 cold (3 service + interceptor) / 1 |
 | 3 | Edit profile, banner: pick an image, Save (needs `media` and `profile_extras`) | The banner shows at once, no layout jump | CreateUpload 2 reads / 3 writes, FinalizeUpload 2 / 3, +2 interceptor, **2 Vision units**; UpdateProfile as step 2 |
 | 4 | The "Pinned" row at the top of the Posts tab, the post not repeated below; the post menu says Unpin | `HTTP 200 ok`, `true` | UpdateProfile 4 cold (+1 for the pin check) / 1; the pinned row's `GetPost` 1 warm, 4 cold |
@@ -285,7 +288,7 @@ call "$T" identity UpdateProfile "{\"idempotencyKey\":\"w3-$N-clr-0001\",\"locat
 | 8 | The Home "Who to follow" card (and "You might like" in the desktop column with `ui_shell`) | `HTTP 200 ok`, up to 5 rows. With decision 2 = the 3 testers and a tester who follows fewer than 3 accounts it shows at most the other two; if the tester already follows both, it is **empty and the card hides: correct** | friends of friends **42 cold at most**, curated 12 at most (about 5 with a 3-uid list), warm 1 to 2 / 0 |
 | 9 | The profile shows none of the four | `HTTP 200 ok` | 1 to 4 / 1 |
 
-The whole of 4.1 is about 150 cold reads, 15 writes and 2 Vision units in dev. Compare the day with `make cost PROJECT_ID=dzeroth-dev` (last 24 h reads and writes, Vision month and
+A tab with fewer rows than the page costs fewer reads: **24 is a full page of 20**; an empty Media or Reposts page is about 1 for the query plus the cold chain of 4 (the interceptor, the target, the caller's graph and `userLikes`), so a low `fs_reads` on a thin account is not an anomaly. A `200` on an empty Media or Reposts page still proves the index exists (a missing index answers 500). The whole of 4.1 is about 150 cold reads, 15 writes and 2 Vision units in dev. Compare the day with `make cost PROJECT_ID=dzeroth-dev` (last 24 h reads and writes, Vision month and
 today). A cold call more than a few reads above the table is a regression (`budgettest` asserts these ceilings).
 
 ### 4.2 Smoke A (not allowlisted)
@@ -312,7 +315,7 @@ The second (5xx on the new RPCs) had no line in the last 7 days and is expected 
 
 Its own targeted plan: every template change is one apply and one revision.
 1. In the dev `terraform.tfvars` set the four modes to `off` and keep the allowlists (a mode `off` ignores them): `feature_profile_extras`, `feature_profile_tabs`, `feature_likes_list`,
-   `feature_follow_suggestions` = `"off"`. Same targeted plan as step 2 (expect four `~ value "allowlist" -> "off"` lines and nothing else), apply with the OK, route as step 4. To prove each
+   `feature_follow_suggestions` = `"off"`. Same targeted plan as step 2: after the first apply `main.tf` always emits all 23 vars, so expect **exactly four `~ value "allowlist" -> "off"` changes** (the allowlists stay), 0 added, 0 removed, plus the known `template.revision` line. Apply with the OK, route as step 4. To prove each
    flag on its own, do them one at a time in this order: `profile_tabs`, `likes_list`, `follow_suggestions`, then `profile_extras` last (it is the kill switch for the pin and website).
 2. Reload the app as the tester and confirm. Only mode `off` is a kill switch; an empty allowlist or percent 0 is a rollout.
 
@@ -337,7 +340,7 @@ the practical check is a cold call repeatedly above its ceiling in the 4.1 table
 
 **Rollback = the flags back to `off`, through Terraform.** No data migration; data stays (banners and meta keep rendering; pins and websites stop rendering while `profile_extras` is globally off).
 1. In the dev `terraform.tfvars` remove the nine lines you added (or set the four modes to `off`; the variable defaults are `off`). `suggested_user_ids` can stay or go.
-2. The same targeted plan as step 2 (expect the env entries to revert: 0 add, 1 change, 0 destroy), apply the saved plan with the OK, then route the new revision as step 4.
+2. The same targeted plan as step 2. `main.tf` always emits all 23 vars, so removing the nine lines resets values to their defaults and removes no entry: expect **nine `~ value` changes** (the four modes `"allowlist" -> "off"`, the four allowlists and `SUGGESTED_USER_IDS` to empty), 0 added, 0 removed, plus the known `template.revision` line, summarised as `Plan: 0 to add, 1 to change, 0 to destroy`. Apply the saved plan with the OK, then route the new revision as step 4.
 3. **Faster, in seconds, no Terraform:** `gcloud run services update-traffic api --project=dzeroth-dev --region=asia-south1 --to-revisions=$SERVING=100`, where `$SERVING` is the revision noted
    in step 4. It has no W3 env, so every flag is off by the code default, and it still contains #335 and #354. `last-good` (`api-00552-por`) is also such a revision. Then make the Terraform
    change so state and live agree. **Do not run `deploy-dev` between the two**: it builds its candidate from the service template, which still carries the flags until Terraform is changed.
