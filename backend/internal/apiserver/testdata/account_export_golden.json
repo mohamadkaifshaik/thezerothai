@@ -92,6 +92,7 @@
     "userId": "<uid:A>"
   },
   "profile": {
+    "bannerUrl": "https://media.example/m/0000000000000000601.webp",
     "bio": "",
     "createdAt": "<time>",
     "displayName": "Apiserver Test",
@@ -99,9 +100,12 @@
     "followingCount": 1,
     "handle": "<handle:A>",
     "isPrivate": false,
+    "location": "Pune",
+    "pinnedPostId": "0000000000000000602",
     "postsCount": 3,
     "userId": "<uid:A>",
-    "verified": false
+    "verified": false,
+    "website": "https://example.com/me"
   },
   "reports": {
     "reports": [],

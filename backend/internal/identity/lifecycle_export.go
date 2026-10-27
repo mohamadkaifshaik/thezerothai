@@ -56,11 +56,16 @@ var errPermanent = errors.New("permanent export failure")
 // exportProfile is the profile section: user-facing fields only. By construction it has no status,
 // snapshotVersion, deletionJob or any other internal field (runbook 3a, ADR-0011 D-D).
 type exportProfile struct {
-	UserID         string    `json:"userId"`
-	Handle         string    `json:"handle"`
-	DisplayName    string    `json:"displayName"`
-	Bio            string    `json:"bio"`
-	AvatarURL      string    `json:"avatarUrl,omitempty"`
+	UserID      string `json:"userId"`
+	Handle      string `json:"handle"`
+	DisplayName string `json:"displayName"`
+	Bio         string `json:"bio"`
+	AvatarURL   string `json:"avatarUrl,omitempty"`
+	// ADR-0024 D11: the profile extras, omitted when absent. The thumbnails are derived data and stay out, like avatarThumbUrl.
+	BannerURL      string    `json:"bannerUrl,omitempty"`
+	Location       string    `json:"location,omitempty"`
+	Website        string    `json:"website,omitempty"`
+	PinnedPostID   string    `json:"pinnedPostId,omitempty"`
 	IsPrivate      bool      `json:"isPrivate"`
 	Verified       bool      `json:"verified"`
 	FollowersCount int64     `json:"followersCount"`
@@ -73,6 +78,7 @@ func profileSection(p Profile) exportProfile {
 	return exportProfile{
 		UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
 		IsPrivate: p.IsPrivate, Verified: p.Verified, FollowersCount: p.FollowersCount, FollowingCount: p.FollowingCount,
+		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID,
 		PostsCount: p.PostsCount, CreatedAt: p.CreatedAt.UTC(),
 	}
 }

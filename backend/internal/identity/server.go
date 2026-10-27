@@ -162,6 +162,10 @@ func (s *Server) UpdateProfile(ctx context.Context, req *connect.Request[identit
 		DisplayName:    req.Msg.DisplayName,
 		Bio:            req.Msg.Bio,
 		AvatarMediaID:  req.Msg.AvatarMediaId,
+		BannerMediaID:  req.Msg.BannerMediaId,
+		Location:       req.Msg.Location,
+		Website:        req.Msg.Website,
+		PinnedPostID:   req.Msg.PinnedPostId,
 		IsPrivate:      req.Msg.IsPrivate,
 	}
 	profile, err := s.svc.UpdateProfile(ctx, uid, params)
@@ -299,6 +303,11 @@ func toProtoProfile(p Profile) *identityv1.Profile {
 		Bio:            p.Bio,
 		AvatarUrl:      p.AvatarURL,
 		AvatarThumbUrl: p.AvatarThumbURL,
+		BannerUrl:      p.BannerURL,
+		BannerThumbUrl: p.BannerThumbURL,
+		Location:       p.Location,
+		Website:        p.Website,
+		PinnedPostId:   p.PinnedPostID,
 		IsPrivate:      p.IsPrivate,
 		Verified:       p.Verified,
 		FollowersCount: p.FollowersCount,

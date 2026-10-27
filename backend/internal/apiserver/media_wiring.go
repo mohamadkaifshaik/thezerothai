@@ -110,6 +110,24 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 	}, nil
 }
 
+// resolveProfileImage is the body the avatar and banner adapters share: FEATURE_MEDIA off for the caller and every
+// unusable id (media.ErrNotReady) both give notReady = true (one answer, no oracle); any other error is a real
+// failure and is passed through. resolve is the media.Reader method for the purpose.
+func resolveProfileImage(ctx context.Context, reg *flags.Registry, uid, mediaID string,
+	resolve func(context.Context, string, string) (media.Ref, error)) (ref media.Ref, notReady bool, err error) {
+	if !reg.Enabled(uid, media.FlagName) {
+		return media.Ref{}, true, nil
+	}
+	ref, err = resolve(ctx, uid, mediaID)
+	switch {
+	case media.IsNotReady(err):
+		return media.Ref{}, true, nil
+	case err != nil:
+		return media.Ref{}, false, err
+	}
+	return ref, false, nil
+}
+
 // avatarResolver adapts media.Reader to identity.AvatarResolver and applies FEATURE_MEDIA: with the flag off an
 // avatar id is "not ready" like any other unusable id (one answer).
 type avatarResolver struct {
@@ -118,14 +136,11 @@ type avatarResolver struct {
 }
 
 func (a avatarResolver) ResolveAvatar(ctx context.Context, uid, mediaID string) (identity.AvatarRef, error) {
-	if !a.flags.Enabled(uid, media.FlagName) {
+	ref, notReady, err := resolveProfileImage(ctx, a.flags, uid, mediaID, a.lib.ResolveAvatar)
+	if notReady {
 		return identity.AvatarRef{}, identity.ErrAvatarNotReady
 	}
-	ref, err := a.lib.ResolveAvatar(ctx, uid, mediaID)
-	switch {
-	case media.IsNotReady(err):
-		return identity.AvatarRef{}, identity.ErrAvatarNotReady
-	case err != nil:
+	if err != nil {
 		return identity.AvatarRef{}, err
 	}
 	return identity.AvatarRef{URL: ref.URL, ThumbURL: ref.ThumbURL}, nil
@@ -156,3 +171,22 @@ func (m postsMediaClaim) Refs() []posts.MediaRef {
 }
 
 func (m postsMediaClaim) Attach(b store.Batch, postID string) { m.c.Attach(b, postID) }
+
+// bannerResolver adapts media.Reader to identity.BannerResolver (ADR-0024 D1) and applies FEATURE_MEDIA, like
+// avatarResolver: with the flag off a banner id is "not ready" like any other unusable id (one answer). The
+// profile_extras gate is identity's (it runs before this is reached). 1 Firestore read (the media doc).
+type bannerResolver struct {
+	lib   media.Reader
+	flags *flags.Registry
+}
+
+func (b bannerResolver) ResolveBanner(ctx context.Context, uid, mediaID string) (identity.BannerRef, error) {
+	ref, notReady, err := resolveProfileImage(ctx, b.flags, uid, mediaID, b.lib.ResolveBanner)
+	if notReady {
+		return identity.BannerRef{}, identity.ErrBannerNotReady
+	}
+	if err != nil {
+		return identity.BannerRef{}, err
+	}
+	return identity.BannerRef{URL: ref.URL, ThumbURL: ref.ThumbURL}, nil
+}

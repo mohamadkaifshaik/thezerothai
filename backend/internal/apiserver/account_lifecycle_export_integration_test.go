@@ -224,6 +224,17 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		time.Sleep(2 * time.Millisecond) // distinct createdAt, so the newest-first order is stable
 	}
 
+	// ADR-0024 D11: the profile section carries the extras. Fixed literals, because the golden normalizer only rewrites
+	// post ids under `posts`; the thumbnail is derived data and must stay out of the export.
+	if _, err := e.fs.Doc("users/"+a.uid).Update(ctx, []firestore.Update{
+		{Path: "bannerUrl", Value: "https://media.example/m/0000000000000000601.webp"},
+		{Path: "bannerThumbUrl", Value: "https://media.example/m/0000000000000000601_t.webp"},
+		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com/me"},
+		{Path: "pinnedPostId", Value: "0000000000000000602"},
+	}); err != nil {
+		t.Fatalf("seed profile extras: %v", err)
+	}
+
 	_, raw := e.exportOf(t, a, key("export"))
 
 	// --- who is who ---
