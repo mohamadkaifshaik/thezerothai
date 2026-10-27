@@ -34,10 +34,12 @@ const (
 	MediaPurpose_MEDIA_PURPOSE_UNSPECIFIED MediaPurpose = 0
 	// Attach to a post (max 4).
 	MediaPurpose_MEDIA_PURPOSE_POST MediaPurpose = 1
-	// Profile avatar (exactly 1; full 400 px, thumb 96 px).
+	// Profile avatar (exactly 1; full 400 px, thumb 96 px). Once replaced or removed it is retired: its two public
+	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all (ADR-0024 Amendment 1 A4), and it cannot be set again.
 	MediaPurpose_MEDIA_PURPOSE_AVATAR MediaPurpose = 2
 	// Profile banner (cover image; exactly 1; 3:1, full 1500 x 500, thumb 600 x 200; ADR-0024 D1). Needs
-	// FEATURE_PROFILE_EXTRAS as well as FEATURE_MEDIA. Set with IdentityService.UpdateProfile(banner_media_id).
+	// FEATURE_PROFILE_EXTRAS as well as FEATURE_MEDIA. Set with IdentityService.UpdateProfile(banner_media_id). Once
+	// replaced or removed it is retired like an avatar, when PROFILE_MEDIA_RETIRE is banner or all (ADR-0024 Amendment 1 A4).
 	MediaPurpose_MEDIA_PURPOSE_BANNER MediaPurpose = 3
 )
 

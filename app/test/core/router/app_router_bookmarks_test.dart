@@ -274,6 +274,61 @@ void main() {
       }
     });
 
+    // W3-21: every combination of the three flags that decide the page, for
+    // the plain path and for the Likes link. `posts` gates the route (the
+    // redirect Home), `likes_list` the tab row and the query; `bookmarks`
+    // gates only the entry points (drawer, rail), never the route.
+    for (final posts in [false, true]) {
+      for (final bookmarks in [false, true]) {
+        for (final likesList in [false, true]) {
+          final flags = {
+            if (posts) 'posts',
+            if (bookmarks) 'bookmarks',
+            if (likesList) 'likes_list',
+          };
+          for (final location in [AppRouter.bookmarksPath, likesLink]) {
+            testWidgets('flags $flags at $location', (tester) async {
+              final script = FakeBookmarksServer()
+                ..pages[''] = () => bookmarksPage([2, 1]);
+              final likes = FakeLikesServer(bookmarks: script)
+                ..pages[''] = () => likesPage([4, 3]);
+              final path = await openAt(
+                tester,
+                flags,
+                server: script,
+                likes: likes,
+                location: location,
+              );
+
+              if (!posts) {
+                // The redirect: Home, and not one RPC for either list.
+                expect(path, AppRouter.homePath);
+                expect(find.byType(BookmarksScreen), findsNothing);
+                expect(script.listTokens, isEmpty);
+                expect(likes.listCalls, 0);
+                return;
+              }
+              expect(path, AppRouter.bookmarksPath);
+              expect(find.byType(BookmarksScreen), findsOneWidget);
+              final wantsLikes = location == likesLink;
+              if (!likesList) {
+                // No tab row, the query is ignored, Bookmarks answers.
+                expect(find.byType(AppTabBar), findsNothing);
+                expect(find.text(postView(2).post.text), findsOneWidget);
+                expect(likes.listCalls, 0);
+                expect(script.listTokens, ['']);
+                return;
+              }
+              final bar = tester.widget<AppTabBar>(find.byType(AppTabBar));
+              expect(bar.selectedIndex, wantsLikes ? 1 : 0);
+              expect(likes.listCalls, wantsLikes ? 1 : 0);
+              expect(script.listTokens, wantsLikes ? isEmpty : ['']);
+            });
+          }
+        }
+      }
+    }
+
     test('a signed-out cold open is not kept through sign-in: the history '
         'link is not a shareable target (W2-9 allowlist, W2-14 I-1)', () {
       expect(AppRouter.deepLinkTarget(Uri.parse(likesLink)), isNull);

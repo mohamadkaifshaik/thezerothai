@@ -71,9 +71,12 @@ func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
 	return nil
 }
 
-// PurgeUser deletes one page (<= opsPage) of uid's media: objects, then the documents in one batch. done is true
-// when the page was short (the account is DELETING, so no new uploads arrive). Reads: one per document, minimum 1;
-// deletes: one per document; GCS: free deletes, 2 public (deterministic names) + up to 2 private per document.
+// PurgeUser deletes one page (<= opsPage) of uid's media: objects, then the documents in one batch. It deletes every
+// document the owner has, whatever its state, retired AVATAR and BANNER documents included: until its TTL a retired
+// document still names the image (ADR-0024 Amendment 1 A4), so an account deleted during the grace loses the objects
+// at once. done is true when the page was short (the account is DELETING, so no new uploads arrive). Reads: one per
+// document, minimum 1; deletes: one per document; GCS: free deletes, 2 public (deterministic names) + up to 2 private per
+// document.
 func (p *Purger) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := p.repo.ListByOwner(ctx, uid, "", opsPage)
 	if err != nil {
@@ -108,6 +111,9 @@ type exportedMedia struct {
 	ThumbURL    string    `json:"thumbUrl,omitempty"`
 	PostID      string    `json:"postId,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// RetiredAt is set for a replaced or removed profile image whose public objects are scheduled for deletion
+	// (ADR-0024 Amendment 1 A4); the document stays in the export until its TTL.
+	RetiredAt *time.Time `json:"retiredAt,omitempty"`
 }
 
 // Name is the export section name.
@@ -130,6 +136,10 @@ func (p *Purger) WriteSection(ctx context.Context, uid string, w io.Writer) erro
 			e := exportedMedia{
 				ID: d.ID, Purpose: d.Purpose, Status: d.Status, ContentType: d.ContentType,
 				Width: d.Width, Height: d.Height, PostID: d.PostID, CreatedAt: d.CreatedAt.UTC(),
+			}
+			if d.RetiredAt != nil {
+				r := d.RetiredAt.UTC()
+				e.RetiredAt = &r
 			}
 			if d.Published() {
 				e.URL, e.ThumbURL = p.publicBaseURL+"/"+d.PublicPath, p.publicBaseURL+"/"+d.ThumbPath

@@ -66,6 +66,12 @@ type Doc struct {
 	// SafeSearch spend for this PENDING document and every other call answers MEDIA_NOT_READY. Set by ClaimScreening,
 	// cleared by ReleaseScreening and by Resolve. A claim a crashed call left behind simply expires.
 	ScreeningUntil *time.Time `firestore:"screeningUntil,omitempty"`
+	// RetiredAt is set by the profile_media_retired step (ADR-0024 Amendment 1 A4) once the document's replaced or removed
+	// AVATAR or BANNER objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
+	// them a day later). The resolvers refuse a retired document, so a retired image can never be set again. ExpireAt is
+	// set with it (RetiredAt + RetiredDocTTL): until then the document keeps the image inside the account eraser and the
+	// export.
+	RetiredAt *time.Time `firestore:"retiredAt,omitempty"`
 }
 
 // Published reports whether the document is publicly served (READY or READY_UNSCREENED).
@@ -121,6 +127,10 @@ type Repo interface {
 	VisionUsed(ctx context.Context, month string) (int64, error)
 	// AddVisionUnits adds n units to the month's counter. Writes: 1.
 	AddVisionUnits(ctx context.Context, month string, n int64) error
+	// Retire marks a published document retired: retiredAt and expireAt are written together by one field-level Update
+	// (never a Set), conditional on the document's UpdateTime (ErrConflict when it changed since it was read, or is gone).
+	// Writes: 1.
+	Retire(ctx context.Context, id string, updateTime, retiredAt, expireAt time.Time) error
 	// ListByOwner returns up to limit of uid's media documents (any order), resuming after the document id
 	// `after` ("" = from the start). Reads: len(result), minimum 1.
 	ListByOwner(ctx context.Context, uid, after string, limit int) ([]*Doc, error)
@@ -264,9 +274,11 @@ func decode(s *firestore.DocumentSnapshot) (*Doc, error) {
 	return &d, nil
 }
 
-// ClaimScreening implements Repo.
-func (r *FirestoreRepo) ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error) {
-	wr, err := r.ref(id).Update(ctx, []firestore.Update{{Path: "screeningUntil", Value: until}}, firestore.LastUpdateTime(updateTime))
+// updateAt is the one UpdateTime-preconditioned field-level Update of a media document: 1 write, never a Set (a write
+// after the account eraser cannot recreate the document). A failed precondition and a missing document are both
+// ErrConflict: the document is not in the state the caller read. what names the caller in the wrapped error.
+func (r *FirestoreRepo) updateAt(ctx context.Context, id string, updates []firestore.Update, updateTime time.Time, what string) (time.Time, error) {
+	wr, err := r.ref(id).Update(ctx, updates, firestore.LastUpdateTime(updateTime))
 	budget.FromContext(ctx).AddWrites(1)
 	switch status.Code(err) {
 	case codes.OK:
@@ -274,20 +286,18 @@ func (r *FirestoreRepo) ClaimScreening(ctx context.Context, id string, updateTim
 	case codes.FailedPrecondition, codes.NotFound:
 		return time.Time{}, ErrConflict
 	}
-	return time.Time{}, fmt.Errorf("media: claim screening: %w", err)
+	return time.Time{}, fmt.Errorf("media: %s: %w", what, err)
+}
+
+// ClaimScreening implements Repo.
+func (r *FirestoreRepo) ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error) {
+	return r.updateAt(ctx, id, []firestore.Update{{Path: "screeningUntil", Value: until}}, updateTime, "claim screening")
 }
 
 // ReleaseScreening implements Repo.
 func (r *FirestoreRepo) ReleaseScreening(ctx context.Context, id string, updateTime time.Time) error {
-	_, err := r.ref(id).Update(ctx, []firestore.Update{{Path: "screeningUntil", Value: firestore.Delete}}, firestore.LastUpdateTime(updateTime))
-	budget.FromContext(ctx).AddWrites(1)
-	switch status.Code(err) {
-	case codes.OK:
-		return nil
-	case codes.FailedPrecondition, codes.NotFound:
-		return ErrConflict
-	}
-	return fmt.Errorf("media: release screening: %w", err)
+	_, err := r.updateAt(ctx, id, []firestore.Update{{Path: "screeningUntil", Value: firestore.Delete}}, updateTime, "release screening")
+	return err
 }
 
 // Resolve implements Repo.
@@ -305,15 +315,17 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, updateTime time.
 	} else {
 		updates = append(updates, firestore.Update{Path: "expireAt", Value: res.ExpireAt})
 	}
-	_, err := r.ref(id).Update(ctx, updates, firestore.LastUpdateTime(updateTime))
-	budget.FromContext(ctx).AddWrites(1)
-	switch status.Code(err) {
-	case codes.OK:
-		return nil
-	case codes.FailedPrecondition, codes.NotFound:
-		return ErrConflict
-	}
-	return fmt.Errorf("media: resolve media: %w", err)
+	_, err := r.updateAt(ctx, id, updates, updateTime, "resolve media")
+	return err
+}
+
+// Retire implements Repo (ADR-0024 Amendment 1 A4): retiredAt and expireAt in one field-level Update.
+func (r *FirestoreRepo) Retire(ctx context.Context, id string, updateTime, retiredAt, expireAt time.Time) error {
+	_, err := r.updateAt(ctx, id, []firestore.Update{
+		{Path: "retiredAt", Value: retiredAt},
+		{Path: "expireAt", Value: expireAt},
+	}, updateTime, "retire media")
+	return err
 }
 
 func orDelete(s string) any {

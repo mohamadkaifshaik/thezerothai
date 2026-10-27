@@ -267,6 +267,9 @@ type Config struct {
 	// in lists is moderated as well as the full image (2 units per image instead of 1). Set false to follow
 	// ADR-0005's one-unit wording literally.
 	VisionScreenThumb bool
+	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4, default off): which replaced or removed profile
+	// images the profile_media_retired step deletes after the grace. Per-project retention, not a FEATURE_ flag.
+	ProfileMediaRetire ProfileMediaRetire
 }
 
 // Bounds of the export settings (ADR-0011 D-B): a signed URL is a bearer credential, and the retention
@@ -741,6 +744,10 @@ func Load() (Config, error) {
 	if !visionPolicy.valid() {
 		return Config{}, fmt.Errorf("config: invalid VISION_EXHAUSTED_POLICY %q (want unscreened_established|reject)", visionPolicy)
 	}
+	profileMediaRetire, err := ParseProfileMediaRetire(os.Getenv("PROFILE_MEDIA_RETIRE"))
+	if err != nil {
+		return Config{}, err
+	}
 	visionScreenThumb := true
 	switch v := strings.ToLower(getenv("VISION_SCREEN_THUMB", "true")); v {
 	case "true", "1":
@@ -909,6 +916,7 @@ func Load() (Config, error) {
 		VisionMonthlyCap:          visionCap,
 		VisionExhaustedPolicy:     visionPolicy,
 		VisionScreenThumb:         visionScreenThumb,
+		ProfileMediaRetire:        profileMediaRetire,
 	}, nil
 }
 

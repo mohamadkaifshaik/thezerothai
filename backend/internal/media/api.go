@@ -216,11 +216,11 @@ type CreateUploadInput struct {
 
 // Reader is what other modules' adapters use to turn media ids into published refs.
 type Reader interface {
-	// ResolveAvatar returns the READY (or READY_UNSCREENED) AVATAR media id owned by uid. ErrNotReady otherwise.
-	// Reads: 1.
+	// ResolveAvatar returns the READY (or READY_UNSCREENED) AVATAR media id owned by uid. ErrNotReady otherwise,
+	// a retired image (ADR-0024 Amendment 1 A4) included. Reads: 1.
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, error)
 	// ResolveBanner returns the READY (or READY_UNSCREENED) BANNER media id owned by uid (ADR-0024 D1; Ref.URL is the
 	// 1500 px image, Ref.ThumbURL the 600 px one). ErrNotReady for every other case: missing, someone else's,
-	// another purpose, PENDING or REJECTED. Reads: 1.
+	// another purpose, PENDING, REJECTED or retired (ADR-0024 Amendment 1 A4). Reads: 1.
 	ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error)
 }

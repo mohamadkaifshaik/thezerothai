@@ -5,19 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
 // profileClearer is identity.FirestoreRepo's field-level clear (the identity module owns users/{uid}; opsctl never
 // writes the document itself).
 type profileClearer interface {
 	ClearProfileFields(ctx context.Context, uid string, fields []identity.ProfileField, now time.Time, dryRun bool) (identity.ClearResult, error)
+}
+
+// profileRetirer is media.Jobs' profile_media_retired step, run in process (ADR-0024 Amendment 1 A4): the same code the Pub/Sub
+// handler runs, without Pub/Sub. It returns the step's outcome ("retired", "disabled", "unparseable", ...).
+type profileRetirer interface {
+	Retire(ctx context.Context, m media.RetireMessage) (string, error)
 }
 
 // parseClearArgs validates the clear-profile-fields flags before anything is opened or confirmed: --fields (one or more
@@ -45,10 +52,20 @@ func parseClearArgs(a modArgs) ([]identity.ProfileField, error) {
 // A DELETING account is refused (the deletion job's checkpoints must not race an operator write) and a missing one is an
 // error, both exit 1. Each API instance keeps serving its cached profile for up to 60 s.
 //
-// Cost: 1 read and at most 1 write; --report adds 1 read to check it, then the resolve (1 read, 1 write).
+// Cleared banner and avatar images go through the A4 retire step in process once the clear has committed, so their
+// objects are deleted by the media bucket's lifecycle rule 24-48 h later. That needs PROFILE_MEDIA_RETIRE in the operator's
+// shell (this project's value; unset is off, which changes nothing and prints the objects for deleting by hand); an
+// invalid value is refused before any write. A retire failure after the clear does not undo it and does not skip the
+// report: the report is resolved, the failure is printed with the objects, and the exit code is 1.
+//
+// Cost: 1 read and at most 1 write; --report adds 1 read to check it, then the resolve (1 read, 1 write); each retired
+// image adds 2 reads, 1 write and 2 Class A operations.
 func clearProfileFields(ctx context.Context, b *backends, project, uid string, fields []identity.ProfileField, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.profiles == nil {
 		return errors.New("clear-profile-fields: no profile writer configured")
+	}
+	if b.retireErr != nil && slicesHaveImage(fields) {
+		return usageErr(b.retireErr.Error() + " (fix the variable before clearing an image)")
 	}
 	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -86,7 +103,9 @@ func clearProfileFields(ctx context.Context, b *backends, project, uid string, f
 	default:
 		fmt.Fprintln(out, "nothing to clear: 0 writes")
 	}
-	printImageObjects(out, project, res.Cleared)
+	// The retire step runs only after the clear committed (res.Written): never on a dry run, never when nothing changed.
+	outcomes, retireErr := retireClearedImages(cctx, b, uid, res, now())
+	printImageObjects(out, project, res.Cleared, outcomes, a.dryRun, b.retireMode)
 
 	if a.report != "" {
 		if a.dryRun {
@@ -96,7 +115,55 @@ func clearProfileFields(ctx context.Context, b *backends, project, uid string, f
 		}
 	}
 	fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes())
-	return nil
+	return retireErr
+}
+
+// slicesHaveImage reports whether the requested fields include a banner or an avatar (the ones the retire step handles).
+func slicesHaveImage(fields []identity.ProfileField) bool {
+	for _, f := range fields {
+		if _, ok := retirePurpose(f); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// retirePurpose maps a clearable image field to the media purpose the retire step takes.
+func retirePurpose(f identity.ProfileField) (string, bool) {
+	switch f {
+	case identity.ProfileFieldBanner:
+		return string(media.PurposeBanner), true
+	case identity.ProfileFieldAvatar:
+		return string(media.PurposeAvatar), true
+	}
+	return "", false
+}
+
+// retireClearedImages runs the A4 retire step in process for each cleared banner or avatar of a committed clear and
+// returns its outcome per field ("error" for a failed one) and the joined failures. No retirer wired counts as off.
+func retireClearedImages(ctx context.Context, b *backends, uid string, res identity.ClearResult, at time.Time) (map[identity.ProfileField]string, error) {
+	outcomes := map[identity.ProfileField]string{}
+	if !res.Written || b.retire == nil {
+		return outcomes, nil
+	}
+	var errs []error
+	for _, c := range res.Cleared {
+		purpose, ok := retirePurpose(c.Field)
+		if !ok || len(c.Values) < 2 {
+			continue
+		}
+		outcome, err := b.retire.Retire(ctx, media.RetireMessage{
+			Kind: media.JobKindProfileMediaRetired, UID: uid, Purpose: purpose,
+			OldURL: c.Values[0], OldThumbURL: c.Values[1], ChangedAt: at,
+		})
+		if err != nil {
+			outcomes[c.Field] = "error"
+			errs = append(errs, fmt.Errorf("%s retire failed after the clear committed (delete the objects by hand if the image must go): %w", c.Field, err))
+			continue
+		}
+		outcomes[c.Field] = outcome
+	}
+	return outcomes, errors.Join(errs...)
 }
 
 // quotedValues renders the stored values a field held, quoted, in a fixed order (an empty second URL is shown as "").
@@ -108,48 +175,48 @@ func quotedValues(values []string) string {
 	return strings.Join(q, " ")
 }
 
-// printImageObjects names the bucket objects behind a cleared banner or avatar. Clearing the field stops the profile
-// from pointing at the image, but the public objects stay reachable by URL (and in older posts' author snapshots)
-// until they are deleted.
-//
-// TODO(A4): ADR-0024 Amendment 1 A4 (PROFILE_MEDIA_RETIRE, identity.MediaRetirer) adds a retire step that deletes these
-// objects after a grace. When it exists, call it in process here for the cleared banner and avatar, and keep this list
-// for an image that must go at once. Until then the operator deletes the printed objects by hand, as
-// docs/runbooks/moderation.md "Media on takedown" does (objects first, then the media/* docs).
-func printImageObjects(out io.Writer, project string, cleared []identity.ClearedField) {
+// printImageObjects reports what happened to each cleared banner or avatar and names its bucket objects. Clearing the
+// field only stops the profile from pointing at the image: the public objects stay reachable by URL (and in older posts'
+// author snapshots) until they are deleted. With the A4 retire step switched on (PROFILE_MEDIA_RETIRE covering the
+// image) that is the bucket lifecycle rule, 24-48 h after the clear; otherwise the operator deletes the printed objects by
+// hand, as docs/runbooks/moderation.md "Media on takedown" does (objects first, then the media/* docs). The names are
+// always printed, for an image that must go at once. outcomes holds the retire step's outcome per field (empty when it did
+// not run); on a dry run the plan says whether it would.
+func printImageObjects(out io.Writer, project string, cleared []identity.ClearedField, outcomes map[identity.ProfileField]string, dryRun bool, mode config.ProfileMediaRetire) {
 	bucket := project + "-media"
 	for _, c := range cleared {
-		if c.Field != identity.ProfileFieldBanner && c.Field != identity.ProfileFieldAvatar {
+		purpose, isImage := retirePurpose(c.Field)
+		if !isImage {
 			continue
+		}
+		outcome := outcomes[c.Field]
+		switch {
+		case dryRun && mode.Allows(purpose):
+			fmt.Fprintf(out, "%s retire: would run after the clear (PROFILE_MEDIA_RETIRE=%s): the objects are deleted 24-48 h later\n", c.Field, mode)
+		case dryRun:
+			fmt.Fprintf(out, "%s retire: would not run (PROFILE_MEDIA_RETIRE=%s does not cover it): delete the objects by hand\n", c.Field, mode)
+		case outcome == "retired":
+			fmt.Fprintf(out, "%s retire: done. Both objects are tagged for deletion; the media bucket's lifecycle rule deletes them 24-48 h from now and the image URL stays live until then\n", c.Field)
+		case outcome == "" || outcome == "disabled":
+			fmt.Fprintf(out, "%s retire: not run (PROFILE_MEDIA_RETIRE=%s in this shell does not cover it): set it to this project's value to schedule the delete, or delete the objects by hand\n", c.Field, mode)
+		case outcome == "error":
+			fmt.Fprintf(out, "%s retire: FAILED (see the error below): delete the objects by hand if the image must go\n", c.Field)
+		default:
+			fmt.Fprintf(out, "%s retire: %s, nothing was scheduled: delete the objects by hand if the image must go\n", c.Field, outcome)
+		}
+		state := "still public until deleted"
+		if outcome == "retired" {
+			state = "public until the lifecycle rule deletes it"
 		}
 		for _, v := range c.Values {
 			if v == "" {
 				continue
 			}
-			if name := objectName(v); name != "" {
-				fmt.Fprintf(out, "%s object (still public until deleted): %s in bucket %s\n", c.Field, name, bucket)
+			if name := media.ObjectNameFromURL(v); name != "" {
+				fmt.Fprintf(out, "%s object (%s): %s in bucket %s\n", c.Field, state, name, bucket)
 			} else {
-				fmt.Fprintf(out, "%s object (still public until deleted): could not derive the object name from %q; find it in bucket %s\n", c.Field, v, bucket)
+				fmt.Fprintf(out, "%s object (%s): could not derive the object name from %q; find it in bucket %s\n", c.Field, state, v, bucket)
 			}
 		}
 	}
-}
-
-// objectName returns the media-bucket object name ("m/<mediaId>.<ext>" or "m/<mediaId>_t.<ext>") that a profile image
-// URL points at, or "" when the URL has no such tail. The public base URL in front of it is deployment config that
-// opsctl does not know, so it keys on the "/m/" segment.
-func objectName(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	i := strings.LastIndex(u.Path, "/m/")
-	if i < 0 {
-		return ""
-	}
-	name := u.Path[i+1:]
-	if len(name) <= len("m/") || strings.Contains(name[len("m/"):], "/") {
-		return ""
-	}
-	return name
 }

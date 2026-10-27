@@ -103,7 +103,8 @@ func (l *Library) ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, 
 }
 
 // resolveOwned is the one lookup behind the profile-image resolvers: 1 read, ErrNotReady unless the document
-// exists, is owned by uid, has the given purpose and is published (READY or READY_UNSCREENED).
+// exists, is owned by uid, has the given purpose, is published (READY or READY_UNSCREENED) and is not retired
+// (ADR-0024 Amendment 1 A4: a retired image's objects are scheduled for deletion, so it can never be set again).
 func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpose) (Ref, error) {
 	if !mediaIDPattern.MatchString(mediaID) {
 		return Ref{}, ErrNotReady
@@ -113,7 +114,7 @@ func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpo
 		return Ref{}, err
 	}
 	d, ok := docs[mediaID]
-	if !ok || d.OwnerID != uid || d.Purpose != string(p) || !d.Published() {
+	if !ok || d.OwnerID != uid || d.Purpose != string(p) || !d.Published() || d.RetiredAt != nil {
 		return Ref{}, ErrNotReady
 	}
 	return l.ref(d), nil

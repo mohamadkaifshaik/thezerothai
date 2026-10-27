@@ -76,9 +76,12 @@ func (p postGone) PostGone(ctx context.Context, postID string) (bool, error) {
 	return !exists, nil
 }
 
-// wireMedia builds the media module. Nothing here does I/O: the GCS, Vision and Pub/Sub clients are lazy.
+// wireMedia builds the media module. Nothing here does I/O: the GCS, Vision and Pub/Sub clients are lazy. users is the
+// fresh users/{uid} read the profile_media_retired step checks before it retires an image (identity's repo: the
+// PostGone pattern, a job never acts on a message's word alone).
 func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featureFlags *flags.Registry,
-	dir *lateAccountDirectory, postsRepo *posts.FirestoreRepo, node *snowflake.Node, publisher media.JobPublisher) (*mediaModule, error) {
+	dir *lateAccountDirectory, postsRepo *posts.FirestoreRepo, node *snowflake.Node, publisher media.JobPublisher,
+	users media.ProfileImages) (*mediaModule, error) {
 	buckets, err := media.NewBuckets(cfg.MediaUploadBucket, cfg.MediaBucket)
 	if err != nil {
 		return nil, fmt.Errorf("media buckets: %w", err)
@@ -106,9 +109,35 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 		server:  media.NewServer(svc, featureFlags),
 		library: media.NewLibrary(repo, cfg.MediaPublicBaseURL),
 		purger:  media.NewPurger(repo, buckets, cfg.MediaPublicBaseURL),
-		jobs:    media.NewJobs(repo, buckets, postGone{postsRepo}, publisher),
+		// ADR-0024 Amendment 1 A4: PROFILE_MEDIA_RETIRE (default off) gates both the publish and the handler.
+		jobs: media.NewJobs(repo, buckets, postGone{postsRepo}, publisher).WithProfileRetire(media.RetireDeps{
+			Mode: cfg.ProfileMediaRetire, Users: users, Tagger: buckets,
+		}),
 	}, nil
 }
+
+// profileMediaRetirer adapts media.Jobs to identity.MediaRetirer (ADR-0024 Amendment 1 A4, the BannerResolver pattern):
+// identity names the image, media owns the switch, the object names and the job.
+type profileMediaRetirer struct{ jobs *media.Jobs }
+
+func (r profileMediaRetirer) RetireProfileImage(ctx context.Context, uid string, image identity.ProfileImage, oldURL, oldThumbURL string, changedAt time.Time) error {
+	var purpose media.Purpose
+	switch image {
+	case identity.ProfileImageAvatar:
+		purpose = media.PurposeAvatar
+	case identity.ProfileImageBanner:
+		purpose = media.PurposeBanner
+	default:
+		return fmt.Errorf("profile media retire: unknown profile image %q", image)
+	}
+	return r.jobs.ProfileImageReplaced(ctx, uid, purpose, oldURL, oldThumbURL, changedAt)
+}
+
+var (
+	_ identity.MediaRetirer = profileMediaRetirer{}
+	// identity's repo is the fresh users/{uid} read the retire step needs; this fails the build if either side drifts.
+	_ media.ProfileImages = (*identity.FirestoreRepo)(nil)
+)
 
 // resolveProfileImage is the body the avatar and banner adapters share: FEATURE_MEDIA off for the caller and every
 // unusable id (media.ErrNotReady) both give notReady = true (one answer, no oracle); any other error is a real
