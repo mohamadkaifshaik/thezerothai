@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -56,6 +57,7 @@ class TimelineFeedView extends StatefulWidget {
     this.newPostsPillTop = kToolbarHeight + AppSpacing.sm,
     this.nested = false,
     this.scrollViewKey,
+    this.fillViewport = false,
   });
 
   final String? viewerUserId;
@@ -96,6 +98,15 @@ class TimelineFeedView extends StatefulWidget {
   /// Key of the scroll view; give a `PageStorageKey` in a nested body so the
   /// tab keeps its offset while another tab is shown.
   final Key? scrollViewKey;
+
+  /// Follow `next_page_token` while the rows do not fill the view (and never
+  /// show the empty state while a next page exists). A page can be shorter
+  /// than asked, or empty, and still carry a token (the server drops cards
+  /// whose embedded author the caller blocks or mutes: the profile Reposts
+  /// and Media tabs, ADR-0024 D5); a view that is not tall enough to scroll
+  /// would never ask for the next page. Off for Home and the Posts and
+  /// Replies tabs, whose pages are full.
+  final bool fillViewport;
 
   @override
   State<TimelineFeedView> createState() => _TimelineFeedViewState();
@@ -161,6 +172,40 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     if (position.maxScrollExtent > 0 &&
         position.pixels >= kPrefetchFraction * position.maxScrollExtent) {
       unawaited(context.read<TimelineCubit>().loadMore());
+    }
+  }
+
+  /// After the rows changed and were laid out: asks for the next page while
+  /// the rows leave nothing to scroll (see [TimelineFeedView.fillViewport]).
+  /// The cubit ignores the ask while it is loading or after a failed page, so
+  /// a failing page is retried by the user, not in a loop. While a
+  /// RATE_LIMITED answer is held back the ask is skipped here too: the cubit
+  /// would answer it with a new state (a new notice), which schedules the
+  /// next ask, one per frame, for as long as the hold lasts.
+  void _fillIfShort() {
+    if (!mounted) return;
+    final cubit = context.read<TimelineCubit>();
+    final state = cubit.state;
+    if (!state.hasMore ||
+        state.loadingMore ||
+        state.refreshing ||
+        state.loadMoreFailed ||
+        state.notice is RateLimitedException ||
+        state.status == TimelineStatus.error) {
+      return;
+    }
+    // No row at all: there is nothing to scroll (the skeleton in its place
+    // may be taller than the view), so ask for the next page at once.
+    if (state.entries.isEmpty) {
+      unawaited(cubit.loadMore());
+      return;
+    }
+    final controller = widget.nested
+        ? PrimaryScrollController.maybeOf(context)
+        : _controller;
+    if (controller == null || !controller.hasClients) return;
+    if (controller.position.maxScrollExtent <= 0) {
+      unawaited(cubit.loadMore());
     }
   }
 
@@ -258,7 +303,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                 ),
               ],
             );
-            return Stack(
+            final stack = Stack(
               fit: StackFit.expand,
               children: [
                 if (widget.nested)
@@ -281,6 +326,13 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                     ),
                   ),
               ],
+            );
+            if (!widget.fillViewport) return stack;
+            // After every change of the rows, once laid out.
+            return BlocListener<TimelineCubit, TimelineState>(
+              listener: (context, state) => WidgetsBinding.instance
+                  .addPostFrameCallback((_) => _fillIfShort()),
+              child: stack,
             );
           },
         );
@@ -308,6 +360,11 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
         child = AppErrorView(error: state.error!, onRetry: cubit.refresh);
       } else if (state.status == TimelineStatus.loading || state.refreshing) {
         child = const PostListSkeleton();
+      } else if (widget.fillViewport && state.hasMore) {
+        // No post yet but a next page exists: not empty, keep looking.
+        child = state.loadMoreFailed
+            ? _footer(cubit, state)
+            : const PostListSkeleton();
       } else {
         child = AppEmptyView(
           icon: Icons.dynamic_feed_outlined,

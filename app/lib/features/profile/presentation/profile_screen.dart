@@ -22,7 +22,9 @@ import '../../posts/data/posts_repository.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../timeline/data/timeline_repository.dart';
 import '../../timeline/domain/feed_key.dart';
+import '../../timeline/domain/profile_tabs_feature_flag.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
+import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../domain/profile_edit_feature_flag.dart';
@@ -345,8 +347,9 @@ class _ScrollColumn extends StatelessWidget {
 }
 
 /// One tab of the profile: everything the scroll scaffold needs to show it.
-/// The tab list is data, so another tab (Reposts, Media: W3-16) is one more
-/// entry in [_profileTabSpecs], with no change to the scroll structure.
+/// The tab list is data, so another tab is one more entry in
+/// [_profileTabSpecs], with no change to the scroll structure (W3-16 added
+/// Reposts and Media that way).
 @immutable
 class _ProfileTabSpec {
   const _ProfileTabSpec({
@@ -354,7 +357,9 @@ class _ProfileTabSpec {
     required this.label,
     required this.feedFor,
     required this.emptyTitle,
+    this.emptySubtitle,
     this.ownPosts = false,
+    this.requiresProfileTabs = false,
   });
 
   /// Stable id: keys the tab's cubit, its scroll offset and its widgets.
@@ -365,12 +370,27 @@ class _ProfileTabSpec {
   final FeedKey Function(String userId) feedFor;
   final String Function({required bool own, required String handle}) emptyTitle;
 
+  /// One line of guidance under [emptyTitle]; null for none.
+  final String Function({required bool own, required String handle})?
+  emptySubtitle;
+
   /// The own profile's pending posts and "Write a post" belong to this tab.
   final bool ownPosts;
+
+  /// A tab the server serves only while `profile_tabs` is on for the caller
+  /// (Reposts, Media). It is listed only with the flag, and a FEATURE_DISABLED
+  /// answer for it drops every such tab (see [_ProfilePostsState]). Its pages
+  /// can be short or empty while a next page exists, so its feed follows the
+  /// token (`TimelineFeedView.fillViewport`).
+  final bool requiresProfileTabs;
 }
 
-/// The tabs for the enabled sub-features, in display order.
-List<_ProfileTabSpec> _profileTabSpecs({required bool showReplies}) => [
+/// The tabs for the enabled sub-features, in display order: Posts,
+/// Replies (the `replies` sub-feature), Reposts and Media (`profile_tabs`).
+List<_ProfileTabSpec> _profileTabSpecs({
+  required bool showReplies,
+  required bool showProfileTabs,
+}) => [
   _ProfileTabSpec(
     id: 'posts',
     label: 'Posts',
@@ -387,13 +407,46 @@ List<_ProfileTabSpec> _profileTabSpecs({required bool showReplies}) => [
       emptyTitle: ({required own, required handle}) =>
           own ? "You haven't replied yet" : "@$handle hasn't replied yet",
     ),
+  if (showProfileTabs) ...[
+    _ProfileTabSpec(
+      id: 'reposts',
+      label: 'Reposts',
+      feedFor: (userId) => FeedKey.user(userId, tab: UserFeedTab.reposts),
+      emptyTitle: ({required own, required handle}) =>
+          own ? "You haven't reposted yet" : "@$handle hasn't reposted yet",
+      emptySubtitle: ({required own, required handle}) => own
+          ? 'Posts you repost will be listed here.'
+          : 'Posts they repost will be listed here.',
+      requiresProfileTabs: true,
+    ),
+    _ProfileTabSpec(
+      id: 'media',
+      label: 'Media',
+      feedFor: (userId) => FeedKey.user(userId, tab: UserFeedTab.media),
+      emptyTitle: ({required own, required handle}) => own
+          ? "You haven't shared any images yet"
+          : "@$handle hasn't shared any images yet",
+      emptySubtitle: ({required own, required handle}) => own
+          ? 'Posts with your images will be listed here.'
+          : 'Posts with their images will be listed here.',
+      requiresProfileTabs: true,
+    ),
+  ],
 ];
 
 /// Header + the Posts and Replies tabs (Replies only with the `replies`
 /// sub-feature on: the same `GetUserTimeline` with `include_replies`, cursor
-/// paged like Posts). When the
+/// paged like Posts), then Reposts and Media (only with `profile_tabs` on:
+/// the same call with its `tab`, ADR-0024 D5). Each tab is its own cached
+/// feed (`FeedKey.user(uid, tab: ...)`) with its own cursor and tokens, so a
+/// token never travels to another tab. When the
 /// viewer blocks the author the feed is not even requested: a banner offers
 /// "Show posts" (ADR-0010 D6, computed from the local relationship).
+///
+/// If the server still answers a Reposts or Media call with FEATURE_DISABLED
+/// `profile_tabs` (the flag turned off since `GetMe`), the screen drops those
+/// tabs and shows Posts and Replies; the repository sends nothing more for
+/// them until the next `GetMe`.
 ///
 /// Scrolling (W3-13): one `NestedScrollView`. The header scrolls away, the
 /// tab bar pins under the app bar, and only the selected tab's list is
@@ -417,7 +470,15 @@ class _ProfilePosts extends StatefulWidget {
 
 class _ProfilePostsState extends State<_ProfilePosts> {
   bool _showBlockedPosts = false;
-  int _tab = 0;
+
+  /// The selected tab, by [_ProfileTabSpec.id] and not by position: the tab
+  /// list changes length with the flags, and a missing id falls back to the
+  /// first tab (Posts).
+  String _tabId = 'posts';
+
+  /// The server refused a `profile_tabs` tab although `GetMe` listed the
+  /// flag: Reposts and Media are left out for the rest of this screen.
+  bool _profileTabsRefused = false;
 
   /// One cubit per tab that was opened, by tab id: created on first open
   /// (0 requests for a tab nobody opens), closed with the screen.
@@ -468,15 +529,18 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final blocked = state.relationship?.blocking ?? false;
     final specs = _profileTabSpecs(
       showReplies: isFeatureEnabled(context, kPostsSubFeatureReplies),
+      showProfileTabs:
+          isFeatureEnabled(context, kFeatureProfileTabs) &&
+          !_profileTabsRefused,
     );
-    final tab = _tab.clamp(0, specs.length - 1);
+    final tab = math.max(0, specs.indexWhere((s) => s.id == _tabId));
     final spec = specs[tab];
     final canCompose = canComposeAt(context, AppRouter.homePath);
     final tabBar = AppTabBar(
       equalWidth: true,
       semanticLabel: 'Profile timelines',
       selectedIndex: tab,
-      onChanged: (index) => setState(() => _tab = index),
+      onChanged: (index) => setState(() => _tabId = specs[index].id),
       tabs: [for (final s in specs) AppTab(label: s.label)],
     );
     final scrollKey = PageStorageKey<String>(
@@ -526,34 +590,56 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       body: BlocProvider<TimelineCubit>.value(
         key: ValueKey('profile-posts-${profile.userId}-${spec.id}'),
         value: cubit,
-        child: TimelineFeedView(
-          nested: true,
-          scrollViewKey: scrollKey,
-          newPostsPillTop: AppSpacing.sm,
-          viewerUserId: viewerUserId,
-          emptyTitle: spec.emptyTitle(
-            own: state.isOwnProfile,
-            handle: profile.handle,
+        child: BlocListener<TimelineCubit, TimelineState>(
+          listenWhen: (before, after) =>
+              spec.requiresProfileTabs && _refusedProfileTabs(after),
+          listener: (context, _) => setState(() {
+            _profileTabsRefused = true;
+            _tabId = 'posts';
+          }),
+          child: TimelineFeedView(
+            nested: true,
+            fillViewport: spec.requiresProfileTabs,
+            scrollViewKey: scrollKey,
+            newPostsPillTop: AppSpacing.sm,
+            viewerUserId: viewerUserId,
+            emptyTitle: spec.emptyTitle(
+              own: state.isOwnProfile,
+              handle: profile.handle,
+            ),
+            emptySubtitle: spec.emptySubtitle?.call(
+              own: state.isOwnProfile,
+              handle: profile.handle,
+            ),
+            emptyAction: ownPosts && canCompose
+                ? AppPillButton(
+                    label: 'Write a post',
+                    compact: true,
+                    onPressed: () => context.push(AppRouter.composePath),
+                  )
+                : null,
+            showPending: ownPosts,
+            pendingAuthorId: viewerUserId,
+            hideAuthorsOnRelationship: false,
+            // The request can outlive this screen: guard the cubit, not context.
+            onRelationshipChanged: (relationship) {
+              if (!profileCubit.isClosed) {
+                profileCubit.relationshipChanged(relationship);
+              }
+            },
           ),
-          emptyAction: ownPosts && canCompose
-              ? AppPillButton(
-                  label: 'Write a post',
-                  compact: true,
-                  onPressed: () => context.push(AppRouter.composePath),
-                )
-              : null,
-          showPending: ownPosts,
-          pendingAuthorId: viewerUserId,
-          hideAuthorsOnRelationship: false,
-          // The request can outlive this screen: guard the cubit, not context.
-          onRelationshipChanged: (relationship) {
-            if (!profileCubit.isClosed) {
-              profileCubit.relationshipChanged(relationship);
-            }
-          },
         ),
       ),
     );
+  }
+
+  /// The tab's cubit holds a FEATURE_DISABLED `profile_tabs` answer, as the
+  /// blocking error (nothing cached) or as the notice over cached rows.
+  static bool _refusedProfileTabs(TimelineState state) {
+    bool refused(Object? error) =>
+        error is FeatureDisabledException &&
+        error.feature == kFeatureProfileTabs;
+    return refused(state.error) || refused(state.notice);
   }
 }
 
