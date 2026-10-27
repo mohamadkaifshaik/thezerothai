@@ -60,6 +60,14 @@ func TestRegisterJobHandler(t *testing.T) {
 	if h.repo.reads != 0 || h.repo.writes != 0 {
 		t.Error("a module job touched the identity repo")
 	}
+	// The delivery line carries the owner's uid_hash like the account kinds do, never the raw uid.
+	lines := h.logs.records("account_job")
+	if len(lines) != 1 || lines[0]["account_job"] != "post_delete" || lines[0]["uid_hash"] == "" {
+		t.Fatalf("delivery line = %v, want one post_delete line with a uid_hash", lines)
+	}
+	if strings.Contains(h.logs.String(), `"u1"`) {
+		t.Errorf("delivery line leaks the raw uid: %s", h.logs.String())
+	}
 
 	// A handler error nacks (500) so Pub/Sub redelivers; the error text never reaches the response.
 	rec.err = errors.New("storage unavailable for uid u1")
