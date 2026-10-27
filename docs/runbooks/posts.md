@@ -34,7 +34,8 @@ Profile extras and tabs (ADR-0024 D9, W3-4 registration): `FEATURE_PROFILE_EXTRA
 `FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT]` / `feature_profile_tabs*` (`profile_tabs`) will gate `GetUserTimeline` tab MEDIA and REPOSTS (Posts
 and Replies stay ungated). Both default off in every environment (dev ceiling: allowlist, at most 3 uids; no prod raise) and
 `GetMe.enabled_features` lists them only when on for the caller. W3-4 registered them and the config; the `CreateUpload(BANNER)` gate is live since W3-5
-(`docs/runbooks/media.md`), and the other gates arrive with W3-6 and W3-9, until then the new `UpdateProfile` fields and the tab are ignored without an error. Once gated, a field sent while off is `FEATURE_DISABLED`
+(`docs/runbooks/media.md`), the `UpdateProfile` gate is live since W3-6 (`docs/runbooks/identity.md`), and the `GetUserTimeline` MEDIA and REPOSTS gate is live since W3-9
+(section 13): `tab` MEDIA or REPOSTS while `profile_tabs` is off for the caller is `FEATURE_DISABLED` `feature=profile_tabs` with 0 reads. A field sent while off is `FEATURE_DISABLED`
 `feature=profile_extras` (0 writes); data set while a flag was on keeps rendering after a ramp-down (the pin is hidden while `profile_extras`
 is globally off). Kill switch: set the flag to `off` and deploy. No new failure mode yet.
 
@@ -151,7 +152,8 @@ account is a bug: count with `opsctl purge-posts --dry-run` (read-only, `dry-run
 
 Owner module: `backend/internal/timeline` (ADR-0004, ADR-0010 D13-D16). It stores nothing; request lines carry
 `timeline_op`, `timeline_mode` (`cold|refresh|older|gap`), `timeline_chunks`, `authors_from_cache`,
-`timeline_cache_hit`, `items_returned`, `items_filtered`, `gap`, `since_clamped`, `page_size` and `fs_reads`.
+`timeline_cache_hit`, `items_returned`, `items_filtered`, `gap`, `since_clamped`, `page_size`, `tab` (GetUserTimeline only: the effective tab
+`posts|replies|media|reposts`, or `unknown` for a tab number this build does not know; ADR-0024 D5) and `fs_reads`.
 
 ## 9. Home timeline reads are high (`fs_reads` per `timeline_op=home`)
 Expected ceiling is `2 + C + 2*page` (269 at 5,000 followed, page 50). Find outliers with
@@ -164,6 +166,13 @@ The token is expired (30 days, `TIMELINE_TOKEN_TTL`), tampered, from another acc
 `CURSOR_HMAC_KEY` rotation invalidated it. This is the designed answer, with 0 reads: the client drops the token and
 cold-opens. A burst right after a key rotation is expected; a burst without one points at a client bug (sending both
 tokens is also `page_token`).
+
+**Tab token mismatch (W3-9).** A `GetUserTimeline` token is bound to the caller, the target and the EFFECTIVE tab (`posts`, `replies`, `media`,
+`reposts`; a set `tab` wins over `include_replies`, and `UNSPECIFIED` is `posts` or `replies` by `include_replies`, so every pre-W3 token stays
+valid). A token used on another tab is `VALIDATION field=page_token|since_token` with 0 reads, by design: the client must replace that tab's feed
+and cold-open, not retry. A rising count with `tab=media|reposts` after a client release points at a client keying its cached feed or token by
+user instead of by (user, tab). `VALIDATION field=tab` is a client newer than the server sending a tab number this build does not know; the
+log line says `tab=unknown`. Nothing to fix server side.
 
 ## 11. A post appears twice, or a just-created post shows up late
 `since_token` trails the newest item by `TIMELINE_SETTLE_WINDOW` (15 s, D13), so a refresh may re-return recent posts
@@ -375,8 +384,14 @@ it costs no write. The single definition is `posts.HasMediaFor`. The Media and R
   emulator does not enforce indexes, so tests cannot catch this). Check `gcloud firestore indexes composite list --project P`. Kill
   switch: `FEATURE_PROFILE_TABS=off` and deploy (the Posts and Replies tabs are unaffected). `profile_tabs` never leaves `off` in a
   project before the backfill ran and both indexes are READY.
-- **Reads.** Each tab query reads one row per post returned (1 when empty), no instance cache: `fs_reads` of `timeline_op=user` with a
-  tab is about the page size plus the profile reads. A rise for everyone points at a client refreshing the tab in a loop.
+- **Clients get `FEATURE_DISABLED` (`feature=profile_tabs`) on the Media or Reposts tab.** The flag is off for that caller (`GetMe.enabled_features`
+  lacks `profile_tabs`). The check runs first, with 0 reads, before the user id, the tokens or the target are looked at, and the log line carries
+  `feature_disabled=true`, `feature=profile_tabs` and the requested `tab`. Posts and Replies are never gated. Expected while the flag is off or
+  the caller is outside the allowlist or percent; the client hides the tabs from `enabled_features` and the server stays authoritative.
+- **Reads.** Each tab query reads one row per post returned (1 when empty), no instance cache: `fs_reads` of `timeline_op=user` with `tab=media`
+  or `tab=reposts` is the page size plus 4 cold (account-status interceptor, target `users`, caller `graph`, `userLikes`; 24 at page 20, 54 at
+  page 50, +1 if the caller's blockedBy overflowed) and the page size alone warm (20 at page 20). A rise for everyone points at a client
+  refreshing the tab in a loop (tabs are not cached on the server).
 - **Pin check (`posts.PinChecker`, used by `UpdateProfile`).** 1 read cold, 0 warm. A post deleted or taken down on another instance can
   still pass the check for up to the posts cache TTL (60 s); the client hides a pin whose `GetPost` answers NOT_FOUND and the
   `post_delete` job clears the pin (`docs/runbooks/identity.md` section 3). A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause (`docs/runbooks/identity.md` section 1).

@@ -3,6 +3,7 @@ package timeline
 import (
 	"time"
 
+	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
@@ -14,7 +15,7 @@ const (
 	fieldPage  = "page_token"
 )
 
-// feed names one token family: a home feed for a caller, or one tab of a user's feed. Its two bindings keep
+// feed names one token family: a home feed for a caller, or one effective tab of a user's feed. Its two bindings keep
 // since tokens and page tokens in separate AEAD domains, bound to the caller (and target and tab), so no token
 // opens for another caller, feed, tab or kind (ADR-0010 D14; `|` is safe because uids never contain it).
 type feed struct{ since, page string }
@@ -23,12 +24,47 @@ func homeFeed(caller string) feed {
 	return feed{since: "tl|home|" + caller + "|since", page: "tl|home|" + caller + "|page"}
 }
 
-func userFeed(caller, target string, includeReplies bool) feed {
-	tab := "posts"
-	if includeReplies {
-		tab = "replies"
+// userTab is the EFFECTIVE profile tab of a GetUserTimeline call (ADR-0024 D5): what the call reads and the tab part
+// of its token bindings. The string values are the binding values, so they never change: "posts" and "replies" are
+// the pre-W3 values, which keeps every token issued before the tab field existed valid on the tab it was issued for.
+type userTab string
+
+const (
+	tabPosts   userTab = "posts"
+	tabReplies userTab = "replies"
+	tabMedia   userTab = "media"
+	tabReposts userTab = "reposts"
+)
+
+// effectiveTab resolves the request's tab and include_replies (ADR-0024 D5). UNSPECIFIED, the default and every
+// pre-W3 client, means include_replies decides exactly as before; any other known value wins and include_replies is
+// ignored with no error. ok is false for a number this build does not know (a newer client): the caller answers
+// VALIDATION rather than guessing a tab, because the tab is part of the token binding.
+func effectiveTab(tab timelinev1.UserTimelineTab, includeReplies bool) (t userTab, ok bool) {
+	switch tab {
+	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_UNSPECIFIED:
+		if includeReplies {
+			return tabReplies, true
+		}
+		return tabPosts, true
+	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS:
+		return tabPosts, true
+	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_REPLIES:
+		return tabReplies, true
+	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_MEDIA:
+		return tabMedia, true
+	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_REPOSTS:
+		return tabReposts, true
 	}
-	base := "tl|user|" + caller + "|" + target + "|" + tab + "|"
+	return "", false
+}
+
+// gated reports whether the tab needs FEATURE_PROFILE_TABS (ADR-0024 D5, D9): Media and Reposts. Posts and Replies
+// stay ungated.
+func (t userTab) gated() bool { return t == tabMedia || t == tabReposts }
+
+func userFeed(caller, target string, tab userTab) feed {
+	base := "tl|user|" + caller + "|" + target + "|" + string(tab) + "|"
 	return feed{since: base + "since", page: base + "page"}
 }
 

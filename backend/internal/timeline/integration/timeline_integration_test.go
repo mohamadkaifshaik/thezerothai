@@ -984,3 +984,148 @@ func contains(xs []string, s string) bool {
 	}
 	return false
 }
+
+// userTab is user() with the ADR-0024 D5 tab field.
+func (in *instance) userTab(t *testing.T, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+	t.Helper()
+	return in.userTabOn(t, in.srv, uid, target, tab, since, page, size)
+}
+
+func (in *instance) userTabOn(t *testing.T, srv *timeline.Server, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+	t.Helper()
+	ctx, c := budget.WithCounter(ctxFor(uid))
+	resp, err := srv.GetUserTimeline(ctx, connect.NewRequest(&timelinev1.GetUserTimelineRequest{UserId: target, Tab: tab, PageSize: size, SinceToken: since, PageToken: page}))
+	if err != nil {
+		return nil, c, err
+	}
+	return resp.Msg, c, nil
+}
+
+// ADR-0024 D5 (W3-9) against the real posts repo: the Media tab is the author's hasMedia posts (replies and quotes with
+// images included), the Reposts tab the author's REPOST items, both newest first, one Limit(page) query each with no
+// instance cache, so a cold or warm open costs target users 1 + caller graph 1 + the rows (22 at page 20, 32 for the 30
+// media rows at page 50, 8 for 6 reposts; the interceptor and the engagement viewer, absent here, add 2 more to the
+// documented 24 / 54 asserted in internal/apiserver/profile_tabs_integration_test.go). The emulator does not enforce the
+// two W3-2 composite indexes, so this proves the query shape and the window, not index coverage.
+func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
+	client := newClient(t)
+	seed := newInstance(t, client)
+	seed.signUp(t, "me")
+	seed.signUp(t, "bob")
+	ctx := context.Background()
+	var media, reposts []string // oldest first
+	for i := 0; i < 60; i++ {
+		id := seed.post(t, "bob", i)
+		doc := client.Collection("posts").Doc(id)
+		switch {
+		case i%2 == 0:
+			if _, err := doc.Update(ctx, []firestore.Update{{Path: "hasMedia", Value: true}}); err != nil {
+				t.Fatal(err)
+			}
+			media = append(media, id)
+		case i%10 == 1: // 6 reposts of someone else's post
+			upd := []firestore.Update{
+				{Path: "kind", Value: "REPOST"},
+				{Path: "embeddedAuthorId", Value: "uid-other"},
+				{Path: "embedded", Value: map[string]any{"postId": "9", "author": map[string]any{"userId": "uid-other", "handle": "other"}, "text": "copy"}},
+			}
+			if _, err := doc.Update(ctx, upd); err != nil {
+				t.Fatal(err)
+			}
+			reposts = append(reposts, id)
+		}
+	}
+	rev := func(xs []string) []string {
+		out := make([]string, len(xs))
+		for i, x := range xs {
+			out[len(xs)-1-i] = x
+		}
+		return out
+	}
+	tabMedia, tabReposts := timelinev1.UserTimelineTab_USER_TIMELINE_TAB_MEDIA, timelinev1.UserTimelineTab_USER_TIMELINE_TAB_REPOSTS
+
+	in := newInstance(t, client)
+	p1, c1, err := in.userTab(t, "me", "bob", tabMedia, "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetUserTimeline MEDIA cold p=20", c1, budgettest.Budget{Reads: 22})
+	if got := userIDs(p1); fmt.Sprint(got) != fmt.Sprint(rev(media)[:20]) || p1.NextPageToken == "" {
+		t.Fatalf("media page 1 = %v next=%q, want the newest 20 media posts and a token", got, p1.NextPageToken)
+	}
+	// No instance cache: a warm repeat reads the 20 rows again (users and graph are cached).
+	_, cw, err := in.userTab(t, "me", "bob", tabMedia, "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetUserTimeline MEDIA warm p=20", cw, budgettest.Budget{Reads: 20})
+	if cw.Reads() < 20 {
+		t.Fatalf("warm MEDIA reads = %d, want >= 20 (every open queries Firestore)", cw.Reads())
+	}
+	p2, _, err := in.userTab(t, "me", "bob", tabMedia, "", p1.NextPageToken, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := userIDs(p2); fmt.Sprint(got) != fmt.Sprint(rev(media)[20:]) || p2.NextPageToken != "" {
+		t.Fatalf("media page 2 = %v next=%q, want the last 10 media posts and no token", got, p2.NextPageToken)
+	}
+	_, c50, err := newInstance(t, client).userTab(t, "me", "bob", tabMedia, "", "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetUserTimeline MEDIA cold p=50", c50, budgettest.Budget{Reads: 2 + 30})
+	t.Logf("BUDGET GetUserTimeline MEDIA cold p=20 reads=%d, p=50 reads=%d (ceilings 22 / 32 here: users + graph + rows; the documented 24 / 54 add the interceptor and userLikes and are asserted in internal/apiserver)", c1.Reads(), c50.Reads())
+
+	r1, cr, err := newInstance(t, client).userTab(t, "me", "bob", tabReposts, "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "GetUserTimeline REPOSTS cold p=20", cr, budgettest.Budget{Reads: 2 + 6})
+	if got := userIDs(r1); fmt.Sprint(got) != fmt.Sprint(rev(reposts)) || r1.NextPageToken != "" {
+		t.Fatalf("reposts = %v next=%q, want the 6 reposts newest first and no token", got, r1.NextPageToken)
+	}
+
+	// A Posts-tab token (and a Media token) is VALIDATION on the other tab with 0 reads.
+	posts1, _, err := in.user(t, "me", "bob", "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		tab         timelinev1.UserTimelineTab
+		since, page string
+		field       string
+	}{
+		"posts page token on media":   {tabMedia, "", posts1.NextPageToken, "page_token"},
+		"posts since token on media":  {tabMedia, posts1.SinceToken, "", "since_token"},
+		"media page token on reposts": {tabReposts, "", p1.NextPageToken, "page_token"},
+		"media since token on posts":  {timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS, p1.SinceToken, "", "since_token"},
+	} {
+		_, c, err := in.userTab(t, "me", "bob", tc.tab, tc.since, tc.page, 20)
+		var ae *apierr.Error
+		if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || ae.Metadata["field"] != tc.field || c.Reads() != 0 {
+			t.Fatalf("%s: err=%v reads=%d, want VALIDATION field=%s and 0 reads", name, err, c.Reads(), tc.field)
+		}
+	}
+
+	// profile_tabs off: MEDIA and REPOSTS are FEATURE_DISABLED (feature=profile_tabs) with 0 reads; the Posts tab is open.
+	off := timeline.NewServer(timeline.Deps{
+		Flags: noProfileTabs{}, Posts: in.posts, Graph: in.graph, Directory: in.dir,
+		CursorKey: cursorKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second,
+	})
+	for _, tab := range []timelinev1.UserTimelineTab{tabMedia, tabReposts} {
+		_, c, err := in.userTabOn(t, off, "me", "bob", tab, "", "", 20)
+		var ae *apierr.Error
+		if !errors.As(err, &ae) || ae.Code != connect.CodeFailedPrecondition || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
+			ae.Metadata["feature"] != "profile_tabs" || c.Reads() != 0 {
+			t.Fatalf("flag off, tab %v: err=%v reads=%d, want FEATURE_DISABLED feature=profile_tabs and 0 reads", tab, err, c.Reads())
+		}
+	}
+	if resp, _, err := in.userTabOn(t, off, "me", "bob", timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS, "", "", 20); err != nil || len(resp.Posts) == 0 {
+		t.Fatalf("flag off, Posts tab: err=%v", err)
+	}
+}
+
+// noProfileTabs enables every flag except profile_tabs.
+type noProfileTabs struct{}
+
+func (noProfileTabs) Enabled(_, name string) bool { return name != "profile_tabs" }

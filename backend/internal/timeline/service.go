@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -37,9 +38,21 @@ const (
 	fieldGap       = "gap"
 	fieldClamped   = "since_clamped"
 	fieldPageSize  = "page_size"
+	fieldTab       = "tab" // the effective profile tab (posts|replies|media|reposts), or tabUnknownLog (ADR-0024 D5)
 	opHome         = "home"
 	opUser         = "user"
 )
+
+// ProfileTabsFlagName is the wire name of FEATURE_PROFILE_TABS (ADR-0024 D9). GetUserTimeline with tab MEDIA or REPOSTS
+// needs it on for the caller; Posts and Replies stay ungated. The name is repeated here, not imported from another
+// module, because timeline may name only the posts, graph and identity seams. The flag must stay off in a project until
+// the two W3-2 composite indexes are READY there and `opsctl backfill-has-media` has run (docs/runbooks/posts.md
+// section 13): Firestore, unlike the emulator, refuses the tab queries without them.
+const ProfileTabsFlagName = "profile_tabs"
+
+// tabUnknownLog is the fieldTab value of a call whose tab number this build does not know. A constant, never the
+// number: the field is a closed set of values so the log stays free of client-chosen data.
+const tabUnknownLog = "unknown"
 
 // home implements GetHomeTimeline (ADR-0004, ADR-0010 D13-D15). Reads: caller graph (cached 60 s) + one query
 // per 30 uncovered authors, each at most k = ceil(2p/C') docs; worst 2 + C + 2p with the interceptor read.
@@ -321,17 +334,22 @@ func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
 	return allowedAuthor(snap, a)
 }
 
-// user implements GetUserTimeline (ADR-0010 D6, D11, D13-D16). Reads: target users + caller graph (+ target
+// user implements GetUserTimeline (ADR-0010 D6, D11, D13-D16; ADR-0024 D5). Reads: target users + caller graph (+ target
 // graph when the caller's blockedBy overflowed) + one query of Limit(page_size); 0 for a Posts-tab first page
-// or an empty refresh served by a fresh author-recent entry.
+// or an empty refresh served by a fresh author-recent entry. The Media and Reposts tabs always run that one query
+// (no author-recent entry) and need FEATURE_PROFILE_TABS: they are refused before any read when it is off.
 func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUserTimelineRequest) (*timelinev1.GetUserTimelineResponse, error) {
 	start := s.now()
+	tab, err := s.resolveTab(ctx, caller, req)
+	if err != nil {
+		return nil, err
+	}
 	target := req.GetUserId()
 	if target == "" || !identity.ValidUserID(target) {
 		return nil, apierr.Validation("user_id", ids.UIDMessage)
 	}
 	limit := limits.ClampPageSize(req.GetPageSize())
-	f := userFeed(caller, target, req.GetIncludeReplies())
+	f := userFeed(caller, target, tab)
 	tok, err := s.codec.parse(f, req.GetSinceToken(), req.GetPageToken())
 	if err != nil {
 		return nil, err
@@ -353,7 +371,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 		return nil, err
 	}
 
-	res, err := s.userPage(ctx, target, req.GetIncludeReplies(), tok, limit, start)
+	res, err := s.userPage(ctx, target, tab, tok, limit, start)
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +390,34 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	logger.SetRequestField(ctx, fieldFiltered, len(res.page.Items)-len(items))
 	logger.SetRequestField(ctx, fieldGap, out.GetGapPageToken() != "")
 	return out, nil
+}
+
+// resolveTab turns the request's tab and include_replies into the effective tab (ADR-0024 D5), logs it, and applies the
+// tab's flag. It runs before any Firestore access and reads nothing:
+//   - a tab number this build does not know is VALIDATION field=tab (the tab is part of the token binding, so a guess
+//     could hand a client a feed that its tokens then reject);
+//   - MEDIA and REPOSTS need profile_tabs on for the caller: FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+//     feature=profile_tabs (flags.Guard also logs feature_disabled and outcome=rejected:feature_disabled). POSTS,
+//     REPLIES and UNSPECIFIED are ungated.
+func (s *Server) resolveTab(ctx context.Context, caller string, req *timelinev1.GetUserTimelineRequest) (userTab, error) {
+	tab, ok := effectiveTab(req.GetTab(), req.GetIncludeReplies())
+	if !ok {
+		logger.SetRequestField(ctx, fieldTab, tabUnknownLog)
+		return "", apierr.Validation("tab", "tab is not supported")
+	}
+	logger.SetRequestField(ctx, fieldTab, string(tab))
+	if !tab.gated() {
+		return tab, nil
+	}
+	var enabled func(uid, name string) bool
+	if s.deps.Flags != nil {
+		enabled = s.deps.Flags.Enabled
+	}
+	if err := flags.Guard(ctx, enabled, caller, ProfileTabsFlagName); err != nil {
+		logger.SetRequestField(ctx, "feature", ProfileTabsFlagName)
+		return "", flags.DisabledError().WithMeta("feature", ProfileTabsFlagName)
+	}
+	return tab, nil
 }
 
 // checkVisible answers NOT_FOUND, byte-identical to GetProfile's missing-user error, for a missing,
@@ -415,10 +461,11 @@ type userResult struct {
 }
 
 // userPage returns one page of target's posts: from the author-recent entry when it answers the window (Posts
-// tab only), else one Limit(page_size) query (never page_size+1, D16: a full page always gets a next token).
-func (s *Server) userPage(ctx context.Context, target string, includeReplies bool, tok request, limit int, start time.Time) (userResult, error) {
+// tab only), else one Limit(page_size) query (never page_size+1, D16: a full page always gets a next token). The
+// Replies, Media and Reposts tabs always query; Media and Reposts have no instance cache (ADR-0024 D5).
+func (s *Server) userPage(ctx context.Context, target string, tab userTab, tok request, limit int, start time.Time) (userResult, error) {
 	var res userResult
-	if !includeReplies {
+	if tab == tabPosts {
 		switch md := tok.mode(); {
 		case md == modeCold && limit <= userFirstPageMax:
 			rec, ok := s.deps.Posts.AuthorRecent(target)
@@ -446,12 +493,26 @@ func (s *Server) userPage(ctx context.Context, target string, includeReplies boo
 			}
 		}
 	}
-	ps, err := s.deps.Posts.ByAuthor(ctx, target, includeReplies, tok.window(), limit)
+	ps, err := s.tabQuery(ctx, target, tab, tok.window(), limit)
 	if err != nil {
-		return res, logger.RedactErr(fmt.Errorf("timeline: user posts: %w", err), target)
+		return res, logger.RedactErr(fmt.Errorf("timeline: user %s: %w", tab, err), target)
 	}
 	res.page = Merge([]Source{{Posts: ps, Filled: len(ps) >= limit}}, limit, isPublic)
 	return res, nil
+}
+
+// tabQuery is the one Limit(limit) query of a tab inside the window: the Posts tab's root posts, the Replies tab's
+// all posts, the Media tab's hasMedia posts (ByAuthorMedia) or the Reposts tab's REPOST items (ByAuthorKind). Each
+// reads one row per post returned (1 when empty). None filters visibility, blocks or mutes: the timeline does.
+func (s *Server) tabQuery(ctx context.Context, target string, tab userTab, w posts.Window, limit int) ([]*posts.Post, error) {
+	switch tab {
+	case tabMedia:
+		return s.deps.Posts.ByAuthorMedia(ctx, target, w, limit)
+	case tabReposts:
+		return s.deps.Posts.ByAuthorKind(ctx, target, posts.KindRepost, w, limit)
+	default:
+		return s.deps.Posts.ByAuthor(ctx, target, tab == tabReplies, w, limit)
+	}
 }
 
 // isPublic keeps only public posts a moderator has not hidden (ADR-0016 D3: takedown and suspension are a
