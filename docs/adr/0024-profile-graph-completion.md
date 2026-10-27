@@ -325,8 +325,8 @@ ceiling (dev allowlist 3, no prod raise).
 ### B1. Levers (amends D8 "Hard read cap" and "Caches", D10 `SUGGESTIONS_EDGE_LIMIT`)
 
 **Method** (W3-23's call mix, every cold call at its cap):
-- **Reads per call.** M = 0.95 × (0.85 × fof cap + 0.15 × curated cap) + 0.05 × 1.5. The fof cap is 2 + `EDGE_LIMIT`
-  + `HYDRATE_MAX`; the curated cap is 2 + `HYDRATE_MAX`.
+- **Reads per call.** M = 0.95 × (0.85 × fof cap + 0.15 × curated cap) + 0.05 × 1.5. The fof cap is
+  2 + `EDGE_LIMIT` + `HYDRATE_MAX`; the curated cap is 2 + `HYDRATE_MAX`.
 - **Reads per DAU and share.** S = calls per DAU × M. The rest of the product stays at 264.5 reads/DAU, so the share is
   S / (264.5 + S) and the line fires at S = 264.5 / 9, about **29.4**.
 - **Money.** INR = S × DAU × 30.42 × $0.035 per 100k × 95. Every read is billed: the product passes the free quota at
@@ -386,8 +386,8 @@ ceiling (dev allowlist 3, no prod raise).
   - Hard caps: friends of friends 42 → **32**; curated **12** and warm **1 to 2** are unchanged.
   - `config.Load`'s bound stays 1 to 50.
 - **Unchanged:** `SUGGESTIONS_SAMPLE_FOLLOWEES` 30, `SUGGESTIONS_HYDRATE_MAX` 10, `SUGGESTIONS_MAX_RESULTS` 5,
-  `SUGGESTIONS_CACHE_TTL` 1 h, the curated list, `RATE_LIMIT_SUGGESTIONS_PER_MIN` 10 and `SUGGESTIONS_CALLS_PER_DAY`
-  50.
+  `SUGGESTIONS_CACHE_TTL` 1 h, the curated list, `RATE_LIMIT_SUGGESTIONS_PER_MIN` 10, and
+  `SUGGESTIONS_CALLS_PER_DAY` 50.
 - **Walk-back.** A project may set the edge limit anywhere from 20 to 30 by a reviewed config PR that cites the B3 fill
   check. At 30, with (a) and B2, the line is 22.1 reads/DAU, 7.7%, still under 10%. Above 30 needs an ADR.
 - **Next lever, not used now.** `SUGGESTIONS_HYDRATE_MAX` 6 (the client keeps 5 rows) would take the decided package to
