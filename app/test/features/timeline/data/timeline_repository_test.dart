@@ -254,7 +254,7 @@ void main() {
           sinceToken: 'u1',
         ),
       );
-      const other = FeedKey.user('u1');
+      final other = FeedKey.user('u1');
       await repo.refresh(other);
       requests.clear();
       script[_user]!.add(
@@ -561,6 +561,230 @@ void main() {
       final snap = await repo.cached(feed);
       expect(snap.entries, isEmpty);
       expect(snap.sinceToken, isEmpty);
+    });
+  });
+
+  group('profile tabs (ADR-0024 D5)', () {
+    const uid = 'u9';
+    final posts = FeedKey.user(uid);
+    final replies = FeedKey.user(uid, includeReplies: true);
+    final reposts = FeedKey.user(uid, tab: UserFeedTab.reposts);
+    final media = FeedKey.user(uid, tab: UserFeedTab.media);
+
+    void giveUser(List<int> n, {String next = '', String since = ''}) {
+      script[_user]!.add(
+        tl.GetUserTimelineResponse(
+          posts: [for (final i in n) postView(i, authorId: uid)],
+          nextPageToken: next,
+          sinceToken: since,
+        ),
+      );
+    }
+
+    test('Posts and Replies go out exactly as before the tab field: no tab, '
+        'include_replies only', () async {
+      giveUser([3]);
+      giveUser([4]);
+
+      await repo.refresh(posts);
+      await repo.refresh(replies);
+
+      final sentPosts = requests[0] as tl.GetUserTimelineRequest;
+      final sentReplies = requests[1] as tl.GetUserTimelineRequest;
+      expect(sentPosts.hasTab(), isFalse);
+      expect(sentPosts.includeReplies, isFalse);
+      expect(sentReplies.hasTab(), isFalse);
+      expect(sentReplies.includeReplies, isTrue);
+      // The bytes on the wire are what a pre-W3 client sent: the same
+      // fields, none for the tab.
+      for (final (sent, includeReplies) in [
+        (sentPosts, false),
+        (sentReplies, true),
+      ]) {
+        expect(
+          sent.writeToBuffer(),
+          tl.GetUserTimelineRequest(
+            userId: uid,
+            includeReplies: includeReplies,
+            pageSize: 0,
+            sinceToken: '',
+            pageToken: '',
+          ).writeToBuffer(),
+        );
+      }
+    });
+
+    test(
+      'Reposts and Media send their tab and never include_replies',
+      () async {
+        giveUser([5]);
+        giveUser([6]);
+
+        await repo.refresh(reposts);
+        await repo.refresh(media);
+
+        final sentReposts = requests[0] as tl.GetUserTimelineRequest;
+        final sentMedia = requests[1] as tl.GetUserTimelineRequest;
+        expect(sentReposts.userId, uid);
+        expect(sentReposts.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_REPOSTS);
+        expect(sentReposts.includeReplies, isFalse);
+        expect(sentMedia.userId, uid);
+        expect(sentMedia.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_MEDIA);
+        expect(sentMedia.includeReplies, isFalse);
+      },
+    );
+
+    test(
+      'each tab has its own cache, since_token and older-page token',
+      () async {
+        giveUser([3], next: 'p-posts', since: 's-posts');
+        giveUser([13], next: 'p-reposts', since: 's-reposts');
+        giveUser([23], next: 'p-media', since: 's-media');
+        await repo.refresh(posts);
+        await repo.refresh(reposts);
+        await repo.refresh(media);
+
+        final posted = await repo.cached(posts);
+        expect(ids(posted), idsOf([3]));
+        expect(posted.sinceToken, 's-posts');
+        expect(posted.olderPageToken, 'p-posts');
+        final reposted = await repo.cached(reposts);
+        expect(ids(reposted), idsOf([13]));
+        expect(reposted.sinceToken, 's-reposts');
+        expect(reposted.olderPageToken, 'p-reposts');
+        final shared = await repo.cached(media);
+        expect(ids(shared), idsOf([23]));
+        expect(shared.sinceToken, 's-media');
+        expect(shared.olderPageToken, 'p-media');
+        final replied = await repo.cached(replies);
+        expect(replied.entries, isEmpty);
+        expect(replied.sinceToken, isEmpty);
+        expect(replied.olderPageToken, isEmpty);
+      },
+    );
+
+    test("the since_token and page_token sent back are the tab's own, "
+        'unchanged', () async {
+      giveUser([13], next: 'p-reposts', since: 's-reposts');
+      giveUser([23], next: 'p-media', since: 's-media');
+      await repo.refresh(reposts);
+      await repo.refresh(media);
+      requests.clear();
+
+      giveUser([14], since: 's-reposts2');
+      await repo.refresh(reposts);
+      giveUser([22]);
+      await repo.loadOlder(media);
+
+      final refresh = requests[0] as tl.GetUserTimelineRequest;
+      final older = requests[1] as tl.GetUserTimelineRequest;
+      expect(refresh.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_REPOSTS);
+      expect(refresh.sinceToken, 's-reposts');
+      expect(refresh.pageToken, isEmpty);
+      expect(older.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_MEDIA);
+      expect(older.pageToken, 'p-media');
+      expect(older.sinceToken, isEmpty);
+    });
+
+    test(
+      'a rejected page_token on Media replaces only the Media feed',
+      () async {
+        giveUser([3], next: 'p-posts', since: 's-posts');
+        giveUser([23, 22], next: 'p-media', since: 's-media');
+        await repo.refresh(posts);
+        await repo.refresh(media);
+        requests.clear();
+
+        script[_user]!.add(rejectedToken('page_token'));
+        giveUser([40], next: 'p-media2', since: 's-media2');
+        final snap = await repo.loadOlder(media);
+
+        expect(requests, hasLength(2));
+        final cold = requests[1] as tl.GetUserTimelineRequest;
+        expect(cold.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_MEDIA);
+        expect(cold.pageToken, isEmpty);
+        expect(cold.sinceToken, isEmpty);
+        expect(ids(snap), idsOf([40]));
+        expect(snap.olderPageToken, 'p-media2');
+        // Posts keeps what it had.
+        final other = await repo.cached(posts);
+        expect(ids(other), idsOf([3]));
+        expect(other.olderPageToken, 'p-posts');
+      },
+    );
+
+    test('a short or empty page that still has a next token keeps the '
+        'token', () async {
+      giveUser([], next: 'p1', since: 's1');
+      var snap = await repo.refresh(reposts);
+      expect(snap.entries, isEmpty);
+      expect(snap.hasMore, isTrue);
+
+      giveUser([7], next: 'p2');
+      snap = await repo.loadOlder(reposts);
+
+      expect((requests.last as tl.GetUserTimelineRequest).pageToken, 'p1');
+      expect(ids(snap), idsOf([7]));
+      expect(snap.olderPageToken, 'p2');
+    });
+
+    test('FEATURE_DISABLED profile_tabs stops further Reposts and Media calls '
+        '(0 RPCs) and leaves Posts and Replies alone', () async {
+      script[_user]!.add(
+        serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          metadata: {'feature': 'profile_tabs'},
+        ),
+      );
+
+      await expectLater(
+        repo.refresh(media),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'profile_tabs',
+          ),
+        ),
+      );
+      expect(gate.subFeatureEnabled('profile_tabs'), isFalse);
+      expect(gate.postsEnabled, isTrue);
+
+      transport.calledProcedures.clear();
+      await expectLater(
+        repo.refresh(media),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      await expectLater(
+        repo.refresh(reposts),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(transport.calledProcedures, isEmpty);
+
+      giveUser([3]);
+      giveUser([4]);
+      await repo.refresh(posts);
+      await repo.refresh(replies);
+      expect(transport.calledProcedures, hasLength(2));
+    });
+
+    test('NOT_FOUND forgets that tab only', () async {
+      giveUser([3], since: 's-posts');
+      giveUser([13], since: 's-reposts');
+      await repo.refresh(posts);
+      await repo.refresh(reposts);
+      script[_user]!.add(
+        connect.ConnectException(connect.Code.notFound, 'profile not found'),
+      );
+
+      await expectLater(
+        repo.refresh(reposts),
+        throwsA(isA<NotFoundException>()),
+      );
+
+      expect((await repo.cached(reposts)).entries, isEmpty);
+      expect(ids(await repo.cached(posts)), idsOf([3]));
     });
   });
 
