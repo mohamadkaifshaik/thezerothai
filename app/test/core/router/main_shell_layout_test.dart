@@ -27,7 +27,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/geometry.dart';
 import '../../support/suggestions_fixtures.dart';
+import '../../support/theme_harness.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -76,6 +78,8 @@ void main() {
     bool newShell = true,
     SuggestionsCubit? suggestions,
     Widget? body,
+    Brightness brightness = Brightness.light,
+    double textScale = 1,
   }) async {
     whenListen(
       onboarding,
@@ -161,7 +165,15 @@ void main() {
         ],
         child: RepositoryProvider<GraphRepository>.value(
           value: _MockGraph(),
-          child: MaterialApp.router(theme: appLightTheme, routerConfig: router),
+          child: MaterialApp.router(
+            theme: buildAppTheme(brightness: brightness),
+            routerConfig: router,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+          ),
         ),
       ),
     );
@@ -619,6 +631,70 @@ void main() {
       expect(find.text('Who to follow'), findsOneWidget);
       expect(find.text('You might like'), findsOneWidget);
     });
+
+    // W3-21: the card in the real right column at every cell of the matrix
+    // (the column exists from 1200dp; below it nothing is drawn or asked).
+    forEachThemeAndWidth(
+      '1200dp: the card fits the column and its targets '
+      'are 48dp',
+      (tester, env) async {
+        await pump(
+          tester,
+          width: env.size.width,
+          flags: flags,
+          suggestions: cubit,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+
+        expect(tester.takeException(), isNull);
+        final column = tester.getRect(find.byType(AppSideColumn));
+        final card = tester.getRect(inColumn(find.byType(WhoToFollowCard)));
+        expect(card.left, greaterThanOrEqualTo(column.left));
+        expect(card.right, lessThanOrEqualTo(column.right + 0.5));
+        expect(inColumn(find.byType(UserListRow)), findsNWidgets(3));
+        for (var i = 1; i <= 3; i++) {
+          expectMinTarget(
+            tester,
+            inColumn(find.byTooltip('Dismiss @user$i')),
+            reason: 'Dismiss @user$i',
+          );
+        }
+        expectMinTarget(
+          tester,
+          inColumn(find.widgetWithText(TextButton, 'Show more')),
+          reason: 'Show more',
+        );
+        await tester.tap(inColumn(find.text('Show more')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(inColumn(find.byType(UserListRow)), findsNWidgets(5));
+      },
+      widths: const [1200],
+      textScales: kMatrixTextScalesLarge,
+    );
+
+    forEachThemeAndWidth(
+      '360 and 600dp: no column, nothing asked, no '
+      'overflow',
+      (tester, env) async {
+        await pump(
+          tester,
+          width: env.size.width,
+          flags: flags,
+          suggestions: cubit,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(AppSideColumn), findsNothing);
+        expect(find.text('You might like'), findsNothing);
+        expect(repo.calls, 0);
+      },
+      widths: const [360, 600],
+      textScales: kMatrixTextScalesLarge,
+    );
   });
 
   group('Settings master-detail (W1-7)', () {

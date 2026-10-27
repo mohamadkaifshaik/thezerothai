@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -86,4 +87,41 @@ void expectLeftInset(
 /// No widget overflowed (a `RenderFlex overflowed` error would be thrown).
 void expectNoOverflow(WidgetTester tester) {
   expect(tester.takeException(), isNull);
+}
+
+/// [finder] is at least 48 x 48 dp (`AppSpacing.minTapTarget`), the target
+/// the `ui-catalog` demands of every control. Pass the widget that owns the
+/// target (a button, an `IconButton`, the semantics node of a link), not its
+/// visual (a 36dp pill sits in a 48dp padded button).
+void expectMinTarget(WidgetTester tester, Finder finder, {String? reason}) {
+  final size = tester.getSize(finder.first);
+  final why = reason ?? finder.describeMatch(Plurality.one);
+  expect(
+    size.width,
+    greaterThanOrEqualTo(AppSpacing.minTapTarget - 0.5),
+    reason: 'width of $why',
+  );
+  expect(
+    size.height,
+    greaterThanOrEqualTo(AppSpacing.minTapTarget - 0.5),
+    reason: 'height of $why',
+  );
+}
+
+/// [inner] lies inside the screen horizontally (nothing is pushed off its
+/// left or right edge); [screenWidth] is the view's logical width.
+void expectInsideHorizontally(
+  WidgetTester tester,
+  Finder inner,
+  double screenWidth, {
+  String? reason,
+}) {
+  final rect = tester.getRect(inner.first);
+  final why = reason ?? inner.describeMatch(Plurality.one);
+  expect(rect.left, greaterThanOrEqualTo(-0.5), reason: 'left of $why');
+  expect(
+    rect.right,
+    lessThanOrEqualTo(screenWidth + 0.5),
+    reason: 'right of $why',
+  );
 }

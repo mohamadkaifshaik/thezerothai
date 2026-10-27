@@ -182,6 +182,11 @@ void main() {
           const {},
           const {'bookmarks'},
           const {'posts'},
+          // W3-18/W3-21: `likes_list` opens the Likes tab by link, but the
+          // History entry itself still needs `bookmarks` and `posts`.
+          const {'likes_list'},
+          const {'posts', 'likes_list'},
+          const {'bookmarks', 'likes_list'},
         ]) {
           await pump(tester, profile: _alice, flags: flags);
           await openDrawer(tester);

@@ -37,8 +37,10 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/fake_push_messaging.dart';
 import '../../../support/fake_push_opt_in_store.dart';
+import '../../../support/geometry.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/suggestions_fixtures.dart';
+import '../../../support/theme_harness.dart';
 import '../../../support/timeline_fixtures.dart';
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
@@ -997,5 +999,50 @@ void main() {
         );
       });
     }
+
+    // W3-21: every cell of the matrix, with the targets the ui-catalog
+    // demands (Follow, the x, Show more).
+    forEachThemeAndWidth('matrix: the card fits and its targets are 48dp', (
+      tester,
+      env,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(env.size.width, 1200);
+      addTearDown(tester.view.reset);
+      await open(
+        tester,
+        features: on,
+        suggestions: suggestions,
+        theme: env.isDark ? appDarkTheme : appLightTheme,
+        textScale: env.textScale,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(title), findsOneWidget);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+      for (final row in find.byType(UserListRow).evaluate()) {
+        expectInsideHorizontally(
+          tester,
+          find.byWidget(row.widget),
+          env.size.width,
+        );
+      }
+      for (var i = 1; i <= 3; i++) {
+        expectMinTarget(
+          tester,
+          find.byTooltip('Dismiss @user$i'),
+          reason: 'Dismiss @user$i',
+        );
+      }
+      expectMinTarget(
+        tester,
+        find.widgetWithText(TextButton, 'Show more'),
+        reason: 'Show more',
+      );
+      await tester.tap(find.text('Show more'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(UserListRow), findsNWidgets(5));
+    }, textScales: kMatrixTextScalesLarge);
   });
 }
