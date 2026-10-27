@@ -62,6 +62,8 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
 		s.events.Followed(ctx, callerUID, targetUID, now)
+		// ADR-0024 D8: the followed user leaves this viewer's cached suggestions at once.
+		s.dropSuggested(callerUID, targetUID)
 	}
 	return rel, nil
 }
@@ -155,6 +157,9 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 		s.cache.Invalidate(callerUID)
 		s.cache.Invalidate(targetUID)
 		s.directory.Forget(callerUID, targetUID)
+		// ADR-0024 D8: neither side may be suggested to the other from this instance's cache any more.
+		s.dropSuggested(callerUID, targetUID)
+		s.dropSuggested(targetUID, callerUID)
 		if result.BlockedByOverflowHit {
 			// Logged here (post-commit), not inside the retryable transaction, so a transaction retry never
 			// double-logs (ADR-0008 D2/handoff: "ERROR blockedby_cap_reached").
@@ -224,6 +229,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 	setOutcome(ctx, outcome)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
+		s.dropSuggested(callerUID, targetUID) // ADR-0024 D8: a muted user is never suggested
 	}
 	return rel, nil
 }

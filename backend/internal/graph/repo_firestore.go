@@ -64,9 +64,30 @@ func toSet(vals []string) map[string]bool {
 	return m
 }
 
+// recentFollowingMax is how many of the newest followees a Snapshot keeps in order (Snapshot.RecentFollowing): the
+// most SUGGESTIONS_SAMPLE_FOLLOWEES can be (config.Load rejects more than 30, the Firestore `in` limit).
+const recentFollowingMax = 30
+
+// newestFirst returns the last n entries of following (the array is in follow order, oldest first) reversed, so the
+// newest is first. A fresh slice: the snapshot never aliases the decoded document array.
+func newestFirst(following []string, n int) []string {
+	if n > len(following) {
+		n = len(following)
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]string, n)
+	for i := range out {
+		out[i] = following[len(following)-1-i]
+	}
+	return out
+}
+
 func (d doc) toSnapshot() Snapshot {
 	return Snapshot{
 		Following:         toSet(d.Following),
+		RecentFollowing:   newestFirst(d.Following, recentFollowingMax),
 		Blocked:           toSet(d.Blocked),
 		Muted:             toSet(d.Muted),
 		Requested:         toSet(d.Requested),
