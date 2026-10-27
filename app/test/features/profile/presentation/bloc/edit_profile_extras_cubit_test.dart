@@ -40,7 +40,7 @@ void main() {
           extras: false,
           initial: editableProfile(
             location: 'Pune',
-            website: 'https://a.b',
+            website: 'https://a.co',
             banner: true,
           ),
         );
@@ -62,7 +62,7 @@ void main() {
       );
 
       c.locationChanged('Pune');
-      c.websiteChanged('https://a.b');
+      c.websiteChanged('https://a.co');
       c.removeBanner();
       await c.pickBanner();
 
@@ -78,7 +78,7 @@ void main() {
   group('flag on', () {
     test('only the changed field is sent', () async {
       final c = cubit(
-        initial: editableProfile(location: 'Pune', website: 'https://a.b'),
+        initial: editableProfile(location: 'Pune', website: 'https://a.co'),
       );
 
       c.locationChanged('  Mumbai ');
@@ -94,11 +94,11 @@ void main() {
 
     test('unchanged extras are not changes', () {
       final c = cubit(
-        initial: editableProfile(location: 'Pune', website: 'https://a.b'),
+        initial: editableProfile(location: 'Pune', website: 'https://a.co'),
       );
 
       c.locationChanged(' Pune ');
-      c.websiteChanged('https://a.b ');
+      c.websiteChanged('https://a.co ');
 
       expect(c.hasChanges, isFalse);
       expect(c.canSave, isFalse);
@@ -106,7 +106,7 @@ void main() {
 
     test('emptying a field sends an empty string (it clears)', () async {
       final c = cubit(
-        initial: editableProfile(location: 'Pune', website: 'https://a.b'),
+        initial: editableProfile(location: 'Pune', website: 'https://a.co'),
       );
 
       c.locationChanged('');

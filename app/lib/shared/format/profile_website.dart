@@ -27,6 +27,26 @@ final RegExp _forbidden = RegExp(
 
 final RegExp _asciiLabel = RegExp(r'^[a-z0-9_-]+$');
 
+// The port is ASCII digits only (no sign, no hex: `int.tryParse` would take
+// `+80` and `0x50`); leading zeros are fine.
+final RegExp _portDigits = RegExp(r'^[0-9]+$');
+
+// A top-level domain: 2 to 63 letters, or an internationalised `xn--` label.
+// A label with a digit (the last part of `127.0.0.1`, `0x7f.1` or a decimal
+// IPv4) is neither, which is what refuses IPv4 literals in every notation.
+final RegExp _tldLabel = RegExp(r'^(?:[a-z]{2,63}|xn--[a-z0-9-]+)$');
+
+// Names that only mean something on the viewer's own machine or network
+// (RFC 6761 localhost, RFC 6762 local, the reserved private-use `internal`,
+// RFC 8375 home.arpa): a host that is one of them, or a subdomain of one, is
+// refused.
+const List<String> _internalSuffixes = [
+  'localhost',
+  'local',
+  'internal',
+  'home.arpa',
+];
+
 /// Parses the server's `Profile.website` for display. Returns null (the row is
 /// left out) unless it is an absolute `http`/`https` URL with a non-empty host,
 /// no user info and no control, whitespace or bidi character: the client
@@ -52,6 +72,7 @@ ProfileWebsite? parseProfileWebsite(String raw) {
   if (colon >= 0) {
     final digits = authority.substring(colon + 1);
     if (digits.isNotEmpty) {
+      if (!_portDigits.hasMatch(digits)) return null;
       port = int.tryParse(digits);
       if (port == null || port < 1 || port > 65535) return null;
     }
@@ -79,7 +100,12 @@ String? _asciiHost(String raw) {
     if (encoded.length > 63 || !_asciiLabel.hasMatch(encoded)) return null;
     labels.add(encoded);
   }
-  return labels.join('.');
+  if (labels.length < 2 || !_tldLabel.hasMatch(labels.last)) return null;
+  final joined = labels.join('.');
+  for (final suffix in _internalSuffixes) {
+    if (joined == suffix || joined.endsWith('.$suffix')) return null;
+  }
+  return joined;
 }
 
 const int _base = 36;

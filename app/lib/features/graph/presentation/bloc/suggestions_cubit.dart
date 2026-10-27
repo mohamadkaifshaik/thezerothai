@@ -39,6 +39,16 @@ class SuggestionsCubit extends Cubit<SuggestionsState> {
     emit(SuggestionsState(items: _repository.current(uid)));
   }
 
+  /// Removes [userId] for good (W3-22 L-1): the server answered NOT_FOUND for
+  /// it (it blocked the viewer, was suspended or deleted), so it must not come
+  /// back from the 24 h cache either. Silent: the row just goes.
+  void drop(String userId) {
+    final uid = _uid;
+    if (uid == null) return;
+    _repository.drop(uid, userId);
+    emit(SuggestionsState(items: _repository.current(uid)));
+  }
+
   /// Sign-out: forget the account's list and everything the repository holds
   /// in memory.
   void reset() {

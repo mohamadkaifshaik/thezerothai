@@ -183,6 +183,71 @@ void main() {
     );
   });
 
+  group('onGone (NOT_FOUND: blocked-by, suspended or deleted)', () {
+    Widget wrapGone(VoidCallback onGone) => MaterialApp(
+      home: Scaffold(
+        body: BlocProvider<RelationshipCubit>.value(
+          value: cubit,
+          child: FollowButton(onGone: onGone),
+        ),
+      ),
+    );
+
+    void failWith(AppException error) => whenListen(
+      cubit,
+      Stream<RelationshipState>.fromIterable([
+        RelationshipState(
+          relationship: graph.Relationship(
+            followState: graph.FollowState.FOLLOW_STATE_NONE,
+          ),
+          error: error,
+        ),
+      ]),
+      initialState: RelationshipState(
+        relationship: graph.Relationship(
+          followState: graph.FollowState.FOLLOW_STATE_NONE,
+        ),
+      ),
+    );
+
+    testWidgets('NOT_FOUND calls it once and shows no snackbar', (
+      tester,
+    ) async {
+      failWith(const NotFoundException('not found'));
+      var gone = 0;
+
+      await tester.pumpWidget(wrapGone(() => gone++));
+      await tester.pump();
+
+      expect(gone, 1);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('without it NOT_FOUND still says so in a snackbar', (
+      tester,
+    ) async {
+      failWith(const NotFoundException('not found'));
+
+      await tester.pumpWidget(wrap());
+      await tester.pump();
+
+      expect(find.text("This account doesn't exist anymore."), findsOneWidget);
+    });
+
+    testWidgets('any other error keeps the snackbar and does not call it', (
+      tester,
+    ) async {
+      failWith(const QuotaExceededException('limit'));
+      var gone = 0;
+
+      await tester.pumpWidget(wrapGone(() => gone++));
+      await tester.pump();
+
+      expect(gone, 0);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+  });
+
   group('followedBy (the profile header, "Follows you")', () {
     void arrange(graph.Relationship relationship) {
       whenListen(
