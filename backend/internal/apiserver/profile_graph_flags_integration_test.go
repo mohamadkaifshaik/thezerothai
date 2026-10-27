@@ -6,7 +6,7 @@ package apiserver
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
-// caller outside the list is refused while the one inside reaches the Unimplemented stubs (W3-10, W3-12; GetProfileRelationship is live since W3-11 and answers NOT_FOUND for an unknown target). Helpers
+
 // come from posts_restricted_test.go and posts_contract_test.go.
 
 import (
@@ -167,8 +167,15 @@ func TestProfileGraphContract_AllowlistCohort(t *testing.T) {
 
 	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, env.url)
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)
-	// Inside: every RPC passes the gate (Unimplemented until W3-10 / W3-11 / W3-12).
+	// Inside: every RPC passes the gate. ListLikedPosts (W3-10) answers an empty list for a caller with no likes; the
+	// others are Unimplemented until W3-11 / W3-12.
 	for name, err := range w3RPCs(eng, g, insideToken) {
+		if name == "ListLikedPosts" {
+			if err != nil {
+				t.Errorf("inside ListLikedPosts: err = %v, want an empty list past the gate", err)
+			}
+			continue
+		}
 		w3AssertUnimplemented(t, "inside", name, err)
 	}
 	// Outside: the two flag-gated RPCs are refused; GetProfileRelationship only needs graph, which is on for everyone.
