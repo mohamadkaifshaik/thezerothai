@@ -368,7 +368,7 @@ it costs no write. The single definition is `posts.HasMediaFor`. The Media and R
 `Reader.ByAuthorKind`) are called only by `GetUserTimeline` with `tab` MEDIA or REPOSTS (W3-9) and only while `profile_tabs` is on.
 
 - **Media tab is empty, or lacks an old post.** Read the raw `posts/{id}`. `hasMedia` absent means a pre-W3 post the one-off
-  `opsctl backfill-has-media --project P` (W3-8) has not visited; run it (it writes only posts that lack the field, so a rerun writes 0).
+  `opsctl backfill-has-media --project P` (W3-8) has not visited; run it (it writes only posts that lack the field, so a rerun writes 0; "Running `opsctl backfill-has-media`" below).
   `hasMedia: false` on a post that has `media` is a bug in a create path: stop and hand back to the backend developer.
 - **GetUserTimeline MEDIA / REPOSTS answers INTERNAL, logs show `requires an index` (Firestore FAILED_PRECONDITION).** The composite
   index `posts (authorId, hasMedia, createdAt DESC)` or `posts (authorId, kind, createdAt DESC)` is not READY in that project (the
@@ -380,3 +380,49 @@ it costs no write. The single definition is `posts.HasMediaFor`. The Media and R
 - **Pin check (`posts.PinChecker`, used by `UpdateProfile`).** 1 read cold, 0 warm. A post deleted or taken down on another instance can
   still pass the check for up to the posts cache TTL (60 s); the client hides a pin whose `GetPost` answers NOT_FOUND and the
   `post_delete` job clears the pin (`docs/runbooks/identity.md` section 3). A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause (`docs/runbooks/identity.md` section 1).
+
+### Running `opsctl backfill-has-media` (W3-8, once per project)
+
+Owner: the founder or `production-deployer` (W3-24). It is an ops tool: never flag-gated, never deployed. It runs from `backend/` with
+Application Default Credentials (`gcloud auth application-default login` once) and always needs an explicit `--project`; it needs no
+`--uid`. A `*-prod` project asks you to type the project id to continue, the dry run too. It gives every post document whose `hasMedia`
+key is missing the field, with `posts.HasMediaFor(kind, len(media))` (true for a post that stores images itself, false for a text post
+and always false for a REPOST), as a field-level `Update` (never `Set`). It never touches a document that already has the key, an
+explicit false included, so it cannot damage a post written since W3-7.
+
+When to run it:
+- After 100% of the project's traffic is on a revision that includes W3-7. A revision without it still creates posts without `hasMedia`;
+  if one slipped through, a later rerun picks those up (it writes only the missing ones).
+- Before `FEATURE_PROFILE_TABS` leaves `off` in that project, together with the two tab indexes being READY (`gcloud firestore indexes
+  composite list --project P`). Prod has no real users yet, so expect about 0 posts there; run it in prod only on the founder's OK.
+
+Dry run first, then the real run, then a rerun that proves it is clean (dev shown; prod is the same with `--project dzeroth-prod`):
+```bash
+cd backend
+go run ./cmd/opsctl backfill-has-media --project dzeroth-dev --dry-run
+#   last line: dry-run: scanned=N missing=M would_update=M runs_needed=K (nothing written)
+go run ./cmd/opsctl backfill-has-media --project dzeroth-dev
+#   ends with: backfill-has-media: reads=N writes=M deletes=0
+#              backfill-has-media: complete: scanned=N updated=M checkpoint=<id of the last post>
+go run ./cmd/opsctl backfill-has-media --project dzeroth-dev
+#   the clean rerun: backfill-has-media: reads=N writes=0 deletes=0
+#                    backfill-has-media: complete: scanned=N updated=0 checkpoint=<id of the last post>
+```
+
+- **Cost.** 1 read per post scanned and 1 write per post that lacks the field; a dry run costs the same reads and writes nothing. The
+  dev project is a few hundred posts. The reads and writes count against the project's free daily quota (50,000 reads, 20,000 writes),
+  so run it outside a load test.
+- **Write cap.** At most 5,000 writes per run (`posts.BackfillMaxWrites`, a quarter of a day's free writes). A bigger collection stops
+  at the cap with exit 0 and prints `backfill-has-media: write cap of 5000 reached: scanned=.. updated=5000 checkpoint=<id>` and
+  `rerun on another day with --after <id>`. Resume with `go run ./cmd/opsctl backfill-has-media --project P --after <id>` (reads only
+  the posts after the checkpoint); a rerun without `--after` is also correct and only re-reads. The dry run's `runs_needed` says how
+  many such runs the project needs.
+- **Progress.** One `call N:` line per page of up to 500 posts on stdout, with `scanned`, `missing`, `updated` and `checkpoint` (the id
+  of the last post decided, `-` at the start), and one `backfill_has_media` log line per page on stderr with the same counts plus
+  `page_scanned`, `page_missing`, `page_updated`, `state` and `dry_run` (post ids only, no author ids or text).
+- **A page fails.** A post deleted between the page read and its commit fails that page's batch with nothing written (NotFound); the
+  tool retries the page with a fresh read, up to 5 consecutive errors, then stops with `giving up after 5 consecutive errors` and the
+  checkpoint. Rerun it. `RESOURCE_EXHAUSTED` means the daily write quota is spent: wait for the next day and rerun.
+- **Interrupted (Ctrl-C, closed laptop).** Rerun it. Every committed page stays written; the rerun writes only what is still missing.
+- **Verify.** The clean rerun above (`updated=0`, `writes=0`) is the proof. To spot-check one old post, read `posts/{id}` in the console:
+  `hasMedia` must be present, true only when `media` is non-empty and `kind` is not `REPOST`.
