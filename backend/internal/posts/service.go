@@ -215,6 +215,45 @@ func (s *service) ByAuthor(ctx context.Context, authorID string, includeReplies 
 	return out, nil
 }
 
+// ByAuthorMedia implements Reader (Q-M). Reads: len(result), minimum 1. Needs the W3-2 hasMedia composite index READY.
+func (s *service) ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error) {
+	if authorID == "" {
+		return nil, fmt.Errorf("posts: ByAuthorMedia needs an author id")
+	}
+	if err := w.validate(); err != nil {
+		return nil, err
+	}
+	readAt := s.now()
+	out, err := s.repo.ByAuthorMedia(ctx, authorID, w, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	s.fill(out, readAt)
+	return out, nil
+}
+
+// ByAuthorKind implements Reader (Q-B). Reads: len(result), minimum 1. Needs the W3-2 kind composite index READY.
+func (s *service) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {
+	if authorID == "" {
+		return nil, fmt.Errorf("posts: ByAuthorKind needs an author id")
+	}
+	switch kind {
+	case KindPost, KindReply, KindQuote, KindRepost:
+	default:
+		return nil, fmt.Errorf("posts: ByAuthorKind of unknown kind %q", kind)
+	}
+	if err := w.validate(); err != nil {
+		return nil, err
+	}
+	readAt := s.now()
+	out, err := s.repo.ByAuthorKind(ctx, authorID, kind, w, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	s.fill(out, readAt)
+	return out, nil
+}
+
 // fill puts results of a read that started at readAt in the posts cache (every read path fills it, ADR-0010
 // D15), skipping posts this instance deleted since the read began.
 func (s *service) fill(ps []*Post, readAt time.Time) {

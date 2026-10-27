@@ -135,6 +135,11 @@ type Post struct {
 	// a quote, the value copied from the parent on a reply. Absent = EVERYONE. A REPOST has none of its own (the
 	// original's travels in Embedded). No user id is ever stored with it.
 	ReplyPolicy ReplyPolicy
+	// HasMedia mirrors the stored posts.hasMedia (ADR-0024 D4): true when the post carries its own images; always false
+	// for a REPOST (its original's images live in Embedded). toDoc writes it from HasMediaFor on every create path, so it
+	// is derived from Media at write time and never set by a caller; a legacy doc written before W3 reads false until
+	// `opsctl backfill-has-media` ran. Only the ByAuthorMedia query (the Media tab index) filters on the stored field.
+	HasMedia bool
 }
 
 // Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
@@ -229,6 +234,23 @@ type Reader interface {
 	// includeReplies=false restricts to root posts (the Posts tab); true is the Replies-tab query with no
 	// isReply filter. Reads: len(result), minimum 1.
 	ByAuthor(ctx context.Context, authorID string, includeReplies bool, window Window, limit int) ([]*Post, error)
+
+	// ByAuthorMedia returns authorID's posts that carry their own images (hasMedia == true: root posts, replies and
+	// quotes with images, never a REPOST), newest first, inside window (Before resumes strictly older; After is the
+	// since bound), at most limit (clamped to 1..50). Query: authorId == X && hasMedia == true ORDER BY createdAt DESC,
+	// __name__ DESC, served by the W3-2 composite index posts(authorId, hasMedia, createdAt desc) (ADR-0024 D14). Reads:
+	// len(result), minimum 1 (charged with AddQueryReads); no cache read and no cache write other than filling the posts
+	// cache. Same contract as ByAuthor: NO visibility, block or mute filtering (the timeline applies the drop rules,
+	// ADR-0010 D6) and posts a moderator hid come back with Hidden() true. Must not be called in a project where that
+	// index is not READY and `opsctl backfill-has-media` has not run (the emulator does not enforce indexes; Firestore
+	// answers FAILED_PRECONDITION without it): the timeline gates the call on the profile_tabs flag.
+	ByAuthorMedia(ctx context.Context, authorID string, window Window, limit int) ([]*Post, error)
+	// ByAuthorKind returns authorID's posts of one kind (the Reposts tab passes KindRepost), newest first, inside
+	// window, at most limit (clamped to 1..50). Query: authorId == X && kind == K ORDER BY createdAt DESC, __name__
+	// DESC, served by the W3-2 composite index posts(authorId, kind, createdAt desc). An empty or unknown kind is
+	// refused before any read. Reads, filtering and the index precondition are ByAuthorMedia's: the timeline drops a
+	// REPOST whose embedded author the viewer blocks or mutes (or who blocks the viewer) and every !Visible() row.
+	ByAuthorKind(ctx context.Context, authorID string, kind Kind, window Window, limit int) ([]*Post, error)
 
 	// AuthorRecent returns authorID's author-recent entry if it is still fresh (loaded within the cache TTL).
 	// It also serves as the profile Posts-tab first-page cache (ADR-0010 D15). 0 reads.
