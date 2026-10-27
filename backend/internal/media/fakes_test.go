@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -28,8 +29,10 @@ type fakeRepo struct {
 	claims   int // ClaimScreening calls, won or lost
 	releases int // ReleaseScreening calls
 	getMany  int // GetMany calls
+	retires  int // Retire calls, won or lost
 	// failures
 	createErr error
+	retireErr error
 	resolveFn func(id string) error
 }
 
@@ -133,6 +136,23 @@ func (r *fakeRepo) ReleaseScreening(_ context.Context, id string, updateTime tim
 		return ErrConflict
 	}
 	d.ScreeningUntil = nil
+	d.UpdateTime = d.UpdateTime.Add(time.Second)
+	return nil
+}
+
+// Retire mirrors FirestoreRepo: the UpdateTime precondition, and retiredAt plus expireAt written together.
+func (r *fakeRepo) Retire(_ context.Context, id string, updateTime, retiredAt, expireAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.retires++
+	if r.retireErr != nil {
+		return r.retireErr
+	}
+	d, ok := r.docs[id]
+	if !ok || !d.UpdateTime.Equal(updateTime) {
+		return ErrConflict
+	}
+	d.RetiredAt, d.ExpireAt = &retiredAt, &expireAt
 	d.UpdateTime = d.UpdateTime.Add(time.Second)
 	return nil
 }
@@ -381,4 +401,47 @@ type fakePublisher struct {
 func (p *fakePublisher) Publish(_ context.Context, data []byte) error {
 	p.msgs = append(p.msgs, data)
 	return p.err
+}
+
+// fakeTagger records every customTime patch of the public bucket.
+type fakeTagger struct {
+	mu    sync.Mutex
+	calls []taggedObject
+	err   error
+	// failOn, when non-empty, fails the patch of that one object (a partial failure between the two objects).
+	failOn string
+}
+
+type taggedObject struct {
+	object string
+	at     time.Time
+}
+
+func (t *fakeTagger) SetPublicCustomTime(_ context.Context, object string, at time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.err != nil || (t.failOn != "" && t.failOn == object) {
+		if t.err != nil {
+			return t.err
+		}
+		return errors.New("tag failed")
+	}
+	t.calls = append(t.calls, taggedObject{object: object, at: at})
+	return nil
+}
+
+// fakeProfileImages answers the fresh users/{uid} read: the URLs each uid's profile holds now.
+type fakeProfileImages struct {
+	urls  map[string][]string
+	reads int
+	err   error
+}
+
+func (f *fakeProfileImages) ProfileImageURLs(_ context.Context, uid string) ([]string, bool, error) {
+	f.reads++
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	u, ok := f.urls[uid]
+	return u, ok, nil
 }

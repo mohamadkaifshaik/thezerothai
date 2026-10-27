@@ -36,6 +36,8 @@ would normalise to a clear; a request from outside the cohort that mixes a clear
 Request log lines of `UpdateProfile` carry `profile_fields_changed` (field names only, for example `banner,location,pinned_post`; a
 value that did not change is not listed) and, for a non-empty `pinned_post_id`, `pin_check=ok|rejected`. They never carry a value.
 
+After a commit that replaced or removed the avatar or banner, the service hands the old image to media (section 5); that adds no read or write on the request path (at most 2 Pub/Sub publishes, best effort).
+
 Cost: `UpdateProfile` is 1 read and 1 write for the transaction (0 writes when the request changes nothing: the same values again, an empty request, or clearing a field that is already empty; `updatedAt` is then left alone and the request line has no `profile_fields_changed`), +1 read for a banner (the media doc), +1 for a pin (the post;
 0 when warm), +1 for the interceptor when its profile cache is cold. Worst 3 reads / 1 write in the service (4 / 1 cold).
 `fs_reads` above that on this RPC is a regression. `fs_writes` above 1 is too. Before W3-22 L-4 the document was rewritten on every call and there was only the 60/min bucket, so one script could cost about 6,000 writes and 6,000 reads a day (about INR 24 a month per account); `profile_update_daily` now stops it at 100 calls a day per instance. None of the new fields bumps `snapshotVersion`, spends `snapshotEdits` or
@@ -79,7 +81,28 @@ it back); the client hides a pin whose `GetPost` answers NOT_FOUND.
 - Cost: 2 reads per deleted post (the existence check and the transaction) and 1 write only when the pin is cleared, on the system
   budget, not charged to the user.
 
-## 4. Export and deletion
+## 4. Old avatar and banner objects (ADR-0024 Amendment 1 A4)
+
+After the transaction commits, `UpdateProfile` compares the stored avatar and banner URLs it already read with the ones it wrote.
+For each that changed or was cleared, and had a value before, it calls `identity.MediaRetirer` (wired in `apiserver` to
+`media.Jobs.ProfileImageReplaced`, which publishes one `profile_media_retired` job on the jobs topic). Setting an image for the
+first time publishes nothing, a no-op `UpdateProfile` publishes nothing, and a transaction retry decides again from the
+attempt that committed. The publish runs on a context detached from the request with a 2 s deadline and is best effort: a failure never fails the
+RPC, it logs `profile_media_retire_enqueue_failed` at ERROR (Error Reporting; the uid is redacted, `image=AVATAR|BANNER` says which) and
+the image then falls back to the account eraser. Nothing is published when `PROFILE_MEDIA_RETIRE` does not cover the purpose
+(`off` covers none, `banner` the banner, `all` both). The handler, its outcomes, the switch order and the failure modes are
+`docs/runbooks/media.md`, "Replaced and removed avatars and banners"; `opsctl clear-profile-fields` makes the same call in process
+(`docs/runbooks/abuse-spike.md` section 5b).
+
+- **The user says the old banner is still visible.** It stays for 24-48 h after the change by design, and in browser and
+  intermediary caches for longer; the new one shows at once because the profile response carries the new URL. If it is still
+  served after 48 h follow media.md, "An old image is still served after 48 h".
+- **The user changed an image and the media step logged `still_current`.** They set the old image back before the job ran: nothing
+  was touched. A burst of these is a bug in the publish side.
+- **Cost.** 0 extra reads and 0 extra writes on the RPC; the job is 2 reads, 1 write and 2 Class A operations per image on the
+  system budget, not charged to the user.
+
+## 5. Export and deletion
 
 The export's `profile` section carries `bannerUrl`, `location`, `website` and `pinnedPostId` when set (never the thumbnail, which
 is derived data). Deletion needs no step of its own: `users/{uid}` goes last, and the banner's media doc and objects go with the

@@ -982,7 +982,9 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   void clearBio() => $_clearField(3);
 
-  /// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar.
+  /// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar. A replaced or removed avatar's
+  /// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all (ADR-0024 Amendment 1 A4), otherwise kept until
+  /// account deletion; a retired avatar answers MEDIA_NOT_READY if sent again.
   @$pb.TagNumber(4)
   $core.String get avatarMediaId => $_getSZ(3);
   @$pb.TagNumber(4)
@@ -1005,7 +1007,9 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   /// exact value "" (a clear) never does (see UpdateProfile).
   /// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
   /// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
-  /// MEDIA_NOT_READY, one answer for every cause. A replaced banner's objects are kept until account deletion.
+  /// MEDIA_NOT_READY, one answer for every cause, a banner that was replaced or removed earlier (retired) included. A
+  /// replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners (ADR-0024
+  /// Amendment 1 A4), otherwise kept until account deletion.
   @$pb.TagNumber(6)
   $core.String get bannerMediaId => $_getSZ(5);
   @$pb.TagNumber(6)
@@ -1772,6 +1776,14 @@ class IdentityServiceApi {
   /// writes 1 (0 when the request changes nothing, W3-22 L-4; + async jobs above). Per-uid daily call cap
   /// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
   /// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, 0 reads.
+  /// Replaced and removed images (ADR-0024 Amendment 1 A4): a commit that replaced or removed the avatar or the banner
+  /// hands the old image to a best-effort retire step after the commit. On this request path that is 0 extra reads (the
+  /// old URLs come from the document the transaction read), 0 extra writes and at most 2 Pub/Sub publishes, one per image,
+  /// so the budget above is unchanged; a failed hand-over is logged at ERROR and the image stays until account deletion.
+  /// The async job (kind profile_media_retired on the jobs topic) costs 2 reads, 1 write and 2 Class A operations per
+  /// image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
+  /// PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
+  /// again: it answers MEDIA_NOT_READY like any unusable id.
   $async.Future<UpdateProfileResponse> updateProfile(
           $pb.ClientContext? ctx, UpdateProfileRequest request) =>
       _client.invoke<UpdateProfileResponse>(ctx, 'IdentityService',

@@ -30,7 +30,7 @@ Decide one of:
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
-| Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it prints the object names to delete by hand (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
+| Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it also schedules the delete of the image when `PROFILE_MEDIA_RETIRE` is set in your shell (A4) and prints the object names either way (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
 
 Every writing command ends with a `cost: reads=... writes=...` line (the `hidden:`/`settle pass:`/`restored:` lines before it are running totals). Prod project ids (`*-prod`) ask for the project id as a typed
 confirmation. Nothing here touches Firebase Auth.
@@ -134,11 +134,27 @@ Note: P4's `post_delete` job removes the objects when the **author** deletes the
 evidence is destroyed at that point; resolve image reports before the author can react, and rely on the ids plus the
 text copy in the report. Ticket T14 in `docs/plans/reports.md` tracks `takedown-post --purge-media`.
 
-**A removed banner or avatar.** `clear-profile-fields --fields banner,avatar` stops the profile pointing at the image but
-deletes no object (the automatic delete after a grace is ADR-0024 Amendment 1 A4, a later PR): the command prints the object
-names, and steps 1 to 3 above apply to them (`media` docs with `ownerId` = the user and `purpose` AVATAR or BANNER; the report
-evidence keeps the image URLs, which hold the media ids). The old avatar URL also stays in the author snapshot of the user's
-older posts until a rename refreshes them.
+**A removed banner or avatar.** `clear-profile-fields --fields banner,avatar` stops the profile pointing at the image and the
+command prints the object names. The objects themselves are deleted by the A4 retire step, 24-48 h later, only when
+`PROFILE_MEDIA_RETIRE` is set in your shell to the project's value (unset is `off`: nothing is scheduled, the objects stay
+public and steps 1 to 3 above apply to them by hand; `docs/runbooks/media.md`, "Replaced and removed avatars and banners").
+The `media` docs have `ownerId` = the user and `purpose` AVATAR or BANNER; the report evidence keeps the image URLs, which
+hold the media ids. The old avatar URL also stays in the author snapshot of the user's older posts until a rename refreshes
+them.
+
+### Reported profile images
+A reported avatar or banner is on a clock the report does not know about: once the user replaces or removes it (or you clear
+it) the A4 step deletes the two objects 24-48 h later, and the `media` document 72 h later, which is shorter than the 48 h
+triage SLA in section 1. `reports show` keeps the image URLs and the media ids, never the bytes. So when a report names an
+image that matters (illegal or abusive imagery, anything law enforcement could ask for), at first sight, before any
+`clear-profile-fields` and before the user can react:
+1. Copy both objects (`m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` in `<proj>-media`) to a restricted location outside the
+   public bucket, for example `gcloud storage cp gs://<proj>-media/m/<mediaId>.<ext> <private local folder>` from an operator
+   account (Class B read, free at this volume). Do not use the `<proj>-exports` bucket: it is for user data exports and its
+   lifecycle rule deletes every object after 7 days. Delete the copy when the case closes.
+2. Note the ids in the report resolution note.
+An image that is already retired is still public until the lifecycle run, so the same copy works for up to 48 h after the
+change; after that only the ids and the text survive. This is the same rule as section 3a for post images.
 
 ## 4. Failure modes
 - **Suspended user still sees the app / their posts still show.** Instances cache the profile and posts for
@@ -146,6 +162,11 @@ older posts until a rename refreshes them.
   created during the cache window is normally hidden by the command's own settle pass; the re-run is the backstop).
 - **`suspend-user` says the account is DELETING.** Refused on purpose: a moderator action never overrides an account
   deletion. Let the deletion finish (`docs/runbooks/account-deletion.md`).
+- **`clear-profile-fields` printed `avatar retire: would not run`, `not run` or a retire error.** The clear itself committed (a
+  retire failure never rolls it back). `PROFILE_MEDIA_RETIRE` in your shell does not cover the image, or the retire step failed
+  (exit 1, the `--report` is still resolved): the objects stay public until deleted by hand or retired by a later message
+  (`docs/runbooks/media.md`, "Failure modes"). Re-run with the project's value to retire an image that was cleared earlier by
+  re-publishing the message by hand; a rerun of the command writes 0 and retires nothing.
 - **`clear-profile-fields` refuses or reports nothing.** `the account is DELETING: refusing to change it` and `no such user` exit
   1 and write nothing (the deletion job's checkpoints must not race an operator write; a purged account has nothing to clear).
   `nothing to clear: 0 writes` means every named field was already empty (a rerun, or the user removed it first): not an error.
