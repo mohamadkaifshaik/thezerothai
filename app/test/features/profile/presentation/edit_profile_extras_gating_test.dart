@@ -14,8 +14,9 @@ import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
 /// Edit profile's `profile_extras` gating and layout (W3-15): without the
-/// flag no banner, location or website exists and none can reach a request;
-/// with it they show at 360/600/1200 dp, light and dark, without overflow.
+/// flag nothing can be set (a saved value is only removable, see
+/// `edit_profile_clear_only_test.dart`); with it the banner, location and
+/// website show at 360/600/1200 dp, light and dark, without overflow.
 void main() {
   setUpAll(() {
     registerMediaFallbacks();
@@ -27,17 +28,13 @@ void main() {
     matching: find.byIcon(icon),
   );
 
-  group('flag off', () {
+  // With nothing saved there is nothing to set or remove. (With saved values
+  // the screen shows them read-only with Remove: edit_profile_clear_only_test.)
+  group('flag off, nothing saved', () {
     for (final width in kMatrixWidths) {
       testWidgets('shows no banner, location or website at ${width.toInt()}dp, '
           'and a name save sends none', (tester) async {
-        final rig = EditProfileRig(
-          profile: editableProfile(
-            location: 'Pune',
-            website: 'https://a.example',
-            banner: true,
-          ),
-        );
+        final rig = EditProfileRig(profile: editableProfile());
         await openEditProfile(
           tester,
           rig,
@@ -126,15 +123,24 @@ void main() {
       expect(find.text('Website'), findsOneWidget);
     });
 
-    testWidgets('a saved banner is shown read-only (no buttons)', (
-      tester,
-    ) async {
+    testWidgets('a saved banner shows Remove only (no Change: that needs '
+        'media)', (tester) async {
       final rig = EditProfileRig(profile: editableProfile(banner: true));
       await openEditProfile(tester, rig, flags: noMedia);
 
       expect(find.byType(BannerEditor), findsOneWidget);
       expect(inBanner(Icons.photo_camera_outlined), findsNothing);
-      expect(inBanner(Icons.close), findsNothing);
+      expect(inBanner(Icons.close), findsOneWidget);
+
+      await tester.tap(inBanner(Icons.close));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final call = rig.repo.calls.single;
+      expect(call.bannerMediaId, '');
+      expect(call.location, isNull);
+      expect(call.website, isNull);
     });
 
     testWidgets('location and website can still be saved', (tester) async {

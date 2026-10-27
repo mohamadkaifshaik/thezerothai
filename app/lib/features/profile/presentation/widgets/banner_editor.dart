@@ -10,9 +10,11 @@ import 'profile_cover_band.dart';
 /// placeholder), with two 48dp buttons on it.
 ///
 /// - [onChange] opens the picker ("Add banner photo" / "Change banner photo");
-///   null makes the band read-only (media is off).
+///   null leaves no Change button (media or `profile_extras` is off).
 /// - [onRemove] drops the banner ("Remove banner photo"); shown only while the
-///   band shows a banner; null hides it.
+///   band shows a banner; null hides it. A removal is a clear, so it is offered
+///   without media and without `profile_extras` (ADR-0024 Amendment 1 A2);
+///   both null make the band read-only.
 /// - [removed]: the saved banner is to be removed on Save, so the band shows
 ///   the placeholder instead of [url].
 /// - [busy]: a banner is being prepared or the form is saving; the band dims
