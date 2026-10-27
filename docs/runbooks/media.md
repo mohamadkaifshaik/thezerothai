@@ -129,8 +129,12 @@ move backwards, and accepts the same value) and the document is written.
 1. Apply the lifecycle rule in the project (`terraform apply` of `modules/media-buckets`, dev first, prod with the founder's OK).
    Check `gcloud storage buckets describe gs://<proj>-media --format="default(lifecycle_config)"` shows a `Delete` rule with
    `daysSinceCustomTime: 1`.
+   **Status (2026-10-27):** dev has the rule (targeted apply of `module.media_buckets.google_storage_bucket.media` only; the bucket
+   had no lifecycle rule before, and the 2-day rule on `<proj>-media-upload` is a different bucket and was not touched). Prod does
+   not: its plan (1 to change, only this rule) is waiting for the founder's OK, so prod stays at `off`.
 2. Set `profile_media_retire = "banner"`. **Never set it before step 1**: an object tagged without the rule outlives its TTL'd
-   document and escapes the account eraser (an orphaned public image).
+   document and escapes the account eraser (an orphaned public image). Next in dev: set it to `banner` as a separate planned
+   change (its own plan and apply, tfvars only), then run steps 3 and 4 of "Verification of the retire step".
 3. Set `all` only after the app release whose `AppAvatar` shows a placeholder when the image no longer loads (old posts,
    quote and repost embeds and notification actors copy the avatar URL, and only a name or handle edit refreshes the newest 100
    posts, so older rows show a 404 image after the grace).
@@ -196,3 +200,24 @@ the switch is raised past `off`:
    `retiredAt` and `expireAt = retiredAt + 72 h`; both objects have `customTime = changedAt`; the objects are gone 24-48 h later and
    the document 72 h later. Setting the retired banner again answers MEDIA_NOT_READY.
 4. Redeliver the message (re-publish it): `outcome=duplicate`, `fs_writes=0`.
+
+**Results, dev (`dzeroth-dev-media`, 2026-10-27, run by the production-deployer with the founder's own `gcloud` credentials).**
+`PROFILE_MEDIA_RETIRE` was not set to anything and no flag changed.
+- Step 1 passed: after the apply, `lifecycle_config` lists exactly one rule, action `Delete`, condition `daysSinceCustomTime: 1`
+  (before the apply it printed `null`). CORS, soft delete (7 days), uniform access, public access prevention and labels are unchanged.
+- Step 2, CLI: `m/9999999999999999999.webp` (content type `image/webp`, the public `Cache-Control`) accepted
+  `gcloud storage objects update --custom-time=<two days ago>` twice with the same value, both exit 0; `describe` shows the
+  custom time, the `Cache-Control` and the content type; each patch adds one metageneration and the generation stays the same.
+- Step 2, the application code: a throwaway test (not committed) called the real `objstore.Store.SetCustomTime` against the
+  dev bucket, with a second throwaway object `m/9999999999999999997.webp`. Two calls with the same value both returned nil;
+  the object's `customTime` was that value, its generation, size, content type and `Cache-Control` were unchanged (the SDK's
+  `Update` sends a patch that carries only `customTime`); `SetCustomTime` on a missing object returned nil (the 404 path). Cloud
+  Storage refuses to move `customTime` backwards: HTTP 400 "Custom time cannot be decreased", which is what the code comment
+  and the failure-mode text above assume, and moving it forwards is accepted. A redelivery always carries the same `changedAt`,
+  so it is never a decrease.
+- Both throwaway objects were deleted by hand afterwards (the soft-delete policy keeps a deleted object restorable by project
+  owners for 7 days, never public). So the lifecycle run itself has not yet been seen deleting a tagged object: step 3 shows it
+  end to end (objects gone 24-48 h after the replace).
+- The runtime service account holds `roles/storage.objectAdmin` on the bucket, which includes `storage.objects.update`, the
+  permission a patch needs (the test above used the founder's credentials, not the runtime account).
+- Not yet run: steps 3 and 4 (they need the switch above `off`), and everything in prod.
