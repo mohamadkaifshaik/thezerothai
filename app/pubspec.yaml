@@ -73,6 +73,12 @@ dev_dependencies:
   # Fakes UrlLauncherPlatform.instance in privacy_policy_link_test.dart so
   # tests never hit a real platform channel.
   url_launcher_platform_interface: ^2.3.2
+  # Already in the tree through cached_network_image. Tests replace
+  # CachedNetworkImageProvider.defaultCacheManager with a fake whose download
+  # fails with a real HTTP 404 (HttpExceptionWithStatus), so an avatar or
+  # banner load error is exercised without a network or platform plugins
+  # (test/support/failing_image_cache.dart).
+  flutter_cache_manager: ^3.4.5
 
 flutter:
   uses-material-design: true

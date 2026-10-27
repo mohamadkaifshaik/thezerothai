@@ -20,6 +20,12 @@ import '../../../support/theme_harness.dart';
 /// `edit_profile_extras_gating_test` covers 1.0 and 2.0 only, and only that
 /// the screen does not overflow; this file also checks that every control is
 /// reachable by scrolling, inside the screen, and a 48 dp target.
+///
+/// W3-22 M-1 (c) (ADR-0024 Amendment 1 A2): without `profile_extras` a saved
+/// banner, location and website are shown read-only with Remove, and a saved
+/// banner has Remove (no Change) when media is off; the two groups below that
+/// cover those cells assert the Remove affordance and that nothing editable is
+/// shown.
 void main() {
   setUpAll(() {
     registerMediaFallbacks();
@@ -33,6 +39,27 @@ void main() {
     of: find.byType(BannerEditor),
     matching: find.byIcon(icon),
   );
+
+  Finder removeButton(String noun) => find.ancestor(
+    of: find.byTooltip('Remove $noun'),
+    matching: find.byType(IconButton),
+  );
+
+  /// The banner's Remove button: present, inside the screen, a 48 dp target.
+  void expectBannerRemove(WidgetTester tester, MatrixEnv env) {
+    expect(inBanner(Icons.close), findsOneWidget);
+    final target = find.ancestor(
+      of: inBanner(Icons.close),
+      matching: find.byType(InkResponse),
+    );
+    expectInsideHorizontally(
+      tester,
+      target,
+      env.size.width,
+      reason: 'banner Remove',
+    );
+    expectMinTarget(tester, target, reason: 'banner Remove');
+  }
 
   Future<void> type(WidgetTester tester, String label, String text) async {
     await reveal(tester, field(label));
@@ -149,8 +176,8 @@ void main() {
     const noMedia = {kFeatureProfileSnapshot, kFeatureProfileExtras};
 
     forEachThemeAndWidth(
-      'a saved banner is shown read-only, the fields still '
-      'fit',
+      'a saved banner shows Remove only (no Change), the fields stay '
+      'editable and fit',
       (tester, env) async {
         final rig = EditProfileRig(
           profile: editableProfile(
@@ -170,14 +197,19 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(find.byType(BannerEditor), findsOneWidget);
+        // Change needs media; Remove does not (a clear needs no flag).
         expect(inBanner(Icons.photo_camera_outlined), findsNothing);
-        expect(inBanner(Icons.close), findsNothing);
+        expectBannerRemove(tester, env);
         final band = tester.getSize(find.byType(BannerEditor));
         expect(band.width / band.height, closeTo(3, 0.01));
+        // The flag is on: Location and Website are typed in, with no Remove.
         for (final label in ['Location', 'Website']) {
           await reveal(tester, field(label));
           expectInsideHorizontally(tester, field(label), env.size.width);
+          expect(tester.widget<TextField>(field(label)).readOnly, isFalse);
         }
+        expect(find.byTooltip('Remove location'), findsNothing);
+        expect(find.byTooltip('Remove website'), findsNothing);
       },
       textScales: kMatrixTextScalesLarge,
       height: 900,
@@ -209,8 +241,8 @@ void main() {
 
   group('profile_extras off', () {
     forEachThemeAndWidth(
-      'no banner, location or website, and the name and bio '
-      'fit',
+      'a saved banner, location and website are read-only with a 48 dp '
+      'Remove, nothing editable is shown, and the name and bio fit',
       (tester, env) async {
         final rig = EditProfileRig(
           profile: editableProfile(
@@ -229,12 +261,45 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        expect(find.byType(BannerEditor), findsNothing);
-        expect(find.text('Location'), findsNothing);
-        expect(find.text('Website'), findsNothing);
+        // The banner: the band with Remove only (no Add or Change).
+        expect(find.byType(BannerEditor), findsOneWidget);
+        expect(inBanner(Icons.photo_camera_outlined), findsNothing);
+        expectBannerRemove(tester, env);
+        final band = tester.getSize(find.byType(BannerEditor));
+        expect(band.width / band.height, closeTo(3, 0.01));
+        expectInsideHorizontally(
+          tester,
+          find.byType(BannerEditor),
+          env.size.width,
+        );
+        // Location and website: the saved value, read-only, with Remove.
+        for (final (label, noun) in [
+          ('Location', 'location'),
+          ('Website', 'website'),
+        ]) {
+          await reveal(tester, field(label));
+          expect(tester.takeException(), isNull, reason: label);
+          expectInsideHorizontally(tester, field(label), env.size.width);
+          expect(
+            tester.widget<TextField>(field(label)).readOnly,
+            isTrue,
+            reason: '$label is not editable',
+          );
+          expect(removeButton(noun), findsOneWidget, reason: 'Remove $noun');
+          expectInsideHorizontally(
+            tester,
+            removeButton(noun),
+            env.size.width,
+            reason: 'Remove $noun',
+          );
+          expectMinTarget(tester, removeButton(noun), reason: 'Remove $noun');
+        }
+        // Nothing to type a website with: no "Shows as host" helper.
+        expect(find.textContaining('Shows as'), findsNothing);
         for (final label in ['Display name', 'Bio']) {
           await reveal(tester, field(label));
           expectInsideHorizontally(tester, field(label), env.size.width);
+          expect(tester.widget<TextField>(field(label)).readOnly, isFalse);
         }
       },
       textScales: const [1.0, 2.0],

@@ -116,8 +116,14 @@ class _PostMenuState extends State<_PostMenu> {
         target.userId.isNotEmpty &&
         target.postId.isNotEmpty;
     final pin = widget.pinControl;
-    final canPin = pin != null && widget.isOwn && _isPinnable(widget.post.kind);
-    if (!canDelete && !canGraph && !canReport && !canPin) {
+    // Unpin is a clear, so it is on offer on the pinned post whatever the
+    // flag; Pin is a set and follows [PostPinControl.canPin].
+    final showPin =
+        pin != null &&
+        widget.isOwn &&
+        _isPinnable(widget.post.kind) &&
+        pin.offersRowFor(widget.post.postId);
+    if (!canDelete && !canGraph && !canReport && !showPin) {
       return const SizedBox.shrink();
     }
 
@@ -144,7 +150,7 @@ class _PostMenuState extends State<_PostMenu> {
                 destructive: true,
               ),
             ),
-          if (canPin)
+          if (showPin)
             PopupMenuItem(
               value: _MenuAction.pin,
               child: AppMenuItemRow(

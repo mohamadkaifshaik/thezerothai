@@ -32,19 +32,21 @@ void main() {
   late int unpinned;
   late Object? failWith;
 
-  PostPinControl control({String pin = ''}) => PostPinControl(
-    pinnedPostId: pin,
-    onPin: (id) async {
-      pinned.add(id);
-      final error = failWith;
-      if (error != null) throw error;
-    },
-    onUnpin: () async {
-      unpinned++;
-      final error = failWith;
-      if (error != null) throw error;
-    },
-  );
+  PostPinControl control({String pin = '', bool canPin = true}) =>
+      PostPinControl(
+        pinnedPostId: pin,
+        canPin: canPin,
+        onPin: (id) async {
+          pinned.add(id);
+          final error = failWith;
+          if (error != null) throw error;
+        },
+        onUnpin: () async {
+          unpinned++;
+          final error = failWith;
+          if (error != null) throw error;
+        },
+      );
 
   setUp(() {
     pinned = [];
@@ -154,6 +156,81 @@ void main() {
 
       expect(find.text('Unpin from profile'), findsOneWidget);
       expect(find.text('Pin to your profile'), findsNothing);
+    });
+  });
+
+  // ADR-0024 Amendment 1 A2 (W3-22 M-1): Unpin is a clear, which the server
+  // accepts whatever `profile_extras` says, so it is offered on the pinned post
+  // even when Pin is not. Pin (a set) follows `canPin`.
+  group('without profile_extras (canPin false)', () {
+    testWidgets('the pinned post still offers Unpin from profile, and it '
+        'unpins', (tester) async {
+      await open(tester, view(), pin: control(pin: postId(7), canPin: false));
+      expect(find.byTooltip('More options'), findsOneWidget);
+      await openMenu(tester);
+
+      expect(find.text('Unpin from profile'), findsOneWidget);
+      expect(find.text('Pin to your profile'), findsNothing);
+
+      await tester.tap(find.text('Unpin from profile'));
+      await tester.pumpAndSettle();
+
+      expect(unpinned, 1);
+      expect(pinned, isEmpty);
+      expect(find.text('Unpinned from your profile.'), findsOneWidget);
+    });
+
+    testWidgets('any other post has no pin row, and with nothing else no '
+        'menu', (tester) async {
+      await open(
+        tester,
+        view(n: 8),
+        pin: control(pin: postId(7), canPin: false),
+      );
+
+      expect(find.byTooltip('More options'), findsNothing);
+    });
+
+    testWidgets('another post keeps Delete but no Pin row', (tester) async {
+      await open(
+        tester,
+        view(n: 8),
+        pin: control(pin: postId(7), canPin: false),
+        withDelete: true,
+      );
+      await openMenu(tester);
+
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('Pin to your profile'), findsNothing);
+      expect(find.text('Unpin from profile'), findsNothing);
+    });
+
+    testWidgets('no pin at all: no row on any post', (tester) async {
+      await open(tester, view(), pin: control(canPin: false));
+
+      expect(find.byTooltip('More options'), findsNothing);
+    });
+
+    testWidgets("a repost is never pinned, so never unpinned from here", (
+      tester,
+    ) async {
+      await open(
+        tester,
+        view(kind: PostKind.POST_KIND_REPOST),
+        pin: control(pin: postId(7), canPin: false),
+      );
+
+      expect(find.byTooltip('More options'), findsNothing);
+    });
+
+    testWidgets("someone else's post never does", (tester) async {
+      await open(
+        tester,
+        view(author: 'someone'),
+        pin: control(pin: postId(7), canPin: false),
+      );
+
+      expect(find.byTooltip('More options'), findsNothing);
     });
   });
 

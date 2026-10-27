@@ -150,6 +150,8 @@ Owners: architect (D9), backend-developer (a, b, d, e, f), frontend-developer (c
 
 **Gate.** Before `profile_extras` leaves the dev allowlist in any project.
 
+**Status (2026-10-27):** (a), (b), (d), (e) and (f) merged in #354 (backend and runbook, ADR-0024 Amendment 1 A1 to A3); **(c) built (PR pending)**: with `profile_extras` off for the caller, Edit profile shows each saved banner, location and website read-only with Remove, which sends an exact `""` and nothing else for those fields (the server accepts it whatever the flag and refuses a clear next to a set), and Remove for the banner needs neither `profile_extras` nor `media`; "Unpin from profile" is on the pinned post whatever the flag ("Pin to your profile" still needs it); a FEATURE_DISABLED answer to a clear (a revision without #354) hides Remove and says so. While the flag is globally off the server omits the website and the pin, so only the banner and the location can be removed in the app (Amendment 1 A1; `opsctl clear-profile-fields` covers the rest). Same PR: the `AppAvatar` and banner load-error placeholders that ADR-0024 A4 point 5 needs before `PROFILE_MEDIA_RETIRE=all`.
+
 ### M-2. The public media bucket can be listed by anyone
 
 **Exploit.**

@@ -130,10 +130,13 @@ class IdentityRepository {
   /// deliberately not exposed (the server rejects it until private accounts).
   ///
   /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
-  /// `profile_extras` fields (ADR-0024): the server refuses **any** of them,
-  /// even an empty one, with FEATURE_DISABLED unless `profile_extras` is on
-  /// for the caller, so callers gate them on that flag (the Edit profile
-  /// cubit, the pin menu) and pass null otherwise. `""` clears one.
+  /// `profile_extras` fields (ADR-0024): the server refuses a **set** of any
+  /// of them (a non-empty value, whitespace-only included), and a clear next
+  /// to a set, with FEATURE_DISABLED unless `profile_extras` is on for the
+  /// caller, so callers gate sets on that flag (the Edit profile cubit, the
+  /// pin menu) and pass null otherwise. An exact `""` clears one and is
+  /// accepted from any caller whatever the flag (Amendment 1 A2), so without
+  /// the flag a caller sends clears alone.
   /// [idempotencyKey] must be reused when retrying the same edit. Updates
   /// the local profile cache with the server's copy.
   Future<identity.Profile> updateProfile({
@@ -187,8 +190,10 @@ class IdentityRepository {
   /// Pins [postId] to the caller's profile, or unpins with `""` (W3-17): an
   /// [updateProfile] that sends only `pinned_post_id` (`""` stays a present
   /// field, so it clears). Only the caller's own visible POST, QUOTE or REPLY
-  /// can be pinned. Needs `profile_extras` for the caller; a FEATURE_DISABLED
-  /// answer for it is remembered ([profileExtrasRefused]) and rethrown.
+  /// can be pinned. Pinning needs `profile_extras` for the caller; unpinning
+  /// (`""`) never does (Amendment 1 A2). A FEATURE_DISABLED answer for it
+  /// (a pin, or an unpin on a revision that predates A2) is remembered
+  /// ([profileExtrasRefused]) and rethrown.
   /// [idempotencyKey] must be reused when retrying the same intent.
   Future<identity.Profile> updatePinnedPost({
     required String idempotencyKey,
