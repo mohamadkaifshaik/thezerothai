@@ -1,5 +1,5 @@
 # 0024. Profile and graph completion (W3 Part A)
-Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default)
+Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default); Amendment 1 Proposed (2026-10-27, W3-22 M-1)
 Date: 2026-10-27
 Deciders: architect (proposal); the founder accepts by merging. The first W3 implementation PR flips the status, as
 #306 did for ADR-0023. Nine founder questions are listed below, each with a recommended default.
@@ -19,6 +19,220 @@ Related ADRs:
 
 Part B (private accounts) is ADR-0025. Nothing here depends on it. Where both touch a path, this ADR names the hook and
 ADR-0025 fills it.
+
+## Amendment 1 (2026-10-27, Proposed): kill switch hides the website, clears always allowed, operator lever (W3-22 M-1)
+
+**Status: Proposed.** Merging its PR accepts A1 to A3 and the A5 corrections with the defaults below. A4 is the founder's
+question 2 from the W3-22 review: it records the choice and changes nothing in D1 until the founder answers it.
+Source: the W3-22 security review (PR #348, `docs/reviews/security-review-w3.md`), findings M-1 and M-2 and its
+"Questions for the founder". Gate: A1 to A3 are built before `profile_extras` leaves the dev allowlist in any project
+(the M-1 gate). There is no proto contract change, no new flag, index or Terraform resource, and no fixed cost.
+
+**What is wrong today** (`main` d33d827):
+- `present()` blanks only `pinned_post_id` while `profile_extras` is globally off (`identity/service.go`). The website,
+  the phishing surface the plan names this flag for, keeps rendering and opening on every profile view.
+- Any of the four fields, `""` included, is FEATURE_DISABLED for a caller outside the cohort, and for everyone once the
+  flag is globally off. The values stay public, and only account deletion removes them.
+- No operator command is narrower than `suspend-user`. An ACCOUNT report stores no evidence, so a reported link can be
+  swapped before triage.
+
+### A1. Kill switch scope (amends D3 "Kill switch" and D9 "Rendering stays ungated")
+
+| | A. Pin only (today) | **B. Pin and website (recommended)** | C. All four | D. A fifth flag for the website |
+|---|---|---|---|---|
+| Stops the phishing link | no (M-1) | yes | yes | yes |
+| What else disappears | nothing | nothing | every user's banner and location | nothing |
+| Cost, INR/month idle / 300 / 3,000 DAU | 0 / 0 / 0 | 0 / 0 / 0 (0 reads: `GloballyOff` is in memory) | 0 / 0 / 0 | 0 / 0 / 0, plus a registry entry, a ceiling in a gate file and a Terraform var |
+
+**Decision: B.** While `profile_extras` is globally off (`Registry.GloballyOff`: mode `off`; an allowlist or a percent,
+even an empty one or 0, is a rollout, not the switch), `present()` blanks `pinned_post_id` **and `website`** in every
+`Profile` identity returns: GetMe, GetProfile, UpdateProfile, ChangeHandle and CreateProfile, the owner's own view
+included. 0 reads. The stored values, the instance cache and the export (D11 reads the stored document) are untouched.
+Turning the flag back on in any other mode shows both again with no write.
+- **Why the website.** It is the only field that sends a viewer somewhere else, so it is the phishing surface.
+- **Why not the banner.** It is SafeSearch-screened (D1), and a bad one is handled per account (A3, and the Vision
+  `reject` policy). Hiding every banner to stop one is a product-wide regression that makes the switch harder to pull.
+- **Why not the location.** At most 30 code points of single-line text with no link: the same class as the bio, which
+  has never been gated.
+- **D rejected.** `profile_extras` is already the switch the plan names for phishing. A fifth flag adds a gate-file
+  ceiling and a var for no new behaviour.
+- **Consequence: while the switch is pulled the owner does not see their own website or pin either**, so the client
+  cannot offer Remove for them (A2). They render to nobody in that state. Clearing stays possible through `opsctl
+  clear-profile-fields` on request (A3), through account deletion, and by the owner once the flag is back. The export
+  still lists the stored website and pin. An owner-view exception was considered and rejected: one rule with no viewer
+  branch is checked at the five call sites with one assertion, and the switch is an emergency state measured in hours
+  or days.
+
+### A2. Clears always allowed (amends D9 "Fields sent while off")
+- **Rule.** The exact string `""`, as sent, for `banner_media_id`, `location`, `website` or `pinned_post_id` is accepted
+  from any authenticated caller the account-status interceptor lets through, whatever the state of `profile_extras`,
+  globally off included. A non-empty value, whitespace-only included, is a set and stays gated: FAILED_PRECONDITION +
+  FEATURE_DISABLED `feature=profile_extras`, checked before validation and before any read, 0 writes. A request from a
+  caller outside the cohort that mixes a clear with a set is refused whole, as today. `DEGRADED_MODE=readonly` still
+  refuses the write, as it does every write.
+- **Convention.** W2's RemoveBookmark lets a caller outside the cohort undo, but only while `bookmarks` is not globally
+  off (`engagement/server_bookmarks.go`, `notGloballyOff`). This goes one step further on purpose. Bookmarks are
+  private and stop rendering when their flag is globally off. Location and banner stay public in that state (A1), and a
+  DPDP or GDPR rectification or erasure request must not wait for a flag.
+- **Abuse.** No new surface: a clear is the same 1 read and 1 write as a bio edit, which has never been gated, under the
+  same default bucket (60/min per instance, 180/min at 3 instances). The review's L-4 daily cap and 0-write no-op apply
+  when they land.
+- **Idempotency and replay.** Unchanged: `UpdateProfile` takes its `idempotency_key`. Clearing an empty field rewrites
+  the same values (0 writes once L-4's no-op lands).
+- **Cost.** 1 read and 1 write per clear (+1 interceptor read cold), unchanged. A clear is one of the 0.03
+  `UpdateProfile` calls per DAU already in the Cost impact table, not a new call: INR 0 at idle, 300 and 3,000 DAU.
+- **Client.** While the flag is off for the caller, Edit profile shows each existing banner, location and website
+  read-only with Remove (sends `""`); setting stays hidden. Banner Remove needs neither `media` nor `profile_extras`.
+  The own pinned post's menu offers "Unpin from profile" whenever a pin is shown; "Pin to your profile" still needs the
+  flag. While the flag is globally off only the banner and the location can appear (A1).
+
+### A3. Operator lever and ACCOUNT report evidence
+**(a) `opsctl clear-profile-fields --project P --uid U --fields website,location,banner,avatar,bio [--report R]
+[--note N] [--dry-run]`.**
+- `--fields` takes one or more of the five names, comma-separated. An unknown or repeated name is a usage error
+  (exit 2). `banner` clears `bannerUrl` and `bannerThumbUrl`, `avatar` clears `avatarUrl` and `avatarThumbUrl`, and the
+  others clear their own field. The display name (it must stay 1-50 characters) and the pin are not in the list: a bad
+  name is `suspend-user`, and a bad pinned post is `takedown-post` (a hidden post stops showing as the pin, D3).
+- **One transaction.** Read `users/{U}`: the stored values, not the presented view. NotFound is exit 1. `DELETING` is
+  refused (exit 1), because the deletion job's `UpdateTime`-preconditioned checkpoints must not race an operator write.
+  Then one field-level `Update` sets each named field to `""` and `updatedAt`. Never `Set`, so it cannot recreate a
+  purged document. Already-empty fields are skipped, so nothing to clear is 0 writes and a rerun writes 0. No
+  `snapshotVersion` bump and no snapshot job, as in `UpdateProfile`.
+- **Safety.** `--dry-run` prints the stored values and the plan and writes nothing. `--project` is required, and a
+  `-prod` project asks for the typed confirmation, the dry run included (the existing `confirmed` path). The command
+  joins the `--dry-run`, `--report` and `--note` allowlists.
+- **`--report R`** resolves R after the write with a new resolution `PROFILE_CLEARED` (a Go and Firestore string in
+  `moderation`, in no proto) and the note. R must be a report whose `targetOwnerId` is U, else exit 1 before any write.
+- **Images.** Clearing `banner` or `avatar` does not delete the object. Under D1 Option 5A the URL stays live, and the
+  user's posts keep showing the avatar through `AuthorSnapshot`. For an explicit image the command prints the two
+  object names and the runbook deletes them by hand, as `docs/runbooks/moderation.md` "Media on takedown" does. If the
+  founder picks 5B (A4), the command uses the same retire path.
+- **Staleness.** Each API instance's profile cache serves the old values for up to 60 s (3 instances at most), then
+  clients' cached profiles until they refresh. opsctl cannot evict a running instance's cache.
+- **Cost.** 1 read and at most 1 write per run; `--report` adds the resolve (1 read, 1 write). Operator runs only: INR 0
+  at every DAU.
+
+**(b) ACCOUNT report evidence.** `ReportContent` for an ACCOUNT copies `authorHandle`, `displayName`, `bio`,
+`location`, `website`, `avatarUrl` and `bannerUrl` into `evidence` from the `prof` it already loads
+(`moderation/service.go`, the `TargetAccount` case). 0 extra reads and the same single report write; the document grows
+by at most about 1.3 KB, and `evidence` is already index-exempt.
+- The copy is the **presented** profile, which is what the reporter saw: while the switch is pulled it holds no website
+  and no pin. A reopened report refreshes its evidence, as for posts (ADR-0016).
+- No field holds a uid (media URLs are `m/{mediaId}`), so the T11 guard needs no allowlist entry. Retention and export
+  follow ADR-0016 D5: resolved + 90 days, then TTL; never exported to the reported user.
+- `opsctl reports show` prints the new fields. The `ReportContent` proto comment gains the ACCOUNT evidence (a
+  comment-only change, `buf breaking` clean).
+
+**(c) Runbook.** A "Malicious profile link or banner" row in `docs/runbooks/abuse-spike.md`:
+- **One account:** `reports show`, then `clear-profile-fields --fields website [--report R]`. For an image, add `banner`
+  or `avatar` and delete the printed objects. A repeat is `suspend-user`.
+- **A wave:** `FEATURE_PROFILE_EXTRAS=off` through the pinned-traffic procedure (`docs/runbooks/cost-spike.md`). From
+  that revision no `Profile` carries a website or a pin. Banners still need per-account clears and the Vision `reject`
+  policy.
+
+`docs/runbooks/identity.md` §1 ("even to clear a field") and its kill-switch paragraph change with the code.
+
+### A4. Founder question: old banner and avatar objects on Remove and replace (D1 Option 5A versus 5B)
+Today (5A: D1 and `media-uploads.md` D10) a removed or replaced banner or avatar stays public at its URL until account
+deletion. No profile links it.
+
+| | **5A. Keep until account deletion (today)** | **5B. Delete on Remove and replace, after a grace (recommended)** |
+|---|---|---|
+| Privacy | the image a user removed stays public by URL indefinitely; erasure only by hand or by deleting the account | gone from our bucket 24-48 h after the change |
+| Code | none | a retire step (below); for avatars, a client placeholder |
+| Ops per change | 0 | 2 Firestore reads (fresh `users`, the media doc) and 1 delete (the media doc). GCS object deletes are free operations (ADR-0005); a grace step that tags the 2 objects is 2 Class A |
+| Retained storage | about 120 KB per banner change, about 30 KB per avatar change | 0 after the grace |
+| INR/month idle / 300 / 3,000 DAU | 0 / about 0.2 / about 1.6, after a year (storage past the free 5 GB) | 0 / about 0.1 / about 0.9 (operations) |
+
+Inputs: 0.005 banner and 0.005 avatar changes per DAU per day, $0.02/GB-month, Class A $0.005 per 1,000, Firestore
+reads $0.035 and deletes $0.012 per 100k, INR 95 per USD. Either way it rounds to INR 0, so this is a privacy
+decision. (Option 5B under Options said about 1.8 GB a year of banners at 3,000 DAU; 0.005 × 3,000 × 365 × 120 KB is
+about 0.66 GB. The conclusion is unchanged.)
+- **DPDP and GDPR.** A profile photo or banner is often the user's own image, so it is personal data. Once the user
+  removes or replaces it, serving it has no remaining purpose. That sits badly with DPDP Act 2023 s. 8(7) (erase once
+  the purpose is no longer served) and s. 12 (erasure on request), and, for EU users, with GDPR Art. 5(1)(e) (storage
+  limitation) and Art. 17. Under 5A an erasure request for one image means an operator deleting objects by hand. This
+  is not legal advice; the privacy notice follows the choice.
+- **M-2 as context.** Today the bucket can be listed (`allUsers` holds `roles/storage.objectViewer`), so every retained
+  image can be enumerated. Once the production-deployer's M-2 fix closes listing (founder OK for prod), 5A means
+  "unlisted, but public to anyone who has the URL": old client caches, old posts' avatar snapshots, notification actors
+  and report evidence.
+- **Cached copies.** Public objects carry `max-age=31536000, immutable`. A delete stops our bucket serving the image; it
+  cannot recall copies already in browsers or intermediate caches.
+- **Avatars.** Posts, quote and repost embeds and notification actors copy the avatar URL (`AuthorSnapshot`), and only
+  a display-name or handle edit refreshes snapshots (the newest 100 posts). Deleting an old avatar object leaves those
+  rows with no image, and `AppAvatar` has no load-error fallback today. 5B for avatars is therefore conditional on a
+  client placeholder on load error; old rows then show the placeholder instead of the old photo.
+- **Grace and evidence.** A 24 h grace covers clients that still hold a stale `Profile`. It is shorter than ADR-0016
+  D5's 48 h triage SLA, and A3(b) copies image URLs into evidence, so someone who swaps a reported image could have it
+  deleted before triage. A 48 h grace closes that at no cost.
+- **Mechanism (a follow-up, designed only if 5B is chosen).** No delayed-delete job exists: `post_delete` is scoped to
+  one post and runs at once (`media/jobs.go`), and the media eraser is scoped to an account (`media/purge.go`). Sketch:
+  a new kind on the existing `jobs` topic, published after the `UpdateProfile` commit with the old URL, that checks the
+  image is no longer current (fresh read) and is the caller's own AVATAR or BANNER, deletes the media document and
+  leaves the objects to a free bucket lifecycle rule on `customTime`. No new topic, no Scheduler job, no fixed cost.
+- **Recommendation: 5B** for removes and replaces, banners and avatars, with a 24 h grace (48 h if it should cover
+  triage); avatars only after the client placeholder ships. **This is the founder's decision.** D1, its 50% bucket
+  trigger and `media-uploads.md` D10 stay as accepted until it is answered. If 5B is chosen, a follow-up amendment
+  designs the retire step and the lifecycle rule.
+
+### A5. Cost-table corrections (no decision changes)
+- **Pin clean-up: 2 reads per deleted post, not 1.** The W3-6 step reads the post fresh (a job never acts on a message's
+  word alone), then `users/{uid}` in its transaction (`identity/pin_job.go`). That is +0.10 reads per DAU, not +0.05.
+  The Part A total stays at about 40.2 (40.17). This note corrects D3's "1 read"; the Cost impact row is updated.
+- **Backfill:** 1 write per post lacking `hasMedia` (D4 and W3-8's `opsctl backfill-has-media`), not "per post with
+  images lacking the field". The Cost impact row is updated.
+
+### Cost impact (Amendment 1)
+
+| Decision | Reads / writes | INR/month idle / 300 / 3,000 DAU |
+|---|---|---|
+| A1: website omitted while globally off | 0 / 0 | 0 / 0 / 0 |
+| A2: clears always allowed | 1 / 1 per clear, inside the existing `UpdateProfile` row | 0 / 0 / 0 |
+| A3: opsctl and ACCOUNT evidence | operator runs only; evidence 0 extra reads, the same write, at most about 1.3 KB per report | 0 / 0 / 0 |
+| A4: 5B, if chosen | 2 reads + 1 delete per change | 0 / about 0.1 / about 0.9 |
+| A5: pin clean-up correction | +0.05 reads per DAU over the earlier row | 0 / about 0.02 / about 0.2 |
+
+- **Fixed monthly cost added: INR 0.** No new service, topic, Scheduler job, flag or index. The credit window (ADR-0022)
+  lifts nothing.
+- **Free-tier quota:** no measurable change. The whole product's free read line stays at about 173 DAU.
+
+### Stage ladder (Amendment 1)
+
+| Concern | Stage 0 | Seam | Stage 2/3 target | Trigger |
+|---|---|---|---|---|
+| Profile link and image abuse | the global `profile_extras` switch (pin and website) and per-account `opsctl clear-profile-fields` | identity `present()` behind `flags.Registry`; report `evidence` | a moderator console, and a link-reputation check when a website is set (its own ADR; Web Risk bills per call) | more than a few malicious-link reports a week, sustained, or more moderation time than the founder can give |
+
+### Handoff (Amendment 1)
+- **backend-developer** (one fix PR, before `profile_extras` leaves the dev allowlist in any project):
+  - `present()` blanks `Website` under the pin's condition (`s.extras == nil || GloballyOff`), with its doc comment.
+    Tests: all five RPCs with mode `off` versus an allowlist; the stored value and the cache untouched.
+  - The `UpdateProfile` gate counts only non-empty values, so `""` passes for the four fields. Confirm that
+    `normalizeLocation("")` and `normalizeWebsite("")` accept `""`. Whitespace-only stays FEATURE_DISABLED; a mixed
+    request is refused. `budgettest`: 1 read / 1 write for a clear by a caller outside the cohort and under global off.
+  - `opsctl clear-profile-fields` per A3(a). Tests: unknown field, NotFound, DELETING, dry run 0 writes, prod
+    confirmation, report target mismatch, rerun 0 writes.
+  - ACCOUNT evidence per A3(b), `reports show`, the `ReportContent` proto comment, `make proto` green.
+  - Runbooks: the abuse-spike row (A3(c)); `identity.md` §1 and its kill-switch paragraph.
+- **frontend-developer:**
+  - Edit profile (follow-up to W3-15): while `profile_extras` is off for the caller, show the existing banner, location
+    and website read-only with Remove (`""` through `buildUpdateProfileRequest`). Banner Remove works without `media`;
+    W3-15's "without media a saved banner is shown read-only" gains Remove. A FEATURE_DISABLED answer to a clear (a
+    revision without the backend fix) hides Remove and shows the generic error.
+  - W3-17: "Unpin from profile" is ungated whenever a pin is shown; "Pin to your profile" stays behind the flag. This
+    supersedes the plan's "the menu rows need `profile_extras`" for Unpin.
+  - Widget tests for the flag-off state with and without each value.
+  - Only if the founder picks 5B: an `AppAvatar` placeholder on a load error before avatar deletion ships.
+- **tester:** the A1 matrix (mode off, allowlist, percent 0 × the five RPCs × the owner and another viewer); the A2
+  matrix (in the cohort, outside it, globally off × clear, set, mixed, whitespace-only, and `readonly`); the opsctl
+  cases; ACCOUNT evidence with the switch on and off.
+- **security-auditor:** re-check M-1 against the fix PRs.
+- **sre-performance:** the pin clean-up row at 2 reads (0.10 per DAU) and the backfill wording in
+  `docs/reviews/cost-model.md`. No other new row.
+- **production-deployer:** no Terraform for A1 to A3. The backend fix serves 100% of dev traffic before
+  `profile_extras` widens past the 3-uid allowlist. M-2 is separate. A lifecycle rule for 5B comes only after the
+  founder chooses it.
+- **Flag:** no new flag. `FEATURE_PROFILE_EXTRAS` keeps its ceiling (dev allowlist 3, no prod raise).
 
 ## Context
 On X a profile shows these things, all captured in `docs/x_research/screens/profile.md`:
@@ -449,8 +663,8 @@ what the model multiplies.
 | `ListLikedPosts`, page 20 / 50 | 23 / 53 cold; 20 / 50 warm; empty 2 (22) | 0 | 0 | 0.2 | 4.4 |
 | `GetProfileRelationship` (replaces the header's `GetRelationships`) | 3 cold (+1 overflow) / 0 warm (1; +0.5 net over the replaced call) | 0 | 0 | 2 | 1.0 |
 | `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm (25) | 0 | 0 | 1.0 | 25.0 |
-| Pin clean-up in the `post_delete` job | 1 | ≤ 1 (only when the deleted post was the pin) | 0 | 0.05 | 0.05 |
-| `opsctl backfill-has-media` (one-off per project) | 1 per post | 1 per post with images lacking the field | 0 | n/a | n/a |
+| Pin clean-up in the `post_delete` job | 2 (the post, fresh, then `users/{uid}` in the transaction; Amendment 1 A5) | ≤ 1 (only when the deleted post was the pin) | 0 | 0.05 | 0.10 |
+| `opsctl backfill-has-media` (one-off per project) | 1 per post | 1 per post lacking the field | 0 | n/a | n/a |
 | **Part A total** | | | | **≈ 2.3 new requests** | **≈ 40.2** |
 
 **Per DAU per day.**
@@ -487,8 +701,8 @@ reads $0.035 per 100k, writes $0.104 per 100k, Vision $1.50 per 1,000 units, egr
 | 1,000 | 40.7 + 0.2 | 0 (cap) | 1.2 | 4.8 | **≈ INR 47** | 1,626 → 1,673 (+3%) |
 | 3,000 | 122.0 + 0.5 | 0 (cap) | 49.3 | 70.3 | **≈ INR 242** | 3,396 → 3,638 (+7%) |
 
-The pin clean-up (+0.05 reads per DAU) and the GetProfileRelationship cold-count correction (3, not 2) move no
-total by more than INR 0.1.
+The pin clean-up (+0.10 reads per DAU at 2 reads per deleted post, Amendment 1 A5) and the GetProfileRelationship
+cold-count correction (3, not 2) move no total by more than INR 0.5.
 - **Fixed monthly cost added: INR 0.** No new GCP service, topic, Scheduler job or Terraform resource. There are two
   composite indexes and five fieldOverrides. The credit window (ADR-0022) lifts nothing.
 - **Largest line:** who to follow (25 of 40.2 reads). Its levers, cheapest first:
