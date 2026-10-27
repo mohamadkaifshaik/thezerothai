@@ -2,8 +2,10 @@ import 'package:drift/drift.dart' show Value;
 import 'package:fixnum/fixnum.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../profile/domain/profile_edit_feature_flag.dart';
 
 /// Builds an `UpdateProfile` request where **field presence is the signal**
 /// (ADR-0024 D1-D3): a null argument leaves the field out (unchanged), a
@@ -45,6 +47,14 @@ class IdentityRepository {
   final ApiClient _apiClient;
   final AppDatabase _database;
 
+  bool _profileExtrasRefused = false;
+
+  /// The server answered FEATURE_DISABLED `profile_extras` to a pin change
+  /// (the flag turned off since `GetMe` listed it): the pin menu rows stay
+  /// hidden for the rest of the session, until a fresh [getMe] says what the
+  /// flag set is now (the server stays authoritative, ADR-0008 D6).
+  bool get profileExtrasRefused => _profileExtrasRefused;
+
   /// The cached copy of the caller's own profile, if any. Renders instantly
   /// while [getMe] refreshes in the background (cache-first).
   Future<CachedProfile?> cachedOwnProfile(String userId) {
@@ -57,6 +67,8 @@ class IdentityRepository {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
+      // A fresh flag set decides again, not an earlier refusal.
+      _profileExtrasRefused = false;
       await _cacheProfile(response.profile, epoch);
       return response;
     });
@@ -170,6 +182,27 @@ class IdentityRepository {
       await _cacheProfile(response.profile, epoch);
       return response.profile;
     });
+  }
+
+  /// Pins [postId] to the caller's profile, or unpins with `""` (W3-17): an
+  /// [updateProfile] that sends only `pinned_post_id` (`""` stays a present
+  /// field, so it clears). Only the caller's own visible POST, QUOTE or REPLY
+  /// can be pinned. Needs `profile_extras` for the caller; a FEATURE_DISABLED
+  /// answer for it is remembered ([profileExtrasRefused]) and rethrown.
+  /// [idempotencyKey] must be reused when retrying the same intent.
+  Future<identity.Profile> updatePinnedPost({
+    required String idempotencyKey,
+    required String postId,
+  }) async {
+    try {
+      return await updateProfile(
+        idempotencyKey: idempotencyKey,
+        pinnedPostId: postId,
+      );
+    } on FeatureDisabledException catch (error) {
+      if (error.feature == kFeatureProfileExtras) _profileExtrasRefused = true;
+      rethrow;
+    }
   }
 
   /// Converts a cached row back into the generated [identity.Profile] type,
