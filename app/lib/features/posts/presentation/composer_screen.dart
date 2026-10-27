@@ -56,10 +56,21 @@ const kComposerInputCap = 1000;
 /// and the `quotes` flag (see [quoteCreationAllowed]); without them it shows
 /// "not available" instead of a composer that could only fail.
 class ComposerScreen extends StatelessWidget {
-  const ComposerScreen({super.key, this.quoteOfPostId = '', this.quotePreview});
+  const ComposerScreen({
+    super.key,
+    this.quoteOfPostId = '',
+    this.quotePreview,
+    @visibleForTesting this.scheduleClock,
+  });
 
   final String quoteOfPostId;
   final pb.EmbeddedPost? quotePreview;
+
+  /// The clock the Schedule dialog reads, both for the time it opens on and
+  /// for the check on Confirm (null: the device clock). A seam for tests: the
+  /// check moves with the real clock, so a test that opens the dialog and
+  /// presses Confirm either side of a minute boundary would be refused.
+  final DateTime Function()? scheduleClock;
 
   @override
   Widget build(BuildContext context) {
@@ -142,12 +153,14 @@ class ComposerScreen extends StatelessWidget {
                 mediaEnabled: mediaEnabled,
                 quotePreview: quotePreview,
                 avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
+                scheduleClock: scheduleClock,
               ),
             )
           : _ComposerView(
               mediaEnabled: mediaEnabled,
               quotePreview: quotePreview,
               avatarUrl: viewerAuthorSnapshot(profile).avatarUrl,
+              scheduleClock: scheduleClock,
             ),
     );
   }
@@ -158,6 +171,7 @@ class _ComposerView extends StatefulWidget {
     required this.mediaEnabled,
     required this.avatarUrl,
     this.quotePreview,
+    this.scheduleClock,
   });
 
   final bool mediaEnabled;
@@ -165,6 +179,9 @@ class _ComposerView extends StatefulWidget {
 
   /// The viewer's avatar (empty: the person icon).
   final String avatarUrl;
+
+  /// [ComposerScreen.scheduleClock].
+  final DateTime Function()? scheduleClock;
 
   @override
   State<_ComposerView> createState() => _ComposerViewState();
@@ -244,6 +261,7 @@ class _ComposerViewState extends State<_ComposerView> {
       initial: cubit.state.scheduledAt,
       hasMedia: cubit.state.hasAttachments,
       notice: notice,
+      clock: widget.scheduleClock,
     );
     if (!context.mounted) return;
     switch (result) {

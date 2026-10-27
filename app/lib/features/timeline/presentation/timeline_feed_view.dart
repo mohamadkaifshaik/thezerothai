@@ -3,11 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
-import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
@@ -15,14 +13,15 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/pending_posts_section.dart';
-import '../../../shared/widgets/post_card.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
+import '../../../shared/widgets/post_pin_control.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import 'bloc/timeline_cubit.dart';
 import 'bloc/timeline_state.dart';
 import 'timeline_error_messages.dart';
+import 'widgets/feed_post_row.dart';
 import 'widgets/new_posts_pill.dart';
 import '../../../shared/widgets/timeline_gap_row.dart';
 
@@ -58,6 +57,8 @@ class TimelineFeedView extends StatefulWidget {
     this.nested = false,
     this.scrollViewKey,
     this.fillViewport = false,
+    this.pinControl,
+    this.hideEmptyState = false,
   });
 
   final String? viewerUserId;
@@ -107,6 +108,14 @@ class TimelineFeedView extends StatefulWidget {
   /// would never ask for the next page. Off for Home and the Posts and
   /// Replies tabs, whose pages are full.
   final bool fillViewport;
+
+  /// Pin / Unpin rows on the viewer's own posts (W3-17): the own profile
+  /// passes one; every other feed leaves it null.
+  final PostPinControl? pinControl;
+
+  /// Show nothing instead of the empty state: the profile's Posts tab when
+  /// its only post is the one in the Pinned row above.
+  final bool hideEmptyState;
 
   @override
   State<TimelineFeedView> createState() => _TimelineFeedViewState();
@@ -365,6 +374,8 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
         child = state.loadMoreFailed
             ? _footer(cubit, state)
             : const PostListSkeleton();
+      } else if (widget.hideEmptyState) {
+        child = const SizedBox.shrink();
       } else {
         child = AppEmptyView(
           icon: Icons.dynamic_feed_outlined,
@@ -398,27 +409,17 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                 onTap: () => cubit.fillGap(entry.itemKey),
               );
             }
-            final view = entry.postView!;
-            return Column(
+            return FeedPostRow(
               key: key,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InkWell(
-                  onTap: () =>
-                      context.push(AppRouter.postPath(view.post.postId)),
-                  child: PostCard(
-                    view: view,
-                    viewerUserId: widget.viewerUserId,
-                    now: _now,
-                    graphActionsEnabled: graphEnabled,
-                    reportsEnabled: reportsEnabled,
-                    engagementEnabled: engagementEnabled,
-                    onDelete: cubit.deletePost,
-                    onRelationshipChanged: (r) => _onRelationship(cubit, r),
-                  ),
-                ),
-                const Divider(height: 1),
-              ],
+              view: entry.postView!,
+              viewerUserId: widget.viewerUserId,
+              now: _now,
+              graphEnabled: graphEnabled,
+              reportsEnabled: reportsEnabled,
+              engagementEnabled: engagementEnabled,
+              onDelete: cubit.deletePost,
+              onRelationshipChanged: (r) => _onRelationship(cubit, r),
+              pinControl: widget.pinControl,
             );
           },
         ),

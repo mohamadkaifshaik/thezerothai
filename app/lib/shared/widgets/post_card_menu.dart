@@ -1,6 +1,6 @@
 part of 'post_card.dart';
 
-enum _MenuAction { delete, block, mute, report }
+enum _MenuAction { delete, block, mute, report, pin }
 
 /// Closes [cubit] now, or once its in-flight Block/Mute settles, so the
 /// awaiting `_run` still sees the real outcome (never an optimistic state).
@@ -14,6 +14,13 @@ void _closeWhenSettled(RelationshipCubit cubit) {
     cubit.close();
   }
 }
+
+/// Whether a post of this [kind] can be pinned: the server accepts the
+/// caller's own POST, QUOTE or REPLY, never a REPOST (ADR-0024 D3).
+bool _isPinnable(PostKind kind) =>
+    kind == PostKind.POST_KIND_POST ||
+    kind == PostKind.POST_KIND_QUOTE ||
+    kind == PostKind.POST_KIND_REPLY;
 
 /// Who Report / Block / Mute act on (see [PostCard._menuTarget]).
 class _MenuTarget {
@@ -48,6 +55,7 @@ class _PostMenu extends StatefulWidget {
     required this.reportsEnabled,
     required this.onDelete,
     required this.onRelationshipChanged,
+    this.pinControl,
   });
 
   /// The row's own post: Delete acts on it (a repost's id for a repost).
@@ -60,6 +68,9 @@ class _PostMenu extends StatefulWidget {
   final bool reportsEnabled;
   final Future<void> Function(String postId)? onDelete;
   final ValueChanged<graph.Relationship>? onRelationshipChanged;
+
+  /// Pin / Unpin rows for [post], or null for none.
+  final PostPinControl? pinControl;
 
   @override
   State<_PostMenu> createState() => _PostMenuState();
@@ -104,7 +115,11 @@ class _PostMenuState extends State<_PostMenu> {
         widget.reportsEnabled &&
         target.userId.isNotEmpty &&
         target.postId.isNotEmpty;
-    if (!canDelete && !canGraph && !canReport) return const SizedBox.shrink();
+    final pin = widget.pinControl;
+    final canPin = pin != null && widget.isOwn && _isPinnable(widget.post.kind);
+    if (!canDelete && !canGraph && !canReport && !canPin) {
+      return const SizedBox.shrink();
+    }
 
     return PopupMenuButton<_MenuAction>(
       tooltip: 'More options',
@@ -127,6 +142,16 @@ class _PostMenuState extends State<_PostMenu> {
                 icon: Icons.delete_outline,
                 label: 'Delete',
                 destructive: true,
+              ),
+            ),
+          if (canPin)
+            PopupMenuItem(
+              value: _MenuAction.pin,
+              child: AppMenuItemRow(
+                icon: Icons.push_pin_outlined,
+                label: pin.isPinned(widget.post.postId)
+                    ? 'Unpin from profile'
+                    : 'Pin to your profile',
               ),
             ),
           if (canReport)
@@ -174,6 +199,8 @@ class _PostMenuState extends State<_PostMenu> {
         await _blockFlow(context);
       case _MenuAction.report:
         await _report(context);
+      case _MenuAction.pin:
+        await _pin(context);
       case _MenuAction.mute:
         final cubit = _cubitFor(context);
         if (cubit.state.relationship.muting) {
@@ -243,6 +270,84 @@ class _PostMenuState extends State<_PostMenu> {
     }
     say('$done @$handle.');
     onChanged?.call(cubit.state.relationship);
+  }
+
+  /// Pin / Unpin the row's own post through [PostPinControl]. Replacing an
+  /// existing pin asks first. A failure is a typed snackbar (Retry reuses the
+  /// control's idempotency key, so it is the same intent). The snackbars go
+  /// through the messenger captured now: pinning moves the card out of the
+  /// feed, so this widget may be gone when the answer arrives.
+  Future<void> _pin(BuildContext context) async {
+    final control = widget.pinControl!;
+    final messenger = ScaffoldMessenger.of(context);
+    final postId = widget.post.postId;
+    if (control.isPinned(postId)) {
+      await _runPin(messenger, control.onUnpin, 'Unpinned from your profile.');
+      return;
+    }
+    if (control.pinnedPostId.isNotEmpty) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Replace your pinned post?'),
+          content: const Text(
+            'This post will be pinned instead of the one pinned now.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Replace'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true) return;
+    }
+    await _runPin(
+      messenger,
+      () => control.onPin(postId),
+      'Pinned to your profile.',
+    );
+  }
+
+  Future<void> _runPin(
+    ScaffoldMessengerState messenger,
+    Future<void> Function() action,
+    String done,
+  ) async {
+    void say(String text, {VoidCallback? retry}) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(text),
+            action: retry == null
+                ? null
+                : SnackBarAction(label: 'Retry', onPressed: retry),
+          ),
+        );
+    }
+
+    try {
+      await action();
+      say(done);
+    } on AppException catch (error) {
+      say(
+        pinErrorMessage(error),
+        retry: pinErrorCanRetry(error)
+            ? () => unawaited(_runPin(messenger, action, done))
+            : null,
+      );
+    } catch (_) {
+      say(
+        "Couldn't update your pinned post. Please try again.",
+        retry: () => unawaited(_runPin(messenger, action, done)),
+      );
+    }
   }
 
   Future<void> _delete(BuildContext context) async {

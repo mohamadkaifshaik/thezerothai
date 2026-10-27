@@ -58,6 +58,17 @@ void main() {
   late PendingPostsCubit pending;
   late List<_Sent> sent;
 
+  /// What the Schedule dialog thinks the time is, for the whole test. The
+  /// dialog opens on the next whole minute plus 3 minutes and checks that
+  /// again on Confirm, against the clock it is given. On the real clock a
+  /// minute boundary between opening and Confirm made Confirm refuse ("too
+  /// soon") and the dialog stay up, so a case failed now and then (three CI
+  /// runs on 2026-10-27, each just after a whole minute). Frozen, nothing the
+  /// test takes to run can move it. Built from the real clock (one hour ahead,
+  /// so a dialog that ignored it would show) and not as a fixed date, which
+  /// the date guard forbids.
+  late DateTime scheduleNow;
+
   const both = {kFeaturePosts, kFeatureScheduledPosts};
 
   setUp(() {
@@ -66,6 +77,7 @@ void main() {
     picker = FakeImagePicker();
     pending = PendingPostsCubit();
     sent = [];
+    scheduleNow = DateTime.now().add(const Duration(hours: 1));
     when(() => repo.subFeatureEnabled(any())).thenReturn(true);
   });
 
@@ -140,6 +152,7 @@ void main() {
     Size size = const Size(390, 844),
     Brightness brightness = Brightness.light,
     double textScale = 1,
+    DateTime Function()? clock,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -168,7 +181,10 @@ void main() {
         ),
         GoRoute(
           path: '/compose',
-          builder: (context, state) => ComposerScreen(quoteOfPostId: quote),
+          builder: (context, state) => ComposerScreen(
+            quoteOfPostId: quote,
+            scheduleClock: clock ?? () => scheduleNow,
+          ),
         ),
         GoRoute(
           path: '/scheduled',
@@ -405,7 +421,6 @@ void main() {
       stubSchedule([scheduledPost(1, publishAt: stored)]);
       final router = await open(tester);
       await type(tester, 'see you later');
-      final before = DateTime.now();
       await chooseDefaultSchedule(tester);
 
       await tester.tap(primaryButton('Schedule'));
@@ -416,10 +431,10 @@ void main() {
       expect(call.publishAt.isUtc, isTrue);
       expect(call.policy, ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
       expect(call.mediaIds, isEmpty);
-      // The default time: a few minutes from when the dialog was opened.
-      final lead = call.publishAt.difference(before);
-      expect(lead, greaterThanOrEqualTo(const Duration(minutes: 2)));
-      expect(lead, lessThanOrEqualTo(const Duration(minutes: 5)));
+      // The default time, exactly: the next whole minute after the dialog's
+      // clock plus the lead. (It also proves the dialog read the screen's
+      // clock, which is an hour ahead of the device's.)
+      expect(call.publishAt, defaultPublishAt(scheduleNow).toUtc());
 
       // The toast shows the STORED time, not the requested one.
       expect(
@@ -445,6 +460,35 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('scheduled list page'), findsOneWidget);
       router.pop();
+    });
+
+    testWidgets('a minute boundary between opening the dialog and Confirm: '
+        'Confirm is refused with the reason, nothing is scheduled', (
+      tester,
+    ) async {
+      // The race that made this file flaky on the real clock, as a case. The
+      // dialog opens on the next whole minute plus 3 (set one second before
+      // the minute turns); at Confirm the minute has turned and that time is
+      // under the 2 minute lead, so the server's rule says no, early.
+      final minute = truncatedToMinute(scheduleNow);
+      var reads = 0;
+      DateTime steppingClock() => reads++ == 0
+          ? minute.add(const Duration(seconds: 59))
+          : minute.add(const Duration(minutes: 1, seconds: 1));
+      stubSchedule([scheduledPost(1)]);
+      await open(tester, clock: steppingClock);
+      await type(tester, 'late');
+      await openDialog(tester);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kScheduleTooSoonMessage), findsOneWidget);
+      expect(find.text('Confirm'), findsOneWidget, reason: 'the dialog stays');
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(willSendLine(), findsNothing);
+      expect(primaryButton('Post'), findsOneWidget);
+      expect(sent, isEmpty);
     });
 
     testWidgets('while sending: progress shows, nothing is cleared', (
