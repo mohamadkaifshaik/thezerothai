@@ -52,3 +52,23 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # Dev only; envs/prod has no such variable and must never get this grant.
 # cron_test_invoker        = "user:someone@example.com"
 # cron_test_invoker_expiry = "2026-11-24T00:00:00Z" # example: 30 days after the apply date
+
+# W3 Part A rollout, dev (ADR-0024, W3-24; runbook docs/runbooks/w3-part-a-rollout.md). OPT-IN, founder decision: leave these
+# commented out and the four W3 flags stay `off` (the variable defaults). Never put real uids in this file or in any committed
+# file; they live only in the gitignored terraform.tfvars.
+# - The cohort is the same 3 testers as feature_bookmarks_allowlist / feature_engagement_allowlist / feature_media_allowlist
+#   (Terraform does not check the subset rule, so keep them equal by hand): likes_list ramps WITH bookmarks and engagement,
+#   profile_extras (banner) needs media, follow_suggestions needs graph (on in dev).
+# - Dev ceilings (scripts/promotion/flag-ceiling.json): allowlist, at most 3 uids, percent 0. Do not exceed them.
+# - profile_tabs never leaves `off` before the two W3-2 posts indexes are READY and `opsctl backfill-has-media` has run in dev.
+# - suggested_user_ids is the curated "who to follow" fallback (at most 20 uids, not a secret). Empty (the default): a user who
+#   follows fewer than 3 accounts sees an empty card. A founder choice; the runbook proposes the 3 test uids for dev.
+# feature_profile_extras               = "allowlist"
+# feature_profile_extras_allowlist     = "<uid-1>,<uid-2>,<uid-3>"
+# feature_profile_tabs                 = "allowlist"
+# feature_profile_tabs_allowlist       = "<uid-1>,<uid-2>,<uid-3>"
+# feature_likes_list                   = "allowlist"
+# feature_likes_list_allowlist         = "<uid-1>,<uid-2>,<uid-3>"
+# feature_follow_suggestions           = "allowlist"
+# feature_follow_suggestions_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+# suggested_user_ids                   = "<uid-1>,<uid-2>,<uid-3>"
