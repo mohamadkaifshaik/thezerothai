@@ -24,6 +24,7 @@ type fakeRepo struct {
 
 	createCalls      int
 	updateCalls      int
+	updateWrites     int // UpdateProfile calls that changed the profile (the real repo writes only then, W3-22 L-4)
 	changeCalls      int
 	getProfileCalls  int
 	getProfilesCalls int
@@ -108,7 +109,12 @@ func (f *fakeRepo) UpdateProfile(_ context.Context, uid string, mutate func(*Pro
 	if !ok {
 		return Profile{}, ErrNotFound
 	}
+	before := p
 	mutate(&p)
+	if p == before {
+		return p, nil // mirrors FirestoreRepo: a mutation that changed nothing writes nothing
+	}
+	f.updateWrites++
 	f.profiles[uid] = p
 	return p, nil
 }

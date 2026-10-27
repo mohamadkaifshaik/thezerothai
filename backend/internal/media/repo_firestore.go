@@ -62,6 +62,10 @@ type Doc struct {
 	PostID          string     `firestore:"postId,omitempty"`
 	CreatedAt       time.Time  `firestore:"createdAt"`
 	ExpireAt        *time.Time `firestore:"expireAt,omitempty"`
+	// ScreeningUntil is the screening claim (W3-22 M-3): while it is in the future, one FinalizeUpload owns the
+	// SafeSearch spend for this PENDING document and every other call answers MEDIA_NOT_READY. Set by ClaimScreening,
+	// cleared by ReleaseScreening and by Resolve. A claim a crashed call left behind simply expires.
+	ScreeningUntil *time.Time `firestore:"screeningUntil,omitempty"`
 }
 
 // Published reports whether the document is publicly served (READY or READY_UNSCREENED).
@@ -103,8 +107,15 @@ type Repo interface {
 	CreateUploads(ctx context.Context, p CreateUploadsParams) (CreateUploadsResult, error)
 	// GetMany reads media/{id} for every id in one GetAll; missing ids are absent. Reads: len(ids).
 	GetMany(ctx context.Context, ids []string) (map[string]*Doc, error)
+	// ClaimScreening stamps screeningUntil = until on a PENDING document, conditional on its UpdateTime (ErrConflict
+	// when another call changed it first, so exactly one of several concurrent callers wins), and returns the new
+	// UpdateTime the winner must use for Resolve and ReleaseScreening. Writes: 1.
+	ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error)
+	// ReleaseScreening removes the claim ClaimScreening made, conditional on the UpdateTime it returned (ErrConflict
+	// when the document moved on, which is fine: the claim is gone either way). Writes: 1.
+	ReleaseScreening(ctx context.Context, id string, updateTime time.Time) error
 	// Resolve moves a PENDING document to its final state, conditional on its UpdateTime (ErrConflict when
-	// another call changed it first). Writes: 1.
+	// another call changed it first) and clears any screening claim. Writes: 1.
 	Resolve(ctx context.Context, id string, updateTime time.Time, r Resolution) error
 	// VisionUsed returns the units counted for month ("200601"); 0 when the counter does not exist. Reads: 1.
 	VisionUsed(ctx context.Context, month string) (int64, error)
@@ -253,10 +264,37 @@ func decode(s *firestore.DocumentSnapshot) (*Doc, error) {
 	return &d, nil
 }
 
+// ClaimScreening implements Repo.
+func (r *FirestoreRepo) ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error) {
+	wr, err := r.ref(id).Update(ctx, []firestore.Update{{Path: "screeningUntil", Value: until}}, firestore.LastUpdateTime(updateTime))
+	budget.FromContext(ctx).AddWrites(1)
+	switch status.Code(err) {
+	case codes.OK:
+		return wr.UpdateTime, nil
+	case codes.FailedPrecondition, codes.NotFound:
+		return time.Time{}, ErrConflict
+	}
+	return time.Time{}, fmt.Errorf("media: claim screening: %w", err)
+}
+
+// ReleaseScreening implements Repo.
+func (r *FirestoreRepo) ReleaseScreening(ctx context.Context, id string, updateTime time.Time) error {
+	_, err := r.ref(id).Update(ctx, []firestore.Update{{Path: "screeningUntil", Value: firestore.Delete}}, firestore.LastUpdateTime(updateTime))
+	budget.FromContext(ctx).AddWrites(1)
+	switch status.Code(err) {
+	case codes.OK:
+		return nil
+	case codes.FailedPrecondition, codes.NotFound:
+		return ErrConflict
+	}
+	return fmt.Errorf("media: release screening: %w", err)
+}
+
 // Resolve implements Repo.
 func (r *FirestoreRepo) Resolve(ctx context.Context, id string, updateTime time.Time, res Resolution) error {
 	updates := []firestore.Update{
 		{Path: "status", Value: string(res.Status)},
+		{Path: "screeningUntil", Value: firestore.Delete},
 		{Path: "publicPath", Value: orDelete(res.PublicPath)},
 		{Path: "thumbPath", Value: orDelete(res.ThumbPath)},
 		{Path: "blurhash", Value: orDelete(res.Blurhash)},

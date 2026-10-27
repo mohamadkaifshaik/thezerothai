@@ -494,6 +494,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SUGGESTIONS_CALLS_PER_DAY must be > 0 (got %d)", suggestionsCallsPerDay)
 	}
 	rl.SuggestionsCallsPerDay = int64(suggestionsCallsPerDay)
+	// W3-22 L-4: UpdateProfile daily call cap (limit_name "profile_update_daily"); see RateLimitConfig.ProfileUpdatesPerDay
+	// for the default's math. A cap of 0 would lock every user out of the RPC.
+	profileUpdatesPerDay, err := getInt("PROFILE_UPDATES_PER_DAY", 100)
+	if err != nil {
+		return Config{}, err
+	}
+	if profileUpdatesPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: PROFILE_UPDATES_PER_DAY must be > 0 (got %d)", profileUpdatesPerDay)
+	}
+	rl.ProfileUpdatesPerDay = int64(profileUpdatesPerDay)
 	readBudgetUID, err := getInt("READ_BUDGET_PER_UID_PER_DAY", 2000)
 	if err != nil {
 		return Config{}, err

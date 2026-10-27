@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -54,7 +55,7 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			r, spent, err := s.finalizeOne(ctx, uid, docs[it.MediaID], it.Blurhash)
+			r, spent, err := s.finalizeShared(ctx, uid, docs[it.MediaID], it.Blurhash)
 			mu.Lock()
 			defer mu.Unlock()
 			units += spent
@@ -128,10 +129,58 @@ func validateFinalize(items []FinalizeItem) error {
 	return nil
 }
 
+// screeningClaimTTL is how long a FinalizeUpload owns the SafeSearch spend for one image (W3-22 M-3). It is far above a
+// healthy run (two parallel Vision calls with a 10 s deadline each, then two copies) and short enough that a call
+// that died holding the claim blocks a client retry for at most this long. A run that outlives it is not unsafe: a
+// second call may claim and screen again, and the first one's Resolve then loses its UpdateTime precondition and
+// converges on the second's result (the pre-fix behaviour, now the rare case).
+const screeningClaimTTL = 30 * time.Second
+
+// claimReleaseTimeout bounds the best-effort release of a claim after a failed attempt. It runs on a context cut off
+// from the request's cancellation so a client that hung up does not leave the image locked.
+const claimReleaseTimeout = 3 * time.Second
+
+// flightResult is what a same-instance finalize flight shares: the leader's result and the Vision units it spent.
+type flightResult struct {
+	r     Result
+	spent int64
+}
+
+// finalizeShared is finalizeOne behind a per-instance single-flight keyed by media id (W3-22 M-3, part a): N
+// concurrent calls for one PENDING image on this instance run the verify, claim, screen and publish steps once and
+// all receive the leader's result, so a double tap or a client retry is answered READY instead of MEDIA_NOT_READY.
+// Only the leader reports the Vision units it spent (the caller adds them to the month's counter), followers report
+// 0. A document that is already resolved is answered directly. Other instances are covered by the screening claim
+// in finalizeOne. Every caller of one media id has the same uid (FinalizeUpload checks ownership first), so sharing
+// the leader's error leaks nothing.
+func (s *service) finalizeShared(ctx context.Context, uid string, d *Doc, blurhash string) (Result, int64, error) {
+	if d.Status != string(StatusPending) {
+		return s.finalizeOne(ctx, uid, d, blurhash)
+	}
+	led := false
+	v, err, _ := s.flight.Do(d.ID, func() (any, error) {
+		led = true
+		r, spent, err := s.finalizeOne(ctx, uid, d, blurhash)
+		return flightResult{r: r, spent: spent}, err
+	})
+	out, _ := v.(flightResult)
+	if !led {
+		logger.SetRequestField(ctx, fieldJoined, true)
+		out.spent = 0
+	}
+	return out.r, out.spent, err
+}
+
 // finalizeOne verifies, screens and publishes one image. spent is the Vision units it consumed.
 func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash string) (_ Result, spent int64, err error) {
 	if d.Status != string(StatusPending) {
 		return s.resultOf(d), 0, nil // idempotent: already READY / REJECTED
+	}
+	// 0. Another call (usually on another instance: this instance's calls are collapsed by finalizeShared) holds the
+	// screening claim: do not verify, reserve or screen. The document is read again in case it was resolved since
+	// this call loaded it; otherwise the client retries (W3-22 M-3).
+	if d.ScreeningUntil != nil && d.ScreeningUntil.After(s.Now()) {
+		return s.screeningElsewhere(ctx, uid, d)
 	}
 	// 1. Verify what the signed URL already enforced (defence in depth) and the magic bytes.
 	reason, err := s.verify(ctx, d)
@@ -145,6 +194,28 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		r, err := s.reject(ctx, d, reason)
 		return r, 0, err
 	}
+
+	// 1b. Claim the image before spending anything (W3-22 M-3): one UpdateTime-preconditioned write that exactly one
+	// concurrent call wins. A loser's precondition fails here, before any Vision call, and it answers like a client
+	// that finalized too early (MEDIA_NOT_READY, retryable) or, when the winner has finished, with the winner's result.
+	// The write moves the document's UpdateTime, so everything below works on the claimed copy. A failed attempt
+	// releases the claim so the client's retry is not locked out for the claim's duration.
+	until := s.Now().UTC().Add(screeningClaimTTL)
+	claimedAt, err := s.Repo.ClaimScreening(ctx, d.ID, d.UpdateTime, until)
+	switch {
+	case errors.Is(err, ErrConflict):
+		return s.screeningElsewhere(ctx, uid, d)
+	case err != nil:
+		return Result{}, 0, logger.RedactErr(fmt.Errorf("media: claim screening: %w", err), uid)
+	}
+	claimed := *d
+	claimed.UpdateTime, claimed.ScreeningUntil = claimedAt, &until
+	d = &claimed
+	defer func() {
+		if err != nil {
+			s.releaseClaim(ctx, d)
+		}
+	}()
 
 	// 2. Moderate: every image is screened while the monthly cap lasts (ADR-0005).
 	units := int64(1)
@@ -223,6 +294,27 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	return s.resultOf(&out), spent, nil
 }
 
+// screeningElsewhere answers a finalize that found another call holding the screening claim, or lost the race for it
+// (W3-22 M-3). It spends nothing and writes nothing: the document is read once (1 read) and the answer is the
+// idempotent result when the other call has finished, otherwise the retryable MEDIA_NOT_READY (uploadMissing with
+// afterVerify false), which the client already handles as "try again shortly".
+func (s *service) screeningElsewhere(ctx context.Context, uid string, d *Doc) (Result, int64, error) {
+	logger.SetRequestField(ctx, fieldBusy, true)
+	return s.uploadMissing(ctx, uid, d, false, nil)
+}
+
+// releaseClaim clears the screening claim after a failed attempt (best effort, 1 write). The write is conditional on
+// the claim's own UpdateTime, so it never undoes a newer state; a conflict means the document already moved on
+// (another call resolved it, or the claim expired and was retaken) and is not an error. A failure is only logged:
+// the claim expires on its own after screeningClaimTTL.
+func (s *service) releaseClaim(ctx context.Context, d *Doc) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claimReleaseTimeout)
+	defer cancel()
+	if err := s.Repo.ReleaseScreening(rctx, d.ID, d.UpdateTime); err != nil && !errors.Is(err, ErrConflict) {
+		s.Log.WarnContext(ctx, "media_claim_release_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, d.OwnerID))}, logger.TraceAttrs(ctx)...)...)
+	}
+}
+
 // errUploadMissing is verify's signal that a private upload object is not there.
 var errUploadMissing = errors.New("media: upload object missing")
 
@@ -257,7 +349,8 @@ func (s *service) dropOrphanedCopies(ctx context.Context, d *Doc, r Result, obje
 // apart (1 read, only on this path): a resolved document is the idempotent answer, a still-PENDING one is genuinely
 // not uploaded yet. afterVerify is true on the Publish path, where verify had just seen the objects: a still
 // PENDING document then is not a lost race but a broken source or bucket, so it is an internal error (visible in
-// Error Reporting) rather than a silent client retry.
+// Error Reporting) rather than a silent client retry. screeningElsewhere reuses it with afterVerify false: a still-PENDING
+// document held by another call's screening claim is retryable for the same reason.
 func (s *service) uploadMissing(ctx context.Context, uid string, d *Doc, afterVerify bool, cause error) (Result, int64, error) {
 	r, _, err := s.reload(ctx, uid, d.ID, 0)
 	if err != nil {
