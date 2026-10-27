@@ -2,8 +2,37 @@ import 'package:drift/drift.dart' show Value;
 import 'package:fixnum/fixnum.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../profile/domain/profile_edit_feature_flag.dart';
+
+/// Builds an `UpdateProfile` request where **field presence is the signal**
+/// (ADR-0024 D1-D3): a null argument leaves the field out (unchanged), a
+/// non-null one sets it, and `""` is a real value that clears
+/// `banner_media_id`, `location`, `website` or `pinned_post_id`. Every
+/// `UpdateProfile` caller goes through this one place, so the pin menu
+/// (W3-17) shapes its request exactly like Edit profile.
+identity.UpdateProfileRequest buildUpdateProfileRequest({
+  required String idempotencyKey,
+  String? displayName,
+  String? bio,
+  String? avatarMediaId,
+  String? bannerMediaId,
+  String? location,
+  String? website,
+  String? pinnedPostId,
+}) {
+  final request = identity.UpdateProfileRequest(idempotencyKey: idempotencyKey);
+  if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
+  if (displayName != null) request.displayName = displayName;
+  if (bio != null) request.bio = bio;
+  if (bannerMediaId != null) request.bannerMediaId = bannerMediaId;
+  if (location != null) request.location = location;
+  if (website != null) request.website = website;
+  if (pinnedPostId != null) request.pinnedPostId = pinnedPostId;
+  return request;
+}
 
 /// Talks to `IdentityService` and keeps the local profile cache (drift) in
 /// sync, so `GetMe`/`GetProfile` are only ever a Firestore read the client
@@ -18,6 +47,14 @@ class IdentityRepository {
   final ApiClient _apiClient;
   final AppDatabase _database;
 
+  bool _profileExtrasRefused = false;
+
+  /// The server answered FEATURE_DISABLED `profile_extras` to a pin change
+  /// (the flag turned off since `GetMe` listed it): the pin menu rows stay
+  /// hidden for the rest of the session, until a fresh [getMe] says what the
+  /// flag set is now (the server stays authoritative, ADR-0008 D6).
+  bool get profileExtrasRefused => _profileExtrasRefused;
+
   /// The cached copy of the caller's own profile, if any. Renders instantly
   /// while [getMe] refreshes in the background (cache-first).
   Future<CachedProfile?> cachedOwnProfile(String userId) {
@@ -30,6 +67,8 @@ class IdentityRepository {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
+      // A fresh flag set decides again, not an earlier refusal.
+      _profileExtrasRefused = false;
       await _cacheProfile(response.profile, epoch);
       return response;
     });
@@ -85,10 +124,16 @@ class IdentityRepository {
   }
 
   /// Partial update of the caller's own profile (P2): only the non-null
-  /// fields are sent and changed. [avatarMediaId] is a READY avatar media id
-  /// from MediaService (P4; with `FEATURE_MEDIA` off the server answers
-  /// MEDIA_NOT_READY). Privacy is deliberately not exposed (the server
-  /// rejects it until private accounts).
+  /// fields are sent and changed (see [buildUpdateProfileRequest]).
+  /// [avatarMediaId] is a READY avatar media id from MediaService (P4; with
+  /// `FEATURE_MEDIA` off the server answers MEDIA_NOT_READY). Privacy is
+  /// deliberately not exposed (the server rejects it until private accounts).
+  ///
+  /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
+  /// `profile_extras` fields (ADR-0024): the server refuses **any** of them,
+  /// even an empty one, with FEATURE_DISABLED unless `profile_extras` is on
+  /// for the caller, so callers gate them on that flag (the Edit profile
+  /// cubit, the pin menu) and pass null otherwise. `""` clears one.
   /// [idempotencyKey] must be reused when retrying the same edit. Updates
   /// the local profile cache with the server's copy.
   Future<identity.Profile> updateProfile({
@@ -96,15 +141,23 @@ class IdentityRepository {
     String? displayName,
     String? bio,
     String? avatarMediaId,
+    String? bannerMediaId,
+    String? location,
+    String? website,
+    String? pinnedPostId,
   }) {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
-      final request = identity.UpdateProfileRequest(
+      final request = buildUpdateProfileRequest(
         idempotencyKey: idempotencyKey,
+        displayName: displayName,
+        bio: bio,
+        avatarMediaId: avatarMediaId,
+        bannerMediaId: bannerMediaId,
+        location: location,
+        website: website,
+        pinnedPostId: pinnedPostId,
       );
-      if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
-      if (displayName != null) request.displayName = displayName;
-      if (bio != null) request.bio = bio;
       final response = await _apiClient.identity.updateProfile(request);
       await _cacheProfile(response.profile, epoch);
       return response.profile;
@@ -129,6 +182,27 @@ class IdentityRepository {
       await _cacheProfile(response.profile, epoch);
       return response.profile;
     });
+  }
+
+  /// Pins [postId] to the caller's profile, or unpins with `""` (W3-17): an
+  /// [updateProfile] that sends only `pinned_post_id` (`""` stays a present
+  /// field, so it clears). Only the caller's own visible POST, QUOTE or REPLY
+  /// can be pinned. Needs `profile_extras` for the caller; a FEATURE_DISABLED
+  /// answer for it is remembered ([profileExtrasRefused]) and rethrown.
+  /// [idempotencyKey] must be reused when retrying the same intent.
+  Future<identity.Profile> updatePinnedPost({
+    required String idempotencyKey,
+    required String postId,
+  }) async {
+    try {
+      return await updateProfile(
+        idempotencyKey: idempotencyKey,
+        pinnedPostId: postId,
+      );
+    } on FeatureDisabledException catch (error) {
+      if (error.feature == kFeatureProfileExtras) _profileExtrasRefused = true;
+      rethrow;
+    }
   }
 
   /// Converts a cached row back into the generated [identity.Profile] type,

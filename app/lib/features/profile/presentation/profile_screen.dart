@@ -13,11 +13,14 @@ import '../../../shared/widgets/app_pill_button.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import '../../../shared/widgets/post_pin_control.dart';
 import '../../graph/data/graph_repository.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../../posts/data/posts_repository.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../timeline/data/timeline_repository.dart';
@@ -28,8 +31,12 @@ import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
 import '../domain/profile_edit_feature_flag.dart';
+import 'bloc/pinned_post_cubit.dart';
+import 'bloc/pinned_post_state.dart';
+import 'bloc/post_pin_cubit.dart';
 import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
+import 'widgets/pinned_post_section.dart';
 import 'widgets/profile_header.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
@@ -346,6 +353,10 @@ class _ScrollColumn extends StatelessWidget {
   }
 }
 
+/// The id of the Posts tab: the default selection, and the tab whose cubit
+/// the Pinned row filters (W3-17).
+const _postsTabId = 'posts';
+
 /// One tab of the profile: everything the scroll scaffold needs to show it.
 /// The tab list is data, so another tab is one more entry in
 /// [_profileTabSpecs], with no change to the scroll structure (W3-16 added
@@ -359,6 +370,7 @@ class _ProfileTabSpec {
     required this.emptyTitle,
     this.emptySubtitle,
     this.ownPosts = false,
+    this.showsPinned = false,
     this.requiresProfileTabs = false,
   });
 
@@ -377,6 +389,10 @@ class _ProfileTabSpec {
   /// The own profile's pending posts and "Write a post" belong to this tab.
   final bool ownPosts;
 
+  /// The Pinned row (W3-17) sits above this tab's posts, and the post it shows
+  /// is left out of them.
+  final bool showsPinned;
+
   /// A tab the server serves only while `profile_tabs` is on for the caller
   /// (Reposts, Media). It is listed only with the flag, and a FEATURE_DISABLED
   /// answer for it drops every such tab (see [_ProfilePostsState]). Its pages
@@ -392,12 +408,13 @@ List<_ProfileTabSpec> _profileTabSpecs({
   required bool showProfileTabs,
 }) => [
   _ProfileTabSpec(
-    id: 'posts',
+    id: _postsTabId,
     label: 'Posts',
     feedFor: (userId) => FeedKey.user(userId),
     emptyTitle: ({required own, required handle}) =>
         own ? "You haven't posted yet" : "@$handle hasn't posted yet",
     ownPosts: true,
+    showsPinned: true,
   ),
   if (showReplies)
     _ProfileTabSpec(
@@ -474,7 +491,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   /// The selected tab, by [_ProfileTabSpec.id] and not by position: the tab
   /// list changes length with the flags, and a missing id falls back to the
   /// first tab (Posts).
-  String _tabId = 'posts';
+  String _tabId = _postsTabId;
 
   /// The server refused a `profile_tabs` tab although `GetMe` listed the
   /// flag: Reposts and Media are left out for the rest of this screen.
@@ -484,12 +501,69 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   /// (0 requests for a tab nobody opens), closed with the screen.
   final Map<String, TimelineCubit> _cubits = {};
 
+  /// The profile's Pinned row (W3-17), created on the first build that shows
+  /// posts (never while the blocked banner stands in for them) and told about
+  /// every change of the profile's `pinned_post_id`.
+  PinnedPostCubit? _pinned;
+  StreamSubscription<PinnedPostState>? _pinnedSub;
+
+  /// Pin / Unpin from the own profile's post menus.
+  PostPinCubit? _postPin;
+
+  @override
+  void didUpdateWidget(_ProfilePosts oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final pin = widget.state.profile?.pinnedPostId;
+    if (pin != oldWidget.state.profile?.pinnedPostId) _pinned?.pinChanged(pin);
+  }
+
   @override
   void dispose() {
     for (final cubit in _cubits.values) {
       unawaited(cubit.close());
     }
+    unawaited(_pinnedSub?.cancel());
+    unawaited(_pinned?.close());
+    unawaited(_postPin?.close());
     super.dispose();
+  }
+
+  /// The one [PinnedPostCubit] of this profile. The post it covers (loading
+  /// or shown) is kept out of the Posts tab's rows, so it is never repeated
+  /// below the Pinned row.
+  PinnedPostCubit _pinnedFor(BuildContext context, identity.Profile profile) {
+    final existing = _pinned;
+    if (existing != null) return existing;
+    final profileCubit = context.read<ProfileCubit>();
+    final cubit = PinnedPostCubit(
+      posts: context.read<PostsRepository>(),
+      // The deleted post can only be the viewer's own: the header's count
+      // and pin follow at once (the server unpins in a job).
+      onDeleted: () {
+        if (!profileCubit.isClosed) profileCubit.pinnedPostDeleted();
+      },
+    );
+    _pinnedSub = cubit.stream.listen(
+      (pinned) => _cubits[_postsTabId]?.setExcludedPostId(pinned.coveredPostId),
+    );
+    cubit.pinChanged(profile.pinnedPostId);
+    return _pinned = cubit;
+  }
+
+  /// The own profile's Pin / Unpin cubit; a saved change reaches the session's
+  /// own profile (`OnboardingProfileUpdated`) and this profile's header.
+  PostPinCubit _postPinFor(BuildContext context) {
+    final existing = _postPin;
+    if (existing != null) return existing;
+    final profileCubit = context.read<ProfileCubit>();
+    final onboarding = context.read<OnboardingBloc>();
+    return _postPin = PostPinCubit(
+      identityRepository: context.read<IdentityRepository>(),
+      onProfileUpdated: (profile) {
+        onboarding.add(OnboardingProfileUpdated(profile));
+        if (!profileCubit.isClosed) profileCubit.profileUpdated(profile);
+      },
+    );
   }
 
   TimelineCubit _cubitFor(
@@ -501,17 +575,22 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final profileCubit = context.read<ProfileCubit>();
     return _cubits.putIfAbsent(
       spec.id,
-      () => TimelineCubit(
-        feed: spec.feedFor(userId),
-        timeline: context.read<TimelineRepository>(),
-        posts: context.read<PostsRepository>(),
-        viewerUserId: viewerUserId,
-        // The header's post count follows a delete at once (a deleted post
-        // can only be the viewer's own).
-        onPostDeleted: (_) {
-          if (!profileCubit.isClosed) profileCubit.postDeleted();
-        },
-      )..load(),
+      () =>
+          TimelineCubit(
+              feed: spec.feedFor(userId),
+              timeline: context.read<TimelineRepository>(),
+              posts: context.read<PostsRepository>(),
+              viewerUserId: viewerUserId,
+              // The header's post count follows a delete at once (a deleted post
+              // can only be the viewer's own).
+              onPostDeleted: (_) {
+                if (!profileCubit.isClosed) profileCubit.postDeleted();
+              },
+            )
+            ..setExcludedPostId(
+              spec.showsPinned ? _pinned?.state.coveredPostId : null,
+            )
+            ..load(),
     );
   }
 
@@ -582,6 +661,13 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     );
     final profileCubit = context.read<ProfileCubit>();
     final ownPosts = state.isOwnProfile && spec.ownPosts;
+    final pinned = _pinnedFor(context, profile);
+    // Pin / Unpin: the own profile, with `profile_extras` on for the viewer
+    // (the Pinned row itself renders whatever the flags are).
+    final postPin =
+        state.isOwnProfile && isFeatureEnabled(context, kFeatureProfileExtras)
+        ? _postPinFor(context)
+        : null;
     return _ProfileScrollScaffold(
       outer: widget.outer,
       header: header,
@@ -595,37 +681,70 @@ class _ProfilePostsState extends State<_ProfilePosts> {
               spec.requiresProfileTabs && _refusedProfileTabs(after),
           listener: (context, _) => setState(() {
             _profileTabsRefused = true;
-            _tabId = 'posts';
+            _tabId = _postsTabId;
           }),
-          child: TimelineFeedView(
-            nested: true,
-            fillViewport: spec.requiresProfileTabs,
-            scrollViewKey: scrollKey,
-            newPostsPillTop: AppSpacing.sm,
-            viewerUserId: viewerUserId,
-            emptyTitle: spec.emptyTitle(
-              own: state.isOwnProfile,
-              handle: profile.handle,
-            ),
-            emptySubtitle: spec.emptySubtitle?.call(
-              own: state.isOwnProfile,
-              handle: profile.handle,
-            ),
-            emptyAction: ownPosts && canCompose
-                ? AppPillButton(
-                    label: 'Write a post',
-                    compact: true,
-                    onPressed: () => context.push(AppRouter.composePath),
-                  )
-                : null,
-            showPending: ownPosts,
-            pendingAuthorId: viewerUserId,
-            hideAuthorsOnRelationship: false,
-            // The request can outlive this screen: guard the cubit, not context.
-            onRelationshipChanged: (relationship) {
-              if (!profileCubit.isClosed) {
-                profileCubit.relationshipChanged(relationship);
+          child: _withPinControl(
+            postPin,
+            pinnedPostId: profile.pinnedPostId,
+            builder: (pinControl) {
+              // The request can outlive this screen: guard the cubit, not
+              // context.
+              void onRelationshipChanged(graph.Relationship relationship) {
+                if (!profileCubit.isClosed) {
+                  profileCubit.relationshipChanged(relationship);
+                }
               }
+
+              Widget feed({required bool pinCovered}) => TimelineFeedView(
+                nested: true,
+                fillViewport: spec.requiresProfileTabs,
+                scrollViewKey: scrollKey,
+                newPostsPillTop: AppSpacing.sm,
+                viewerUserId: viewerUserId,
+                headerSlivers: [
+                  if (spec.showsPinned)
+                    SliverToBoxAdapter(
+                      child: PinnedPostSection(
+                        cubit: pinned,
+                        viewerUserId: viewerUserId,
+                        onRelationshipChanged: onRelationshipChanged,
+                        pinControl: pinControl,
+                      ),
+                    ),
+                ],
+                emptyTitle: spec.emptyTitle(
+                  own: state.isOwnProfile,
+                  handle: profile.handle,
+                ),
+                emptySubtitle: spec.emptySubtitle?.call(
+                  own: state.isOwnProfile,
+                  handle: profile.handle,
+                ),
+                emptyAction: ownPosts && canCompose
+                    ? AppPillButton(
+                        label: 'Write a post',
+                        compact: true,
+                        onPressed: () => context.push(AppRouter.composePath),
+                      )
+                    : null,
+                // Only post here is the one in the Pinned row above.
+                hideEmptyState: pinCovered,
+                showPending: ownPosts,
+                pendingAuthorId: viewerUserId,
+                hideAuthorsOnRelationship: false,
+                onRelationshipChanged: onRelationshipChanged,
+                pinControl: pinControl,
+              );
+
+              if (!spec.showsPinned) return feed(pinCovered: false);
+              return BlocBuilder<PinnedPostCubit, PinnedPostState>(
+                bloc: pinned,
+                buildWhen: (before, after) =>
+                    (before.coveredPostId != null) !=
+                    (after.coveredPostId != null),
+                builder: (context, pinnedState) =>
+                    feed(pinCovered: pinnedState.coveredPostId != null),
+              );
             },
           ),
         ),
@@ -640,6 +759,29 @@ class _ProfilePostsState extends State<_ProfilePosts> {
         error is FeatureDisabledException &&
         error.feature == kFeatureProfileTabs;
     return refused(state.error) || refused(state.notice);
+  }
+
+  /// Builds the tab body with the Pin / Unpin control of the own profile
+  /// (null for another profile, the flag off or after the server refused it:
+  /// the card then offers no pin rows).
+  Widget _withPinControl(
+    PostPinCubit? cubit, {
+    required String pinnedPostId,
+    required Widget Function(PostPinControl? control) builder,
+  }) {
+    if (cubit == null) return builder(null);
+    return BlocBuilder<PostPinCubit, PostPinState>(
+      bloc: cubit,
+      builder: (context, pinState) => builder(
+        pinState.refused
+            ? null
+            : PostPinControl(
+                pinnedPostId: pinnedPostId,
+                onPin: cubit.pin,
+                onUnpin: cubit.unpin,
+              ),
+      ),
+    );
   }
 }
 

@@ -76,6 +76,7 @@ class TimelineCubit extends Cubit<TimelineState> {
   final Set<String> _held = {};
   final Set<String> _removed = {};
   final Set<String> _hiddenAuthors = {};
+  String? _excludedPostId;
   final Map<String, String> _deleteKeys = {};
 
   /// Opens the feed: cache first, then (throttled) one refresh.
@@ -226,6 +227,17 @@ class TimelineCubit extends Cubit<TimelineState> {
     _apply(cached);
   }
 
+  /// W3-17: the profile shows this post in its Pinned row, so the Posts tab
+  /// must not repeat it below. Only the visible rows change: the post stays in
+  /// the cached snapshot and returns when [postId] is cleared (the pin was
+  /// removed, or its row failed to load). `null` clears.
+  void setExcludedPostId(String? postId) {
+    final id = (postId == null || postId.isEmpty) ? null : postId;
+    if (id == _excludedPostId) return;
+    _excludedPostId = id;
+    _emitVisible();
+  }
+
   /// D6: the caller blocked or muted [userId]; their posts leave the list.
   void hideAuthor(String userId) {
     if (_hiddenAuthors.add(userId)) _emitVisible();
@@ -306,6 +318,7 @@ class TimelineCubit extends Cubit<TimelineState> {
             : '';
         if (_held.contains(id) ||
             _removed.contains(id) ||
+            id == _excludedPostId ||
             _hiddenAuthors.contains(view.post.author.userId) ||
             (embeddedAuthor.isNotEmpty &&
                 _hiddenAuthors.contains(embeddedAuthor))) {
