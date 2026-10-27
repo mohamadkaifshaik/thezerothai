@@ -99,13 +99,26 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 	return connect.NewResponse(resp), nil
 }
 
-// GetUserTimeline returns one user's posts (Posts tab or Replies tab).
+// GetUserTimeline returns one user's posts: the Posts, Replies, Media or Reposts tab (ADR-0024 D5). `tab`
+// UNSPECIFIED (the default and every pre-W3 client) reads include_replies exactly as before; any other tab wins and
+// include_replies is ignored with no error. A page_token, gap_page_token or since_token is bound to the caller, the
+// target and the EFFECTIVE tab (posts, replies, media or reposts): a token used on another tab is VALIDATION
+// field=page_token|since_token with 0 reads, and an unknown `tab` number is VALIDATION field=tab. Media and Reposts
+// need FEATURE_PROFILE_TABS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata feature=profile_tabs,
+// 0 reads); Posts and Replies are ungated. The request log carries tab=<effective tab>.
 //
-// Budget (ADR-0010 D16/D17), reads: 3 + max(page, 20) cold (interceptor + target users + caller graph +
+// Budget (ADR-0010 D16/D17), Posts tab, reads: 3 + max(page, 20) cold (interceptor + target users + caller graph +
 // Limit(max(page, 20)): a cold Posts tab fills the 20-post author-recent entry, so page < 20 still reads 20;
 // 53 at page 50; +1 when the caller's blockedBy overflowed), 0 warm for a Posts-tab first page (<= 20) or an
 // empty refresh served by a fresh author-recent entry, 4 for a cold refresh with 0 new posts. Planning 11.
 // Writes 0.
+//
+// Budget, Media and Reposts tabs (ADR-0024 D5): 4 + page cold (interceptor, target users, caller graph, one
+// Limit(page) query on the hasMedia or kind composite index, and the caller's userLikes when FEATURE_ENGAGEMENT or
+// FEATURE_BOOKMARKS is on): 24 at page 20, 54 at page 50, +1 when the caller's blockedBy overflowed; 20 warm at
+// page 20 (users, graph and userLikes cached 60 s, but no instance cache for the query: every open reads
+// Firestore); an empty tab reads 1 row. Planning 20. Writes 0. The two W3-2 indexes must be READY and the W3-8
+// backfill run before the flag leaves off (docs/runbooks/posts.md section 13).
 //
 // A since_token refresh also reads the removal log (removed_ids, ADR-0016 D10), same cost as GetHomeTimeline: 0 warm,
 // +1 to +50 once per instance per CACHE_TTL, +100 worst.
