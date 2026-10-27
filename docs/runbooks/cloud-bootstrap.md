@@ -332,6 +332,12 @@ not an app-layer rules engine:
   review W3-22 M-2). A request for a missing object still answers 404.
   Writes still require the runtime service account's `roles/storage.objectAdmin`.
 - Both: `force_destroy = false` + `lifecycle { prevent_destroy = true }` on the media bucket.
+- Lifecycle rules (cost and retention, not access control): `-media-upload` deletes objects at age 2 days; `-media` has one rule,
+  delete when `daysSinceCustomTime` is 1 (ADR-0024 Amendment 1 A4, deletes replaced and removed avatars and banners; only the
+  API's retire step ever sets `customTime`). The `-media` rule is applied in dev (2026-10-27) and still pending in prod, which
+  waits for the founder's OK; check with
+  `gcloud storage buckets describe gs://<proj>-media --format="default(lifecycle_config)"`. See `docs/runbooks/media.md`
+  ("Replaced and removed avatars and banners", "Verification of the retire step").
 
 **Verify live** (ran against dzeroth-dev 2026-09-27; same shape expected on prod; the media bucket role change of 2026-10-27 is applied in both projects). Note `gcloud storage buckets
 describe` flattens field names (no `iamConfiguration.` prefix — that's the raw REST API's shape, not this CLI's):
