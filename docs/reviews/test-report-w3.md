@@ -9,7 +9,7 @@ budget is at or under its ADR-0024 ceiling; combined `internal/` coverage in sec
 (#354): the website is hidden under a global off, the exact `""` clears from any caller, whitespace-only is still gated and a
 mixed clear-and-set request is refused whole (section 6); no assertion had to be changed to fit main's behaviour. One Low
 defect is filed (D-1, the likes cursor) and one test-infrastructure defect (D-2, a shared emulator temp directory). W3-22 M-2
-(a Terraform role) cannot be tested on emulators. Nothing in production code was edited.
+(a Terraform role, applied per #356) cannot be tested on emulators. Nothing in production code was edited.
 
 ---
 
@@ -155,7 +155,7 @@ to `false` with no other change to the expectations, and every assertion that re
 - The two constants are now only labels for the two places that read them and can be deleted with their conditionals.
 
 Still open: **D-1** (section 5), pinned by `w320LikesRepeatsAfterLastGoneAndNextRelike = true`, which flips with its fix. W3-22
-**M-2** (the public bucket is listable) is a Terraform role and cannot be tested on emulators. The fixed items **L-1, L-2, L-3,
+**M-2** (the public bucket is listable) is a Terraform role (applied per #356) and cannot be tested on emulators. The fixed items **L-1, L-2, L-3,
 L-4, L-5 and M-3** have no constant: their tests assert the fixed behaviour (the pre-merge constants for L-1, L-2, L-3 and M-3
 were removed).
 
