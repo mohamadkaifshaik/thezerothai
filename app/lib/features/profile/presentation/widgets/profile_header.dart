@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -24,6 +23,7 @@ import '../../../graph/presentation/bloc/relationship_state.dart';
 import '../../../graph/presentation/graph_error_messages.dart';
 import '../../../moderation/presentation/report_sheet.dart';
 import 'block_confirmation_dialog.dart';
+import 'profile_cover_band.dart';
 
 /// The profile header: avatar, display name, `@handle`, bio, follower/
 /// following counts, and (for other users, when the graph flag is on) a
@@ -202,7 +202,7 @@ class _ProfileHeaderBody extends StatelessWidget {
               children: [
                 SizedBox(
                   height: bannerHeight,
-                  child: _CoverBand(
+                  child: ProfileCoverBand(
                     url: _bannerUrlFor(profile, fullSize: !narrow),
                   ),
                 ),
@@ -364,54 +364,6 @@ String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
   final thumb = profile.bannerThumbUrl;
   final wanted = fullSize ? full : thumb;
   return wanted.isNotEmpty ? wanted : (fullSize ? thumb : full);
-}
-
-/// The band behind the avatar: the profile's banner when it has one, else a
-/// flat theme surface like X's empty banner (no gradient anywhere in the app).
-/// The flat surface is also the placeholder and the error state, and the band
-/// is sized by its parent (3:1), so a banner arriving later moves nothing. It
-/// is decoration: hidden from assistive technology (a banner has no alt text).
-class _CoverBand extends StatelessWidget {
-  const _CoverBand({required this.url});
-
-  final String url;
-
-  /// The widest source image (the 1500 px full banner): nothing is decoded
-  /// larger.
-  static const _maxDecodePx = 1500;
-
-  @override
-  Widget build(BuildContext context) {
-    final flat = ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHigh,
-    );
-    if (url.isEmpty) return ExcludeSemantics(child: flat);
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    return ExcludeSemantics(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final px = (constraints.maxWidth * pixelRatio).ceil();
-          return CachedNetworkImage(
-            key: ValueKey(url),
-            imageUrl: url,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            memCacheWidth: px > 0 ? math.min(px, _maxDecodePx) : null,
-            fadeInDuration: reduceMotion
-                ? Duration.zero
-                : const Duration(milliseconds: 150),
-            fadeOutDuration: reduceMotion
-                ? Duration.zero
-                : const Duration(milliseconds: 150),
-            placeholder: (_, _) => flat,
-            errorWidget: (_, _, _) => flat,
-          );
-        },
-      ),
-    );
-  }
 }
 
 /// "Follows you", beside the handle: a small muted label on a raised surface
