@@ -22,6 +22,8 @@ type fakeRepo struct {
 	lastAuthors   []string
 	lastAuthor    string
 	lastReplies   bool
+	lastMedia     bool
+	lastKind      Kind
 	lastWindow    Window
 	lastLimit     int
 	beforeReturn  func()
@@ -97,6 +99,17 @@ func (r *fakeRepo) ByAuthors(ctx context.Context, authorIDs []string, w Window, 
 
 func (r *fakeRepo) ByAuthor(ctx context.Context, authorID string, includeReplies bool, w Window, limit int) ([]*Post, error) {
 	r.lastAuthor, r.lastReplies = authorID, includeReplies
+	return r.query(ctx, w, limit)
+}
+
+// ByAuthorMedia and ByAuthorKind record what the service asked (lastMedia / lastKind) and answer like ByAuthor.
+func (r *fakeRepo) ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error) {
+	r.lastAuthor, r.lastMedia = authorID, true
+	return r.query(ctx, w, limit)
+}
+
+func (r *fakeRepo) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {
+	r.lastAuthor, r.lastKind = authorID, kind
 	return r.query(ctx, w, limit)
 }
 

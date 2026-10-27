@@ -148,6 +148,12 @@ func (f *fakePosts) ByAuthors(context.Context, []string, posts.Window, int) ([]*
 func (f *fakePosts) ByAuthor(context.Context, string, bool, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }
+func (f *fakePosts) ByAuthorMedia(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+func (f *fakePosts) ByAuthorKind(context.Context, string, posts.Kind, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
 func (f *fakePosts) AuthorRecent(string) (posts.Recent, bool)                 { return posts.Recent{}, false }
 func (f *fakePosts) StoreAuthorRecent(string, []*posts.Post, bool, time.Time) {}
 
