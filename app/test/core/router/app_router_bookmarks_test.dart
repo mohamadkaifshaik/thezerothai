@@ -12,15 +12,18 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
+import 'package:dzeroth/features/engagement/data/likes_repository.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
 import 'package:dzeroth/features/engagement/presentation/bookmarks_screen.dart';
 import 'package:dzeroth/features/engagement/presentation/engagement_error_messages.dart';
+import 'package:dzeroth/features/engagement/presentation/likes_tab.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +31,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../support/bookmarks_fixtures.dart';
 import '../../support/fake_transport.dart';
+import '../../support/likes_fixtures.dart';
 import '../../support/posts_fixtures.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
@@ -57,20 +61,35 @@ void main() {
     isPasswordProvider: true,
   );
 
+  late Uri lastUri;
+
   Future<String> openAt(
     WidgetTester tester,
     Set<String> flags, {
     FakeBookmarksServer? server,
+    FakeLikesServer? likes,
+    String location = AppRouter.bookmarksPath,
   }) async {
     final script = server ?? FakeBookmarksServer();
+    // One transport for both lists: the likes server hands the bookmark
+    // procedures to the bookmarks server.
+    final likesScript = likes ?? FakeLikesServer(bookmarks: script);
     final auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
+    final client = ApiClient.withTransport(FakeTransport(likesScript.handle));
+    final epoch = SessionEpoch();
     final repo = BookmarksRepository(
-      apiClient: ApiClient.withTransport(FakeTransport(script.handle)),
+      apiClient: client,
       gate: ServiceFeatureGate(isEnabled: () => flags.contains('bookmarks')),
-      epoch: SessionEpoch(),
+      epoch: epoch,
     );
     addTearDown(repo.dispose);
+    final likesRepo = LikesRepository(
+      apiClient: client,
+      gate: ServiceFeatureGate(isEnabled: () => flags.contains('likes_list')),
+      epoch: epoch,
+    );
+    addTearDown(likesRepo.dispose);
     final overlay = BookmarksCubit(repository: repo);
     addTearDown(overlay.close);
     final engagement = EngagementCubit(repository: _MockEngagementRepository());
@@ -93,7 +112,7 @@ void main() {
       ),
     );
     final appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
-    appRouter.router.go(AppRouter.bookmarksPath);
+    appRouter.router.go(location);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.reset);
@@ -101,6 +120,7 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<BookmarksRepository>.value(value: repo),
+          RepositoryProvider<LikesRepository>.value(value: likesRepo),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
         child: MultiBlocProvider(
@@ -118,7 +138,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    return appRouter.router.routeInformationProvider.value.uri.path;
+    lastUri = appRouter.router.routeInformationProvider.value.uri;
+    return lastUri.path;
   }
 
   test('the path', () {
@@ -172,5 +193,91 @@ void main() {
     expect(path, AppRouter.bookmarksPath);
     expect(find.text(kBookmarksUnavailableTitle), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
+  });
+
+  group('/bookmarks?tab=likes (W3-18)', () {
+    const likesLink = '${AppRouter.bookmarksPath}?tab=likes';
+
+    testWidgets('with likes_list on the link lands on the Likes tab, query '
+        'kept; Bookmarks is not asked for', (tester) async {
+      final bookmarks = FakeBookmarksServer();
+      final likes = FakeLikesServer(bookmarks: bookmarks)
+        ..pages[''] = () => likesPage([4, 3]);
+      final path = await openAt(
+        tester,
+        const {'posts', 'engagement', 'bookmarks', 'likes_list'},
+        server: bookmarks,
+        likes: likes,
+        location: likesLink,
+      );
+
+      expect(path, AppRouter.bookmarksPath);
+      expect(lastUri.queryParameters['tab'], 'likes');
+      expect(find.byType(BookmarksScreen), findsOneWidget);
+      expect(find.text('Liked post number 4'), findsOneWidget);
+      expect(likes.listTokens, ['']);
+      expect(bookmarks.listTokens, isEmpty);
+    });
+
+    testWidgets('likes_list alone (no bookmarks flag) is enough for the '
+        'link', (tester) async {
+      final likes = FakeLikesServer()..pages[''] = () => likesPage([4]);
+      final path = await openAt(
+        tester,
+        const {'posts', 'likes_list'},
+        likes: likes,
+        location: likesLink,
+      );
+
+      expect(path, AppRouter.bookmarksPath);
+      expect(find.text('Liked post number 4'), findsOneWidget);
+    });
+
+    testWidgets('with likes_list off the query is ignored: Bookmarks shows, '
+        'no tab bar, no likes call', (tester) async {
+      final bookmarks = FakeBookmarksServer()
+        ..pages[''] = () => bookmarksPage([2, 1]);
+      final likes = FakeLikesServer(bookmarks: bookmarks);
+      final path = await openAt(
+        tester,
+        const {'posts', 'bookmarks'},
+        server: bookmarks,
+        likes: likes,
+        location: likesLink,
+      );
+
+      expect(path, AppRouter.bookmarksPath);
+      expect(find.byType(BookmarksScreen), findsOneWidget);
+      expect(find.byType(AppTabBar), findsNothing);
+      expect(find.text(postView(2).post.text), findsOneWidget);
+      expect(find.text(kLikesEmptyTitle), findsNothing);
+      expect(likes.listCalls, 0);
+      expect(bookmarks.listTokens, ['']);
+    });
+
+    testWidgets('without the posts flag the link still goes Home, with or '
+        'without likes_list', (tester) async {
+      for (final flags in <Set<String>>[
+        const {'likes_list'},
+        const {'likes_list', 'bookmarks'},
+      ]) {
+        final likes = FakeLikesServer();
+        final path = await openAt(
+          tester,
+          flags,
+          likes: likes,
+          location: likesLink,
+        );
+        expect(path, AppRouter.homePath, reason: '$flags');
+        expect(find.byType(BookmarksScreen), findsNothing, reason: '$flags');
+        expect(likes.listCalls, 0, reason: 'no RPC for a redirect');
+      }
+    });
+
+    test('a signed-out cold open is not kept through sign-in: the history '
+        'link is not a shareable target (W2-9 allowlist, W2-14 I-1)', () {
+      expect(AppRouter.deepLinkTarget(Uri.parse(likesLink)), isNull);
+      expect(AppRouter.deepLinkTarget(Uri.parse('/bookmarks')), isNull);
+    });
   });
 }

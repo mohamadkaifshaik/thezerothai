@@ -64,15 +64,18 @@ String engagementErrorMessage(
 /// its own on the Bookmarks screen, not an error with Retry.
 const kBookmarksUnavailableTitle = "Bookmarks aren't available right now";
 
-/// The banner over the Bookmarks list when a refresh or page failed and the
-/// rows already loaded stay.
-String bookmarksListNoticeMessage(AppException error) {
+/// The banner over a History list ([noun]: "bookmarks" or "likes") when a
+/// refresh or page failed and the rows already loaded stay.
+String listNoticeMessage(AppException error, {required String noun}) {
   return switch (error) {
     final RateLimitedException e => rateLimitedMessage(e),
-    NetworkException() =>
-      "You're offline. Showing the bookmarks already loaded.",
+    NetworkException() => "You're offline. Showing the $noun already loaded.",
     DegradedModeException() =>
       'Dzeroth is in a limited mode right now. Please try again shortly.',
-    _ => "Couldn't refresh your bookmarks.",
+    _ => "Couldn't refresh your $noun.",
   };
 }
+
+/// The banner over the Bookmarks list (see [listNoticeMessage]).
+String bookmarksListNoticeMessage(AppException error) =>
+    listNoticeMessage(error, noun: 'bookmarks');

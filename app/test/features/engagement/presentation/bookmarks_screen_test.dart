@@ -296,7 +296,7 @@ void main() {
         lessThan(tester.getTopLeft(find.text('Saved post number 1')).dy),
       );
       expect(filledBookmark(), findsNWidgets(3));
-      expect(find.byIcon(Icons.bookmark_border), findsOneWidget, reason: 'tab');
+      expect(find.byType(AppTabBar), findsNothing, reason: 'likes_list off');
       expect(find.bySemanticsLabel('Bookmarked'), findsNWidgets(3));
       // Every row is in the local set (no flag on the row yet).
       for (final n in [1, 2, 3]) {
@@ -306,7 +306,7 @@ void main() {
     });
 
     testWidgets(
-      'header "Bookmarks" and a one-tab bar (bookmark icon + label)',
+      'header "History" and no tab bar while likes_list is off (W3-18)',
       (tester) async {
         final handle = tester.ensureSemantics();
         server.pages[''] = () => _rows([1]);
@@ -320,19 +320,9 @@ void main() {
           ),
           findsOneWidget,
         );
-        final tabs = find.byType(AppTabBar);
-        expect(tabs, findsOneWidget);
-        expect(
-          find.descendant(of: tabs, matching: find.text('Bookmarks')),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: tabs,
-            matching: find.byIcon(Icons.bookmark_border),
-          ),
-          findsOneWidget,
-        );
+        // One list, so nothing to pick between: no tab bar (it comes with the
+        // Likes tab, behind the likes_list flag).
+        expect(find.byType(AppTabBar), findsNothing);
         expect(
           tester.getSemantics(find.byType(AppBackHeader).first),
           isNotNull,
