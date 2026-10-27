@@ -433,6 +433,6 @@ void main() {
   testWidgets('building the header makes no RPC of its own', (tester) async {
     await open(tester);
 
-    verifyNever(() => graphRepository.relationshipFor(any()));
+    verifyNever(() => graphRepository.profileRelationshipFor(any()));
   });
 }

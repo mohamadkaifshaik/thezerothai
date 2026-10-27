@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ProfileState {
 
- ProfileStatus get status; identity.Profile? get profile; graph.Relationship? get relationship; bool get isOwnProfile; bool get graphEnabled; AppException? get error;
+ ProfileStatus get status; identity.Profile? get profile; graph.Relationship? get relationship; bool get isOwnProfile; bool get followedBy; bool get graphEnabled; AppException? get error;
 /// Create a copy of ProfileState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $ProfileStateCopyWith<ProfileState> get copyWith => _$ProfileStateCopyWithImpl<P
 @override
 bool operator ==(Object other) {
   final _this = this as ProfileState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProfileState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.relationship, _this.relationship) || other.relationship == _this.relationship)&&(identical(other.isOwnProfile, _this.isOwnProfile) || other.isOwnProfile == _this.isOwnProfile)&&(identical(other.graphEnabled, _this.graphEnabled) || other.graphEnabled == _this.graphEnabled)&&(identical(other.error, _this.error) || other.error == _this.error));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProfileState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.relationship, _this.relationship) || other.relationship == _this.relationship)&&(identical(other.isOwnProfile, _this.isOwnProfile) || other.isOwnProfile == _this.isOwnProfile)&&(identical(other.followedBy, _this.followedBy) || other.followedBy == _this.followedBy)&&(identical(other.graphEnabled, _this.graphEnabled) || other.graphEnabled == _this.graphEnabled)&&(identical(other.error, _this.error) || other.error == _this.error));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ProfileState;
-  return Object.hash(runtimeType,_this.status,_this.profile,_this.relationship,_this.isOwnProfile,_this.graphEnabled,_this.error);
+  return Object.hash(runtimeType,_this.status,_this.profile,_this.relationship,_this.isOwnProfile,_this.followedBy,_this.graphEnabled,_this.error);
 }
 
 @override
 String toString() {
   final _this = this as ProfileState;
-  return 'ProfileState(status: ${_this.status}, profile: ${_this.profile}, relationship: ${_this.relationship}, isOwnProfile: ${_this.isOwnProfile}, graphEnabled: ${_this.graphEnabled}, error: ${_this.error})';
+  return 'ProfileState(status: ${_this.status}, profile: ${_this.profile}, relationship: ${_this.relationship}, isOwnProfile: ${_this.isOwnProfile}, followedBy: ${_this.followedBy}, graphEnabled: ${_this.graphEnabled}, error: ${_this.error})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $ProfileStateCopyWith<$Res>  {
   factory $ProfileStateCopyWith(ProfileState value, $Res Function(ProfileState) _then) = _$ProfileStateCopyWithImpl;
 @useResult
 $Res call({
- ProfileStatus status, identity.Profile? profile, graph.Relationship? relationship, bool isOwnProfile, bool graphEnabled, AppException? error
+ ProfileStatus status, identity.Profile? profile, graph.Relationship? relationship, bool isOwnProfile, bool followedBy, bool graphEnabled, AppException? error
 });
 
 
@@ -68,12 +68,13 @@ class _$ProfileStateCopyWithImpl<$Res>
 
 /// Create a copy of ProfileState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? profile = freezed,Object? relationship = freezed,Object? isOwnProfile = null,Object? graphEnabled = null,Object? error = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? profile = freezed,Object? relationship = freezed,Object? isOwnProfile = null,Object? followedBy = null,Object? graphEnabled = null,Object? error = freezed,}) {
   return _then(ProfileState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as ProfileStatus,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
 as identity.Profile?,relationship: freezed == relationship ? _self.relationship : relationship // ignore: cast_nullable_to_non_nullable
 as graph.Relationship?,isOwnProfile: null == isOwnProfile ? _self.isOwnProfile : isOwnProfile // ignore: cast_nullable_to_non_nullable
+as bool,followedBy: null == followedBy ? _self.followedBy : followedBy // ignore: cast_nullable_to_non_nullable
 as bool,graphEnabled: null == graphEnabled ? _self.graphEnabled : graphEnabled // ignore: cast_nullable_to_non_nullable
 as bool,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as AppException?,
@@ -161,10 +162,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( ProfileStatus status,  identity.Profile? profile,  graph.Relationship? relationship,  bool isOwnProfile,  bool graphEnabled,  AppException? error)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( ProfileStatus status,  identity.Profile? profile,  graph.Relationship? relationship,  bool isOwnProfile,  bool followedBy,  bool graphEnabled,  AppException? error)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ProfileState() when $default != null:
-return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile,_that.graphEnabled,_that.error);case _:
+return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile,_that.followedBy,_that.graphEnabled,_that.error);case _:
   return orElse();
 
 }
@@ -182,10 +183,10 @@ return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( ProfileStatus status,  identity.Profile? profile,  graph.Relationship? relationship,  bool isOwnProfile,  bool graphEnabled,  AppException? error)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( ProfileStatus status,  identity.Profile? profile,  graph.Relationship? relationship,  bool isOwnProfile,  bool followedBy,  bool graphEnabled,  AppException? error)  $default,) {final _that = this;
 switch (_that) {
 case _ProfileState():
-return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile,_that.graphEnabled,_that.error);case _:
+return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile,_that.followedBy,_that.graphEnabled,_that.error);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -202,10 +203,10 @@ return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( ProfileStatus status,  identity.Profile? profile,  graph.Relationship? relationship,  bool isOwnProfile,  bool graphEnabled,  AppException? error)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( ProfileStatus status,  identity.Profile? profile,  graph.Relationship? relationship,  bool isOwnProfile,  bool followedBy,  bool graphEnabled,  AppException? error)?  $default,) {final _that = this;
 switch (_that) {
 case _ProfileState() when $default != null:
-return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile,_that.graphEnabled,_that.error);case _:
+return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile,_that.followedBy,_that.graphEnabled,_that.error);case _:
   return null;
 
 }
@@ -217,13 +218,14 @@ return $default(_that.status,_that.profile,_that.relationship,_that.isOwnProfile
 
 
 class _ProfileState implements ProfileState {
-  const _ProfileState({this.status = ProfileStatus.loading, this.profile, this.relationship, this.isOwnProfile = false, this.graphEnabled = false, this.error});
+  const _ProfileState({this.status = ProfileStatus.loading, this.profile, this.relationship, this.isOwnProfile = false, this.followedBy = false, this.graphEnabled = false, this.error});
   
 
 @override@JsonKey() final  ProfileStatus status;
 @override final  identity.Profile? profile;
 @override final  graph.Relationship? relationship;
 @override@JsonKey() final  bool isOwnProfile;
+@override@JsonKey() final  bool followedBy;
 @override@JsonKey() final  bool graphEnabled;
 @override final  AppException? error;
 
@@ -237,18 +239,18 @@ _$ProfileStateCopyWith<_ProfileState> get copyWith => __$ProfileStateCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProfileState&&(identical(other.status, status) || other.status == status)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.relationship, relationship) || other.relationship == relationship)&&(identical(other.isOwnProfile, isOwnProfile) || other.isOwnProfile == isOwnProfile)&&(identical(other.graphEnabled, graphEnabled) || other.graphEnabled == graphEnabled)&&(identical(other.error, error) || other.error == error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProfileState&&(identical(other.status, status) || other.status == status)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.relationship, relationship) || other.relationship == relationship)&&(identical(other.isOwnProfile, isOwnProfile) || other.isOwnProfile == isOwnProfile)&&(identical(other.followedBy, followedBy) || other.followedBy == followedBy)&&(identical(other.graphEnabled, graphEnabled) || other.graphEnabled == graphEnabled)&&(identical(other.error, error) || other.error == error));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,profile,relationship,isOwnProfile,graphEnabled,error);
+    return Object.hash(runtimeType,status,profile,relationship,isOwnProfile,followedBy,graphEnabled,error);
 }
 
 @override
 String toString() {
-    return 'ProfileState(status: $status, profile: $profile, relationship: $relationship, isOwnProfile: $isOwnProfile, graphEnabled: $graphEnabled, error: $error)';
+    return 'ProfileState(status: $status, profile: $profile, relationship: $relationship, isOwnProfile: $isOwnProfile, followedBy: $followedBy, graphEnabled: $graphEnabled, error: $error)';
 }
 
 
@@ -259,7 +261,7 @@ abstract mixin class _$ProfileStateCopyWith<$Res> implements $ProfileStateCopyWi
   factory _$ProfileStateCopyWith(_ProfileState value, $Res Function(_ProfileState) _then) = __$ProfileStateCopyWithImpl;
 @override @useResult
 $Res call({
- ProfileStatus status, identity.Profile? profile, graph.Relationship? relationship, bool isOwnProfile, bool graphEnabled, AppException? error
+ ProfileStatus status, identity.Profile? profile, graph.Relationship? relationship, bool isOwnProfile, bool followedBy, bool graphEnabled, AppException? error
 });
 
 
@@ -276,12 +278,13 @@ class __$ProfileStateCopyWithImpl<$Res>
 
 /// Create a copy of ProfileState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? profile = freezed,Object? relationship = freezed,Object? isOwnProfile = null,Object? graphEnabled = null,Object? error = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? profile = freezed,Object? relationship = freezed,Object? isOwnProfile = null,Object? followedBy = null,Object? graphEnabled = null,Object? error = freezed,}) {
   return _then(_ProfileState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as ProfileStatus,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
 as identity.Profile?,relationship: freezed == relationship ? _self.relationship : relationship // ignore: cast_nullable_to_non_nullable
 as graph.Relationship?,isOwnProfile: null == isOwnProfile ? _self.isOwnProfile : isOwnProfile // ignore: cast_nullable_to_non_nullable
+as bool,followedBy: null == followedBy ? _self.followedBy : followedBy // ignore: cast_nullable_to_non_nullable
 as bool,graphEnabled: null == graphEnabled ? _self.graphEnabled : graphEnabled // ignore: cast_nullable_to_non_nullable
 as bool,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as AppException?,

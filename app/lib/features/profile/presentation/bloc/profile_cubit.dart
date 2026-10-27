@@ -9,9 +9,10 @@ import '../../../onboarding/data/identity_repository.dart';
 import 'profile_state.dart';
 
 /// Loads `GetProfile(handle)` and, when the graph flag is on and the profile
-/// isn't the viewer's own, the viewer's relationship to it (ADR-0008 D4:
-/// `GetRelationships`, cached, so a repeat view of the same profile this
-/// session costs 0 network calls).
+/// isn't the viewer's own, the viewer's relationship to it plus whether it
+/// follows the viewer (ADR-0024 D7: `GetProfileRelationship`, replacing
+/// `GetRelationships` here; cached, so a repeat view of the same profile
+/// within a few minutes costs 0 network calls).
 class ProfileCubit extends Cubit<ProfileState> {
   ProfileCubit({
     required IdentityRepository identityRepository,
@@ -51,17 +52,21 @@ class ProfileCubit extends Cubit<ProfileState> {
           : await _identityRepository.getProfile(handle: _handle);
       final isOwnProfile = profile.userId == _ownUserId;
 
-      var relationship = _graphRepository.cached(profile.userId);
-      if (_graphEnabled && !isOwnProfile && relationship == null) {
+      graph.Relationship? relationship;
+      var followedBy = false;
+      if (_graphEnabled && !isOwnProfile) {
         try {
-          relationship = await _graphRepository.relationshipFor(profile.userId);
+          final known = await _graphRepository.profileRelationshipFor(
+            profile.userId,
+          );
+          relationship = known.relationship;
+          followedBy = known.followedBy ?? false;
         } on AppException {
           // The relationship is a nice-to-have on the header; a failure
-          // there must never block showing the profile itself.
-          relationship = null;
+          // there must never block showing the profile itself. Keep what the
+          // session already knew (no chip: "follows you" is unknown).
+          relationship = _graphRepository.cached(profile.userId);
         }
-      } else if (isOwnProfile) {
-        relationship = null;
       }
 
       emit(
@@ -70,6 +75,7 @@ class ProfileCubit extends Cubit<ProfileState> {
           profile: profile,
           relationship: relationship,
           isOwnProfile: isOwnProfile,
+          followedBy: followedBy,
           graphEnabled: _graphEnabled,
         ),
       );
@@ -107,6 +113,13 @@ class ProfileCubit extends Cubit<ProfileState> {
   /// Reflects a relationship change (e.g. after Block/Unblock/Mute) without
   /// a full reload.
   void relationshipChanged(graph.Relationship relationship) {
-    emit(state.copyWith(relationship: relationship));
+    // A block removes both follow edges (ADR-0008 D9); the viewer's own
+    // follow and unfollow never change whether they follow back.
+    emit(
+      state.copyWith(
+        relationship: relationship,
+        followedBy: relationship.blocking ? false : state.followedBy,
+      ),
+    );
   }
 }

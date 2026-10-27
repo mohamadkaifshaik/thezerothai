@@ -15,6 +15,7 @@ import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 ///   (outlined) when following, and "Unblock" (outlined) when the caller
 ///   blocks the target — Follow is never offered while blocking (calling it
 ///   would just fail with `TARGET_BLOCKED`).
+/// - [followedBy] turns "Follow" into "Follow back" (the profile header).
 /// - A `FOLLOW_STATE_REQUESTED` row renders a disabled "Requested" state:
 ///   unreachable until private accounts ship (ADR-0008 D1), but handled
 ///   defensively since the enum value exists on the wire.
@@ -23,7 +24,12 @@ import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 const _minSize = Size(88, AppSpacing.minTapTarget);
 
 class FollowButton extends StatelessWidget {
-  const FollowButton({super.key});
+  /// [followedBy]: the other user follows the viewer, so the not-following
+  /// state reads "Follow back" (only the profile header knows this; list rows
+  /// pass nothing).
+  const FollowButton({super.key, this.followedBy = false});
+
+  final bool followedBy;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +66,7 @@ class FollowButton extends StatelessWidget {
           filled = false;
           onPressed = null;
         } else {
-          label = 'Follow';
+          label = followedBy ? 'Follow back' : 'Follow';
           filled = true;
           onPressed = state.isUpdating ? null : cubit.follow;
         }

@@ -19,12 +19,12 @@ void main() {
     cubit = MockRelationshipCubit();
   });
 
-  Widget wrap() {
+  Widget wrap({bool followedBy = false}) {
     return MaterialApp(
       home: Scaffold(
         body: BlocProvider<RelationshipCubit>.value(
           value: cubit,
-          child: const FollowButton(),
+          child: FollowButton(followedBy: followedBy),
         ),
       ),
     );
@@ -181,5 +181,70 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  group('followedBy (the profile header, "Follows you")', () {
+    void arrange(graph.Relationship relationship) {
+      whenListen(
+        cubit,
+        const Stream<RelationshipState>.empty(),
+        initialState: RelationshipState(relationship: relationship),
+      );
+    }
+
+    testWidgets('not following yet: "Follow back", and it follows on tap', (
+      tester,
+    ) async {
+      arrange(
+        graph.Relationship(followState: graph.FollowState.FOLLOW_STATE_NONE),
+      );
+      when(() => cubit.follow()).thenAnswer((_) async {});
+
+      await tester.pumpWidget(wrap(followedBy: true));
+
+      expect(find.text('Follow back'), findsOneWidget);
+      expect(find.text('Follow'), findsNothing);
+      expect(find.bySemanticsLabel('Follow back'), findsWidgets);
+      expect(
+        tester.getSize(find.byType(FilledButton)).height,
+        greaterThanOrEqualTo(48),
+      );
+
+      await tester.tap(find.text('Follow back'));
+      verify(() => cubit.follow()).called(1);
+    });
+
+    testWidgets('without followedBy it stays "Follow"', (tester) async {
+      arrange(
+        graph.Relationship(followState: graph.FollowState.FOLLOW_STATE_NONE),
+      );
+
+      await tester.pumpWidget(wrap());
+
+      expect(find.text('Follow'), findsOneWidget);
+      expect(find.text('Follow back'), findsNothing);
+    });
+
+    testWidgets('following: "Following", never "Follow back"', (tester) async {
+      arrange(
+        graph.Relationship(
+          followState: graph.FollowState.FOLLOW_STATE_FOLLOWING,
+        ),
+      );
+
+      await tester.pumpWidget(wrap(followedBy: true));
+
+      expect(find.text('Following'), findsOneWidget);
+      expect(find.text('Follow back'), findsNothing);
+    });
+
+    testWidgets('blocking: "Unblock", never "Follow back"', (tester) async {
+      arrange(graph.Relationship(blocking: true));
+
+      await tester.pumpWidget(wrap(followedBy: true));
+
+      expect(find.text('Unblock'), findsOneWidget);
+      expect(find.text('Follow back'), findsNothing);
+    });
   });
 }
