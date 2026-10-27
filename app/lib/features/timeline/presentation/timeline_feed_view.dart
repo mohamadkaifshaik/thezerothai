@@ -54,6 +54,8 @@ class TimelineFeedView extends StatefulWidget {
     this.hideAuthorsOnRelationship = true,
     this.onRelationshipChanged,
     this.newPostsPillTop = kToolbarHeight + AppSpacing.sm,
+    this.nested = false,
+    this.scrollViewKey,
   });
 
   final String? viewerUserId;
@@ -83,6 +85,17 @@ class TimelineFeedView extends StatefulWidget {
   /// Where the floating "N new posts" pill sits, from the top: just under the
   /// screen's header. It floats, so it never shifts the list.
   final double newPostsPillTop;
+
+  /// Inside a `NestedScrollView` body (the profile tabs): the feed scrolls on
+  /// the nested view's inner controller (so the screen's header collapses
+  /// with it), starts with a `SliverOverlapInjector`, and leaves pull-to-
+  /// refresh to the screen: a body's own `RefreshIndicator` never sees the
+  /// overscroll of a nested scroll, so the screen wraps the whole nested view.
+  final bool nested;
+
+  /// Key of the scroll view; give a `PageStorageKey` in a nested body so the
+  /// tab keeps its offset while another tab is shown.
+  final Key? scrollViewKey;
 
   @override
   State<TimelineFeedView> createState() => _TimelineFeedViewState();
@@ -153,7 +166,23 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
 
   void _showNewPosts(TimelineCubit cubit) {
     cubit.showNewPosts();
-    if (_controller.hasClients) _controller.jumpTo(0);
+    // Nested: the body's own (inner) controller; the header stays as it is.
+    final controller = widget.nested
+        ? PrimaryScrollController.maybeOf(context)
+        : _controller;
+    if (controller != null && controller.hasClients) controller.jumpTo(0);
+  }
+
+  /// Nested bodies have no controller of their own: the prefetch reads the
+  /// inner scroll view's notifications instead.
+  bool _onNestedScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    final metrics = notification.metrics;
+    if (metrics.maxScrollExtent > 0 &&
+        metrics.pixels >= kPrefetchFraction * metrics.maxScrollExtent) {
+      unawaited(context.read<TimelineCubit>().loadMore());
+    }
+    return false;
   }
 
   void _onRelationship(TimelineCubit cubit, graph.Relationship relationship) {
@@ -184,50 +213,61 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
         );
         return BlocBuilder<TimelineCubit, TimelineState>(
           builder: (context, state) {
+            final scrollView = CustomScrollView(
+              key: widget.scrollViewKey,
+              controller: widget.nested ? null : _controller,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                if (widget.nested)
+                  SliverOverlapInjector(
+                    handle: NestedScrollView.sliverOverlapAbsorberHandleFor(
+                      context,
+                    ),
+                  ),
+                for (final sliver in widget.headerSlivers)
+                  _inset(inset, sliver),
+                if (state.notice != null)
+                  _inset(
+                    inset,
+                    SliverToBoxAdapter(
+                      child: AppNoticeBanner(
+                        message: timelineNoticeMessage(state.notice!),
+                        onRetry: noticeCanRetry(state.notice!)
+                            ? cubit.refresh
+                            : null,
+                      ),
+                    ),
+                  ),
+                if (widget.showPending)
+                  _inset(
+                    inset,
+                    SliverToBoxAdapter(
+                      child: PendingPostsSection(
+                        authorId: widget.pendingAuthorId,
+                      ),
+                    ),
+                  ),
+                ..._body(
+                  context,
+                  cubit,
+                  state,
+                  inset,
+                  graphEnabled,
+                  reportsEnabled,
+                  engagementEnabled,
+                ),
+              ],
+            );
             return Stack(
               fit: StackFit.expand,
               children: [
-                RefreshIndicator(
-                  onRefresh: cubit.refresh,
-                  child: CustomScrollView(
-                    controller: _controller,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      for (final sliver in widget.headerSlivers)
-                        _inset(inset, sliver),
-                      if (state.notice != null)
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: AppNoticeBanner(
-                              message: timelineNoticeMessage(state.notice!),
-                              onRetry: noticeCanRetry(state.notice!)
-                                  ? cubit.refresh
-                                  : null,
-                            ),
-                          ),
-                        ),
-                      if (widget.showPending)
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: PendingPostsSection(
-                              authorId: widget.pendingAuthorId,
-                            ),
-                          ),
-                        ),
-                      ..._body(
-                        context,
-                        cubit,
-                        state,
-                        inset,
-                        graphEnabled,
-                        reportsEnabled,
-                        engagementEnabled,
-                      ),
-                    ],
-                  ),
-                ),
+                if (widget.nested)
+                  NotificationListener<ScrollNotification>(
+                    onNotification: _onNestedScroll,
+                    child: scrollView,
+                  )
+                else
+                  RefreshIndicator(onRefresh: cubit.refresh, child: scrollView),
                 if (state.newPosts > 0)
                   Positioned(
                     top: widget.newPostsPillTop,

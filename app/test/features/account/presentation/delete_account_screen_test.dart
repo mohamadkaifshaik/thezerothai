@@ -7,10 +7,12 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/notifications/data/push_opt_in_store.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -20,6 +22,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../../support/fake_push_opt_in_store.dart';
 
 class _MockAccounts extends Mock implements AccountRepository {}
 
@@ -36,6 +40,8 @@ void main() {
   late _MockAuth auth;
   late _MockAuthBloc authBloc;
   late _MockOnboardingBloc onboardingBloc;
+  late FakePushOptInStore optIn;
+  late List<Object> reported;
   String? passwordSeen;
 
   setUpAll(() {
@@ -48,11 +54,27 @@ void main() {
     auth = _MockAuth();
     authBloc = _MockAuthBloc();
     onboardingBloc = _MockOnboardingBloc();
+    reported = [];
+    // Two accounts remembered a "Not now"; only the deleted one may go.
+    optIn = FakePushOptInStore(
+      records: {
+        'uid-1': DateTime.now().toUtc(),
+        'uid-2': DateTime.now().toUtc(),
+      },
+    );
     when(() => authBloc.add(any())).thenReturn(null);
     whenListen(
       authBloc,
       const Stream<AuthState>.empty(),
-      initialState: const AuthState(status: AuthStatus.authenticated),
+      initialState: const AuthState(
+        status: AuthStatus.authenticated,
+        user: AppUser(
+          uid: 'uid-1',
+          email: 'a@example.com',
+          emailVerified: true,
+          isPasswordProvider: true,
+        ),
+      ),
     );
     whenListen(
       onboardingBloc,
@@ -109,7 +131,10 @@ void main() {
         providers: [
           RepositoryProvider<AccountRepository>.value(value: accounts),
           RepositoryProvider<AuthRepository>.value(value: auth),
-          RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+          RepositoryProvider<PushOptInStore>.value(value: optIn),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (error, _) => reported.add(error),
+          ),
         ],
         child: MultiBlocProvider(
           providers: [
@@ -186,6 +211,86 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('sign in stub'), findsOneWidget);
+  });
+
+  testWidgets('success forgets the deleted uid\'s "Not now" before the final '
+      'page, and only that uid', (tester) async {
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(optIn.forgotten, ['uid-1']);
+    expect(optIn.records.keys, ['uid-2']);
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+  });
+
+  testWidgets('a failed delete leaves the "Not now" record alone', (
+    tester,
+  ) async {
+    when(
+      () =>
+          accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenThrow(const NetworkException('offline'));
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(optIn.forgotten, isEmpty);
+    expect(optIn.records.keys, containsAll(['uid-1', 'uid-2']));
+  });
+
+  testWidgets('a storage failure is reported and never blocks the final page', (
+    tester,
+  ) async {
+    optIn.failForget = true;
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(reported, hasLength(1));
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+  });
+
+  testWidgets('the client sign-out racing the cubit still forgets the uid', (
+    tester,
+  ) async {
+    final signedOut = StreamController<AuthState>();
+    addTearDown(signedOut.close);
+    whenListen(
+      authBloc,
+      signedOut.stream,
+      initialState: const AuthState(
+        status: AuthStatus.authenticated,
+        user: AppUser(
+          uid: 'uid-1',
+          email: 'a@example.com',
+          emailVerified: true,
+          isPasswordProvider: true,
+        ),
+      ),
+    );
+    final gate = Completer<DateTime?>();
+    when(
+      () =>
+          accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenAnswer((_) => gate.future);
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+    await tester.tap(button());
+    await tester.pump();
+
+    signedOut.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.pumpAndSettle();
+
+    expect(optIn.forgotten, ['uid-1']);
+    expect(find.text('Your account is being deleted'), findsOneWidget);
   });
 
   testWidgets('cancelled re-auth sends nothing and says so', (tester) async {

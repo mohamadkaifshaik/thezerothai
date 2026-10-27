@@ -27,13 +27,15 @@ const MediaPurpose$json = {
     {'1': 'MEDIA_PURPOSE_UNSPECIFIED', '2': 0},
     {'1': 'MEDIA_PURPOSE_POST', '2': 1},
     {'1': 'MEDIA_PURPOSE_AVATAR', '2': 2},
+    {'1': 'MEDIA_PURPOSE_BANNER', '2': 3},
   ],
 };
 
 /// Descriptor for `MediaPurpose`. Decode as a `google.protobuf.EnumDescriptorProto`.
 final $typed_data.Uint8List mediaPurposeDescriptor = $convert.base64Decode(
     'CgxNZWRpYVB1cnBvc2USHQoZTUVESUFfUFVSUE9TRV9VTlNQRUNJRklFRBAAEhYKEk1FRElBX1'
-    'BVUlBPU0VfUE9TVBABEhgKFE1FRElBX1BVUlBPU0VfQVZBVEFSEAI=');
+    'BVUlBPU0VfUE9TVBABEhgKFE1FRElBX1BVUlBPU0VfQVZBVEFSEAISGAoUTUVESUFfUFVSUE9T'
+    'RV9CQU5ORVIQAw==');
 
 @$core.Deprecated('Use mediaStatusDescriptor instead')
 const MediaStatus$json = {

@@ -104,6 +104,15 @@ unchanged.
 ## 4. Lists show a deleted user, or a graph RPC says the feature is off
 - `FEATURE_DISABLED` (FAILED_PRECONDITION) on a graph RPC means `FEATURE_GRAPH` is off for that caller (mode `off`,
   `allowlist` without the uid, or outside the `percent` bucket). Check the env var on the serving revision.
+- `FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT]` / `feature_follow_suggestions*` (wire name `follow_suggestions`, default off, ADR-0024 D8-D9) gates
+  only `ListSuggestedUsers`, on top of `FEATURE_GRAPH`: without it the answer is `FEATURE_DISABLED` with `metadata[feature]=follow_suggestions`
+  and 0 reads. `GetProfileRelationship` needs `FEATURE_GRAPH` only. W3-4 registers the flag, the limits and the gate; both new RPCs
+  answer Unimplemented behind it until W3-11 and W3-12. Config (validated at startup, a typo fails the boot): `SUGGESTIONS_SAMPLE_FOLLOWEES`
+  (30, max 30), `SUGGESTIONS_EDGE_LIMIT` (30, max 50), `SUGGESTIONS_HYDRATE_MAX` (10, max 50), `SUGGESTIONS_MAX_RESULTS` (5, max 5),
+  `SUGGESTIONS_CACHE_TTL` (1h), the curated fallback `SUGGESTED_USER_IDS` (Terraform `suggested_user_ids`, <= 20 comma-separated uids; empty
+  = none; one bad uid fails startup), and the limits `RATE_LIMIT_SUGGESTIONS_PER_MIN` (10), `SUGGESTIONS_CALLS_PER_DAY` (50) and
+  `RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN` (60), all per instance. `RESOURCE_EXHAUSTED` with `limit_name=suggestions_daily` is the
+  daily call cap (150/day with 3 instances). Kill switch: set the flag to `off` and deploy; nothing stored changes.
 - `purge-graph` removes a deleted user from other users' `following`, `blocked` and `blockedBy` arrays (confirmed by
   the 2026-09-30 dev drill). Other users' `muted[]` (and any dangling `blocked[]`) may still name the deleted uid.
   Since T27 the lazy clean-up (ADR-0008 D10) removes such a uid from a user's **own** array the next time that

@@ -36,6 +36,9 @@ const (
 	MediaPurpose_MEDIA_PURPOSE_POST MediaPurpose = 1
 	// Profile avatar (exactly 1; full 400 px, thumb 96 px).
 	MediaPurpose_MEDIA_PURPOSE_AVATAR MediaPurpose = 2
+	// Profile banner (cover image; exactly 1; 3:1, full 1500 x 500, thumb 600 x 200; ADR-0024 D1). Needs
+	// FEATURE_PROFILE_EXTRAS as well as FEATURE_MEDIA. Set with IdentityService.UpdateProfile(banner_media_id).
+	MediaPurpose_MEDIA_PURPOSE_BANNER MediaPurpose = 3
 )
 
 // Enum value maps for MediaPurpose.
@@ -44,11 +47,13 @@ var (
 		0: "MEDIA_PURPOSE_UNSPECIFIED",
 		1: "MEDIA_PURPOSE_POST",
 		2: "MEDIA_PURPOSE_AVATAR",
+		3: "MEDIA_PURPOSE_BANNER",
 	}
 	MediaPurpose_value = map[string]int32{
 		"MEDIA_PURPOSE_UNSPECIFIED": 0,
 		"MEDIA_PURPOSE_POST":        1,
 		"MEDIA_PURPOSE_AVATAR":      2,
+		"MEDIA_PURPOSE_BANNER":      3,
 	}
 )
 
@@ -366,7 +371,7 @@ type CreateUploadRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	Purpose        MediaPurpose           `protobuf:"varint,2,opt,name=purpose,proto3,enum=dzeroth.media.v1.MediaPurpose" json:"purpose,omitempty"`
-	// 1-4 items (exactly 1 for AVATAR).
+	// 1-4 items (exactly 1 for AVATAR and BANNER).
 	Items         []*UploadItem `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -732,11 +737,12 @@ const file_dzeroth_media_v1_media_proto_rawDesc = "" +
 	"\x05media\x18\x03 \x01(\v2\x1b.dzeroth.common.v1.MediaRefR\x05media\x12)\n" +
 	"\x10rejection_reason\x18\x04 \x01(\tR\x0frejectionReason\"Q\n" +
 	"\x16FinalizeUploadResponse\x127\n" +
-	"\aresults\x18\x01 \x03(\v2\x1d.dzeroth.media.v1.MediaResultR\aresults*_\n" +
+	"\aresults\x18\x01 \x03(\v2\x1d.dzeroth.media.v1.MediaResultR\aresults*y\n" +
 	"\fMediaPurpose\x12\x1d\n" +
 	"\x19MEDIA_PURPOSE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12MEDIA_PURPOSE_POST\x10\x01\x12\x18\n" +
-	"\x14MEDIA_PURPOSE_AVATAR\x10\x02*\x9b\x01\n" +
+	"\x14MEDIA_PURPOSE_AVATAR\x10\x02\x12\x18\n" +
+	"\x14MEDIA_PURPOSE_BANNER\x10\x03*\x9b\x01\n" +
 	"\vMediaStatus\x12\x1c\n" +
 	"\x18MEDIA_STATUS_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14MEDIA_STATUS_PENDING\x10\x01\x12\x16\n" +

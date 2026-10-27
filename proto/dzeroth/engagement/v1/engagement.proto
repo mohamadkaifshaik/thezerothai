@@ -9,7 +9,8 @@ syntax = "proto3";
 //
 // Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
 // like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
-// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT.
+// RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT; nor does
+// ListLikedPosts, which has FEATURE_LIKES_LIST (ADR-0024 D6).
 //
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
 // [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
@@ -127,6 +128,30 @@ service EngagementService {
   rpc ListBookmarks(ListBookmarksRequest) returns (ListBookmarksResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+
+  // The caller's own likes, most recently liked first (ADR-0024 D6). OWNER-ONLY: the request has no user id and
+  // must never get one; the source is userLikes/{caller}.recent (the newest 1,000 likes, read through engagement's
+  // 60 s cache), so nobody can list another user's likes. Likes older than the newest 1,000 are not listed, and there
+  // is no liked-at time (recent[] stores none). Each row is the LIVE post (one cache-first posts GetMany of the
+  // page's ids) with viewer flags from the same userLikes read (0 extra reads).
+  // Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
+  // FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
+  // metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
+  // (at most 30/min with 3 instances). Charged to the per-uid daily read budget (ADR-0010 D5).
+  // Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
+  // (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
+  // (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
+  // following it while it is non-empty.
+  // page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
+  // resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
+  // or trim between pages skips or repeats nothing beyond the rows changed at the page boundary. Expired, foreign or
+  // tampered => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: reload the first page.
+  // Client contract: no since_token, no removed_ids; on every open REPLACE the cached first page.
+  // Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
+  // 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
+  rpc ListLikedPosts(ListLikedPostsRequest) returns (ListLikedPostsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 // The post's engagement as the caller now sees it. Counts are the instance's best knowledge (the post doc read
@@ -225,5 +250,20 @@ message ListBookmarksResponse {
   // Most recently bookmarked first. May be shorter than page_size (rows dropped after the read, see ListBookmarks).
   repeated Bookmark bookmarks = 1;
   // "" => no more bookmarks.
+  string next_page_token = 2;
+}
+
+message ListLikedPostsRequest {
+  // 0 => 20, max 50 (clamped).
+  int32 page_size = 1;
+  // Opaque, bound to the caller, 24 h TTL. Empty => the first page (most recently liked).
+  string page_token = 2;
+}
+
+message ListLikedPostsResponse {
+  // Most recently liked first; the live posts with the caller's viewer flags. May be shorter than page_size (rows
+  // dropped after the read, see ListLikedPosts).
+  repeated dzeroth.posts.v1.PostView posts = 1;
+  // "" => no more likes.
   string next_page_token = 2;
 }

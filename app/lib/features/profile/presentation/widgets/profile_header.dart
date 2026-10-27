@@ -11,6 +11,7 @@ import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
     show ReportTargetType;
+import '../../../../shared/format/joined_date.dart';
 import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/app_surface.dart';
 import '../../../../shared/widgets/follow_button.dart';
@@ -39,10 +40,15 @@ class ProfileHeader extends StatelessWidget {
     this.showPostsCount = false,
     this.onEditProfile,
     this.reportsEnabled = false,
+    this.nameKey,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// Put on the display name so the profile screen can tell when it scrolls
+  /// under the app bar (the app-bar name fades in then, W3-13).
+  final Key? nameKey;
 
   /// Offers "Report @handle" on other people's profiles (the `reports` flag,
   /// ADR-0016). Works with or without the graph menu.
@@ -75,6 +81,7 @@ class ProfileHeader extends StatelessWidget {
         showPostsCount: showPostsCount,
         onEditProfile: isOwnProfile ? onEditProfile : null,
         canReport: reportsEnabled && !isOwnProfile,
+        nameKey: nameKey,
       );
     }
     return BlocProvider(
@@ -100,6 +107,7 @@ class ProfileHeader extends StatelessWidget {
           showActions: true,
           showPostsCount: showPostsCount,
           canReport: reportsEnabled,
+          nameKey: nameKey,
         ),
       ),
     );
@@ -113,8 +121,10 @@ class _ProfileHeaderBody extends StatelessWidget {
     required this.showPostsCount,
     this.onEditProfile,
     this.canReport = false,
+    this.nameKey,
   });
 
+  final Key? nameKey;
   final identity.Profile profile;
   final bool showActions;
   final bool showPostsCount;
@@ -129,6 +139,9 @@ class _ProfileHeaderBody extends StatelessWidget {
 
     final theme = Theme.of(context);
     final actions = _actions(context, isBlocking: isBlocking);
+    final joined = joinedText(
+      profile.hasCreatedAt() ? profile.createdAt : null,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -170,6 +183,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                     children: [
                       Text(
                         profile.displayName,
+                        key: nameKey,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleLarge?.copyWith(
@@ -188,6 +202,13 @@ class _ProfileHeaderBody extends StatelessWidget {
                       if (profile.bio.isNotEmpty) ...[
                         Text(profile.bio, style: theme.textTheme.bodyLarge),
                         const SizedBox(height: AppSpacing.md),
+                      ],
+                      if (joined != null) ...[
+                        _MetaRow(
+                          icon: Icons.calendar_month_outlined,
+                          text: joined,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
                       ],
                       if (isBlocking)
                         _BlockedBanner(handle: profile.handle)
@@ -547,6 +568,39 @@ class _OverflowMenu extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// One muted icon + text pair of the meta row under the bio ("Joined October
+/// 2026"; W3-14 adds location and website). The icon is decoration: the text
+/// alone is spoken. Wraps, so large text never overflows.
+class _MetaRow extends StatelessWidget {
+  const _MetaRow({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final style = theme.textTheme.bodyMedium?.copyWith(color: muted);
+    // The icon is centred on the first text line, however far the text wraps.
+    final line = MediaQuery.textScalerOf(context)
+        .scale((style?.fontSize ?? 14) * (style?.height ?? 1.4));
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ExcludeSemantics(
+          child: SizedBox(
+            height: line,
+            child: Icon(icon, size: AppIconSize.sm, color: muted),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        Flexible(child: Text(text, style: style)),
+      ],
     );
   }
 }

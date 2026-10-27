@@ -76,6 +76,16 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// their idempotency level, with no list here.
 	rlBookmarks := ratelimit.NewLimiter(cfg.RateLimit.BookmarksPerUserPerMinute, idleBucketTTL)
 	rlBookmarksList := ratelimit.NewLimiter(cfg.RateLimit.BookmarksListPerUserPerMinute, idleBucketTTL)
+
+	// ADR-0024 D10: ListSuggestedUsers (RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min), ListLikedPosts (RATE_LIMIT_LIKES_LIST_PER_MIN,
+	// 10/min) and GetProfileRelationship (RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, 60/min) each have their own per-user bucket;
+	// the last is not rlDefault so the header call cannot be starved by, or starve, the shared default. Suggestions also have a
+	// per-uid daily call cap (SUGGESTIONS_CALLS_PER_DAY, limit_name "suggestions_daily"); the likes list and the relationship
+	// are reads, covered by the ADR-0010 D5 read budget. Tabs share the existing GetUserTimeline bucket.
+	rlSuggestions := ratelimit.NewLimiter(cfg.RateLimit.SuggestionsPerUserPerMinute, idleBucketTTL)
+	rlLikesList := ratelimit.NewLimiter(cfg.RateLimit.LikesListPerUserPerMinute, idleBucketTTL)
+	rlProfileRelationship := ratelimit.NewLimiter(cfg.RateLimit.ProfileRelationshipPerUserPerMinute, idleBucketTTL)
+	suggestionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SuggestionsCallsPerDay)
 	// W2-14 M-1: ONE shared daily call cap over AddBookmark + RemoveBookmark (same DailyCap type, one counter per uid): an
 	// already bookmarked Add and a Remove of a missing bookmark reserve no quota but still store an idempotency doc (1 write +
 	// 1 TTL delete), so the per-minute bucket alone left them unbounded. See config.RateLimitConfig.BookmarkMutationsPerDay for
@@ -104,6 +114,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:         rlBookmarks,
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:      rlBookmarks,
 			engagementv1connect.EngagementServiceListBookmarksProcedure:       rlBookmarksList,
+			engagementv1connect.EngagementServiceListLikedPostsProcedure:      rlLikesList,
 			mediav1connect.MediaServiceCreateUploadProcedure:                  rlMedia,
 			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMedia,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
@@ -117,6 +128,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceListFollowingProcedure:                 rlGraphList,
 			graphv1connect.GraphServiceListBlockedUsersProcedure:              rlGraphList,
 			graphv1connect.GraphServiceListMutedUsersProcedure:                rlGraphList,
+			graphv1connect.GraphServiceGetProfileRelationshipProcedure:        rlProfileRelationship,
+			graphv1connect.GraphServiceListSuggestedUsersProcedure:            rlSuggestions,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceListFollowersProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
@@ -133,6 +146,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:    {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure: {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
+
+			graphv1connect.GraphServiceListSuggestedUsersProcedure: {Name: "suggestions_daily", Cap: suggestionsDailyCap},
 
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: checkHandleDailyCap},
 

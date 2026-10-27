@@ -199,4 +199,41 @@ extension type EngagementServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// The caller's own likes, most recently liked first (ADR-0024 D6). OWNER-ONLY: the request has no user id and
+  /// must never get one; the source is userLikes/{caller}.recent (the newest 1,000 likes, read through engagement's
+  /// 60 s cache), so nobody can list another user's likes. Likes older than the newest 1,000 are not listed, and there
+  /// is no liked-at time (recent[] stores none). Each row is the LIVE post (one cache-first posts GetMany of the
+  /// page's ids) with viewer flags from the same userLikes read (0 extra reads).
+  /// Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
+  /// FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
+  /// metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
+  /// (at most 30/min with 3 instances). Charged to the per-uid daily read budget (ADR-0010 D5).
+  /// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
+  /// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
+  /// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
+  /// following it while it is non-empty.
+  /// page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
+  /// resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
+  /// or trim between pages skips or repeats nothing beyond the rows changed at the page boundary. Expired, foreign or
+  /// tampered => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: reload the first page.
+  /// Client contract: no since_token, no removed_ids; on every open REPLACE the cached first page.
+  /// Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
+  /// 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
+  Future<dzerothengagementv1engagement.ListLikedPostsResponse> listLikedPosts(
+    dzerothengagementv1engagement.ListLikedPostsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.EngagementService.listLikedPosts,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

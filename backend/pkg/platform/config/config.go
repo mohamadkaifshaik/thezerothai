@@ -78,6 +78,8 @@ type Config struct {
 	Quota     QuotaConfig
 	// Scheduled holds the SCHEDULED_* limits of scheduled posts (ADR-0021 D4, Sweep).
 	Scheduled ScheduledConfig
+	// Suggestions holds the SUGGESTIONS_* limits and the SUGGESTED_USER_IDS curated list of ListSuggestedUsers (ADR-0024 D8).
+	Suggestions SuggestionsConfig
 
 	// HandleChangeCooldown is the minimum time between successful ChangeHandle calls.
 	HandleChangeCooldown time.Duration
@@ -172,6 +174,22 @@ type Config struct {
 	// remove what they saved). FEATURE_DISABLED feature=bookmarks otherwise. FEATURE_BOOKMARKS[_ALLOWLIST|_PERCENT],
 	// default off in every environment; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT.
 	FeatureBookmarks flags.Spec
+	// FeatureProfileExtras is the ADR-0024 D9 flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
+	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
+	// default off in every environment. W3-4 registers it; W3-5 and W3-6 add the gates.
+	FeatureProfileExtras flags.Spec
+	// FeatureProfileTabs is the ADR-0024 D9 flag (wire name `profile_tabs`) gating GetUserTimeline tab MEDIA and REPOSTS
+	// (Posts and Replies stay ungated). FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT], default off in every environment.
+	// W3-4 registers it; W3-9 adds the gate.
+	FeatureProfileTabs flags.Spec
+	// FeatureLikesList is the ADR-0024 D9 flag (wire name `likes_list`) gating EngagementService.ListLikedPosts (on for the
+	// caller; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT). FEATURE_LIKES_LIST[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
+	FeatureLikesList flags.Spec
+	// FeatureFollowSuggestions is the ADR-0024 D9 flag (wire name `follow_suggestions`) gating GraphService.ListSuggestedUsers
+	// (on for the caller; it also needs FEATURE_GRAPH). FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every
+	// environment.
+	FeatureFollowSuggestions flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -418,6 +436,10 @@ func Load() (Config, error) {
 		// ADR-0023 D4: AddBookmark and RemoveBookmark share one bucket (30/min); ListBookmarks has its own (10/min).
 		{"RATE_LIMIT_BOOKMARKS_PER_MIN", 30, &rl.BookmarksPerUserPerMinute},
 		{"RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", 10, &rl.BookmarksListPerUserPerMinute},
+		// ADR-0024 D10: ListSuggestedUsers 10/min, ListLikedPosts 10/min, GetProfileRelationship 60/min (all per instance).
+		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
+		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
+		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", 60, &rl.ProfileRelationshipPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -462,6 +484,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: BOOKMARK_MUTATIONS_PER_DAY must be > 0 (got %d)", bookmarkMutationsPerDay)
 	}
 	rl.BookmarkMutationsPerDay = int64(bookmarkMutationsPerDay)
+	// ADR-0024 D10: ListSuggestedUsers daily call cap (limit_name "suggestions_daily"); see
+	// RateLimitConfig.SuggestionsCallsPerDay for the default's math. A cap of 0 would lock every user out of the RPC.
+	suggestionsCallsPerDay, err := getInt("SUGGESTIONS_CALLS_PER_DAY", 50)
+	if err != nil {
+		return Config{}, err
+	}
+	if suggestionsCallsPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: SUGGESTIONS_CALLS_PER_DAY must be > 0 (got %d)", suggestionsCallsPerDay)
+	}
+	rl.SuggestionsCallsPerDay = int64(suggestionsCallsPerDay)
 	readBudgetUID, err := getInt("READ_BUDGET_PER_UID_PER_DAY", 2000)
 	if err != nil {
 		return Config{}, err
@@ -616,6 +648,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	suggestions, err := loadSuggestions()
+	if err != nil {
+		return Config{}, err
+	}
 
 	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
@@ -742,6 +778,22 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureProfileTabs, err := flags.LoadSpec("PROFILE_TABS", "profile_tabs", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureLikesList, err := flags.LoadSpec("LIKES_LIST", "likes_list", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureFollowSuggestions, err := flags.LoadSpec("FOLLOW_SUGGESTIONS", "follow_suggestions", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -801,6 +853,7 @@ func Load() (Config, error) {
 		RateLimit:                 rl,
 		Quota:                     q,
 		Scheduled:                 scheduled,
+		Suggestions:               suggestions,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
@@ -823,6 +876,10 @@ func Load() (Config, error) {
 		FeatureReplyAudience:      featureReplyAudience,
 		FeatureScheduledPosts:     featureScheduledPosts,
 		FeatureBookmarks:          featureBookmarks,
+		FeatureProfileExtras:      featureProfileExtras,
+		FeatureProfileTabs:        featureProfileTabs,
+		FeatureLikesList:          featureLikesList,
+		FeatureFollowSuggestions:  featureFollowSuggestions,
 		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,

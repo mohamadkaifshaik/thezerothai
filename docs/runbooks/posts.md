@@ -29,6 +29,15 @@ while the CreatePost lands on an old one, which drops the unknown field and post
 a spike of `outcome=rejected:reply_not_allowed` is users hitting restricted conversations (expected), not an outage; reads of a
 restricted reply are +0 warm and at most +3 (MENTIONED_ONLY) / +4 (FOLLOWING) cold. No new failure mode.
 
+Profile extras and tabs (ADR-0024 D9, W3-4 registration): `FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT]` / `feature_profile_extras*` (wire name
+`profile_extras`) will gate the `UpdateProfile` banner, location, website and pin fields and `CreateUpload(BANNER)` (which also needs `media`);
+`FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT]` / `feature_profile_tabs*` (`profile_tabs`) will gate `GetUserTimeline` tab MEDIA and REPOSTS (Posts
+and Replies stay ungated). Both default off in every environment (dev ceiling: allowlist, at most 3 uids; no prod raise) and
+`GetMe.enabled_features` lists them only when on for the caller. W3-4 only registers them and the config: the gates arrive with W3-5, W3-6
+and W3-9, and until then the new fields and the tab are ignored without an error. Once gated, a field sent while off is `FEATURE_DISABLED`
+`feature=profile_extras` (0 writes); data set while a flag was on keeps rendering after a ramp-down (the pin is hidden while `profile_extras`
+is globally off). Kill switch: set the flag to `off` and deploy. No new failure mode yet.
+
 Scheduled posts (ADR-0021 D4, foundation): `FEATURE_SCHEDULED_POSTS[_ALLOWLIST|_PERCENT]` / `feature_scheduled_posts*`, wire name
 `scheduled_posts`, default off in every environment (dev ceiling: allowlist, at most 3 uids). `GetMe.enabled_features` lists it only
 when on for the caller. The RPCs (CMP-D3) and the publish sweep (CMP-D4, section 12) are what the flag gates. Storage and plumbing that run whatever the flag says: the `quotas.schedules` daily counter (`QUOTA_SCHEDULES_PER_DAY` 50,

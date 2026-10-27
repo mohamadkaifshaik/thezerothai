@@ -239,3 +239,27 @@ func (s *Server) RespondToFollowRequest(ctx context.Context, _ *connect.Request[
 	}
 	return nil, apierr.ToConnect(flags.DisabledError())
 }
+
+// GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC (ADR-0024 D7). Until W3-11 it passes the
+// gate and answers Unimplemented: 0 reads, 0 writes (3 cold reads, 0 warm once W3-11 lands).
+func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Request[graphv1.GetProfileRelationshipRequest]) (*connect.Response[graphv1.GetProfileRelationshipResponse], error) {
+	return respond(ctx, func(uid string) (*graphv1.GetProfileRelationshipResponse, error) {
+		pr, err := s.svc.GetProfileRelationship(ctx, uid, req.Msg.GetUserId())
+		if err != nil {
+			return nil, err
+		}
+		return &graphv1.GetProfileRelationshipResponse{Relationship: toProtoRelationship(pr.Relationship), FollowedBy: pr.FollowedBy}, nil
+	})
+}
+
+// ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller (ADR-0024 D8, D9). Until
+// W3-12 it passes the gates and answers Unimplemented: 0 reads, 0 writes (hard cap 42 cold, 1 warm once W3-12 lands).
+func (s *Server) ListSuggestedUsers(ctx context.Context, req *connect.Request[graphv1.ListSuggestedUsersRequest]) (*connect.Response[graphv1.ListSuggestedUsersResponse], error) {
+	return respond(ctx, func(uid string) (*graphv1.ListSuggestedUsersResponse, error) {
+		items, err := s.svc.ListSuggestedUsers(ctx, uid, req.Msg.GetMaxResults())
+		if err != nil {
+			return nil, err
+		}
+		return &graphv1.ListSuggestedUsersResponse{Users: toProtoListItems(items)}, nil
+	})
+}
