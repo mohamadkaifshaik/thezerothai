@@ -801,7 +801,7 @@ cold-count correction (3, not 2) move no total by more than INR 0.5.
   - Part A adds about 16% to daily reads, and who to follow is most of it.
   - Free reads now end at about 173 DAU.
   - The likes list stops at 1,000 and has no dates.
-  - Replaced banners stay publicly reachable by URL until account deletion.
+  - Replaced banners stay publicly reachable by URL until account deletion (superseded by Amendment 1 A4: deleted 24-48 h after a remove or replace).
   - Tabs read Firestore on every open.
   - The website field is a phishing surface (scheme and host rules, client punycode, W3-22 review).
 - **Follow-up.**
