@@ -51,6 +51,9 @@ const Map<String, String> _allowlist = {
   'features/profile/presentation/bloc/profile_edit_cubits_test.dart':
       'the cubit gets clock: () => now; every comparison is between fixed '
       'values',
+  'features/profile/presentation/profile_header_data_test.dart':
+      'the created time is only formatted into "Joined March 2026"; nothing '
+      'compares it with the real clock',
   'features/profile/presentation/profile_sticky_tabs_test.dart':
       'the created time is only formatted into "Joined March 2026"; nothing '
       'compares it with the real clock',

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,9 +13,11 @@ import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
     show ReportTargetType;
 import '../../../../shared/format/joined_date.dart';
+import '../../../../shared/format/profile_website.dart';
 import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/app_surface.dart';
 import '../../../../shared/widgets/follow_button.dart';
+import '../../../../shared/widgets/post_card.dart' show launchPostLink;
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
@@ -41,10 +44,22 @@ class ProfileHeader extends StatelessWidget {
     this.onEditProfile,
     this.reportsEnabled = false,
     this.nameKey,
+    this.followedBy = false,
+    this.onOpenWebsite,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// The profile follows the viewer (`GetProfileRelationship.followed_by`,
+  /// ADR-0024 D7): shows the "Follows you" chip next to the handle and turns
+  /// Follow into "Follow back". Only read with the graph flag on, on another
+  /// user's profile, and not while the viewer blocks them.
+  final bool followedBy;
+
+  /// Opens the profile's website. Defaults to [launchPostLink] (external
+  /// browser, a new tab on web) plus a "Couldn't open link." snackbar.
+  final void Function(Uri uri)? onOpenWebsite;
 
   /// Put on the display name so the profile screen can tell when it scrolls
   /// under the app bar (the app-bar name fades in then, W3-13).
@@ -82,6 +97,7 @@ class ProfileHeader extends StatelessWidget {
         onEditProfile: isOwnProfile ? onEditProfile : null,
         canReport: reportsEnabled && !isOwnProfile,
         nameKey: nameKey,
+        onOpenWebsite: onOpenWebsite,
       );
     }
     return BlocProvider(
@@ -108,6 +124,8 @@ class ProfileHeader extends StatelessWidget {
           showPostsCount: showPostsCount,
           canReport: reportsEnabled,
           nameKey: nameKey,
+          followedBy: followedBy,
+          onOpenWebsite: onOpenWebsite,
         ),
       ),
     );
@@ -122,6 +140,8 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.onEditProfile,
     this.canReport = false,
     this.nameKey,
+    this.followedBy = false,
+    this.onOpenWebsite,
   });
 
   final Key? nameKey;
@@ -130,6 +150,8 @@ class _ProfileHeaderBody extends StatelessWidget {
   final bool showPostsCount;
   final bool canReport;
   final VoidCallback? onEditProfile;
+  final bool followedBy;
+  final void Function(Uri uri)? onOpenWebsite;
 
   @override
   Widget build(BuildContext context) {
@@ -139,9 +161,17 @@ class _ProfileHeaderBody extends StatelessWidget {
 
     final theme = Theme.of(context);
     final actions = _actions(context, isBlocking: isBlocking);
+    // Meta row, in X's order: location, website, Joined. Each is left out when
+    // the profile does not carry it (the server omits the fields while
+    // `profile_extras` is off, so nothing here is gated).
+    final location = profile.location.trim();
+    final website = profile.website.isEmpty
+        ? null
+        : parseProfileWebsite(profile.website);
     final joined = joinedText(
       profile.hasCreatedAt() ? profile.createdAt : null,
     );
+    final showFollowsYou = showActions && followedBy && !isBlocking;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -170,7 +200,12 @@ class _ProfileHeaderBody extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(height: bannerHeight, child: const _CoverBand()),
+                SizedBox(
+                  height: bannerHeight,
+                  child: _CoverBand(
+                    url: _bannerUrlFor(profile, fullSize: !narrow),
+                  ),
+                ),
                 Padding(
                   padding: EdgeInsets.fromLTRB(
                     AppSpacing.md,
@@ -190,23 +225,59 @@ class _ProfileHeaderBody extends StatelessWidget {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      Text(
-                        '@${profile.handle}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                      // The chip sits after the handle, and drops under it
+                      // when the handle is long or the text is large.
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        children: [
+                          Text(
+                            '@${profile.handle}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          if (showFollowsYou) const _FollowsYouChip(),
+                        ],
                       ),
                       const SizedBox(height: AppSpacing.md),
                       if (profile.bio.isNotEmpty) ...[
                         Text(profile.bio, style: theme.textTheme.bodyLarge),
                         const SizedBox(height: AppSpacing.md),
                       ],
-                      if (joined != null) ...[
-                        _MetaRow(
-                          icon: Icons.calendar_month_outlined,
-                          text: joined,
+                      if (location.isNotEmpty ||
+                          website != null ||
+                          joined != null) ...[
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: AppSpacing.md,
+                          children: [
+                            if (location.isNotEmpty)
+                              _MetaRow(
+                                icon: Icons.location_on_outlined,
+                                text: location,
+                                semanticLabel: 'Location: $location',
+                              ),
+                            if (website != null)
+                              _MetaRow(
+                                icon: Icons.link,
+                                text: website.host,
+                                semanticLabel: 'Website: ${website.host}',
+                                onTap: () => _openWebsite(
+                                  context,
+                                  website.uri,
+                                  onOpenWebsite,
+                                ),
+                              ),
+                            if (joined != null)
+                              _MetaRow(
+                                icon: Icons.calendar_month_outlined,
+                                text: joined,
+                              ),
+                          ],
                         ),
                         const SizedBox(height: AppSpacing.sm),
                       ],
@@ -260,7 +331,7 @@ class _ProfileHeaderBody extends StatelessWidget {
         children: [
           _OverflowMenu(profile: profile, canReport: canReport),
           const SizedBox(width: AppSpacing.xs),
-          const Flexible(child: FollowButton()),
+          Flexible(child: FollowButton(followedBy: followedBy)),
         ],
       );
     }
@@ -285,18 +356,108 @@ class _ProfileHeaderBody extends StatelessWidget {
   }
 }
 
-/// A purely decorative band behind the avatar: a flat theme surface, no image
-/// and no profile field, and hidden from assistive technology.
+/// The banner URL for the header: the 600 px thumb below 600 dp, the 1500 px
+/// full image at 600 dp and above (ADR-0024 D1), whichever exists when only one
+/// does. Empty = no banner. Both sizes are 3:1, so neither changes the layout.
+String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
+  final full = profile.bannerUrl;
+  final thumb = profile.bannerThumbUrl;
+  final wanted = fullSize ? full : thumb;
+  return wanted.isNotEmpty ? wanted : (fullSize ? thumb : full);
+}
+
+/// The band behind the avatar: the profile's banner when it has one, else a
+/// flat theme surface like X's empty banner (no gradient anywhere in the app).
+/// The flat surface is also the placeholder and the error state, and the band
+/// is sized by its parent (3:1), so a banner arriving later moves nothing. It
+/// is decoration: hidden from assistive technology (a banner has no alt text).
 class _CoverBand extends StatelessWidget {
-  const _CoverBand();
+  const _CoverBand({required this.url});
+
+  final String url;
+
+  /// The widest source image (the 1500 px full banner): nothing is decoded
+  /// larger.
+  static const _maxDecodePx = 1500;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    // Flat, like X's empty banner (no gradient anywhere in the app).
-    return ExcludeSemantics(
-      child: ColoredBox(color: colors.surfaceContainerHigh),
+    final flat = ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
     );
+    if (url.isEmpty) return ExcludeSemantics(child: flat);
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    return ExcludeSemantics(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final px = (constraints.maxWidth * pixelRatio).ceil();
+          return CachedNetworkImage(
+            key: ValueKey(url),
+            imageUrl: url,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            memCacheWidth: px > 0 ? math.min(px, _maxDecodePx) : null,
+            fadeInDuration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 150),
+            fadeOutDuration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 150),
+            placeholder: (_, _) => flat,
+            errorWidget: (_, _, _) => flat,
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// "Follows you", beside the handle: a small muted label on a raised surface
+/// (X's own treatment). It is read as it is written, after the handle.
+class _FollowsYouChip extends StatelessWidget {
+  const _FollowsYouChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        child: Text(
+          'Follows you',
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: context.appColors.secondaryOnRaised,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Opens a profile website outside the app (never fetched by us, ADR-0024 D2).
+Future<void> _openWebsite(
+  BuildContext context,
+  Uri uri,
+  void Function(Uri uri)? override,
+) async {
+  if (override != null) {
+    override(uri);
+    return;
+  }
+  final messenger = ScaffoldMessenger.of(context);
+  if (!await launchPostLink(uri)) {
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text("Couldn't open link.")));
   }
 }
 
@@ -572,25 +733,41 @@ class _OverflowMenu extends StatelessWidget {
   }
 }
 
-/// One muted icon + text pair of the meta row under the bio ("Joined October
-/// 2026"; W3-14 adds location and website). The icon is decoration: the text
-/// alone is spoken. Wraps, so large text never overflows.
+/// One icon + text item of the meta row under the bio ("Joined October 2026",
+/// the location, the website host). The icon is decoration: the text alone is
+/// spoken, or [semanticLabel] when the text needs a word before it ("Website:
+/// example.com"). Wraps, so large text never overflows.
+///
+/// With [onTap] it is a link: accent text, one line, a 48dp target.
 class _MetaRow extends StatelessWidget {
-  const _MetaRow({required this.icon, required this.text});
+  const _MetaRow({
+    required this.icon,
+    required this.text,
+    this.semanticLabel,
+    this.onTap,
+  });
 
   final IconData icon;
   final String text;
+  final String? semanticLabel;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    final style = theme.textTheme.bodyMedium?.copyWith(color: muted);
+    final link = onTap != null;
+    final style = theme.textTheme.bodyMedium?.copyWith(
+      color: link ? context.appColors.accentText : muted,
+    );
     // The icon is centred on the first text line, however far the text wraps.
     final line = MediaQuery.textScalerOf(context)
         .scale((style?.fontSize ?? 14) * (style?.height ?? 1.4));
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: link
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       children: [
         ExcludeSemantics(
           child: SizedBox(
@@ -599,8 +776,41 @@ class _MetaRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: AppSpacing.xs),
-        Flexible(child: Text(text, style: style)),
+        Flexible(
+          child: Text(
+            text,
+            style: style,
+            maxLines: link ? 1 : null,
+            overflow: link ? TextOverflow.ellipsis : null,
+          ),
+        ),
       ],
     );
+    if (link) {
+      return Semantics(
+        link: true,
+        label: semanticLabel ?? text,
+        onTap: onTap,
+        excludeSemantics: true,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: AppSpacing.minTapTarget,
+              minWidth: AppSpacing.minTapTarget,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: 1,
+              child: row,
+            ),
+          ),
+        ),
+      );
+    }
+    final label = semanticLabel;
+    if (label == null) return row;
+    return Semantics(label: label, excludeSemantics: true, child: row);
   }
 }

@@ -96,8 +96,10 @@ void main() {
         createdAt: withCreated ? created : null,
       ),
     );
-    when(() => graphRepository.relationshipFor(uid))
-        .thenAnswer((_) async => graph.Relationship(userId: uid));
+    when(() => graphRepository.profileRelationshipFor(uid)).thenAnswer(
+      (_) async =>
+          ProfileRelationship(relationship: graph.Relationship(userId: uid)),
+    );
     final postsList = [for (var i = 30; i >= 1; i--) i];
     final repliesList = [for (var i = 130; i >= 101; i--) i];
     for (final entry in {

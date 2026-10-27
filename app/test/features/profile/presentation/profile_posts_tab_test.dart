@@ -84,10 +84,15 @@ void main() {
         postsCount: Int64(postsCount),
       ),
     );
-    when(() => graphRepository.relationshipFor(profileUserId)).thenAnswer(
-      (_) async =>
-          graph.Relationship(userId: profileUserId, blocking: blocking),
-    );
+    when(() => graphRepository.profileRelationshipFor(profileUserId))
+        .thenAnswer(
+          (_) async => ProfileRelationship(
+            relationship: graph.Relationship(
+              userId: profileUserId,
+              blocking: blocking,
+            ),
+          ),
+        );
   }
 
   void stubFeed(FeedKey key, TimelineSnapshot snapshot) {
@@ -353,8 +358,10 @@ void main() {
 
   testWidgets('muted author: no banner, posts stay visible', (tester) async {
     arrange(profileUserId: 'target-uid', features: const {'posts', 'graph'});
-    when(() => graphRepository.relationshipFor('target-uid')).thenAnswer(
-      (_) async => graph.Relationship(userId: 'target-uid', muting: true),
+    when(() => graphRepository.profileRelationshipFor('target-uid')).thenAnswer(
+      (_) async => ProfileRelationship(
+        relationship: graph.Relationship(userId: 'target-uid', muting: true),
+      ),
     );
     stubFeed(targetFeed, snapshotOf([2], authorId: 'target-uid'));
 

@@ -19,6 +19,10 @@ abstract class ProfileState with _$ProfileState {
     // showing the profile itself).
     graph.Relationship? relationship,
     @Default(false) bool isOwnProfile,
+    // Whether this user follows the viewer (`GetProfileRelationship`, ADR-0024
+    // D7): the "Follows you" chip and "Follow back". False when unknown, on the
+    // viewer's own profile, and after the viewer blocks them.
+    @Default(false) bool followedBy,
     @Default(false) bool graphEnabled,
     AppException? error,
   }) = _ProfileState;
