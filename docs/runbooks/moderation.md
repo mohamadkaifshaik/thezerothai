@@ -30,6 +30,7 @@ Decide one of:
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
+| Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it prints the object names to delete by hand (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
 
 Every writing command ends with a `cost: reads=... writes=...` line (the `hidden:`/`settle pass:`/`restored:` lines before it are running totals). Prod project ids (`*-prod`) ask for the project id as a typed
 confirmation. Nothing here touches Firebase Auth.
@@ -45,10 +46,11 @@ confirmation. Nothing here touches Firebase Auth.
 | `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 250, + the posts of the last ~3 minutes re-read by the settle pass) | 2P + 1, or 2P + 2 with `--report` |
 | &nbsp;&nbsp;↳ copy cleanup (part of `suspend-user`, issue #151) | + P to find the posts that have copies, then per such post 2 reads (minimum) | per repost 2 writes and 2 deletes, per quote 1 write |
 | `unsuspend-user` | P_hidden + 2 | 2 P_hidden + 1 |
+| `clear-profile-fields` | 1 (+1 to check `--report`, +1 to resolve it); a DELETING or missing account stops after the read | 1 (0 when every named field is already empty or with `--dry-run`; +1 to resolve the report) |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
 the post update plus its removal-log entry): run it
-off-peak and use `--dry-run` to see the number first (`suspend-user` is the only moderator command with a dry run; the
+off-peak and use `--dry-run` to see the number first (`suspend-user`, `unsuspend-user` and `clear-profile-fields` have a dry run; the
 others reject `--dry-run`). It is resumable and idempotent: if it stops half way, run the
 same command again (it accepts an already SUSPENDED account for exactly that reason; hidden posts are skipped at 0
 writes).
@@ -102,6 +104,21 @@ removes only the repost: the repost doc is deleted and its reposts record, the o
 is gone). `restore-post` on it then answers not found: the removal is a fresh state and the user can repost again. Account actions on `owner` concern the reposter. Reports filed before B2, or whose original was
 already unavailable, show empty evidence text.
 
+### Reading an account report
+A report with `target` type ACCOUNT keeps, under `evidence`, the profile **as the reporter saw it** (ADR-0024 Amendment 1
+A3(b)): `reports show` prints `evidence profile @handle: display name, bio, location, website` and `evidence avatar ..., banner ...`
+(URLs, never uids). It is copied from the profile the call already loaded (0 extra reads), so a link or image swapped right
+after the report is still on record, and a reopened report (the same reporter reporting the same account after it was
+resolved) refreshes it. Two things to know when reading it:
+- **No website is not "no link".** While `FEATURE_PROFILE_EXTRAS` was globally off at report time the reporter saw no website, so
+  none is kept. Look at the live document (`users/{uid}.website`, which the switch does not erase) before closing the report.
+- **Older reports.** An ACCOUNT report filed before this change has no evidence: `reports show` prints `evidence none ... look at
+  the live profile`. The evidence is never returned to any client, and it is deleted with the report (resolved + 90 days).
+
+For a bad link, location, bio or image the action is `clear-profile-fields --report R` (above, the full procedure is
+`docs/runbooks/abuse-spike.md` section 5b); a bad display name or a repeat offender is `suspend-user`. The resolution is
+`PROFILE_CLEARED`; `reports resolve` still accepts only `NO_ACTION` and `DISMISSED`.
+
 ## 3a. Media on takedown (manual until `--purge-media` exists)
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the
 post's `media[]` ids; also `media` docs with `ownerId` = the author) the objects are **still public** in the media
@@ -117,12 +134,23 @@ Note: P4's `post_delete` job removes the objects when the **author** deletes the
 evidence is destroyed at that point; resolve image reports before the author can react, and rely on the ids plus the
 text copy in the report. Ticket T14 in `docs/plans/reports.md` tracks `takedown-post --purge-media`.
 
+**A removed banner or avatar.** `clear-profile-fields --fields banner,avatar` stops the profile pointing at the image but
+deletes no object (the automatic delete after a grace is ADR-0024 Amendment 1 A4, a later PR): the command prints the object
+names, and steps 1 to 3 above apply to them (`media` docs with `ownerId` = the user and `purpose` AVATAR or BANNER; the report
+evidence keeps the image URLs, which hold the media ids). The old avatar URL also stays in the author snapshot of the user's
+older posts until a rename refreshes them.
+
 ## 4. Failure modes
 - **Suspended user still sees the app / their posts still show.** Instances cache the profile and posts for
   `CACHE_TTL` (60 s). Wait a minute. If posts of a suspended user still appear after that, re-run `suspend-user` (a post
   created during the cache window is normally hidden by the command's own settle pass; the re-run is the backstop).
 - **`suspend-user` says the account is DELETING.** Refused on purpose: a moderator action never overrides an account
   deletion. Let the deletion finish (`docs/runbooks/account-deletion.md`).
+- **`clear-profile-fields` refuses or reports nothing.** `the account is DELETING: refusing to change it` and `no such user` exit
+  1 and write nothing (the deletion job's checkpoints must not race an operator write; a purged account has nothing to clear).
+  `nothing to clear: 0 writes` means every named field was already empty (a rerun, or the user removed it first): not an error.
+  A `--report` that is about another user is refused before any write; one already RESOLVED only warns. The command does not
+  evict instance caches, so the old profile can show for up to 60 s.
 - **`reports list` fails with "The query requires an index".** The `(status, createdAt)` composite index on `reports` is
   in `firebase/firestore.indexes.json`; deploy the indexes (`firebase deploy --only firestore:indexes`) and retry.
 - **Reports spike or a single reporter floods.** `QUOTA_EXCEEDED quota=reports` (20/day, 5/day for accounts younger than
@@ -131,8 +159,9 @@ text copy in the report. Ticket T14 in `docs/plans/reports.md` tracks `takedown-
 - **Appeals.** Stage 0 has no appeal UI. If a user writes in, `restore-post` / `unsuspend-user` is the whole procedure.
 
 ## 5. Privacy and retention
-- Evidence (the post text and author handle at report time) is kept **90 days after resolution**, then Firestore TTL
-  deletes the report (`reports.expireAt`, set by `reports resolve`/`takedown-post`/`suspend-user`). Open reports are
+- Evidence (the post text and author handle at report time; for an ACCOUNT report the profile the reporter saw: handle, display
+  name, bio, location, website, avatar and banner URL, at most about 1.3 KB, ADR-0024 Amendment 1 A3) is kept **90 days after
+  resolution**, then Firestore TTL deletes the report (`reports.expireAt`, set by `reports resolve`/`takedown-post`/`suspend-user`/`clear-profile-fields --report`). Open reports are
   kept until resolved. Check the TTL policy exists on the project (`gcloud firestore fields ttls list`).
 - Account deletion anonymises reports the user **filed** (`reporterId := ""`, step `reports`) and leaves them as safety
   evidence; reports **about** the user stay until resolved + 90 days. The privacy policy

@@ -185,6 +185,11 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 			return ReportResult{}, err
 		}
 		rep.TargetOwnerID = prof.UserID
+		// ADR-0024 Amendment 1 A3(b): keep what the reporter saw, so the profile cannot be swapped before triage. prof is
+		// already loaded (0 extra reads, the same single report write) and is the PRESENTED profile, so while
+		// profile_extras is globally off it holds no website. No field here holds a uid (media URLs are m/{mediaId}).
+		rep.Evidence = &Evidence{AuthorHandle: prof.Handle, DisplayName: prof.DisplayName, Bio: prof.Bio,
+			Location: prof.Location, Website: prof.Website, AvatarURL: prof.AvatarURL, BannerURL: prof.BannerURL}
 	}
 
 	limit := s.d.ReportsPerDay
