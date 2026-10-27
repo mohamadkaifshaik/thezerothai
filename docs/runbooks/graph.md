@@ -107,7 +107,7 @@ unchanged.
 - `FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT]` / `feature_follow_suggestions*` (wire name `follow_suggestions`, default off, ADR-0024 D8-D9) gates
   only `ListSuggestedUsers`, on top of `FEATURE_GRAPH`: without it the answer is `FEATURE_DISABLED` with `metadata[feature]=follow_suggestions`
   and 0 reads. `GetProfileRelationship` needs `FEATURE_GRAPH` only. W3-4 registers the flag, the limits and the gate; `GetProfileRelationship` is live since W3-11 (section 5) and
-  `ListSuggestedUsers` answers Unimplemented behind its gate until W3-12. Config (validated at startup, a typo fails the boot): `SUGGESTIONS_SAMPLE_FOLLOWEES`
+  `ListSuggestedUsers` is live since W3-12 (section 6). Config (validated at startup, a typo fails the boot): `SUGGESTIONS_SAMPLE_FOLLOWEES`
   (30, max 30), `SUGGESTIONS_EDGE_LIMIT` (30, max 50), `SUGGESTIONS_HYDRATE_MAX` (10, max 50), `SUGGESTIONS_MAX_RESULTS` (5, max 5),
   `SUGGESTIONS_CACHE_TTL` (1h), the curated fallback `SUGGESTED_USER_IDS` (Terraform `suggested_user_ids`, <= 20 comma-separated uids; empty
   = none; one bad uid fails startup), and the limits `RATE_LIMIT_SUGGESTIONS_PER_MIN` (10), `SUGGESTIONS_CALLS_PER_DAY` (50) and
@@ -156,3 +156,49 @@ Unfollow that lands between the edge read and its cache write can leave one stal
   instance) first.
 - Kill switch: `FEATURE_GRAPH=off` (the whole service). The client treats `FEATURE_DISABLED` and `UNIMPLEMENTED` as "unknown"
   and hides the chip; nothing stored changes.
+
+## 6. Who to follow (`ListSuggestedUsers`): empty, stale, slow or erroring
+ADR-0024 D8, ticket W3-12, behind `FEATURE_GRAPH` and `FEATURE_FOLLOW_SUGGESTIONS` (section 4). At most 5 rows
+(`SUGGESTIONS_MAX_RESULTS`), no cursor, `since` unset, an empty list is a normal answer.
+
+**How an answer is built** (`suggestions.go`, `suggester.go`)
+1. The per-viewer instance cache (below). A hit reads nothing.
+2. The caller's `graph/{uid}` (cache-first, 60 s). Its newest 30 followees (`Snapshot.RecentFollowing`, the tail of the
+   `following` array, which `ArrayUnion` appends in follow order) seed the next step.
+3. One query, `follows where followerId in [<= 30] ORDER BY createdAt DESC, __name__ DESC LIMIT 30`, served by the
+   existing `follows (followerId ASC, createdAt DESC)` index (no new index). Candidates are the `followeeId`s, ranked
+   by how many sampled followees follow them, ties by a hash of (viewer, candidate, IST day): the order is stable
+   within an IST day and reshuffles at IST midnight.
+4. The exclusion matrix at 0 reads: self, following, requested, blocked, blockedBy, muted.
+5. If fewer than 3 usable candidates remain (or the viewer follows fewer than 3 accounts, which skips step 3), the
+   curated `SUGGESTED_USER_IDS` list (same filter) fills after them.
+6. ONE `identity.Directory.GetProfiles` over at most `SUGGESTIONS_HYDRATE_MAX` (10) candidates. SUSPENDED, DELETING
+   and deleted users drop out here, so a list can come back shorter than the candidates.
+
+**Reads.** Cold friends of friends 42 at most (interceptor 1, graph 1, edges <= 30, profiles <= 10); curated 12; warm 1
+(the interceptor; 0 when its profile read is cached); planning 25. `fs_reads` on the request line above 42 for this RPC
+is a regression: compare `SUGGESTIONS_EDGE_LIMIT` and `SUGGESTIONS_HYDRATE_MAX` on the serving revision (startup
+rejects values above their bounds). A fresh instance pays the cold cost once per viewer per hour; the per-uid
+10/min bucket, the 50/day cap (`limit_name=suggestions_daily`, per instance) and the daily read budget bound a storm.
+
+**Request line.** `source` = `fof` (3+ usable friends of friends, no curated row), `curated` (the curated list was
+consulted; any friends of friends found still come first) or `none` (the viewer's `blockedByOverflow` is set, so no
+candidate can be ruled out as a blocker at 0 reads: nothing is suggested); `candidates` (uids sent to hydration);
+`suggestions_cache_hit`; `graph_cache_hit`. Counts and enums only, never uids.
+
+**Cache and staleness.** Per viewer, in the instance only, up to `SUGGESTIONS_CACHE_TTL` (1 h) after the call that built
+it (the expiry is stored in the entry and does not stretch when a row is removed). It holds the hydrated rows (up to
+`SUGGESTIONS_HYDRATE_MAX`), so a removal refills from the tail. This instance's own Follow, Block and Mute remove the
+user from the viewer's entry at once (Block also removes the viewer from the other user's entry). A warm hit is also
+re-checked against the viewer's snapshot when the 60 s snapshot cache holds one (0 reads). What stays stale for up
+to the TTL: a change made on another instance, a user who blocks the viewer, is suspended or deletes the account after
+the entry was built (the dropped-row check happens at build time only), and an empty answer. The client caches 24 h
+on top (W3-19). The cache is cleared by a restart or scale-in; nothing else clears it.
+
+| Symptom | Cause and action |
+|---|---|
+| Always an empty list | The viewer follows fewer than 3 accounts and `SUGGESTED_USER_IDS` is empty or every curated user is excluded or not ACTIVE: set `suggested_user_ids` in Terraform. Or `source=none` (blockedByOverflow). An empty answer is cached for the TTL. |
+| INTERNAL on every call, error text "requires an index" | The `follows (followerId ASC, createdAt DESC)` COLLECTION-scope index is missing or still building in that project (the emulator never checks). It is in `firebase/firestore.indexes.json` since ADR-0008: check `gcloud firestore indexes composite list --project=<p>` and deploy with `firebase deploy --only firestore:indexes`. Kill switch meanwhile: `FEATURE_FOLLOW_SUGGESTIONS=off`. |
+| A user the viewer already follows or blocked is suggested | Another instance's cache (<= 1 h) or a Follow made elsewhere; the client drops followed users locally. A user who blocked the viewer showing up is the one to escalate: it is a privacy leak of the block (the blocker is NOT_FOUND on `GetProfile`). Turn the flag `off` and open a security issue; check `blockedBy` for that uid. |
+| Fewer than 5 rows although many candidates | Hydration dropped suspended or deleted users, or the viewer's graph is small. The top-up is made before hydration, never after, to keep the 42-read cap. |
+| ERROR logs mentioning a graph error with hashed uids | Firestore failure in the edge query or hydration; the text is redacted (`logger.RedactErr`). Not cached, the next call retries. A canceled request is CANCELED, not INTERNAL. |

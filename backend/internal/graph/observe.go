@@ -27,6 +27,11 @@ const (
 	fieldConfirmedMissing = "confirmed_missing"
 	fieldLazyGone         = "lazy_removed"
 	fieldTxnAttempt       = "txn_attempts"
+	// ListSuggestedUsers (ADR-0024 D8): which source built the rows (fof, curated or none), how many candidate uids went
+	// to hydration, and whether the rows came from the per-viewer cache. Counts and enums only, never uids.
+	fieldSuggestSource     = "source"
+	fieldSuggestCandidates = "candidates"
+	fieldSuggestCacheHit   = "suggestions_cache_hit"
 )
 
 // begin records graph_op and returns the finisher to defer as `defer begin(ctx, "follow")(&err)` on a
@@ -96,6 +101,14 @@ func b2i(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// noteSuggestions records the ListSuggestedUsers log fields; cacheHit says the rows came from the per-viewer cache
+// (then source and candidates are those of the call that built them).
+func noteSuggestions(ctx context.Context, source string, candidates int, cacheHit bool) {
+	logger.SetRequestField(ctx, fieldSuggestSource, source)
+	logger.SetRequestField(ctx, fieldSuggestCandidates, candidates)
+	logger.SetRequestField(ctx, fieldSuggestCacheHit, cacheHit)
 }
 
 // noteCacheHit records graph_cache_hit for RPCs served from the 60 s Snapshot cache. A request that reads
