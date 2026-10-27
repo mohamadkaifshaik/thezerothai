@@ -261,7 +261,13 @@ the switch is raised past `off`:
   is the revision's env (`banner`), `config.Load` rejecting any value but `off`, `banner` or `all` at startup, and the revision's
   own startup lines: `feature_flags` and `listening` (`env=dev`, 17:56:14) on `api-00307-fcs` after the route, then real traffic
   (`GetMe`, `ListSuggestedUsers`, `GetHomeTimeline`, `Follow`, all `code=ok` from an allowlisted account from 17:58).
-  RETIRELOGRESULT
+  First ten minutes on the revision (route 17:56:07, window to 18:06:07, queried 18:06:37; the revision's own log lines only):
+  no line at severity ERROR or above, none at WARNING, 76 request-log lines all HTTP 200 (so no 5xx; the 17:56 `/health` check
+  included), 59 RPC lines all `code=ok`, `/health` 200 again at 18:06, traffic still 100% on `api-00307-fcs`. That traffic includes
+  the W3 RPCs (`ListSuggestedUsers`, `ListLikedPosts`, `GetUserTimeline`) and, from an allowlisted account, `CreateUpload`,
+  `FinalizeUpload` and three `UpdateProfile` calls (all ok). No `account_job=profile_media_retired` line and no
+  `profile_media_retire_enqueue_failed` line yet: the logs do not say whether an `UpdateProfile` replaced or removed a banner
+  (a first banner, or an avatar change, retires nothing in `banner` mode), so nothing here counts for the owed leg below.
 - **Owed to the testers (steps 3 and 4 of "Verification of the retire step").** The deploying machine has no tester credential and
   the founder's `gcloud` credentials cannot replace a cohort user's banner through the app, so the replace-a-banner leg has not
   run. A tester of the `profile_extras` allowlist (the same three uids as `media`; the banner also needs `media`) first sets a
