@@ -496,10 +496,10 @@ accounts.
 | Who to follow | Friends of friends at query time, cold cap 32, 1 h per-viewer instance cache, curated fallback. The client keeps an answer 48 h (6 h when empty, 24 h after a limit) and refills once when follows empty the card | `graph.Suggester` on the server (no caller knows the source); `SuggestionsRepository` on the client, the only caller and the only place the lifetimes live; no cursor on the wire | Unchanged: a precomputed table refreshed by a batch over a Firestore export (or SQL), served at 1 read, then a ranking ADR | Unchanged: suggestion reads above 10% of daily reads (modelled 6.1%, fires at about 29.4 reads/DAU), or the §6 Firestore trigger, sustained 7 days |
 
 ### Handoff (Amendment 2)
-**Order.** The four W3 flags reach the dev allowlist through W3-24 today; `follow_suggestions` goes no further until
+**Order.** The four W3 flags are on the dev allowlist since W3-24 (#365); `follow_suggestions` goes no further until
 step 5.
-1. **Now, W3-24:** apply its saved targeted dev plan as reviewed, with `SUGGESTIONS_EDGE_LIMIT=30`. Do not re-plan for
-   this amendment: the founder's OK covers that plan, and 3 users at 42 reads is noise.
+1. **W3-24, done (#365):** applied in dev as reviewed, with `SUGGESTIONS_EDGE_LIMIT=30`. It stands: 3 allowlisted users
+   at 42 reads is noise, and this amendment needed no re-plan of it.
 2. **The founder merges this PR** (acceptance).
 3. **backend-developer and frontend-developer** work in parallel, one PR each.
 4. **production-deployer,** once the backend PR serves 100% of dev: a targeted dev apply of the `api` service with the
@@ -591,7 +591,7 @@ step 5.
   - §9: `mean_cold_reads` expected 29.0, calls per DAU 0.63, and the fill check (B3).
   - A note that the W3-23 rows are superseded from the dev apply of step 4.
 - **production-deployer:**
-  - Step 1 unchanged.
+  - Step 1 is done (#365).
   - Step 4 in dev: a targeted plan, then the apply through the same approval path W3-24 used, then the env and
     `fs_reads` checks.
   - Prod waits for the next founder-approved plan.
