@@ -43,8 +43,8 @@ func assertUnimplemented(t *testing.T, err error, ticket string) {
 }
 
 // TestListSuggestedUsers_FlagMatrix (ADR-0024 D9): ListSuggestedUsers needs FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS
-// on for the caller. Passing both reaches the Unimplemented stub (W3-12); anything else is FEATURE_DISABLED with the
-// right metadata. No outcome reads, writes or deletes anything.
+// on for the caller. Passing both runs the RPC (it reads the caller graph); anything else is FEATURE_DISABLED with the
+// right metadata and touches no storage. No outcome writes or deletes anything.
 func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
 	const in, out = "in-cohort", "out-of-cohort"
 	pct := flags.Spec{Name: FollowSuggestionsFlagName, Mode: flags.Percent, Percent: 50}
@@ -90,9 +90,15 @@ func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, counter := budget.WithCounter(w3Ctx(tt.uid))
-			_, err := w3Server(tt.reg...).ListSuggestedUsers(ctx, connect.NewRequest(&graphv1.ListSuggestedUsersRequest{}))
+			repo := newFakeRepo()
+			_, err := w312Server(repo, tt.reg...).ListSuggestedUsers(ctx, connect.NewRequest(&graphv1.ListSuggestedUsersRequest{}))
+			if (repo.calls > 0) != (tt.want == "") {
+				t.Errorf("caller graph reads = %d with want %q: the gate must open storage exactly when it passes", repo.calls, tt.want)
+			}
 			if tt.want == "" {
-				assertUnimplemented(t, err, "W3-12")
+				if err != nil {
+					t.Fatalf("err = %v, want the gate passed", err)
+				}
 			} else {
 				ae := featureDisabled(err)
 				if ae == nil {

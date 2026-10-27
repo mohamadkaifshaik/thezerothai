@@ -67,6 +67,12 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 	if q.After != nil {
 		query = query.StartAfter(q.After.CreatedAt, r.client.Collection(followsCollection).Doc(q.After.DocID))
 	}
+	return runEdgeQuery(ctx, query, "list edges "+q.UID)
+}
+
+// runEdgeQuery executes a follows query, charges its reads to the request budget (len(result), minimum 1: Firestore
+// bills an empty query as one read) and decodes the documents. what names the caller in the error text.
+func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Edge, error) {
 	docs, err := query.Documents(ctx).GetAll()
 	reads := int64(len(docs))
 	if reads == 0 {
@@ -74,7 +80,7 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 	}
 	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
-		return nil, fmt.Errorf("graph: list edges %s: %w", q.UID, err)
+		return nil, fmt.Errorf("graph: %s: %w", what, err)
 	}
 	out := make([]Edge, 0, len(docs))
 	for _, d := range docs {

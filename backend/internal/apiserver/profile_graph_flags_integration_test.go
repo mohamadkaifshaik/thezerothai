@@ -6,7 +6,8 @@ package apiserver
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
-// caller outside the list is refused while the one inside reaches the Unimplemented stubs (W3-10, W3-11, W3-12). Helpers
+// caller outside the list is refused while the one inside reaches the Unimplemented stubs (W3-10, W3-11) and the
+// W3-12 ListSuggestedUsers answer. Helpers
 // come from posts_restricted_test.go and posts_contract_test.go.
 
 import (
@@ -155,8 +156,15 @@ func TestProfileGraphContract_AllowlistCohort(t *testing.T) {
 
 	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, env.url)
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)
-	// Inside: every RPC passes the gate (Unimplemented until W3-10 / W3-11 / W3-12).
+	// Inside: every RPC passes the gate (Unimplemented until W3-10 / W3-11); ListSuggestedUsers (W3-12) answers, and a
+	// world without friends of friends and without a curated list is an empty answer, not an error.
 	for name, err := range w3RPCs(eng, g, insideToken) {
+		if name == "ListSuggestedUsers" {
+			if err != nil {
+				t.Errorf("inside ListSuggestedUsers: err = %v, want an answer (the gate is open)", err)
+			}
+			continue
+		}
 		w3AssertUnimplemented(t, "inside", name, err)
 	}
 	// Outside: the two flag-gated RPCs are refused; GetProfileRelationship only needs graph, which is on for everyone.

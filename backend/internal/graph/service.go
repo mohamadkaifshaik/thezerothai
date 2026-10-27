@@ -65,6 +65,9 @@ type Repo interface {
 	GetLists(ctx context.Context, uid string) (Lists, error)
 	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[] (T27). 1 write, 0 reads.
 	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
+	// ListEdgesByFollowers returns the newest follow edges made by any of followers (1 to 30 uids), newest first, at
+	// most limit (1 to 50): the ListSuggestedUsers friends-of-friends query (ADR-0024 D8). <= limit reads, minimum 1.
+	ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error)
 
 	Eraser
 
@@ -93,8 +96,12 @@ type Deps struct {
 	NewAccountBlocksPerDay  int64
 	NewAccountWindow        time.Duration
 
-	// Suggestions are the ListSuggestedUsers limits and curated list (ADR-0024 D8, D10; W3-12 reads them).
+	// Suggestions are the ListSuggestedUsers limits and curated list (ADR-0024 D8, D10); zero or out-of-range values
+	// fall back to the config defaults and bounds (SuggestionLimits.normalized).
 	Suggestions SuggestionLimits
+	// Suggester overrides the candidate source of ListSuggestedUsers (friends of friends with the curated fallback by
+	// default). It is the seam for ADR-0024 D8 option (b) or a precomputed list: callers see no change.
+	Suggester Suggester
 }
 
 // service is the default Service implementation. It also implements Reader, FollowEvents, Eraser and
@@ -122,6 +129,9 @@ type service struct {
 	newAccountBlocksPerDay  int64
 	newAccountWindow        time.Duration
 	suggestions             SuggestionLimits
+	suggester               Suggester
+	// suggested is the per-viewer ListSuggestedUsers result cache (suggestion_cache.go).
+	suggested *suggestionCache
 }
 
 // New builds the graph Service. Call SetDirectory once identity.Directory is available.
@@ -139,10 +149,15 @@ func New(d Deps) *service {
 		blocksPerDay:            d.BlocksPerDay,
 		newAccountBlocksPerDay:  d.NewAccountBlocksPerDay,
 		newAccountWindow:        d.NewAccountWindow,
-		suggestions:             d.Suggestions,
+		suggestions:             d.Suggestions.normalized(),
+		suggester:               d.Suggester,
 	}
+	s.suggested = newSuggestionCache(s.suggestions.CacheTTL)
 	if s.events == nil {
 		s.events = s // the no-op Followed below
+	}
+	if s.suggester == nil {
+		s.suggester = newFriendsOfFriends(s.repo, s.suggestions, func() time.Time { return s.now() })
 	}
 	return s
 }
