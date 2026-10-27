@@ -144,7 +144,7 @@ go stale when state changes: **re-plan from your checkout** (step 2).
   `mode=allowlist (ceiling allowlist) allowlist=3/3 percent=0/0`, every other flag unchanged, `scaling min=0 max=1`, `RESULT: all checks passed`. Run it again on the REAL new revision
   before routing (step 4). The same validator runs inside `deploy-dev` on every candidate.
 - `check-flag-registry.sh`: `ok: 20 flags registered`. `check-until-dates.sh infra/terraform`: `ok: 11 until: marker(s) checked against 2026-10-27` (the example lines carry no
-  `until:` marker). `check-field-overrides.sh`: `ok: fieldOverrides unchanged: 35 override(s)`. Fixture tests `scripts/promotion/test/run.sh` and `promote-test.sh`: @@PROMO_TESTS@@.
+  `until:` marker). `check-field-overrides.sh`: `ok: fieldOverrides unchanged: 35 override(s)`. Fixture tests `scripts/promotion/test/run.sh` and `promote-test.sh`: `run.sh` 97 passed, 0 failed; `promote-test.sh` 154 passed, 0 failed.
 - **The cohort.** The three uids are set-equal to `feature_bookmarks_allowlist`, `feature_engagement_allowlist` and `feature_media_allowlist` in your tfvars (checked without printing them; also
   equal to ui_shell, notifications, profile_snapshot, reports, replies, quotes, account_lifecycle and removed_ids). It matters: `likes_list` ramps with `bookmarks` and `engagement` on the
   same uids (the History drawer row needs `bookmarks`), the banner also needs `media`, and `follow_suggestions` needs `graph` (on in dev; ceiling `on`). Terraform does not check the subset rule.
