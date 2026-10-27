@@ -81,7 +81,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-16 | Profile tabs: Reposts and Media (Posts · Replies · Reposts · Media) | frontend-developer | M | Open |
 | W3-17 | Pinned post: "Pinned" row on the Posts tab, Pin / Unpin in own post's menu | frontend-developer | M | Open |
 | W3-18 | History: Likes tab on `/bookmarks` | frontend-developer | M | Open |
-| W3-19 | Who to follow: Home card and the desktop right-column "You might like" | frontend-developer | M | Open |
+| W3-19 | Who to follow: Home card and the desktop right-column "You might like" | frontend-developer | M | Done (PR pending): `SuggestionsRepository` (24 h per uid in memory and in `AppSettingEntries` under the wiped `account:` prefix, one shared call, FEATURE_DISABLED / UNIMPLEMENTED / RESOURCE_EXHAUSTED handled, session-only dismissals, `SessionEpoch` clear), one `SuggestionsCubit` above both surfaces, `WhoToFollowCard` (3 rows, Show more to 5, x, a followed row leaves once the server confirms) in Home `headerSlivers` under the opt-in card and in `AppSideColumn.sections` (needs `ui_shell`); `UserListRow` gained `onFollowed`, `onDismiss`, `showDivider`; client only, the dev check waits for W3-12 |
 | W3-20 | Part A backend tests: flag matrix, authz, budgets, token binding, drop rules, backfill | tester | M | Open |
 | W3-21 | Part A client tests: responsive matrix, flag-off routing, text scale | tester | S | Open |
 | W3-22 | Security review, Part A | security-auditor | M | Open |

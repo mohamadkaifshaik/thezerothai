@@ -24,6 +24,7 @@ import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../features/engagement/domain/engagement_feature_flag.dart';
 import '../features/graph/data/graph_repository.dart';
+import '../features/graph/data/suggestions_repository.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/media_feature_flag.dart';
 import '../features/moderation/data/moderation_repository.dart';
@@ -105,6 +106,14 @@ Future<void> bootstrap() async {
   final graphRepository = GraphRepository(
     apiClient: apiClient,
     database: database,
+  );
+  // "Who to follow" (W3-19): one ListSuggestedUsers per 24 h and account,
+  // shared by the Home card and the desktop right column.
+  final suggestionsRepository = SuggestionsRepository(
+    apiClient: apiClient,
+    graphRepository: graphRepository,
+    database: database,
+    onUnexpectedError: reportUnexpectedError,
   );
   // Warm the in-memory relationship cache from the caller's cached
   // `following` set before the first frame, so FollowButton can render
@@ -248,6 +257,7 @@ Future<void> bootstrap() async {
       onboardingBloc: onboardingBloc,
       identityRepository: identityRepository,
       graphRepository: graphRepository,
+      suggestionsRepository: suggestionsRepository,
       accountRepository: AccountRepository(apiClient: apiClient),
       authRepository: authRepository,
       database: database,

@@ -39,6 +39,7 @@ import 'package:mocktail/mocktail.dart';
 import '../support/fake_push_messaging.dart';
 import '../support/media_fixtures.dart' show MockMediaRepository;
 import '../support/notifications_fixtures.dart';
+import '../support/suggestions_fixtures.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
@@ -79,6 +80,7 @@ void main() {
   late PushCubit push;
   late UnreadBadgeCubit badge;
   late AppDatabase database;
+  late FakeSuggestionsRepository suggestions;
   late StreamController<OnboardingState> onboardingStates;
   late StreamController<AuthState> authStates;
 
@@ -109,6 +111,7 @@ void main() {
     );
     badge = UnreadBadgeCubit();
     database = AppDatabase.forTesting(NativeDatabase.memory());
+    suggestions = FakeSuggestionsRepository(const []);
     onboardingStates = StreamController<OnboardingState>.broadcast();
     authStates = StreamController<AuthState>.broadcast();
     when(() => notifications.enabled).thenReturn(true);
@@ -141,6 +144,7 @@ void main() {
         onboardingBloc: onboardingBloc,
         identityRepository: MockIdentityRepository(),
         graphRepository: MockGraphRepository(),
+        suggestionsRepository: suggestions,
         accountRepository: MockAccountRepository(),
         authRepository: MockAuthRepository(),
         database: database,
@@ -268,6 +272,25 @@ void main() {
 
     expect(badge.state, 0);
     expect(messaging.tokenDeletes, 1);
+  });
+
+  testWidgets('sign-out forgets the "Who to follow" list (W3-19)', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: ready(),
+    );
+    expect(suggestions.clears, 0);
+
+    authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+
+    expect(suggestions.clears, 1);
   });
 
   testWidgets('the push opt-in record follows the signed-in account (W2-12)', (

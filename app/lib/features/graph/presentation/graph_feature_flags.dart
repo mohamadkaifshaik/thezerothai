@@ -17,3 +17,10 @@ bool isGraphEnabled(BuildContext context) =>
 /// before the widget has a `BuildContext` subscribed to rebuilds).
 bool graphEnabledSnapshot(BuildContext context) =>
     featureEnabledSnapshot(context, kFeatureGraph);
+
+/// Whether the "Who to follow" card may be shown: `follow_suggestions` and
+/// `graph` are both on for the caller (ADR-0024 D9: the RPC is gated by
+/// `graph` first). Reactive, like [isGraphEnabled].
+bool isFollowSuggestionsEnabled(BuildContext context) =>
+    isFeatureEnabled(context, kFeatureGraph) &&
+    isFeatureEnabled(context, kFeatureFollowSuggestions);

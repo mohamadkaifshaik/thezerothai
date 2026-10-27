@@ -35,13 +35,26 @@ class AppSideLink {
 }
 
 /// The right-hand column of the desktop shell: the viewer's own [profile] card
-/// (omitted when null: nothing is fetched here) and a list of [links].
-/// Purely presentational: it reads no state and makes no call; the caller
-/// passes what is already loaded. Scrolls when it does not fit.
+/// (omitted when null: nothing is fetched here), the [sections] a feature
+/// adds, and a list of [links]. Purely presentational: it reads no state and
+/// makes no call; the caller passes what is already loaded. Scrolls when it
+/// does not fit.
 class AppSideColumn extends StatelessWidget {
-  const AppSideColumn({super.key, this.profile, required this.links});
+  const AppSideColumn({
+    super.key,
+    this.profile,
+    this.sections = const [],
+    required this.links,
+  });
 
   final AppSideProfile? profile;
+
+  /// Self-contained cards between the profile card and the links, top to
+  /// bottom ("You might like" today; W4 adds "What's happening"). Each one owns
+  /// its data, its gating and its bottom margin (the `AppSpacing.md` gap), and
+  /// hides itself when it has nothing to show, so an empty section leaves no
+  /// gap.
+  final List<Widget> sections;
   final List<AppSideLink> links;
 
   @override
@@ -55,6 +68,7 @@ class AppSideColumn extends StatelessWidget {
             _ProfileCard(profile: card),
             const SizedBox(height: AppSpacing.md),
           ],
+          ...sections,
           if (links.isNotEmpty)
             AppSurface(
               padding: const EdgeInsets.all(AppSpacing.xs),

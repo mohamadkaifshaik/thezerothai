@@ -7,15 +7,24 @@ import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/follow_button.dart';
 import '../../data/graph_repository.dart';
 import '../bloc/relationship_cubit.dart';
+import '../bloc/relationship_state.dart';
 
-/// One row in any graph user list (followers, following, blocked, muted).
+/// One row in any graph user list (followers, following, blocked, muted) and
+/// in the "Who to follow" card.
 ///
 /// The [FollowButton] (when [trailing] is not supplied) is seeded directly
 /// from `item.relationship` — the server fills it from the caller's own
 /// graph at 0 extra reads (ADR-0008 D4) — so a page of rows never triggers a
 /// `GetRelationships` call.
 class UserListRow extends StatelessWidget {
-  const UserListRow({super.key, required this.item, this.trailing});
+  const UserListRow({
+    super.key,
+    required this.item,
+    this.trailing,
+    this.onFollowed,
+    this.onDismiss,
+    this.showDivider = true,
+  });
 
   final graph.UserListItem item;
 
@@ -23,10 +32,26 @@ class UserListRow extends StatelessWidget {
   /// Unblock/Unmute action button in Settings' managed-accounts screens).
   final Widget? trailing;
 
+  /// Called once the server confirmed a follow made from the default
+  /// [FollowButton] (the state is FOLLOWING or REQUESTED, not updating, no
+  /// error). Not called for the optimistic step, so a rejected follow rolls
+  /// back and shows its message in the row; a caller that removes the row on
+  /// this call never loses the rollback. Ignored with a [trailing].
+  final VoidCallback? onFollowed;
+
+  /// Shows a 48dp "x" after the control and calls this when it is tapped
+  /// (the "Who to follow" card's local dismiss).
+  final VoidCallback? onDismiss;
+
+  /// The hairline under the row; a card turns it off for its last row.
+  final bool showDivider;
+
   @override
   Widget build(BuildContext context) {
     final user = item.user;
     final theme = Theme.of(context);
+    final onFollowed = this.onFollowed;
+    final onDismiss = this.onDismiss;
     final control =
         trailing ??
         BlocProvider(
@@ -40,15 +65,24 @@ class UserListRow extends StatelessWidget {
               muting: item.relationship.muting,
             ),
           ),
-          child: const FollowButton(),
+          child: onFollowed == null
+              ? const FollowButton()
+              : BlocListener<RelationshipCubit, RelationshipState>(
+                  listenWhen: (before, after) =>
+                      _isConfirmedFollow(after) && !_isConfirmedFollow(before),
+                  listener: (context, state) => onFollowed(),
+                  child: const FollowButton(),
+                ),
         );
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm,
+          padding: EdgeInsets.only(
+            left: AppSpacing.md,
+            right: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
+            top: AppSpacing.sm,
+            bottom: AppSpacing.sm,
           ),
           child: Row(
             children: [
@@ -79,11 +113,33 @@ class UserListRow extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.sm),
               control,
+              if (onDismiss != null)
+                IconButton(
+                  tooltip: 'Dismiss @${user.handle}',
+                  constraints: const BoxConstraints.tightFor(
+                    width: AppSpacing.minTapTarget,
+                    height: AppSpacing.minTapTarget,
+                  ),
+                  icon: Icon(
+                    Icons.close,
+                    size: AppIconSize.md,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  onPressed: onDismiss,
+                ),
             ],
           ),
         ),
-        const Divider(height: 1),
+        if (showDivider) const Divider(height: 1),
       ],
     );
   }
 }
+
+bool _isConfirmedFollow(RelationshipState state) =>
+    !state.isUpdating &&
+    state.error == null &&
+    (state.relationship.followState ==
+            graph.FollowState.FOLLOW_STATE_FOLLOWING ||
+        state.relationship.followState ==
+            graph.FollowState.FOLLOW_STATE_REQUESTED);
