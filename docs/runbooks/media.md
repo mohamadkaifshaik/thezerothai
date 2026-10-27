@@ -162,6 +162,7 @@ is idempotent). Objects already tagged are still deleted by the rule; to stop th
   restorable by project owners for that long, never publicly. The exports bucket disables it (M3, 2026-10-08); the media
   bucket does not. If "gone from our bucket" must also mean "unrecoverable", that is a separate decision (set
   `soft_delete_policy { retention_duration_seconds = 0 }`, at the cost of no undelete after a mistake).
+  **Decided 2026-10-27 (founder): the 7-day soft delete stays ON** in the media buckets (dev and prod); no Terraform change.
 - **Reported image.** The grace (24-48 h) is shorter than the ADR-0016 D5 48 h triage SLA, and an ACCOUNT report copies the image
   URLs into its evidence. Save a copy of a reported image when the report is first seen if it is needed past the grace
   (`docs/runbooks/moderation.md`, "Reported profile images").
