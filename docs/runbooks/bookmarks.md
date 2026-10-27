@@ -83,3 +83,72 @@ For the share against the metric, divide `list_reads` by that day's `document/re
 - Replays: Add and Remove both store an idempotency doc, including their no-op paths (an already bookmarked post, a missing bookmark: 1 write),
   so a late retry of any key replays instead of re-executing and never undoes a newer toggle.
 - Cost: `docs/adr/0023-bookmarks.md` "Cost impact" (about 18.2 reads, 1.4 writes, 0.5 deletes per DAU per day); re-based in `docs/reviews/cost-model.md` (W2-15) to 18.56 / 1.42 / 0.62, about INR 6.4 a month at 300 DAU. The Stage 2 trigger and its query are in "Cost trigger" above.
+
+## Dev rollout 2026-10-27 (W2-16)
+State (2026-10-27): **applied on dev; the non-allowlisted smoke leg passed; the allowlisted leg is still the founder's to run by hand.** Prod is untouched and stays on hold (the prod apply is on hold, `pending.md` 1.2).
+- **Done 2026-10-27, by the founder:** the targeted `terraform apply` below. The dev `api` Cloud Run template now carries `FEATURE_BOOKMARKS=allowlist` (3 tester uids) and the other bookmark env vars listed under "The plan", including `BOOKMARK_MUTATIONS_PER_DAY=1500`; the promotion run that followed succeeded (a List that answers 200 shows the flag is live and not globally off on the serving revision). The `userLikes.bookmarks` fieldOverride is deployed in dev.
+- **Smoke so far:** the non-allowlisted leg passed when the founder ran it locally with the dev smoke account (`ListBookmarks` 200 rows=0; `AddBookmark` 400 `failed_precondition` `FEATURE_DISABLED`). That leg is now automated in every deploy-dev run (below). The allowlisted leg (add, replay, list, remove with a tester account) has **not** been run yet.
+- **Cohort:** `feature_bookmarks = "allowlist"`, `feature_bookmarks_percent` left at its default 0. The allowlist holds **3** testers, the same three as `feature_engagement_allowlist` (dev ceiling in `scripts/promotion/flag-ceiling.json`: allowlist, max 3, percent 0). Terraform does not check that the bookmarks cohort is a subset of the engagement cohort; it is kept equal by hand. The uids live only in the founder's gitignored `envs/dev/terraform.tfvars`.
+- **Preconditions checked:** the `userLikes.bookmarks` exemption is live on dev (`gcloud firestore indexes fields describe bookmarks --collection-group=userLikes --project=dzeroth-dev` shows no indexes); the serving dev revision is built from a commit that contains #324 (M-1 daily cap) and #326 (client fixes).
+- **The plan** (made and applied on 2026-10-27) is targeted (a full dev apply is not safe, `pending.md` 3.10): `-target=module.cloud_run_api.google_cloud_run_v2_service.api -target=module.budget.google_pubsub_topic.billing_alerts`. Result: `0 to add, 1 to change, 0 to destroy`. It adds nine env vars to the `api` template and nothing else (plus the known `template.revision -> null` line): `FEATURE_BOOKMARKS=allowlist`, `FEATURE_BOOKMARKS_ALLOWLIST` (3 uids), `FEATURE_BOOKMARKS_PERCENT=0`, `QUOTA_BOOKMARKS_PER_DAY=200`, `QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY=50`, `BOOKMARKS_MAX_PER_USER=1000`, `RATE_LIMIT_BOOKMARKS_PER_MIN=30`, `RATE_LIMIT_BOOKMARKS_LIST_PER_MIN=10`, `BOOKMARK_MUTATIONS_PER_DAY=1500`. None of the nine was on the live service before, so until the apply the flag is off by the code default.
+- **How the values go live.** Env vars come from Terraform, not from `deploy-dev.yml`: the workflow runs `gcloud run deploy --image=...`, which keeps the template's env. Dev traffic is pinned to a named revision, so the apply alone creates a **0% revision** and changes nothing for users (the same trap as `account-deletion.md`, "The C4 alert", step 4). After the apply either (a) shift traffic by hand, or (b) dispatch `deploy-dev.yml`, which stages a candidate from the updated template, runs the ceiling check and smokes, then promotes with `last-good` set. Before shifting, confirm the new revision carries the image that is serving today (Terraform ignores the image).
+
+```bash
+# Founder, from the MAIN checkout (the real terraform.tfvars is there), after the plan above was reviewed and approved:
+cd infra/terraform/envs/dev && terraform apply "<path to the saved w2-16-dev.tfplan>"      # the saved plan only; the file is session scoped, re-plan if it is gone
+G="$LOCALAPPDATA/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.cmd"; P="--project=dzeroth-dev --region=asia-south1"
+SERVING=$("$G" run services describe api $P --format="value(status.traffic[0].revisionName)")   # note it: the instant fallback
+NEW=$("$G" run services describe api $P --format="value(status.latestCreatedRevisionName)")
+"$G" run revisions describe $NEW $P --format="value(spec.containers[0].image)"                 # must equal the serving revision's image
+"$G" run revisions describe $NEW $P --format=json | grep -A1 '"FEATURE_BOOKMARKS"'             # allowlist
+"$G" run services update-traffic api $P --to-revisions=$NEW=100 --quiet                        # route (a); route (b) is a deploy-dev dispatch instead
+# Fallback while anything is unclear: update-traffic --to-revisions=$SERVING=100
+```
+
+### Dev smoke (non-allowlisted leg: automated and passed; allowlisted leg: manual, pending with the founder)
+**Automated: the non-allowlisted leg, in every `deploy-dev` run (W2-16).** `scripts/promotion/bookmarks-smoke.sh`, run by `promote-dev.sh` in step `4b/8` right after the authenticated smoke, signs in as smoke account A on the 0% candidate before traffic moves and is **strict**: `ListBookmarks` must answer **200 with 0 rows**, and `AddBookmark` (a fixed dummy post id) must answer **400 `failed_precondition`** with the `ErrorDetail` reason `FEATURE_DISABLED` and `feature=bookmarks`. Three calls, never a write; any other answer fails the promotion before traffic moves. It is a separate script, dev only, because `prod-smoke.sh` execs `authenticated-smoke.sh` and live prod does not carry the bookmark RPCs. Full contract, output and failure table: `docs/runbooks/authenticated-smoke.md`, "The dev-only bookmarks smoke (W2-16)". Because it is strict, it fails while the dev flag is `off` (the "Flag-off check" below) and when account A is allowlisted or the flag is `on`: update the script in the same PR as such a change. The block under 2. below is the manual equivalent, for a look at the figures in the logs. **Manual only: the allowlisted leg (1.)** and the log check.
+
+**What passed, 2026-10-27.** The non-allowlisted leg, run by the founder locally with the dev smoke account (A): `ListBookmarks` 200 with 0 rows, `AddBookmark` 400 `failed_precondition` `FEATURE_DISABLED`. Nothing else has been exercised against dev yet.
+
+**The allowlisted leg: founder, still to do.** It needs one of the three tester accounts (the uids in the dev `terraform.tfvars`), because only a cohort member can add. Steps:
+1. Put the tester's credentials in the environment of one terminal session only: `TESTER_EMAIL`, `TESTER_PASSWORD` (never in an argument, a file, shell history or this repo). Pick `POST_ID`: the id of any public post in dev (for example from the dev web app's URL `/post/<id>`) that the tester can see.
+2. Paste the helper functions from the block below (everything above `# 1.`), then run the five commands of step 1. Expected: Add `HTTP 200 ok`; the same Add again (same key) `HTTP 200 ok`, a replay with no second write; List `HTTP 200` with `rows>=1`; Remove `HTTP 200 ok`; List again `HTTP 200` without the post (`rows=0` if it was the only one).
+3. Logs Explorer, `jsonPayload.rpc:"Bookmark"`: `fs_reads` for the Add at most 4 and for an empty List at most 2 (table above).
+4. In the app on dev, as the tester: the bookmark icon shows in the action row and History opens from the drawer.
+5. Record the result in `docs/pending.md` row 3.11 (or tell the assistant), and set the plan row W2-16 to fully Done. Anything unexpected: stop and report the status line; nothing in prod changes either way.
+
+Accounts: the dev smoke accounts A and B are never allowlisted (`smoke-accounts.md`), so account A is the non-allowlisted caller. The allowlisted leg needs one of the three tester accounts, so the founder runs it with that account's credentials in the environment (never in an argument, a file or this repo). `scripts/mint-app-token.sh` mints a GitHub App token and plays no part here; sign-in uses the Identity Toolkit pattern of `scripts/promotion/authenticated-smoke.sh`. Output is only the RPC name, the HTTP status, the Connect `code` and a row count; no body, token or uid is printed. `POST_ID` is the id of any public post in dev.
+```bash
+. scripts/promotion/lib.sh                                    # jqr, firebase_web_api_key
+BASE=https://api-7sf5r44tbq-el.a.run.app                      # the dev api service URL (gcloud run services describe api ... --format="value(status.url)")
+REF=https://dzeroth-dev.web.app/                              # an allowed referrer of the dev browser key
+FIREBASE_API_KEY=${FIREBASE_API_KEY:-$(firebase_web_api_key app/lib/firebase_options.dart)}
+signin() {   # env EMAIL, PASSWORD for this call only; prints the ID token
+  jq -n '{email:$ENV.EMAIL,password:$ENV.PASSWORD,returnSecureToken:true}' | curl -s --max-time 15 -X POST \
+    -H 'content-type: application/json' -H "Referer: $REF" --data-binary @- \
+    "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$FIREBASE_API_KEY" | jq -r '.idToken // empty'; }
+rpc() {      # rpc <token> <Method> <json>; prints "<Method> HTTP <status> <connect code or ok> rows=<n>"
+  local out body; out=$(printf 'Authorization: Bearer %s\n' "$1" | curl -s --max-time 15 -w '\n%{http_code}' -X POST \
+    -H 'content-type: application/json' -H @- --data-binary "$3" "$BASE/dzeroth.engagement.v1.EngagementService/$2")
+  body=${out%$'\n'*}
+  echo "$2 HTTP ${out##*$'\n'} $(printf '%s' "$body" | jq -r '.code // "ok"') rows=$(printf '%s' "$body" | jq -r '(.bookmarks // []) | length')"; }
+N=$(date +%s)   # idempotency keys: 16-64 chars of [A-Za-z0-9_-]
+
+# 1. An allowlisted tester (founder): Add ok, replay ok, List shows the post, Remove ok, List without it.
+T=$(EMAIL="$TESTER_EMAIL" PASSWORD="$TESTER_PASSWORD" signin); [ -n "$T" ] || echo "FAIL sign-in (tester)"
+rpc "$T" AddBookmark    "{\"idempotencyKey\":\"smoke-$N-add-0001\",\"postId\":\"$POST_ID\"}"   # HTTP 200 ok
+rpc "$T" AddBookmark    "{\"idempotencyKey\":\"smoke-$N-add-0001\",\"postId\":\"$POST_ID\"}"   # same key: HTTP 200 ok, a replay
+rpc "$T" ListBookmarks  '{"pageSize":20}'                                                      # HTTP 200, rows>=1
+rpc "$T" RemoveBookmark "{\"idempotencyKey\":\"smoke-$N-rem-0001\",\"postId\":\"$POST_ID\"}"   # HTTP 200 ok
+rpc "$T" ListBookmarks  '{"pageSize":20}'                                                      # HTTP 200, the post is gone
+
+# 2. A non-allowlisted account (smoke A), also run automatically by deploy-dev (bookmarks-smoke.sh): Add is refused, List still works (it needs the flag only "not off"), 0 rows.
+A=$(EMAIL="$SMOKE_EMAIL" PASSWORD="$SMOKE_PASSWORD" signin); [ -n "$A" ] || echo "FAIL sign-in (smoke A)"
+rpc "$A" AddBookmark    "{\"idempotencyKey\":\"smoke-$N-na-0001\",\"postId\":\"$POST_ID\"}"    # HTTP 400 failed_precondition (FEATURE_DISABLED feature=bookmarks)
+rpc "$A" ListBookmarks  '{"pageSize":20}'                                                      # HTTP 200 ok rows=0
+```
+Then check the request lines (Logs Explorer: `jsonPayload.rpc:"Bookmark"`): `fs_reads` for the Add is at most 4 and for an empty List at most 2 (table above). In the app, a tester sees the bookmark icon in the action row, and History opens from the drawer.
+
+**Flag-off check (a separate step with its own plan and OK, not part of the apply above).** Set `feature_bookmarks = "off"` in the dev `terraform.tfvars`, make a targeted plan with the same two targets, apply with the founder's OK, shift traffic to the new revision as above, and repeat step 1: every bookmark RPC, including List and Remove, answers `FAILED_PRECONDITION FEATURE_DISABLED` with 0 reads (only `off` is the kill switch). Then set it back to `allowlist` and apply again if the dev cohort should keep the feature. **While the flag is off in dev, every `deploy-dev` run fails at `list-bookmarks`** (the dev bookmarks smoke is strict, above), so do not merge to `main` during the check and restore `allowlist` straight after; a deliberate longer `off` needs the smoke updated in its own PR.
+
+**Revert** of the apply itself: take the two bookmarks lines out of the dev `terraform.tfvars`, plan, apply, shift traffic; or, faster, `update-traffic --to-revisions=$SERVING=100` (that revision has no bookmarks env, so the flag is off by the code default). Bookmark data is kept either way.

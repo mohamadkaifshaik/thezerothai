@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/widgets/app_error_view.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -11,6 +12,7 @@ import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dar
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:bloc_test/bloc_test.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,7 +99,7 @@ void main() {
 
     expect(find.text('Follow'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
-    verifyNever(() => graphRepository.relationshipFor(any()));
+    verifyNever(() => graphRepository.profileRelationshipFor(any()));
   });
 
   testWidgets('own profile: "Edit profile" only with the profile_snapshot '
@@ -238,10 +240,12 @@ void main() {
     when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
       (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
     );
-    when(() => graphRepository.relationshipFor('target-uid')).thenAnswer(
-      (_) async => graph.Relationship(
-        userId: 'target-uid',
-        followState: graph.FollowState.FOLLOW_STATE_NONE,
+    when(() => graphRepository.profileRelationshipFor('target-uid')).thenAnswer(
+      (_) async => ProfileRelationship(
+        relationship: graph.Relationship(
+          userId: 'target-uid',
+          followState: graph.FollowState.FOLLOW_STATE_NONE,
+        ),
       ),
     );
 
@@ -270,7 +274,7 @@ void main() {
 
     expect(find.text('Follow'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
-    verifyNever(() => graphRepository.relationshipFor(any()));
+    verifyNever(() => graphRepository.profileRelationshipFor(any()));
   });
 
   testWidgets('wide screens cap the profile column to the feed width', (
@@ -317,8 +321,10 @@ void main() {
     when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
       (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
     );
-    when(() => graphRepository.relationshipFor('target-uid')).thenAnswer(
-      (_) async => graph.Relationship(userId: 'target-uid', blocking: true),
+    when(() => graphRepository.profileRelationshipFor('target-uid')).thenAnswer(
+      (_) async => ProfileRelationship(
+        relationship: graph.Relationship(userId: 'target-uid', blocking: true),
+      ),
     );
 
     await tester.pumpWidget(wrap());
@@ -360,11 +366,13 @@ void main() {
     when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
       (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
     );
-    when(() => graphRepository.relationshipFor('target-uid')).thenAnswer(
-      (_) async => graph.Relationship(
-        userId: 'target-uid',
-        followState: graph.FollowState.FOLLOW_STATE_NONE,
-        blocking: blocking,
+    when(() => graphRepository.profileRelationshipFor('target-uid')).thenAnswer(
+      (_) async => ProfileRelationship(
+        relationship: graph.Relationship(
+          userId: 'target-uid',
+          followState: graph.FollowState.FOLLOW_STATE_NONE,
+          blocking: blocking,
+        ),
       ),
     );
   }
@@ -476,5 +484,130 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
       ),
     ).called(1);
+  });
+
+  group('header data (W3-14)', () {
+    void arrangeViewer({Set<String> features = const {'graph'}}) {
+      whenListen(
+        onboardingBloc,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          enabledFeatures: features,
+          profile: identity.Profile(userId: 'viewer-uid', handle: 'viewer'),
+        ),
+      );
+    }
+
+    testWidgets(
+      '"Follows you" and "Follow back" come from GetProfileRelationship',
+      (tester) async {
+        arrangeViewer();
+        when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+          (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+        );
+        when(() => graphRepository.profileRelationshipFor('target-uid'))
+            .thenAnswer(
+              (_) async => ProfileRelationship(
+                relationship: graph.Relationship(userId: 'target-uid'),
+                followedBy: true,
+              ),
+            );
+
+        await tester.pumpWidget(wrap());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Follows you'), findsOneWidget);
+        expect(find.text('Follow back'), findsOneWidget);
+        expect(find.text('Follow'), findsNothing);
+        // The header's one call replaced GetRelationships.
+        verify(() => graphRepository.profileRelationshipFor('target-uid'))
+            .called(1);
+        verifyNever(() => graphRepository.relationshipFor(any()));
+      },
+    );
+
+    testWidgets('followed_by unknown (the RPC is not live yet): a plain '
+        '"Follow", no chip, no error', (tester) async {
+      arrangeViewer();
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+      );
+      when(() => graphRepository.profileRelationshipFor('target-uid'))
+          .thenAnswer(
+            (_) async => ProfileRelationship(
+              relationship: graph.Relationship(userId: 'target-uid'),
+            ),
+          );
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Follow'), findsOneWidget);
+      expect(find.text('Follows you'), findsNothing);
+      expect(find.text('Follow back'), findsNothing);
+      expect(find.byType(AppErrorView), findsNothing);
+    });
+
+    testWidgets('banner, location and website show with the graph flag off '
+        '(ungated: the server decides what a profile carries)', (tester) async {
+      arrangeViewer(features: const {});
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(
+          userId: 'target-uid',
+          handle: 'kaif',
+          bannerUrl: 'https://m.test/banner.webp',
+          bannerThumbUrl: 'https://m.test/banner-thumb.webp',
+          location: 'Pune',
+          website: 'https://kaif.dev/about',
+        ),
+      );
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CachedNetworkImage), findsOneWidget);
+      expect(find.text('Pune'), findsOneWidget);
+      expect(find.text('kaif.dev'), findsOneWidget);
+      expect(find.text('Follows you'), findsNothing);
+      verifyNever(() => graphRepository.profileRelationshipFor(any()));
+    });
+
+    testWidgets('blocking a user who follows you drops the chip at once', (
+      tester,
+    ) async {
+      arrangeViewer();
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+      );
+      when(() => graphRepository.profileRelationshipFor('target-uid'))
+          .thenAnswer(
+            (_) async => ProfileRelationship(
+              relationship: graph.Relationship(userId: 'target-uid'),
+              followedBy: true,
+            ),
+          );
+      when(
+        () => graphRepository.block(
+          userId: 'target-uid',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer(
+        (_) async => graph.Relationship(userId: 'target-uid', blocking: true),
+      );
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+      expect(find.text('Follows you'), findsOneWidget);
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Block'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Follows you'), findsNothing);
+      expect(find.textContaining('You blocked @kaif'), findsOneWidget);
+    });
   });
 }

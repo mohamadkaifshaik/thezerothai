@@ -298,6 +298,7 @@ ProfileHeader _header(
     isOwnProfile: state.isOwnProfile,
     graphEnabled: state.graphEnabled,
     relationship: state.relationship,
+    followedBy: state.followedBy,
     showPostsCount: showPostsCount,
     nameKey: nameKey,
     reportsEnabled: isFeatureEnabled(context, kFeatureReports),

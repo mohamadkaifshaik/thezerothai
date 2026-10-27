@@ -205,6 +205,7 @@ check "recover with no marker does not need any tool" eq "$rc" 0
 # 11. authenticated smoke (step 4b)
 signins() { cat "$FAKE/argv.log" 2>/dev/null | grep -c 'signInWithPassword' || true; }
 nosecrets() { env -u SMOKE_EMAIL -u SMOKE_PASSWORD "$@"; }
+out_line() { grep -n -m1 -F -- "$1" "$tmp/out" | cut -d: -f1; }
 no_traffic_change() { ! grep -qE -- '--to-revisions|--update-tags|tags add' "$FAKE/calls.log"; }
 
 # (a) secrets present and the smoke passes: the run promotes as before, and signs in exactly once
@@ -213,13 +214,19 @@ check "auth smoke pass: promotes" eq "$rc" 0
 check "auth smoke pass: serving is the candidate" eq "$(serving)" api-00002-new
 check "auth smoke pass: step announced" grep -q '4b/8 authenticated smoke' "$tmp/out"
 check "auth smoke pass: PASS line" grep -q 'authenticated smoke: PASS' "$tmp/out"
-# (e) the soak makes no sign-in call: one sign-in and one authenticated-smoke run (4 curl calls) in a run that soaked
+# (e) the soak makes no sign-in call: exactly the two smokes sign in (authenticated smoke: 4 curl calls; bookmarks smoke: 3) in a run that soaked
 check "soak ran" grep -q '7/8 soak' "$tmp/out"
-check "no sign-in during the soak (exactly one sign-in in the whole run)" eq "$(signins)" 1
-check "authenticated smoke ran once (4 calls: sign-in, 401, GetMe, GetProfile)" eq "$(cat "$FAKE/calls")" 4
+check "no sign-in during the soak (exactly two sign-ins in the whole run: authenticated smoke + bookmarks smoke)" eq "$(signins)" 2
+check "authenticated smoke ran once (4 calls: sign-in, 401, GetMe, GetProfile) and the bookmarks smoke once (3 calls: sign-in, ListBookmarks, AddBookmark)" eq "$(cat "$FAKE/calls")" 7
+check "bookmarks smoke ran after the authenticated smoke" test "$(out_line 'authenticated smoke: PASS')" -lt "$(out_line 'bookmarks smoke: PASS')"
+check "bookmarks smoke pass: PASS line" grep -q 'bookmarks smoke: PASS' "$tmp/out"
 # the dev Referer and the given API key reach the sign-in call
 check "sign-in carries the dev Referer" grep -qxF 'Referer: https://dzeroth-dev.web.app/' "$FAKE/argv.1"
 check "sign-in uses the given API key" grep -q 'key=FAKE-DEV-KEY-123' "$FAKE/argv.1"
+# the bookmarks smoke is the second sign-in (call 5: the authenticated smoke made calls 1-4) with the same Referer and key
+check "bookmarks smoke sign-in carries the dev Referer" grep -qxF 'Referer: https://dzeroth-dev.web.app/' "$FAKE/argv.5"
+check "bookmarks smoke sign-in uses the given API key" grep -q 'key=FAKE-DEV-KEY-123' "$FAKE/argv.5"
+check "bookmarks smoke calls the same candidate URL as the authenticated smoke" bash -c 'a=$(tail -n 1 "$0" | sed "s|/dzeroth.[^ ]*$||"); b=$(tail -n 1 "$1" | sed "s|/dzeroth.[^ ]*$||"); [ -n "$a" ] && [ "$a" = "$b" ]' "$FAKE/argv.3" "$FAKE/argv.6"
 # (f) secrecy
 for sec in "$SMOKE_EMAIL_V" "$SMOKE_PASSWORD_V" "$TOKEN_V"; do
   # Under GITHUB_ACTIONS=true the smoke prints exactly one `::add-mask::<token>` line (it is what keeps the token out of the log).
@@ -232,7 +239,7 @@ check "auth smoke: the password did reach curl on stdin (the checks above are no
 setup; run true
 check "auth smoke dry run: completes" eq "$rc" 0
 check "auth smoke dry run: PASS line" grep -q 'authenticated smoke: PASS' "$tmp/out"
-check "auth smoke dry run: one sign-in" eq "$(signins)" 1
+check "auth smoke dry run: two sign-ins (authenticated smoke + bookmarks smoke)" eq "$(signins)" 2
 check "auth smoke dry run: traffic untouched" no_traffic_change
 
 # (b) the smoke fails: handled like a failed step 4 (die before anything moves, candidate tag removed)
@@ -253,10 +260,38 @@ setup; echo 403 >"$FAKE/signin-code"; run true
 check "auth smoke failure also fails a dry run" eq "$rc" 1
 check "auth smoke failure (dry run): candidate tag removed" eq "$(tagrev candidate)" none
 
+# (g) the dev-only bookmarks smoke (step 4b, right after the authenticated smoke): a failure is handled exactly like a failed smoke
+setup; echo 500 >"$FAKE/listbm-code"; run false
+check "bookmarks smoke failure fails the run" eq "$rc" 1
+check "bookmarks smoke failure: named" grep -q 'FAIL: bookmarks smoke failed' "$tmp/out"
+check "bookmarks smoke failure: FAIL line from the smoke" grep -q 'bookmarks smoke: FAIL at list-bookmarks' "$tmp/out"
+check "bookmarks smoke failure: the authenticated smoke had passed first" grep -q 'authenticated smoke: PASS' "$tmp/out"
+check "bookmarks smoke failure: serving unchanged" eq "$(serving)" api-00001-aaa
+check "bookmarks smoke failure: no traffic change, no last-good tagging" no_traffic_change
+check "bookmarks smoke failure: last-good untouched" eq "$(tagrev last-good)" api-00000-zzz
+check "bookmarks smoke failure: candidate tag removed" eq "$(tagrev candidate)" none
+check "bookmarks smoke failure: marker never written" bash -c '[ ! -e "$0" ]' "$PROMOTE_MARKER"
+check "bookmarks smoke failure: nothing secret printed" bash -c '! grep -qF -e "$0" -e "$1" "$2"' "$SMOKE_PASSWORD_V" "$SMOKE_EMAIL_V" "$tmp/out"
+# strict (any mismatch fails the promotion): the flag globally off (List 400) and a write that went through (Add 200)
+setup; echo 400 >"$FAKE/listbm-code"; run false
+check "flag off (List 400): the run fails, it does not promote" eq "$rc" 1
+check "flag off (List 400): FAIL line names the step" grep -q 'bookmarks smoke: FAIL at list-bookmarks' "$tmp/out"
+check "flag off (List 400): no traffic change" no_traffic_change
+setup; echo 200 >"$FAKE/addbm-code"; run false
+check "Add 200 (allowlisted by mistake): the run fails" eq "$rc" 1
+check "Add 200: FAIL at add-bookmark" grep -q 'bookmarks smoke: FAIL at add-bookmark' "$tmp/out"
+check "Add 200: serving unchanged, candidate tag removed" bash -c '[ "$0" = api-00001-aaa ] && [ "$1" = none ]' "$(serving)" "$(tagrev candidate)"
+setup; echo 500 >"$FAKE/addbm-code"; run true
+check "bookmarks smoke failure also fails a dry run" eq "$rc" 1
+check "bookmarks smoke failure (dry run): candidate tag removed" eq "$(tagrev candidate)" none
+setup; echo 400 >"$FAKE/signin-code"; run false
+check "a failed authenticated smoke never reaches the bookmarks smoke" bash -c '! grep -q "bookmarks smoke" "$0"' "$tmp/out"
+
 # (c) no secrets, dry run: skipped with a notice, the dry run completes
 setup; nosecrets env DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "no secrets, dry run: completes" eq "$rc" 0
 check "no secrets, dry run: skipped with a notice" grep -q 'authenticated smoke SKIPPED: the smoke secrets are unavailable' "$tmp/out"
+check "no secrets, dry run: the notice names the dev-only bookmarks smoke too" grep -q 'dev-only bookmarks smoke is skipped' "$tmp/out"check "no secrets, dry run: the bookmarks smoke did not run" bash -c '! grep -q "bookmarks smoke:" "$0"' "$tmp/out"
 check "no secrets, dry run: no sign-in attempted" eq "$(signins)" 0
 check "no secrets, dry run: traffic untouched" no_traffic_change
 check "no secrets, dry run: candidate tag removed" eq "$(tagrev candidate)" none
@@ -267,6 +302,7 @@ check "empty password, dry run: skipped" grep -q 'authenticated smoke SKIPPED' "
 setup; nosecrets env DRY_RUN=false IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "no secrets, promote: fails closed" eq "$rc" 1
 check "no secrets, promote: says why" grep -q 'authenticated smoke is required when promoting: SMOKE_\* secrets are missing' "$tmp/out"
+check "no secrets, promote: the bookmarks smoke did not run" bash -c '! grep -q "bookmarks smoke:" "$0"' "$tmp/out"
 check "no secrets, promote: serving unchanged" eq "$(serving)" api-00001-aaa
 check "no secrets, promote: no traffic change, no last-good tagging" no_traffic_change
 check "no secrets, promote: candidate tag removed" eq "$(tagrev candidate)" none
