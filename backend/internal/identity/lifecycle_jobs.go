@@ -157,6 +157,11 @@ func (l *Lifecycle) dispatch(ctx context.Context, d pubsubpush.Delivery) jobResu
 			return ack(jobResult{job: "unknown"}, "dropped:unknown_kind")
 		}
 		res := jobResult{job: msg.Kind}
+		// Module kinds carry the owner uid too (post_delete, profile_media_retired), so the delivery line gets the same
+		// uid_hash as the account kinds and a runbook can find a user's job by it. The handler still validates the uid.
+		if ValidUserID(msg.UID) {
+			res.uid = msg.UID
+		}
 		outcome, err := h.Handle(ctx, d.Data)
 		if err != nil {
 			return retry(res, "error", err)
