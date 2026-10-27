@@ -135,9 +135,12 @@ move backwards, and accepts the same value) and the document is written.
    founder's pre-authorised dev apply); prod at 17:13 UTC after the founder's OK (plan-then-OK, ADR-0019). `PROFILE_MEDIA_RETIRE`
    is still `off` in both, so no object is tagged yet.
 2. Set `profile_media_retire = "banner"`. **Never set it before step 1**: an object tagged without the rule outlives its TTL'd
-   document and escapes the account eraser (an orphaned public image). Step 1 is done in both projects; next is dev: set it to
-   `banner` as a separate planned change (its own plan and apply, tfvars only, after the W3-24 dev flag pass), then run steps 3
-   and 4 of "Verification of the retire step". Prod follows with the founder's OK.
+   document and escapes the account eraser (an orphaned public image). Step 1 is done in both projects.
+   **Status (2026-10-27):** dev has `banner` since 17:56 UTC (its own targeted plan and apply, tfvars only; revision
+   `api-00307-fcs`, 100% of traffic; details in "Results, dev, banner switch"). Prod is still `off`: raising it needs the
+   founder's OK and the prod throwaway-object check first ("Results, prod"). Steps 3 and 4 of "Verification of the retire step"
+   are not run yet: the replace-a-banner leg is owed to the testers, with the exact expectations listed in that section.
+   `all` waits for the app release with #361 (the avatar placeholder).
 3. Set `all` only after the app release whose `AppAvatar` shows a placeholder when the image no longer loads (old posts,
    quote and repost embeds and notification actors copy the avatar URL, and only a name or handle edit refreshes the newest 100
    posts, so older rows show a 404 image after the grace).
@@ -224,7 +227,72 @@ the switch is raised past `off`:
   end to end (objects gone 24-48 h after the replace).
 - The runtime service account holds `roles/storage.objectAdmin` on the bucket, which includes `storage.objects.update`, the
   permission a patch needs (the test above used the founder's credentials, not the runtime account).
-- Not yet run in dev: steps 3 and 4 (they need the switch above `off`).
+- Not yet run in dev: steps 3 and 4. They needed the switch above `off`, which is now `banner` ("Results, dev, banner switch"
+  below); the replace-a-banner leg is still owed to the testers.
+
+**Results, dev, banner switch (2026-10-27, run by the production-deployer on the founder's pre-authorised dev apply; times UTC).**
+`PROFILE_MEDIA_RETIRE` went `off` to `banner` as its own change: nothing else in the plan, and no flag moved. Prod was not touched.
+- Preconditions: the lifecycle rule is on `dzeroth-dev-media` and on `dzeroth-prod-media` (step 1); #360 is on `main`; dev served
+  `api-00306-482` (the W3-24 revision) at 100%, `last-good` `api-00561-meb`; no `deploy-dev` run was in flight at the plan, the
+  apply or the route.
+- tfvars: one line appended to the real, gitignored `infra/terraform/envs/dev/terraform.tfvars`: `profile_media_retire = "banner"`
+  (the key appears once). The promotion validators passed (`check-flag-registry.sh` `ok: 20 flags registered`,
+  `check-until-dates.sh` `ok: 11 until: marker(s) checked against 2026-10-27`, `check-field-overrides.sh`
+  `ok: fieldOverrides unchanged: 35 override(s)`).
+- Plan (saved with `-out`, targeted `module.cloud_run_api.google_cloud_run_v2_service.api` only, about 17:53): `Plan: 0 to add, 1 to
+  change, 0 to destroy.` The plan JSON had 33 resources, 32 `no-op`; the one change is the `api` service. Read from the JSON, not by
+  eye: env 129 names before and after, 0 added, 0 removed, exactly one value changed (`PROFILE_MEDIA_RETIRE` `off` to `banner`);
+  every other attribute of the service identical (this plan showed no `template.revision` line at all). In the plain-text plan the
+  only difference is that one `env` block.
+- Apply of that saved plan file (17:55): the `api` service changed, nothing else. The new revision `api-00307-fcs` was created at
+  17:54:58 and is `Ready` True. Its image digest equals the serving revision's (`sha256:906eda13...5708428c`, the same one
+  `api-00306-482` runs), its env has 129 entries and `PROFILE_MEDIA_RETIRE=banner`. `scripts/promotion/validate-revision.sh` on
+  its real JSON: `RESULT: all checks passed`, the four W3 flags still `allowlist` 3/3 with percent 0, `scaling min=0 max=1`.
+- Route (17:56:07): `gcloud run services update-traffic api --to-revisions=api-00307-fcs=100`: `100% api-00307-fcs`, `0%
+  api-00561-meb (last-good)`, `0% api-00564-vik (candidate)`. `GET /health` on the service URL: HTTP 200 `ok`. A fresh targeted
+  plan after the route: `No changes. Your infrastructure matches the configuration.`
+- **Rollback of this change:** remove the `profile_media_retire` line from the tfvars (or set it to `"off"`), the same targeted plan
+  (expect one `PROFILE_MEDIA_RETIRE` value change), apply, route the new revision. Fast fallback with no Terraform:
+  `gcloud run services update-traffic api --project=dzeroth-dev --region=asia-south1 --to-revisions=api-00306-482=100` (same image,
+  switch `off`, W3 flags unchanged), then make the Terraform change so state and live agree, and do not run `deploy-dev` in between.
+  Nothing queued is lost by lowering the switch: queued messages ack as `disabled`.
+- Handler is registered: `apiserver.go` registers the `profile_media_retired` handler whatever the switch says (the handler acks
+  as `disabled` when it is `off`), and nothing logs the switch's value, so no log line can prove `banner` by itself. The evidence
+  is the revision's env (`banner`), `config.Load` rejecting any value but `off`, `banner` or `all` at startup, and the revision's
+  own startup lines: `feature_flags` and `listening` (`env=dev`, 17:56:14) on `api-00307-fcs` after the route, then real traffic
+  (`GetMe`, `ListSuggestedUsers`, `GetHomeTimeline`, `Follow`, all `code=ok` from an allowlisted account from 17:58).
+  First ten minutes on the revision (route 17:56:07, window to 18:06:07, queried 18:06:37; the revision's own log lines only):
+  no line at severity ERROR or above, none at WARNING, 76 request-log lines all HTTP 200 (so no 5xx; the 17:56 `/health` check
+  included), 59 RPC lines all `code=ok`, `/health` 200 again at 18:06, traffic still 100% on `api-00307-fcs`. That traffic includes
+  the W3 RPCs (`ListSuggestedUsers`, `ListLikedPosts`, `GetUserTimeline`) and, from an allowlisted account, `CreateUpload`,
+  `FinalizeUpload` and three `UpdateProfile` calls (all ok). No `account_job=profile_media_retired` line and no
+  `profile_media_retire_enqueue_failed` line yet: the logs do not say whether an `UpdateProfile` replaced or removed a banner
+  (a first banner, or an avatar change, retires nothing in `banner` mode), so nothing here counts for the owed leg below.
+- **Owed to the testers (steps 3 and 4 of "Verification of the retire step").** The deploying machine has no tester credential and
+  the founder's `gcloud` credentials cannot replace a cohort user's banner through the app, so the replace-a-banner leg has not
+  run. A tester of the `profile_extras` allowlist (the same three uids as `media`; the banner also needs `media`) first sets a
+  banner if the account has none (nothing is retired by a first set; it costs 2 Vision units), then replaces it with another
+  image, or removes it (Edit profile, Remove). The old banner `<id>` is the one that must be retired. Expect, in this order:
+  1. Within about a minute, one log line `account_job=profile_media_retired` with `outcome=retired`, `fs_reads=2`, `fs_writes=1`,
+     `fs_deletes=0` and no `error` field: `gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=api AND
+     jsonPayload.account_job="profile_media_retired"' --project=dzeroth-dev --freshness=1h`. Find it by `account_job` and the time of
+     the change: for this job kind `uid_hash` is empty (the delivery loop sets no uid for the kinds another module registered,
+     such as this one), so the "job log line for that uid hash" wording in the failure modes cannot be followed literally.
+  2. Both old objects, `m/<id>.<ext>` and `m/<id>_t.<ext>`, carry `customTime` equal to the moment the profile change committed
+     (`changedAt`): `gcloud storage objects describe gs://dzeroth-dev-media/m/<id>.<ext>` (and the `_t` one), generation and
+     `Cache-Control` unchanged. The profile's current banner objects have no `customTime`.
+  3. The old image's `media/<id>` document has `retiredAt` equal to that same `changedAt` and `expireAt` = `retiredAt` + 72 h (the
+     code sets both from `changedAt`, not from the time the handler ran). Setting that retired banner again answers
+     MEDIA_NOT_READY.
+  4. The two objects return 404 on their public URL 24-48 h after `changedAt` (the lifecycle rule; browsers and intermediaries may
+     keep a cached copy, `max-age=31536000, immutable`) and the document is gone 72 h after (Firestore TTL deletes lag `expireAt`
+     by up to a day or so). A lifecycle run has not yet been seen deleting a tagged object (the throwaways of the first dev
+     check were deleted by hand), so this is the first time it is seen end to end.
+  5. Step 4 (redelivery): re-publish the same message on the jobs topic (founder credentials): `outcome=duplicate`, `fs_writes=0`,
+     no GCS call.
+  6. No `profile_media_retire_enqueue_failed` in Error Reporting and no `account_job` line with `outcome=error`.
+  If any expectation fails, set the switch back to `off` (rollback above) before looking further: objects already tagged are still
+  deleted by the rule, so check `customTime` on them by hand first (the clear-by-hand command is in the kill-switch text above).
 
 **Results, prod (`dzeroth-prod-media`, rule applied 2026-10-27 at 17:13 UTC after the founder's OK; the apply was run by the main
 session from a saved targeted plan).** Step 1 only; `PROFILE_MEDIA_RETIRE` is `off` and nothing was written to the bucket.
