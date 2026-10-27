@@ -58,8 +58,10 @@ type backends struct {
 	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
 	cleanup posts.Cleanup
 	// copied lists the suspended author's posts that have copies, for suspend-user's copy cleanup (#151).
-	copied   posts.CopiedLister
-	accounts accountStatusSetter
+	copied posts.CopiedLister
+	// backfiller serves backfill-has-media (ADR-0024 D4, W3-8): the posts repo helper that owns the hasMedia rule.
+	backfiller posts.HasMediaBackfiller
+	accounts   accountStatusSetter
 	// actorSweeper removes the notification rows other users hold about a suspended actor (security audit N-4);
 	// nil skips the sweep.
 	actorSweeper notifications.ActorSweeper
@@ -112,6 +114,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		moderator:     postsRepo,
 		cleanup:       postsRepo,
 		copied:        postsRepo,
+		backfiller:    postsRepo,
 		accounts:      identityRepo,
 		actorSweeper:  notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
 		listAuthUsers: lister,
@@ -126,6 +129,7 @@ const usage = `usage:
   opsctl purge-posts  --project P --uid U [--dry-run] [--skip-start-gate]   (run before purge-graph)
   opsctl export-posts --project P --uid U [--out FILE]
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
+  opsctl backfill-has-media --project P [--dry-run] [--after POST_ID]   (one-off per project; <= 5,000 writes per run)
 ` + modUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
@@ -139,9 +143,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, suspend-user, unsuspend-user: print counts, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user: print counts, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
+	after := fs.String("after", "", "backfill-has-media: resume after this post id (the checkpoint a capped run printed)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
@@ -153,7 +158,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
-		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user":
+		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -175,8 +180,17 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	ma.dryRun = *dryRun
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "suspend-user" && cmd != "unsuspend-user" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	// --after resumes a capped backfill; on any other command it would be silently ignored.
+	if *after != "" && cmd != "backfill-has-media" {
+		fmt.Fprintf(errOut, "--after is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	if !validBackfillAfter(*after) {
+		fmt.Fprintf(errOut, "--after must be a post id (no \"/\")\n%s", usage)
 		return 2
 	}
 	if cmd == "reports" && sub == "" {
@@ -187,8 +201,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintf(errOut, "--project is required (there is no default project)\n%s", usage)
 		return 2
 	}
-	// check-t26 scans every Auth user; the report and post moderation commands address a report or post id.
-	needUID := cmd != "check-t26" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post"
+	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
+	// report or post id.
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -212,6 +227,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "check-t26":
 		err = checkT26(ctx, b, out)
+	case "backfill-has-media":
+		err = backfillHasMedia(ctx, b, *after, *dryRun, out)
 	case "purge-graph":
 		err = purge(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	case "purge-posts":

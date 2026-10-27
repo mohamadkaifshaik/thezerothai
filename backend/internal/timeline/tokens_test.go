@@ -36,8 +36,8 @@ func TestCodec_BindingMatrix(t *testing.T) {
 	home := homeFeed("alice")
 	feeds := map[string]feed{
 		"other caller":        homeFeed("bob"),
-		"user feed":           userFeed("alice", "carol", false),
-		"user feed (replies)": userFeed("alice", "carol", true),
+		"user feed":           userFeed("alice", "carol", tabPosts),
+		"user feed (replies)": userFeed("alice", "carol", tabReplies),
 	}
 	since := cd.encodeSince(home, pos(5000, 5))
 	page := cd.encodePage(home, pos(4000, 4), nil)
@@ -69,8 +69,8 @@ func TestCodec_BindingMatrix(t *testing.T) {
 	_, err = cd.parse(home, page, "")
 	wantField(t, err, fieldSince)
 	// tab-bound: Posts-tab tokens fail on the Replies tab.
-	pt := cd.encodePage(userFeed("alice", "carol", false), pos(1, 1), nil)
-	_, err = cd.parse(userFeed("alice", "carol", true), "", pt)
+	pt := cd.encodePage(userFeed("alice", "carol", tabPosts), pos(1, 1), nil)
+	_, err = cd.parse(userFeed("alice", "carol", tabReplies), "", pt)
 	wantField(t, err, fieldPage)
 	// tampered.
 	_, err = cd.parse(home, since[:len(since)-2]+"AA", "")
@@ -175,8 +175,8 @@ func flip(tok string) string {
 func TestCodec_UserTokenBinding(t *testing.T) {
 	t.Parallel()
 	cd := newCodec(newClock())
-	posts := userFeed("alice", "carol", false)
-	replies := userFeed("alice", "carol", true)
+	posts := userFeed("alice", "carol", tabPosts)
+	replies := userFeed("alice", "carol", tabReplies)
 	tokens := func(f feed) (since, page, gap string) {
 		return cd.encodeSince(f, pos(5000, 5)), cd.encodePage(f, pos(4000, 4), nil), cd.encodePage(f, pos(4000, 4), ptr(pos(1000, 1)))
 	}
@@ -202,9 +202,9 @@ func TestCodec_UserTokenBinding(t *testing.T) {
 		on   feed
 	}{
 		{"posts tokens on the replies tab", replies},
-		{"caller B", userFeed("bob", "carol", false)},
-		{"caller B, replies tab", userFeed("bob", "carol", true)},
-		{"another target", userFeed("alice", "dave", false)},
+		{"caller B", userFeed("bob", "carol", tabPosts)},
+		{"caller B, replies tab", userFeed("bob", "carol", tabReplies)},
+		{"another target", userFeed("alice", "dave", tabPosts)},
 		{"home feed", homeFeed("alice")},
 	}
 	for _, tc := range tests {
@@ -243,4 +243,65 @@ func TestCodec_UserTokenBinding(t *testing.T) {
 		_, err = cd.parse(posts, "", pPage[:len(pPage)-8]) // truncated
 		wantField(t, err, fieldPage)
 	})
+}
+
+// ADR-0024 D5/D14 at the codec: the four effective tabs are four separate token families. A since, page or gap token
+// opens only on the tab (and caller and target) that sealed it, with no cross-tab pair accepted.
+func TestCodec_UserTabTokenMatrix(t *testing.T) {
+	t.Parallel()
+	cd := newCodec(newClock())
+	tabs := []userTab{tabPosts, tabReplies, tabMedia, tabReposts}
+	for _, from := range tabs {
+		f := userFeed("alice", "carol", from)
+		since := cd.encodeSince(f, pos(5000, 5))
+		page := cd.encodePage(f, pos(4000, 4), nil)
+		gap := cd.encodePage(f, pos(4000, 4), ptr(pos(1000, 1)))
+		for _, on := range tabs {
+			g := userFeed("alice", "carol", on)
+			_, errSince := cd.parse(g, since, "")
+			_, errPage := cd.parse(g, "", page)
+			r, errGap := cd.parse(g, "", gap)
+			if from == on {
+				if errSince != nil || errPage != nil || errGap != nil || r.mode() != modeGap {
+					t.Fatalf("%s tokens on %s: %v / %v / %v (mode %s)", from, on, errSince, errPage, errGap, r.mode())
+				}
+				continue
+			}
+			wantField(t, errSince, fieldSince)
+			wantField(t, errPage, fieldPage)
+			wantField(t, errGap, fieldPage)
+		}
+	}
+}
+
+// Every token issued before the tab field existed stays valid (ADR-0024 D5): the binding strings of the Posts and
+// Replies tabs are frozen, and the new tabs' strings differ from them.
+func TestUserFeed_BindingStringsAreFrozen(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tab         userTab
+		since, page string
+	}{
+		{tabPosts, "tl|user|alice|carol|posts|since", "tl|user|alice|carol|posts|page"},
+		{tabReplies, "tl|user|alice|carol|replies|since", "tl|user|alice|carol|replies|page"},
+		{tabMedia, "tl|user|alice|carol|media|since", "tl|user|alice|carol|media|page"},
+		{tabReposts, "tl|user|alice|carol|reposts|since", "tl|user|alice|carol|reposts|page"},
+	}
+	for _, tc := range tests {
+		f := userFeed("alice", "carol", tc.tab)
+		if f.since != tc.since || f.page != tc.page {
+			t.Errorf("userFeed(%s) = %+v, want since=%q page=%q", tc.tab, f, tc.since, tc.page)
+		}
+	}
+	// A token sealed under the literal pre-W3 binding opens through the effective tab of a request that never set `tab`.
+	c := newClock()
+	cd := newCodec(c)
+	old := cursor.EncodeAt(testKey, "tl|user|alice|carol|replies|since", cursor.Cursor{CreatedAt: time.UnixMilli(5000).UTC(), DocID: pid(5)}, c.Now())
+	tab, ok := effectiveTab(0, true) // UNSPECIFIED + include_replies
+	if !ok {
+		t.Fatal("UNSPECIFIED must resolve")
+	}
+	if _, err := cd.parse(userFeed("alice", "carol", tab), old, ""); err != nil {
+		t.Fatalf("a pre-W3 replies since_token no longer opens: %v", err)
+	}
 }

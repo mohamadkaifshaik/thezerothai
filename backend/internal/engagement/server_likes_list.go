@@ -1,6 +1,5 @@
-// server_likes_list.go holds the Connect handler of ListLikedPosts (ADR-0024 D6, ticket W3-4). This file is the flag
-// gate and nothing else yet: once it passes, the RPC answers Unimplemented naming the ticket that fills it in (W3-10),
-// so no path reads or writes.
+// server_likes_list.go holds the Connect handler of ListLikedPosts (ADR-0024 D6, tickets W3-4 and W3-10): the flag gate
+// (W3-4), then LikesList.ListLikedPosts (W3-10), each row rendered with posts.ToView.
 package engagement
 
 import (
@@ -10,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
+	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -35,13 +35,29 @@ func (s *Server) guardLikesList(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
-// ListLikedPosts is the caller's own likes, newest first (ADR-0024 D6; owner-only: the request has no user id). It is
-// behind FEATURE_POSTS and FEATURE_LIKES_LIST on for the caller. Worst case (when W3-10 lands) 23 reads cold at page 20
-// and 53 at page 50 (interceptor 1, userLikes 1, posts GetMany <= page, caller graph 1), 0 writes; today 0 reads and
-// 0 writes (Unimplemented after the flag gate).
-func (s *Server) ListLikedPosts(ctx context.Context, _ *connect.Request[engagementv1.ListLikedPostsRequest]) (*connect.Response[engagementv1.ListLikedPostsResponse], error) {
-	if _, err := s.guardLikesList(ctx); err != nil {
+// ListLikedPosts is the caller's own likes, newest first (ADR-0024 D6; owner-only: the request has no user id, so the
+// source is always userLikes/{token uid} and the page token is bound to likes|<uid>). It is behind FEATURE_POSTS and
+// FEATURE_LIKES_LIST on for the caller (not FEATURE_ENGAGEMENT); the rules are LikesList.ListLikedPosts. Worst case
+// reads cold: 23 at page 20 and 53 at page 50 (interceptor 1, userLikes 1, posts GetMany <= page, caller graph 1), 2
+// for an empty array, 20 / 50 warm (posts cached), 0 for a foreign, expired or tampered token past the interceptor;
+// 0 writes (no pruning). A client keeps following next_page_token until it is "" because dropped rows shorten a page.
+func (s *Server) ListLikedPosts(ctx context.Context, req *connect.Request[engagementv1.ListLikedPostsRequest]) (*connect.Response[engagementv1.ListLikedPostsResponse], error) {
+	uid, err := s.guardLikesList(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListLikedPosts is not implemented yet (ticket W3-10)"))
+	if s.likes == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListLikedPosts is not wired"))
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	defer cancel()
+	page, err := s.likes.ListLikedPosts(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	out := &engagementv1.ListLikedPostsResponse{NextPageToken: page.NextPageToken, Posts: make([]*postsv1.PostView, 0, len(page.Posts))}
+	for _, p := range page.Posts {
+		out.Posts = append(out.Posts, posts.ToView(p, page.Viewer, uid))
+	}
+	return connect.NewResponse(out), nil
 }

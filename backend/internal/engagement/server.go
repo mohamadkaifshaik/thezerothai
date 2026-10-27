@@ -23,6 +23,7 @@ type Server struct {
 	engagementv1connect.UnimplementedEngagementServiceHandler
 	svc       Service
 	bookmarks Bookmarks
+	likes     LikesList
 	flags     posts.FlagChecker
 }
 
@@ -33,9 +34,17 @@ type ServerOption func(*Server)
 // Unimplemented after the flag gate.
 func WithBookmarks(b Bookmarks) ServerOption { return func(s *Server) { s.bookmarks = b } }
 
+// WithLikesList supplies the likes-list service behind ListLikedPosts (ADR-0024 D6), overriding the default: NewServer
+// already uses svc when it implements LikesList (the Module does), so apiserver needs no extra wiring. Without either,
+// ListLikedPosts answers Unimplemented after the flag gate.
+func WithLikesList(l LikesList) ServerOption { return func(s *Server) { s.likes = l } }
+
 // NewServer builds the Connect handler. Use with engagementv1connect.NewEngagementServiceHandler.
 func NewServer(svc Service, fc posts.FlagChecker, opts ...ServerOption) *Server {
 	s := &Server{svc: svc, flags: fc}
+	if l, ok := svc.(LikesList); ok {
+		s.likes = l
+	}
 	for _, o := range opts {
 		o(s)
 	}
