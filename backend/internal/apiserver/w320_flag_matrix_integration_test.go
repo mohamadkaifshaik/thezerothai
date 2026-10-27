@@ -28,6 +28,7 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	mediav1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -134,7 +135,7 @@ type w320GatedCall struct {
 	rpc  string
 	// pass checks the answer of a call the gate let through.
 	pass func(t *testing.T, what string, err error)
-	// clear is true for an UpdateProfile that only sends "" (W3-22 M-1: gated today, always allowed after the fix).
+	// clear is true for an UpdateProfile that only sends "" (W3-22 M-1, #354: always allowed from any caller, whatever the flag).
 	clear bool
 }
 
@@ -244,7 +245,7 @@ func TestW320_FlagModeMatrix(t *testing.T) {
 							err := c.call(r, u, target.uid)
 							refused := !on
 							if c.clear && !w320ClearsNeedProfileExtras {
-								refused = false // W3-22 M-1(b): a clear is always allowed
+								refused = false // W3-22 M-1(b), #354: a clear is always allowed
 							}
 							if refused {
 								w320Disabled(t, what, err, f)
@@ -355,5 +356,168 @@ func TestW320_CompanionFlagPrecedence(t *testing.T) {
 		_, err = r.graph.GetProfileRelationship(context.Background(), authed(u.token, &graphv1.GetProfileRelationshipRequest{UserId: target.uid}))
 		w320Disabled(t, "GetProfileRelationship with graph off", err, "")
 		r.w320AssertNothing(t, "GetProfileRelationship refused by graph", w320RPCGetProfileRel)
+	})
+}
+
+// TestW320_M1KillSwitchWebsiteAndClears: W3-22 M-1 (ADR-0024 Amendment 1 A1 and A2, #354) through the production chain.
+//
+//	A1: while profile_extras is globally off (mode off ONLY) the website and the pin are blanked in every Profile identity
+//	    returns, the owner's own view included, at no extra read; the location stays; a rollout (an allowlist, even an empty
+//	    one, or a percent, even 0) is not the switch and shows both; the stored document keeps the values.
+//	A2: the exact value "" for any of the four fields is a clear and is accepted from any authenticated caller whatever the
+//	    flag (1 read, 1 write); whitespace-only is a SET and stays gated; a request that mixes a clear with a set is refused
+//	    whole (FEATURE_DISABLED for a caller outside the cohort, and nothing is cleared).
+func TestW320_M1KillSwitchWebsiteAndClears(t *testing.T) {
+	const site = "https://example.com/m1"
+	setup := newW320Chain(t, w320AllW3On)
+	viewer := setup.user(t)
+	// seed builds an owner with a location, a website and a pin, written while the flag is on for everyone.
+	seed := func() (bmUser, string) {
+		o := setup.user(t)
+		pid := setup.post(t, o, "m1 pin")
+		if _, err := setup.w320Update(o, &identityv1.UpdateProfileRequest{Location: w320Str("Pune"), Website: w320Str(site), PinnedPostId: &pid}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		return o, pid
+	}
+	spec := func(mode flags.Mode, allow ...bmUser) flags.Spec {
+		s := flags.Spec{Name: "profile_extras", Mode: mode}
+		if len(allow) > 0 {
+			s.Allowlist = map[string]struct{}{}
+			for _, u := range allow {
+				s.Allowlist[u.uid] = struct{}{}
+			}
+		}
+		return s
+	}
+
+	t.Run("A1: website and pin are blanked only while the flag is globally off", func(t *testing.T) {
+		o, pid := seed()
+		for _, tc := range []struct {
+			name  string
+			spec  flags.Spec
+			shown bool // website and pin visible
+		}{
+			{"mode off (the kill switch)", spec(flags.Off), false},
+			{"allowlist, empty (a rollout, not the switch)", spec(flags.Allowlist), true},
+			{"percent 0 (a rollout, not the switch)", flags.Spec{Name: "profile_extras", Mode: flags.Percent, Percent: 0}, true},
+			{"allowlist with someone else", spec(flags.Allowlist, viewer), true},
+			{"on", spec(flags.On), true},
+		} {
+			r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = tc.spec })
+			for who, v := range map[string]bmUser{"a viewer": viewer, "the owner": o} {
+				p := r.w320Profile(t, v, o.uid)
+				wantSite, wantPin := "", ""
+				if tc.shown {
+					wantSite, wantPin = site, pid
+				}
+				if p.GetWebsite() != wantSite || p.GetPinnedPostId() != wantPin || p.GetLocation() != "Pune" {
+					t.Errorf("%s, %s: website=%q pin=%q location=%q, want website=%q pin=%q and location Pune", tc.name, who, p.GetWebsite(), p.GetPinnedPostId(), p.GetLocation(), wantSite, wantPin)
+				}
+			}
+			// The stored document is untouched by the kill switch: it only hides.
+			if got := r.w320Field(t, "users/"+o.uid, "website"); got != site {
+				t.Errorf("%s: stored website = %v, want %q (the switch hides, it never writes)", tc.name, got, site)
+			}
+		}
+		// Off also blanks the website in the response to the owner's own UpdateProfile.
+		r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = spec(flags.Off) })
+		got, err := r.w320Update(o, &identityv1.UpdateProfileRequest{Bio: w320Str("bio edit while the flag is off")})
+		if err != nil || got.GetWebsite() != "" || got.GetPinnedPostId() != "" || got.GetLocation() != "Pune" {
+			t.Errorf("UpdateProfile response with the flag off: %v, %v; want website and pin blanked, location kept", got, err)
+		}
+		if after := r.w320Field(t, "users/"+o.uid, "website"); after != site {
+			t.Errorf("a bio edit with the flag off changed the stored website to %v", after)
+		}
+	})
+
+	t.Run("A2: the exact empty string clears from any caller whatever the flag", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			spec flags.Spec
+		}{
+			{"flag globally off", spec(flags.Off)},
+			{"owner outside the allowlist", spec(flags.Allowlist, viewer)},
+			{"owner outside the cohort at percent 0", flags.Spec{Name: "profile_extras", Mode: flags.Percent, Percent: 0}},
+			{"flag on (control)", spec(flags.On)},
+		} {
+			o, _ := seed()
+			r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = tc.spec })
+			got, err := r.w320Update(o, &identityv1.UpdateProfileRequest{
+				BannerMediaId: w320Str(""), Location: w320Str(""), Website: w320Str(""), PinnedPostId: w320Str(""),
+			})
+			if err != nil {
+				t.Errorf("%s: clearing all four with \"\": %v, want it accepted", tc.name, err)
+				continue
+			}
+			if got.GetLocation() != "" || got.GetWebsite() != "" || got.GetPinnedPostId() != "" || got.GetBannerUrl() != "" {
+				t.Errorf("%s: response after the clear = %v, want every field empty", tc.name, got)
+			}
+			// 1 read (the users doc) + 1 for the cold interceptor = 2; 1 write: the cost of any UpdateProfile.
+			budgettest.Assert(t, tc.name+": UpdateProfile clearing all four, cold interceptor", r.lineBudget(t, rpcUpdateProfile), budgettest.Budget{Reads: 2, Writes: 1})
+			for _, f := range []string{"location", "website", "pinnedPostId"} {
+				if v := r.w320Field(t, "users/"+o.uid, f); v != "" && v != nil {
+					t.Errorf("%s: stored %s = %v after the clear", tc.name, f, v)
+				}
+			}
+		}
+	})
+
+	t.Run("A2: whitespace-only is a set and stays gated", func(t *testing.T) {
+		o, pid := seed()
+		r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = spec(flags.Allowlist, viewer) })
+		r.w320Warm(t, o)
+		for name, req := range map[string]*identityv1.UpdateProfileRequest{
+			"location":       {Location: w320Str("   ")},
+			"website":        {Website: w320Str(" ")},
+			"pinned_post_id": {PinnedPostId: w320Str("  ")},
+			"banner":         {BannerMediaId: w320Str(" ")},
+			"tab":            {Location: w320Str("\t")},
+		} {
+			_, err := r.w320Update(o, req)
+			w320Disabled(t, "whitespace-only "+name+" outside the cohort", err, "profile_extras")
+			r.w320AssertNothing(t, "whitespace-only "+name, rpcUpdateProfile)
+		}
+		for f, want := range map[string]string{"location": "Pune", "website": site, "pinnedPostId": pid} {
+			if v := r.w320Field(t, "users/"+o.uid, f); v != want {
+				t.Errorf("a refused whitespace-only request changed %s: %v, want %q", f, v, want)
+			}
+		}
+	})
+
+	t.Run("A2: a request that mixes a clear with a set is refused whole", func(t *testing.T) {
+		o, _ := seed()
+		for _, tc := range []struct {
+			name string
+			spec flags.Spec
+		}{
+			{"flag globally off", spec(flags.Off)},
+			{"owner outside the allowlist", spec(flags.Allowlist, viewer)},
+		} {
+			r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = tc.spec })
+			r.w320Warm(t, o)
+			_, err := r.w320Update(o, &identityv1.UpdateProfileRequest{Location: w320Str(""), Website: w320Str("https://example.com/new")})
+			w320Disabled(t, tc.name+": clear location + set website", err, "profile_extras")
+			r.w320AssertNothing(t, tc.name+": mixed request", rpcUpdateProfile)
+			if v := r.w320Field(t, "users/"+o.uid, "location"); v != "Pune" {
+				t.Errorf("%s: the clear half of a refused mixed request was applied: location = %v", tc.name, v)
+			}
+			// A bio edit next to a clear is not a mix: only the four extras count, and a clear passes.
+			if got, err := r.w320Update(o, &identityv1.UpdateProfileRequest{Bio: w320Str("bio next to a clear " + tc.name), Location: w320Str("")}); err != nil || got.GetLocation() != "" {
+				t.Errorf("%s: bio plus clearing location: %v, %v; want it accepted", tc.name, got, err)
+			}
+			if _, err := r.w320Update(o, &identityv1.UpdateProfileRequest{Location: w320Str("Pune")}); err == nil {
+				t.Errorf("%s: setting a location was accepted outside the cohort", tc.name)
+			}
+			// restore the location for the next row (written while the flag is on for everyone)
+			if _, err := setup.w320Update(o, &identityv1.UpdateProfileRequest{Location: w320Str("Pune")}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Control: for a caller inside the cohort the same mixed request is accepted.
+		r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = spec(flags.On) })
+		if got, err := r.w320Update(o, &identityv1.UpdateProfileRequest{Location: w320Str(""), Website: w320Str("https://example.com/new")}); err != nil || got.GetWebsite() != "https://example.com/new" || got.GetLocation() != "" {
+			t.Errorf("mixed request inside the cohort: %v, %v; want it accepted", got, err)
+		}
 	})
 }

@@ -189,6 +189,19 @@ Owner: production-deployer.
 **Gate.** Dev apply with or before W3-24 (recommended, not required). Prod apply needs the founder's OK (ADR-0019,
 plan-then-OK). See founder question 2.
 
+**Status (2026-10-27): dev applied, prod plan pending the founder's OK.**
+- Fix: `infra/terraform/modules/media-buckets/main.tf` now binds `allUsers` to `roles/storage.legacyObjectReader`
+  (`storage.objects.get` only; `gcloud iam roles describe` confirms), with `create_before_destroy` because `role` forces a
+  replacement. GCS accepted it on a uniform bucket-level access bucket, so no custom role is needed.
+- Dev (`dzeroth-dev-media`): applied 2026-10-27 (state serial 57 to 58 at 07:34 UTC; the only resource changed was
+  `module.media_buckets.google_storage_bucket_iam_member.media_public_read`). A targeted plan afterwards reports
+  "No changes". Checked anonymously the same day: JSON API list 401 and XML API list 403 (`storage.objects.list` denied),
+  GET of an existing object 200, GET of a missing object **404** `NoSuchKey` (not 403, so the review's expectation of a 403
+  was wrong and clients can key on 404).
+- Prod (`dzeroth-prod-media`): still open. An anonymous list returned 200 on both APIs on 2026-10-27 (the finding is live
+  there). The targeted plan is exactly one replacement, "Plan: 1 to add, 0 to change, 1 to destroy." Nothing is applied in
+  prod; the apply waits for the founder's OK (question 1 below).
+
 ### M-3. Concurrent FinalizeUpload calls screen one image several times
 
 **Exploit.**
@@ -385,7 +398,8 @@ leak).
 ## Questions for the founder
 
 1. **M-2 prod apply.** Change the `allUsers` role on `dzeroth-prod-media` to object-get only. This is a Terraform
-   change: plan, then your OK.
+   change: plan, then your OK. Dev is applied and verified (2026-10-27) and the prod plan is one replacement; it waits
+   for your word.
 2. **ADR-0024 Option 5A versus DPDP and GDPR.** Should "Remove banner" and a replacement delete the old public image
    (5B for removes and replaces, avatars too)? Today it stays reachable until account deletion. Once listing is closed
    it stays reachable only by URL.
@@ -458,7 +472,8 @@ leak).
 
 - Cloud state:
   - indexes READY, the backfill run, the targeted flag plan (all W3-24);
-  - an anonymous list against the dev and prod media buckets (production-deployer confirms it while applying M-2).
+  - an anonymous list against the dev and prod media buckets: done 2026-10-27 by the production-deployer (dev now 401 and
+    403, prod still 200 until the founder's apply; see the M-2 status).
 - The tester's W3-20 authz and budget matrix (W3-20 is Open).
 - A real-browser check on the dev Hosting site of IDN and punycode rendering and of the website open.
 - `govulncheck` and `osv-scanner` beyond the CI job (no new dependencies).

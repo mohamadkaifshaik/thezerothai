@@ -78,10 +78,14 @@ abstract final class IdentityService {
   /// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
   /// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
   /// (writes = author's post count; limited to 1 toggle/day).
-  /// Profile extras (ADR-0024 D1-D3, D9): banner_media_id, location, website and pinned_post_id need
-  /// FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the caller; any of them set while it is off =>
-  /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes. The display_name, bio
-  /// and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+  /// Profile extras (ADR-0024 D1-D3, D9, Amendment 1 A2): setting banner_media_id, location, website or pinned_post_id
+  /// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
+  /// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes, checked
+  /// before validation. A request from outside the cohort that mixes a clear with a set is refused whole. The exact
+  /// string "" is a clear (banner removed, location or website emptied, pin removed) and is accepted from any
+  /// authenticated caller whatever the flag, globally off included: 1 read and 1 write like a bio edit. While the flag
+  /// is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
+  /// write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
   /// and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
   /// Firestore: reads 2 cold / 1 warm (users + avatar media), +1 per banner resolve (the media doc), +1 per pin check
   /// (the post, cache-first: 1 cold / 0 warm); 4 worst cold with a banner and a pin, planning 2 (ADR-0024 D13);

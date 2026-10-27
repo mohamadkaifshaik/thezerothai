@@ -228,7 +228,7 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 		}
 	}
 	// profile_extras off: the pin is omitted, banner and location keep rendering, setting a field is refused. The website
-	// keeps rendering TODAY (W3-22 M-1a); after the fix it is blanked with the pin, so the constant flips this expectation.
+	// is blanked with the pin since W3-22 M-1(a) (#354); the constant says which of the two the code does.
 	wantWebsite := "https://example.com/a"
 	if !w320WebsiteShownWhileExtrasGloballyOff {
 		wantWebsite = ""

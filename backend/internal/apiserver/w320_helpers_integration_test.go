@@ -7,12 +7,11 @@ package apiserver
 // collide with it. The chain, the clients, the budget-from-log helper, rawRPC, tabCall, listLiked, like, unlike and the
 // rest are reused from the earlier files of this package.
 //
-// The constants that name a known gap are the two W3-22 M-1 ones at the bottom of this file (the M-1 code is not on main
-// yet; ADR-0024 Amendment 1 describes it, #349) and w320LikesRepeatsAfterLastGoneAndNextRelike beside its only reader
-// (defect D-1 of this ticket, in the likes test file). Each carries the value the code has TODAY ("pre-fix"); the author
-// of the fix flips it in the same change, and the tests that read it then assert the new behaviour. The W3-22 fixes that
-// HAVE landed (L-1, L-2, L-3, L-4, L-5, M-3) have no constant: their tests assert the fixed behaviour. The report lists
-// the open gaps under "known open gaps".
+// The one open gap named by a constant is w320LikesRepeatsAfterLastGoneAndNextRelike beside its only reader (defect D-1
+// of this ticket, in the likes test file): it carries the value the code has TODAY and the author of the fix flips it in
+// the same change. The W3-22 fixes that HAVE landed (L-1, L-2, L-3, L-4, L-5, M-3, and M-1 with #354) assert the fixed
+// behaviour; the two M-1 switches at the bottom of this file are already false and only label what two tests check. The
+// report lists the open gaps under "known open gaps".
 
 import (
 	"context"
@@ -215,21 +214,24 @@ func (e *w320Chain) w320Profile(t *testing.T, viewer bmUser, uid string) *identi
 func w320Str(s string) *string { return &s }
 
 // -----------------------------------------------------------------------------------------------------------------
-// Known open gap: W3-22 M-1 (merged: its ADR amendment only, #349). Each value is what the code does TODAY ("pre-fix").
-// The M-1 fix flips it.
+// W3-22 M-1 (merged: #349 the ADR amendment, #354 the code). Both values were "pre-fix" (true) until #354 landed on main;
+// W3-20 flipped them to false, the behaviour ADR-0024 Amendment 1 A1 and A2 describe and the tests below assert. They are
+// kept as named switches only so the two places that read them say what they check; they can be deleted with their
+// conditionals. TestW320_M1KillSwitchWebsiteAndClears asserts the same rules directly.
 // -----------------------------------------------------------------------------------------------------------------
 
 const (
-	// w320ClearsNeedProfileExtras is W3-22 M-1(b). Pre-fix (true): an UpdateProfile that sends "" for banner, location,
-	// website or pin is FEATURE_DISABLED feature=profile_extras for a caller outside the cohort, and when the flag is
-	// off for everyone. After the fix (false): "" is accepted from any authenticated caller whatever the flag (1 read,
-	// 1 write), and only setting a value stays gated. Flip it with the fix.
-	w320ClearsNeedProfileExtras = true
+	// w320ClearsNeedProfileExtras is W3-22 M-1(b) (Amendment 1 A2). false (after #354): the exact value "" for banner,
+	// location, website or pin is accepted from any authenticated caller whatever the flag, globally off included (1 read,
+	// 1 write); only SETTING a value (whitespace-only included) stays gated, and a request that mixes a clear with a set is
+	// refused whole. (Before the fix: every one of these was FEATURE_DISABLED outside the cohort.)
+	w320ClearsNeedProfileExtras = false
 
-	// w320WebsiteShownWhileExtrasGloballyOff is W3-22 M-1(a). Pre-fix (true): with profile_extras globally off the pin is
-	// omitted from every profile response but the website (and location and banner) keep rendering. After the fix (false):
-	// present() blanks the website too (0 reads), so the kill switch also kills the link. Flip it with the fix.
-	w320WebsiteShownWhileExtrasGloballyOff = true
+	// w320WebsiteShownWhileExtrasGloballyOff is W3-22 M-1(a) (Amendment 1 A1). false (after #354): with profile_extras
+	// globally off (mode off only) present() blanks the website together with the pin in every Profile identity returns,
+	// 0 reads, so the kill switch also kills the link; the banner and the location keep rendering. (Before the fix only the
+	// pin was blanked.)
+	w320WebsiteShownWhileExtrasGloballyOff = false
 )
 
 // newW320Media is the media client of a chain.

@@ -1,14 +1,15 @@
 # Test report: UI wave W3 Part A backend (W3-20), 2026-10-27
 
-Tester: tester agent. Branch `feat/ui-w3-20` on `main@16524df` (W3-2 to W3-12 merged, plus the W3-22 fixes L-1 to L-5 and M-3,
-#350 and #351). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-20). Design: ADR-0024 (D1 to D9, Amendment 1).
-Security input: `docs/reviews/security-review-w3.md`.
+Tester: tester agent. Branch `feat/ui-w3-20` on `main@9b3f9fb` (W3-2 to W3-12 merged, plus the W3-22 fixes L-1 to L-5 and M-3,
+#350 and #351, and M-1, #354). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-20). Design: ADR-0024 (D1 to D9,
+Amendment 1). Security input: `docs/reviews/security-review-w3.md`.
 
 **VERDICT: PASS for W3-20 as specified** (every ticket bullet is covered by a test that passes on the emulators; every measured
-budget is at or under its ADR-0024 ceiling; combined `internal/` coverage 92.4%). It is **not** a statement that W3-22 M-1 is
-verified: M-1 is still open on `main` and two constants in the tests pin today's behaviour (section 6). One Low defect is
-filed (D-1, the likes cursor) and one test-infrastructure defect (D-2, a shared emulator temp directory). Nothing in
-production code was edited.
+budget is at or under its ADR-0024 ceiling; combined `internal/` coverage in section 4). W3-22 M-1 is verified on `main`
+(#354): the website is hidden under a global off, the exact `""` clears from any caller, whitespace-only is still gated and a
+mixed clear-and-set request is refused whole (section 6); no assertion had to be changed to fit main's behaviour. One Low
+defect is filed (D-1, the likes cursor) and one test-infrastructure defect (D-2, a shared emulator temp directory). W3-22 M-2
+(a Terraform role) cannot be tested on emulators. Nothing in production code was edited.
 
 ---
 
@@ -17,8 +18,8 @@ production code was edited.
 | Suite | Command | Result |
 |---|---|---|
 | `make ci` (gofmt, vet, unit tests with the pkg/platform coverage gate, buf lint, buf breaking, golangci-lint if installed, `flutter analyze`, CSP hash check, `flutter test`) | `GOWORK=off make ci` | **green**, exit 0: gofmt clean, vet, unit tests (pkg/platform gate 87.0%), buf lint, buf breaking, golangci-lint 0 issues, `flutter analyze` no issues, `flutter test` 3,132 passed |
-| Go integration on emulators, the whole module (Firestore, Auth, Pub/Sub, Storage) | `GOWORK=off make test-int FIREBASE=firebase`, emulators started by `firebase emulators:exec --project demo-dzeroth-local`, per-run `TEMP` (section 7) | **green**, exit 0, every package `ok`; **combined `internal/` coverage 92.4%** (gate 70%) |
-| The W3-20 matrix, verbose | `go test -tags=integration -count=1 -v -run TestW320 ./internal/apiserver ./internal/media` inside `emulators:exec` | **green**: 38 top-level tests, 310 test and subtest results, 0 failed, 0 skipped (96 s apiserver, 14 s media) |
+| Go integration on emulators, the whole module (Firestore, Auth, Pub/Sub, Storage) | `GOWORK=off make test-int FIREBASE=firebase`, emulators started by `firebase emulators:exec --project demo-dzeroth-local`, per-run `TEMP` (section 7) | **green**, exit 0, every package `ok`; **combined `internal/` coverage 92.5%** (gate 70%) |
+| The W3-20 matrix, verbose | `go test -tags=integration -count=1 -v -run TestW320 ./internal/apiserver ./internal/media` inside `emulators:exec` | **green**: 39 top-level tests, 315 test and subtest results, 0 failed, 0 skipped (96 s apiserver, 14 s media) |
 | The cross-ticket journey and the flag matrix, repeated | `-count=5 -run TestW320_E2E` and `-count=5 -run TestW320_FlagModeMatrix` with a private `TEMP`; earlier, `-count=4 -run TestW320_E2E` without it | 5 of 5 pass (and 4 of 4 without isolation when no other suite overlapped); section 7 explains the one failure seen before the merge |
 
 Notes on the environment:
@@ -50,6 +51,7 @@ header says which cells it adds.
 | Backfill rerun = 0 writes | `TestW320_LegacyPostIsOffTheMediaTabUntilBackfilled`, `TestW320_HasMediaOnEveryCreatePathAndTheMediaTab` (backfill) | Every create path (root, reply, quote, text, repost) writes an explicit `hasMedia` bool with both flags off; a legacy post (no key) is off the Media tab until `opsctl backfill-has-media`; the dry run writes 0; the real run writes one doc per missing key (2 writes, 3 reads); **the rerun writes 0** (3 reads); the Media tab then lists the legacy image post |
 | `budgettest` on every RPC at the ADR-0024 ceilings | `TestW320_BudgetTable` (budget_table) plus the W320BUDGET lines of the other files | Section 3 |
 | UpdateProfile daily cap and no-op skip (W3-22 L-4, added after the merge) | `TestW320_UpdateProfileDailyCapAndNoOpWrites` (profile_extras) | A change costs 1 read / 1 write; the same values again (trim-equal) **1 read / 0 writes**, `updatedAt` does not move, no `profile_fields_changed`; call cap+1 is RESOURCE_EXHAUSTED RATE_LIMITED `limit=profile_update_daily` at 0 reads and 0 writes; another user and GetMe are untouched |
+| Kill switch and clears (W3-22 M-1, #354, added after the merge of main@9b3f9fb) | `TestW320_M1KillSwitchWebsiteAndClears` (flag_matrix), `TestW320_FlagModeMatrix` clear rows, `TestW320_E2E_...` step 8 | Website and pin blanked only in mode `off` (a rollout shows both), the stored value untouched; the exact `""` clears all four fields from any caller whatever the flag (2 reads cold, 1 write); whitespace-only stays a gated set (0 reads, 0 writes); a mixed clear-and-set request is refused whole outside the cohort and nothing is cleared (section 6) |
 | Cross-ticket journey | `TestW320_E2E_ProfileGraphCompletionJourney` (e2e) | One account sets banner, location, website and a pin; a visitor opens all four tabs, likes and lists the like, sees "Follows you" appear and gets suggestions; the pinned post is deleted and the post_delete job clears the pin; the account exports (location, website, pin and banner URL are in the export, the derived thumb URL is not); every flag is flipped off on a new instance over the same data (gated surfaces refuse, ungated ones work); the account is deleted and no `posts`, `media`, `follows` or `exports` document of it survives |
 
 Not repeated here because an earlier ticket's test already asserts them: the W3-9 / W3-10 / W3-11 / W3-12 chain tests (page-50
@@ -74,7 +76,8 @@ ADR convention). Measured with the request-log `fs_reads` / `fs_writes` / `fs_de
 | `UpdateProfile` | banner + location + website + pin, cold | 4 | 1 | 0 | 4 / 1 (worst cold) |
 | `UpdateProfile` | location only, cold / warm interceptor | 2 / 1 | 1 | 0 | 2 / 1 |
 | `UpdateProfile` | **no-op re-send (W3-22 L-4)** | 1 | **0** | 0 | 1 / 1 (0 added by L-4) |
-| `UpdateProfile` | refused by a flag (warm interceptor) or the daily cap | 0 | 0 | 0 | 0 |
+| `UpdateProfile` | **M-1: `""` clears all four fields, any caller, any flag state**, cold interceptor | 2 | 1 | 0 | 2 / 1 |
+| `UpdateProfile` | refused by a flag (warm interceptor; whitespace-only, mixed clear and set) or the daily cap | 0 | 0 | 0 | 0 |
 | `UpdateProfile` | refused by a validator (187-row fixture) | not asserted | 0 | 0 | 0 writes |
 | `CreateUpload` BANNER | cold | 2 | 3 | 0 | 2 / 3 (asserted exactly by `media.TestIntegration_BannerBudgetsAndResolver`, `repo_firestore_integration_test.go:409`) |
 | `FinalizeUpload` BANNER | cold (claim, screen, resolve) | 2 | **3** (claim, resolve, Vision counter) | 0 | 2 / 3 (2n+1) |
@@ -113,10 +116,10 @@ No cell exceeds its ceiling. Mismatches between the sources, noted rather than l
 
 ## 4. Counts
 
-- 38 top-level tests and 310 test and subtest results (flag matrix alone: 10 modes x 2 passes; token matrix: 200 pairs; shared profile text:
+- 39 top-level tests and 315 test and subtest results (flag matrix alone: 10 modes x 2 passes; token matrix: 200 pairs; shared profile text:
   187 rows; banner Racy and cap tables: 34 cases). 0 failed, 0 skipped.
-- Combined `internal/` coverage (unit plus integration, `-coverpkg=./internal/...`): **92.4%**, gate 70%. The apiserver package
-  alone contributes 65.1% of `internal/` statements with its integration run.
+- Combined `internal/` coverage (unit plus integration, `-coverpkg=./internal/...`): **92.5%**, gate 70%. The apiserver package
+  alone contributes 64.7% of `internal/` statements with its integration run.
 
 ## 5. Defects
 
@@ -128,20 +131,33 @@ No cell exceeds its ceiling. Mismatches between the sources, noted rather than l
 No defect was found in the budgets, the flag gates, the authorization (owner-only likes, byte-identical NOT_FOUND, forged tokens),
 the drop rules, the pin rules, the backfill or the banner moderation path.
 
-## 6. Known open gaps (pinned by constants, not verified)
+## 6. W3-22 items: verified, and still open
 
-W3-22 **M-1** is not on `main` (ADR-0024 Amendment 1 only describes it, #349). Two constants in
-`backend/internal/apiserver/w320_helpers_integration_test.go` hold today's behaviour; the M-1 author flips them in the same
-change and the tests that read them then assert the fixed behaviour:
+**M-1 is verified (merged #354, ADR-0024 Amendment 1 A1 and A2).** This report was first written when M-1 was still open, with
+two constants in `backend/internal/apiserver/w320_helpers_integration_test.go` pinning the pre-fix behaviour
+(`w320ClearsNeedProfileExtras` and `w320WebsiteShownWhileExtrasGloballyOff`, both `true`). After #354 landed they were flipped
+to `false` with no other change to the expectations, and every assertion that reads them passed against main's behaviour:
+- `TestW320_FlagModeMatrix`: an UpdateProfile that sends the exact `""` for banner, location, website or pin is accepted in
+  every one of the ten rollout states, for callers in and out of the cohort.
+- `TestW320_E2E_...` step 8: with `profile_extras` off everywhere the profile shows the location and banner but neither the
+  pin nor the website; setting a field is still FEATURE_DISABLED.
+- New `TestW320_M1KillSwitchWebsiteAndClears` (4 subtests):
+  - A1: website and pin are blanked for a viewer and for the owner (GetProfile and the UpdateProfile response) only in mode
+    `off`; an empty allowlist, percent 0, an allowlist naming someone else and `on` show both; the stored document keeps the
+    values (the switch hides, it never writes).
+  - A2 clears: `""` for all four fields is accepted with the flag globally off, for an owner outside the allowlist, outside
+    percent 0 and with the flag on, at 2 reads (cold interceptor) and 1 write each, and the stored fields are emptied.
+  - A2 whitespace: `"   "`, `" "`, `"  "` and a tab are sets, not clears: FEATURE_DISABLED `feature=profile_extras` at 0 reads and
+    0 writes, nothing changes.
+  - A2 mixed: clearing the location and setting the website in one request is refused whole (FEATURE_DISABLED, 0 reads and
+    writes, the location is NOT cleared) with the flag off and outside the allowlist, and accepted inside the cohort; a bio edit
+    next to a clear is accepted, and setting a location outside the cohort is still refused.
+- The two constants are now only labels for the two places that read them and can be deleted with their conditionals.
 
-- `w320ClearsNeedProfileExtras = true`: today `""` for banner, location, website or pin is FEATURE_DISABLED outside the cohort and
-  with the flag off for everyone (read by `TestW320_FlagModeMatrix`).
-- `w320WebsiteShownWhileExtrasGloballyOff = true`: today the website keeps rendering when `profile_extras` is globally off, only
-  the pin is blanked (read by `TestW320_E2E_...` step 8).
-
-The flag matrix and the journey passing with both `true` is the empirical proof that M-1 is not on `main`. W3-22 **M-2** (the
-public bucket is listable) is a Terraform role and cannot be tested on emulators. The fixed items **L-1, L-2, L-3, L-4, L-5 and
-M-3** have no constant: their tests assert the fixed behaviour (the pre-merge constants for L-1, L-2, L-3 and M-3 were removed).
+Still open: **D-1** (section 5), pinned by `w320LikesRepeatsAfterLastGoneAndNextRelike = true`, which flips with its fix. W3-22
+**M-2** (the public bucket is listable) is a Terraform role and cannot be tested on emulators. The fixed items **L-1, L-2, L-3,
+L-4, L-5 and M-3** have no constant: their tests assert the fixed behaviour (the pre-merge constants for L-1, L-2, L-3 and M-3
+were removed).
 
 ## 7. The export failure the previous agent was debugging
 

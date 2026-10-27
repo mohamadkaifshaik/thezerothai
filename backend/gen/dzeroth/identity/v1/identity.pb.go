@@ -157,7 +157,8 @@ type Profile struct {
 	// Clients render "Joined Month YYYY" from this (ADR-0024 D2; no extra field).
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Profile extras (ADR-0024). Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
-	// pinned_post_id is withheld while the flag is globally off (D3, D9).
+	// pinned_post_id and website are withheld while the flag is globally off (D3, D9, Amendment 1 A1), in every Profile
+	// including the owner's own. Nothing stored is erased, and the banner and location are not withheld.
 	// 1500 x 500 banner (cover image, 3:1; ADR-0024 D1); empty if none. A new banner has a new URL (immutable object).
 	BannerUrl string `protobuf:"bytes,13,opt,name=banner_url,json=bannerUrl,proto3" json:"banner_url,omitempty"`
 	// 600 x 200 banner for small layouts; empty if none.
@@ -166,6 +167,8 @@ type Profile struct {
 	Location string `protobuf:"bytes,15,opt,name=location,proto3" json:"location,omitempty"`
 	// An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme (ADR-0024 D2); empty if none.
 	// Show the host only (punycode for a non-ASCII host) and open it outside the app. The server never fetches it.
+	// Always empty while FEATURE_PROFILE_EXTRAS is globally off (Amendment 1 A1), the owner's view included, so an owner
+	// cannot offer Remove for it then; the stored value returns when the flag is back on.
 	Website string `protobuf:"bytes,16,opt,name=website,proto3" json:"website,omitempty"`
 	// The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
 	// globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
@@ -776,7 +779,8 @@ type UpdateProfileRequest struct {
 	// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar.
 	AvatarMediaId *string `protobuf:"bytes,4,opt,name=avatar_media_id,json=avatarMediaId,proto3,oneof" json:"avatar_media_id,omitempty"`
 	IsPrivate     *bool   `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
-	// ADR-0024 profile extras: the four fields below need FEATURE_PROFILE_EXTRAS on for the caller (see UpdateProfile).
+	// ADR-0024 profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
+	// exact value "" (a clear) never does (see UpdateProfile).
 	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
 	// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
 	// MEDIA_NOT_READY, one answer for every cause. A replaced banner's objects are kept until account deletion.
