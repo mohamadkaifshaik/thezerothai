@@ -69,8 +69,12 @@ void main() {
                 identity.Profile(userId: 'target-uid', handle: 'renamed'),
           );
       when(() => graphRepository.cached('target-uid')).thenReturn(null);
-      when(() => graphRepository.relationshipFor('target-uid'))
-          .thenAnswer((_) async => graph.Relationship(userId: 'target-uid'));
+      when(() => graphRepository.profileRelationshipFor('target-uid'))
+          .thenAnswer(
+            (_) async => ProfileRelationship(
+              relationship: graph.Relationship(userId: 'target-uid'),
+            ),
+          );
       return ProfileCubit(
         identityRepository: identityRepository,
         graphRepository: graphRepository,
@@ -107,12 +111,16 @@ void main() {
         (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
       );
       when(() => graphRepository.cached('target-uid')).thenReturn(null);
-      when(() => graphRepository.relationshipFor('target-uid')).thenAnswer(
-        (_) async => graph.Relationship(
-          userId: 'target-uid',
-          followState: graph.FollowState.FOLLOW_STATE_FOLLOWING,
-        ),
-      );
+      when(() => graphRepository.profileRelationshipFor('target-uid'))
+          .thenAnswer(
+            (_) async => ProfileRelationship(
+              relationship: graph.Relationship(
+                userId: 'target-uid',
+                followState: graph.FollowState.FOLLOW_STATE_FOLLOWING,
+              ),
+              followedBy: true,
+            ),
+          );
       return buildCubit(graphEnabled: true, ownUserId: 'viewer-uid');
     },
     act: (cubit) => cubit.load(),
@@ -129,7 +137,8 @@ void main() {
             (s) => s.relationship?.followState,
             'relationship.followState',
             graph.FollowState.FOLLOW_STATE_FOLLOWING,
-          ),
+          )
+          .having((s) => s.followedBy, 'followedBy', true),
     ],
   );
 
@@ -150,7 +159,7 @@ void main() {
           .having((s) => s.relationship, 'relationship', isNull),
     ],
     verify: (_) {
-      verifyNever(() => graphRepository.relationshipFor(any()));
+      verifyNever(() => graphRepository.profileRelationshipFor(any()));
     },
   );
 
@@ -171,7 +180,7 @@ void main() {
           .having((s) => s.relationship, 'relationship', isNull),
     ],
     verify: (_) {
-      verifyNever(() => graphRepository.relationshipFor(any()));
+      verifyNever(() => graphRepository.profileRelationshipFor(any()));
     },
   );
 
@@ -201,7 +210,7 @@ void main() {
         (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
       );
       when(() => graphRepository.cached('target-uid')).thenReturn(null);
-      when(() => graphRepository.relationshipFor('target-uid'))
+      when(() => graphRepository.profileRelationshipFor('target-uid'))
           .thenThrow(const NetworkException('offline'));
       return buildCubit(graphEnabled: true, ownUserId: 'viewer-uid');
     },
@@ -258,4 +267,140 @@ void main() {
     ),
     expect: () => <ProfileState>[],
   );
+
+  group('followedBy (GetProfileRelationship, ADR-0024 D7)', () {
+    void stubProfile() {
+      when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+        (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+      );
+      when(() => graphRepository.cached('target-uid')).thenReturn(null);
+    }
+
+    blocTest<ProfileCubit, ProfileState>(
+      'a user who does not follow the viewer back leaves followedBy false',
+      build: () {
+        stubProfile();
+        when(() => graphRepository.profileRelationshipFor('target-uid'))
+            .thenAnswer(
+              (_) async => ProfileRelationship(
+                relationship: graph.Relationship(userId: 'target-uid'),
+                followedBy: false,
+              ),
+            );
+        return buildCubit(graphEnabled: true, ownUserId: 'viewer-uid');
+      },
+      act: (cubit) => cubit.load(),
+      verify: (cubit) {
+        expect(cubit.state.status, ProfileStatus.ready);
+        expect(cubit.state.followedBy, isFalse);
+        expect(cubit.state.relationship, isNotNull);
+      },
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      'unknown followed_by (the RPC is not live yet) keeps the relationship, '
+      'shows no "follows you" and raises no error',
+      build: () {
+        stubProfile();
+        when(() => graphRepository.profileRelationshipFor('target-uid'))
+            .thenAnswer(
+              (_) async => ProfileRelationship(
+                relationship: graph.Relationship(
+                  userId: 'target-uid',
+                  followState: graph.FollowState.FOLLOW_STATE_FOLLOWING,
+                ),
+              ),
+            );
+        return buildCubit(graphEnabled: true, ownUserId: 'viewer-uid');
+      },
+      act: (cubit) => cubit.load(),
+      verify: (cubit) {
+        expect(cubit.state.status, ProfileStatus.ready);
+        expect(cubit.state.error, isNull);
+        expect(cubit.state.followedBy, isFalse);
+        expect(
+          cubit.state.relationship!.followState,
+          graph.FollowState.FOLLOW_STATE_FOLLOWING,
+        );
+        verify(() => graphRepository.profileRelationshipFor('target-uid'))
+            .called(1);
+      },
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      'a failed call falls back to the session cache and no "follows you"',
+      build: () {
+        when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
+          (_) async => identity.Profile(userId: 'target-uid', handle: 'kaif'),
+        );
+        when(() => graphRepository.cached('target-uid')).thenReturn(
+          graph.Relationship(
+            userId: 'target-uid',
+            followState: graph.FollowState.FOLLOW_STATE_FOLLOWING,
+          ),
+        );
+        when(() => graphRepository.profileRelationshipFor('target-uid'))
+            .thenThrow(const NetworkException('offline'));
+        return buildCubit(graphEnabled: true, ownUserId: 'viewer-uid');
+      },
+      act: (cubit) => cubit.load(),
+      verify: (cubit) {
+        expect(cubit.state.status, ProfileStatus.ready);
+        expect(cubit.state.followedBy, isFalse);
+        expect(
+          cubit.state.relationship!.followState,
+          graph.FollowState.FOLLOW_STATE_FOLLOWING,
+        );
+      },
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      'blocking the user clears followedBy; follow, unfollow and mute keep it',
+      build: () {
+        stubProfile();
+        when(() => graphRepository.profileRelationshipFor('target-uid'))
+            .thenAnswer(
+              (_) async => ProfileRelationship(
+                relationship: graph.Relationship(userId: 'target-uid'),
+                followedBy: true,
+              ),
+            );
+        return buildCubit(graphEnabled: true, ownUserId: 'viewer-uid');
+      },
+      act: (cubit) async {
+        await cubit.load();
+        cubit.relationshipChanged(
+          graph.Relationship(
+            userId: 'target-uid',
+            followState: graph.FollowState.FOLLOW_STATE_FOLLOWING,
+          ),
+        );
+        expect(cubit.state.followedBy, isTrue);
+        cubit.relationshipChanged(
+          graph.Relationship(userId: 'target-uid', muting: true),
+        );
+        expect(cubit.state.followedBy, isTrue);
+        cubit.relationshipChanged(
+          graph.Relationship(userId: 'target-uid', blocking: true),
+        );
+      },
+      verify: (cubit) {
+        expect(cubit.state.followedBy, isFalse);
+        expect(cubit.state.relationship!.blocking, isTrue);
+      },
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      'graph flag off: no call and no "follows you"',
+      build: () {
+        stubProfile();
+        return buildCubit(graphEnabled: false, ownUserId: 'viewer-uid');
+      },
+      act: (cubit) => cubit.load(),
+      verify: (cubit) {
+        expect(cubit.state.followedBy, isFalse);
+        verifyNever(() => graphRepository.profileRelationshipFor(any()));
+      },
+    );
+  });
 }
