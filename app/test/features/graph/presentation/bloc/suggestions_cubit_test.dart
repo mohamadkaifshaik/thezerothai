@@ -52,6 +52,33 @@ void main() {
     expect(rig.suggestionCalls, 1);
   });
 
+  test(
+    'drop removes the row for good: state, repository and disk (L-1)',
+    () async {
+      await cubit.ensureLoaded('me');
+
+      cubit.drop('u2');
+
+      expect(_ids(cubit), ['u1', 'u3', 'u4', 'u5']);
+      // A restart within the 24 h window reads the disk entry without it.
+      final restarted = rig.newRepository();
+      expect(
+        [
+          for (final item in await restarted.suggestionsFor('me'))
+            item.user.userId,
+        ],
+        ['u1', 'u3', 'u4', 'u5'],
+      );
+      expect(rig.suggestionCalls, 1);
+    },
+  );
+
+  test('drop before anything is loaded does nothing', () {
+    cubit.drop('u2');
+
+    expect(cubit.state.items, isEmpty);
+  });
+
   test('hide before anything is loaded does nothing', () {
     cubit.hide('u2');
 

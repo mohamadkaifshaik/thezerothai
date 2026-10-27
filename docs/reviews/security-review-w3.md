@@ -271,6 +271,8 @@ with `media` alone, which is already on in dev.
 
 Owners: backend-developer, frontend-developer. Gate: before `follow_suggestions` leaves the dev allowlist.
 
+**Status:** server fixed in #350; client fixed (PR pending): `FollowButton.onGone` and `SuggestionsRepository.drop` remove the row on NOT_FOUND, silently, from memory and the disk entry. The card has no profile fetch, so Follow is the only NOT_FOUND path.
+
 ### L-2. Profile text rules are incomplete, and the server and client disagree
 
 - **(a) Location line breaks.**
@@ -301,6 +303,8 @@ Owners: backend-developer, frontend-developer. Gate: before `follow_suggestions`
 Owners: backend-developer, frontend-developer. Gate: (a) and (b) before `profile_extras` leaves the dev allowlist; (c)
 with the next identity change.
 
+**Status:** server fixed in #350; client fixed (PR pending): `profile_extras_rules.dart` and `profile_website.dart` pass every row of `testdata/profile_text/` (`profile_text_fixture_test.dart`), and Edit profile now applies the display name and bio rules.
+
 ### L-3. The website accepts hosts on the viewer's own network
 
 **Exploit.**
@@ -319,6 +323,8 @@ with the next identity change.
 - Cost: none.
 
 Owners: backend-developer, frontend-developer. Gate: with L-2.
+
+**Status:** server fixed in #350; client fixed (PR pending): the host needs two labels and a TLD-shaped last label, and `localhost`, `local`, `internal` and `home.arpa` (with their subdomains) are refused, in `parseProfileWebsite`, so Edit profile refuses them and the header no longer shows a stored one.
 
 ### L-4. UpdateProfile has no daily cap and always writes (pre-existing)
 

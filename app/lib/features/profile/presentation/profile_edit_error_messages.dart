@@ -12,9 +12,9 @@ import 'bloc/edit_profile_cubit.dart';
 String updateProfileErrorMessage(AppException error) {
   return switch (error) {
     ValidationException(field: 'display_name') =>
-      'Your name must be 1 to 50 characters.',
+      'Your name must be 1 to 50 characters of plain text, on one line.',
     ValidationException(field: 'bio') =>
-      'Your bio can be at most 160 characters.',
+      'Your bio can be at most 160 characters of plain text.',
     ValidationException(field: 'location') =>
       'Your location can be at most $kMaxLocationLength characters, on one '
           'line.',
@@ -106,6 +106,21 @@ const kBannerGoneMessage =
 /// answer does not say which one, so both are dropped.
 const kImagesGoneMessage =
     'Those photos are no longer available. Choose them again.';
+
+/// The inline error under the display name field for a local check, or null.
+String? displayNameFieldError(DisplayNameIssue? issue) => switch (issue) {
+  DisplayNameIssue.empty => 'Your name cannot be empty.',
+  DisplayNameIssue.tooLong => 'At most $kMaxDisplayNameLength characters.',
+  DisplayNameIssue.forbiddenCharacter => 'Use one line of plain text.',
+  null => null,
+};
+
+/// The inline error under the bio field for a local check, or null.
+String? bioFieldError(BioIssue? issue) => switch (issue) {
+  BioIssue.tooLong => 'At most $kMaxBioLength characters.',
+  BioIssue.forbiddenCharacter => 'Use plain text with simple line breaks.',
+  null => null,
+};
 
 /// The inline error under the location field for a local check, or null.
 String? locationFieldError(LocationIssue? issue) => switch (issue) {

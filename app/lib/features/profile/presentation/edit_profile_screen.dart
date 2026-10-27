@@ -185,8 +185,6 @@ class _EditProfileViewState extends State<_EditProfileView> {
     return BlocConsumer<EditProfileCubit, EditProfileState>(
       listener: _onState,
       builder: (context, state) {
-        final nameOver = state.displayNameRemaining < 0;
-        final bioOver = state.bioRemaining < 0;
         final websiteHost = websiteHostPreview(state.website);
         // The banner is edited with media on; with media off it is only shown
         // (and only when the profile has one), like the avatar.
@@ -265,11 +263,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
                               counter: CharacterCounter(
                                 remaining: state.displayNameRemaining,
                               ),
-                              errorText: nameOver
-                                  ? 'At most $kMaxDisplayNameLength characters.'
-                                  : (state.displayName.trim().isEmpty
-                                        ? 'Your name cannot be empty.'
-                                        : null),
+                              errorText: displayNameFieldError(
+                                state.displayNameProblem,
+                              ),
                             ),
                             onChanged: cubit.displayNameChanged,
                           ),
@@ -287,9 +283,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
                               counter: CharacterCounter(
                                 remaining: state.bioRemaining,
                               ),
-                              errorText: bioOver
-                                  ? 'At most $kMaxBioLength characters.'
-                                  : null,
+                              errorText: bioFieldError(state.bioProblem),
                             ),
                             onChanged: cubit.bioChanged,
                           ),

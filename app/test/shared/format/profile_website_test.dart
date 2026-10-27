@@ -92,5 +92,76 @@ void main() {
     test('a label over 63 characters is left out', () {
       expect(parseProfileWebsite('https://${'a' * 64}.com'), isNull);
     });
+
+    test('a host on the viewer'
+        's own network or without a TLD is left out (L-3)', () {
+      for (final bad in [
+        'http://127.0.0.1/',
+        'http://192.168.1.1/apply.cgi?x=1',
+        'http://3232235777/', // decimal IPv4
+        'http://0x7f.1/', // hex IPv4
+        'http://0177.0.0.1/', // octal IPv4
+        'http://localhost:3000/',
+        'http://app.localhost/',
+        'http://printer.local/',
+        'http://nas.internal/',
+        'http://router.home.arpa/',
+        'http://home.arpa/',
+        'http://router/',
+        'https://com',
+        'https://example.c',
+        'https://example.123',
+        'https://example.xn--',
+      ]) {
+        expect(parseProfileWebsite(bad), isNull, reason: bad);
+      }
+    });
+
+    test('a public host still passes: TLD-shaped, xn-- TLD, names that only '
+        'contain a local word', () {
+      expect(
+        parseProfileWebsite('https://example.co.uk')!.host,
+        'example.co.uk',
+      );
+      expect(
+        parseProfileWebsite('https://example.xn--p1ai')!.host,
+        'example.xn--p1ai',
+      );
+      expect(parseProfileWebsite('https://notlocal.com')!.host, 'notlocal.com');
+      expect(
+        parseProfileWebsite('https://local.example.com')!.host,
+        'local.example.com',
+      );
+      expect(
+        parseProfileWebsite('https://localhost.com')!.host,
+        'localhost.com',
+      );
+    });
+
+    test('the port is ASCII digits only, 1 to 65535 (leading zeros fine)', () {
+      for (final bad in [
+        'https://example.com:+80/',
+        'https://example.com:0x50/',
+        'https://example.com:-1/',
+        'https://example.com: 80/',
+        'https://example.com:65536/',
+        'https://example.com:0/',
+      ]) {
+        expect(parseProfileWebsite(bad), isNull, reason: bad);
+      }
+      expect(parseProfileWebsite('https://example.com:0080/')!.uri.port, 80);
+      expect(parseProfileWebsite('https://example.com:/')!.host, 'example.com');
+    });
+
+    test('only one trailing dot is dropped', () {
+      expect(parseProfileWebsite('https://example.com../'), isNull);
+    });
+
+    test('the 100 code point limit is a rule for writing (websiteIssue), not '
+        'for showing: a longer stored website still parses', () {
+      final long = 'https://example.com/${'a' * 90}';
+      expect(long.length, greaterThan(100));
+      expect(parseProfileWebsite(long)!.host, 'example.com');
+    });
   });
 }

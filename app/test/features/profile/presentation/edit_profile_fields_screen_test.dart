@@ -110,7 +110,7 @@ void main() {
 
       testWidgets('clearing both sends empty strings', (tester) async {
         final rig = EditProfileRig(
-          profile: editableProfile(location: 'Pune', website: 'https://a.b'),
+          profile: editableProfile(location: 'Pune', website: 'https://a.co'),
         );
         await openEditProfile(tester, rig, flags: extrasFlags, size: size);
         expect(field('Location'), findsOneWidget);
@@ -144,6 +144,50 @@ void main() {
         await type(tester, 'Location', 'Elsewhere');
         expect(find.text(kLocationRejectedMessage), findsNothing);
         expect(saveEnabled(tester), isTrue);
+      });
+
+      testWidgets('name: a bidi override or a line break shows inline and '
+          'Save stays off (W3-22 L-2c)', (tester) async {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(tester, rig, flags: extrasFlags, size: size);
+
+        // An override (U+202E) and an interior line separator (U+2028).
+        for (final bad in [0x202E, 0x2028]) {
+          await type(tester, 'Display name', 'Ka${String.fromCharCode(bad)}if');
+          expect(find.text('Use one line of plain text.'), findsOneWidget);
+          expect(saveEnabled(tester), isFalse);
+        }
+
+        await type(tester, 'Display name', 'Kaif S');
+        expect(find.text('Use one line of plain text.'), findsNothing);
+        expect(saveEnabled(tester), isTrue);
+      });
+
+      testWidgets('bio: a carriage return or a bidi control shows inline, a '
+          'line feed is fine (W3-22 L-2c)', (tester) async {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(tester, rig, flags: extrasFlags, size: size);
+
+        await type(tester, 'Bio', 'one\ntwo');
+        expect(
+          find.text('Use plain text with simple line breaks.'),
+          findsNothing,
+        );
+        expect(saveEnabled(tester), isTrue);
+
+        await type(tester, 'Bio', 'one\r\ntwo');
+        expect(
+          find.text('Use plain text with simple line breaks.'),
+          findsOneWidget,
+        );
+        expect(saveEnabled(tester), isFalse);
+
+        await type(tester, 'Bio', 'one${String.fromCharCode(0x202E)}two');
+        expect(
+          find.text('Use plain text with simple line breaks.'),
+          findsOneWidget,
+        );
+        expect(saveEnabled(tester), isFalse);
       });
 
       testWidgets('a server VALIDATION on website shows inline until edited', (
