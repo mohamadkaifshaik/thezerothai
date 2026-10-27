@@ -27,7 +27,7 @@ all reads, against its own 10% review line (`docs/reviews/cost-model.md` section
 (6.3%) or `SUGGESTIONS_EDGE_LIMIT` 20 (9.4%; a change of a cap in `envs/*/main.tf`, reviewed like logic, with its cost note). Choose before
 `follow_suggestions` ramps past the dev allowlist. This plan keeps the shipped value (30).
 
-## 1. Preconditions, with evidence (dev project `dzeroth-dev`, captured 2026-10-27, 14:37 to 14:46 UTC)
+## 1. Preconditions, with evidence (dev project `dzeroth-dev`, captured 2026-10-27, 14:37 to 15:33 UTC)
 
 The raw output of every command below was kept outside the repository (the preparing session's scratchpad, files `1a-*`, `1b-*`, `1c-*`; some raw files hold uids, so none is
 committed). The summaries here are the evidence. **Re-run the commands before you act**, because the serving state changes with every merge.
@@ -55,26 +55,26 @@ posts/CICAgJiH8YUK  READY  authorId:ASCENDING, hasMedia:ASCENDING, createdAt:DES
   `ok: fieldOverrides unchanged: 35 override(s)`.
 
 ### 1.2 100% of dev traffic is on a revision that includes #335 (W3-6) and #354 (M-1): PASS
-Captured after `deploy-dev` run 40522371796 had finished (an earlier capture taken mid-deploy was discarded), `gcloud run services describe api --region asia-south1 --project dzeroth-dev`:
+Captured after `deploy-dev` run 40529672800 (main `8ff86217`, #360) had finished, at 15:26 UTC (an earlier capture taken mid-deploy, and the one before #360, were discarded), `gcloud run services describe api --region asia-south1 --project dzeroth-dev`:
 ```
-latestCreatedRevisionName: api-00555-yeq    latestReadyRevisionName: api-00555-yeq
-traffic: api-00552-por   tag last-good   (0%)
-         api-00555-yeq   tag candidate   percent: 100
+latestCreatedRevisionName: api-00558-viz    latestReadyRevisionName: api-00558-viz
+traffic: api-00555-yeq   tag last-good   (0%)
+         api-00558-viz   tag candidate   percent: 100
 ```
 | Revision | Share | Image digest | Commit (the Artifact Registry image tag) | deploy-dev run |
 |---|---|---|---|---|
-| `api-00555-yeq` | 100%, serving | `sha256:3b5182e04a01de6118b0bba0af870470710994b7a9ed64e69b64e51216b25dfa` | `b89cbcbe` (main after #355, W3-20) | 40522371796, success, finished 14:41 UTC |
-| `api-00552-por` | 0%, `last-good` | `sha256:cf5205475cbb4510918ec35a3e6b7fb3d16ce22350ba089824f4ac3db14d4b6b` | `941c8773` (#359) | 40520674543, success |
+| `api-00558-viz` | 100%, serving | `sha256:e5d2a599ab887e3bc08e75c75f46d0b102bb0aa6fc8dcdca4d9842b02a3f8500` | `8ff86217` (main after #360, ADR-0024 A4) | 40529672800, success, finished 15:26 UTC |
+| `api-00555-yeq` | 0%, `last-good` | `sha256:3b5182e04a01de6118b0bba0af870470710994b7a9ed64e69b64e51216b25dfa` | `b89cbcbe` (main after #355, W3-20) | 40522371796, success, finished 14:41 UTC |
 
 `git merge-base --is-ancestor` answers **yes** for #328, #330, #331, #332 (W3-7), **#335 (`9b7cfd90`)**, #336, #337, #338, #339, #343, #350, #351,
-**#354 (`9b3f9fb4`)** and #355 against `b89cbcbe`, and for #332, #335 and #354 against `941c8773`. So the precondition holds on the serving revision
+**#354 (`9b3f9fb4`)**, #355 and #360 against `8ff86217`, and for #332, #335 and #354 against `b89cbcbe`. So the precondition holds on the serving revision
 and also on the rollback target. The PRs' own deploys: #335 run 40442790004, #354 run 40512546531, both success.
 - The `api` template carries **none** of the W3 env vars yet (105 env names; no `FEATURE_PROFILE_*`, `FEATURE_LIKES_LIST`, `FEATURE_FOLLOW_SUGGESTIONS`,
-  `SUGGEST*`, `PROFILE_UPDATES_PER_DAY`), so all four flags are off by the code default. `validate-revision.sh` on it: `RESULT: all checks passed`, the four W3 flags `mode=off`.
+  `SUGGEST*`, `PROFILE_UPDATES_PER_DAY`, `PROFILE_MEDIA_RETIRE`), so all four flags are off by the code default. `validate-revision.sh` on it: `RESULT: all checks passed`, the four W3 flags `mode=off`.
 - **Do not plan, apply or route while a `deploy-dev` run is in flight.** This PR itself triggers one when it merges (it touches `infra/`); wait for it to finish.
 
 ### 1.3 `opsctl backfill-has-media` dry run: PASS (nothing written)
-`cd backend && go run ./cmd/opsctl backfill-has-media --project dzeroth-dev --dry-run`, exit 0:
+`cd backend && go run ./cmd/opsctl backfill-has-media --project dzeroth-dev --dry-run`, exit 0 (captured at 14:41 and again at 15:38 UTC with identical numbers):
 ```
 call 1: scanned=0 missing=0 updated=0 checkpoint=- -> scanned=74 missing=73 updated=0 checkpoint=0108395972892241920 done=true
 backfill-has-media: reads=74 writes=0 deletes=0
@@ -88,8 +88,11 @@ dry-run: scanned=74 missing=73 would_update=73 runs_needed=1 (nothing written)
 ### 1.4 Other gates, all satisfied
 - W3-20 (backend matrix, #355), W3-21 (client matrix, #359), W3-22 (security review #348; fixes #350, #351, #354; client #357) and W3-23 (cost report, #352) are merged.
 - The W3-22 M-1 gate for `profile_extras` (website hidden under a global off, clears always allowed, `opsctl clear-profile-fields`) is #354, serving.
-- ADR-0024 Amendment 1 A4 (deleting replaced banner and avatar objects, `PROFILE_MEDIA_RETIRE`) is **not built yet**: a replaced banner stays public by URL until
-  account deletion (D10 "keep"). Accepted for a 3-uid dev cohort; it must be built before a wider ramp.
+- ADR-0024 Amendment 1 A4 (deleting replaced banner and avatar objects) merged as #360 while this plan was being made, with `PROFILE_MEDIA_RETIRE` **off** by default (the 24th
+  env var of the plan, value `off`: no behaviour change). Its free `days_since_custom_time = 1` lifecycle rule on the media bucket was applied to dev at 15:31 UTC by a separate change, not by this ticket
+  (`gcloud storage buckets describe gs://dzeroth-dev-media --format="default(lifecycle_config)"` shows the `Delete` rule; the targeted plan of that module reads `No changes`). Raising
+  `profile_media_retire` past `off` is A4's own switch order (`docs/runbooks/media.md`) and is not part of this rollout: until then a replaced banner stays public by URL until account deletion
+  (D10 "keep"), accepted for a 3-uid dev cohort.
 - No security finding blocks the dev allowlist (`docs/reviews/security-review-w3.md`, W3-24 criterion).
 
 ## 2. The targeted dev Terraform plan
@@ -98,7 +101,7 @@ No `.tf` change is needed: W3-4 (#330) already added the variables and the env w
 default `off`. The rollout is **tfvars only**. The branch carries the nine lines as a commented example in `infra/terraform/envs/dev/terraform.tfvars.example`;
 the real lines go in your gitignored `envs/dev/terraform.tfvars`. No uid appears in any committed file.
 
-### 2.1 What the plan changes (made from this branch, `main` at `b89cbcbe`, with your real tfvars plus an overlay of the nine lines; nothing applied)
+### 2.1 What the plan changes (made at 15:33 UTC from this branch merged with `main` `8ff86217`, with your real tfvars plus an overlay of the nine lines; nothing applied)
 ```
 terraform plan -var-file=<main checkout>/infra/terraform/envs/dev/terraform.tfvars -var-file=<overlay: the nine lines> \
   -target=module.cloud_run_api.google_cloud_run_v2_service.api -target=module.budget.google_pubsub_topic.billing_alerts
@@ -106,7 +109,7 @@ terraform plan -var-file=<main checkout>/infra/terraform/envs/dev/terraform.tfva
 Plan: 0 to add, 1 to change, 0 to destroy.
 ```
 Exactly one resource changes, `module.cloud_run_api.google_cloud_run_v2_service.api` (update in place); the plan JSON lists 40 resources and 39 are `no-op`.
-Inside it: `template.revision "api-00555-yeq" -> null` (the known line; it makes Cloud Run name a new revision) and **23 added `env` entries, 0 removed, 0 changed**.
+Inside it: `template.revision "api-00558-viz" -> null` (the known line; it makes Cloud Run name a new revision) and **24 added `env` entries, 0 removed, 0 changed**.
 No scaling, image, traffic, IAM or other attribute changes.
 
 | Group | Env vars added | Why |
@@ -115,9 +118,10 @@ No scaling, image, traffic, IAM or other attribute changes.
 | Percent (4) | `FEATURE_PROFILE_EXTRAS_PERCENT`, `FEATURE_PROFILE_TABS_PERCENT`, `FEATURE_LIKES_LIST_PERCENT`, `FEATURE_FOLLOW_SUGGESTIONS_PERCENT` = `0` | W3-4 wiring never applied to dev (ceiling: percent 0) |
 | Limits wired by W3-4, never applied (9) | `RATE_LIMIT_SUGGESTIONS_PER_MIN=10`, `RATE_LIMIT_LIKES_LIST_PER_MIN=10`, `RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN=60`, `SUGGESTIONS_CALLS_PER_DAY=50`, `SUGGESTIONS_SAMPLE_FOLLOWEES=30`, `SUGGESTIONS_EDGE_LIMIT=30`, `SUGGESTIONS_HYDRATE_MAX=10`, `SUGGESTIONS_MAX_RESULTS=5`, `SUGGESTIONS_CACHE_TTL=1h` | The ListSuggestedUsers config (ADR-0024 D8, D10); equal to the code defaults, written out so they are reviewed as code |
 | #351 (1) | `PROFILE_UPDATES_PER_DAY=100` | W3-22 L-4 daily cap of `UpdateProfile` (expected; the live revision runs the code default) |
+| #360 (1) | `PROFILE_MEDIA_RETIRE=off` | ADR-0024 A4 switch, default `off` (merged after this plan was started; `off` deletes nothing) |
 
-9 + 4 + 9 + 1 = 23. The expectation was only `PROFILE_UPDATES_PER_DAY` from #351, but W3-4's limit and percent vars were never applied to dev either
-(W2-16 applied only the nine bookmark vars). They equal the code defaults, so the only behaviour change is the four flags. Redacted plan text (uids
+9 + 4 + 9 + 1 + 1 = 24. The expectation was only `PROFILE_UPDATES_PER_DAY` from #351, but W3-4's limit and percent vars were never applied to dev either
+(W2-16 applied only the nine bookmark vars). They equal the code defaults (and `PROFILE_MEDIA_RETIRE=off` is the default), so the only behaviour change is the four flags. Redacted plan text (uids
 as `<uid-n>`) and the uid-free list to compare against were kept in the preparing session (not committed); the command that produces the list is in step 2.
 
 **The known dev drift (`docs/pending.md` 3.10) is NOT in this plan; `-target` excludes it.** An untargeted plan from the same tree is `Plan: 1 to add, 2 to change,
@@ -126,12 +130,17 @@ as `<uid-n>`) and the uid-free list to compare against were kept in the preparin
 apply cannot touch the other two (the topic target is the 3.10 workaround for a state move; today a plan with the `api` target alone is identical, so it is harmless; keep
 both as the 2026-10-27 apply did). **Never run a full `terraform apply` in `envs/dev`, and apply only the saved plan file you reviewed.**
 
-Plans made and saved in the preparing session (not committed): the one above (`w3-24-dev.tfplan`); the same without `SUGGESTED_USER_IDS` (`w3-24-dev-nosuggest.tfplan`, decision 2 = empty; still 0/1/0, `SUGGESTED_USER_IDS` added with an empty value); and a baseline with every W3 flag `off` (`baseline.tfplan`; 0/1/0 with the same 23 names, modes `off`). Saved plans are session scoped and
+**`-target` also pulls in the target's dependencies, and a pending change in one of them joins the plan.** It happened during this preparation: after #360 merged, the `api` service (which reads
+`MEDIA_BUCKET`) planned together with `module.media_buckets.google_storage_bucket.media`, whose A4 lifecycle rule was not applied yet, so the plan read `0 to add, 2 to change` (the `api`
+service and `+ lifecycle_rule { days_since_custom_time = 1, Delete }`). Terraform 1.16.6 has no `-exclude`. That rule was applied to dev at 15:31 UTC by a separate change that this ticket did not make (the same plan
+then read `1 to change` again), which is also why the dev state moves under you: **re-plan right before you apply and stop if a second resource shows up** (step 2).
+
+Plans made and saved in the preparing session (not committed): the one above (`w3-24-dev.tfplan`); the same without `SUGGESTED_USER_IDS` (`w3-24-dev-nosuggest.tfplan`, decision 2 = empty; still 0/1/0, `SUGGESTED_USER_IDS` added with an empty value); and a baseline with every W3 flag `off` (`baseline.tfplan`; 0/1/0 with the same 24 names, modes `off`). Saved plans are session scoped and
 go stale when state changes: **re-plan from your checkout** (step 2).
 
 ### 2.2 Ceilings and validators (run on this branch, 2026-10-27)
 - `scripts/promotion/flag-ceiling.json` (dev): `PROFILE_EXTRAS`, `PROFILE_TABS`, `LIKES_LIST`, `FOLLOW_SUGGESTIONS` are all `allowlist`, `max_allowlist 3`, `max_percent 0` (W3-4, #330). No ceiling
-  change is needed or proposed. `validate-revision.sh` on a revision JSON built from the live revision with the planned env (128 entries = 105 + 23) passes: the four flags
+  change is needed or proposed. `validate-revision.sh` on a revision JSON built from the live revision with the planned env (129 entries = 105 + 24) passes: the four flags
   `mode=allowlist (ceiling allowlist) allowlist=3/3 percent=0/0`, every other flag unchanged, `scaling min=0 max=1`, `RESULT: all checks passed`. Run it again on the REAL new revision
   before routing (step 4). The same validator runs inside `deploy-dev` on every candidate.
 - `check-flag-registry.sh`: `ok: 20 flags registered`. `check-until-dates.sh infra/terraform`: `ok: 11 until: marker(s) checked against 2026-10-27` (the example lines carry no
@@ -193,11 +202,11 @@ terraform plan -input=false -out="$PLAN" \
 ```
 Compare the plan with section 2.1, the uids shown as counts:
 ```bash
-terraform show -json "$PLAN" | jq -r '.resource_changes[] | select(.change.actions != ["no-op"]) | .address + "  " + (.change.actions | join(",")), ((.change.before.template[0].containers[0].env | map(.name)) as $had | .change.after.template[0].containers[0].env[] | select(.name as $n | ($had | index($n)) | not) | "  + env " + .name + "=" + (if (.name | test("ALLOWLIST|SUGGESTED_USER_IDS")) then ((.value | split(",") | map(select(. != "")) | length | tostring) + " uid(s)") else .value end))' | tr -d '\r'
+terraform show -json "$PLAN" | jq -r '.resource_changes[] | select(.change.actions != ["no-op"]) | .address + "  " + (.change.actions | join(",")), (select(.address | endswith("service.api")) | (.change.before.template[0].containers[0].env | map(.name)) as $had | .change.after.template[0].containers[0].env[] | select(.name as $n | ($had | index($n)) | not) | "  + env " + .name + "=" + (if (.name | test("ALLOWLIST|SUGGESTED_USER_IDS")) then ((.value | split(",") | map(select(. != "")) | length | tostring) + " uid(s)") else .value end))' | tr -d '\r'
 ```
-Expected: the line `module.cloud_run_api.google_cloud_run_v2_service.api  update`, the 23 `+ env` lines of section 2.1, and `Plan: 0 to add, 1 to change, 0 to destroy.` in the plan itself.
+Expected: the line `module.cloud_run_api.google_cloud_run_v2_service.api  update`, the 24 `+ env` lines of section 2.1, and `Plan: 0 to add, 1 to change, 0 to destroy.` in the plan itself.
 **STOP and ask** (do not apply) on, for this first apply: any other resource; any destroy or replace; a removed or changed env entry; any attribute change other than `template.revision` and the added env
-entries; a flag mode other than `allowlist`; an allowlist count other than 3; a `FEATURE_*_PERCENT` other than 0. (If another deploy ran meanwhile the `revision` line just shows that newer name.)
+entries; a second resource, which is a dependency pulled in by `-target` (section 2.1) that you did not review; a flag mode other than `allowlist`; an allowlist count other than 3; a `FEATURE_*_PERCENT` other than 0. (If another deploy ran meanwhile the `revision` line just shows that newer name.)
 
 **Step 3: apply (decision 1, the saved plan only).**
 ```bash
@@ -315,7 +324,7 @@ The second (5xx on the new RPCs) had no line in the last 7 days and is expected 
 
 Its own targeted plan: every template change is one apply and one revision.
 1. In the dev `terraform.tfvars` set the four modes to `off` and keep the allowlists (a mode `off` ignores them): `feature_profile_extras`, `feature_profile_tabs`, `feature_likes_list`,
-   `feature_follow_suggestions` = `"off"`. Same targeted plan as step 2: after the first apply `main.tf` always emits all 23 vars, so expect **exactly four `~ value "allowlist" -> "off"` changes** (the allowlists stay), 0 added, 0 removed, plus the known `template.revision` line. Apply with the OK, route as step 4. To prove each
+   `feature_follow_suggestions` = `"off"`. Same targeted plan as step 2: after the first apply `main.tf` always emits all 24 vars, so expect **exactly four `~ value "allowlist" -> "off"` changes** (the allowlists stay), 0 added, 0 removed, plus the known `template.revision` line. Apply with the OK, route as step 4. To prove each
    flag on its own, do them one at a time in this order: `profile_tabs`, `likes_list`, `follow_suggestions`, then `profile_extras` last (it is the kill switch for the pin and website).
 2. Reload the app as the tester and confirm. Only mode `off` is a kill switch; an empty allowlist or percent 0 is a rollout.
 
@@ -340,9 +349,9 @@ the practical check is a cold call repeatedly above its ceiling in the 4.1 table
 
 **Rollback = the flags back to `off`, through Terraform.** No data migration; data stays (banners and meta keep rendering; pins and websites stop rendering while `profile_extras` is globally off).
 1. In the dev `terraform.tfvars` remove the nine lines you added (or set the four modes to `off`; the variable defaults are `off`). `suggested_user_ids` can stay or go.
-2. The same targeted plan as step 2. `main.tf` always emits all 23 vars, so removing the nine lines resets values to their defaults and removes no entry: expect **nine `~ value` changes** (the four modes `"allowlist" -> "off"`, the four allowlists and `SUGGESTED_USER_IDS` to empty), 0 added, 0 removed, plus the known `template.revision` line, summarised as `Plan: 0 to add, 1 to change, 0 to destroy`. Apply the saved plan with the OK, then route the new revision as step 4.
+2. The same targeted plan as step 2. `main.tf` always emits all 24 vars, so removing the nine lines resets values to their defaults and removes no entry: expect **nine `~ value` changes** (the four modes `"allowlist" -> "off"`, the four allowlists and `SUGGESTED_USER_IDS` to empty), 0 added, 0 removed, plus the known `template.revision` line, summarised as `Plan: 0 to add, 1 to change, 0 to destroy`. Apply the saved plan with the OK, then route the new revision as step 4.
 3. **Faster, in seconds, no Terraform:** `gcloud run services update-traffic api --project=dzeroth-dev --region=asia-south1 --to-revisions=$SERVING=100`, where `$SERVING` is the revision noted
-   in step 4. It has no W3 env, so every flag is off by the code default, and it still contains #335 and #354. `last-good` (`api-00552-por`) is also such a revision. Then make the Terraform
+   in step 4. It has no W3 env, so every flag is off by the code default, and it still contains #335 and #354. `last-good` (`api-00555-yeq`) is also such a revision. Then make the Terraform
    change so state and live agree. **Do not run `deploy-dev` between the two**: it builds its candidate from the service template, which still carries the flags until Terraform is changed.
 4. The backfill is not rolled back: `hasMedia` on posts is harmless with the flag off.
 
