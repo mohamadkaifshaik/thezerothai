@@ -83,5 +83,7 @@ After trim, the text must satisfy all of:
    `xn--[a-z0-9-]+`; and the host is not `localhost`, `local`, `internal` or `home.arpa` nor a subdomain of one. A
    TLD-shaped last label is also what refuses IPv4 literals in dotted, decimal and hex forms.
 
-The Dart parser (`parseProfileWebsite`) already implements 1 to 5 except the port digits rule. `websiteIssue` adds the
-100 code point limit. Rule 6 and the port digits rule are the changes the client needs.
+The Dart runner is `app/test/features/profile/domain/profile_text_fixture_test.dart`: it runs every row through the
+functions the Edit profile screen uses (`websiteIssue`, `locationIssue`, `displayNameIssue`, `bioIssue`) and compares the
+stored form and the host. `parseProfileWebsite` implements rules 1 to 6 and has no length limit on purpose (it also
+shows websites stored before the limit existed); `websiteIssue` adds the 100 code point limit for a value being written.

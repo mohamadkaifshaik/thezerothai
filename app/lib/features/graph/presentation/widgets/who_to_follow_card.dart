@@ -22,9 +22,11 @@ const kWhoToFollowCollapsedRows = 3;
 /// `graph` are both on and the viewer is known; nothing too while the list is
 /// loading, empty, or unavailable (a limit, a failure, FEATURE_DISABLED): it
 /// never explains itself. A followed row disappears once the server confirms
-/// the follow; the "x" hides a row for the session only. Not a sliver: wrap it
-/// in a `SliverToBoxAdapter`. Needs [SuggestionsCubit] and `GraphRepository`
-/// in scope (only once the flag check passes).
+/// the follow; the "x" hides a row for the session only. A row the server
+/// says is gone (NOT_FOUND: it blocked the viewer, was suspended or deleted)
+/// is dropped silently, from the cached list too (W3-22 L-1). Not a sliver:
+/// wrap it in a `SliverToBoxAdapter`. Needs [SuggestionsCubit] and
+/// `GraphRepository` in scope (only once the flag check passes).
 class WhoToFollowCard extends StatelessWidget {
   const WhoToFollowCard({
     super.key,
@@ -138,6 +140,7 @@ class _CardState extends State<_Card> {
                   item: shown[i],
                   showDivider: collapsed || i < shown.length - 1,
                   onFollowed: () => cubit.hide(shown[i].user.userId),
+                  onGone: () => cubit.drop(shown[i].user.userId),
                   onDismiss: () => cubit.hide(shown[i].user.userId),
                 ),
               if (collapsed)

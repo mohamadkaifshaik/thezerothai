@@ -290,6 +290,84 @@ void main() {
     });
   });
 
+  group('drop (a row the server says is gone, W3-22 L-1)', () {
+    test('leaves the memory entry and the session at once', () async {
+      await rig.repository.suggestionsFor('me');
+
+      rig.repository.drop('me', 'u2');
+
+      expect(_ids(rig.repository.current('me')), ['u1', 'u3', 'u4', 'u5']);
+      expect(_ids(await rig.repository.suggestionsFor('me')), [
+        'u1',
+        'u3',
+        'u4',
+        'u5',
+      ]);
+      expect(rig.suggestionCalls, 1);
+    });
+
+    test('is stored: a restart does not bring the row back, 0 RPCs', () async {
+      await rig.repository.suggestionsFor('me');
+      rig.repository.drop('me', 'u2');
+
+      final restarted = rig.newRepository();
+
+      expect(_ids(await restarted.suggestionsFor('me')), [
+        'u1',
+        'u3',
+        'u4',
+        'u5',
+      ]);
+      expect(rig.suggestionCalls, 1);
+    });
+
+    test(
+      'keeps the age of the entry: the 24 h window is not stretched',
+      () async {
+        await rig.repository.suggestionsFor('me');
+        rig.clock = const Duration(hours: 20);
+        rig.repository.drop('me', 'u2');
+
+        // 23 h after the fetch the restarted repository still reads the disk.
+        rig.clock = const Duration(hours: 23);
+        final restarted = rig.newRepository();
+        expect(
+          _ids(await restarted.suggestionsFor('me')),
+          isNot(contains('u2')),
+        );
+        expect(rig.suggestionCalls, 1);
+
+        // 25 h after the fetch the entry is stale, though the drop was 5 h ago.
+        rig.clock = const Duration(hours: 25);
+        await rig.newRepository().suggestionsFor('me');
+        expect(rig.suggestionCalls, 2);
+      },
+    );
+
+    test('an unknown user or an empty cache changes nothing', () async {
+      rig.repository.drop('me', 'u9');
+      expect(rig.repository.current('me'), isEmpty);
+
+      await rig.repository.suggestionsFor('me');
+      rig.repository.drop('me', 'u9');
+
+      expect(_ids(rig.repository.current('me')), [
+        'u1',
+        'u2',
+        'u3',
+        'u4',
+        'u5',
+      ]);
+    });
+
+    test('belongs to one account', () async {
+      await rig.repository.suggestionsFor('alice');
+      rig.repository.drop('alice', 'u2');
+
+      expect(_ids(await rig.repository.suggestionsFor('bob')), contains('u2'));
+    });
+  });
+
   group('SessionEpoch', () {
     test(
       'ending the session drops memory, dismissals and the failure state',

@@ -10,7 +10,8 @@ import '../../../../support/theme_harness.dart';
 /// dark, with 48dp targets, spoken labels and no overflow.
 void main() {
   const widths = kMatrixWidths;
-  const scales = [1.0];
+  // W3-21: the full text-scale axis (it was 1.0 only).
+  const scales = kMatrixTextScalesLarge;
 
   Finder icon(IconData data) => find.descendant(
     of: find.byType(BannerEditor),

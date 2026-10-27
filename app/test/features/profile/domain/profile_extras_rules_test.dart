@@ -123,7 +123,103 @@ void main() {
     });
 
     test('what is sent is the trimmed text', () {
-      expect(normalizeProfileWebsite('  https://a.b  '), 'https://a.b');
+      expect(normalizeProfileWebsite('  https://a.co  '), 'https://a.co');
+    });
+  });
+
+  group('location line separators (W3-22 L-2a)', () {
+    test('U+2028 and U+2029 are refused, a trailing one is trimmed', () {
+      for (final sep in [0x2028, 0x2029]) {
+        expect(
+          locationIssue('a${cp([sep])}b'),
+          LocationIssue.forbiddenCharacter,
+          reason: sep.toRadixString(16),
+        );
+        expect(locationIssue('ab${cp([sep])}'), isNull);
+      }
+    });
+  });
+
+  group('display name (W3-22 L-2c)', () {
+    test('1 to 50 code points after trim and NFC', () {
+      expect(displayNameIssue(''), DisplayNameIssue.empty);
+      expect(displayNameIssue('   '), DisplayNameIssue.empty);
+      expect(displayNameIssue('a'), isNull);
+      expect(displayNameIssue('a' * 50), isNull);
+      expect(displayNameIssue('a' * 51), DisplayNameIssue.tooLong);
+      // 50 decomposed e + acute are 50 code points once composed.
+      expect(displayNameIssue(cp([0x65, 0x301]) * 50), isNull);
+      expect(profileNameRemaining(cp([0x65, 0x301]) * 50), 0);
+      expect(profileNameRemaining('a' * 51), -1);
+    });
+
+    test('control, line separator and bidi characters are refused', () {
+      for (final bad in [
+        0x0A, 0x0D, 0x09, 0x00, 0x7F, 0x85, 0x2028, 0x2029, //
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069,
+      ]) {
+        expect(
+          displayNameIssue('a${cp([bad])}b'),
+          DisplayNameIssue.forbiddenCharacter,
+          reason: bad.toRadixString(16),
+        );
+      }
+    });
+
+    test('what is sent is trimmed, then NFC', () {
+      expect(normalizeDisplayName('  ${cp([0x65, 0x301])} '), cp([0xE9]));
+    });
+  });
+
+  group('bio (W3-22 L-2c)', () {
+    test('0 to 160 code points after trim and NFC, empty is a clear', () {
+      expect(bioIssue(''), isNull);
+      expect(bioIssue('b' * 160), isNull);
+      expect(bioIssue('b' * 161), BioIssue.tooLong);
+      expect(profileBioRemaining('b' * 161), -1);
+      expect(profileBioRemaining(''), 160);
+    });
+
+    test('LF is kept, every other control character is refused', () {
+      expect(bioIssue('a${cp([0x0A])}b'), isNull);
+      for (final bad in [0x0D, 0x09, 0x00, 0x7F, 0x85, 0x2028, 0x2029]) {
+        expect(
+          bioIssue('a${cp([bad])}b'),
+          BioIssue.forbiddenCharacter,
+          reason: bad.toRadixString(16),
+        );
+      }
+      // CR is refused, not folded.
+      expect(bioIssue('a${cp([0x0D, 0x0A])}b'), BioIssue.forbiddenCharacter);
+    });
+
+    test('bidi formatting controls are refused', () {
+      for (final bidi in [0x202A, 0x202E, 0x2066, 0x2069]) {
+        expect(
+          bioIssue('a${cp([bidi])}b'),
+          BioIssue.forbiddenCharacter,
+          reason: bidi.toRadixString(16),
+        );
+      }
+    });
+  });
+
+  group('website as stored', () {
+    test('only the scheme is lower-cased, as the server stores it', () {
+      expect(
+        normalizeProfileWebsite('  HTTPS://Example.COM/Path  '),
+        'https://Example.COM/Path',
+      );
+      expect(normalizeProfileWebsite('HtTp://a.co'), 'http://a.co');
+      expect(normalizeProfileWebsite('FTP://A.co'), 'FTP://A.co');
+    });
+
+    test('a host on the viewer\'s own network is invalid (L-3)', () {
+      expect(websiteIssue('http://192.168.1.1/'), WebsiteIssue.invalid);
+      expect(websiteIssue('http://localhost:3000'), WebsiteIssue.invalid);
+      expect(websiteIssue('https://printer.local'), WebsiteIssue.invalid);
+      expect(websiteIssue('https://example.com:+80'), WebsiteIssue.invalid);
+      expect(websiteHostPreview('http://192.168.1.1/'), isNull);
     });
   });
 }

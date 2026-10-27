@@ -18,6 +18,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/geometry.dart';
 import '../../../support/suggestions_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
@@ -74,6 +75,7 @@ void main() {
     Brightness brightness = Brightness.light,
     double textScale = 1,
     double? width,
+    EdgeInsets? margin,
     String? title,
     Stream<OnboardingState> states = const Stream<OnboardingState>.empty(),
   }) async {
@@ -105,7 +107,7 @@ void main() {
                 width: width ?? size.width,
                 child: WhoToFollowCard(
                   title: title ?? 'Who to follow',
-                  margin: const EdgeInsets.all(AppSpacing.md),
+                  margin: margin ?? const EdgeInsets.all(AppSpacing.md),
                 ),
               ),
             ),
@@ -229,6 +231,45 @@ void main() {
       expect(followed, ['u1', 'u2']);
       expect(find.text('User 2'), findsNothing);
       expect(find.text('User 3'), findsOneWidget);
+    });
+
+    testWidgets('a follow refused with NOT_FOUND drops the row silently and '
+        'the next suggestion moves up (blocked-by, suspended, gone: L-1)', (
+      tester,
+    ) async {
+      followError = const NotFoundException('not found');
+      await open(tester);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      // No error, no snackbar: the row simply is not there any more.
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.text("This account doesn't exist anymore."), findsNothing);
+      expect(find.text('User 1'), findsNothing);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+      expect(find.text('User 4'), findsOneWidget);
+      expect(find.text('Show more'), findsOneWidget);
+      // Dropped for good (not just hidden for the session), and nothing was
+      // reported as followed.
+      expect(repo.dropped, {'u1'});
+      expect(followed, isEmpty);
+    });
+
+    testWidgets('after a dropped row the next Follow still acts on its own '
+        'account, and any other refusal still keeps the row', (tester) async {
+      followError = const NotFoundException('not found');
+      await open(tester);
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      followError = const QuotaExceededException('limit');
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('User 2'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(repo.dropped, {'u1'});
     });
 
     testWidgets('a rejected follow keeps the row and says why', (tester) async {
@@ -359,6 +400,10 @@ void main() {
         width: env.size.width >= AppBreakpoints.tablet
             ? AppSize.sideColumn
             : env.size.width,
+        // The shell gives the column card only a bottom margin (`MainShell`).
+        margin: env.size.width >= AppBreakpoints.tablet
+            ? const EdgeInsets.only(bottom: AppSpacing.md)
+            : null,
       );
 
       expect(tester.takeException(), isNull);
@@ -373,7 +418,50 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byType(UserListRow), findsNWidgets(5));
-    });
+    }, textScales: kMatrixTextScalesLarge);
+
+    // W3-21: the 2.0 stops of the matrix, and the targets the ui-catalog
+    // demands (Follow, the x, Show more) at every cell.
+    forEachThemeAndWidth('Follow, x and Show more are 48dp targets', (
+      tester,
+      env,
+    ) async {
+      await open(
+        tester,
+        size: env.size,
+        brightness: env.brightness,
+        textScale: env.textScale,
+        width: env.size.width >= AppBreakpoints.tablet
+            ? AppSize.sideColumn
+            : env.size.width,
+        // The shell gives the column card only a bottom margin (`MainShell`).
+        margin: env.size.width >= AppBreakpoints.tablet
+            ? const EdgeInsets.only(bottom: AppSpacing.md)
+            : null,
+      );
+
+      expect(tester.takeException(), isNull);
+      for (final button in followButtons().evaluate()) {
+        expectMinTarget(tester, find.byWidget(button.widget), reason: 'Follow');
+      }
+      for (var i = 1; i <= 3; i++) {
+        expectMinTarget(
+          tester,
+          find.byTooltip('Dismiss @user$i'),
+          reason: 'Dismiss @user$i',
+        );
+      }
+      expectMinTarget(
+        tester,
+        find.widgetWithText(TextButton, 'Show more'),
+        reason: 'Show more',
+      );
+      expectInsideHorizontally(
+        tester,
+        find.widgetWithText(TextButton, 'Show more'),
+        env.size.width,
+      );
+    }, textScales: kMatrixTextScalesLarge);
 
     for (final brightness in Brightness.values) {
       testWidgets('text scale 2.0 on a phone: no overflow, every row stays '

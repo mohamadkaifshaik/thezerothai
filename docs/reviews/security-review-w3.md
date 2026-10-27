@@ -189,7 +189,7 @@ Owner: production-deployer.
 **Gate.** Dev apply with or before W3-24 (recommended, not required). Prod apply needs the founder's OK (ADR-0019,
 plan-then-OK). See founder question 2.
 
-**Status (2026-10-27): dev applied, prod plan pending the founder's OK.**
+**Status (2026-10-27): applied in dev and in prod; closed.**
 - Fix: `infra/terraform/modules/media-buckets/main.tf` now binds `allUsers` to `roles/storage.legacyObjectReader`
   (`storage.objects.get` only; `gcloud iam roles describe` confirms), with `create_before_destroy` because `role` forces a
   replacement. GCS accepted it on a uniform bucket-level access bucket, so no custom role is needed.
@@ -198,9 +198,12 @@ plan-then-OK). See founder question 2.
   "No changes". Checked anonymously the same day: JSON API list 401 and XML API list 403 (`storage.objects.list` denied),
   GET of an existing object 200, GET of a missing object **404** `NoSuchKey` (not 403, so the review's expectation of a 403
   was wrong and clients can key on 404).
-- Prod (`dzeroth-prod-media`): still open. An anonymous list returned 200 on both APIs on 2026-10-27 (the finding is live
-  there). The targeted plan is exactly one replacement, "Plan: 1 to add, 0 to change, 1 to destroy." Nothing is applied in
-  prod; the apply waits for the founder's OK (question 1 below).
+- Prod (`dzeroth-prod-media`): applied 2026-10-27 at about 13:36 UTC with the founder's OK, from a saved targeted plan
+  ("Plan: 1 to add, 0 to change, 1 to destroy."; apply: "Apply complete! Resources: 1 added, 0 changed, 1 destroyed.";
+  prod state serial 26 to 27). Before the apply an anonymous list returned 200 on both APIs. After it: JSON API list 401,
+  XML API list 403, missing object 404. The bucket IAM policy shows `allUsers` only under `roles/storage.legacyObjectReader`.
+  The "existing object 200" check could not be run in prod because the bucket holds 0 objects (no image uploaded there
+  yet); it returns 200 in dev with the same binding.
 
 ### M-3. Concurrent FinalizeUpload calls screen one image several times
 
@@ -268,6 +271,8 @@ with `media` alone, which is already on in dev.
 
 Owners: backend-developer, frontend-developer. Gate: before `follow_suggestions` leaves the dev allowlist.
 
+**Status:** server fixed in #350; client fixed (PR pending): `FollowButton.onGone` and `SuggestionsRepository.drop` remove the row on NOT_FOUND, silently, from memory and the disk entry. The card has no profile fetch, so Follow is the only NOT_FOUND path.
+
 ### L-2. Profile text rules are incomplete, and the server and client disagree
 
 - **(a) Location line breaks.**
@@ -298,6 +303,8 @@ Owners: backend-developer, frontend-developer. Gate: before `follow_suggestions`
 Owners: backend-developer, frontend-developer. Gate: (a) and (b) before `profile_extras` leaves the dev allowlist; (c)
 with the next identity change.
 
+**Status:** server fixed in #350; client fixed (PR pending): `profile_extras_rules.dart` and `profile_website.dart` pass every row of `testdata/profile_text/` (`profile_text_fixture_test.dart`), and Edit profile now applies the display name and bio rules.
+
 ### L-3. The website accepts hosts on the viewer's own network
 
 **Exploit.**
@@ -316,6 +323,8 @@ with the next identity change.
 - Cost: none.
 
 Owners: backend-developer, frontend-developer. Gate: with L-2.
+
+**Status:** server fixed in #350; client fixed (PR pending): the host needs two labels and a TLD-shaped last label, and `localhost`, `local`, `internal` and `home.arpa` (with their subdomains) are refused, in `parseProfileWebsite`, so Edit profile refuses them and the header no longer shows a stored one.
 
 ### L-4. UpdateProfile has no daily cap and always writes (pre-existing)
 
@@ -398,8 +407,7 @@ leak).
 ## Questions for the founder
 
 1. **M-2 prod apply.** Change the `allUsers` role on `dzeroth-prod-media` to object-get only. This is a Terraform
-   change: plan, then your OK. Dev is applied and verified (2026-10-27) and the prod plan is one replacement; it waits
-   for your word.
+   change: plan, then your OK. **Done 2026-10-27:** applied and verified in dev and in prod (see the M-2 status).
 2. **ADR-0024 Option 5A versus DPDP and GDPR.** Should "Remove banner" and a replacement delete the old public image
    (5B for removes and replaces, avatars too)? Today it stays reachable until account deletion. Once listing is closed
    it stays reachable only by URL.
@@ -473,7 +481,7 @@ leak).
 - Cloud state:
   - indexes READY, the backfill run, the targeted flag plan (all W3-24);
   - an anonymous list against the dev and prod media buckets: done 2026-10-27 by the production-deployer (dev now 401 and
-    403, prod still 200 until the founder's apply; see the M-2 status).
+    403; prod 401 and 403 after the founder-approved apply the same day, 200 before it; see the M-2 status).
 - The tester's W3-20 authz and budget matrix (W3-20 is Open).
 - A real-browser check on the dev Hosting site of IDN and punycode rendering and of the website open.
 - `govulncheck` and `osv-scanner` beyond the CI job (no new dependencies).

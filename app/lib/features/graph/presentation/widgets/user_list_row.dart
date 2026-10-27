@@ -22,6 +22,7 @@ class UserListRow extends StatelessWidget {
     required this.item,
     this.trailing,
     this.onFollowed,
+    this.onGone,
     this.onDismiss,
     this.showDivider = true,
   });
@@ -39,6 +40,13 @@ class UserListRow extends StatelessWidget {
   /// this call never loses the rollback. Ignored with a [trailing].
   final VoidCallback? onFollowed;
 
+  /// Called, once and with no message, when the follow is refused with
+  /// NOT_FOUND: the account is blocked, suspended or deleted (the server
+  /// answers the same for all three, W3-22 L-1). A caller that offers
+  /// accounts, like the "Who to follow" card, removes the row on this call.
+  /// Ignored with a [trailing].
+  final VoidCallback? onGone;
+
   /// Shows a 48dp "x" after the control and calls this when it is tapped
   /// (the "Who to follow" card's local dismiss).
   final VoidCallback? onDismiss;
@@ -51,6 +59,7 @@ class UserListRow extends StatelessWidget {
     final user = item.user;
     final theme = Theme.of(context);
     final onFollowed = this.onFollowed;
+    final onGone = this.onGone;
     final onDismiss = this.onDismiss;
     final control =
         trailing ??
@@ -66,12 +75,12 @@ class UserListRow extends StatelessWidget {
             ),
           ),
           child: onFollowed == null
-              ? const FollowButton()
+              ? FollowButton(onGone: onGone)
               : BlocListener<RelationshipCubit, RelationshipState>(
                   listenWhen: (before, after) =>
                       _isConfirmedFollow(after) && !_isConfirmedFollow(before),
                   listener: (context, state) => onFollowed(),
-                  child: const FollowButton(),
+                  child: FollowButton(onGone: onGone),
                 ),
         );
     return Column(

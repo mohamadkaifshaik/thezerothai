@@ -3,6 +3,7 @@
 The architecture and rules live in `CLAUDE.md`; this runbook holds the parts that are about the tooling around it. It replaces
 `README-CLAUDE-SETUP.md` (retired 2026-10-25). Run `claude` in the repo root; `/agents` lists the team and `/` the commands.
 Hooks need `jq` (they block edits without it). Local dev needs the Firebase CLI (`npx firebase-tools`), Go 1.26, Flutter 3.47.x and Java 21 for the emulators.
+Several agents often run emulator suites on one machine: `make emulators`, `make test-int` and `make dev` give each run a private temp directory (`scripts/with-private-tmp.sh`), and a raw `firebase emulators:*` call must be wrapped the same way; see `docs/runbooks/emulator-collisions.md`.
 
 ## Commands (`.claude/commands`)
 
