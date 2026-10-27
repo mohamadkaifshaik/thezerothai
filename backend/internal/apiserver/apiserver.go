@@ -180,11 +180,17 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
+	// ADR-0024 (W3-6): the pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
+	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
+	pinChecker := &latePinChecker{}
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
 		identity.WithSignupAuth(authAdminClient, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
+		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),
+		identity.WithPinChecker(pinChecker),
+		identity.WithExtrasFlags(featureFlags),
 		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
 			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
 			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
@@ -281,6 +287,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			},
 		},
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
+	// ADR-0024 D3: identity's UpdateProfile asks posts whether a post is the caller's own visible pin candidate. Bound here, once,
+	// before ListenAndServe (posts needs identity.Directory, so identity was built first).
+	pinChecker.c = posts.NewPinChecker(postsSvc)
 
 	// engagement (P5, ADR-0018): likes and reposts behind FEATURE_ENGAGEMENT. posts and engagement need each
 	// other (engagement drives posts' counters and clean-up, DeletePost releases through engagement's reposts
@@ -372,6 +381,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	postDeleteJob := postDeleteChain{
 		media: mediaMod.jobs,
 		eng:   engagement.NewJobs(engagementRepo, postsRepo, postGone{postsRepo}, jobsPublisher),
+		pins:  identity.NewPinJobs(identityRepo, postGone{postsRepo}, identitySvc.(identity.Directory).Forget),
 	}
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)

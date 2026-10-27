@@ -49,6 +49,13 @@ type Profile struct {
 	SnapshotVersion     int64
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	// Profile extras (ADR-0024 D1-D3): all absent = none. Never part of the author snapshot. PinnedPostID is omitted from the
+	// RPC responses while profile_extras is globally off (D3).
+	BannerURL      string
+	BannerThumbURL string
+	Location       string
+	Website        string
+	PinnedPostID   string
 	// DeletionRequestedAt and DeletionJob are the account-deletion job state (ADR-0011): zero/nil for every live
 	// account, set together by DeleteAccount. Never serialized to clients or exports.
 	DeletionRequestedAt time.Time
@@ -80,6 +87,16 @@ type UpdateProfileParams struct {
 	// item (WithAvatarResolver, P4). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
 	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
+	// ADR-0024 (W3-6). All four need FEATURE_PROFILE_EXTRAS on for the caller (FEATURE_DISABLED feature=profile_extras, 0 reads),
+	// even when the value is "" (a clear). nil = unchanged.
+	//
+	// BannerMediaID: "" removes the banner; non-empty must be a READY, caller-owned BANNER media item (WithBannerResolver).
+	// Location: <= 30 code points after NFC and trim, single line. Website: http(s) URL, <= 100 characters, no userinfo.
+	// PinnedPostID: "" unpins; non-empty must be the caller's own visible POST, QUOTE or REPLY (WithPinChecker).
+	BannerMediaID *string
+	Location      *string
+	Website       *string
+	PinnedPostID  *string
 	IsPrivate     *bool
 }
 
@@ -235,4 +252,55 @@ var ErrAvatarNotReady = errors.New("identity: avatar media not ready")
 // the FEATURE_MEDIA check. 1 Firestore read.
 type AvatarResolver interface {
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (AvatarRef, error)
+}
+
+// ProfileExtrasFlag is the wire name of FEATURE_PROFILE_EXTRAS (ADR-0024 D9): it gates SETTING the banner, location,
+// website and pinned post through UpdateProfile (and CreateUpload(BANNER), together with media). Rendering of data
+// already stored stays ungated, except the pin, which is omitted while the flag is globally off (D3).
+const ProfileExtrasFlag = "profile_extras"
+
+// ExtrasFlags is the consumer-side flag seam of the profile extras (*flags.Registry satisfies it). 0 Firestore reads.
+// Enabled is the per-caller answer that gates the writes; GloballyOff is the kill switch: only mode off, never a
+// rollout, so an allowlisted user's pin keeps showing to everyone while the flag ramps. A nil ExtrasFlags means off
+// for every caller (fail closed) and globally off.
+type ExtrasFlags interface {
+	Enabled(uid, name string) bool
+	GloballyOff(name string) bool
+}
+
+// BannerRef is a published banner: the full 1500 x 500 image and the 600 x 200 thumbnail (Profile.BannerURL and
+// BannerThumbURL).
+type BannerRef struct {
+	URL      string
+	ThumbURL string
+}
+
+// ErrBannerNotReady is returned by a BannerResolver for a media id that is missing, not the caller's, not a BANNER,
+// not READY (or READY_UNSCREENED), or when FEATURE_MEDIA is off for the caller: one answer for every cause, no oracle
+// (ADR-0024 D1). The service maps it to ERROR_REASON_MEDIA_NOT_READY, like an avatar.
+var ErrBannerNotReady = errors.New("identity: banner media not ready")
+
+// BannerResolver is the consumer-side seam to the media module (ADR-0002), mirroring AvatarResolver. W3-5 adds
+// media.Reader.ResolveBanner and apiserver adapts it (including the FEATURE_MEDIA check). 1 Firestore read (the media
+// doc). A nil resolver (WithBannerResolver not called) keeps every non-empty banner_media_id rejected as not ready.
+type BannerResolver interface {
+	ResolveBanner(ctx context.Context, uid, mediaID string) (BannerRef, error)
+}
+
+// PinChecker is the consumer-side seam to the posts module (ADR-0024 D3; the BlockChecker pattern, so identity never
+// imports posts). CanPin reports whether postID is uid's own POST, QUOTE or REPLY that is still visible (not a
+// REPOST, not deleted or taken down, not owned by anyone else). Every "no" is the same (false, nil): the caller
+// answers one VALIDATION field=pinned_post_id for every cause, so the call is no existence oracle. A non-nil error is
+// an infrastructure failure, not a verdict. Read cache-first: 1 Firestore read cold, 0 warm. A nil checker (the
+// WithPinChecker default) turns every non-empty pinned_post_id into that same VALIDATION answer.
+type PinChecker interface {
+	CanPin(ctx context.Context, uid, postID string) (bool, error)
+}
+
+// Pins is the identity step of the post_delete job (ADR-0024 D3). ClearIfPinned runs one transaction: it reads
+// users/{uid} fresh (1 read) and only when pinnedPostId == postID updates it to "" (1 write, field-level, so a purged
+// users doc is never recreated; NotFound is "not pinned"). It never touches a newer pin. cleared reports whether it
+// wrote. A takedown does not call it: a restore brings the pin back. *FirestoreRepo implements it.
+type Pins interface {
+	ClearIfPinned(ctx context.Context, uid, postID string) (cleared bool, err error)
 }

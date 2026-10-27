@@ -12,7 +12,9 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/handle"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -26,6 +28,12 @@ type service struct {
 	blockChecker         BlockChecker
 	features             FeatureFlags
 	avatars              AvatarResolver
+	// banners, pins and extras are the ADR-0024 profile-extras seams (W3-6). All nil by default: no resolver means a
+	// non-empty banner_media_id is MEDIA_NOT_READY, no checker means a non-empty pinned_post_id is VALIDATION, and no
+	// flags means profile_extras is off for every caller and globally off.
+	banners BannerResolver
+	pins    PinChecker
+	extras  ExtrasFlags
 	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
 	// wires it, so production never runs without it.
 	signup *authAdmin
@@ -47,6 +55,22 @@ func WithBlockChecker(bc BlockChecker) Option {
 // WithAvatarResolver wires UpdateProfile.avatar_media_id (P4). Nil keeps non-empty values rejected.
 func WithAvatarResolver(r AvatarResolver) Option {
 	return func(s *service) { s.avatars = r }
+}
+
+// WithBannerResolver wires UpdateProfile.banner_media_id (ADR-0024 D1). Nil keeps non-empty values rejected as not ready.
+func WithBannerResolver(r BannerResolver) Option {
+	return func(s *service) { s.banners = r }
+}
+
+// WithPinChecker wires UpdateProfile.pinned_post_id (ADR-0024 D3). Nil keeps non-empty values rejected with VALIDATION.
+func WithPinChecker(c PinChecker) Option {
+	return func(s *service) { s.pins = c }
+}
+
+// WithExtrasFlags wires the profile_extras flag (ADR-0024 D9): the per-caller gate on setting the new fields and the
+// global-off check that omits the pin from responses. Nil means off for everyone.
+func WithExtrasFlags(f ExtrasFlags) Option {
+	return func(s *service) { s.extras = f }
 }
 
 // WithFeatureFlags wires GetMe.enabled_features (ADR-0008 D6). Nil (the default) reports no flags.
@@ -147,7 +171,7 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 		return Profile{}, logger.RedactErr(fmt.Errorf("identity: create profile: %w", err), uid)
 	}
 	s.cache.SetProfile(profile)
-	return profile, nil
+	return s.present(profile), nil
 }
 
 // CheckHandleAvailability: 1 read, 0 writes (cache hit on the handle map or the 10 s negative handle cache
@@ -187,14 +211,14 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 		enabled = s.features.EnabledFeatures(uid)
 	}
 	if n, ok := s.cache.GetUnreadCount(uid); ok {
-		return MeResult{Profile: profile, UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
+		return MeResult{Profile: s.present(profile), UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
 	}
 	n, err := s.repo.UnreadNotificationCount(ctx, uid, profile.NotificationsSeenAt)
 	if err != nil {
 		return MeResult{}, logger.RedactErr(fmt.Errorf("identity: get me: %w", err), uid)
 	}
 	s.cache.SetUnreadCount(uid, n)
-	return MeResult{Profile: profile, UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
+	return MeResult{Profile: s.present(profile), UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
 }
 
 // GetProfile: reads up to 2 (handle resolve + profile; both cacheable), +1 more when BlockChecker is wired
@@ -252,12 +276,54 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 			return Profile{}, notFoundErr()
 		}
 	}
-	return profile, nil
+	return s.present(profile), nil
 }
 
-// UpdateProfile: reads 1, writes 1; with a non-empty avatar_media_id reads 2 (the media doc, resolved before the
-// transaction) and the avatar URLs are copied into the profile. A media id that is not a READY, caller-owned
-// AVATAR is ERROR_REASON_MEDIA_NOT_READY.
+// present is the response view of a profile: the pin is omitted while profile_extras is globally off (ADR-0024 D3, the
+// kill switch that makes clients stop the GetPost call), 0 reads. Everything else is returned as stored; rendering
+// of banner, location and website stays ungated (D9). The cache keeps the stored value, so a re-enabled flag shows the
+// pin again without a write.
+func (s *service) present(p Profile) Profile {
+	if p.PinnedPostID != "" && (s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag)) {
+		p.PinnedPostID = ""
+	}
+	return p
+}
+
+// pinRejected is the one answer for every pinned_post_id the caller may not pin (bad format, no checker, not theirs,
+// not visible, a REPOST, unknown): VALIDATION field=pinned_post_id, so the call is no existence oracle. The request log
+// gets pin_check=rejected and never the cause.
+func pinRejected(ctx context.Context) error {
+	logger.SetRequestField(ctx, "pin_check", "rejected")
+	return apierr.Validation("pinned_post_id", "pinned_post_id must be one of your own posts")
+}
+
+// extrasDisabled is the profile_extras gate for UpdateProfile: nil when the flag is on for uid, otherwise
+// FEATURE_DISABLED with metadata feature=profile_extras. No flags wired = off. It never reads Firestore.
+func (s *service) extrasDisabled(ctx context.Context, uid string) error {
+	var enabled func(uid, name string) bool
+	if s.extras != nil {
+		enabled = s.extras.Enabled
+	}
+	if flags.Guard(ctx, enabled, uid, ProfileExtrasFlag) != nil {
+		return flags.DisabledError().WithMeta("feature", ProfileExtrasFlag)
+	}
+	return nil
+}
+
+// UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}), plus the account-status
+// interceptor's profile read when its cache is cold (+1, outside this method). Resolves before the transaction add
+// reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc,
+// ADR-0024 D1), +1 for a non-empty pinned_post_id (the post, cache-first so 1 cold / 0 warm, D3). Worst case with the
+// ADR-0024 fields (banner and pin) is 3 reads / 1 write in this method (4 with the interceptor cold); a request that
+// also sets an avatar adds a fourth (5 with the interceptor). A media id that is not a READY, caller-owned AVATAR or
+// BANNER is ERROR_REASON_MEDIA_NOT_READY; any pinned_post_id the caller may not pin is VALIDATION
+// field=pinned_post_id (one answer for every cause, so the call is no existence oracle).
+// banner_media_id, location, website and pinned_post_id (even "") need profile_extras on for the caller: otherwise
+// FEATURE_DISABLED feature=profile_extras, checked before any validation or read, 0 writes (D9). None of them bumps
+// snapshotVersion, spends snapshotEdits or enqueues a snapshot job (not in AuthorSnapshot). The request log carries
+// profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
+// (never the cause).
 func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdateProfileParams) (Profile, error) {
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -267,6 +333,30 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	}
 	if params.Bio != nil && bioIssue(*params.Bio) {
 		return Profile{}, apierr.Validation("bio", "bio must be at most 160 characters")
+	}
+	// ADR-0024 D9: the flag gate comes before the field validation and before any read, so a caller outside the
+	// cohort learns nothing about the fields and costs nothing.
+	hasExtras := params.BannerMediaID != nil || params.Location != nil || params.Website != nil || params.PinnedPostID != nil
+	if hasExtras {
+		if err := s.extrasDisabled(ctx, uid); err != nil {
+			return Profile{}, err
+		}
+	}
+	var location, website string
+	if params.Location != nil {
+		location = normalizeLocation(*params.Location)
+		if locationIssue(location) {
+			return Profile{}, apierr.Validation("location", "location must be at most 30 characters on one line")
+		}
+	}
+	if params.Website != nil {
+		var ok bool
+		if website, ok = normalizeWebsite(*params.Website); !ok {
+			return Profile{}, apierr.Validation("website", "website must be an http or https address of at most 100 characters")
+		}
+	}
+	if params.PinnedPostID != nil && *params.PinnedPostID != "" && !ids.ValidPostID(*params.PinnedPostID) {
+		return Profile{}, pinRejected(ctx)
 	}
 	var avatar *AvatarRef
 	if params.AvatarMediaID != nil && *params.AvatarMediaID != "" {
@@ -282,6 +372,37 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			return Profile{}, logger.RedactErr(fmt.Errorf("identity: resolve avatar: %w", err), uid)
 		}
 		avatar = &ref
+	}
+	var banner *BannerRef
+	if params.BannerMediaID != nil && *params.BannerMediaID != "" {
+		notReady := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY, "banner is not ready; upload it again")
+		if s.banners == nil {
+			// No resolver wired (apiserver always wires one): every non-empty banner_media_id gets this one answer.
+			return Profile{}, notReady
+		}
+		ref, err := s.banners.ResolveBanner(ctx, uid, *params.BannerMediaID)
+		switch {
+		case errors.Is(err, ErrBannerNotReady):
+			return Profile{}, notReady
+		case err != nil:
+			return Profile{}, logger.RedactErr(fmt.Errorf("identity: resolve banner: %w", err), uid)
+		}
+		banner = &ref
+	}
+	if params.PinnedPostID != nil && *params.PinnedPostID != "" {
+		if s.pins == nil {
+			// No checker wired (apiserver always wires one): pinning is unavailable and answers like any other post the
+			// caller may not pin.
+			return Profile{}, pinRejected(ctx)
+		}
+		can, err := s.pins.CanPin(ctx, uid, *params.PinnedPostID)
+		if err != nil {
+			return Profile{}, logger.RedactErr(fmt.Errorf("identity: pin check: %w", err), uid)
+		}
+		if !can {
+			return Profile{}, pinRejected(ctx)
+		}
+		logger.SetRequestField(ctx, "pin_check", "ok")
 	}
 	// ADR-0008 D1 (L9): private accounts are deferred. is_private=false stays accepted (already the only
 	// value profiles can hold); is_private=true is rejected before any read, 0 writes.
@@ -308,23 +429,58 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 
 	now := s.now().UTC()
 	snapshotChanged := false
+	var changed []string
 	profile, err := s.repo.UpdateProfile(ctx, uid, func(p *Profile) {
+		changed, snapshotChanged = changed[:0], false // the transaction may run more than once
+		// note records a field name for profile_fields_changed when the stored value really changes.
+		note := func(name string, differs bool) {
+			if differs {
+				changed = append(changed, name)
+			}
+		}
 		if params.DisplayName != nil {
 			if name := normalizeDisplayName(*params.DisplayName); name != p.DisplayName {
 				p.DisplayName = name
 				p.SnapshotVersion++
 				snapshotChanged = true
+				changed = append(changed, "display_name")
 			}
 		}
 		if params.Bio != nil {
-			p.Bio = strings.TrimSpace(*params.Bio)
+			bio := strings.TrimSpace(*params.Bio)
+			note("bio", bio != p.Bio)
+			p.Bio = bio
 		}
 		if avatar != nil {
+			note("avatar", avatar.URL != p.AvatarURL || avatar.ThumbURL != p.AvatarThumbURL)
 			p.AvatarURL, p.AvatarThumbURL = avatar.URL, avatar.ThumbURL
 		}
 		if params.AvatarMediaID != nil && *params.AvatarMediaID == "" {
+			note("avatar", p.AvatarURL != "" || p.AvatarThumbURL != "")
 			p.AvatarURL = ""
 			p.AvatarThumbURL = ""
+		}
+		// ADR-0024: the extras are plain field writes. None of them touches snapshotVersion (not in AuthorSnapshot).
+		if banner != nil {
+			note("banner", banner.URL != p.BannerURL || banner.ThumbURL != p.BannerThumbURL)
+			p.BannerURL, p.BannerThumbURL = banner.URL, banner.ThumbURL
+		}
+		if params.BannerMediaID != nil && *params.BannerMediaID == "" {
+			note("banner", p.BannerURL != "" || p.BannerThumbURL != "")
+			p.BannerURL = ""
+			p.BannerThumbURL = ""
+		}
+		if params.Location != nil {
+			note("location", location != p.Location)
+			p.Location = location
+		}
+		if params.Website != nil {
+			note("website", website != p.Website)
+			p.Website = website
+		}
+		if params.PinnedPostID != nil {
+			note("pinned_post", *params.PinnedPostID != p.PinnedPostID)
+			p.PinnedPostID = *params.PinnedPostID
 		}
 		if params.IsPrivate != nil {
 			p.IsPrivate = *params.IsPrivate
@@ -341,8 +497,11 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if refresh && snapshotChanged {
 		s.enqueueSnapshotRefresh(ctx, uid, profile.SnapshotVersion)
 	}
+	if len(changed) > 0 {
+		logger.SetRequestField(ctx, "profile_fields_changed", strings.Join(changed, ",")) // names only, never values
+	}
 	// TODO(Phase 2): if IsPrivate changed, publish the visibility job (ADR-0003); private accounts are deferred.
-	return profile, nil
+	return s.present(profile), nil
 }
 
 // ChangeHandle: reads 2, writes 2, deletes 1 worst case (ADR-0003/proto). M4 fix: the no-op, case-only
@@ -391,7 +550,7 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	if s.snapshotsOn(uid) && (!haveBefore || before.SnapshotVersion != profile.SnapshotVersion) {
 		s.enqueueSnapshotRefresh(ctx, uid, profile.SnapshotVersion)
 	}
-	return profile, nil
+	return s.present(profile), nil
 }
 
 // GetProfiles implements Directory: cache-first, then one GetAll for misses (ADR-0008 T6). Ids with no

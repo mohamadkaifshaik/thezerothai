@@ -379,4 +379,4 @@ it costs no write. The single definition is `posts.HasMediaFor`. The Media and R
   tab is about the page size plus the profile reads. A rise for everyone points at a client refreshing the tab in a loop.
 - **Pin check (`posts.PinChecker`, used by `UpdateProfile`).** 1 read cold, 0 warm. A post deleted or taken down on another instance can
   still pass the check for up to the posts cache TTL (60 s); the client hides a pin whose `GetPost` answers NOT_FOUND and the
-  `post_delete` job clears the pin. A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause.
+  `post_delete` job clears the pin (`docs/runbooks/identity.md` section 3). A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause (`docs/runbooks/identity.md` section 1).
