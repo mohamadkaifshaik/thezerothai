@@ -10,7 +10,7 @@ Cleanup (the `post_delete` job, Eraser, export) is never flag-gated. Kill switch
 | `engagement` | `FEATURE_ENGAGEMENT[_ALLOWLIST\|_PERCENT]` / `feature_engagement*` | LikePost, UnlikePost, RepostPost, UndoRepost, viewer flags; required by `quotes` | off |
 | `quotes` | `FEATURE_QUOTES[_ALLOWLIST\|_PERCENT]` / `feature_quotes*` | `CreatePost.quote_of_post_id` only (needs `engagement` on too; ADR-0018 amendment 2026-10-18) | off |
 | `bookmarks` | `FEATURE_BOOKMARKS[_ALLOWLIST\|_PERCENT]` / `feature_bookmarks*` | AddBookmark needs it on for the caller; ListBookmarks and RemoveBookmark only need it not globally off (ADR-0023 D5); needs FEATURE_POSTS, not `engagement`. All three RPCs are live behind it (W2-3, W2-4). The runbook is `docs/runbooks/bookmarks.md` | off |
-| `likes_list` | `FEATURE_LIKES_LIST[_ALLOWLIST|_PERCENT]` / `feature_likes_list*` | ListLikedPosts needs it on for the caller (ADR-0024 D6, D9); needs FEATURE_POSTS, not `engagement`. Without it: `FEATURE_DISABLED` `feature=likes_list`, 0 reads. W3-4 registers the flag and the gate only: the handler answers Unimplemented behind it until W3-10. Rate limit `RATE_LIMIT_LIKES_LIST_PER_MIN` (10/min per instance). Kill switch: set it to `off` and deploy, nothing stored changes | off |
+| `likes_list` | `FEATURE_LIKES_LIST[_ALLOWLIST|_PERCENT]` / `feature_likes_list*` | ListLikedPosts needs it on for the caller (ADR-0024 D6, D9); needs FEATURE_POSTS, not `engagement`. Without it: `FEATURE_DISABLED` `feature=likes_list`, 0 reads. W3-10 implemented the handler (section 9); a Server built without a LikesList answers Unimplemented behind the gate. Rate limit `RATE_LIMIT_LIKES_LIST_PER_MIN` (10/min per instance). Kill switch: set it to `off` and deploy, nothing stored changes | off |
 
 Quote rollback: set `FEATURE_QUOTES=off` (or lower the percent) and deploy. New quotes are refused with `FEATURE_DISABLED`
 `feature=quotes`; existing quotes keep displaying (display never consults the flag), likes and reposts are unaffected.
@@ -109,3 +109,21 @@ Remove returns `false` even if it was added again; neither writes, so a late ret
 already bookmarked post, Remove of a missing bookmark) also store their idempotency doc, so they cost 1 write, not 0, and a late retry
 of their key replays too. Account deletion and export of the `users/{uid}/bookmarks` subcollection, the prune and the residue are in
 `docs/runbooks/bookmarks.md`.
+
+## 9. Likes list: ListLikedPosts (ADR-0024 D6, W3-10)
+Read only. The ids are `userLikes/{uid}.recent` (the last 1,000 liked post ids, newest last, owned by the like path); the posts are
+live reads through the posts cache. Nothing is written, pruned or emitted. **Kill switch: `FEATURE_LIKES_LIST=off` and deploy**
+(`FEATURE_DISABLED feature=likes_list`, 0 reads); percent 0 or an empty allowlist is a rollout, not a kill. It needs `posts`, not
+`engagement`. The request line carries `engagement_op=list_liked_posts`, `outcome` (`done`, `rejected:invalid_argument`),
+`rows_returned`, `rows_dropped`, `rows_dropped_{missing,hidden,blocked,muted}`, `userlikes_cache_hit` and `fs_reads` (23 at page 20
+cold, 53 at page 50, 2 for an empty array, 20 warm at page 20); there is no `rows_pruned`.
+
+| Symptom | Cause and action |
+|---|---|
+| Old likes are missing from the list, or the list stops at about 1,000 | By design: `recent` keeps the 1,000 most recent likes (`MaxRecentLikes`), the same limit as the liked state on cards (section 5). A longer history needs the Stage 2/3 `likes (uid, createdAt)` index or a SQL table (ADR-0024 D6, out of scope), not a bigger array (document size and write cost) |
+| Short or empty pages while `next_page_token` is non-empty | Expected. Rows whose post is deleted, taken down, hidden, by a blocked or muted author, or by an author who blocks the viewer are dropped after the read and the page is not refilled; the client keeps following the token. Many `rows_dropped_missing` for one user means their liked posts were deleted (section 1 removes the like docs; the array entry stays until the user unlikes it or it ages out of the 1,000). Nothing to repair: the list never prunes, on purpose |
+| A like made just now is missing | `recent` is cached 60 s per instance. The instance that served the like updates its cache in place; another instance shows it within 60 s. Only a like still missing after that is a bug: check the like's `userLikes` write (section 5) |
+| `INVALID_ARGUMENT VALIDATION page_token` | The token is older than 24 h, another user's, hand-edited, from another list (a ListBookmarks token does not open here) or of another payload version. 0 reads; the client drops it and reloads the first page. A spike across many users right after a deploy means `CURSOR_HMAC_KEY` or the token payload changed |
+| A row repeats or is skipped between two scrolls | Only a row changed at the page boundary can (the ADR-0024 D6 residual: both anchors unliked, or the last row unliked and the next one re-liked). A re-liked row moves to the top and is not shown twice. Anything larger is a bug: keep the token's issue time and the user's unlike times and check `likesResume` |
+| `UNIMPLEMENTED` "ListLikedPosts is not wired" | The Server was built without a `LikesList`. `apiserver.Build` cannot do this (`NewServer` takes it from the Module); a test or a split-out wiring left `WithLikesList` out |
+| `RESOURCE_EXHAUSTED` | The per-instance bucket `RATE_LIMIT_LIKES_LIST_PER_MIN` (10/min; it multiplies by max-instances) |

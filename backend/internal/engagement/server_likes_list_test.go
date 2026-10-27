@@ -3,25 +3,34 @@ package engagement
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// assertLikesListUnimplemented checks the post-gate answer: CodeUnimplemented naming the ticket that fills the RPC in.
-func assertLikesListUnimplemented(t *testing.T, err error, ticket string) {
-	t.Helper()
-	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), ticket) {
-		t.Fatalf("err = %v, want Unimplemented naming %s", err, ticket)
-	}
+// stubLikes is the LikesList behind the handler: it records every call and answers with a canned page or error.
+type stubLikes struct {
+	calls []string
+	ctxs  []context.Context
+	page  LikesPage
+	err   error
+}
+
+func (s *stubLikes) ListLikedPosts(ctx context.Context, uid string, size int32, token string) (LikesPage, error) {
+	s.calls = append(s.calls, fmt.Sprintf("%s:%d:%s", uid, size, token))
+	s.ctxs = append(s.ctxs, ctx)
+	return s.page, s.err
 }
 
 func listLikedPosts(s *Server, ctx context.Context) error {
@@ -30,8 +39,8 @@ func listLikedPosts(s *Server, ctx context.Context) error {
 }
 
 // TestListLikedPosts_FlagMatrix (ADR-0024 D9): ListLikedPosts needs FEATURE_LIKES_LIST on for the caller and
-// FEATURE_POSTS, and never FEATURE_ENGAGEMENT. A passed gate answers Unimplemented naming W3-10. Whatever the outcome,
-// no Firestore read, write or delete is charged: the handler has no repo yet.
+// FEATURE_POSTS, and never FEATURE_ENGAGEMENT. A passed gate reaches LikesList exactly once, a refused one never does.
+// Whatever the outcome, this layer charges no Firestore read, write or delete.
 func TestListLikedPosts_FlagMatrix(t *testing.T) {
 	const in, out = "in-cohort", "out-of-cohort"
 	pct := flags.Spec{Name: LikesListFlagName, Mode: flags.Percent, Percent: 50}
@@ -75,9 +84,15 @@ func TestListLikedPosts_FlagMatrix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, counter := budget.WithCounter(uidCtx(tt.uid))
-			err := listLikedPosts(NewServer(&stubSvc{}, flags.NewRegistry(tt.reg...)), ctx)
+			sl := &stubLikes{}
+			err := listLikedPosts(NewServer(&stubSvc{}, flags.NewRegistry(tt.reg...), WithLikesList(sl)), ctx)
+			if wantCalls := map[bool]int{true: 1, false: 0}[tt.pass]; len(sl.calls) != wantCalls {
+				t.Errorf("LikesList calls = %v, want %d", sl.calls, wantCalls)
+			}
 			if tt.pass {
-				assertLikesListUnimplemented(t, err, "W3-10")
+				if err != nil {
+					t.Fatalf("err = %v, want the gate to pass", err)
+				}
 			} else {
 				ae := featureDisabledErr(err)
 				if ae == nil {
@@ -120,4 +135,69 @@ func TestLikesList_EnabledFeaturesOnlyForAllowlisted(t *testing.T) {
 	if got := off.EnabledFeatures("in"); slices.Contains(got, LikesListFlagName) {
 		t.Errorf("EnabledFeatures with the flag off = %v, want no likes_list", got)
 	}
+}
+
+// Past the gate the handler forwards the request's page size and token with the TOKEN's uid (the request has no user id),
+// under an RPC deadline, and renders each live post with posts.ToView and the page's viewer set.
+func TestListLikedPosts_Handler(t *testing.T) {
+	on := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: LikesListFlagName, Mode: flags.On})
+	a := &posts.Post{ID: pid(9), AuthorID: "author", Text: "nine", Kind: posts.KindPost, Visibility: posts.VisibilityPublic}
+	b := &posts.Post{ID: pid(8), AuthorID: "author", Text: "eight", Kind: posts.KindPost, Visibility: posts.VisibilityPublic}
+	sl := &stubLikes{page: LikesPage{Posts: []*posts.Post{a, b}, Viewer: posts.NewViewerSet([]string{pid(9)}, nil), NextPageToken: "next-token"}}
+	srv := NewServer(&stubSvc{}, on, WithLikesList(sl))
+
+	resp, err := srv.ListLikedPosts(uidCtx("alice"), connect.NewRequest(&engagementv1.ListLikedPostsRequest{PageSize: 7, PageToken: "tok"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(sl.calls, []string{"alice:7:tok"}) {
+		t.Errorf("service calls = %v, want one call with the token uid, size 7 and token tok", sl.calls)
+	}
+	if dl, ok := sl.ctxs[0].Deadline(); !ok || time.Until(dl) > rpcDeadline {
+		t.Errorf("service ctx deadline = %v (%v), want one within %s", dl, ok, rpcDeadline)
+	}
+	got := resp.Msg.GetPosts()
+	if len(got) != 2 || got[0].GetPost().GetPostId() != pid(9) || got[1].GetPost().GetPostId() != pid(8) || resp.Msg.GetNextPageToken() != "next-token" {
+		t.Fatalf("response = %v, want [%s %s] and next-token", resp.Msg, pid(9), pid(8))
+	}
+	if !got[0].GetLikedByViewer() || got[1].GetLikedByViewer() {
+		t.Errorf("liked_by_viewer = %v/%v, want true/false from the viewer set", got[0].GetLikedByViewer(), got[1].GetLikedByViewer())
+	}
+
+	// An empty page is an empty list and the empty token, not an error.
+	sl.page = LikesPage{}
+	resp, err = srv.ListLikedPosts(uidCtx("alice"), connect.NewRequest(&engagementv1.ListLikedPostsRequest{}))
+	if err != nil || len(resp.Msg.GetPosts()) != 0 || resp.Msg.GetNextPageToken() != "" {
+		t.Errorf("empty page: %v, %v", resp, err)
+	}
+
+	// A service error passes through untouched (the service already mapped it to a Connect code).
+	want := apierr.Validation("page_token", "page_token is invalid or expired")
+	sl.err = want
+	if _, err = srv.ListLikedPosts(uidCtx("alice"), connect.NewRequest(&engagementv1.ListLikedPostsRequest{})); !errors.Is(err, want) {
+		t.Errorf("err = %v, want the service error unchanged", err)
+	}
+}
+
+// Without a LikesList the RPC is Unimplemented after the gate, never a nil dereference; NewServer picks the service up
+// from svc when it implements LikesList (the Module does), so apiserver needs no extra wiring; WithLikesList overrides it.
+func TestListLikedPosts_Wiring(t *testing.T) {
+	on := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: LikesListFlagName, Mode: flags.On})
+	err := listLikedPosts(NewServer(&stubSvc{}, on), uidCtx("u"))
+	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), "not wired") {
+		t.Errorf("err = %v, want Unimplemented \"not wired\"", err)
+	}
+
+	both := struct {
+		Service
+		LikesList
+	}{&stubSvc{}, &stubLikes{}}
+	if s := NewServer(both, on); s.likes == nil {
+		t.Error("NewServer did not take the LikesList from svc")
+	}
+	override := &stubLikes{}
+	if s := NewServer(both, on, WithLikesList(override)); s.likes != LikesList(override) {
+		t.Error("WithLikesList did not override the default")
+	}
+	var _ LikesList = (*Module)(nil)
 }

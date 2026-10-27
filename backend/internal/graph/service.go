@@ -65,11 +65,17 @@ type Repo interface {
 	GetLists(ctx context.Context, uid string) (Lists, error)
 	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[] (T27). 1 write, 0 reads.
 	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
+	// ListEdgesByFollowers returns the newest follow edges made by any of followers (1 to 30 uids), newest first, at
+	// most limit (1 to 50): the ListSuggestedUsers friends-of-friends query (ADR-0024 D8). <= limit reads, minimum 1.
+	ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error)
 
 	Eraser
 
 	// ListEdges returns one page of follow edges, newest first (ADR-0008 T10). <= q.Limit reads.
 	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
+	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read, 1 read whether or
+	// not the document is there (ADR-0024 D7, GetProfileRelationship). A missing document is false, not an error.
+	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).
@@ -93,8 +99,12 @@ type Deps struct {
 	NewAccountBlocksPerDay  int64
 	NewAccountWindow        time.Duration
 
-	// Suggestions are the ListSuggestedUsers limits and curated list (ADR-0024 D8, D10; W3-12 reads them).
+	// Suggestions are the ListSuggestedUsers limits and curated list (ADR-0024 D8, D10); zero or out-of-range values
+	// fall back to the config defaults and bounds (SuggestionLimits.normalized).
 	Suggestions SuggestionLimits
+	// Suggester overrides the candidate source of ListSuggestedUsers (friends of friends with the curated fallback by
+	// default). It is the seam for ADR-0024 D8 option (b) or a precomputed list: callers see no change.
+	Suggester Suggester
 }
 
 // service is the default Service implementation. It also implements Reader, FollowEvents, Eraser and
@@ -122,6 +132,9 @@ type service struct {
 	newAccountBlocksPerDay  int64
 	newAccountWindow        time.Duration
 	suggestions             SuggestionLimits
+	suggester               Suggester
+	// suggested is the per-viewer ListSuggestedUsers result cache (suggestion_cache.go).
+	suggested *suggestionCache
 }
 
 // New builds the graph Service. Call SetDirectory once identity.Directory is available.
@@ -139,10 +152,15 @@ func New(d Deps) *service {
 		blocksPerDay:            d.BlocksPerDay,
 		newAccountBlocksPerDay:  d.NewAccountBlocksPerDay,
 		newAccountWindow:        d.NewAccountWindow,
-		suggestions:             d.Suggestions,
+		suggestions:             d.Suggestions.normalized(),
+		suggester:               d.Suggester,
 	}
+	s.suggested = newSuggestionCache(s.suggestions.CacheTTL)
 	if s.events == nil {
 		s.events = s // the no-op Followed below
+	}
+	if s.suggester == nil {
+		s.suggester = newFriendsOfFriends(s.repo, s.suggestions, func() time.Time { return s.now() })
 	}
 	return s
 }

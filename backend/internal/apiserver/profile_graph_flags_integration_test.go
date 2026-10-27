@@ -6,7 +6,9 @@ package apiserver
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
-// caller outside the list is refused while the one inside reaches the Unimplemented stubs (W3-10, W3-11, W3-12). Helpers
+// caller outside the list is refused while the one inside gets through the gate: ListLikedPosts then answers an empty
+// list (W3-10), GetProfileRelationship is live since W3-11 and answers NOT_FOUND for an unknown target, and
+// ListSuggestedUsers (W3-12) answers an empty list for a caller with no follows and no curated list. Helpers
 // come from posts_restricted_test.go and posts_contract_test.go.
 
 import (
@@ -55,22 +57,34 @@ func w3AssertDisabled(t *testing.T, name string, err error) {
 
 func w3AssertUnimplemented(t *testing.T, who, name string, err error) {
 	t.Helper()
+	if name == "GetProfileRelationship" {
+		// Live since W3-11: past the gate an unknown target is NOT_FOUND, the answer GetProfile gives.
+		if connect.CodeOf(err) != connect.CodeNotFound {
+			t.Errorf("%s %s: err = %v, want NOT_FOUND (gate open, unknown target)", who, name, err)
+		}
+		return
+	}
 	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), "W3-") {
 		t.Errorf("%s %s: err = %v, want Unimplemented naming its W3 ticket (gate open)", who, name, err)
 	}
 }
 
-// w3NoWrites asserts the request lines of rpc logged no write or delete and at most the interceptor's one read.
-func w3NoWrites(t *testing.T, env *chainEnv, rpc string) {
+// w3NoWrites asserts the request lines of rpc logged no write or delete and at most maxReads reads (default 1: the
+// account-status interceptor's).
+func w3NoWrites(t *testing.T, env *chainEnv, rpc string, maxReads ...float64) {
 	t.Helper()
+	limit := 1.0
+	if len(maxReads) > 0 {
+		limit = maxReads[0]
+	}
 	lines := env.logs.requestLines(rpc)
 	if len(lines) == 0 {
 		t.Fatalf("no request line for %s", rpc)
 	}
 	for _, l := range lines {
 		num := func(k string) float64 { v, _ := l[k].(float64); return v }
-		if num("fs_reads") > 1 || num("fs_writes") != 0 || num("fs_deletes") != 0 {
-			t.Errorf("%s logged reads=%v writes=%v deletes=%v, want <= 1 read (the account-status interceptor) and no writes", rpc, num("fs_reads"), num("fs_writes"), num("fs_deletes"))
+		if num("fs_reads") > limit || num("fs_writes") != 0 || num("fs_deletes") != 0 {
+			t.Errorf("%s logged reads=%v writes=%v deletes=%v, want <= %v reads and no writes", rpc, num("fs_reads"), num("fs_writes"), num("fs_deletes"), limit)
 		}
 	}
 }
@@ -124,7 +138,7 @@ func TestProfileGraphContract_FlagOff(t *testing.T) {
 	}
 	w3NoWrites(t, env, engagementv1connect.EngagementServiceListLikedPostsProcedure)
 	w3NoWrites(t, env, graphv1connect.GraphServiceListSuggestedUsersProcedure)
-	w3NoWrites(t, env, graphv1connect.GraphServiceGetProfileRelationshipProcedure)
+	w3NoWrites(t, env, graphv1connect.GraphServiceGetProfileRelationshipProcedure, 3) // interceptor, caller graph, target profile
 }
 
 func TestProfileGraphContract_AllowlistCohort(t *testing.T) {
@@ -155,8 +169,16 @@ func TestProfileGraphContract_AllowlistCohort(t *testing.T) {
 
 	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, env.url)
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)
-	// Inside: every RPC passes the gate (Unimplemented until W3-10 / W3-11 / W3-12).
+	// Inside: every RPC passes the gate. ListLikedPosts (W3-10) answers an empty list for a caller with no likes, and
+	// ListSuggestedUsers (W3-12) answers an empty list for a caller with no follows and no curated list; the rest are
+	// live (GetProfileRelationship, NOT_FOUND for an unknown target) or Unimplemented.
 	for name, err := range w3RPCs(eng, g, insideToken) {
+		if name == "ListLikedPosts" || name == "ListSuggestedUsers" {
+			if err != nil {
+				t.Errorf("inside %s: err = %v, want an empty answer past the gate", name, err)
+			}
+			continue
+		}
 		w3AssertUnimplemented(t, "inside", name, err)
 	}
 	// Outside: the two flag-gated RPCs are refused; GetProfileRelationship only needs graph, which is on for everyone.

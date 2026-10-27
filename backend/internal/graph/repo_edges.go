@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
@@ -67,6 +69,12 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 	if q.After != nil {
 		query = query.StartAfter(q.After.CreatedAt, r.client.Collection(followsCollection).Doc(q.After.DocID))
 	}
+	return runEdgeQuery(ctx, query, "list edges "+q.UID)
+}
+
+// runEdgeQuery executes a follows query, charges its reads to the request budget (len(result), minimum 1: Firestore
+// bills an empty query as one read) and decodes the documents. what names the caller in the error text.
+func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Edge, error) {
 	docs, err := query.Documents(ctx).GetAll()
 	reads := int64(len(docs))
 	if reads == 0 {
@@ -74,7 +82,7 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 	}
 	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
-		return nil, fmt.Errorf("graph: list edges %s: %w", q.UID, err)
+		return nil, fmt.Errorf("graph: %s: %w", what, err)
 	}
 	out := make([]Edge, 0, len(docs))
 	for _, d := range docs {
@@ -85,4 +93,23 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 		out = append(out, Edge{DocID: d.Ref.ID, FollowerID: f.FollowerID, FolloweeID: f.FolloweeID, CreatedAt: f.CreatedAt})
 	}
 	return out, nil
+}
+
+// FollowEdgeExists implements Repo: a point read of follows/{followerUID}_{followeeUID} through followRef (the one
+// place a follows doc id is built). Reads 1, charged whether or not the document exists. The error text names
+// no uid of its own; the caller redacts the Firestore text, which embeds the path.
+func (r *FirestoreRepo) FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error) {
+	ref, err := r.followRef(followerUID, followeeUID)
+	if err != nil {
+		return false, err
+	}
+	_, err = ref.Get(ctx)
+	budget.FromContext(ctx).AddReads(1)
+	switch status.Code(err) {
+	case codes.OK:
+		return true, nil
+	case codes.NotFound:
+		return false, nil
+	}
+	return false, fmt.Errorf("graph: get follow edge: %w", err)
 }

@@ -55,10 +55,15 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, s.mapFollowErr(callerUID, targetUID, err)
 	}
 	setOutcome(ctx, outcome)
+	// The caller now follows the target (or already did, on a replay): the target's cached "does the caller follow
+	// me" answer on this instance is stale. The caller's own view of the opposite edge is untouched (ADR-0024 D7).
+	s.cache.ForgetEdge(callerUID, targetUID)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
 		s.events.Followed(ctx, callerUID, targetUID, now)
+		// ADR-0024 D8: the followed user leaves this viewer's cached suggestions at once.
+		s.dropSuggested(callerUID, targetUID)
 	}
 	return rel, nil
 }
@@ -102,6 +107,8 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 		return Relationship{}, s.internalErr("unfollow", err, callerUID, targetUID)
 	}
 	setChanged(ctx, changed)
+	// The caller's edge to the target is gone (or never was, on a no-op): drop the target's cached answer for it.
+	s.cache.ForgetEdge(callerUID, targetUID)
 	if changed {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
@@ -143,10 +150,16 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 	}
 	setOutcome(ctx, result.Outcome)
 	logger.SetRequestField(ctx, fieldEdgesGone, b2i(result.CallerWasFollowing)+b2i(result.TargetWasFollowing))
+	// A Block deletes both follow edges: drop the cached answer for each direction (ADR-0024 D7).
+	s.cache.ForgetEdge(callerUID, targetUID)
+	s.cache.ForgetEdge(targetUID, callerUID)
 	if result.Outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.cache.Invalidate(targetUID)
 		s.directory.Forget(callerUID, targetUID)
+		// ADR-0024 D8: neither side may be suggested to the other from this instance's cache any more.
+		s.dropSuggested(callerUID, targetUID)
+		s.dropSuggested(targetUID, callerUID)
 		if result.BlockedByOverflowHit {
 			// Logged here (post-commit), not inside the retryable transaction, so a transaction retry never
 			// double-logs (ADR-0008 D2/handoff: "ERROR blockedby_cap_reached").
@@ -216,6 +229,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 	setOutcome(ctx, outcome)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
+		s.dropSuggested(callerUID, targetUID) // ADR-0024 D8: a muted user is never suggested
 	}
 	return rel, nil
 }
