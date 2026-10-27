@@ -276,8 +276,8 @@ the switch is raised past `off`:
   1. Within about a minute, one log line `account_job=profile_media_retired` with `outcome=retired`, `fs_reads=2`, `fs_writes=1`,
      `fs_deletes=0` and no `error` field: `gcloud logging read 'resource.type=cloud_run_revision AND resource.labels.service_name=api AND
      jsonPayload.account_job="profile_media_retired"' --project=dzeroth-dev --freshness=1h`. Find it by `account_job` and the time of
-     the change: for this job kind `uid_hash` is empty (the delivery loop sets no uid for kinds other than delete, export and
-     profile_snapshot), so the "job log line for that uid hash" wording in the failure modes cannot be followed literally.
+     the change: for this job kind `uid_hash` is empty (the delivery loop sets no uid for the kinds another module registered,
+     such as this one), so the "job log line for that uid hash" wording in the failure modes cannot be followed literally.
   2. Both old objects, `m/<id>.<ext>` and `m/<id>_t.<ext>`, carry `customTime` equal to the moment the profile change committed
      (`changedAt`): `gcloud storage objects describe gs://dzeroth-dev-media/m/<id>.<ext>` (and the `_t` one), generation and
      `Cache-Control` unchanged. The profile's current banner objects have no `customTime`.
