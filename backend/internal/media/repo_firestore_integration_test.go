@@ -3,11 +3,13 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -382,5 +384,144 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 	}
 	if len(all) != 7 {
 		t.Fatalf("listed %d, want 7 (not Bob's)", len(all))
+	}
+}
+
+// TestIntegration_BannerBudgetsAndResolver asserts the BANNER rows of ADR-0024 D1 against the real repo: the
+// existing CreateUpload / FinalizeUpload budgets (2 reads / 2 + n writes; n + 1 reads / n + 1 writes) with 2 Vision
+// units, and ResolveBanner at 1 read with one answer for every unusable id.
+func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
+	e := newIntEnv(t, envOpts{})
+	ctx := context.Background()
+	full, thumb := webpBytes("BF"), webpBytes("BT")
+
+	cctx, c := counted()
+	tgs, err := e.svc.CreateUpload(cctx, uidA, CreateUploadInput{
+		IdempotencyKey: key1, Purpose: PurposeBanner, Items: []UploadItem{bannerItem(full, thumb)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "CreateUpload BANNER", c, budgettest.Budget{Reads: 2, Writes: 3})
+	tg := tgs[0]
+
+	// PENDING does not resolve.
+	if _, err := e.lib.ResolveBanner(ctx, uidA, tg.MediaID); !IsNotReady(err) {
+		t.Fatalf("a PENDING banner must not resolve: %v", err)
+	}
+
+	e.put(uidA, tg, full, thumb, "image/webp")
+	fctx, fc := counted()
+	res, err := e.svc.FinalizeUpload(fctx, uidA, []FinalizeItem{{MediaID: tg.MediaID, Blurhash: "LEHV6n"}})
+	if err != nil || res[0].Status != StatusReady {
+		t.Fatalf("finalize = %+v, %v", res, err)
+	}
+	budgettest.Assert(t, "FinalizeUpload BANNER cold", fc, budgettest.Budget{Reads: 1 + 1, Writes: 1 + 1})
+	if used, err := e.real.VisionUsed(ctx, monthKey(testNow)); err != nil || used != BannerVisionUnits {
+		t.Fatalf("vision units = %d, %v, want %d", used, err, BannerVisionUnits)
+	}
+
+	rctx, rc := counted()
+	ref, err := e.lib.ResolveBanner(rctx, uidA, tg.MediaID)
+	if err != nil || ref.ID != tg.MediaID || ref.URL != "https://cdn.test/media/m/"+tg.MediaID+".webp" ||
+		ref.ThumbURL != "https://cdn.test/media/m/"+tg.MediaID+"_t.webp" || ref.Width != 1500 || ref.Height != 500 {
+		t.Fatalf("ref = %+v, %v", ref, err)
+	}
+	budgettest.Assert(t, "ResolveBanner", rc, budgettest.Budget{Reads: 1})
+
+	// READY_UNSCREENED resolves too.
+	if _, err := e.client.Collection(mediaCollection).Doc(tg.MediaID).Update(ctx, []firestore.Update{{Path: "status", Value: string(StatusReadyUnscreened)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.lib.ResolveBanner(ctx, uidA, tg.MediaID); err != nil {
+		t.Fatalf("a READY_UNSCREENED banner must resolve: %v", err)
+	}
+
+	// One answer for every unusable id.
+	avatar := e.upload(t, uidA, PurposeAvatar, "av")
+	if _, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: avatar.MediaID}}); err != nil {
+		t.Fatal(err)
+	}
+	post := e.upload(t, uidA, PurposePost, "po")
+	if _, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: post.MediaID}}); err != nil {
+		t.Fatal(err)
+	}
+	rejected := e.bannerUpload(t, uidA, "rj")
+	e.mod.by[uploadObject(uidA, rejected.MediaID, "webp")] = SafeSearch{Racy: LikelihoodLikely}
+	if res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: rejected.MediaID}}); err != nil || res[0].Status != StatusRejected {
+		t.Fatalf("racy banner = %+v, %v", res, err)
+	}
+	for name, tc := range map[string]struct{ uid, id string }{
+		"someone else's":    {uidB, tg.MediaID},
+		"an avatar":         {uidA, avatar.MediaID},
+		"a post image":      {uidA, post.MediaID},
+		"a rejected banner": {uidA, rejected.MediaID},
+		"unknown":           {uidA, "0000000000000009999"},
+		"a path":            {uidA, "../users/x"},
+		"empty":             {uidA, ""},
+	} {
+		if _, err := e.lib.ResolveBanner(ctx, tc.uid, tc.id); !IsNotReady(err) {
+			t.Errorf("%s: err = %v, want ErrNotReady", name, err)
+		}
+	}
+	// The two resolvers are not interchangeable.
+	if _, err := e.lib.ResolveAvatar(ctx, uidA, tg.MediaID); !IsNotReady(err) {
+		t.Fatalf("a banner must not resolve as an avatar: %v", err)
+	}
+	if _, err := e.lib.ResolveBanner(ctx, uidA, avatar.MediaID); !IsNotReady(err) {
+		t.Fatalf("an avatar must not resolve as a banner: %v", err)
+	}
+}
+
+// TestIntegration_BannerErasureAndExport proves a replaced banner and the current one are both listed in the
+// export and erased with the account (rule 10; replaced banners are kept until then, ADR-0024 D1 Option 5A).
+func TestIntegration_BannerErasureAndExport(t *testing.T) {
+	e := newIntEnv(t, envOpts{})
+	ctx := context.Background()
+	var ids []string
+	for _, tag := range []string{"old", "new"} {
+		tg := e.bannerUpload(t, uidA, tag)
+		if res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tg.MediaID}}); err != nil || res[0].Status != StatusReady {
+			t.Fatalf("finalize = %+v, %v", res, err)
+		}
+		ids = append(ids, tg.MediaID)
+	}
+	bob := e.bannerUpload(t, uidB, "bob")
+	if _, err := e.svc.FinalizeUpload(ctx, uidB, []FinalizeItem{{MediaID: bob.MediaID}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range append(ids, bob.MediaID) {
+		e.obj.public["m/"+id+".webp"] = "image/webp"
+		e.obj.public["m/"+id+"_t.webp"] = "image/webp"
+	}
+
+	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
+	var buf bytes.Buffer
+	ectx, ec := counted()
+	if err := p.WriteSection(ectx, uidA, &buf); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "export media section", ec, budgettest.Budget{Reads: 2})
+	for _, id := range ids {
+		if !strings.Contains(buf.String(), id) {
+			t.Fatalf("export misses banner %s: %s", id, buf.String())
+		}
+	}
+	if strings.Count(buf.String(), `"purpose":"BANNER"`) != 2 || strings.Contains(buf.String(), bob.MediaID) {
+		t.Fatalf("export = %s", buf.String())
+	}
+
+	pctx, pc := counted()
+	cp, done, err := p.PurgeUser(pctx, uidA, Checkpoint{})
+	if err != nil || !done || cp.Deleted != 2 {
+		t.Fatalf("purge = %+v done=%v err=%v", cp, done, err)
+	}
+	budgettest.Assert(t, "PurgeUser 2 banners", pc, budgettest.Budget{Reads: 2, Deletes: 2})
+	docs, err := e.real.GetMany(ctx, append(ids, bob.MediaID))
+	if err != nil || len(docs) != 1 || docs[bob.MediaID] == nil {
+		t.Fatalf("docs left = %v, %v: only Bob's banner may remain", docs, err)
+	}
+	if len(e.obj.public) != 2 {
+		t.Fatalf("public objects left = %v: only Bob's two may remain", e.obj.public)
 	}
 }

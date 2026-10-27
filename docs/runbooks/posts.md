@@ -33,8 +33,8 @@ Profile extras and tabs (ADR-0024 D9, W3-4 registration): `FEATURE_PROFILE_EXTRA
 `profile_extras`) will gate the `UpdateProfile` banner, location, website and pin fields and `CreateUpload(BANNER)` (which also needs `media`);
 `FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT]` / `feature_profile_tabs*` (`profile_tabs`) will gate `GetUserTimeline` tab MEDIA and REPOSTS (Posts
 and Replies stay ungated). Both default off in every environment (dev ceiling: allowlist, at most 3 uids; no prod raise) and
-`GetMe.enabled_features` lists them only when on for the caller. W3-4 only registers them and the config: the gates arrive with W3-5, W3-6
-and W3-9, and until then the new fields and the tab are ignored without an error. Once gated, a field sent while off is `FEATURE_DISABLED`
+`GetMe.enabled_features` lists them only when on for the caller. W3-4 registered them and the config; the `CreateUpload(BANNER)` gate is live since W3-5
+(`docs/runbooks/media.md`), and the other gates arrive with W3-6 and W3-9, until then the new `UpdateProfile` fields and the tab are ignored without an error. Once gated, a field sent while off is `FEATURE_DISABLED`
 `feature=profile_extras` (0 writes); data set while a flag was on keeps rendering after a ramp-down (the pin is hidden while `profile_extras`
 is globally off). Kill switch: set the flag to `off` and deploy. No new failure mode yet.
 
