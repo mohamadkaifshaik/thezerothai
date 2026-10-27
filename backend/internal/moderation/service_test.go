@@ -3,6 +3,7 @@ package moderation
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -390,13 +391,23 @@ func quotaExceeded() error {
 func TestReport_AccountTarget(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
+	f.accounts.prof = identity.Profile{UserID: author, Handle: "Mallory", DisplayName: "Mal", Bio: "bio text", Location: "Pune",
+		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", AvatarThumbURL: "https://m/m/1_t.webp",
+		BannerURL: "https://m/m/2.webp", BannerThumbURL: "https://m/m/2_t.webp"}
 	in := ReportInput{IdempotencyKey: okKey, TargetType: TargetAccount, TargetID: author, Reason: ReasonImpersonation}
 	if _, err := f.svc().Report(gctx(), reporter, in); err != nil {
 		t.Fatal(err)
 	}
 	r := f.repo.calls[0].Report
-	if r.Evidence != nil || r.TargetOwnerID != author || r.TargetType != TargetAccount {
+	if r.TargetOwnerID != author || r.TargetType != TargetAccount {
 		t.Errorf("report = %+v", r)
+	}
+	// ADR-0024 Amendment 1 A3(b): the profile the reporter saw is kept as evidence, from the profile the call already
+	// loaded (the profile read count below stays 1), and nothing else of it (no thumbnails, no uid).
+	want := &Evidence{AuthorHandle: "Mallory", DisplayName: "Mal", Bio: "bio text", Location: "Pune",
+		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", BannerURL: "https://m/m/2.webp"}
+	if !reflect.DeepEqual(r.Evidence, want) {
+		t.Errorf("evidence = %+v, want %+v", r.Evidence, want)
 	}
 	if f.posts.n != 0 || f.accounts.n != 1 {
 		t.Errorf("post reads %d, profile reads %d", f.posts.n, f.accounts.n)
@@ -510,7 +521,7 @@ func TestReportID_IsStableAndSeparatesInputs(t *testing.T) {
 func TestResolution_Valid(t *testing.T) {
 	t.Parallel()
 	for r, want := range map[Resolution]bool{ResolutionNoAction: true, ResolutionDismissed: true, ResolutionTakedown: true,
-		ResolutionSuspended: true, "": false, "BAN": false} {
+		ResolutionSuspended: true, ResolutionProfileCleared: true, "": false, "BAN": false} {
 		if r.Valid() != want {
 			t.Errorf("Valid(%q) = %v", r, !want)
 		}

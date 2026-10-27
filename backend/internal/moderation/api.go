@@ -56,12 +56,15 @@ const (
 	ResolutionDismissed Resolution = "DISMISSED"
 	ResolutionTakedown  Resolution = "TAKEDOWN"
 	ResolutionSuspended Resolution = "SUSPENDED"
+	// ResolutionProfileCleared closes a report about an account whose profile fields an operator cleared with `opsctl
+	// clear-profile-fields --report` (ADR-0024 Amendment 1 A3). A Go and Firestore string only; no proto carries it.
+	ResolutionProfileCleared Resolution = "PROFILE_CLEARED"
 )
 
-// Valid reports whether r is one of the four resolutions.
+// Valid reports whether r is one of the five resolutions.
 func (r Resolution) Valid() bool {
 	switch r {
-	case ResolutionNoAction, ResolutionDismissed, ResolutionTakedown, ResolutionSuspended:
+	case ResolutionNoAction, ResolutionDismissed, ResolutionTakedown, ResolutionSuspended, ResolutionProfileCleared:
 		return true
 	}
 	return false
@@ -79,9 +82,9 @@ const (
 	DefaultListLimit = 20
 )
 
-// Evidence is the copy of the reported post taken at report time, so a later author delete or edit does not
-// destroy it. MediaIDs are the ids of the post's images at report time (0 reads: they ride on the post the report
-// already read). Deleting the post deletes the objects (P4's post_delete job), so this keeps the ids only; see
+// Evidence is the copy of the reported post (or, for an ACCOUNT report, of the reported profile) taken at report time, so
+// a later author delete or edit does not destroy it. MediaIDs are the ids of the post's images at report time (0 reads:
+// they ride on the post the report already read). Deleting the post deletes the objects (P4's post_delete job), so this keeps the ids only; see
 // docs/runbooks/moderation.md for what a takedown does and does not preserve.
 type Evidence struct {
 	Text          string
@@ -92,6 +95,16 @@ type Evidence struct {
 	// post (from the repost's frozen Embedded snapshot, 0 extra reads) and this is its id, the id takedown-post
 	// takes. "" for every other report. TargetOwnerID still names the reposter.
 	OriginalPostID string
+	// ACCOUNT reports only (ADR-0024 Amendment 1 A3(b)): the reported profile as the reporter saw it (the presented view,
+	// so no website while FEATURE_PROFILE_EXTRAS is globally off), copied from the profile the report already loaded (0
+	// extra reads). AuthorHandle above holds the handle; Text, MediaIDs and PostCreatedAt stay empty. None of these
+	// holds a uid (media URLs are m/{mediaId}). Empty for every POST report.
+	DisplayName string
+	Bio         string
+	Location    string
+	Website     string
+	AvatarURL   string
+	BannerURL   string
 }
 
 // Report is the domain form of reports/{reportId}. ReporterID is "" after the reporter's account was deleted.

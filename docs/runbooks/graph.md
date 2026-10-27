@@ -180,10 +180,18 @@ ADR-0024 D8, ticket W3-12, behind `FEATURE_GRAPH` and `FEATURE_FOLLOW_SUGGESTION
 
 **Reads.** Cold friends of friends 42 at most (interceptor 1, graph 1, edges <= 30, profiles <= 10); curated 12; warm 1
 (the interceptor; 0 when its profile read is cached) or 2 when the viewer's 60 s snapshot has expired, because every warm
-hit is re-filtered against `graph/{uid}` (W3-22 L-1); planning 25. `fs_reads` on the request line above 42 for this RPC
+hit is re-filtered against `graph/{uid}` (W3-22 L-1); planning 36 (W3-23: the client keeps the result 24 h, so about 95% of calls
+are cold; the ADR's flat 25 assumed half warm). `fs_reads` on the request line above 42 for this RPC
 is a regression: compare `SUGGESTIONS_EDGE_LIMIT` and `SUGGESTIONS_HYDRATE_MAX` on the serving revision (startup
 rejects values above their bounds). A fresh instance pays the cold cost once per viewer per hour; the per-uid
 10/min bucket, the 50/day cap (`limit_name=suggestions_daily`, per instance) and the daily read budget bound a storm.
+
+**Cost trigger (ADR-0024 stage ladder, measured in W3-23).** Suggestion reads above 10% of the daily Firestore reads, or the
+`free-tier-budget` section 6 trigger, sustained 7 days, needs an ADR (a precomputed table). The cost model puts the share at
+11.9% at the modelled usage (35.7 of 300.2 reads per DAU), so expect it to read as fired in the first week of a ramp; read it
+against 11.9%, and check that `fs_reads` per cold call stays at or under 42 (curated 12). Levers, cheapest first: a 48 h client
+cache (6.3%), `SUGGESTIONS_EDGE_LIMIT` 20 (9.4%). The daily share query, the warm-hit and curated shares, and the L-5 signal
+(`source=fof` with `candidates` of 3 or fewer) are in `docs/reviews/cost-model.md` section 9.
 
 **Request line.** `source` = `fof` (3+ usable friends of friends, no curated row), `curated` (the curated list was
 consulted; any friends of friends found still come first) or `none` (the viewer's `blockedByOverflow` is set, so no
