@@ -16,6 +16,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
+import 'package:dzeroth/features/engagement/data/likes_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
@@ -64,6 +65,8 @@ class MockNotificationsRepository extends Mock
 class MockModerationRepository extends Mock implements ModerationRepository {}
 
 class MockEngagementRepository extends Mock implements EngagementRepository {}
+
+class MockLikesRepository extends Mock implements LikesRepository {}
 
 class MockBookmarksRepository extends Mock implements BookmarksRepository {
   /// `BookmarksCubit` listens to the repository's events when it is built.
@@ -156,6 +159,7 @@ void main() {
         moderationRepository: MockModerationRepository(),
         engagementRepository: MockEngagementRepository(),
         bookmarksRepository: MockBookmarksRepository()..stubEvents(),
+        likesRepository: MockLikesRepository(),
         pushCubit: push,
         unreadBadgeCubit: badge,
         servicePausedCubit: servicePaused,

@@ -76,8 +76,9 @@ class AppRouter {
   // View), and a second page of the same ShellRoute under the composer breaks
   // the Navigator (duplicate page key).
   static const scheduledPostsPath = '/scheduled';
-  // W2-7: the Bookmarks list. A ShellRoute child (the rail marks it), needing
-  // only the `posts` flag; the entry points need `bookmarks` as well.
+  // W2-7: the Bookmarks list, titled "History" since W3-18 (`?tab=likes` opens
+  // its Likes tab). A ShellRoute child (the rail marks it), needing only the
+  // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
   static String profilePath(String handle) => '/profile/$handle';
 
@@ -166,8 +167,15 @@ class AppRouter {
           ),
           GoRoute(
             path: bookmarksPath,
-            builder: (context, state) =>
-                const AuthGate(child: BookmarksScreen()),
+            builder: (context, state) => AuthGate(
+              // `?tab=likes` opens the Likes tab (W3-18); the screen ignores
+              // it while the `likes_list` flag is off.
+              child: BookmarksScreen(
+                initialTab: HistoryTab.fromQuery(
+                  state.uri.queryParameters['tab'],
+                ),
+              ),
+            ),
           ),
           GoRoute(
             path: '/u/:userId',

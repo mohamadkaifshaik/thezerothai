@@ -18,6 +18,7 @@ import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import '../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
@@ -65,6 +66,7 @@ class AppWidget extends StatefulWidget {
     required this.moderationRepository,
     required this.engagementRepository,
     required this.bookmarksRepository,
+    required this.likesRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
@@ -94,6 +96,10 @@ class AppWidget extends StatefulWidget {
   /// Bookmarks (W2-6, `FEATURE_BOOKMARKS`): the session overlay and
   /// Add / RemoveBookmark.
   final BookmarksRepository bookmarksRepository;
+
+  /// The Likes tab of History (W3-18, `FEATURE_LIKES_LIST`): `ListLikedPosts`
+  /// in session memory; sign-out forgets it.
+  final LikesRepository likesRepository;
 
   /// Push registration and tap handling (P6); built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
@@ -182,6 +188,7 @@ class _AppWidgetState extends State<AppWidget> {
         _engagement.reset();
         _bookmarks.reset();
         _suggestions.reset();
+        widget.likesRepository.clearSession();
         widget.unreadBadgeCubit.seed(0);
         _lastFeatures = null;
         _lastUnread = 0;
@@ -271,6 +278,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.moderationRepository),
         RepositoryProvider.value(value: widget.engagementRepository),
         RepositoryProvider.value(value: widget.bookmarksRepository),
+        RepositoryProvider.value(value: widget.likesRepository),
       ],
       child: MultiBlocProvider(
         providers: [
