@@ -129,12 +129,15 @@ move backwards, and accepts the same value) and the document is written.
 1. Apply the lifecycle rule in the project (`terraform apply` of `modules/media-buckets`, dev first, prod with the founder's OK).
    Check `gcloud storage buckets describe gs://<proj>-media --format="default(lifecycle_config)"` shows a `Delete` rule with
    `daysSinceCustomTime: 1`.
-   **Status (2026-10-27):** dev has the rule (targeted apply of `module.media_buckets.google_storage_bucket.media` only; the bucket
-   had no lifecycle rule before, and the 2-day rule on `<proj>-media-upload` is a different bucket and was not touched). Prod does
-   not: its plan (1 to change, only this rule) is waiting for the founder's OK, so prod stays at `off`.
+   **Status (2026-10-27):** dev and prod both have the rule, each by a targeted apply of
+   `module.media_buckets.google_storage_bucket.media` only (1 changed, 0 added, 0 destroyed; neither bucket had a lifecycle rule
+   before, and the 2-day rule on `<proj>-media-upload` is a different bucket and was not touched). Dev was applied first (the
+   founder's pre-authorised dev apply); prod at 17:13 UTC after the founder's OK (plan-then-OK, ADR-0019). `PROFILE_MEDIA_RETIRE`
+   is still `off` in both, so no object is tagged yet.
 2. Set `profile_media_retire = "banner"`. **Never set it before step 1**: an object tagged without the rule outlives its TTL'd
-   document and escapes the account eraser (an orphaned public image). Next in dev: set it to `banner` as a separate planned
-   change (its own plan and apply, tfvars only), then run steps 3 and 4 of "Verification of the retire step".
+   document and escapes the account eraser (an orphaned public image). Step 1 is done in both projects; next is dev: set it to
+   `banner` as a separate planned change (its own plan and apply, tfvars only, after the W3-24 dev flag pass), then run steps 3
+   and 4 of "Verification of the retire step". Prod follows with the founder's OK.
 3. Set `all` only after the app release whose `AppAvatar` shows a placeholder when the image no longer loads (old posts,
    quote and repost embeds and notification actors copy the avatar URL, and only a name or handle edit refreshes the newest 100
    posts, so older rows show a 404 image after the grace).
@@ -221,4 +224,26 @@ the switch is raised past `off`:
   end to end (objects gone 24-48 h after the replace).
 - The runtime service account holds `roles/storage.objectAdmin` on the bucket, which includes `storage.objects.update`, the
   permission a patch needs (the test above used the founder's credentials, not the runtime account).
-- Not yet run: steps 3 and 4 (they need the switch above `off`), and everything in prod.
+- Not yet run in dev: steps 3 and 4 (they need the switch above `off`).
+
+**Results, prod (`dzeroth-prod-media`, rule applied 2026-10-27 at 17:13 UTC after the founder's OK; the apply was run by the main
+session from a saved targeted plan).** Step 1 only; `PROFILE_MEDIA_RETIRE` is `off` and nothing was written to the bucket.
+- Plan, saved with `-out` and applied as that file: `Plan: 0 to add, 1 to change, 0 to destroy`, the only difference the added
+  `lifecycle_rule` (action `Delete`, condition `days_since_custom_time = 1`).
+- `gcloud storage buckets describe gs://dzeroth-prod-media --project=dzeroth-prod --format="default(lifecycle_config)"` after the
+  apply (it printed `null` before; `update_time` 2026-10-27T17:13:04+0000):
+  ```
+  lifecycle_config:
+    rule:
+    - action:
+        type: Delete
+      condition:
+        daysSinceCustomTime: 1
+  ```
+- Unchanged: CORS (`GET`, `HEAD`, origin `*`, `Content-Type`, 3600 s), soft delete (`retentionDurationSeconds` 604800), uniform
+  bucket-level access `true`, public access prevention `inherited`, labels, and the `allUsers` binding, which is still only
+  `roles/storage.legacyObjectReader`. Anonymous checks after the apply: JSON API list 401, XML API list 403, a missing object 404
+  (the W3-22 M-2 result holds).
+- A follow-up targeted plan (`-target=module.media_buckets.google_storage_bucket.media`) says "No changes".
+- Not run in prod: steps 2 to 4. Do step 2 (a throwaway `m/99999...` object, deleted afterwards) with the founder's OK when the prod
+  switch is next in line; the prod bucket holds 0 objects today.
