@@ -185,6 +185,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 	if claim != nil {
 		post.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)
+		post.HasMedia = HasMediaFor(post.Kind, len(post.Media)) // the cached copy matches the doc toDoc writes
 	}
 
 	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))

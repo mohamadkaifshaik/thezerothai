@@ -313,3 +313,33 @@ func TestRepo_Rule4Replays(t *testing.T) {
 		t.Errorf("likeCount = %d, want 1", got)
 	}
 }
+
+// ADR-0024 D4 (W3-7): the REPOST document engagement writes carries an explicit hasMedia=false, even when the original
+// has images (those live in `embedded`), so the Media tab query never returns it and "where missing" in the backfill
+// never visits it.
+func TestRepo_RepostDocStoresHasMediaFalse(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	const pid, uid = "0000000000000000041", "u5"
+	e.seedPost(t, pid, "author", 0, 0)
+	if _, err := e.client.Doc("users/"+uid).Set(ctx, map[string]any{"postsCount": int64(0)}); err != nil {
+		t.Fatal(err)
+	}
+	original := &posts.Post{ID: pid, AuthorID: "author", Author: posts.AuthorSnapshot{UserID: "author"}, Kind: posts.KindPost,
+		Media: []posts.MediaRef{{ID: "0000000000000000090", URL: "https://x/1"}}, HasMedia: true}
+	res, err := e.repo.Repost(ctx, RepostParams{UID: uid, Original: original, QuotaLimit: 10, Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}})
+	if err != nil || res.Post == nil {
+		t.Fatalf("Repost: %+v %v", res, err)
+	}
+	snap, err := e.client.Doc("posts/" + res.Post.ID).Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, present := snap.Data()["hasMedia"]
+	if b, _ := v.(bool); !present || b {
+		t.Fatalf("REPOST hasMedia = (%v, present %v), want (false, present true)", v, present)
+	}
+	if emb, _ := snap.Data()["embedded"].(map[string]any); emb == nil || emb["media"] == nil {
+		t.Fatalf("test setup: the original's image should be in the embed, got %v", emb)
+	}
+}

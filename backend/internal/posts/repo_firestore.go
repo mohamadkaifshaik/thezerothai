@@ -1,11 +1,13 @@
 // repo_firestore.go is the Firestore implementation of Repo (ADR-0003 `posts/{postId}`; ADR-0010 D18, D19).
 //
 // Every query has a Limit and orders `createdAt DESC, __name__ DESC` explicitly. A composite index carries
-// __name__ in the direction of its last field, so these shapes map to the existing indexes (no index change):
+// __name__ in the direction of its last field, so these shapes map to the indexes in firebase/firestore.indexes.json:
 //
 //	Q-H  ByAuthors, authorId in [...] AND isReply == false      -> (authorId ASC, isReply ASC, createdAt DESC)
 //	Q-P  ByAuthor,  authorId == X AND isReply == false          -> (authorId ASC, isReply ASC, createdAt DESC)
 //	Q-R  ByAuthor,  authorId == X (Replies tab)                 -> (authorId ASC, createdAt DESC)
+//	Q-M  ListAuthorMedia,   authorId == X AND hasMedia == true  -> (authorId ASC, hasMedia ASC, createdAt DESC)  [W3-2]
+//	Q-B  ListAuthorReposts, authorId == X AND kind == "REPOST"  -> (authorId ASC, kind ASC, createdAt DESC)      [W3-2]
 //
 // Reads are charged to the request's budget.Counter: one per document returned, and 1 for a query that
 // returns nothing (Firestore bills an empty query as one read).
@@ -34,6 +36,10 @@ type Repo interface {
 	ByAuthors(ctx context.Context, authorIDs []string, w Window, limit int) ([]*Post, error)
 	// ByAuthor is Q-P (includeReplies=false) or Q-R (true). Reads: len(result), minimum 1.
 	ByAuthor(ctx context.Context, authorID string, includeReplies bool, w Window, limit int) ([]*Post, error)
+	// ByAuthorMedia is Q-M and ByAuthorKind is Q-B (kind is KindRepost for the Reposts tab). Reads: len(result), minimum 1.
+	// They need the W3-2 composite indexes READY (the emulator does not enforce indexes).
+	ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error)
+	ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error)
 	// Create runs the CreatePost transaction (repo_create.go). Reads 2 (idempotency, quotas) and 4 writes on a
 	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
 	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
@@ -114,6 +120,10 @@ type postDoc struct {
 	// ADR-0021 D2: the conversation's effective reply policy (FOLLOWING | MENTIONED_ONLY); absent = EVERYONE, no
 	// backfill. Replies store the value inherited from the parent, never a user id. Exempt from indexing.
 	ReplyPolicy string `firestore:"replyPolicy,omitempty"`
+	// HasMedia is ADR-0024 D4: len(media) > 0, false for a REPOST. NOT omitempty: the field is stored as an explicit false
+	// too, so a doc that lacks it is exactly a pre-W3 doc the backfill still has to visit (rerun writes 0) and the
+	// (authorId, hasMedia, createdAt) index holds every post. Indexed.
+	HasMedia bool `firestore:"hasMedia"`
 }
 
 type authorDoc struct {
@@ -172,6 +182,7 @@ func toDoc(p *Post) postDoc {
 		Moderation:      string(p.Moderation),
 		PaidPartnership: p.PaidPartnership, MadeWithAI: p.MadeWithAI,
 		ReplyPolicy: string(p.ReplyPolicy),
+		HasMedia:    HasMediaFor(p.Kind, len(p.Media)),
 	}
 	if e := p.Embedded; e != nil {
 		ed := &embeddedDoc{PostID: e.PostID, Unavailable: e.Unavailable}
@@ -220,6 +231,7 @@ func (d postDoc) toPost(id string) *Post {
 		Moderation:      Moderation(d.Moderation),
 		PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI,
 		ReplyPolicy: ReplyPolicy(d.ReplyPolicy),
+		HasMedia:    d.HasMedia,
 	}
 	if e := d.Embedded; e != nil {
 		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable,
@@ -310,11 +322,7 @@ func (r *FirestoreRepo) run(ctx context.Context, q firestore.Query, w Window, li
 		q = q.EndBefore(w.After.CreatedAt, r.ref(w.After.ID))
 	}
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
+	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("posts: query: %w", err)
 	}
@@ -327,4 +335,24 @@ func (r *FirestoreRepo) run(ctx context.Context, q firestore.Query, w Window, li
 		out = append(out, d.toPost(s.Ref.ID))
 	}
 	return out, nil
+}
+
+// HasMediaFor is the one definition of posts.hasMedia (ADR-0024 D4): a post's own stored images are non-empty, and a
+// REPOST never has its own (the original's images are in `embedded`). toDoc writes it on every create path (CreatePost
+// root, reply and quote, the scheduled publish sweep, the REPOST doc); `opsctl backfill-has-media` (W3-8) must call it
+// with a legacy doc's kind and len(media), so there is exactly one rule.
+func HasMediaFor(kind Kind, storedMedia int) bool {
+	return kind != KindRepost && storedMedia > 0
+}
+
+// ByAuthorMedia implements Repo (Q-M).
+func (r *FirestoreRepo) ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Where("authorId", "==", authorID).Where("hasMedia", "==", true)
+	return r.run(ctx, q, w, limit)
+}
+
+// ByAuthorKind implements Repo (Q-B).
+func (r *FirestoreRepo) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Where("authorId", "==", authorID).Where("kind", "==", string(kind))
+	return r.run(ctx, q, w, limit)
 }

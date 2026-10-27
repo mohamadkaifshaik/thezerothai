@@ -257,6 +257,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 	post.Mentions = mentions
 	if claim != nil {
 		post.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)
+		post.HasMedia = HasMediaFor(post.Kind, len(post.Media)) // the cached copy matches the doc toDoc writes
 	}
 
 	if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), qrec, quota.Posts, limit); err != nil {
