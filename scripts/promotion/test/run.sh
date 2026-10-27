@@ -216,6 +216,7 @@ fi
 
 # --- authenticated-smoke.sh and prod-smoke.sh: their own fixture file (fake curl), run here so the required CI step covers it
 expect "authenticated smoke tests" 0 "$here/smoke-test.sh"
+expect "bookmarks smoke tests (dev-only, W2-16)" 0 "$here/bookmarks-smoke-test.sh"
 
 # --- check-until-dates.sh (ADR-0022): a time-boxed marker must not outlive its date
 U="$p/check-until-dates.sh"

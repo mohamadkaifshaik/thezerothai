@@ -1,7 +1,8 @@
 # Runbook: authenticated smoke (prod candidate and live)
 
-Owner: the founder. Scripts: `scripts/promotion/authenticated-smoke.sh` (the check) and `scripts/promotion/prod-smoke.sh` (the
-founder's terminal wrapper). Fixture tests: `scripts/promotion/test/smoke-test.sh`, run by the required CI check "promotion scripts".
+Owner: the founder. Scripts: `scripts/promotion/authenticated-smoke.sh` (the check), `scripts/promotion/prod-smoke.sh` (the
+founder's terminal wrapper) and, dev only, `scripts/promotion/bookmarks-smoke.sh` (W2-16, below). Fixture tests: `scripts/promotion/test/smoke-test.sh`
+and `scripts/promotion/test/bookmarks-smoke-test.sh`, run by the required CI check "promotion scripts".
 Cost: $0 (a handful of Firestore reads per run).
 
 ## Purpose: the x509/TLS lesson
@@ -20,6 +21,57 @@ Transient answers (502, 503, 504, connection errors: a cold start) are retried u
   (`GetMe` and `GetProfile` read the profile), and an unauthenticated call is still refused.
 - Does **not** prove: App Check (it is in monitor mode, so it is neither required nor exercised); any write path; any feature behind a
   flag; behavior under load. It only calls read-only RPCs.
+
+## The dev-only bookmarks smoke (W2-16)
+`scripts/promotion/bookmarks-smoke.sh <base_url>` (fixture tests: `scripts/promotion/test/bookmarks-smoke-test.sh`, run by the required CI
+check "promotion scripts") is a **separate script**, not a step of `authenticated-smoke.sh`, so that the prod smoke stays exactly as
+described above: read-only and unaware of any feature. `prod-smoke.sh` execs `authenticated-smoke.sh`, and live prod runs a build that does
+not carry the bookmark RPCs, so a bookmark step inside it would fail every prod smoke. `promote-dev.sh` runs the new script in step `4b/8`
+right after `authenticated-smoke.sh`, against the same 0% candidate, with the same `SMOKE_EMAIL` / `SMOKE_PASSWORD` / `FIREBASE_API_KEY` /
+`SMOKE_REFERER` (it signs in again: two sign-ins per deploy). Failure handling is the authenticated smoke's: **fail-closed**, so any
+mismatch (exit 1) makes the promotion die before traffic moves and the `candidate` tag is removed; a dry run from a branch skips both
+smokes with a notice when the secrets are unavailable, and promote mode refuses to run without them. **`prod-smoke.sh` never runs it.**
+
+What it asserts, as smoke account A, which is **never** in the `FEATURE_BOOKMARKS` cohort (`smoke-accounts.md`). It makes exactly three
+calls (sign-in, `ListBookmarks`, `AddBookmark`) and **never writes**:
+1. `ListBookmarks {"pageSize":20}` must answer **200 with 0 rows** (protojson omits an empty array, so a missing `bookmarks` key counts as 0
+   rows; a key that is not an array fails). `ListBookmarks` needs the flag only "not globally off", and account A has no bookmarks.
+   Anything else fails at `list-bookmarks`, including a 400 `FEATURE_DISABLED` (the flag is globally off) and any row.
+2. `AddBookmark` with a fresh key `smoke-<epoch>-bm-<4 digits>` and the fixed dummy post id `1` must answer **400 `failed_precondition`**
+   whose `dzeroth.common.v1.ErrorDetail` has reason **`ERROR_REASON_FEATURE_DISABLED`** and metadata **`feature=bookmarks`**. connect-go
+   renders that detail as protojson under `details[].debug` (verified against v1.21.1 with the real `flags.DisabledError` plus
+   `WithMeta("feature", "bookmarks")`), and the script reads `debug.reason` and `debug.metadata.feature`. The `feature` check tells the
+   bookmarks gate apart from the `FEATURE_POSTS` gate, which answers `FEATURE_DISABLED` without it. Anything else fails at `add-bookmark`:
+   a 200 (the account is in the cohort by mistake), `LIMIT_REACHED`, `not_found`, `resource_exhausted`, another code, a missing detail.
+   The cohort gate runs first on all three RPCs, before any Firestore access or input check (`backend/internal/engagement/server_bookmarks.go`,
+   `guardBookmarks`), so the answer does not depend on the post. That is why the smoke needs no real post and has no skip path; if account A
+   were ever allowlisted, the dummy post is `not_found`, which fails the smoke with nothing written.
+
+Output contract: the same discipline as below. Only step names, HTTP status codes, the Connect error code (letters and `_` only), the
+reason (`A-Z` and `_` only), the feature name (`a-z`, `0-9`, `_`) and a row count are printed, ending with exactly `bookmarks smoke: PASS`
+or `bookmarks smoke: FAIL at <step>` (steps: `sign-in`, `list-bookmarks`, `add-bookmark`); exit 2 is a usage or environment error. A pass
+looks like `HTTP 200 rows=0` and `HTTP 400 failed_precondition reason=FEATURE_DISABLED feature=bookmarks`. Never printed: the password, the
+token, any body or Connect message, the email, a uid.
+
+**What it proves, and what it does not.** The bookmark RPCs are routed and authenticated on the candidate (a 404 or a 5xx fails), the
+cohort gate refuses a non-member cleanly with the right reason and feature, and `ListBookmarks` reads without error. It does **not** prove
+the write path, the allowlisted behaviour or the cap: those need a tester account in the cohort, and that leg is manual
+(`docs/runbooks/bookmarks.md`, "Dev smoke").
+
+**It is coupled to the dev flag state, on purpose.** The leg is strict, so it expects the dev cohort to stay in allowlist mode (or a
+percent bucket that excludes account A) with `FEATURE_POSTS` on for A. It fails closed whenever that changes:
+- `FEATURE_BOOKMARKS=off` in dev (the kill switch, or the "Flag-off check" in `bookmarks.md`): `ListBookmarks` answers `FEATURE_DISABLED`,
+  so any `deploy-dev` run in that window fails at `list-bookmarks`.
+- `FEATURE_BOOKMARKS=on`, or a percent bucket that includes account A: `AddBookmark` stops being refused and fails at `add-bookmark`.
+Update `bookmarks-smoke.sh` and its test in the **same PR** as any such change, and do not leave the flag off in dev while `main` keeps
+merging.
+
+**Why it can still fail on the real dev service without a real regression.**
+- `429 resource_exhausted` fails the smoke and is **not retried** (only 502, 503, 504 and connection errors are): the per-instance rate
+  limit `RATE_LIMIT_BOOKMARKS_LIST_PER_MIN` (10 per minute) was used up, for example by repeated reruns. Wait a minute and rerun.
+- Account A gained a bookmark (it cannot through the API while outside the cohort; a leftover would come from a console edit): List then
+  reports `rows=1` and fails at `list-bookmarks`. Remove it by hand.
+- A cold start that outlasts the 3 attempts fails at the first call that timed out (`HTTP 000`).
 
 ## Output contract (public logs)
 Only step names, HTTP status codes and the handle are printed, ending with exactly `authenticated smoke: PASS` (exit 0) or
@@ -179,8 +231,9 @@ branch `main`), passed as `SMOKE_EMAIL` / `SMOKE_PASSWORD` in the env of the one
 | `FAIL at unauthenticated-getme` (status other than 401) | **auth is not enforced** on the candidate: serious | Do not promote. Treat as a security regression and investigate the candidate. |
 | `FAIL at getme` with a 4xx / `FAILED_PRECONDITION` | the smoke account has no profile | Create it with `CreateProfile` as that account (see `smoke-accounts.md`). |
 | `FAIL at getme` / `getprofile` with 5xx, or `HTTP 000` | the candidate is unhealthy (or unreachable after the 3 retries) | Look at the candidate revision's logs; this is the failure the step exists to catch. |
+| `bookmarks smoke: FAIL at list-bookmarks` / `add-bookmark` | the dev-only bookmarks smoke (step `4b/8`, right after the authenticated smoke; strict, see "The dev-only bookmarks smoke") | Read the printed status line. `reason=FEATURE_DISABLED` on List: the dev flag is globally off (restore it, or update the smoke in the same PR). A 200 or a `feature` other than `bookmarks` on Add: account A is in the cohort, or the wrong gate answered. `HTTP 404`: the candidate lacks the RPCs (wrong image). `429`: the List rate limit, rerun in a minute. `rows=1`: remove the stray bookmark by hand. |
 
-**Disabling it temporarily.** Revert the PR that added it. There is deliberately no flag or input that skips the step on `main`.
+**Disabling it temporarily.** Revert the PR that added it. There is deliberately no flag or input that skips the step on `main`. The same holds for the dev-only bookmarks smoke: revert the PR that added `bookmarks-smoke.sh`.
 
 ## Why prod credentials are NOT in GitHub yet
 The bot GitHub App can push `v*` tags, and the `prod` environment accepts `v*` tags. Secrets placed in the `prod` environment would

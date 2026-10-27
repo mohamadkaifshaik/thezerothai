@@ -5,7 +5,7 @@ Owner and incident responder: the founder (confirmed 2026-10-19). Store: GitHub 
 ## Purpose and limits
 Two dev-only Firebase Auth identities let the dev deploy workflow smoke authenticated paths against a 0% candidate before promotion.
 - Dev project `dzeroth-dev` only. No admin claims, no custom claims, no production access, no prod credentials.
-- Never added to a feature allowlist unless a specific test is explicitly authorized by the founder.
+- Never added to a feature allowlist unless a specific test is explicitly authorized by the founder. The dev-only bookmarks smoke (`bookmarks-smoke.sh`, W2-16) relies on it: it asserts that account A is refused by the `FEATURE_BOOKMARKS` cohort gate, so allowlisting A for bookmarks would fail every deploy-dev smoke until the entry is removed.
 - The API refuses unverified emails on every RPC (`authn` requires `email_verified`), so the accounts must be created verified, with
   addresses the founder controls (or non-deliverable addresses; no mailbox is needed because they are created by an admin call).
 - Feature-branch validation stays credential-free: branch/PR workflows never receive these secrets (see the environment restriction).
@@ -19,7 +19,7 @@ The Firebase Web API key is public app configuration, not a secret. Passwords ar
 reused anywhere, never in the repo, shell history, logs, workflow outputs or artifacts. The workflow signs in fresh each run (Identity
 Toolkit `accounts:signInWithPassword`); **refresh tokens are never stored**. The resulting ID token is passed through `::add-mask::`
 before first use, is used only inside the step, and is never written to `$GITHUB_OUTPUT`, a file, or an artifact. The repo is public,
-so every log line is public: the smoke step prints only HTTP status codes and pass/fail.
+so every log line is public: the smoke steps print only step names, HTTP status codes, the smoke account's profile handle, for the bookmarks smoke also a Connect error code, the ErrorDetail reason and feature name (fixed alphabets) and a row count, and pass/fail (never a body, token, email, uid or Connect message).
 
 ## Token lifetime (important for revocation)
 Firebase ID tokens live about 1 hour. The backend verifies them with `VerifyIDToken` (`backend/pkg/platform/authn/firebase.go`), which

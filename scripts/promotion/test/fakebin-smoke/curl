@@ -5,6 +5,9 @@
 #   getme-codes                          one status per line, consumed one per authenticated GetMe call (default 200); "conn" = connection error
 #   getme-body / getprofile-body         default {"profile":{"handle":"smoke_a"}}
 #   getprofile-code                      default 200
+#   listbm-code / listbm-body            ListBookmarks, default 200 and {} (protojson omits an empty array)
+#   addbm-code / addbm-body              AddBookmark, default 400 and the FEATURE_DISABLED ErrorDetail of the bookmarks gate (feature=bookmarks, reason as protojson `debug`)
+#   A bookmark endpoint answers its default body whenever its *-body file is absent, whatever *-code says (so a test can check that only the code decides).
 # Every call is recorded: its own argument list (headers included) in $FAKE/argv.<n>, the argument list in $FAKE/argv.log (the tests assert no secret is ever in it), and whatever curl is fed on
 # stdin in $FAKE/stdin.<n> (the sign-in body and the Authorization header travel there).
 st=${FAKE:?}
@@ -43,6 +46,23 @@ case $url in
     body=$(pick getprofile-body '{"profile":{"handle":"smoke_a"}}')
     ;;
 esac
+# The bookmarks leg: one code file and one body file per endpoint (see the header). The AddBookmark default is the real shape of the
+# bookmarks gate's answer: connect-go puts the ErrorDetail message under `debug` as protojson (enum NAME, camelCase keys).
+ep=""
+def=''
+dc=200
+case $url in
+  */ListBookmarks) ep=listbm; def='{}' ;;
+  */AddBookmark)
+    ep=addbm
+    dc=400
+    def='{"code":"failed_precondition","message":"FAKE-MSG-xyz","details":[{"type":"dzeroth.common.v1.ErrorDetail","value":"RkFLRQ","debug":{"reason":"ERROR_REASON_FEATURE_DISABLED","message":"FAKE-MSG-xyz","metadata":{"feature":"bookmarks"}}}]}'
+    ;;
+esac
+if [ -n "$ep" ]; then
+  code=$(pick "$ep-code" "$dc")
+  body=$(pick "$ep-body" "$def")
+fi
 if [ "$code" = "conn" ]; then exit 7; fi
 case " $* " in *'%{http_code}'*) printf '%s\n%s' "$body" "$code" ;; *) printf '%s' "$body" ;; esac
 exit 0
