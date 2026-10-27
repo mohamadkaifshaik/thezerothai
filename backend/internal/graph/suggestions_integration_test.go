@@ -17,6 +17,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
@@ -148,7 +149,8 @@ func seedSuggestionWorld(t *testing.T, w wired) (viewer string, followees, candi
 
 // TestListSuggestedUsers_ColdWarmReadCap is the budget assertion of ticket W3-12 at the service boundary: a cold call
 // on a fresh instance (empty caches) reads the caller graph (1), the 30 newest edges (30) and hydrates 10 candidates
-// (10) = 41, which is the documented 42 with the interceptor's read; a warm call reads nothing.
+// (10) = 41, which is the documented 42 with the interceptor's read; a warm call with the snapshot still cached reads
+// nothing (1 when the 60 s snapshot entry has expired, W3-22 L-1: TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere).
 func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 	w := newWired(t)
 	viewer, followees, candidates := seedSuggestionWorld(t, w)
@@ -176,7 +178,7 @@ func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 	}
 
 	warm, warmReads := listSuggested(t, fresh, viewer, 0)
-	t.Logf("BUDGET ListSuggestedUsers warm reads=%d (+1 interceptor = %d, documented 1)", warmReads, warmReads+1)
+	t.Logf("BUDGET ListSuggestedUsers warm reads=%d (+1 interceptor = %d, documented 1, or 2 without a cached snapshot)", warmReads, warmReads+1)
 	if warmReads != 0 {
 		t.Errorf("warm reads = %d, want 0", warmReads)
 	}
@@ -272,7 +274,8 @@ func TestListSuggestedUsers_CuratedFallback(t *testing.T) {
 }
 
 // TestListSuggestedUsers_FollowEvictsFromCache: this instance's own Follow removes the followed user from the cached
-// answer, and the next call is still a 0-read cache hit that refills from the cached tail.
+// answer, and the next call is still a cache hit that refills from the cached tail: no edge query, no hydration. It costs
+// the ONE read that reloads the viewer's snapshot (Follow invalidated it; W3-22 L-1), and the call after that costs 0.
 func TestListSuggestedUsers_FollowEvictsFromCache(t *testing.T) {
 	w := newWired(t)
 	const viewer = "uid-v"
@@ -288,7 +291,97 @@ func TestListSuggestedUsers_FollowEvictsFromCache(t *testing.T) {
 		t.Fatalf("Follow: %v", err)
 	}
 	after, reads := listSuggested(t, inst, viewer, 5)
-	if want := cu[1:6]; !slices.Equal(rowUIDs(after), want) || reads != 0 {
-		t.Errorf("after Follow: rows %v reads %d, want %v and 0", rowUIDs(after), reads, want)
+	if want := cu[1:6]; !slices.Equal(rowUIDs(after), want) || reads != 1 {
+		t.Errorf("after Follow: rows %v reads %d, want %v and 1 (the snapshot reload)", rowUIDs(after), reads, want)
+	}
+	if _, reads = listSuggested(t, inst, viewer, 5); reads != 0 {
+		t.Errorf("second call after Follow: reads %d, want 0", reads)
+	}
+}
+
+// TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere (W3-22 L-1) on real documents: instance A builds the
+// viewer's answer, instance B then records a Block of the viewer by one of the suggested users (it writes
+// graph/{viewer}.blockedBy), and A's 60 s snapshot entry for the viewer is gone. A's next call is a warm hit on the
+// 1 h answer, yet it must not show the blocker: it reloads the snapshot (exactly 1 read, nothing else), and the call
+// after that is free again.
+func TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere(t *testing.T) {
+	w := newWired(t)
+	const viewer = "uid-v"
+	mustCreateProfile(t, w.identity, viewer, "viewer_v")
+	cu := mustCreateUsers(t, w.identity, "cu", 8)
+	lim := graph.SuggestionLimits{CuratedUIDs: cu, HydrateMax: 8}
+
+	snapCache := graph.NewCache(time.Minute)
+	instA := newInstance(w.client, withSuggestions(lim), func(d *graph.Deps) { d.Cache = snapCache })
+	instB := newInstance(w.client, withSuggestions(lim))
+
+	first, _ := listSuggested(t, instA, viewer, 5)
+	if want := cu[:5]; !slices.Equal(rowUIDs(first), want) {
+		t.Fatalf("first = %v, want %v", rowUIDs(first), want)
+	}
+	if _, err := instB.graph.Block(context.Background(), cu[1], key1, viewer); err != nil {
+		t.Fatalf("Block on instance B: %v", err)
+	}
+	snapCache.Invalidate(viewer) // the 60 s entry expiring on instance A
+
+	after, reads := listSuggested(t, instA, viewer, 5)
+	if want := []string{cu[0], cu[2], cu[3], cu[4], cu[5]}; !slices.Equal(rowUIDs(after), want) {
+		t.Errorf("after the block: rows %v, want %v (the blocker hidden, the tail refilled)", rowUIDs(after), want)
+	}
+	if reads != 1 {
+		t.Errorf("warm hit without a cached snapshot: reads %d, want exactly 1", reads)
+	}
+	t.Logf("BUDGET ListSuggestedUsers warm without a cached snapshot reads=%d (+1 interceptor = %d)", reads, reads+1)
+	if _, reads = listSuggested(t, instA, viewer, 5); reads != 0 {
+		t.Errorf("next warm hit: reads %d, want 0 (the snapshot is cached for 60 s again)", reads)
+	}
+}
+
+// TestListSuggestedUsers_FloodingSuspendedFolloweeIsSkipped (W3-22 L-5) on the real wiring: identity's service really
+// implements the optional KnownInactive extension graph asserts on its Directory (the assertion is checked here, so a
+// rename on either side fails loudly instead of silently disabling the skip), and a suspended followee whose profile
+// this instance's cache has seen no longer steers: none of its flood of newest edges reaches the answer.
+func TestListSuggestedUsers_FloodingSuspendedFolloweeIsSkipped(t *testing.T) {
+	w := newWired(t)
+	const viewer = "uid-v"
+	mustCreateProfile(t, w.identity, viewer, "viewer_v")
+	fe := mustCreateUsers(t, w.identity, "fe", 4) // fe-3 is the newest followee and the flooder
+	ok := mustCreateUsers(t, w.identity, "ok", 3)
+	flood := mustCreateUsers(t, w.identity, "fl", 8)
+
+	base := time.Now().Add(-48 * time.Hour).UTC()
+	for i, f := range fe {
+		seedFollow(t, w, viewer, f, base.Add(time.Duration(i)*time.Second))
+	}
+	at := base.Add(time.Hour)
+	for i := 0; i < 3; i++ {
+		seedFollow(t, w, fe[i], ok[i], at.Add(time.Duration(i)*time.Second))
+	}
+	for i, c := range flood { // the flooder's edges are the newest of all
+		seedFollow(t, w, fe[3], c, at.Add(time.Minute+time.Duration(i)*time.Second))
+	}
+	seedUserField(t, w, fe[3], "status", "SUSPENDED")
+
+	inst := newInstance(w.client, withSuggestions(graph.SuggestionLimits{HydrateMax: 10}))
+	dir := inst.identity.(identity.Directory)
+	if _, ok := dir.(interface {
+		KnownInactive([]string) map[string]bool
+	}); !ok {
+		t.Fatal("identity's service no longer implements KnownInactive: the friends-of-friends skip of suspended followees is silently off")
+	}
+	// Whoever hydrates the suspended account's profile on this instance (a list, the interceptor) teaches the cache.
+	if got, err := dir.GetProfiles(context.Background(), []string{fe[3]}); err != nil || len(got) != 0 {
+		t.Fatalf("GetProfiles(suspended) = %v, %v, want none and no error", got, err)
+	}
+
+	items, reads := listSuggested(t, inst, viewer, 5)
+	got := rowUIDs(items)
+	slices.Sort(got)
+	if want := slices.Clone(ok); !slices.Equal(got, want) {
+		t.Errorf("rows = %v, want exactly %v (the suspended flooder steers nothing)", got, want)
+	}
+	// graph 1 + 3 edges (the flooder is not in the query) + 3 profiles.
+	if reads != 7 {
+		t.Errorf("reads = %d, want 7", reads)
 	}
 }

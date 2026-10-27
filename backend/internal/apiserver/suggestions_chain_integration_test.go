@@ -63,15 +63,17 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		setup.createProfile(t, u.token)
 	}
 
-	// The viewer follows the four followees; followee f follows every candidate c at a time that makes the newest 30
-	// edges cover all 14 candidates (more than the 10 that get hydrated).
+	// The viewer follows the four followees. Followee fi follows 8 candidates, number (3*fi + k) mod 14 for k = 0..7, newer
+	// with k and with fi: 32 edges, so the newest 30 come from all four followees, and the newest 3 of each (the
+	// per-followee cap, W3-22 L-5) are 12 distinct candidates, more than the 10 that get hydrated.
 	base := time.Now().Add(-48 * time.Hour).UTC()
 	for i, f := range followees {
 		seedFollowEdge(t, setup.fs, viewerUID, f.uid, base.Add(time.Duration(i)*time.Second))
 	}
 	for fi, f := range followees {
-		for ci, c := range candidates {
-			seedFollowEdge(t, setup.fs, f.uid, c.uid, base.Add(time.Hour+time.Duration(fi*len(candidates)+ci)*time.Minute))
+		for k := 0; k < 8; k++ {
+			c := candidates[(3*fi+k)%len(candidates)]
+			seedFollowEdge(t, setup.fs, f.uid, c.uid, base.Add(time.Hour+time.Duration(fi*8+k)*time.Minute))
 		}
 	}
 
@@ -123,7 +125,7 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		t.Fatalf("warm ListSuggestedUsers: %v", err)
 	}
 	warmLine := env.logs.requestLines(rpc)[1]
-	t.Logf("BUDGET ListSuggestedUsers chain warm fs_reads=%v (documented 1, the interceptor)", warmLine["fs_reads"])
+	t.Logf("BUDGET ListSuggestedUsers chain warm fs_reads=%v (documented 1, the interceptor; 2 when the 60 s snapshot entry has expired)", warmLine["fs_reads"])
 	if logNum(warmLine, "fs_reads") > 1 || logNum(warmLine, "fs_writes") != 0 {
 		t.Errorf("warm fs_reads/fs_writes = %v/%v, want <= 1 (the interceptor) and 0", warmLine["fs_reads"], warmLine["fs_writes"])
 	}
@@ -164,7 +166,9 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		t.Errorf("rows after Follow = %d, want 5 (the cached tail refills)", len(after.Msg.GetUsers()))
 	}
 	last := env.logs.requestLines(rpc)
-	if got := last[len(last)-1]; got["suggestions_cache_hit"] != true || logNum(got, "fs_reads") > 1 {
-		t.Errorf("after Follow: suggestions_cache_hit=%v fs_reads=%v, want a cache hit and <= 1 read", got["suggestions_cache_hit"], got["fs_reads"])
+	// Follow evicted the caller's profile (the interceptor's read, 1) and graph snapshot (the warm hit's re-filter loads it
+	// again, W3-22 L-1, 1): a cache hit with at most those two reads, no edge query and no hydration.
+	if got := last[len(last)-1]; got["suggestions_cache_hit"] != true || logNum(got, "fs_reads") > 2 {
+		t.Errorf("after Follow: suggestions_cache_hit=%v fs_reads=%v, want a cache hit and <= 2 reads", got["suggestions_cache_hit"], got["fs_reads"])
 	}
 }

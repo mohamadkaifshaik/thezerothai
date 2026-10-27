@@ -447,7 +447,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			}
 		}
 		if params.Bio != nil {
-			bio := strings.TrimSpace(*params.Bio)
+			bio := normalizeBio(*params.Bio) // trim + NFC, the form bioIssue counted (W3-22 L-2c)
 			note("bio", bio != p.Bio)
 			p.Bio = bio
 		}
