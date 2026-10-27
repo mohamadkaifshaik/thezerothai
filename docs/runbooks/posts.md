@@ -358,3 +358,25 @@ mention notifications of that one post are lost, with no replay. If it happens o
 Reporting entry can also fire for an item that is in fact PUBLISHED (the FAILED write loses its precondition, so the document is not
 changed). Before acting on such an alert, open the document: `status` PUBLISHED with a `postId` means the post is live. This is accepted:
 telling the cases apart would cost an extra read after every ambiguous error, and the sweep adds none for it.
+
+## 13. `hasMedia`, the Media / Reposts tab queries and the pin check (ADR-0024 D3-D5; W3-7, W3-8, W3-9)
+
+Owner: `backend/internal/posts`. Every post create path (CreatePost root, reply and quote, the publish sweep, the REPOST doc) writes
+`hasMedia` as an explicit boolean in the post's own write: true when the post's own stored images are non-empty, always false for a
+REPOST (its original's images live in `embedded`). It is never flag-gated, so it is right before `FEATURE_PROFILE_TABS` turns on, and
+it costs no write. The single definition is `posts.HasMediaFor`. The Media and Reposts tab queries (`Reader.ByAuthorMedia`,
+`Reader.ByAuthorKind`) are called only by `GetUserTimeline` with `tab` MEDIA or REPOSTS (W3-9) and only while `profile_tabs` is on.
+
+- **Media tab is empty, or lacks an old post.** Read the raw `posts/{id}`. `hasMedia` absent means a pre-W3 post the one-off
+  `opsctl backfill-has-media --project P` (W3-8) has not visited; run it (it writes only posts that lack the field, so a rerun writes 0).
+  `hasMedia: false` on a post that has `media` is a bug in a create path: stop and hand back to the backend developer.
+- **GetUserTimeline MEDIA / REPOSTS answers INTERNAL, logs show `requires an index` (Firestore FAILED_PRECONDITION).** The composite
+  index `posts (authorId, hasMedia, createdAt DESC)` or `posts (authorId, kind, createdAt DESC)` is not READY in that project (the
+  emulator does not enforce indexes, so tests cannot catch this). Check `gcloud firestore indexes composite list --project P`. Kill
+  switch: `FEATURE_PROFILE_TABS=off` and deploy (the Posts and Replies tabs are unaffected). `profile_tabs` never leaves `off` in a
+  project before the backfill ran and both indexes are READY.
+- **Reads.** Each tab query reads one row per post returned (1 when empty), no instance cache: `fs_reads` of `timeline_op=user` with a
+  tab is about the page size plus the profile reads. A rise for everyone points at a client refreshing the tab in a loop.
+- **Pin check (`posts.PinChecker`, used by `UpdateProfile`).** 1 read cold, 0 warm. A post deleted or taken down on another instance can
+  still pass the check for up to the posts cache TTL (60 s); the client hides a pin whose `GetPost` answers NOT_FOUND and the
+  `post_delete` job clears the pin. A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause.
