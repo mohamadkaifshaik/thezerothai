@@ -662,10 +662,12 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final profileCubit = context.read<ProfileCubit>();
     final ownPosts = state.isOwnProfile && spec.ownPosts;
     final pinned = _pinnedFor(context, profile);
-    // Pin / Unpin: the own profile, with `profile_extras` on for the viewer
-    // (the Pinned row itself renders whatever the flags are).
+    // Pin / Unpin on the own profile. Unpin (a clear) is offered whatever the
+    // flags are (ADR-0024 Amendment 1 A2); Pin (a set) needs `profile_extras`
+    // on for the viewer. The Pinned row itself renders whatever the flags are.
+    final isOwn = state.isOwnProfile;
     final pinEnabled =
-        state.isOwnProfile && isFeatureEnabled(context, kFeatureProfileExtras);
+        isOwn && isFeatureEnabled(context, kFeatureProfileExtras);
     final postPin = _postPinFor(context);
     return _ProfileScrollScaffold(
       outer: widget.outer,
@@ -684,7 +686,8 @@ class _ProfilePostsState extends State<_ProfilePosts> {
           }),
           child: _withPinControl(
             postPin,
-            enabled: pinEnabled,
+            own: isOwn,
+            canPin: pinEnabled,
             pinnedPostId: profile.pinnedPostId,
             builder: (pinControl) {
               // The request can outlive this screen: guard the cubit, not
@@ -762,28 +765,33 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   }
 
   /// Builds the tab body with the Pin / Unpin control of the own profile
-  /// ([enabled]: the own profile with `profile_extras` on). The control is
-  /// null (the cards then offer no pin rows) when it is not enabled or the
-  /// server refused it: this cubit's request, or an earlier one this session
-  /// (`IdentityRepository.profileExtrasRefused`, read only when enabled). The
-  /// wrapper is always there, so the feed view keeps its state when the flag
-  /// changes while the screen is open.
+  /// ([own]; the control is null on anyone else's profile, so the cards offer
+  /// no pin rows). [canPin] (`profile_extras` on for the viewer) and no
+  /// refusal by the server (this cubit's request, or an earlier one this
+  /// session: `IdentityRepository.profileExtrasRefused`, read only when
+  /// [canPin]) decide whether "Pin to your profile" is offered; "Unpin from
+  /// profile" never depends on them (ADR-0024 Amendment 1 A2). The wrapper is
+  /// always there, so the feed view keeps its state when the flag changes
+  /// while the screen is open.
   Widget _withPinControl(
     PostPinCubit cubit, {
-    required bool enabled,
+    required bool own,
+    required bool canPin,
     required String pinnedPostId,
     required Widget Function(PostPinControl? control) builder,
   }) {
     return BlocBuilder<PostPinCubit, PostPinState>(
       bloc: cubit,
       builder: (context, pinState) => builder(
-        enabled &&
-                !pinState.refused &&
-                !context.read<IdentityRepository>().profileExtrasRefused
+        own
             ? PostPinControl(
                 pinnedPostId: pinnedPostId,
                 onPin: cubit.pin,
                 onUnpin: cubit.unpin,
+                canPin:
+                    canPin &&
+                    !pinState.refused &&
+                    !context.read<IdentityRepository>().profileExtrasRefused,
               )
             : null,
       ),

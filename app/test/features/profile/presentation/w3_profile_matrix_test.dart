@@ -584,14 +584,13 @@ void main() {
     }, textScales: kMatrixTextScalesLarge);
   });
 
-  // D-1 (open defect, `docs/reviews/test-report-w3-client.md`): at 360 dp and
-  // text scale 2.0 the header's action buttons grow taller than the 48 dp the
+  // D-1 (fixed in the W3-22 client PR, `docs/reviews/test-report-w3-client.md`):
+  // at 360 dp and text scale 2.0 the header's action buttons grow taller than the 48 dp the
   // strip under the banner reserves for them ("Follow back" wraps to two lines
   // and is 84 dp tall, "Edit profile" is 56 dp), so they are painted over the
-  // first line of the display name. Run the repro by setting `d1Fixed` to
-  // true; it fails today. The owner (frontend-developer, W3-14) flips it when
-  // the strip grows with the actions.
-  const d1Fixed = false;
+  // first line of the display name. The strip under the banner now grows with
+  // the actions, so the repro runs (`d1Fixed` stays as the switch for it).
+  const d1Fixed = true;
   group('D-1: the header actions do not overlap the display name', () {
     for (final own in [false, true]) {
       for (final brightness in Brightness.values) {

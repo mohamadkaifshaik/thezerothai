@@ -35,9 +35,12 @@ import 'widgets/profile_edit_unavailable.dart';
 ///
 /// With `profile_extras` on (ADR-0024, W3-15) it also offers the banner (above
 /// the avatar; it also needs media), the location and the website. Without
-/// that flag none of them is shown, so none can reach a request. Saves only
-/// the changed fields and pops with the server's [identity.Profile] so the
-/// caller can show it without another read.
+/// that flag nothing can be set: a saved banner, location or website is shown
+/// read-only with Remove, which sends an exact `""` (the server accepts a clear
+/// from any caller, Amendment 1 A2, and Remove needs no media either), and no
+/// non-empty value can reach a request. Saves only the changed fields and pops
+/// with the server's [identity.Profile] so the caller can show it without
+/// another read.
 class EditProfileScreen extends StatelessWidget {
   const EditProfileScreen({super.key});
 
@@ -161,9 +164,11 @@ class _EditProfileViewState extends State<_EditProfileView> {
       return;
     }
     // The extras were switched off mid-edit: the cubit put the saved values
-    // back, so the (now hidden) fields follow.
-    if (_location.text != state.location) _location.text = state.location;
-    if (_website.text != state.website) _website.text = state.website;
+    // back, so the (now read-only) fields follow. A removed one reads empty.
+    final location = state.locationRemoved ? '' : state.location;
+    final website = state.websiteRemoved ? '' : state.website;
+    if (_location.text != location) _location.text = location;
+    if (_website.text != website) _website.text = website;
     final message = editProfileErrorMessage(state);
     final error = state.error;
     if (message == null || error == null) return;
@@ -186,12 +191,13 @@ class _EditProfileViewState extends State<_EditProfileView> {
       listener: _onState,
       builder: (context, state) {
         final websiteHost = websiteHostPreview(state.website);
-        // The banner is edited with media on; with media off it is only shown
-        // (and only when the profile has one), like the avatar.
+        // The banner is edited with `profile_extras` and media on. Otherwise
+        // it is shown (only when the profile has one) with Remove alone: a
+        // removal is a clear, which needs neither flag (ADR-0024 Amendment 1
+        // A2).
         final showBanner =
-            state.extrasEnabled &&
-            (cubit.canChangeBanner ||
-                (!state.bannerRemoved && widget.bannerUrl.isNotEmpty));
+            cubit.canChangeBanner ||
+            (!state.bannerRemoved && widget.bannerUrl.isNotEmpty);
         return PopScope(
           canPop: !cubit.hasChanges || state.status == EditProfileStatus.saved,
           onPopInvokedWithResult: (didPop, _) async {
@@ -230,9 +236,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
                               onChange: cubit.canChangeBanner
                                   ? cubit.pickBanner
                                   : null,
-                              onRemove: cubit.canChangeBanner
-                                  ? cubit.removeBanner
-                                  : null,
+                              onRemove: state.removalRefused
+                                  ? null
+                                  : cubit.removeBanner,
                             ),
                             const SizedBox(height: AppSpacing.md),
                           ],
@@ -330,6 +336,35 @@ class _EditProfileViewState extends State<_EditProfileView> {
                               ),
                               onChanged: cubit.websiteChanged,
                             ),
+                          ] else ...[
+                            // No `profile_extras`: a saved location or website
+                            // is shown as it is, read-only, with Remove (the
+                            // only change a caller outside the cohort may
+                            // make to them, ADR-0024 Amendment 1 A2).
+                            if (cubit.hasSavedLocation) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              _RemovableField(
+                                controller: _location,
+                                label: 'Location',
+                                noun: 'location',
+                                removed: state.locationRemoved,
+                                canRemove: !state.removalRefused,
+                                enabled: !state.isSaving,
+                                onRemove: cubit.removeLocation,
+                              ),
+                            ],
+                            if (cubit.hasSavedWebsite) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              _RemovableField(
+                                controller: _website,
+                                label: 'Website',
+                                noun: 'website',
+                                removed: state.websiteRemoved,
+                                canRemove: !state.removalRefused,
+                                enabled: !state.isSaving,
+                                onRemove: cubit.removeWebsite,
+                              ),
+                            ],
                           ],
                         ],
                       ),
@@ -341,6 +376,62 @@ class _EditProfileViewState extends State<_EditProfileView> {
           ),
         );
       },
+    );
+  }
+}
+
+/// A saved location or website shown read-only with Remove, for a caller
+/// without `profile_extras` (ADR-0024 Amendment 1 A2): the same outlined
+/// `TextField` as the editable fields (so it reads and scrolls like them), with
+/// a 48dp close button in the field. It is `readOnly`, not disabled, so the
+/// button keeps taking taps. After Remove the field reads empty and says the
+/// value goes when the form is saved; there is no way to type a new one.
+class _RemovableField extends StatelessWidget {
+  const _RemovableField({
+    required this.controller,
+    required this.label,
+    required this.noun,
+    required this.removed,
+    required this.canRemove,
+    required this.enabled,
+    required this.onRemove,
+  });
+
+  final TextEditingController controller;
+  final String label;
+
+  /// Lower case, for the button's spoken label ("Remove location").
+  final String noun;
+  final bool removed;
+
+  /// False once the server refused a removal: the value stays, read-only.
+  final bool canRemove;
+  final bool enabled;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      readOnly: true,
+      enabled: enabled,
+      maxLines: 1,
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: removed
+            ? 'Removed when you save.'
+            : canRemove
+            ? "You can't change this right now, but you can remove it."
+            : "You can't change this right now.",
+        helperMaxLines: 3,
+        suffixIcon: removed || !canRemove
+            ? null
+            : IconButton(
+                tooltip: 'Remove $noun',
+                icon: const Icon(Icons.close),
+                onPressed: enabled ? onRemove : null,
+              ),
+      ),
     );
   }
 }

@@ -89,6 +89,8 @@ on it because the box is fixed). A 403 and a 404 are the same case at this level
 
 ### D-1 (minor): the header actions overlap the display name at 360 dp and text scale 2.0
 
+**Status: fixed in the W3-22 client PR (#361, pending).** The strip under the banner now grows with the actions (laid out in the same pass), `d1Fixed` is `true` and the four repro cells pass, as does every other cell of the matrix. The verdict line at the end of this file records the run before the fix.
+
 - **Widget:** `ProfileHeader` actions, `app/lib/features/profile/presentation/widgets/profile_header.dart:192-196` (the strip
   under the banner is `max(overlap + 8, 12 + 48)` = 60 dp whatever the text size) and `:314-319` (the actions are a
   `Positioned` over that strip). Owner: frontend-developer (W3-14 for "Follow back"; "Edit profile" is older).

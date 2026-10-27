@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show OrdinalSortKey;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -188,13 +189,16 @@ class _ProfileHeaderBody extends StatelessWidget {
         final bannerHeight = width / 3;
         // The strip between the banner and the name holds the avatar's lower
         // half and the actions (36dp pill in a 48dp target, 12dp below the
-        // banner).
+        // banner). It is at least tall enough for both, and it grows with the
+        // actions: at a large text scale a button wraps to two or three lines,
+        // and a fixed 60dp strip let it paint over the name (W3-21 D-1). The
+        // actions are laid out in the strip, in the same pass as everything
+        // else, so nothing moves after the first frame.
         const actionsTop = AppSpacing.smd;
-        final strip = math.max(
+        final minStrip = math.max(
           overlap + AppSpacing.sm,
           actionsTop + AppSpacing.minTapTarget,
         );
-        // Stack order is reading order: the identity first, then the actions.
         return Stack(
           children: [
             Column(
@@ -206,95 +210,131 @@ class _ProfileHeaderBody extends StatelessWidget {
                     url: _bannerUrlFor(profile, fullSize: !narrow),
                   ),
                 ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    AppSpacing.md,
-                    strip,
-                    AppSpacing.md,
-                    AppSpacing.md,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profile.displayName,
-                        key: nameKey,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      // The chip sits after the handle, and drops under it
-                      // when the handle is long or the text is large.
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: AppSpacing.sm,
-                        runSpacing: AppSpacing.xs,
-                        children: [
-                          Text(
-                            '@${profile.handle}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+                ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: minStrip),
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(
+                      top: actionsTop,
+                      end: AppSpacing.md,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Under the avatar (it hangs over the banner's edge).
+                        SizedBox(width: AppSpacing.md + outer + AppSpacing.sm),
+                        Expanded(
+                          child: Align(
+                            alignment: AlignmentDirectional.topEnd,
+                            child: actions == null
+                                ? null
+                                : Semantics(
+                                    container: true,
+                                    explicitChildNodes: true,
+                                    sortKey: const OrdinalSortKey(1),
+                                    child: actions,
+                                  ),
                           ),
-                          if (showFollowsYou) const _FollowsYouChip(),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      if (profile.bio.isNotEmpty) ...[
-                        Text(profile.bio, style: theme.textTheme.bodyLarge),
-                        const SizedBox(height: AppSpacing.md),
+                        ),
                       ],
-                      if (location.isNotEmpty ||
-                          website != null ||
-                          joined != null) ...[
+                    ),
+                  ),
+                ),
+                // Reading order is the identity first, then the actions, which
+                // sit above it in the strip: the sort keys say so.
+                Semantics(
+                  container: true,
+                  explicitChildNodes: true,
+                  sortKey: const OrdinalSortKey(0),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md,
+                      0,
+                      AppSpacing.md,
+                      AppSpacing.md,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          profile.displayName,
+                          key: nameKey,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        // The chip sits after the handle, and drops under it
+                        // when the handle is long or the text is large.
                         Wrap(
                           crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: AppSpacing.md,
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.xs,
                           children: [
-                            if (location.isNotEmpty)
-                              _MetaRow(
-                                icon: Icons.location_on_outlined,
-                                text: location,
-                                semanticLabel: 'Location: $location',
+                            Text(
+                              '@${profile.handle}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
-                            if (website != null)
-                              _MetaRow(
-                                icon: Icons.link,
-                                text: website.host,
-                                semanticLabel: 'Website: ${website.host}',
-                                onTap: () => _openWebsite(
-                                  context,
-                                  website.uri,
-                                  onOpenWebsite,
-                                ),
-                              ),
-                            if (joined != null)
-                              _MetaRow(
-                                icon: Icons.calendar_month_outlined,
-                                text: joined,
-                              ),
+                            ),
+                            if (showFollowsYou) const _FollowsYouChip(),
                           ],
                         ),
-                        const SizedBox(height: AppSpacing.sm),
+                        const SizedBox(height: AppSpacing.md),
+                        if (profile.bio.isNotEmpty) ...[
+                          Text(profile.bio, style: theme.textTheme.bodyLarge),
+                          const SizedBox(height: AppSpacing.md),
+                        ],
+                        if (location.isNotEmpty ||
+                            website != null ||
+                            joined != null) ...[
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: AppSpacing.md,
+                            children: [
+                              if (location.isNotEmpty)
+                                _MetaRow(
+                                  icon: Icons.location_on_outlined,
+                                  text: location,
+                                  semanticLabel: 'Location: $location',
+                                ),
+                              if (website != null)
+                                _MetaRow(
+                                  icon: Icons.link,
+                                  text: website.host,
+                                  semanticLabel: 'Website: ${website.host}',
+                                  onTap: () => _openWebsite(
+                                    context,
+                                    website.uri,
+                                    onOpenWebsite,
+                                  ),
+                                ),
+                              if (joined != null)
+                                _MetaRow(
+                                  icon: Icons.calendar_month_outlined,
+                                  text: joined,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                        ],
+                        if (isBlocking)
+                          _BlockedBanner(handle: profile.handle)
+                        else
+                          _CountsRow(
+                            profile: profile,
+                            showPostsCount: showPostsCount,
+                          ),
                       ],
-                      if (isBlocking)
-                        _BlockedBanner(handle: profile.handle)
-                      else
-                        _CountsRow(
-                          profile: profile,
-                          showPostsCount: showPostsCount,
-                        ),
-                    ],
+                    ),
                   ),
                 ),
               ],
             ),
-            Positioned(
-              left: AppSpacing.md,
+            PositionedDirectional(
+              start: AppSpacing.md,
               top: bannerHeight - overlap,
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -310,13 +350,6 @@ class _ProfileHeaderBody extends StatelessWidget {
                 ),
               ),
             ),
-            if (actions != null)
-              Positioned(
-                top: bannerHeight + actionsTop,
-                left: AppSpacing.md + outer + AppSpacing.sm,
-                right: AppSpacing.md,
-                child: Align(alignment: Alignment.topRight, child: actions),
-              ),
           ],
         );
       },
