@@ -62,10 +62,11 @@ void main() {
   /// dialog opens on the next whole minute plus 3 minutes and checks that
   /// again on Confirm, against the clock it is given. On the real clock a
   /// minute boundary between opening and Confirm made Confirm refuse ("too
-  /// soon") and the dialog stay up, so a case failed about once in a hundred
-  /// dialogs (CI, 2026-10-27). Frozen, nothing the test takes to run can move
-  /// it. Built from the real clock (one hour ahead, so a dialog that ignored
-  /// it would show) and not as a fixed date, which the date guard forbids.
+  /// soon") and the dialog stay up, so a case failed now and then (three CI
+  /// runs on 2026-10-27, each just after a whole minute). Frozen, nothing the
+  /// test takes to run can move it. Built from the real clock (one hour ahead,
+  /// so a dialog that ignored it would show) and not as a fixed date, which
+  /// the date guard forbids.
   late DateTime scheduleNow;
 
   const both = {kFeaturePosts, kFeatureScheduledPosts};
