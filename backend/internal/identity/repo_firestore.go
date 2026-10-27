@@ -56,6 +56,13 @@ type userDoc struct {
 	SnapshotVersion     int64     `firestore:"snapshotVersion"`
 	CreatedAt           time.Time `firestore:"createdAt"`
 	UpdatedAt           time.Time `firestore:"updatedAt"`
+	// Profile extras (ADR-0024 D1-D3): absent = none, never backfilled, index-exempt (D14), not in the author snapshot.
+	// omitempty keeps a whole-doc rewrite (ChangeHandle) from adding empty fields to a doc that has none.
+	BannerURL      string `firestore:"bannerUrl,omitempty"`
+	BannerThumbURL string `firestore:"bannerThumbUrl,omitempty"`
+	Location       string `firestore:"location,omitempty"`
+	Website        string `firestore:"website,omitempty"`
+	PinnedPostID   string `firestore:"pinnedPostId,omitempty"`
 	// Account-deletion job state (ADR-0011): set once by DeleteAccount, absent for every live account. Pointers
 	// with omitempty, so a normal profile write never stores them; Profile carries them so a whole-doc rewrite
 	// (UpdateProfile) cannot drop them.
@@ -72,6 +79,11 @@ func (d userDoc) toProfile(uid string) Profile {
 		Bio:                 d.Bio,
 		AvatarURL:           d.AvatarURL,
 		AvatarThumbURL:      d.AvatarThumbURL,
+		BannerURL:           d.BannerURL,
+		BannerThumbURL:      d.BannerThumbURL,
+		Location:            d.Location,
+		Website:             d.Website,
+		PinnedPostID:        d.PinnedPostID,
 		IsPrivate:           d.IsPrivate,
 		Verified:            d.Verified,
 		Status:              statusFromString(d.Status),
@@ -96,6 +108,11 @@ func profileToDoc(p Profile) userDoc {
 		Bio:                 p.Bio,
 		AvatarURL:           p.AvatarURL,
 		AvatarThumbURL:      p.AvatarThumbURL,
+		BannerURL:           p.BannerURL,
+		BannerThumbURL:      p.BannerThumbURL,
+		Location:            p.Location,
+		Website:             p.Website,
+		PinnedPostID:        p.PinnedPostID,
 		IsPrivate:           p.IsPrivate,
 		Verified:            p.Verified,
 		Status:              statusToString(p.Status),
@@ -323,7 +340,7 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 	return result, replay, nil
 }
 
-// UpdateProfile: 1 read, 1 write.
+// UpdateProfile: 1 read, 1 write (whole document, in one transaction; the extras are in userDoc, so they survive it).
 func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error) {
 	var result Profile
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -356,6 +373,48 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 	}
 	return result, nil
 }
+
+// ClearIfPinned implements Pins (ADR-0024 D3): 1 read (users/{uid}, fresh, inside the transaction), at most 1 write.
+// The write is a field-level Update of pinnedPostId to "" and happens only when the stored pin is exactly postID, so a
+// newer pin is never touched and a purged users doc is never recreated (a missing doc is "nothing to clear"). It is
+// not flag-gated: the clean-up must run whatever profile_extras says.
+func (r *FirestoreRepo) ClearIfPinned(ctx context.Context, uid, postID string) (bool, error) {
+	cleared := false
+	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		cleared = false
+		counter := budget.FromContext(ctx)
+		snap, err := tx.Get(r.userRef(uid))
+		counter.AddReads(1)
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return nil
+			}
+			return fmt.Errorf("identity: get user for pin clean-up: %w", err)
+		}
+		var d struct {
+			PinnedPostID string `firestore:"pinnedPostId"`
+		}
+		if err := snap.DataTo(&d); err != nil {
+			return fmt.Errorf("identity: decode user for pin clean-up: %w", err)
+		}
+		if postID == "" || d.PinnedPostID != postID {
+			return nil
+		}
+		b := store.NewFirestoreTxBatch(tx, counter)
+		b.Update(r.userRef(uid), []firestore.Update{{Path: "pinnedPostId", Value: ""}})
+		if b.Err() != nil {
+			return b.Err()
+		}
+		cleared = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return cleared, nil
+}
+
+var _ Pins = (*FirestoreRepo)(nil)
 
 // ChangeHandle: 2 reads (users, new handle) worst case, matching the proto doc comment; see api.go's Repo
 // interface doc comment for the full no-op/case-only/cooldown/idempotent-retry decision table (M4). Every
