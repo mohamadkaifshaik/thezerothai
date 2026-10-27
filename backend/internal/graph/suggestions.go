@@ -6,11 +6,8 @@ package graph
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
-
-	"connectrpc.com/connect"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
@@ -36,26 +33,6 @@ type SuggestionLimits struct {
 	CacheTTL time.Duration
 	// CuratedUIDs is the SUGGESTED_USER_IDS fallback list (validated, <= 20, may be empty).
 	CuratedUIDs []string
-}
-
-// ProfileRelationship is the GetProfileRelationship answer (ADR-0024 D7): the caller's Relationship to one user, plus
-// whether that user follows the caller.
-type ProfileRelationship struct {
-	Relationship Relationship
-	// FollowedBy is true when follows/{target}_{caller} exists ("Follows you").
-	FollowedBy bool
-}
-
-// GetProfileRelationship is the ADR-0024 D7 header RPC. It needs only FEATURE_GRAPH on for the caller, like every
-// GraphService RPC; D9 gives it no flag of its own. Today it runs that gate and answers Unimplemented (ticket W3-11):
-// 0 reads, 0 writes. When W3-11 lands: 3 cold reads (interceptor, caller graph, edge doc; +1 on blockedByOverflow),
-// 0 warm, planning 1; 0 writes.
-func (s *service) GetProfileRelationship(ctx context.Context, callerUID, _ string) (_ ProfileRelationship, err error) {
-	defer begin(ctx, "profile_relationship")(&err)
-	if err := s.checkFlag(callerUID); err != nil {
-		return ProfileRelationship{}, err
-	}
-	return ProfileRelationship{}, unimplemented("GetProfileRelationship", "W3-11")
 }
 
 // ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC: at most maxResults rows (0 => SUGGESTIONS_MAX_RESULTS = 5,
@@ -181,9 +158,4 @@ func clampMaxResults(requested int32, limit int) int {
 // firstN returns a fresh slice of at most n leading rows (never the cache's own backing array).
 func firstN(items []ListItem, n int) []ListItem {
 	return slices.Clone(items[:min(len(items), n)])
-}
-
-// unimplemented is the answer behind a passed gate until the ticket that fills the RPC in lands.
-func unimplemented(rpc, ticket string) error {
-	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not implemented yet (ticket %s)", rpc, ticket))
 }

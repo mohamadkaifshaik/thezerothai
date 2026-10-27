@@ -73,6 +73,9 @@ type Repo interface {
 
 	// ListEdges returns one page of follow edges, newest first (ADR-0008 T10). <= q.Limit reads.
 	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
+	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read, 1 read whether or
+	// not the document is there (ADR-0024 D7, GetProfileRelationship). A missing document is false, not an error.
+	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).

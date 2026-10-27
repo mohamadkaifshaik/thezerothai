@@ -106,8 +106,8 @@ unchanged.
   `allowlist` without the uid, or outside the `percent` bucket). Check the env var on the serving revision.
 - `FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT]` / `feature_follow_suggestions*` (wire name `follow_suggestions`, default off, ADR-0024 D8-D9) gates
   only `ListSuggestedUsers`, on top of `FEATURE_GRAPH`: without it the answer is `FEATURE_DISABLED` with `metadata[feature]=follow_suggestions`
-  and 0 reads. `GetProfileRelationship` needs `FEATURE_GRAPH` only. W3-4 registers the flag, the limits and the gate; `GetProfileRelationship`
-  answers Unimplemented behind it until W3-11, and `ListSuggestedUsers` is live since W3-12 (section 5). Config (validated at startup, a typo fails the boot): `SUGGESTIONS_SAMPLE_FOLLOWEES`
+  and 0 reads. `GetProfileRelationship` needs `FEATURE_GRAPH` only. W3-4 registers the flag, the limits and the gate; `GetProfileRelationship` is live since W3-11 (section 5) and
+  `ListSuggestedUsers` is live since W3-12 (section 6). Config (validated at startup, a typo fails the boot): `SUGGESTIONS_SAMPLE_FOLLOWEES`
   (30, max 30), `SUGGESTIONS_EDGE_LIMIT` (30, max 50), `SUGGESTIONS_HYDRATE_MAX` (10, max 50), `SUGGESTIONS_MAX_RESULTS` (5, max 5),
   `SUGGESTIONS_CACHE_TTL` (1h), the curated fallback `SUGGESTED_USER_IDS` (Terraform `suggested_user_ids`, <= 20 comma-separated uids; empty
   = none; one bad uid fails startup), and the limits `RATE_LIMIT_SUGGESTIONS_PER_MIN` (10), `SUGGESTIONS_CALLS_PER_DAY` (50) and
@@ -125,7 +125,39 @@ unchanged.
   WARN `graph_lazy_cleanup_failed` and the list still succeeds. Residue therefore lasts until the muter next
   opens that list. There is no manual step; do not hand-edit other users' documents.
 
-## 5. Who to follow (`ListSuggestedUsers`): empty, stale, slow or erroring
+## 5. "Follows you" is wrong, missing, or the profile header 404s (`GetProfileRelationship`, ADR-0024 D7)
+`GetProfileRelationship(user_id)` answers the caller's `Relationship` from the cached caller snapshot plus `followed_by`:
+whether `follows/{target}_{caller}` exists. It needs `FEATURE_GRAPH` only. One target per call; list rows never get it
+(1 read each). The request line carries `graph_op=profile_relationship`, `followed_by_cache_hit` (true: answered from the
+pair cache, false: it cost the one edge read; absent when no edge lookup ran: the caller's own id, a target the caller
+blocks, a refused target) and the usual `fs_reads`. Cost: caller graph 1 + edge 1 cold (2) when the target's profile is
+warm, +1 for a cold profile, +1 on `blockedByOverflow`, plus the interceptor's 1; 0 warm; 0 writes.
+
+**The pair cache** (`graph.Cache`, instance memory, no Redis): 5,000 `(follower, followee)` entries, about 1 MiB, true and
+false both cached, TTL = `CACHE_TTL` (<= 60 s). Staleness bound: another instance's Follow, Unfollow or Block is seen here
+within that TTL. On THIS instance the pair is evicted by Follow, Unfollow and Block (both directions) as they commit; the
+caller's own Follow or Unfollow never changes `follows/{target}_{caller}` and evicts the opposite pair only. A Follow or
+Unfollow that lands between the edge read and its cache write can leave one stale answer for at most the same TTL.
+
+**Symptoms and what they mean**
+- "Follows you" shows up to a minute late, or disappears late, right after the other user followed or unfollowed: expected
+  when the write landed on another instance (max-instances 3). No action; it converges at the TTL.
+- `NOT_FOUND` ("profile not found") on the header, the target exists in the console: the target blocked the caller, is
+  SUSPENDED or DELETING, or was deleted. The answer is byte-identical to `GetProfile` on purpose (no existence leak): never
+  tell the caller which.
+- `followed_by` is `false` for a target the caller blocks even though an edge once existed: correct, Block deleted both
+  edges and a blocked pair cannot follow (ADR-0008 D9).
+- A wrong value that outlives the TTL on every instance: check invariant 1 (section 2) for that pair, and that
+  `follows/{target}_{caller}` is what you expect (point read in the console). A missing edge with a `following` entry is
+  a data bug, not a cache bug.
+- `INTERNAL` from this RPC: the edge point read or the profile lookup failed; the logged cause has the uids replaced by
+  their hash. Retry once; if it persists look at Firestore status and `docs/runbooks/cost-spike.md`. Reads from the RPC
+  are covered by the per-user read budget; a client polling it hits `RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN` (60 per
+  instance) first.
+- Kill switch: `FEATURE_GRAPH=off` (the whole service). The client treats `FEATURE_DISABLED` and `UNIMPLEMENTED` as "unknown"
+  and hides the chip; nothing stored changes.
+
+## 6. Who to follow (`ListSuggestedUsers`): empty, stale, slow or erroring
 ADR-0024 D8, ticket W3-12, behind `FEATURE_GRAPH` and `FEATURE_FOLLOW_SUGGESTIONS` (section 4). At most 5 rows
 (`SUGGESTIONS_MAX_RESULTS`), no cursor, `since` unset, an empty list is a normal answer.
 

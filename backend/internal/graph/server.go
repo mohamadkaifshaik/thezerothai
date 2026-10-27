@@ -240,8 +240,9 @@ func (s *Server) RespondToFollowRequest(ctx context.Context, _ *connect.Request[
 	return nil, apierr.ToConnect(flags.DisabledError())
 }
 
-// GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC (ADR-0024 D7). Until W3-11 it passes the
-// gate and answers Unimplemented: 0 reads, 0 writes (3 cold reads, 0 warm once W3-11 lands).
+// GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC (ADR-0024 D7); the logic is in
+// relationship.go.
+// 3 cold reads (interceptor, caller graph, edge doc; +1 Directory if cold, +1 on blockedByOverflow), 0 warm, 0 writes.
 func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Request[graphv1.GetProfileRelationshipRequest]) (*connect.Response[graphv1.GetProfileRelationshipResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.GetProfileRelationshipResponse, error) {
 		pr, err := s.svc.GetProfileRelationship(ctx, uid, req.Msg.GetUserId())

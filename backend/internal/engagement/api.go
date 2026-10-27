@@ -271,3 +271,30 @@ type BookmarkRepo interface {
 
 // MaxListPage is the largest ListBookmarks page (CLAUDE.md rule 5).
 const MaxListPage = limits.MaxPageSize
+
+// LikesList is the likes-list seam of the module (ADR-0024 D6, ticket W3-10): the Connect handler depends on it, a later
+// split into its own service (or a `likes (uid, createdAt)` index or SQL table at Stage 2/3) changes no caller. It is
+// owner-only (there is no user id in the request), reads posts only through posts.Reader.GetMany, writes nothing and
+// notifies nobody.
+type LikesList interface {
+	// ListLikedPosts returns one page of uid's own likes, most recently liked first, as live posts (ADR-0024 D6).
+	// pageSize 0 is 20, clamped to 1..50; pageToken is empty for the first page. A foreign, expired or tampered token
+	// is VALIDATION page_token with 0 reads. The ids come from userLikes.recent (the last MaxRecentLikes likes) through
+	// the 60 s instance cache. Reads cold: userLikes 1, GetMany <= len(page) (0 for cached posts), the caller's graph
+	// snapshot 1 (only when a row of someone else is live), the viewer state 0 (same userLikes state): 22 at page 20
+	// and 52 at page 50, 23 / 53 with the interceptor's own read; an empty array 1 (2 with the interceptor). Writes 0,
+	// and nothing is pruned: a row whose post is gone is only dropped from the page.
+	ListLikedPosts(ctx context.Context, uid string, pageSize int32, pageToken string) (LikesPage, error)
+}
+
+// LikesPage is one page of ListLikedPosts. Posts may be shorter than the page size: rows whose post is missing, hidden
+// or by a blocked or muted author are dropped after the read (ADR-0024 D6), so the client keeps following
+// NextPageToken until it is empty.
+type LikesPage struct {
+	// Posts are the live posts, most recently liked first.
+	Posts []*posts.Post
+	// Viewer is the caller's viewer state for Posts (posts.HydrateViewer): the zero set when no row is left.
+	Viewer posts.ViewerSet
+	// NextPageToken is "" when this was the last page.
+	NextPageToken string
+}

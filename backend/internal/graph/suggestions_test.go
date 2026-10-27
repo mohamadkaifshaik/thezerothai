@@ -117,35 +117,6 @@ func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
 	}
 }
 
-// TestGetProfileRelationship_FlagMatrix (ADR-0024 D7, D9): it is gated by FEATURE_GRAPH only; no W3 flag changes the
-// answer. Today a passed gate is Unimplemented (W3-11). 0 reads, 0 writes either way.
-func TestGetProfileRelationship_FlagMatrix(t *testing.T) {
-	tests := []struct {
-		name     string
-		reg      []flags.Spec
-		wantPass bool
-	}{
-		{"graph on", []flags.Spec{{Name: graphFlagName, Mode: flags.On}}, true},
-		{"graph on, suggestions off", []flags.Spec{{Name: graphFlagName, Mode: flags.On}, {Name: FollowSuggestionsFlagName, Mode: flags.Off}}, true},
-		{"graph off", []flags.Spec{{Name: graphFlagName, Mode: flags.Off}}, false},
-		{"graph off, suggestions on", []flags.Spec{{Name: graphFlagName, Mode: flags.Off}, {Name: FollowSuggestionsFlagName, Mode: flags.On}}, false},
-		{"graph allowlist, caller out", []flags.Spec{{Name: graphFlagName, Mode: flags.Allowlist}}, false},
-		{"graph not registered", nil, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, counter := budget.WithCounter(w3Ctx("uid-1"))
-			_, err := w3Server(tt.reg...).GetProfileRelationship(ctx, connect.NewRequest(&graphv1.GetProfileRelationshipRequest{UserId: "uid-2"}))
-			if tt.wantPass {
-				assertUnimplemented(t, err, "W3-11")
-			} else if ae := featureDisabled(err); ae == nil || ae.Metadata["feature"] != "" {
-				t.Fatalf("err = %#v, want FEATURE_DISABLED without a feature (the whole service)", err)
-			}
-			budgettest.Assert(t, "GetProfileRelationship", counter, budgettest.Budget{})
-		})
-	}
-}
-
 // TestW3Stubs_Unauthenticated: no caller identity is Unauthenticated before any flag check.
 func TestW3Stubs_Unauthenticated(t *testing.T) {
 	srv := w3Server(flags.Spec{Name: graphFlagName, Mode: flags.On}, flags.Spec{Name: FollowSuggestionsFlagName, Mode: flags.On})
