@@ -334,8 +334,8 @@ not an app-layer rules engine:
 - Both: `force_destroy = false` + `lifecycle { prevent_destroy = true }` on the media bucket.
 - Lifecycle rules (cost and retention, not access control): `-media-upload` deletes objects at age 2 days; `-media` has one rule,
   delete when `daysSinceCustomTime` is 1 (ADR-0024 Amendment 1 A4, deletes replaced and removed avatars and banners; only the
-  API's retire step ever sets `customTime`). The `-media` rule is applied in dev (2026-10-27) and still pending in prod, which
-  waits for the founder's OK; check with
+  API's retire step ever sets `customTime`). The `-media` rule is applied in dev and in prod (both 2026-10-27, prod at 17:13
+  UTC); check with
   `gcloud storage buckets describe gs://<proj>-media --format="default(lifecycle_config)"`. See `docs/runbooks/media.md`
   ("Replaced and removed avatars and banners", "Verification of the retire step").
 
