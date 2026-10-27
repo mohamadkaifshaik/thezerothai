@@ -88,12 +88,6 @@ func tabPostIDs(r *timelinev1.GetUserTimelineResponse) []string {
 	return out
 }
 
-func reversed(xs []string) []string {
-	out := slices.Clone(xs)
-	slices.Reverse(out)
-	return out
-}
-
 // tabWorld is the data of the budget tests: an author with media posts, plain posts and reposts of another user's posts,
 // and a viewer who follows nobody.
 type tabWorld struct {
