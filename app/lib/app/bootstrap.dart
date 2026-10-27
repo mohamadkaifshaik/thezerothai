@@ -21,8 +21,10 @@ import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
+import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../features/engagement/domain/engagement_feature_flag.dart';
+import '../features/engagement/domain/likes_list_feature_flag.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/media_feature_flag.dart';
@@ -196,6 +198,18 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
     rateLimitHold: rateLimitHold,
   );
+  // The Likes tab of History (ADR-0024 D6, W3-18): ListLikedPosts behind the
+  // `likes_list` flag (0 RPCs while off). The gate reports nothing itself: the
+  // repository reports unexpected errors, but not UNIMPLEMENTED (a server that
+  // has not got the RPC yet), which only hides the tab for a while.
+  final likesGate = buildServiceGate(onboardingBloc, kFeatureLikesList);
+  final likesRepository = LikesRepository(
+    apiClient: apiClient,
+    gate: likesGate,
+    epoch: database.sessionEpoch,
+    onUnexpectedError: reportUnexpectedError,
+    rateLimitHold: rateLimitHold,
+  );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,
     store: NotificationsStore(database),
@@ -259,6 +273,7 @@ Future<void> bootstrap() async {
       moderationRepository: moderationRepository,
       engagementRepository: engagementRepository,
       bookmarksRepository: bookmarksRepository,
+      likesRepository: likesRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,

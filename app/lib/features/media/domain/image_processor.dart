@@ -20,7 +20,20 @@ const kPostThumbEdge = 400;
 const kAvatarFullEdge = 400;
 const kAvatarThumbEdge = 96;
 
-enum ImagePurpose { post, avatar }
+/// The banner (ADR-0024 D1): a center-cropped 3:1 band, full 1500 x 500 and
+/// thumb 600 x 200, under the banner's own, tighter caps (1 MiB / 128 KiB).
+/// The server checks the declared size: width <= 1500, height <= 500 and 3:1
+/// within 2%; this processor produces exactly 3:1.
+const kBannerFullWidth = 1500;
+const kBannerThumbWidth = 600;
+const kMaxBannerFullBytes = 1024 * 1024;
+const kMaxBannerThumbBytes = 128 * 1024;
+
+/// The smallest banner height worth cropping (a 48 x 16 band); anything
+/// thinner is reported as unusable instead of upscaled.
+const _kMinBannerHeight = 16;
+
+enum ImagePurpose { post, avatar, banner }
 
 /// Turns picked bytes into an upload-ready [ProcessedImage]. An interface so
 /// widget and cubit tests never decode real pixels.
@@ -57,7 +70,7 @@ ProcessedImage _run((Uint8List, ImagePurpose) args) =>
 /// - Flattens transparency onto white (JPEG has no alpha).
 /// - Downscales to the purpose's full edge (never upscales), encodes JPEG
 ///   stepping quality (then size) down until it fits the signed-URL cap.
-/// - Avatars are center-cropped to a square first.
+/// - Avatars are center-cropped to a square first, banners to exactly 3:1.
 ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
   img.Image? decoded;
   try {
@@ -81,6 +94,7 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
   }
 
   final avatar = purpose == ImagePurpose.avatar;
+  final banner = purpose == ImagePurpose.banner;
   if (avatar) {
     final side = math.min(source.width, source.height);
     source = img.copyCrop(
@@ -90,16 +104,29 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
       width: side,
       height: side,
     );
+  } else if (banner) {
+    source = _cropToBanner(source);
   }
-  final fullEdge = avatar ? kAvatarFullEdge : kPostFullEdge;
-  final thumbEdge = avatar ? kAvatarThumbEdge : kPostThumbEdge;
+  final fullEdge = banner
+      ? kBannerFullWidth
+      : (avatar ? kAvatarFullEdge : kPostFullEdge);
+  final thumbEdge = banner
+      ? kBannerThumbWidth
+      : (avatar ? kAvatarThumbEdge : kPostThumbEdge);
 
-  final full = _encodeWithin(source, fullEdge, kMaxFullBytes, quality: 80);
+  final full = _encodeWithin(
+    source,
+    fullEdge,
+    banner ? kMaxBannerFullBytes : kMaxFullBytes,
+    quality: 80,
+    threeToOne: banner,
+  );
   final thumb = _encodeWithin(
     full.image,
     thumbEdge,
-    kMaxThumbBytes,
+    banner ? kMaxBannerThumbBytes : kMaxThumbBytes,
     quality: 70,
+    threeToOne: banner,
   );
 
   final hashSource = img.copyResize(
@@ -121,6 +148,29 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
   );
 }
 
+/// The largest centered 3:1 crop of [source]: width is exactly three times
+/// the height, so every later resize keeps the shape the server checks.
+img.Image _cropToBanner(img.Image source) {
+  final height = math.min(source.height, source.width ~/ 3);
+  if (height < _kMinBannerHeight) throw const UnsupportedImageException();
+  final width = height * 3;
+  return img.copyCrop(
+    source,
+    x: (source.width - width) ~/ 2,
+    y: (source.height - height) ~/ 2,
+    width: width,
+    height: height,
+  );
+}
+
+/// [image] resized to [width] x [width] / 3 (never a rounded, off-shape size).
+img.Image _resizeThreeToOne(img.Image image, int width) => img.copyResize(
+  image,
+  width: width,
+  height: width ~/ 3,
+  interpolation: img.Interpolation.average,
+);
+
 class _Encoded {
   const _Encoded(this.image, this.bytes);
   final img.Image image;
@@ -128,33 +178,43 @@ class _Encoded {
 }
 
 /// Fits [source] into [edge] px on its longest side and encodes it at or
-/// under [maxBytes]: quality steps down first, then the image shrinks.
+/// under [maxBytes]: quality steps down first, then the image shrinks. With
+/// [threeToOne] [edge] is the width of a 3:1 band (a source that is exactly
+/// 3:1) and every size stays exactly 3:1.
 _Encoded _encodeWithin(
   img.Image source,
   int edge,
   int maxBytes, {
   required int quality,
+  bool threeToOne = false,
 }) {
   var current = source;
   final longest = math.max(current.width, current.height);
   if (longest > edge) {
-    current = img.copyResize(
-      current,
-      width: current.width >= current.height ? edge : null,
-      height: current.height > current.width ? edge : null,
-      interpolation: img.Interpolation.average,
-    );
+    current = threeToOne
+        ? _resizeThreeToOne(current, edge)
+        : img.copyResize(
+            current,
+            width: current.width >= current.height ? edge : null,
+            height: current.height > current.width ? edge : null,
+            interpolation: img.Interpolation.average,
+          );
   }
   for (var shrink = 0; shrink < 6; shrink++) {
     for (var q = quality; q >= 40; q -= 10) {
       final out = Uint8List.fromList(img.encodeJpg(current, quality: q));
       if (out.length <= maxBytes) return _Encoded(current, out);
     }
-    current = img.copyResize(
-      current,
-      width: math.max(1, (current.width * 0.75).round()),
-      interpolation: img.Interpolation.average,
-    );
+    current = threeToOne
+        ? _resizeThreeToOne(
+            current,
+            math.max(3, (current.width * 0.75).round() ~/ 3 * 3),
+          )
+        : img.copyResize(
+            current,
+            width: math.max(1, (current.width * 0.75).round()),
+            interpolation: img.Interpolation.average,
+          );
   }
   throw const UnsupportedImageException('Image is too large to upload.');
 }

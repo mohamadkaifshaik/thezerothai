@@ -5,6 +5,33 @@ import '../../../core/network/api_client.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 
+/// Builds an `UpdateProfile` request where **field presence is the signal**
+/// (ADR-0024 D1-D3): a null argument leaves the field out (unchanged), a
+/// non-null one sets it, and `""` is a real value that clears
+/// `banner_media_id`, `location`, `website` or `pinned_post_id`. Every
+/// `UpdateProfile` caller goes through this one place, so the pin menu
+/// (W3-17) shapes its request exactly like Edit profile.
+identity.UpdateProfileRequest buildUpdateProfileRequest({
+  required String idempotencyKey,
+  String? displayName,
+  String? bio,
+  String? avatarMediaId,
+  String? bannerMediaId,
+  String? location,
+  String? website,
+  String? pinnedPostId,
+}) {
+  final request = identity.UpdateProfileRequest(idempotencyKey: idempotencyKey);
+  if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
+  if (displayName != null) request.displayName = displayName;
+  if (bio != null) request.bio = bio;
+  if (bannerMediaId != null) request.bannerMediaId = bannerMediaId;
+  if (location != null) request.location = location;
+  if (website != null) request.website = website;
+  if (pinnedPostId != null) request.pinnedPostId = pinnedPostId;
+  return request;
+}
+
 /// Talks to `IdentityService` and keeps the local profile cache (drift) in
 /// sync, so `GetMe`/`GetProfile` are only ever a Firestore read the client
 /// couldn't avoid, never a redundant one (CLAUDE.md prime directive).
@@ -85,10 +112,16 @@ class IdentityRepository {
   }
 
   /// Partial update of the caller's own profile (P2): only the non-null
-  /// fields are sent and changed. [avatarMediaId] is a READY avatar media id
-  /// from MediaService (P4; with `FEATURE_MEDIA` off the server answers
-  /// MEDIA_NOT_READY). Privacy is deliberately not exposed (the server
-  /// rejects it until private accounts).
+  /// fields are sent and changed (see [buildUpdateProfileRequest]).
+  /// [avatarMediaId] is a READY avatar media id from MediaService (P4; with
+  /// `FEATURE_MEDIA` off the server answers MEDIA_NOT_READY). Privacy is
+  /// deliberately not exposed (the server rejects it until private accounts).
+  ///
+  /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
+  /// `profile_extras` fields (ADR-0024): the server refuses **any** of them,
+  /// even an empty one, with FEATURE_DISABLED unless `profile_extras` is on
+  /// for the caller, so callers gate them on that flag (the Edit profile
+  /// cubit, the pin menu) and pass null otherwise. `""` clears one.
   /// [idempotencyKey] must be reused when retrying the same edit. Updates
   /// the local profile cache with the server's copy.
   Future<identity.Profile> updateProfile({
@@ -96,15 +129,23 @@ class IdentityRepository {
     String? displayName,
     String? bio,
     String? avatarMediaId,
+    String? bannerMediaId,
+    String? location,
+    String? website,
+    String? pinnedPostId,
   }) {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
-      final request = identity.UpdateProfileRequest(
+      final request = buildUpdateProfileRequest(
         idempotencyKey: idempotencyKey,
+        displayName: displayName,
+        bio: bio,
+        avatarMediaId: avatarMediaId,
+        bannerMediaId: bannerMediaId,
+        location: location,
+        website: website,
+        pinnedPostId: pinnedPostId,
       );
-      if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
-      if (displayName != null) request.displayName = displayName;
-      if (bio != null) request.bio = bio;
       final response = await _apiClient.identity.updateProfile(request);
       await _cacheProfile(response.profile, epoch);
       return response.profile;
