@@ -7,6 +7,9 @@ Backfill: dry run `scanned=74 missing=73 would_update=73`; real run `reads=74 wr
 `api-00564-vik`, main `b0bc56d7`) has served 100% since about 17:16 UTC. Fallback revision: `api-00564-vik` (no W3 env; `last-good` is `api-00561-meb`). Smoke: the server-side legs that need no
 credential ran and passed; the authenticated legs (4.1, 4.2) are still owed to the testers (section 8). The text of sections 1 to 7 below is the plan as written before the apply; the revision names
 in it (`api-00558-viz`, `api-00555-yeq`) are the ones that served then. Prod: no change, and prod stays on hold (`docs/pending.md` 1.2).
+**Current dev revision (2026-10-27 17:56 UTC): `api-00307-fcs`**, not `api-00306-482`: the ADR-0024 A4 switch `PROFILE_MEDIA_RETIRE` went `off` to `banner` as its own targeted plan and apply
+(one env value, same image digest, the four W3 flags still `allowlist` 3/3; `docs/runbooks/media.md`, "Results, dev, banner switch"). `api-00306-482` is now the previous revision and the
+fast fallback for that change (same image, switch `off`, W3 flags unchanged); the W3-24 fallback above (`api-00564-vik`) is for rolling the W3 flags back. `last-good` is still `api-00561-meb`.
 Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-24). Decisions: ADR-0024 and its Amendment 1.
 Related: `docs/runbooks/posts.md` section 13 (backfill), `docs/runbooks/identity.md`, `docs/runbooks/graph.md` sections 5 and 6,
 `docs/runbooks/engagement.md`, `docs/runbooks/bookmarks.md` ("Dev rollout", the W2-16 precedent), `docs/runbooks/rollback.md`,
