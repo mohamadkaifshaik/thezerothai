@@ -82,7 +82,7 @@ func inWin(p *posts.Post, w posts.Window) bool {
 	return true
 }
 
-func (f *fakePosts) query(ctx context.Context, label string, authors []string, w posts.Window, limit int, rootOnly bool) []*posts.Post {
+func (f *fakePosts) query(ctx context.Context, label string, authors []string, w posts.Window, limit int, keep func(*posts.Post) bool) []*posts.Post {
 	f.mu.Lock()
 	f.inFlight++
 	f.maxInFlight = max(f.maxInFlight, f.inFlight)
@@ -98,7 +98,7 @@ func (f *fakePosts) query(ctx context.Context, label string, authors []string, w
 	var out []*posts.Post
 	for _, a := range authors {
 		for _, p := range f.byAuthor[a] {
-			if inWin(p, w) && (!rootOnly || !p.IsReply) {
+			if inWin(p, w) && keep(p) {
 				out = append(out, p)
 			}
 		}
@@ -115,12 +115,33 @@ func (f *fakePosts) ByAuthors(ctx context.Context, authors []string, w posts.Win
 	if len(authors) > posts.MaxByAuthors {
 		return nil, fmt.Errorf("too many authors %d", len(authors))
 	}
-	return f.query(ctx, fmt.Sprintf("ByAuthors(%d)", len(authors)), authors, w, limit, true), nil
+	return f.query(ctx, fmt.Sprintf("ByAuthors(%d)", len(authors)), authors, w, limit, rootPost), nil
 }
 
 func (f *fakePosts) ByAuthor(ctx context.Context, author string, includeReplies bool, w posts.Window, limit int) ([]*posts.Post, error) {
-	return f.query(ctx, "ByAuthor", []string{author}, w, limit, !includeReplies), nil
+	keep := anyPost
+	if !includeReplies {
+		keep = rootPost
+	}
+	return f.query(ctx, "ByAuthor", []string{author}, w, limit, keep), nil
 }
+
+// ByAuthorMedia is Q-M: the author's posts with hasMedia true (the fake trusts Post.HasMedia, as the stored field is
+// trusted), newest first, inside the window, Limit clamped, reads = max(rows, 1).
+func (f *fakePosts) ByAuthorMedia(ctx context.Context, author string, w posts.Window, limit int) ([]*posts.Post, error) {
+	return f.query(ctx, "ByAuthorMedia", []string{author}, w, limit, func(p *posts.Post) bool { return p.HasMedia }), nil
+}
+
+// ByAuthorKind is Q-B: the author's posts of one kind. Like the real query it refuses an empty kind before any read.
+func (f *fakePosts) ByAuthorKind(ctx context.Context, author string, kind posts.Kind, w posts.Window, limit int) ([]*posts.Post, error) {
+	if kind == "" {
+		return nil, fmt.Errorf("empty kind")
+	}
+	return f.query(ctx, "ByAuthorKind("+string(kind)+")", []string{author}, w, limit, func(p *posts.Post) bool { return p.Kind == kind }), nil
+}
+
+func rootPost(p *posts.Post) bool { return !p.IsReply }
+func anyPost(*posts.Post) bool    { return true }
 
 func (f *fakePosts) AuthorRecent(a string) (posts.Recent, bool) {
 	f.mu.Lock()

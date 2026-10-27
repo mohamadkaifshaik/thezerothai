@@ -102,6 +102,16 @@ func (emptyReader) ByAuthors(context.Context, []string, posts.Window, int) ([]*p
 	return nil, nil
 }
 
+// ByAuthorMedia and ByAuthorKind are the Media and Reposts tab queries (ADR-0024 D5, W3-9): empty, so a tab call that
+// passes the flag gate runs without a Firestore repo.
+func (emptyReader) ByAuthorMedia(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
+func (emptyReader) ByAuthorKind(context.Context, string, posts.Kind, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 // emptyGraph is a caller with no social context.
 type emptyGraph struct{}
 

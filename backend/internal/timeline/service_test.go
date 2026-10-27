@@ -496,7 +496,7 @@ func TestHome_TokenRejectionsCostNothing(t *testing.T) {
 }
 
 func userTok(r *rig) string {
-	return newCodec(r.clock).encodeSince(userFeed("me", "f1", false), pos(1000, 1))
+	return newCodec(r.clock).encodeSince(userFeed("me", "f1", tabPosts), pos(1000, 1))
 }
 
 func TestHome_TokensOlderThan24hAreAcceptedUntilTheTTL(t *testing.T) {
