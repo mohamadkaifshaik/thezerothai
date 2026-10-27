@@ -262,6 +262,8 @@ locals {
     { name = "RATE_LIMIT_LIKES_LIST_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", value = "60" },
     { name = "SUGGESTIONS_CALLS_PER_DAY", value = "50" },
+    # W3-22 L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
+    { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
     { name = "SUGGESTIONS_SAMPLE_FOLLOWEES", value = "30" },
     { name = "SUGGESTIONS_EDGE_LIMIT", value = "30" },
     { name = "SUGGESTIONS_HYDRATE_MAX", value = "10" },

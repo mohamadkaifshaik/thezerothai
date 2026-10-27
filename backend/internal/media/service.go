@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sync/singleflight"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -31,6 +32,8 @@ const (
 	fieldVisionUnits = "vision_units"
 	fieldExhausted   = "vision_cap_exhausted"
 	fieldConverged   = "finalize_converged" // a lost finalize race answered with the winner's result
+	fieldBusy        = "finalize_busy"      // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
+	fieldJoined      = "finalize_joined"    // answered with the result of a same-instance call already finalizing this image
 )
 
 // mediaIDPattern is the media id shape (19-digit zero-padded Snowflake decimal, like post ids).
@@ -75,6 +78,9 @@ type Deps struct {
 type service struct {
 	Deps
 	vision *visionBudget
+	// flight collapses concurrent FinalizeUpload calls for one media id on this instance (W3-22 M-3, part a); the
+	// screening claim (part b) covers the other instances.
+	flight singleflight.Group
 }
 
 // New builds the media service. Missing dependencies are a programming error caught at startup.

@@ -36,6 +36,27 @@ Vision (or its credentials) failed. Nothing was published and the image is still
 Check the Vision API is enabled in the project and the runtime service account can read the upload bucket. If it persists
 for hours, set `VISION_MONTHLY_CAP=0` only if you accept unscreened publishing for established accounts (D7).
 
+### FinalizeUpload answers "the upload is not complete yet" after the PUTs finished (screening claim, W3-22 M-3)
+One call per image screens at a time. Before it reserves Vision units, FinalizeUpload writes `screeningUntil = now + 30 s`
+on the PENDING `media/<id>` document, conditional on the document's UpdateTime (1 write per image, so a finalize is
+`2n + 1` writes: claim and resolve per image, plus the Vision counter). A second call for the same image, usually a double
+tap or a client retry that landed on another instance, loses that write or sees the live claim, spends nothing, and
+answers the retryable `MEDIA_NOT_READY` (or the winner's READY result once the winner has finished). Calls on one
+instance share a single flight and all get the same result.
+1. Request log lines: `finalize_busy=true` with `outcome=rejected:upload_incomplete` and `vision_units=0` is a loser;
+   `finalize_joined=true` is a same-instance call that shared the leader's result. A burst of them is a client retry
+   loop, not an outage, and costs 1 to 2 reads each.
+2. A claim a crashed call left behind expires on its own after 30 s; a failed attempt (Vision or GCS error) releases it, so
+   the client's "try again" works at once. If a PENDING document still carries a `screeningUntil` more than a minute in the
+   past or the future, delete that field in the Firestore console; nothing else is wrong with the document.
+3. Spend check: summing `vision_units` over the FinalizeUpload lines of one media id must give 1 or 2 (a BANNER always 2).
+   More means a screening outlived its 30 s claim (Vision slower than its 10 s deadline plus the copies), so a second call
+   screened too: look at Vision latency before raising anything.
+4. Client side: the app reads `MEDIA_NOT_READY` from a finalize as "the object is missing" (`media_uploader.dart`) and re-signs and
+   PUTs the image again before it retries. For a call that lost the claim that is one wasted upload (at most 1 MiB or 2 MiB
+   plus the thumbnail, one Class A operation per file); the image itself is already being published by the winner. A distinct
+   reason would need a proto change, so it is not done here.
+
 ### A deleted post's images are still served
 `post_delete` failed or was never published (`post_delete_job_publish_failed` in Error Reporting).
 1. Find the post's media: Firestore `media` where `postId == <id>` (Limit 4).
@@ -51,7 +72,7 @@ objects after 2 days. No action. If the bucket grows, check the lifecycle rule i
 ### Banners (ADR-0024 D1, W3-5)
 A BANNER is one image per `CreateUpload` (declared width <= 1500, height <= 500, 3:1 within 2%), with its own byte caps bound
 into the signed URLs: full <= 1 MiB, thumb <= 128 KiB (POST and AVATAR keep 2 MiB / 256 KiB). `FinalizeUpload` always screens
-full and thumb for a BANNER (2 Vision units, whatever `VISION_SCREEN_THUMB` says) and blocks LIKELY racy, like an avatar. A
+full and thumb for a BANNER (2 Vision units, whatever `VISION_SCREEN_THUMB` says, once per image: see the screening claim above) and blocks LIKELY racy, like an avatar. A
 rejected banner is `REJECTED` with reason `policy`; at the Vision cap `VISION_EXHAUSTED_POLICY` applies unchanged (one unit left
 is not enough for a banner: an established account publishes it `READY_UNSCREENED`). Banners share the 20/day `uploads` quota.
 The request log lines carry `purpose` (`POST`, `AVATAR`, `BANNER`; `MIXED` on a finalize that spans purposes) and, on

@@ -445,7 +445,7 @@ what the model multiplies.
 | `GetUserTimeline` REPOSTS, page 20 / 50 | same: 24 / 54; 20 warm (20) | 0 | 0 | 0.15 | 3.0 |
 | `GetPost` of a pinned post (existing RPC) | 4 / 0 (1) | 0 | 0 | 0.6 | 0.6 |
 | `UpdateProfile` with banner, meta or pin | 2 / 1 + 1 banner resolve + 1 pin check (4 worst cold, planning 2) | 1 | 0 | 0.03 | 0.06 |
-| `CreateUpload` + `FinalizeUpload`, BANNER | 2 / 1 + 5 / 1.7 (existing rows) | 3.3 + 2.7 | 1 (TTL) | 0.005 | 0.01 |
+| `CreateUpload` + `FinalizeUpload`, BANNER | 2 / 1 + 5 / 1.7 (existing rows) | 3.3 + 4.4 (the finalize was 2.7 before W3-22 M-3 added the screening claim write; the whole-product writes per DAU move by under 0.01) | 1 (TTL) | 0.005 | 0.01 |
 | `ListLikedPosts`, page 20 / 50 | 23 / 53 cold; 20 / 50 warm; empty 2 (22) | 0 | 0 | 0.2 | 4.4 |
 | `GetProfileRelationship` (replaces the header's `GetRelationships`) | 3 cold (+1 overflow) / 0 warm (1; +0.5 net over the replaced call) | 0 | 0 | 2 | 1.0 |
 | `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm (25) | 0 | 0 | 1.0 | 25.0 |
