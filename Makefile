@@ -36,6 +36,14 @@ FIREBASE := $(shell command -v firebase 2>/dev/null || echo "npx -y firebase-too
 # tests/e2e need no extra env var to agree with the running emulators on a project ID.
 EMULATOR_PROJECT := demo-dzeroth-local
 
+# Every recipe below that starts the Firebase Emulator Suite runs behind scripts/with-private-tmp.sh: a private,
+# per-run TEMP/TMP/TMPDIR for the emulator process (and what it starts), removed afterwards. The Storage emulator
+# keeps its blobs in os.tmpdir()/firebase/storage/blobs, shared by every suite on the machine whatever the ports and
+# project ids, so two concurrent suites wiped each other's blobs and the first one crashed mid-upload (ENOENT, then
+# the Auth emulator refused connections; test-report-w3 D-2). Run any raw `firebase emulators:*` the same way, and see
+# docs/runbooks/emulator-collisions.md. `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
+EMULATOR_TMP := bash scripts/with-private-tmp.sh
+
 .PHONY: proto ci emulators test-int dev cost loadtest fmt vet test flutter-analyze flutter-test help
 
 help:
@@ -110,7 +118,7 @@ ci: fmt vet test
 
 ## emulators: Firebase Emulator Suite only (Firestore, Auth, Pub/Sub, Storage). $0, local dev/test.
 emulators:
-	$(FIREBASE) emulators:start --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage
+	$(EMULATOR_TMP) $(FIREBASE) emulators:start --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage
 
 ## test-int: emulator integration tests, backend/**/*_integration_test.go (//go:build integration), plus
 ## the combined (unit + integration) 70% coverage gate on internal/<module> (testing-strategy skill) that
@@ -127,7 +135,7 @@ emulators:
 ## vars set before a child process always propagate to it regardless of which shell the child itself uses.
 export FIREBASE_PROJECT_ID := $(EMULATOR_PROJECT)
 test-int:
-	$(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
+	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
 		'cd $(BACKEND_DIR) && go test -tags=integration $(RACE_FLAG) -coverprofile=cover-internal.out -coverpkg=./internal/... ./...'
 	@echo "==> internal/ coverage gate (combined unit + integration, $(COVERAGE_THRESHOLD)%)"
 	@cd $(BACKEND_DIR) && go tool cover -func=cover-internal.out | tail -1
@@ -151,7 +159,7 @@ test-int:
 ## on PATH on Windows), and the script it runs is always interpreted by a real bash on every platform.
 export PORT ?= 8081
 dev:
-	$(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
+	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
 		'bash scripts/dev.sh'
 
 ## cost: print the documented free-tier budget table, and (if PROJECT_ID is set) the last 24h of

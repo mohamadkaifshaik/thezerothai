@@ -11,6 +11,11 @@
 # run a script), while this script itself is always interpreted by a real bash, on every platform, since it
 # names its own interpreter explicitly.
 #
+# Private temp dir: `make dev` runs the whole `emulators:exec` behind scripts/with-private-tmp.sh, so this
+# script, `go run` and `flutter run` inherit the run's private TEMP/TMP/TMPDIR (removed when make dev ends).
+# Nothing to set here: the emulators already started with it before this script was spawned, and
+# re-pointing TEMP in this process would isolate nothing.
+#
 # BACKEND_DIR / APP_DIR / PORT come from the environment (exported by the Makefile) rather than being
 # substituted by Make into this file's text, since this runs as its own process, not a Make recipe line.
 set -euo pipefail

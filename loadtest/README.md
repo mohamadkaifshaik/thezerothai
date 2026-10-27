@@ -9,7 +9,9 @@ how many requests k6 manages to fire.
 
 - `k6` installed locally (`choco install k6` / `brew install k6` / see https://k6.io/docs/get-started/installation/).
   `make loadtest` does not install it for you; if it's missing the target just fails with `k6: command not found`.
-- Emulators running: `make emulators` (or `firebase emulators:start --project demo-dzeroth-local --only firestore,auth,pubsub,storage`).
+- Emulators running: `make emulators` (or `bash scripts/with-private-tmp.sh firebase emulators:start --project demo-dzeroth-local --only firestore,auth,pubsub,storage`;
+  the wrapper gives the run a private temp directory so another suite on the machine cannot wipe the Storage emulator's blobs,
+  `docs/runbooks/emulator-collisions.md`).
 - The API running against those emulators, **on a port other than 8080** (the Firestore emulator already
   owns 8080 — see the Makefile's `dev` target comment):
 
@@ -42,7 +44,8 @@ The graph scenarios share `graph_common.js`, and `analyze_logs.js` turns the API
 `fs_reads`. They share 127.0.0.1, so raise `RATE_LIMIT_PER_IP_PER_MIN` and `RATE_LIMIT_PRE_AUTH_IP_PER_MIN` on the
 API for the run (and only those). To run beside another emulator suite, use `firebase.graph-loadtest.json`
 (Firestore 18080, Auth 19099, Pub/Sub 18085, Storage 19199) and API `PORT=18081`, with `API_URL` and
-`AUTH_EMULATOR_HOST` set accordingly. Measured results and findings: `docs/archive/reviews/loadtest-graph.md`.
+`AUTH_EMULATOR_HOST` set accordingly. Start that suite behind `scripts/with-private-tmp.sh` too (ports alone do not stop two
+suites sharing the Storage blob directory; `docs/runbooks/emulator-collisions.md`). Measured results and findings: `docs/archive/reviews/loadtest-graph.md`.
 
 Run one with:
 
