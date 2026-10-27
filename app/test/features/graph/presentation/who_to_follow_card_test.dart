@@ -233,6 +233,45 @@ void main() {
       expect(find.text('User 3'), findsOneWidget);
     });
 
+    testWidgets('a follow refused with NOT_FOUND drops the row silently and '
+        'the next suggestion moves up (blocked-by, suspended, gone: L-1)', (
+      tester,
+    ) async {
+      followError = const NotFoundException('not found');
+      await open(tester);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      // No error, no snackbar: the row simply is not there any more.
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.text("This account doesn't exist anymore."), findsNothing);
+      expect(find.text('User 1'), findsNothing);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+      expect(find.text('User 4'), findsOneWidget);
+      expect(find.text('Show more'), findsOneWidget);
+      // Dropped for good (not just hidden for the session), and nothing was
+      // reported as followed.
+      expect(repo.dropped, {'u1'});
+      expect(followed, isEmpty);
+    });
+
+    testWidgets('after a dropped row the next Follow still acts on its own '
+        'account, and any other refusal still keeps the row', (tester) async {
+      followError = const NotFoundException('not found');
+      await open(tester);
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      followError = const QuotaExceededException('limit');
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('User 2'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(repo.dropped, {'u1'});
+    });
+
     testWidgets('a rejected follow keeps the row and says why', (tester) async {
       followError = const QuotaExceededException('limit');
       await open(tester);

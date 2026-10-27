@@ -15,11 +15,6 @@ import '../../../onboarding/data/identity_repository.dart';
 import '../../domain/profile_edit_feature_flag.dart';
 import '../../domain/profile_extras_rules.dart';
 
-/// Server limits (`displayNameIssue` / `bioIssue` in
-/// `backend/internal/identity/validate.go`): 1-50 and 0-160 characters.
-const kMaxDisplayNameLength = 50;
-const kMaxBioLength = 160;
-
 enum EditProfileStatus { editing, saving, saved }
 
 /// The two pictures Edit profile can change.
@@ -116,10 +111,13 @@ class EditProfileState {
 
   bool get isSaving => status == EditProfileStatus.saving;
 
-  /// Characters left in the name (negative when over the limit).
-  int get displayNameRemaining =>
-      kMaxDisplayNameLength - displayName.trim().runes.length;
-  int get bioRemaining => kMaxBioLength - bio.trim().runes.length;
+  /// Code points left in the name and bio after trim and NFC (negative when
+  /// over the limit): the count the server checks.
+  int get displayNameRemaining => profileNameRemaining(displayName);
+  int get bioRemaining => profileBioRemaining(bio);
+
+  DisplayNameIssue? get displayNameProblem => displayNameIssue(displayName);
+  BioIssue? get bioProblem => bioIssue(bio);
 
   /// Code points left in the location after trim and NFC (negative when over).
   int get locationRemainingChars => locationRemaining(location);
@@ -270,11 +268,12 @@ class EditProfileCubit extends Cubit<EditProfileState> {
   bool get hasSavedBanner =>
       _initial.bannerUrl.isNotEmpty || _initial.bannerThumbUrl.isNotEmpty;
 
-  String get _trimmedName => state.displayName.trim();
-  String get _trimmedBio => state.bio.trim();
+  // What is sent: trimmed, then NFC, as the server stores it.
+  String get _name => normalizeDisplayName(state.displayName);
+  String get _bio => normalizeBio(state.bio);
 
-  bool get isNameChanged => _trimmedName != _initial.displayName;
-  bool get isBioChanged => _trimmedBio != _initial.bio;
+  bool get isNameChanged => _name != _initial.displayName;
+  bool get isBioChanged => _bio != _initial.bio;
   bool get isLocationChanged =>
       state.extrasEnabled &&
       normalizeProfileLocation(state.location) != _initial.location;
@@ -296,9 +295,8 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       isBannerChanged;
 
   bool get _valid =>
-      _trimmedName.isNotEmpty &&
-      state.displayNameRemaining >= 0 &&
-      state.bioRemaining >= 0 &&
+      state.displayNameProblem == null &&
+      state.bioProblem == null &&
       (!state.extrasEnabled ||
           (state.locationProblem == null &&
               state.websiteProblem == null &&
@@ -484,8 +482,8 @@ class EditProfileCubit extends Cubit<EditProfileState> {
 
   Future<void> save() async {
     if (!canSave) return;
-    final name = isNameChanged ? _trimmedName : null;
-    final bio = isBioChanged ? _trimmedBio : null;
+    final name = isNameChanged ? _name : null;
+    final bio = isBioChanged ? _bio : null;
     // Each extra is read only while the extras are on (the getters check it):
     // a switched-off account never has a banner, location or website in the
     // request.

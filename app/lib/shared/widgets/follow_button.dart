@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/network/app_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/bloc/relationship_state.dart';
@@ -21,15 +22,22 @@ import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 ///   defensively since the enum value exists on the wire.
 /// - Updates optimistically (via the cubit) and shows a friendly snackbar,
 ///   never the raw server message, if the server rejects the action.
+/// - [onGone] (optional): the server answered NOT_FOUND, so the account is
+///   blocked, suspended or deleted. It is called once instead of the
+///   snackbar: a list that offers accounts (the "Who to follow" card) drops
+///   the row rather than say "This account doesn't exist anymore.".
 const _minSize = Size(88, AppSpacing.minTapTarget);
 
 class FollowButton extends StatelessWidget {
   /// [followedBy]: the other user follows the viewer, so the not-following
   /// state reads "Follow back" (only the profile header knows this; list rows
   /// pass nothing).
-  const FollowButton({super.key, this.followedBy = false});
+  const FollowButton({super.key, this.followedBy = false, this.onGone});
 
   final bool followedBy;
+
+  /// Called, with no snackbar, when the action fails with NOT_FOUND.
+  final VoidCallback? onGone;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +45,11 @@ class FollowButton extends StatelessWidget {
       listener: (context, state) {
         final error = state.error;
         if (error == null) return;
+        final onGone = this.onGone;
+        if (error is NotFoundException && onGone != null) {
+          onGone();
+          return;
+        }
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(

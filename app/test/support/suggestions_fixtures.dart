@@ -123,6 +123,7 @@ class FakeSuggestionsRepository implements SuggestionsRepository {
 
   List<graph.UserListItem> rows;
   final Set<String> hidden = {};
+  final Set<String> dropped = {};
   int calls = 0;
   int clears = 0;
 
@@ -140,6 +141,12 @@ class FakeSuggestionsRepository implements SuggestionsRepository {
 
   @override
   void hide(String uid, String userId) => hidden.add(userId);
+
+  @override
+  void drop(String uid, String userId) {
+    dropped.add(userId);
+    hidden.add(userId);
+  }
 
   @override
   void clearSession() => clears++;
