@@ -46,7 +46,9 @@ const kSuggestionsFailureBackoff = Duration(minutes: 10);
 /// - **Dismissals and follows** hide a row for the session only (memory; the
 ///   server stores nothing). Rows the local graph state already knows as
 ///   followed, requested, blocked or muted, and the account itself, are
-///   dropped on every read, even though the server never returns them.
+///   dropped on every read, even though the server never returns them. A row
+///   the server answers NOT_FOUND for (blocked-by, suspended, gone) is
+///   [drop]ped: out of the cached answer too, restarts included (W3-22 L-1).
 /// - **Sessions.** Everything in memory is tied to
 ///   `AppDatabase.sessionEpoch`: after sign-out nothing of the previous
 ///   account is returned and a response that lands late is dropped.
@@ -107,6 +109,34 @@ class SuggestionsRepository {
   void hide(String uid, String userId) {
     _syncEpoch();
     _hidden.putIfAbsent(uid, () => {}).add(userId);
+  }
+
+  /// Removes [userId] for good from the cached answer of [uid]: in memory and
+  /// in the disk entry (rewritten with the original age, so the 24 h window is
+  /// not stretched), and for the rest of the session. For a row the server
+  /// says is gone (NOT_FOUND on Follow: the account was blocked, suspended or
+  /// deleted; W3-22 L-1): [hide] alone would bring it back after a restart
+  /// from the cache. The disk write is best effort, like every other.
+  void drop(String uid, String userId) {
+    _syncEpoch();
+    final epoch = _epoch;
+    hide(uid, userId);
+    final entry = _memory[uid];
+    if (entry == null || !entry.users.any((u) => u.user.userId == userId)) {
+      return;
+    }
+    final kept = List<graph.UserListItem>.unmodifiable([
+      for (final u in entry.users)
+        if (u.user.userId != userId) u,
+    ]);
+    final updated = _Entry(entry.at, kept);
+    _memory[uid] = updated;
+    _writeDisk(
+      uid,
+      epoch,
+      updated,
+      graph.ListSuggestedUsersResponse(users: kept),
+    );
   }
 
   /// Forgets everything held in memory (sign-out). The disk entry is wiped by
