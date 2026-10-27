@@ -22,6 +22,8 @@ import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import '../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
+import '../features/graph/data/suggestions_repository.dart';
+import '../features/graph/presentation/bloc/suggestions_cubit.dart';
 import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
@@ -50,6 +52,7 @@ class AppWidget extends StatefulWidget {
     required this.onboardingBloc,
     required this.identityRepository,
     required this.graphRepository,
+    required this.suggestionsRepository,
     required this.accountRepository,
     required this.authRepository,
     required this.database,
@@ -74,6 +77,10 @@ class AppWidget extends StatefulWidget {
   final OnboardingBloc onboardingBloc;
   final IdentityRepository identityRepository;
   final GraphRepository graphRepository;
+
+  /// The 24 h "Who to follow" list (W3-19) behind the Home card and the
+  /// desktop right column.
+  final SuggestionsRepository suggestionsRepository;
   final AccountRepository accountRepository;
   final AuthRepository authRepository;
   final AppDatabase database;
@@ -135,6 +142,11 @@ class _AppWidgetState extends State<AppWidget> {
     repository: widget.bookmarksRepository,
     viewRoute: AppRouter.bookmarksPath,
   );
+  // The session's "Who to follow" rows (W3-19): one list for the Home card and
+  // the desktop right column; sign-out forgets it.
+  late final SuggestionsCubit _suggestions = SuggestionsCubit(
+    repository: widget.suggestionsRepository,
+  );
   // The "Turn on notifications" card's memory (W2-12): one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
@@ -175,6 +187,7 @@ class _AppWidgetState extends State<AppWidget> {
         _pendingPosts.clear();
         _engagement.reset();
         _bookmarks.reset();
+        _suggestions.reset();
         widget.likesRepository.clearSession();
         widget.unreadBadgeCubit.seed(0);
         _lastFeatures = null;
@@ -232,6 +245,7 @@ class _AppWidgetState extends State<AppWidget> {
     _pendingPosts.close();
     _engagement.close();
     _bookmarks.close();
+    _suggestions.close();
     _themeMode.close();
     _pushOptIn.close();
     super.dispose();
@@ -273,6 +287,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: _pendingPosts),
           BlocProvider.value(value: _engagement),
           BlocProvider.value(value: _bookmarks),
+          BlocProvider.value(value: _suggestions),
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: _pushOptIn),
           BlocProvider.value(value: widget.unreadBadgeCubit),
