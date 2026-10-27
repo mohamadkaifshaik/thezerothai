@@ -5,6 +5,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
 import '../../posts/domain/posts_feature_flag.dart';
 import '../domain/feed_key.dart';
+import '../domain/profile_tabs_feature_flag.dart';
 import 'timeline_store.dart';
 
 /// Talks to `TimelineService` and keeps feeds in drift (CLAUDE.md: the client
@@ -24,6 +25,11 @@ import 'timeline_store.dart';
 ///   empty while `FEATURE_REMOVED_IDS` is off, so that is a no-op.
 /// - Every call goes through [PostsFeatureGate.run]: with the posts flag off
 ///   no timeline RPC is ever sent.
+/// - Each tab of a user's timeline is its own feed ([FeedKey.tab]): its own
+///   rows, tokens and refresh clock, so a token is never sent to another tab
+///   (ADR-0024 D5). Posts and Replies are requested with `include_replies`
+///   only; Reposts and Media set `tab` and need `profile_tabs` (after one
+///   FEATURE_DISABLED answer for it no further call is sent).
 ///
 /// Calls for one feed are serialized, and an identical call already in
 /// flight is shared, so a double pull-to-refresh costs one request.
@@ -248,16 +254,22 @@ class TimelineRepository {
           r.removedIds.toList(),
         );
       }
+      final tab = feed.tab!;
       final r = await _gate.run(
         () => _apiClient.timeline.getUserTimeline(
           tl.GetUserTimelineRequest(
             userId: feed.userId,
             includeReplies: feed.includeReplies,
+            tab: _wireTab(tab),
             pageSize: _pageSize,
             sinceToken: sinceToken,
             pageToken: pageToken,
           ),
         ),
+        // A tab the server serves only with profile_tabs on: once it said
+        // FEATURE_DISABLED, no further call is sent (0 RPCs) until a fresh
+        // GetMe resets the gate.
+        requires: [if (tab.requiresProfileTabs) kFeatureProfileTabs],
       );
       return _Page(
         r.posts.toList(),
@@ -300,6 +312,19 @@ class TimelineRepository {
     return future;
   }
 }
+
+/// The `tab` field of a GetUserTimeline request, or null (UNSPECIFIED: the
+/// field is not sent) for the two tabs the server also reaches through
+/// `include_replies`. Posts and Replies therefore go out exactly as they did
+/// before the field existed, so an older server (or a cache of an older
+/// client) answers them identically; only Reposts and Media set it, and they
+/// are shown only while `profile_tabs` is on, which a server that knows the
+/// field is the one to list.
+tl.UserTimelineTab? _wireTab(UserFeedTab tab) => switch (tab) {
+  UserFeedTab.posts || UserFeedTab.replies => null,
+  UserFeedTab.reposts => tl.UserTimelineTab.USER_TIMELINE_TAB_REPOSTS,
+  UserFeedTab.media => tl.UserTimelineTab.USER_TIMELINE_TAB_MEDIA,
+};
 
 Duration Function() _stopwatchClock() {
   final stopwatch = Stopwatch()..start();
