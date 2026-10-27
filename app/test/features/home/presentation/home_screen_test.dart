@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
@@ -35,6 +38,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/fake_push_messaging.dart';
 import '../../../support/fake_push_opt_in_store.dart';
 import '../../../support/posts_fixtures.dart';
+import '../../../support/suggestions_fixtures.dart';
 import '../../../support/timeline_fixtures.dart';
 
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
@@ -42,6 +46,8 @@ class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
+
+class MockGraphRepository extends Mock implements GraphRepository {}
 
 void main() {
   const feed = FeedKey.home();
@@ -124,6 +130,7 @@ void main() {
     String avatarThumbUrl = '',
     Stream<OnboardingState> states = const Stream<OnboardingState>.empty(),
     double textScale = 1,
+    SuggestionsCubit? suggestions,
   }) async {
     whenListen(
       onboardingBloc,
@@ -142,6 +149,10 @@ void main() {
         providers: [
           RepositoryProvider<TimelineRepository>.value(value: timeline),
           RepositoryProvider<PostsRepository>.value(value: posts),
+          if (suggestions != null)
+            RepositoryProvider<GraphRepository>.value(
+              value: MockGraphRepository(),
+            ),
         ],
         child: MultiBlocProvider(
           providers: [
@@ -149,6 +160,8 @@ void main() {
             BlocProvider<PendingPostsCubit>.value(value: pending),
             BlocProvider<PushCubit>.value(value: push),
             BlocProvider<PushOptInCubit>.value(value: optIn),
+            if (suggestions != null)
+              BlocProvider<SuggestionsCubit>.value(value: suggestions),
           ],
           child: router == null
               ? MaterialApp(
@@ -882,5 +895,107 @@ void main() {
         isTrue,
       );
     });
+  });
+
+  group('who to follow card (W3-19)', () {
+    const title = 'Who to follow';
+    const on = {'posts', 'notifications', 'graph', 'follow_suggestions'};
+    late FakeSuggestionsRepository suggestionRepo;
+    late SuggestionsCubit suggestions;
+
+    setUp(() {
+      suggestionRepo = FakeSuggestionsRepository([
+        for (var i = 1; i <= 5; i++) suggestedUser(i),
+      ]);
+      suggestions = SuggestionsCubit(repository: suggestionRepo);
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+    });
+
+    tearDown(() => suggestions.close());
+
+    testWidgets('sits once in the header: under the tab bar and the opt-in '
+        'card, above the composer row and the feed', (tester) async {
+      // Tall enough to build the composer row and the feed below the card.
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(600, 1600);
+      addTearDown(tester.view.reset);
+      await push.start();
+      await optIn.load('uid-a');
+      await open(tester, features: on, suggestions: suggestions);
+
+      expect(find.text(title), findsOneWidget);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+      final card = tester.getTopLeft(find.text(title)).dy;
+      expect(
+        card,
+        greaterThan(tester.getBottomLeft(find.text('Following')).dy),
+      );
+      expect(
+        card,
+        greaterThan(tester.getTopLeft(find.text('Turn on notifications')).dy),
+      );
+      expect(card, lessThan(tester.getTopLeft(find.text('Write a post')).dy));
+      expect(card, lessThan(tester.getTopLeft(find.text('post 2')).dy));
+      expect(suggestionRepo.calls, 1);
+    });
+
+    testWidgets('a refresh keeps one card and does not ask again', (
+      tester,
+    ) async {
+      await open(tester, features: on, suggestions: suggestions);
+
+      stubRefresh(snapshotOf([3, 2, 1], since: 's2'));
+      await tester.fling(
+        find.byType(CustomScrollView),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('post 3'), findsOneWidget);
+      expect(find.text(title), findsOneWidget);
+      expect(suggestionRepo.calls, 1);
+    });
+
+    testWidgets('the flag off: no card and nothing asked, even with the '
+        'cubit in scope', (tester) async {
+      await open(
+        tester,
+        features: const {'posts', 'graph'},
+        suggestions: suggestions,
+      );
+
+      expect(find.text(title), findsNothing);
+      expect(suggestionRepo.calls, 0);
+      expect(find.text('post 2'), findsOneWidget);
+    });
+
+    testWidgets('no suggestions: the header is unchanged', (tester) async {
+      suggestionRepo.rows = const [];
+      await open(tester, features: on, suggestions: suggestions);
+
+      expect(find.text(title), findsNothing);
+      expect(find.text('Write a post'), findsOneWidget);
+      expect(find.text('post 2'), findsOneWidget);
+    });
+
+    for (final width in [360.0, 600.0, 1200.0]) {
+      testWidgets('lays out at ${width.toInt()}dp without overflow', (
+        tester,
+      ) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(width, 900);
+        addTearDown(tester.view.reset);
+        await open(tester, features: on, suggestions: suggestions);
+
+        expect(tester.takeException(), isNull);
+        expect(find.text(title), findsOneWidget);
+        expect(
+          tester.getRect(find.byType(UserListRow).first).right,
+          lessThanOrEqualTo(width),
+        );
+      });
+    }
   });
 }

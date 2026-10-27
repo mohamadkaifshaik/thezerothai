@@ -7,6 +7,7 @@ import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
+import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../../notifications/presentation/widgets/push_opt_in_card.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_state.dart';
@@ -84,6 +85,12 @@ class HomeScreen extends StatelessWidget {
               // notifications flag is on and push can be offered.
               const SliverToBoxAdapter(
                 child: PushOptInCard(placement: PushOptInPlacement.home),
+              ),
+              // "Who to follow" (W3-19): once, under the opt-in card; draws
+              // nothing unless `follow_suggestions` + `graph` are on and the
+              // shared list has rows.
+              const SliverToBoxAdapter(
+                child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
               ),
               if (canCompose)
                 const SliverToBoxAdapter(child: HomeComposerEntry()),
