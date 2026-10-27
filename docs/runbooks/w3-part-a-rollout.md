@@ -1,8 +1,15 @@
 # Runbook: W3 Part A dev rollout (ADR-0024, ticket W3-24)
 
-Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and ran nothing that writes.
-Status (2026-10-27): **PLAN ONLY.** Nothing is applied, no flag is changed and the real backfill has NOT been run (only its dry run).
-Every command below that writes is for the founder to run, after the OK. Prod: no change, and prod stays on hold (`docs/pending.md` 1.2).
+Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and, after the founder's GO of 2026-10-27, ran it (section 8).
+Status (2026-10-27): **APPLIED IN DEV.** The founder gave the GO on all three decisions (real backfill; `SUGGESTED_USER_IDS` = the same 3 test uids; targeted apply, route, smoke).
+Backfill: dry run `scanned=74 missing=73 would_update=73`; real run `reads=74 writes=73 deletes=0`; rerun `reads=74 writes=0 updated=0` (the proof). Plan `0 to add, 1 to change, 0 to destroy`
+(24 env entries added, 0 removed, 0 changed); apply `0 added, 1 changed, 0 destroyed` at about 17:15 UTC. The new revision `api-00306-482` (same image digest as the one that served before,
+`api-00564-vik`, main `b0bc56d7`) has served 100% since about 17:16 UTC. Fallback revision: `api-00564-vik` (no W3 env; `last-good` is `api-00561-meb`). Smoke: the server-side legs that need no
+credential ran and passed; the authenticated legs (4.1, 4.2) are still owed to the testers (section 8). The text of sections 1 to 7 below is the plan as written before the apply; the revision names
+in it (`api-00558-viz`, `api-00555-yeq`) are the ones that served then. Prod: no change, and prod stays on hold (`docs/pending.md` 1.2).
+**Current dev revision (2026-10-27 17:56 UTC): `api-00307-fcs`**, not `api-00306-482`: the ADR-0024 A4 switch `PROFILE_MEDIA_RETIRE` went `off` to `banner` as its own targeted plan and apply
+(one env value, same image digest, the four W3 flags still `allowlist` 3/3; `docs/runbooks/media.md`, "Results, dev, banner switch"). `api-00306-482` is now the previous revision and the
+fast fallback for that change (same image, switch `off`, W3 flags unchanged); the W3-24 fallback above (`api-00564-vik`) is for rolling the W3 flags back. `last-good` is still `api-00561-meb`.
 Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-24). Decisions: ADR-0024 and its Amendment 1.
 Related: `docs/runbooks/posts.md` section 13 (backfill), `docs/runbooks/identity.md`, `docs/runbooks/graph.md` sections 5 and 6,
 `docs/runbooks/engagement.md`, `docs/runbooks/bookmarks.md` ("Dev rollout", the W2-16 precedent), `docs/runbooks/rollback.md`,
@@ -361,3 +368,41 @@ the practical check is a cold call repeatedly above its ceiling in the 4.1 table
 - The saved plans live in the session scratchpad and go stale on any state change. Re-plan at step 2.
 - `SUGGESTED_USER_IDS` behaviour with a 3-uid list is read from `suggester.go` and `docs/runbooks/graph.md` section 6, not run against dev.
 - Dev max instances: Terraform sets 1 (the revision shows `maxScale 1`), the ceiling file allows 3. The plan does not change it.
+
+## 8. Applied in dev, 2026-10-27 (what ran, with the numbers)
+
+Run by `production-deployer` on the founder's GO for all three decisions, from the MAIN checkout (`infra/terraform/envs/dev`, the real gitignored `terraform.tfvars`) and the repo root. Times are UTC.
+No uid appears here; raw outputs (some hold uids) stayed outside the repository.
+
+| Step | Result |
+|---|---|
+| Preconditions re-run (about 17:09 to 17:13) | Every composite index READY (none in another state), the six `posts` and two `follows` rows included: `CICAgJiH8YUK` (hasMedia) and `CICAgNjamYQK` (kind) and the `follows` one `CICAgJiH2JAK`. 100% of traffic was on `api-00564-vik` (image `sha256:906eda13f44a9c8ed9de7feb99451e14d15bbcd2a7a68545e728a86f5708428c`, tagged with `b0bc56d7`, main after #362; deploy-dev run 40542454555, success); `last-good` `api-00561-meb` (`4877a196`). `git merge-base --is-ancestor` yes for #335 `9b7cfd90` and #354 `9b3f9fb4` against `b0bc56d7`. The service template had 105 env names and none of the 24 W3 ones; `validate-revision.sh` on it passed with the four W3 flags `mode=off`. `$SERVING` = `api-00564-vik`. |
+| Backfill dry run | `scanned=74 missing=73 updated=0`, `reads=74 writes=0 deletes=0`, `dry-run: scanned=74 missing=73 would_update=73 runs_needed=1 (nothing written)` (the same numbers as the plan) |
+| Backfill, real run | `call 1: ... -> scanned=74 missing=73 updated=73 checkpoint=0108395972892241920 done=true`, `reads=74 writes=73 deletes=0`, `complete: scanned=74 updated=73` |
+| Backfill rerun (the proof) | `scanned=74 missing=0 updated=0`, `reads=74 writes=0 deletes=0`, `complete: scanned=74 updated=0` |
+| tfvars | The nine lines were appended to the dev `terraform.tfvars` exactly as step 2 says (the four flags `allowlist`, each allowlist and `suggested_user_ids` copied from `feature_bookmarks_allowlist`, so 3 uids each; checked equal to the bookmarks, engagement and media cohorts without printing them). The duplicate-key guard printed nothing before and 9 keys after. |
+| Guards | `check-flag-registry.sh` `ok: 20 flags registered`; `check-until-dates.sh infra/terraform` `ok: 11 until: marker(s) checked against 2026-10-27`; `check-field-overrides.sh` `ok: fieldOverrides unchanged: 35 override(s)`. |
+| Plan (about 17:14; saved plan file, `-target` the `api` service and the `billing_alerts` topic) | `Plan: 0 to add, 1 to change, 0 to destroy.` Only `module.cloud_run_api.google_cloud_run_v2_service.api` changes (the plan JSON has 40 resources, 39 `no-op`). Env: before 105, after 129, **24 added, 0 removed, 0 changed**, exactly the 24 names of section 2.1, the four modes `allowlist`, each allowlist and `SUGGESTED_USER_IDS` 3 uids, every `_PERCENT` 0. No attribute other than `template.revision` and the env list differs. No second resource, no 3.10 drift. |
+| Apply (about 17:15) | `Apply complete! Resources: 0 added, 1 changed, 0 destroyed.` Traffic did not move (still 100% on `api-00564-vik`). |
+| New revision | `$NEW` = `api-00306-482` (its name carries the service configuration generation 306, label `serving.knative.dev/configurationGeneration`, so the number is lower than `00564`; it is the newest by creation time, 17:15:06). `Ready` True. Image `sha256:906eda13f44a9c8ed9de7feb99451e14d15bbcd2a7a68545e728a86f5708428c`, equal to `$SERVING`'s. 129 env names. `validate-revision.sh` on the real revision JSON: `RESULT: all checks passed`; the four flags `mode=allowlist (ceiling allowlist) allowlist=3/3 percent=0/0`, `scaling min=0 max=1`. |
+| Route (about 17:16) | `gcloud run services update-traffic api ... --to-revisions=api-00306-482=100`: `100% api-00306-482`, `0% api-00561-meb (last-good)`, `0% api-00564-vik (candidate)`. The `candidate` tag now sits on the previous serving revision at 0%, which is harmless: `promote-dev.sh` (the `deploy-dev` script) deploys a new 0% `candidate` (the tag moves), tags the previously serving revision `last-good` and promotes, and its first check (`check-traffic.sh ... serving`: one named revision at 100%, tags in the dev allow-list `cand`, `p8-t1`, `candidate`, `last-good`) passes on today's shape (run on the live service JSON after the route: `RESULT: all checks passed`). Read from the scripts; no `deploy-dev` run has been done since. `GET /health` on the service URL: `HTTP 200 ok`. |
+| After the apply | A fresh targeted plan from the same tfvars: `No changes. Your infrastructure matches the configuration.` (so later plans show no drift from this change). |
+
+### 8.1 Smoke legs: what ran and what is owed
+No `TESTER_*` or `SMOKE_*` credential exists on the deploying machine (the smoke accounts' secrets live only in the GitHub `dev` environment, and `scripts/mint-app-token.sh` mints a GitHub App token, not a Firebase ID token), so no authenticated call was made and no workaround was tried.
+
+| Leg | Result |
+|---|---|
+| `/health` on the service URL | Ran: HTTP 200 `ok` |
+| New revision starts with the 24 new env entries (flag parse) | Ran: `Ready` True, serving 100%, `/health` 200, no log line at severity ERROR or above on `api-00306-482` after the route |
+| `validate-revision.sh` on the real new revision | Ran: all checks passed |
+| The three new RPC paths are served by the new revision (extra to this runbook) | Ran: `ListSuggestedUsers`, `ListLikedPosts`, `GetUserTimeline` with no token each answer `HTTP 401 unauthenticated` (proves routing and the auth interceptor only, not the flag gates) |
+| 4.3 filter 2, 5xx on the four RPCs | Ran right after the route and again after the 15-minute watch: no line right after the route and none after the 15-minute watch (it ended 17:32 UTC); also no 5xx on any RPC and no ERROR-or-above line on `api-00306-482`, `/health` 200, traffic still 100% on it. It says nothing yet about those paths: the watch saw no call of the four new RPCs, so the 2%-for-15-minutes trigger of section 6 can only be judged once the testers generate traffic |
+| 4.3 filter 1, request lines of the four RPCs | Ran: no call of the new RPCs yet (the only lines are earlier `GetUserTimeline` `posts` calls from before the route) |
+| 4.1 steps 1 to 9 (tester: `GetMe` flags, `UpdateProfile` location and website, pin, the four tabs, `ListLikedPosts`, "Follows you", `ListSuggestedUsers`, clear) | **Not run: needs tester credentials** (`TESTER_EMAIL`, `TESTER_B_EMAIL` and passwords in the terminal session) |
+| 4.1 step 3 and the "In the app" column (banner upload with its 2 Vision units, History > Likes, "Who to follow" card, profile header, pinned row, tabs) | **Not run: needs tester credentials and an app build** (web `https://dzeroth-dev.web.app` or a device) |
+| 4.2 Smoke A, the six checks (four refusals, "Follows you" and Posts tab unrefused) | **Not run: needs the smoke account A credential** |
+| Section 5 flag-off check | Not run (it is the rollback check and not required now). Command: in the dev `terraform.tfvars` set the four modes to `"off"` (allowlists stay), the same targeted plan (expect exactly four `~ value "allowlist" -> "off"`, 0 added, 0 removed, plus the known `template.revision` line), apply the saved plan, route the new revision as step 4. Fast fallback with no Terraform: `gcloud run services update-traffic api --project=dzeroth-dev --region=asia-south1 --to-revisions=api-00564-vik=100` (no W3 env, so every W3 flag is off by the code default; it has #335 and #354), then make the Terraform change so state and live agree and do not run `deploy-dev` in between. |
+
+The cohort and the Vision figures are unchanged by this run (Vision units this month 10 of the 10,000 cap, 0 today, read from `make cost PROJECT_ID=dzeroth-dev` after the route).
+For the next reader: the dev `api` template now carries the 24 W3 entries, so the next `deploy-dev` run keeps the four flags on `allowlist`; a rollback by Terraform removes the nine tfvars lines as section 6 says.
