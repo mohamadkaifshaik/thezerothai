@@ -1,7 +1,7 @@
-// suggestions.go holds the W3-4 gate of the two ADR-0024 graph RPCs: GetProfileRelationship (D7) and
-// ListSuggestedUsers (D8). Both are flag-guarded and Unimplemented until their ticket (W3-11, W3-12): this file runs
-// the flag gate before any Firestore access and then answers Unimplemented naming the ticket, so neither path reads or
-// writes yet. W3-11 and W3-12 replace the Unimplemented answers; the gate and the types stay.
+// suggestions.go holds the W3-4 gate of the ADR-0024 D8 graph RPC ListSuggestedUsers. It is flag-guarded and
+// Unimplemented until its ticket (W3-12): this file runs the flag gate before any Firestore access and then answers
+// Unimplemented naming the ticket, so the path reads and writes nothing yet. W3-12 replaces the Unimplemented answer;
+// the gate and the types stay. GetProfileRelationship (ADR-0024 D7, W3-11) lives in relationship.go.
 package graph
 
 import (
@@ -34,26 +34,6 @@ type SuggestionLimits struct {
 	CacheTTL time.Duration
 	// CuratedUIDs is the SUGGESTED_USER_IDS fallback list (validated, <= 20, may be empty).
 	CuratedUIDs []string
-}
-
-// ProfileRelationship is the GetProfileRelationship answer (ADR-0024 D7): the caller's Relationship to one user, plus
-// whether that user follows the caller.
-type ProfileRelationship struct {
-	Relationship Relationship
-	// FollowedBy is true when follows/{target}_{caller} exists ("Follows you").
-	FollowedBy bool
-}
-
-// GetProfileRelationship is the ADR-0024 D7 header RPC. It needs only FEATURE_GRAPH on for the caller, like every
-// GraphService RPC; D9 gives it no flag of its own. Today it runs that gate and answers Unimplemented (ticket W3-11):
-// 0 reads, 0 writes. When W3-11 lands: 3 cold reads (interceptor, caller graph, edge doc; +1 on blockedByOverflow),
-// 0 warm, planning 1; 0 writes.
-func (s *service) GetProfileRelationship(ctx context.Context, callerUID, _ string) (_ ProfileRelationship, err error) {
-	defer begin(ctx, "profile_relationship")(&err)
-	if err := s.checkFlag(callerUID); err != nil {
-		return ProfileRelationship{}, err
-	}
-	return ProfileRelationship{}, unimplemented("GetProfileRelationship", "W3-11")
 }
 
 // ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC. It needs FEATURE_GRAPH, then FEATURE_FOLLOW_SUGGESTIONS

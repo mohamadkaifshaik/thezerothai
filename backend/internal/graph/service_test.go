@@ -64,6 +64,12 @@ type fakeRepo struct {
 	edges         []Edge
 	edgeCalls     int
 	lastEdgeQuery EdgeQuery
+
+	// followEdges is the set of follows/{follower}_{followee} docs FollowEdgeExists reports as present, keyed by
+	// edgeKey (so a flipped argument order reads the opposite edge); edgeExistsCalls counts the point reads.
+	followEdges     map[edgeKey]bool
+	edgeExistsCalls int
+	edgeExistsErr   error
 }
 
 func (f *fakeRepo) Block(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (BlockResult, error) {
@@ -462,4 +468,13 @@ func TestIsNewAccount(t *testing.T) {
 func (f *fakeRepo) PurgeUser(_ context.Context, _ string, cp Checkpoint) (Checkpoint, bool, error) {
 	f.lastPurgeCP = cp
 	return f.purgeNext, f.purgeDone, f.purgeErr
+}
+
+// FollowEdgeExists answers from f.followEdges and counts the call: one call is one Firestore read.
+func (f *fakeRepo) FollowEdgeExists(_ context.Context, followerUID, followeeUID string) (bool, error) {
+	f.edgeExistsCalls++
+	if f.edgeExistsErr != nil {
+		return false, f.edgeExistsErr
+	}
+	return f.followEdges[edgeKey{followerUID, followeeUID}], nil
 }

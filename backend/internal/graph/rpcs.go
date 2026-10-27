@@ -55,6 +55,9 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, s.mapFollowErr(callerUID, targetUID, err)
 	}
 	setOutcome(ctx, outcome)
+	// The caller now follows the target (or already did, on a replay): the target's cached "does the caller follow
+	// me" answer on this instance is stale. The caller's own view of the opposite edge is untouched (ADR-0024 D7).
+	s.cache.ForgetEdge(callerUID, targetUID)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
@@ -102,6 +105,8 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 		return Relationship{}, s.internalErr("unfollow", err, callerUID, targetUID)
 	}
 	setChanged(ctx, changed)
+	// The caller's edge to the target is gone (or never was, on a no-op): drop the target's cached answer for it.
+	s.cache.ForgetEdge(callerUID, targetUID)
 	if changed {
 		s.cache.Invalidate(callerUID)
 		s.directory.Forget(callerUID, targetUID)
@@ -143,6 +148,9 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 	}
 	setOutcome(ctx, result.Outcome)
 	logger.SetRequestField(ctx, fieldEdgesGone, b2i(result.CallerWasFollowing)+b2i(result.TargetWasFollowing))
+	// A Block deletes both follow edges: drop the cached answer for each direction (ADR-0024 D7).
+	s.cache.ForgetEdge(callerUID, targetUID)
+	s.cache.ForgetEdge(targetUID, callerUID)
 	if result.Outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.cache.Invalidate(targetUID)
