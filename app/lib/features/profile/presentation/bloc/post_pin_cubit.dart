@@ -11,9 +11,10 @@ import '../../../onboarding/data/identity_repository.dart';
 class PostPinState {
   const PostPinState({this.refused = false});
 
-  /// The server answered FEATURE_DISABLED `profile_extras` (the rows are
-  /// hidden for the rest of the session, see
-  /// `IdentityRepository.profileExtrasRefused`).
+  /// The server answered FEATURE_DISABLED `profile_extras` to this cubit's
+  /// request (the rows are hidden for the rest of the session, until the
+  /// next `GetMe`; see `IdentityRepository.profileExtrasRefused`, which also
+  /// remembers an earlier screen's refusal).
   final bool refused;
 
   @override
@@ -45,7 +46,7 @@ class PostPinCubit extends Cubit<PostPinState> {
   }) : _identity = identityRepository,
        _onProfileUpdated = onProfileUpdated,
        _uuid = uuid ?? const Uuid(),
-       super(PostPinState(refused: identityRepository.profileExtrasRefused));
+       super(const PostPinState());
 
   final IdentityRepository _identity;
   final void Function(identity.Profile profile) _onProfileUpdated;

@@ -664,10 +664,9 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final pinned = _pinnedFor(context, profile);
     // Pin / Unpin: the own profile, with `profile_extras` on for the viewer
     // (the Pinned row itself renders whatever the flags are).
-    final postPin =
-        state.isOwnProfile && isFeatureEnabled(context, kFeatureProfileExtras)
-        ? _postPinFor(context)
-        : null;
+    final pinEnabled =
+        state.isOwnProfile && isFeatureEnabled(context, kFeatureProfileExtras);
+    final postPin = _postPinFor(context);
     return _ProfileScrollScaffold(
       outer: widget.outer,
       header: header,
@@ -685,6 +684,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
           }),
           child: _withPinControl(
             postPin,
+            enabled: pinEnabled,
             pinnedPostId: profile.pinnedPostId,
             builder: (pinControl) {
               // The request can outlive this screen: guard the cubit, not
@@ -762,24 +762,30 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   }
 
   /// Builds the tab body with the Pin / Unpin control of the own profile
-  /// (null for another profile, the flag off or after the server refused it:
-  /// the card then offers no pin rows).
+  /// ([enabled]: the own profile with `profile_extras` on). The control is
+  /// null (the cards then offer no pin rows) when it is not enabled or the
+  /// server refused it: this cubit's request, or an earlier one this session
+  /// (`IdentityRepository.profileExtrasRefused`, read only when enabled). The
+  /// wrapper is always there, so the feed view keeps its state when the flag
+  /// changes while the screen is open.
   Widget _withPinControl(
-    PostPinCubit? cubit, {
+    PostPinCubit cubit, {
+    required bool enabled,
     required String pinnedPostId,
     required Widget Function(PostPinControl? control) builder,
   }) {
-    if (cubit == null) return builder(null);
     return BlocBuilder<PostPinCubit, PostPinState>(
       bloc: cubit,
       builder: (context, pinState) => builder(
-        pinState.refused
-            ? null
-            : PostPinControl(
+        enabled &&
+                !pinState.refused &&
+                !context.read<IdentityRepository>().profileExtrasRefused
+            ? PostPinControl(
                 pinnedPostId: pinnedPostId,
                 onPin: cubit.pin,
                 onUnpin: cubit.unpin,
-              ),
+              )
+            : null,
       ),
     );
   }

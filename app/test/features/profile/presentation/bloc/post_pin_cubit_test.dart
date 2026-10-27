@@ -127,13 +127,13 @@ void main() {
     expect(cubit.state.refused, isTrue);
   });
 
-  test('a session that was already refused starts refused', () {
-    refused = true;
+  test('building it reads nothing from the repository', () {
     final next = PostPinCubit(
       identityRepository: repo,
       onProfileUpdated: (_) {},
     );
     addTearDown(next.close);
-    expect(next.state.refused, isTrue);
+    expect(next.state.refused, isFalse);
+    verifyZeroInteractions(repo);
   });
 }
