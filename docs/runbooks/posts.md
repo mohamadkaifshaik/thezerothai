@@ -398,7 +398,7 @@ it costs no write. The single definition is `posts.HasMediaFor`. The Media and R
 
 ### Running `opsctl backfill-has-media` (W3-8, once per project)
 
-Owner: the founder or `production-deployer` (W3-24). It is an ops tool: never flag-gated, never deployed. It runs from `backend/` with
+Owner: the founder or `production-deployer` (W3-24; the dev rollout order and the 2026-10-27 dry run, 74 posts scanned and 73 missing the key, are in `docs/runbooks/w3-part-a-rollout.md`). It is an ops tool: never flag-gated, never deployed. It runs from `backend/` with
 Application Default Credentials (`gcloud auth application-default login` once) and always needs an explicit `--project`; it needs no
 `--uid`. A `*-prod` project asks you to type the project id to continue, the dry run too. It gives every post document whose `hasMedia`
 key is missing the field, with `posts.HasMediaFor(kind, len(media))` (true for a post that stores images itself, false for a text post

@@ -112,12 +112,16 @@ void main() {
     return router;
   }
 
+  // The labels in the order a screen reader walks them (traversal order: the
+  // geometric order plus the sort keys), not the tree's paint order, which is
+  // what `visitChildren` gives and a platform never reads.
   void collect(SemanticsNode node, List<String> out) {
     if (node.label.isNotEmpty) out.add(node.label.replaceAll('\n', ' | '));
-    node.visitChildren((child) {
+    for (final child in node.debugListChildrenInOrder(
+      DebugSemanticsDumpOrder.traversalOrder,
+    )) {
       collect(child, out);
-      return true;
-    });
+    }
   }
 
   List<String> semanticLabels(WidgetTester tester) {

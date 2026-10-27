@@ -39,6 +39,9 @@ class EditProfileState {
     this.bannerPreview,
     this.isPreparingBanner = false,
     this.bannerRemoved = false,
+    this.locationRemoved = false,
+    this.websiteRemoved = false,
+    this.removalRefused = false,
     this.bannerFailed = false,
     this.bannerDropped = false,
     this.extrasDisabled = false,
@@ -53,9 +56,13 @@ class EditProfileState {
   final String location;
   final String website;
 
-  /// The banner, location and website are offered (`profile_extras` is on for
+  /// The banner, location and website can be SET (`profile_extras` is on for
   /// the caller). It only ever turns off: the server answered FEATURE_DISABLED
-  /// `profile_extras`, and from then on none of those fields is sent.
+  /// `profile_extras`, and from then on none of them can be set. They can
+  /// still be REMOVED (an exact `""`, which the server accepts from any caller
+  /// whatever the flag, ADR-0024 Amendment 1 A2), so without this flag Edit
+  /// profile shows each saved one read-only with Remove
+  /// ([locationRemoved], [websiteRemoved], [bannerRemoved]).
   final bool extrasEnabled;
 
   final EditProfileStatus status;
@@ -93,6 +100,17 @@ class EditProfileState {
 
   /// The saved banner is to be removed on Save (`banner_media_id: ""`).
   final bool bannerRemoved;
+
+  /// The saved location / website is to be removed on Save (`""`). Only set
+  /// while [extrasEnabled] is false: with the flag on the field is typed in
+  /// and emptying it is the removal.
+  final bool locationRemoved;
+  final bool websiteRemoved;
+
+  /// The server answered FEATURE_DISABLED `profile_extras` to a request that
+  /// only cleared extras (a revision that predates ADR-0024 Amendment 1): from
+  /// then on none of them can be removed here and Remove is hidden.
+  final bool removalRefused;
 
   /// [error] came from the banner (pick/upload), so the UI words it for it.
   final bool bannerFailed;
@@ -146,6 +164,9 @@ class EditProfileState {
     bool clearBannerPreview = false,
     bool? isPreparingBanner,
     bool? bannerRemoved,
+    bool? locationRemoved,
+    bool? websiteRemoved,
+    bool? removalRefused,
     bool? bannerFailed,
     bool? bannerDropped,
     bool? extrasDisabled,
@@ -172,6 +193,9 @@ class EditProfileState {
         : (bannerPreview ?? this.bannerPreview),
     isPreparingBanner: isPreparingBanner ?? this.isPreparingBanner,
     bannerRemoved: bannerRemoved ?? this.bannerRemoved,
+    locationRemoved: locationRemoved ?? this.locationRemoved,
+    websiteRemoved: websiteRemoved ?? this.websiteRemoved,
+    removalRefused: removalRefused ?? this.removalRefused,
     bannerFailed: clearError ? false : (bannerFailed ?? this.bannerFailed),
     bannerDropped: clearError ? false : (bannerDropped ?? this.bannerDropped),
     extrasDisabled: clearError
@@ -192,11 +216,17 @@ class EditProfileState {
 ///   cannot apply twice.
 /// - Each picture is an [ImageUploadSlot]: resized on the device when picked,
 ///   uploaded on Save, its media id remembered so a retry never uploads again.
-/// - **The extras are never put in a request unless `extrasEnabled`**: the
-///   server refuses any of them, even a clear, when `profile_extras` is off
-///   for the caller, which would fail every name or bio save too. A server
-///   FEATURE_DISABLED `profile_extras` switches them off for good here and
-///   keeps the name and bio edits.
+/// - **An extra is never SET unless `extrasEnabled`**: the server refuses a
+///   set (a non-empty banner id, location or website) when `profile_extras`
+///   is off for the caller, which would fail every name or bio save too. A
+///   **clear** (an exact `""`) is accepted whatever the flag (ADR-0024
+///   Amendment 1 A2, W3-22 M-1), so without the flag the screen offers Remove
+///   for each saved one ([removeBanner], [removeLocation], [removeWebsite])
+///   and the only extras a request can then carry are `""`. A server
+///   FEATURE_DISABLED `profile_extras` switches the setting off for good here
+///   (the removals asked for are dropped with it; if the request only cleared,
+///   the server predates the clear rule and Remove is hidden too) and keeps
+///   the name and bio edits.
 /// - Reports the server's profile when done.
 class EditProfileCubit extends Cubit<EditProfileState> {
   EditProfileCubit({
@@ -268,23 +298,32 @@ class EditProfileCubit extends Cubit<EditProfileState> {
   bool get hasSavedBanner =>
       _initial.bannerUrl.isNotEmpty || _initial.bannerThumbUrl.isNotEmpty;
 
+  /// The profile has a saved location / website (so there is something to
+  /// remove). The server omits the website while `profile_extras` is globally
+  /// off, so it is then never there to remove.
+  bool get hasSavedLocation => _initial.location.trim().isNotEmpty;
+  bool get hasSavedWebsite => _initial.website.trim().isNotEmpty;
+
   // What is sent: trimmed, then NFC, as the server stores it.
   String get _name => normalizeDisplayName(state.displayName);
   String get _bio => normalizeBio(state.bio);
 
   bool get isNameChanged => _name != _initial.displayName;
   bool get isBioChanged => _bio != _initial.bio;
-  bool get isLocationChanged =>
-      state.extrasEnabled &&
-      normalizeProfileLocation(state.location) != _initial.location;
-  bool get isWebsiteChanged =>
-      state.extrasEnabled &&
-      normalizeProfileWebsite(state.website) != _initial.website;
+  // With the flag on the field is typed in; without it the only change is the
+  // removal of the saved value.
+  bool get isLocationChanged => state.extrasEnabled
+      ? normalizeProfileLocation(state.location) != _initial.location
+      : state.locationRemoved && hasSavedLocation;
+  bool get isWebsiteChanged => state.extrasEnabled
+      ? normalizeProfileWebsite(state.website) != _initial.website
+      : state.websiteRemoved && hasSavedWebsite;
 
-  /// A new banner is chosen, or the saved one is to be removed.
+  /// A new banner is chosen (only with the flag on), or the saved one is to
+  /// be removed (whatever the flags).
   bool get isBannerChanged =>
-      state.extrasEnabled &&
-      ((_banner?.hasImage ?? false) || (state.bannerRemoved && hasSavedBanner));
+      (state.extrasEnabled && (_banner?.hasImage ?? false)) ||
+      (state.bannerRemoved && hasSavedBanner);
 
   bool get hasChanges =>
       isNameChanged ||
@@ -419,15 +458,51 @@ class EditProfileCubit extends Cubit<EditProfileState> {
         );
 
   /// Drops the chosen banner and, when the profile has one, removes it on
-  /// Save (`banner_media_id: ""`). The result is always "no banner".
+  /// Save (`banner_media_id: ""`). The result is always "no banner". Needs
+  /// neither `profile_extras` nor media: a removal is a clear (ADR-0024
+  /// Amendment 1 A2), and without media there is no slot to discard.
   void removeBanner() {
-    final slot = _banner;
-    if (slot == null || !state.extrasEnabled || state.isSaving) return;
-    slot.discard();
+    if (state.isSaving || state.removalRefused) return;
+    _banner?.discard();
     emit(
       state.copyWith(
         clearBannerPreview: true,
         bannerRemoved: hasSavedBanner,
+        status: EditProfileStatus.editing,
+        clearError: true,
+      ),
+    );
+  }
+
+  /// Removes the saved location on Save (`location: ""`). Only without
+  /// `profile_extras` (the field is read-only then); with it, empty the field.
+  void removeLocation() {
+    if (state.isSaving ||
+        state.extrasEnabled ||
+        state.removalRefused ||
+        !hasSavedLocation) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        locationRemoved: true,
+        status: EditProfileStatus.editing,
+        clearError: true,
+      ),
+    );
+  }
+
+  /// Removes the saved website on Save (`website: ""`); see [removeLocation].
+  void removeWebsite() {
+    if (state.isSaving ||
+        state.extrasEnabled ||
+        state.removalRefused ||
+        !hasSavedWebsite) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        websiteRemoved: true,
         status: EditProfileStatus.editing,
         clearError: true,
       ),
@@ -484,16 +559,18 @@ class EditProfileCubit extends Cubit<EditProfileState> {
     if (!canSave) return;
     final name = isNameChanged ? _name : null;
     final bio = isBioChanged ? _bio : null;
-    // Each extra is read only while the extras are on (the getters check it):
-    // a switched-off account never has a banner, location or website in the
-    // request.
+    // A typed value is read only while the extras are on. Without them the
+    // only change the getters report is a removal, and a removal is "": an
+    // account outside the cohort never has a non-empty banner id, location or
+    // website in a request (the server refuses a set, and a clear next to a
+    // set, whole).
+    final extras = state.extrasEnabled;
     final location = isLocationChanged
-        ? normalizeProfileLocation(state.location)
+        ? (extras ? normalizeProfileLocation(state.location) : '')
         : null;
     final website = isWebsiteChanged
-        ? normalizeProfileWebsite(state.website)
+        ? (extras ? normalizeProfileWebsite(state.website) : '')
         : null;
-    final extras = state.extrasEnabled;
     emit(state.copyWith(status: EditProfileStatus.saving, clearError: true));
     // The picture being uploaded when a step fails, so the error is worded
     // for it; null once both are uploaded (a failure is then UpdateProfile's).
@@ -515,8 +592,12 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       if (isClosed) return;
       // "" removes the saved banner; only a saved one is worth a request.
       final bannerArg =
-          bannerId ??
-          (extras && state.bannerRemoved && hasSavedBanner ? '' : null);
+          bannerId ?? (state.bannerRemoved && hasSavedBanner ? '' : null);
+      assert(
+        extras ||
+            [bannerArg, location, website].every((v) => v == null || v.isEmpty),
+        'without profile_extras a request may only clear an extra',
+      );
       // The key covers every field sent, the media ids included: a different
       // photo or banner is a different request body (the server answers
       // IDEMPOTENCY_KEY_REUSED), and JSON tells an absent field from "".
@@ -559,13 +640,19 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       if (avatarDropped) _avatar?.discard();
       if (bannerDropped || extrasOff) _banner?.discard();
       if (isClosed) return;
-      // Switched off: forget every pending extra and keep the name and bio.
+      // Switched off: forget every pending extra (a removal asked for with
+      // the flag already off included: only a server that predates ADR-0024
+      // Amendment 1 refuses it) and keep the name and bio.
       final base = extrasOff
           ? state.copyWith(
               extrasEnabled: false,
               location: _initial.location,
               website: _initial.website,
               bannerRemoved: false,
+              locationRemoved: false,
+              websiteRemoved: false,
+              // A request that only cleared was refused: Remove goes.
+              removalRefused: !extras,
               locationRejected: false,
               websiteRejected: false,
             )

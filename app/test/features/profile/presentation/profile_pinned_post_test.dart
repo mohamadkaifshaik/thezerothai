@@ -463,6 +463,73 @@ void main() {
       expect(find.text('Unpin from profile'), findsNothing);
     });
 
+    // ADR-0024 Amendment 1 A2 (W3-22 M-1): Unpin is a clear, which the server
+    // accepts whatever the flag says; only Pin (a set) needs profile_extras.
+    testWidgets('Unpin from profile is on the pinned post without '
+        'profile_extras, and sends "" (Pin is not offered)', (tester) async {
+      arrange(pin: 2);
+      answerPin(0);
+      await open(tester);
+      expect(find.text('Pinned'), findsOneWidget);
+
+      await openMenuOf(tester, 'post 2');
+      expect(find.text('Unpin from profile'), findsOneWidget);
+      expect(find.text('Pin to your profile'), findsNothing);
+      await tester.tap(find.text('Unpin from profile'));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => identityRepository.updatePinnedPost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          postId: '',
+        ),
+      ).called(1);
+      expect(find.text('Unpinned from your profile.'), findsOneWidget);
+      expect(find.text('Pinned'), findsNothing);
+      // Nothing left to unpin, and still no Pin without the flag.
+      await openMenuOf(tester, 'post 2');
+      expect(find.text('Unpin from profile'), findsNothing);
+      expect(find.text('Pin to your profile'), findsNothing);
+    });
+
+    testWidgets('without profile_extras the other posts have no pin row, '
+        'even while one is pinned', (tester) async {
+      arrange(pin: 2);
+      await open(tester);
+
+      await openMenuOf(tester, 'post 3');
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('Pin to your profile'), findsNothing);
+      expect(find.text('Unpin from profile'), findsNothing);
+    });
+
+    testWidgets('after the server refused a pin this session, Unpin stays '
+        'and Pin does not come back', (tester) async {
+      refused = true;
+      arrange(features: withExtras, pin: 2);
+      await open(tester);
+
+      await openMenuOf(tester, 'post 2');
+      expect(find.text('Unpin from profile'), findsOneWidget);
+      expect(find.text('Pin to your profile'), findsNothing);
+      // Close the menu, then look at another post.
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      await openMenuOf(tester, 'post 3');
+      expect(find.text('Pin to your profile'), findsNothing);
+    });
+
+    testWidgets('with the flag off for everyone the server omits the pin: '
+        'there is no row and so no Unpin', (tester) async {
+      arrange();
+      await open(tester);
+
+      expect(find.text('Pinned'), findsNothing);
+      await openMenuOf(tester, 'post 2');
+      expect(find.text('Unpin from profile'), findsNothing);
+      expect(find.text('Pin to your profile'), findsNothing);
+    });
+
     testWidgets('pin a post: the row appears and the post leaves the feed', (
       tester,
     ) async {
