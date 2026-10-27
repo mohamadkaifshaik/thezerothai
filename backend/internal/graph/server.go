@@ -253,8 +253,9 @@ func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Reques
 	})
 }
 
-// ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller (ADR-0024 D8, D9). Until
-// W3-12 it passes the gates and answers Unimplemented: 0 reads, 0 writes (hard cap 42 cold, 1 warm once W3-12 lands).
+// ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller (ADR-0024 D8, D9); the
+// logic is in suggestions.go. Hard cap 42 reads cold (interceptor 1, caller graph 1, edges <= 30, hydration <= 10), 12
+// on the curated path, 1 warm; 0 writes. At most 5 rows, no cursor, Since unset, possibly none.
 func (s *Server) ListSuggestedUsers(ctx context.Context, req *connect.Request[graphv1.ListSuggestedUsersRequest]) (*connect.Response[graphv1.ListSuggestedUsersResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.ListSuggestedUsersResponse, error) {
 		items, err := s.svc.ListSuggestedUsers(ctx, uid, req.Msg.GetMaxResults())

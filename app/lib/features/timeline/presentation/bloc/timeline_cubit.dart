@@ -14,7 +14,7 @@ import 'timeline_state.dart';
 /// Automatic refreshes happen at most this often (ADR-0004 section 7).
 const kAutoRefreshInterval = Duration(seconds: 60);
 
-/// Drives one cached feed (Home, or a profile's Posts tab) over
+/// Drives one cached feed (Home, or one tab of a profile) over
 /// [TimelineRepository] (T17/T18, ADR-0004 section 7, ADR-0010 D5/D13/D14).
 ///
 /// - [load] renders the cache at once (one `cached` read per screen open),
