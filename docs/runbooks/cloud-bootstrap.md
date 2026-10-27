@@ -326,11 +326,14 @@ not an app-layer rules engine:
 - Upload bucket: `public_access_prevention = "enforced"` — fully private, zero public access of any kind. Only the
   runtime service account (`roles/storage.objectAdmin`) and short-lived V4 signed URLs it mints can touch it.
 - Media bucket: `public_access_prevention = "inherited"` (deliberately, to allow exactly one public grant) +
-  `google_storage_bucket_iam_member` binding `allUsers` → `roles/storage.objectViewer` — public **read**, only.
+  `google_storage_bucket_iam_member` binding `allUsers` → `roles/storage.legacyObjectReader` — public **read of one
+  object by its exact URL**, and nothing else: that role holds only `storage.objects.get`, so the bucket cannot be
+  listed anonymously. Do not use `roles/storage.objectViewer` here: it also grants `storage.objects.list` (security
+  review W3-22 M-2). A request for a missing object still answers 404.
   Writes still require the runtime service account's `roles/storage.objectAdmin`.
 - Both: `force_destroy = false` + `lifecycle { prevent_destroy = true }` on the media bucket.
 
-**Verify live** (ran against dzeroth-dev 2026-09-27; same shape expected on prod). Note `gcloud storage buckets
+**Verify live** (ran against dzeroth-dev 2026-09-27; same shape expected on prod; the media bucket role change of 2026-10-27 is applied in both projects). Note `gcloud storage buckets
 describe` flattens field names (no `iamConfiguration.` prefix — that's the raw REST API's shape, not this CLI's):
 ```bash
 gcloud storage buckets describe gs://dzeroth-dev-media-upload \
@@ -343,9 +346,18 @@ gcloud storage buckets describe gs://dzeroth-dev-media \
 #    is what lets the allUsers grant below exist at all)
 
 gcloud storage buckets get-iam-policy gs://dzeroth-dev-media
-# -> allUsers has roles/storage.objectViewer (public read) and nothing else; api-runtime@... has
+# -> allUsers has roles/storage.legacyObjectReader (public read of one object by exact URL, no listing) and
+#    nothing else; it sits in the same binding as the default projectViewer:<proj> member. api-runtime@... has
 #    roles/storage.objectAdmin; the rest are GCP's standard project-editor/owner/viewer legacy bindings
 #    (every bucket has these unless explicitly stripped -- not a Terraform-managed grant, not public).
+#    Expect NO allUsers under roles/storage.objectViewer. Before the 2026-10-27 fix (W3-22 M-2) it was there.
+
+# Anonymous listing must be refused (checked in dev and in prod on 2026-10-27; prod answered 200 on both before its apply, 401 and 403 after; use dzeroth-prod-media for prod):
+curl -s -o /dev/null -w '%{http_code}\n' "https://storage.googleapis.com/storage/v1/b/dzeroth-dev-media/o"   # -> 401
+curl -s -o /dev/null -w '%{http_code}\n' "https://storage.googleapis.com/dzeroth-dev-media/"                  # -> 403
+# An existing public object still serves, and a missing one still answers 404 (not 403):
+curl -s -o /dev/null -w '%{http_code}\n' "https://storage.googleapis.com/dzeroth-dev-media/m/<an-existing-object>"  # -> 200
+curl -s -o /dev/null -w '%{http_code}\n' "https://storage.googleapis.com/dzeroth-dev-media/m/does-not-exist.jpg"    # -> 404
 
 gcloud storage buckets get-iam-policy gs://dzeroth-dev-media-upload
 # -> no allUsers / allAuthenticatedUsers binding at all; only api-runtime@... (objectAdmin) plus the same

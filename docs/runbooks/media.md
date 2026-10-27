@@ -78,6 +78,21 @@ is not enough for a banner: an established account publishes it `READY_UNSCREENE
 The request log lines carry `purpose` (`POST`, `AVATAR`, `BANNER`; `MIXED` on a finalize that spans purposes) and, on
 FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUpload lines on `purpose=BANNER` and sum `vision_units`.
 
+### Public read semantics (bucket IAM, W3-22 M-2)
+`<proj>-media` is public by exact object URL only. `allUsers` holds `roles/storage.legacyObjectReader`, which is
+`storage.objects.get` and nothing else, so the bucket **cannot be listed anonymously** (a replaced banner, a removed avatar or
+a taken-down post's image is reachable only by someone who already has its URL). Never grant `roles/storage.objectViewer` to
+`allUsers`: it adds `storage.objects.list` and makes every object enumerable (and every list call a billed Class A operation).
+Status codes, checked in dev on 2026-10-27:
+| Request | Anonymous result |
+|---|---|
+| `GET https://storage.googleapis.com/<proj>-media/m/<id>.<ext>` (exists) | 200 |
+| same URL, object missing or deleted | **404** `NoSuchKey` (the grant change did not turn it into a 403) |
+| `GET .../storage/v1/b/<proj>-media/o` (JSON API list) | 401 |
+| `GET https://storage.googleapis.com/<proj>-media/` (XML API list) | 403, `storage.objects.list` denied |
+So a client that shows a placeholder for a missing avatar or banner (ADR-0024 A4) can key on 404. If an anonymous list ever
+answers 200 again, the binding drifted: `terraform plan` in that env shows the role replacement.
+
 ### Storage growth
 Replaced avatars are not deleted until the account is (plan D10), and neither are replaced or removed banners (ADR-0024 D1,
 Option 5A; the account purge deletes every media doc and object of the user, banners included). If `<proj>-media` approaches

@@ -64,10 +64,21 @@ resource "google_storage_bucket" "media" {
   labels = var.labels
 }
 
+// Public read is object GET only: roles/storage.legacyObjectReader holds just storage.objects.get. Do not use
+// roles/storage.objectViewer here. It also grants storage.objects.list, so anyone could enumerate every object in the
+// bucket (replaced banners and avatars, taken-down post images). Security review W3-22 M-2.
+// create_before_destroy: `role` is ForceNew, so the plan shows a replace. Creating the new binding first means a refused
+// grant leaves the old one in place instead of a bucket with no public read at all.
+// A request for a missing object still returns 404 NoSuchKey (checked in dev on 2026-10-27), so clients can keep
+// treating 404 as "image gone". Listing now answers 401 (JSON API) or 403 (XML API) to an anonymous caller.
 resource "google_storage_bucket_iam_member" "media_public_read" {
   bucket = google_storage_bucket.media.name
-  role   = "roles/storage.objectViewer"
+  role   = "roles/storage.legacyObjectReader"
   member = "allUsers"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 // The runtime SA writes finished uploads into `upload/` and moderated copies

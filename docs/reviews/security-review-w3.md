@@ -189,6 +189,22 @@ Owner: production-deployer.
 **Gate.** Dev apply with or before W3-24 (recommended, not required). Prod apply needs the founder's OK (ADR-0019,
 plan-then-OK). See founder question 2.
 
+**Status (2026-10-27): applied in dev and in prod; closed.**
+- Fix: `infra/terraform/modules/media-buckets/main.tf` now binds `allUsers` to `roles/storage.legacyObjectReader`
+  (`storage.objects.get` only; `gcloud iam roles describe` confirms), with `create_before_destroy` because `role` forces a
+  replacement. GCS accepted it on a uniform bucket-level access bucket, so no custom role is needed.
+- Dev (`dzeroth-dev-media`): applied 2026-10-27 (state serial 57 to 58 at 07:34 UTC; the only resource changed was
+  `module.media_buckets.google_storage_bucket_iam_member.media_public_read`). A targeted plan afterwards reports
+  "No changes". Checked anonymously the same day: JSON API list 401 and XML API list 403 (`storage.objects.list` denied),
+  GET of an existing object 200, GET of a missing object **404** `NoSuchKey` (not 403, so the review's expectation of a 403
+  was wrong and clients can key on 404).
+- Prod (`dzeroth-prod-media`): applied 2026-10-27 at about 13:36 UTC with the founder's OK, from a saved targeted plan
+  ("Plan: 1 to add, 0 to change, 1 to destroy."; apply: "Apply complete! Resources: 1 added, 0 changed, 1 destroyed.";
+  prod state serial 26 to 27). Before the apply an anonymous list returned 200 on both APIs. After it: JSON API list 401,
+  XML API list 403, missing object 404. The bucket IAM policy shows `allUsers` only under `roles/storage.legacyObjectReader`.
+  The "existing object 200" check could not be run in prod because the bucket holds 0 objects (no image uploaded there
+  yet); it returns 200 in dev with the same binding.
+
 ### M-3. Concurrent FinalizeUpload calls screen one image several times
 
 **Exploit.**
@@ -385,7 +401,7 @@ leak).
 ## Questions for the founder
 
 1. **M-2 prod apply.** Change the `allUsers` role on `dzeroth-prod-media` to object-get only. This is a Terraform
-   change: plan, then your OK.
+   change: plan, then your OK. **Done 2026-10-27:** applied and verified in dev and in prod (see the M-2 status).
 2. **ADR-0024 Option 5A versus DPDP and GDPR.** Should "Remove banner" and a replacement delete the old public image
    (5B for removes and replaces, avatars too)? Today it stays reachable until account deletion. Once listing is closed
    it stays reachable only by URL.
@@ -458,7 +474,8 @@ leak).
 
 - Cloud state:
   - indexes READY, the backfill run, the targeted flag plan (all W3-24);
-  - an anonymous list against the dev and prod media buckets (production-deployer confirms it while applying M-2).
+  - an anonymous list against the dev and prod media buckets: done 2026-10-27 by the production-deployer (dev now 401 and
+    403; prod 401 and 403 after the founder-approved apply the same day, 200 before it; see the M-2 status).
 - The tester's W3-20 authz and budget matrix (W3-20 is Open).
 - A real-browser check on the dev Hosting site of IDN and punycode rendering and of the website open.
 - `govulncheck` and `osv-scanner` beyond the CI job (no new dependencies).
