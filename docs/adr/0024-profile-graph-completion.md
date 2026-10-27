@@ -219,8 +219,8 @@ about 0.66 GB. The conclusion is unchanged.)
     and website read-only with Remove (`""` through `buildUpdateProfileRequest`). Banner Remove works without `media`;
     W3-15's "without media a saved banner is shown read-only" gains Remove. A FEATURE_DISABLED answer to a clear (a
     revision without the backend fix) hides Remove and shows the generic error.
-  - W3-17: "Unpin from profile" is ungated whenever a pin is shown; "Pin to your profile" stays behind the flag. This
-    supersedes the plan's "the menu rows need `profile_extras`" for Unpin.
+  - W3-17 (merged #347) follow-up: "Unpin from profile" is ungated whenever a pin is shown; "Pin to your profile"
+    stays behind the flag. This supersedes the plan's "the menu rows need `profile_extras`" for Unpin.
   - Widget tests for the flag-off state with and without each value.
   - Only if the founder picks 5B: an `AppAvatar` placeholder on a load error before avatar deletion ships.
 - **tester:** the A1 matrix (mode off, allowlist, percent 0 × the five RPCs × the owner and another viewer); the A2
