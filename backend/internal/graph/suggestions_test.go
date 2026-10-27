@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -33,13 +32,6 @@ func featureDisabled(err error) *apierr.Error {
 		return ae
 	}
 	return nil
-}
-
-func assertUnimplemented(t *testing.T, err error, ticket string) {
-	t.Helper()
-	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), ticket) {
-		t.Fatalf("err = %v, want Unimplemented naming %s", err, ticket)
-	}
 }
 
 // TestListSuggestedUsers_FlagMatrix (ADR-0024 D9): ListSuggestedUsers needs FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS
