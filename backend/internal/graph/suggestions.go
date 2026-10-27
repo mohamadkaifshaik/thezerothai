@@ -47,12 +47,14 @@ type SuggestionLimits struct {
 //
 // Firestore: hard cap 42 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 30, hydration <= HydrateMax 10),
 // 12 on the curated path (1 + 1 + 10; the edge query is skipped when the caller follows fewer than 3 accounts), 1
-// warm (the interceptor; the cache holds the hydrated rows), planning 25; 0 writes. This method itself accounts for
-// the reads past the interceptor: 41 cold worst, 0 warm. Request log: source (fof | curated | none), candidates
+// warm (the interceptor; the cache holds the hydrated rows) or 2 warm when the viewer's 60 s snapshot has expired
+// (the re-filter loads graph/{viewer} once, W3-22 L-1), planning 25; 0 writes. This method itself accounts for the
+// reads past the interceptor: 41 cold worst, 0 warm with a cached snapshot, 1 warm without. Request log: source (fof | curated | none), candidates
 // (uids sent to hydration), suggestions_cache_hit, graph_cache_hit.
 //
-// Staleness: a viewer's rows may be up to SUGGESTIONS_CACHE_TTL (1 h) old; see suggestionCache for what this instance
-// evicts at once and what only expires.
+// Staleness: a viewer's rows may be up to SUGGESTIONS_CACHE_TTL (1 h) old as to who is ACTIVE or still exists, but
+// never older than the 60 s snapshot cache as to the viewer's follows, blocks, mutes and blockedBy: every warm hit is
+// re-filtered against the snapshot (see refilterCached and suggestionCache).
 func (s *service) ListSuggestedUsers(ctx context.Context, callerUID string, maxResults int32) (_ []ListItem, err error) {
 	defer begin(ctx, "suggested_users")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -67,7 +69,11 @@ func (s *service) ListSuggestedUsers(ctx context.Context, callerUID string, maxR
 
 	if e, ok := s.suggested.get(callerUID, now); ok {
 		noteSuggestions(ctx, e.source, e.candidates, true)
-		return firstN(s.refilterCached(callerUID, e.items), want), nil
+		items, err := s.refilterCached(ctx, callerUID, e.items)
+		if err != nil {
+			return nil, err
+		}
+		return firstN(items, want), nil
 	}
 
 	snap, err := s.Snapshot(ctx, callerUID)
@@ -117,17 +123,22 @@ func (s *service) usableCandidates(viewer string, snap Snapshot, candidates []st
 	return out
 }
 
-// refilterCached drops, from a warm hit's rows, whoever the viewer's snapshot now excludes. It only looks: the
-// snapshot is used when the 60 s snapshot cache already holds it (0 reads; a miss leaves the rows as stored). This is
-// what hides a user who blocked the viewer, or whom the viewer followed from another instance, within the snapshot
-// cache's own 60 s, instead of at the end of the 1 h entry. Returns a new slice.
-func (s *service) refilterCached(viewer string, items []ListItem) []ListItem {
-	snap, ok := s.cache.Get(viewer)
-	if !ok {
-		return items
+// refilterCached drops, from a warm hit's rows, whoever the viewer's snapshot now excludes (W3-22 L-1). The snapshot
+// comes from s.Snapshot: the 60 s snapshot cache when it holds one (0 reads), else ONE read of graph/{viewer}, which
+// is then cached for 60 s like every other read path (ADR-0008 D8). So a user who blocked the viewer on another
+// instance, or whom the viewer followed or blocked elsewhere, is gone from the answer within 60 s, never after the
+// 1 h entry. The entry itself is not rewritten: it keeps its original expiry.
+//
+// Fails closed: a snapshot read error is returned (the caller maps it exactly as on the cold path) rather than served
+// as an empty list, because the client keeps an OK answer for 24 h and would store "no suggestions"; an overflowed
+// blockedBy (a blocker cannot be ruled out at 0 reads) yields no rows. Returns a new slice.
+func (s *service) refilterCached(ctx context.Context, viewer string, items []ListItem) ([]ListItem, error) {
+	snap, err := s.Snapshot(ctx, viewer)
+	if err != nil {
+		return nil, s.internalErr("suggestions", err, viewer)
 	}
 	if snap.BlockedByOverflow {
-		return nil
+		return nil, nil
 	}
 	out := make([]ListItem, 0, len(items))
 	for _, it := range items {
@@ -135,7 +146,7 @@ func (s *service) refilterCached(viewer string, items []ListItem) []ListItem {
 			out = append(out, it)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // dropSuggested removes users from the viewer's cached suggestions on this instance: called by the mutations that

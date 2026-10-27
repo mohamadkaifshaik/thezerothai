@@ -523,10 +523,15 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 		if want := curated[1:6]; !slices.Equal(got, want) {
 			t.Errorf("after Follow = %v, want %v (cu-00 gone, the sixth row moved up)", got, want)
 		}
-		budgettest.Assert(t, "after Follow", counter, budgettest.Budget{})
+		// Follow invalidated the caller's 60 s snapshot, so the re-filter of this warm hit loads graph/{viewer} once
+		// (W3-22 L-1: the documented +1 on a warm hit without a cached snapshot). Nothing else is read: no edge query,
+		// no hydration; the next call finds the refilled snapshot cache and costs 0.
+		budgettest.Assert(t, "after Follow", counter, budgettest.Budget{Reads: 1})
 		if len(env.repo.queries) != 0 || len(env.dir.calls) != 1 {
 			t.Errorf("storage touched again: %d hydrations", len(env.dir.calls))
 		}
+		_, again := env.list(t, sugViewer, 5)
+		budgettest.Assert(t, "second call after Follow", again, budgettest.Budget{})
 	})
 
 	t.Run("Block removes both directions", func(t *testing.T) {
@@ -854,4 +859,124 @@ func TestClampMaxResults(t *testing.T) {
 			t.Errorf("clampMaxResults(%d, %d) = %d, want %d", tt.req, tt.limit, got, tt.want)
 		}
 	}
+}
+
+// TestListSuggestedUsers_WarmHitReloadsSnapshot (W3-22 L-1): a warm hit is re-filtered against the viewer's snapshot
+// even when the 60 s snapshot cache no longer holds it, at the price of ONE read (graph/{viewer}), so a user who
+// blocked the viewer on another instance is hidden within 60 s instead of at the end of the 1 h entry. A failure
+// to load it is an error, never a cached-looking empty answer.
+func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
+	curated := names("cu", 8)
+	build := func(t *testing.T) *sugEnv {
+		t.Helper()
+		return newSugEnv(t, SuggestionLimits{CuratedUIDs: curated, HydrateMax: 8, CacheTTL: time.Hour}, mkSnap(), nil, curated)
+	}
+	// blockedBySnapshot is what another instance's Block of the viewer by blocker leaves in graph/{viewer}. It is a
+	// new Snapshot value with its own maps: the cold call's cached snapshot is not edited in place.
+	blockedBySnapshot := func(blockers ...string) Snapshot {
+		snap := mkSnap()
+		for _, b := range blockers {
+			snap.BlockedBy[b] = true
+		}
+		return snap
+	}
+
+	t.Run("a blocker added on another instance is dropped on the next call", func(t *testing.T) {
+		env := build(t)
+		first, _ := env.list(t, sugViewer, 5)
+		if !slices.Equal(first, curated[:5]) {
+			t.Fatalf("first = %v", first)
+		}
+		// Another instance wrote blockedBy; this instance's 60 s snapshot entry is gone (or never existed here).
+		env.repo.snapshots[sugViewer] = blockedBySnapshot("cu-02")
+		env.svc.cache.Invalidate(sugViewer)
+
+		got, counter := env.list(t, sugViewer, 5)
+		if want := []string{"cu-00", "cu-01", "cu-03", "cu-04", "cu-05"}; !slices.Equal(got, want) {
+			t.Errorf("rows = %v, want %v (cu-02 hidden, the tail refilled)", got, want)
+		}
+		budgettest.Assert(t, "warm hit without a cached snapshot", counter, budgettest.Budget{Reads: 1})
+		if len(env.repo.queries) != 0 || len(env.dir.calls) != 1 {
+			t.Errorf("the re-filter touched storage beyond the snapshot: %d queries, %d hydrations", len(env.repo.queries), len(env.dir.calls))
+		}
+		// The loaded snapshot is cached for 60 s: the next warm call is free again.
+		_, again := env.list(t, sugViewer, 5)
+		budgettest.Assert(t, "next warm hit", again, budgettest.Budget{})
+	})
+
+	t.Run("a block of the viewer by an uncached viewer entry is hidden although the entry was built before it", func(t *testing.T) {
+		// The same, with the whole cold path before the block: the entry is 59 minutes old.
+		env := build(t)
+		env.list(t, sugViewer, 5)
+		env.now = env.now.Add(59 * time.Minute)
+		env.repo.snapshots[sugViewer] = blockedBySnapshot("cu-00", "cu-01")
+		env.svc.cache.Invalidate(sugViewer)
+		got, counter := env.list(t, sugViewer, 5)
+		if want := []string{"cu-02", "cu-03", "cu-04", "cu-05", "cu-06"}; !slices.Equal(got, want) {
+			t.Errorf("rows = %v, want %v", got, want)
+		}
+		budgettest.Assert(t, "59 minute old entry", counter, budgettest.Budget{Reads: 1})
+	})
+
+	t.Run("the re-filter never rewrites the entry or stretches its expiry", func(t *testing.T) {
+		env := build(t)
+		env.list(t, sugViewer, 5)
+		before, ok := env.svc.suggested.get(sugViewer, env.now)
+		if !ok {
+			t.Fatal("no entry after the cold call")
+		}
+		env.repo.snapshots[sugViewer] = blockedBySnapshot("cu-02")
+		env.svc.cache.Invalidate(sugViewer)
+		env.now = env.now.Add(30 * time.Minute)
+		env.list(t, sugViewer, 5)
+		after, ok := env.svc.suggested.get(sugViewer, env.now)
+		if !ok || !after.expiresAt.Equal(before.expiresAt) || len(after.items) != len(before.items) {
+			t.Errorf("entry changed by a warm hit: expiresAt %v -> %v, rows %d -> %d", before.expiresAt, after.expiresAt, len(before.items), len(after.items))
+		}
+		env.now = env.now.Add(31 * time.Minute) // 61 minutes after the build
+		env.list(t, sugViewer, 5)
+		if len(env.dir.calls) != 2 {
+			t.Errorf("hydrations = %d after the original hour, want a rebuild (2)", len(env.dir.calls))
+		}
+	})
+
+	t.Run("a snapshot read error is an error without raw uids, and the entry survives it", func(t *testing.T) {
+		env := build(t)
+		first, _ := env.list(t, sugViewer, 5)
+		env.svc.cache.Invalidate(sugViewer)
+		env.repo.err = errors.New("rpc error: documents/graph/" + sugViewer + " unavailable")
+		items, err := env.svc.ListSuggestedUsers(context.Background(), sugViewer, 5)
+		if err == nil || len(items) != 0 {
+			t.Fatalf("items %v, err %v: want no rows and an error (an empty OK would be cached by the client for 24 h)", rowUIDs(items), err)
+		}
+		if strings.Contains(err.Error(), sugViewer) {
+			t.Errorf("error %q names the raw uid", err.Error())
+		}
+		env.repo.err = nil
+		got, _ := env.list(t, sugViewer, 5)
+		if !slices.Equal(got, first) || len(env.dir.calls) != 1 {
+			t.Errorf("after the failure rows = %v (hydrations %d), want the same entry %v", got, len(env.dir.calls), first)
+		}
+	})
+
+	t.Run("an overflowed blockedBy loaded on a warm hit shows nothing", func(t *testing.T) {
+		env := build(t)
+		env.list(t, sugViewer, 5)
+		snap := mkSnap()
+		snap.BlockedByOverflow = true
+		env.repo.snapshots[sugViewer] = snap
+		env.svc.cache.Invalidate(sugViewer)
+		got, counter := env.list(t, sugViewer, 5)
+		if len(got) != 0 {
+			t.Errorf("rows = %v with BlockedByOverflow, want none", got)
+		}
+		budgettest.Assert(t, "overflow on a warm hit", counter, budgettest.Budget{Reads: 1})
+	})
+
+	t.Run("a cached snapshot still costs nothing", func(t *testing.T) {
+		env := build(t)
+		env.list(t, sugViewer, 5)
+		_, counter := env.list(t, sugViewer, 5)
+		budgettest.Assert(t, "warm hit with a cached snapshot", counter, budgettest.Budget{})
+	})
 }

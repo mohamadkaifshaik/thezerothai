@@ -160,7 +160,9 @@ func New(d Deps) *service {
 		s.events = s // the no-op Followed below
 	}
 	if s.suggester == nil {
-		s.suggester = newFriendsOfFriends(s.repo, s.suggestions, func() time.Time { return s.now() })
+		fof := newFriendsOfFriends(s.repo, s.suggestions, func() time.Time { return s.now() })
+		fof.inactive = s.knownInactive
+		s.suggester = fof
 	}
 	return s
 }
@@ -168,6 +170,16 @@ func New(d Deps) *service {
 // SetDirectory wires identity.Directory after construction (see service's doc comment).
 func (s *service) SetDirectory(d identity.Directory) {
 	s.directory = d
+}
+
+// knownInactive is the friends-of-friends suggester's cache-only status probe (W3-22 L-5): which uids the Directory's
+// profile cache already knows are not ACTIVE. It looks at s.directory when called, because SetDirectory runs after New;
+// a Directory that does not implement inactiveProber (a fake) knows nothing, so nothing is skipped.
+func (s *service) knownInactive(uids []string) map[string]bool {
+	if p, ok := s.directory.(inactiveProber); ok {
+		return p.KnownInactive(uids)
+	}
+	return nil
 }
 
 var _ Service = (*service)(nil)
