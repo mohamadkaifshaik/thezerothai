@@ -1,5 +1,5 @@
 # 0024. Profile and graph completion (W3 Part A)
-Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default); Amendment 1 Proposed (2026-10-27, W3-22 M-1)
+Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default); Amendment 1 Proposed (2026-10-27, W3-22 M-1); Amendment 2 Proposed (2026-10-27, W3-23 who-to-follow read trigger)
 Date: 2026-10-27
 Deciders: architect (proposal); the founder accepts by merging. The first W3 implementation PR flips the status, as
 #306 did for ADR-0023. Nine founder questions are listed below, each with a recommended default.
@@ -302,6 +302,307 @@ new topic, Scheduler job, collection or index.
     placeholder release.
 - **Flag:** no new flag. `FEATURE_PROFILE_EXTRAS` keeps its ceiling (dev allowlist 3, no prod raise). A4's `PROFILE_MEDIA_RETIRE` is per-project config (rule 11), not a cohort flag.
 
+## Amendment 2 (2026-10-27, Proposed): who to follow back under its own 10% read line (W3-23); 48 h client cache and `SUGGESTIONS_EDGE_LIMIT` 20
+
+**Status: Proposed.** Merging its PR accepts B1 to B3. Source: the W3-23 cost report (merged #352,
+`docs/reviews/cost-model.md` §1 "Who-to-follow call mix", the §2 W3 notes, §6 "ADR-0024 triggers" and §9). It amends
+D8 ("Hard read cap", "Caches"), D10 (the `SUGGESTIONS_EDGE_LIMIT` default and the storm arithmetic), the
+`ListSuggestedUsers` row of the Cost impact table and the Stage-ladder row "Who to follow". **Gate:**
+`follow_suggestions` does not leave the dev allowlist in any project until B1 and B2 are built, the new edge limit is
+applied in that project, and the app release with B1(a) and B2 is the one that project's cohort runs (Handoff). No proto
+change, no new flag, index, collection or Terraform resource, no fixed cost. `FEATURE_FOLLOW_SUGGESTIONS` keeps its
+ceiling (dev allowlist 3, no prod raise).
+
+**What is wrong today** (`main` ead41ce6):
+- D8 planned 25 reads per call, which assumed about half the calls warm. The W3-19 client keeps an answer 24 h per
+  account (memory and disk), and the server's per-viewer entry lives 1 h on one instance, so a DAU's one call a day is
+  almost always cold. W3-23 restates the line at **35.7 reads/DAU**: 95% cold, of those 85% friends of friends at the
+  42 cap and 15% curated at 12, and 5% warm at 1 to 2.
+- That is **11.9%** of the product's 300.2 reads/DAU, above the 10% Stage-ladder line before a single real user. The
+  money is small: the line is INR 10.8 / 36.1 / 108.3 a month at 300 / 1,000 / 3,000 DAU, +3 / +11 / +34 over the
+  ADR. The trigger is the problem: a line that reads "fired" from the first day guards nothing.
+
+### B1. Levers (amends D8 "Hard read cap" and "Caches", D10 `SUGGESTIONS_EDGE_LIMIT`)
+
+**Method** (W3-23's call mix, every cold call at its cap):
+- **Reads per call.** M = 0.95 × (0.85 × fof cap + 0.15 × curated cap) + 0.05 × 1.5. The fof cap is 2 + `EDGE_LIMIT`
+  + `HYDRATE_MAX`; the curated cap is 2 + `HYDRATE_MAX`.
+- **Reads per DAU and share.** S = calls per DAU × M. The rest of the product stays at 264.5 reads/DAU, so the share is
+  S / (264.5 + S) and the line fires at S = 264.5 / 9, about **29.4**.
+- **Money.** INR = S × DAU × 30.42 × $0.035 per 100k × 95. Every read is billed: the product passes the free quota at
+  about 167 DAU (`cost-model.md` §5).
+- **Free reads.** They end at 50,000 / (264.5 + S) DAU.
+- **Calls per DAU at 48 h.**
+  - An active account calls unless it fetched the day before. If p is the share of today's DAU who were also active
+    yesterday, the calling share f satisfies f = 1 − p·f, so f = 1 / (1 + p).
+  - p = 1 gives W3-23's 0.5, the best case. Planning uses p = 2/3: **0.6**.
+  - An account active every other day gains nothing: its cache is 48 h old when it returns.
+  - At 24 h every active day after a day's gap is a call, so W3-23's 1.0 stands.
+
+| Option | Calls/DAU × reads per call | Reads/DAU | Share of all reads | The line, INR/month at 300 / 1,000 / 3,000 DAU | Product's free reads end at | Room to the 10% line |
+|---|---|---|---|---|---|---|
+| Today: 24 h client, edge 30 (cap 42) | 1.0 × 35.7 | 35.7 | 11.9% | 10.8 / 36.1 / 108.3 | 167 DAU | over (0.82×) |
+| (a) 48 h client cache | 0.6 × 35.7 (best 0.5) | 21.4 (17.8) | 7.5% (6.3%) | 6.5 / 21.7 / 65.0 | 175 | 1.37× (1.65×) |
+| (b) `SUGGESTIONS_EDGE_LIMIT` 20 (cap 32) | 1.0 × 27.6 | 27.6 | 9.5% | 8.4 / 27.9 / 83.8 | 171 | 1.06× |
+| (c) `SUGGESTIONS_EDGE_LIMIT` 15 (cap 27) | 1.0 × 23.6 | 23.6 | 8.2% | 7.2 / 23.9 / 71.6 | 174 | 1.25× |
+| (d) `SUGGESTIONS_HYDRATE_MAX` 6 (caps 38 / 8) | 1.0 × 31.9 | 31.9 | 10.8% | 9.7 / 32.3 / 96.8 | 169 | over (0.92×) |
+| (a) + (b) | 0.6 × 27.6 (best 0.5) | 16.6 (13.8) | 5.9% (5.0%) | 5.0 / 16.8 / 50.3 | 178 | 1.77× (2.13×) |
+| **(a) + (b) + the B2 guards (decided; the planning value)** | **0.6 × 27.6 + 0.66** | **17.2** | **6.1%** | **5.2 / 17.4 / 52.3** | **177** | **1.71×** |
+
+**Not chosen:**
+- **(c) Edge limit 15.** Alone it leaves 1.25× of room. With (a) and B2 it would save 2.5 more reads/DAU (14.7, 5.3%)
+  for a window another quarter smaller, and 20 already gives 1.7×.
+- **(d) Hydrate max 6.** Alone it is still over the line. Hydration goes through the shared 60 s profile cache (W3-23
+  measured 33 instead of 42 when other viewers had just cached the candidates), while edges are never cached, so the
+  edge window is the cleaner cut. It stays the next lever (Decision).
+- **(e) A lower `SUGGESTIONS_SAMPLE_FOLLOWEES`.** It saves 0 reads: the query reads the newest `EDGE_LIMIT` edges of
+  the sampled followees, and 10 followees fill a window of 20 or 30 as easily as 30 do. It also narrows the card and
+  makes the L-5 steering easier.
+- **(f) A longer server cache** (`SUGGESTIONS_CACHE_TTL`, at most 24 h).
+  - It is per instance: at most 3, scaled to zero, emptied by every deploy, an LRU of 2,000 viewers.
+  - The same device asks again only after its own client TTL, so only a second device or a re-login could hit it.
+  - It would serve suspended, deleted or renamed accounts for up to 24 h: only the snapshot facts are re-checked
+    (W3-22 L-1).
+- **(g) Fetch only when the card is on screen.** The card is a Home header sliver, under the push opt-in card, and the
+  desktop side column, so it is on screen at nearly every Home open. Revisit if the card moves into the feed, where X
+  places it.
+- **(h) The card only for accounts that follow fewer than N.** In a network of a few hundred DAU few accounts follow
+  many, so it saves little, and it takes the card from the accounts whose graphs give friends of friends the most to
+  work with.
+- **(i) Curated only below 10 followees.** It saves 28.5 × s reads/DAU, where s is the share of DAU with 3 to 9
+  followees (unknown; at s = 0.3 the line is 27.1, 9.3%). It shows the same 20 accounts to exactly the users the card
+  is for: those still building a graph.
+- **(j) The precomputed table now** (the Stage-ladder target).
+  - Computing it per user from Firestore costs the same friends-of-friends reads plus a write per user per day, for
+    inactive users too.
+  - It needs a Scheduler job, a new collection, an eraser step and an export section.
+  - It pays only from an export or SQL at Stage 2, so it stays the next rung.
+- **(k) Moving the line.** See B3.
+
+**Decision: (a) + (b), with B2.**
+- **(a)** `kSuggestionsTtl` goes from 24 h to **48 h** for a non-empty answer. B2 sets the other lifetimes.
+- **(b)** `SUGGESTIONS_EDGE_LIMIT` goes from 30 to **20** in four places: the config default, the graph module's own
+  default, and the literal in each env's `main.tf` (dev and prod).
+  - Hard caps: friends of friends 42 → **32**; curated **12** and warm **1 to 2** are unchanged.
+  - `config.Load`'s bound stays 1 to 50.
+- **Unchanged:** `SUGGESTIONS_SAMPLE_FOLLOWEES` 30, `SUGGESTIONS_HYDRATE_MAX` 10, `SUGGESTIONS_MAX_RESULTS` 5,
+  `SUGGESTIONS_CACHE_TTL` 1 h, the curated list, `RATE_LIMIT_SUGGESTIONS_PER_MIN` 10 and `SUGGESTIONS_CALLS_PER_DAY`
+  50.
+- **Walk-back.** A project may set the edge limit anywhere from 20 to 30 by a reviewed config PR that cites the B3 fill
+  check. At 30, with (a) and B2, the line is 22.1 reads/DAU, 7.7%, still under 10%. Above 30 needs an ADR.
+- **Next lever, not used now.** `SUGGESTIONS_HYDRATE_MAX` 6 (the client keeps 5 rows) would take the decided package to
+  about 14.9 reads/DAU, 5.3%.
+
+**Why.**
+- **Neither lever is enough alone.**
+  - (b) alone leaves 9.5%. A 6% drift in the mix fires the line again: more accounts on friends of friends, or fewer
+    warm hits.
+  - (a) alone is 7.5% at planning (1.37×), and it reaches only as far as the app build each user runs.
+- **(a) goes at the cause; (b) covers every client.**
+  - The cause is call frequency, which (a) halves at best.
+  - (b) is server-side, so it applies on the next revision to every client: old mobile builds, the web app and a
+    modified client.
+- **(b) lowers the abuse ceiling.**
+  - One account's worst day is 50 calls × 32 reads × 3 instances = 4,800 reads. That is under the 6,000 per-uid read
+    budget (2,000 × 3), so the call cap now binds instead of the read budget.
+  - The cost is INR 4.9 per account-month (was 6.1), and INR 485 for a ring of 100 accounts (was 607).
+- **Together: 1.7× of room at planning,** 2.1× in the best case. The saving is INR 5.6 / 18.7 / 56.0 a month at
+  300 / 1,000 / 3,000 DAU, plus about 7 of Cloud Run at 3,000 DAU.
+
+**UX and abuse, per lever.**
+
+| | (a) 48 h client cache | (b) Edge limit 20 |
+|---|---|---|
+| Staleness | A card can be up to 48 h old (was 24 h), with names and avatars as of then. The server reshuffles ties each IST day; a device now shows one draw for up to two days. Rows the viewer follows, blocks or mutes still go at once (local graph state). | None added. |
+| Fewer candidates | None. | The window holds the newest 20 edges of the 30 sampled followees, at most 3 per followee. In a small, dense network, where many friends of friends are already followed, up to a third fewer usable candidates reach hydration. More cards then come back with 3 or 4 rows, or with curated rows after the friends of friends (B3 watches the fill). |
+| New users and empty cards | An empty answer, or a card emptied by follows, would last 48 h: B2. | Unchanged: an account that follows fewer than 3 never runs the query. |
+| Abuse | None: the TTL is a client constant, not a control. The server limits bound a modified client: 10/min and 50/day per instance, 30 and 150 effective at 3 instances. | Cap 42 → 32 (above). An account that steers the window (L-5) needs 20 fast follows instead of 30, both far under the 200/day follows quota, and the per-followee cap still holds it to 3 rows. |
+| Privacy | Someone who blocks the viewer after the list was built stays on the viewer's device until the TTL ends or a tap gets NOT_FOUND, which drops the row for good (L-1). That is up to 48 h, was 24 h; the server's own answer is re-checked within 60 s. The row shows only the public profile as of the build, and the profile and Follow are refused. | Fewer edges read. |
+
+### B2. Client guards (amends the W3-19 cache rules in `SuggestionsRepository`)
+Without them (a) doubles the time a new account looks at an empty or used-up card, and the card exists for new
+accounts.
+1. **Non-empty answer: 48 h** (`kSuggestionsTtl`).
+2. **Empty answer from the server: 6 h** (`kSuggestionsEmptyTtl`, new; it was 24 h).
+   - Cases: a new account whose first Home open came before its third follow, a project with an empty
+     `suggested_user_ids`, or `source=none`.
+   - Such an account sees friends of friends within 6 h of following 3 accounts.
+   - Cost: at most 4 calls a day for such an account. With fewer than 3 followees each call is 2 reads, so 8 a day,
+     within the curated row's 12 planning reads even when the curated list is empty. With 3 or more followees and
+     nothing usable, each is at most 22 (2 + the edges); that case is rare.
+3. **Limit answer: 24 h** (`kSuggestionsLimitBackoff`, new, today's value). This is RESOURCE_EXHAUSTED for a rate
+   limit, a quota or a limit reached. The short in-flight hold is different and keeps `kSuggestionsFailureBackoff`. The
+   24 h backs off past the IST-day reset of the 50/day cap.
+4. **Refill once.** When a confirmed follow from the card removes its last visible row, the repository discards the
+   entry, in memory and on disk, and asks again. Dismissals and NOT_FOUND drops never trigger it.
+   - At most once per session per account.
+   - Within the hour on the same instance, the server answers from its per-viewer entry: it hydrated 10 rows, and its
+     own Follow removed the followed ones. That is 1 to 2 reads; otherwise it is a cold call at most 32.
+   - Planning: 0.02 calls/DAU × 32 = 0.64 reads/DAU.
+- **Storage.** The disk entry records which lifetime applies, as an optional field; it stays `v: 1`, because a new
+  version would make every stored entry a miss on upgrade and an older build would discard a newer entry. An entry
+  without the field (an older build wrote it) is judged by content: non-empty 48 h, empty 6 h. Sign-out still wipes
+  everything.
+- **Bound.** Every rule stays under the server's 10/min and 50/day per instance. B2 adds at most one call per session
+  (rule 4) and four a day for an account whose answer is empty (rule 2).
+- **Cost.** +0.66 reads/DAU (0.64, plus about 0.02 for empty answers), already in B1's decided row.
+
+### B3. The 10% line stays (the trigger)
+- **Keep it.**
+  - The card is one secondary surface. Once it costs more than a tenth of all reads, the precomputed table at 1 read
+    per call is the better design, and that is the next rung.
+  - Moving the line to fit the model would leave a line that never meant anything.
+  - The 15% for tabs plus the likes list is a different case: two primary surfaces.
+- **Re-measured.**
+  - After B1 and B2 the model is **17.2 of 281.7 reads/DAU = 6.1%** (5.0% in the best case).
+  - With the rest of the product at 264.5, the line fires at about **29.4 suggestion reads per DAU**, 1.7× the plan,
+    sustained 7 days.
+  - Measure it with `sug_share_pct` from `cost-model.md` §9, against `document/read_count`, and read it against 6.1%,
+    not 11.9%.
+  - Dev shares with 3 allowlisted users mean nothing.
+- **Regression checks** (not stage triggers; the same §9 queries, no new alert or metric):
+  - **Cold reads per call.** `mean_cold_reads` above 32 is a config regression; the model is 29.0
+    (0.85 × 32 + 0.15 × 12).
+  - **Calls per DAU.** The suggestion calls a day from the §9 mix query, divided by the DAU figure §8 uses (request
+    lines carry no uid). Above 0.8 for 7 days means the 48 h cache is not holding: old builds, second devices, cleared
+    web storage or a refill loop. Fix the client before reading the share. The model is 0.63.
+  - **Fill.** If cold `source=fof` calls with `candidates` below 5 are more than 30% of cold fof calls for 7 days, the
+    20-edge window is starving the card. Walk the limit back toward 30 (B1).
+
+### Cost impact (Amendment 2)
+
+| Line | Reads / writes per DAU | INR/month idle / 300 / 1,000 / 3,000 DAU |
+|---|---|---|
+| `ListSuggestedUsers`, before (W3-23) | 35.7 / 0 (1.0 call: 95% cold at 42 or 12) | 0 / 10.8 / 36.1 / 108.3 |
+| `ListSuggestedUsers`, after B1 and B2 | **17.2** / 0 (0.63 calls: 0.6 at 48 h, 0.02 refills, about 0.01 empty refetches; 27.6 reads per call) | 0 / **5.2 / 17.4 / 52.3** |
+| Change | **−18.5 reads** and −0.37 requests per DAU per day | 0 / −5.6 / −18.7 / −56.0, plus about −7 of Cloud Run at 3,000 (requests and vCPU-s, billed past about 1,500 DAU) |
+
+- **Whole product** (with W2 and Part A):
+  - 300.2 → **281.7 reads/DAU**; Part A goes from 51.5 → 33.0.
+  - Free reads end at about **177 DAU** (was 167), and the 80% line at about 142 (was 133).
+  - The Stage 0 bill with W2 and Part A is about INR 465 / 1,692 / 3,710 at 300 / 1,000 / 3,000 DAU (was
+    471 / 1,711 / 3,773).
+- **At 2× and 10× the new crossing** (355 and 1,775 DAU): the line costs INR 6.2 and 30.9 a month (was 12.8 and 64.1).
+  On its own it would use up the free 50k reads at about 2,900 DAU (was 1,400).
+- **Abuse:** INR 4.9 per account-month at the call cap (was 6.1 at the read budget).
+- **Writes, deletes, Vision, GCS and egress:** unchanged.
+- **Fixed monthly cost added: INR 0.** No new service, flag, index, collection or Terraform resource; two existing env
+  literals change, one per env. The credit window (ADR-0022) lifts nothing.
+
+### Stage ladder (Amendment 2)
+
+| Concern | Stage 0 | Seam | Stage 2/3 target | Trigger |
+|---|---|---|---|---|
+| Who to follow | Friends of friends at query time, cold cap 32, 1 h per-viewer instance cache, curated fallback. The client keeps an answer 48 h (6 h when empty, 24 h after a limit) and refills once when follows empty the card | `graph.Suggester` on the server (no caller knows the source); `SuggestionsRepository` on the client, the only caller and the only place the lifetimes live; no cursor on the wire | Unchanged: a precomputed table refreshed by a batch over a Firestore export (or SQL), served at 1 read, then a ranking ADR | Unchanged: suggestion reads above 10% of daily reads (modelled 6.1%, fires at about 29.4 reads/DAU), or the §6 Firestore trigger, sustained 7 days |
+
+### Handoff (Amendment 2)
+**Order.** The four W3 flags reach the dev allowlist through W3-24 today; `follow_suggestions` goes no further until
+step 5.
+1. **Now, W3-24:** apply its saved targeted dev plan as reviewed, with `SUGGESTIONS_EDGE_LIMIT=30`. Do not re-plan for
+   this amendment: the founder's OK covers that plan, and 3 users at 42 reads is noise.
+2. **The founder merges this PR** (acceptance).
+3. **backend-developer and frontend-developer** work in parallel, one PR each.
+4. **production-deployer,** once the backend PR serves 100% of dev: a targeted dev apply of the `api` service with the
+   `main.tf` literal 20.
+   - Re-plan from `main`; the 3.10 drift stays out of the target.
+   - Then check that the serving revision's env has `SUGGESTIONS_EDGE_LIMIT=20` and that a cold dev call logs
+     `fs_reads` of at most 32.
+   - Prod's literal rides the next prod plan the founder approves (ADR-0019 plan-then-OK; prod applies are on hold
+     until the MVP).
+5. **Ramp past dev** (any percent, or prod) only after steps 3 and 4 are done in that project and the app release with
+   B1(a) and B2 is the one the cohort runs.
+   - This amendment does not change the `flag-ceiling.json` entry.
+   - The PR that raises it (founder review) lists these steps as done.
+
+- **backend-developer** (one PR, B1(b)):
+  - Defaults:
+    - `backend/pkg/platform/config/suggestions.go`: `SUGGESTIONS_EDGE_LIMIT` default 30 → 20 (bound 1 to 50
+      unchanged); in the doc comment the cap goes 42 → 32.
+    - `TestLoad_ProfileGraphDefaults` in `suggestions_test.go` wants 30 / 20 / 10 / 5 / 1h.
+    - `backend/internal/graph/suggester.go` `normalized()`: `boundedOr(l.EdgeLimit, 20, maxEdgesLimit)`. In
+      `suggester_test.go` the "zero is the config default" row gets EdgeLimit 20.
+  - Comments:
+    - `graph/suggestions.go`: the `ListSuggestedUsers` comment and the `SuggestionLimits` field comments (cold cap 32,
+      curated 12, warm 1 to 2, planning 27.6 per call).
+    - `graph/suggester.go`: the `Suggester` interface comment ("42 reads cold").
+    - `config/limits.go`: the `SuggestionsCallsPerDay` comment. The storm is 50 × 32 × 3 = 4,800 reads a day, under
+      the 6,000 per-uid read budget, so the call cap binds.
+  - Terraform: in `infra/terraform/envs/dev/main.tf` and `envs/prod/main.tf`, `SUGGESTIONS_EDGE_LIMIT` goes "30" →
+    "20". Their "Must match the config.go defaults" comment still holds. No validator pins the literal today
+    (`scripts/promotion` and `apiserver/guard_test.go` do not name it); if one is added first, it changes in the same PR.
+  - Tests:
+    - `w320_suggestions_integration_test.go`:
+      - `TestW320_SuggestionsHardCap42` pins `c.Suggestions.EdgeLimit = 30` through its `mutate`, so the 30-edge bound
+        stays tested.
+      - A new `TestW320_SuggestionsHardCap32` runs the same 30-followee fixture at the config default. The newest 20
+        edges hold 12 distinct candidates and hydration stops at 10, so the call is exactly 32. The dense-graph case
+        is at most 32.
+    - The other default-config ceilings take 32: the `Budget{Reads: 42}` of the "16 edges" and "friends of friends
+      then curated" cases, and the one in `w320_budget_table_integration_test.go`. Better: derive them from
+      `2 + cfg.Suggestions.EdgeLimit + cfg.Suggestions.HydrateMax`, as `cfgCap` does for bookmarks.
+    - `suggestions_chain_integration_test.go` asserts 41 to 42 reads and `candidates` = 10 on a 32-edge fixture.
+      - At 20 the window holds only followees 3, 2 and 1, and the per-followee cap leaves 9 candidates (31 reads).
+      - Fix: pin `EdgeLimit = 30` in its `configure`, or reseed so that at least 4 followees fall in the newest 20
+        edges with 10 or more distinct candidates, and assert 32.
+    - `graph/suggestions_integration_test.go` and the `suggester_test.go` budget test set `EdgeLimit: 30`
+      explicitly; they stay as the 30 case.
+  - Docs:
+    - `docs/runbooks/graph.md` §6: the cap 32, planning 17.2 reads/DAU, a regression above 32, the B2 client
+      lifetimes and the B3 checks.
+    - In its "Cache and staleness" paragraph and its symptoms table: on a device, a blocker is bounded by the client
+      TTL (48 h, or until a tap gets NOT_FOUND). "More than a minute" applies to the server's answer only.
+    - The `firestore-data-model` skill row for ListSuggestedUsers: cap 32, planning 27.6 per call.
+  - `make ci` and `make test-int` green.
+- **frontend-developer** (one PR, B1(a) and B2):
+  - Shipping: it reaches users in an app release, like Amendment 1's placeholder. Old mobile builds keep 24 h until
+    users update.
+  - `app/lib/features/graph/data/suggestions_repository.dart`:
+    - `kSuggestionsTtl` becomes 48 h;
+    - new `kSuggestionsEmptyTtl` (6 h) and `kSuggestionsLimitBackoff` (24 h);
+    - the entry records its lifetime on disk (an optional field, still `v: 1`);
+    - the RESOURCE_EXHAUSTED branch uses `kSuggestionsLimitBackoff`;
+    - a new `followed(uid, userId)`: it hides the row and, when no visible row is left, discards the entry and reports
+      a refill (once per session, reset with the session);
+    - the doc comments.
+  - `SuggestionsCubit.followed` reloads on a refill, and `onFollowed` in `who_to_follow_card.dart` calls it instead of
+    `hide`. The comments in `bootstrap.dart` and in the cubit say 48 h.
+  - Tests in `app/test/features/graph/data/suggestions_repository_test.dart`:
+    - Use the constants instead of hours. Today these cases hard-code 24 h: the call at 23:59, "within 24 h", "after
+      24 h" (+25 h), the drop rewrite at 20 / 23 / 25 h, and the RESOURCE_EXHAUSTED window at 3 h and TTL + 1 min.
+    - New cases:
+      - 47:59 is a hit and 48:01 a call;
+      - an empty answer is refetched after 6 h and not before;
+      - a limit answer is kept 24 h;
+      - an older disk entry is judged by content;
+      - the refill: one RPC after the last row is followed, none on a second exhaustion in the session, none after
+        dismissals or a drop, and the flag is reset on sign-out.
+  - Cubit and card tests for `followed`.
+  - `flutter analyze` and `flutter test` green.
+- **sre-performance** (`docs/reviews/cost-model.md`, after the merge; no need to wait for the code):
+  - §1: the call-mix row at 0.6 calls/DAU at 48 h, with the 1 / (1 + p) derivation (p = 2/3; best case 0.5), plus 0.02
+    refills and about 0.01 empty refetches.
+  - §2: the friends-of-friends row at cap 32 and the planning mix at 27.6 per call, 17.2 reads/DAU. Part A becomes 33.0
+    and the total 281.7.
+  - §3: free reads end at about 177 DAU, the 80% line at about 142.
+  - §4: the suggestions storm row at 150 × 32 = 4,800 reads (the call cap binds), INR 4.9 per account-month and 485 for
+    a ring of 100.
+  - §5: the W3 block's "of which who to follow" line at 5.2 / 10.5 / 17.4 / 52.3, and the bill lines.
+  - §6: the trigger row at 6.1%, firing at about 29.4 reads/DAU.
+  - §9: `mean_cold_reads` expected 29.0, calls per DAU 0.63, and the fill check (B3).
+  - A note that the W3-23 rows are superseded from the dev apply of step 4.
+- **production-deployer:**
+  - Step 1 unchanged.
+  - Step 4 in dev: a targeted plan, then the apply through the same approval path W3-24 used, then the env and
+    `fs_reads` checks.
+  - Prod waits for the next founder-approved plan.
+- **tester:**
+  - Re-run the W3-20 suggestions matrix and budget table at the new default, and the 30 case through the pin.
+  - Then the client tests above, at 360 dp, with the card in Home and in the side column sharing one refill.
+- **security-auditor:** three checks:
+  - the client bound for a blocker (48 h on a device) and the runbook's wording of it;
+  - that the refill cannot loop (once per session, under 10/min and 50/day);
+  - that the 20-edge window keeps the L-5 bound (3 rows per followee).
+
 ## Context
 On X a profile shows these things, all captured in `docs/x_research/screens/profile.md`:
 - a 3:1 cover image;
@@ -603,7 +904,8 @@ and charges the edge read to callers that never render the chip. B rejected.
   follows fewer than 3 accounts, or when step 3 yields fewer than 3. The same step-4 filter applies; curated rows fill
   after the friends-of-friends rows, up to the hydrate cap.
 - **Hard read cap.**
-  - Friends of friends: 1 (interceptor) + 1 (graph) + 30 (edges) + 10 (hydration) = **42**.
+  - Friends of friends: 1 (interceptor) + 1 (graph) + 30 (edges) + 10 (hydration) = **42**. Amendment 2 B1 (proposed): 32 at
+    `SUGGESTIONS_EDGE_LIMIT` 20.
   - Curated: 1 + 1 + 10 = **12**.
   - Planning 25. It never scans: no cursor, no target parameter, ≤ 5 results.
 - **Caches.**
@@ -611,7 +913,8 @@ and charges the edge read to callers that never render the chip. B rejected.
     viewer's 60 s snapshot has expired: every warm hit is re-filtered against `graph/{uid}` (W3-22 L-1 amendment, 2026-10-27), so
     a blocker added on another instance is hidden within 60 s. The 42 cold cap and the planning 25 do not change.
   - This instance's Follow removes the followed uid from the cached entry.
-  - The client caches the result 24 h per uid (W3-19).
+  - The client caches the result 24 h per uid (W3-19). Amendment 2 B1 and B2 (proposed): 48 h for a non-empty answer, 6 h for an
+    empty one, 24 h after a limit, and one refill when follows empty the card.
 - **Privacy.** It reveals follow edges of accounts the caller already follows, which `ListFollowing` already shows.
   It never suggests anyone in `blockedBy`. ADR-0025: a protected followee's edges are visible to the caller because
   the caller is its approved follower; protected candidates may be suggested, and following them creates a request.
@@ -638,8 +941,8 @@ and charges the edge read to callers that never render the chip. B rejected.
 | Key | Value | Effective (×3) | Notes |
 |---|---|---|---|
 | `RATE_LIMIT_SUGGESTIONS_PER_MIN` | 10 | 30/min | |
-| `SUGGESTIONS_CALLS_PER_DAY` | 50 | 150/day | `DailyCaps` entry `limit_name=suggestions_daily`. Worst cold 42 × 150 = 6,300 reads/day per account, already bounded by the 2,000 read budget per uid per instance (ADR-0010 D5) |
-| `SUGGESTIONS_SAMPLE_FOLLOWEES` / `_EDGE_LIMIT` / `_HYDRATE_MAX` / `_MAX_RESULTS` / `_CACHE_TTL` | 30 / 30 / 10 / 5 / 1h | n/a | `config.Load` rejects edge > 50, hydrate > 50, sample > 30 |
+| `SUGGESTIONS_CALLS_PER_DAY` | 50 | 150/day | `DailyCaps` entry `limit_name=suggestions_daily`. Worst cold 42 × 150 = 6,300 reads/day per account, already bounded by the 2,000 read budget per uid per instance (ADR-0010 D5); Amendment 2 (proposed): 32 × 150 = 4,800, under the budget, so the call cap binds |
+| `SUGGESTIONS_SAMPLE_FOLLOWEES` / `_EDGE_LIMIT` / `_HYDRATE_MAX` / `_MAX_RESULTS` / `_CACHE_TTL` | 30 / 30 / 10 / 5 / 1h | n/a | `config.Load` rejects edge > 50, hydrate > 50, sample > 30; Amendment 2 (proposed): edge limit 20 |
 | `RATE_LIMIT_LIKES_LIST_PER_MIN` | 10 | 30/min | |
 | `RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN` | 60 | 180/min | 0 reads warm |
 
@@ -735,7 +1038,7 @@ what the model multiplies.
 | `CreateUpload` + `FinalizeUpload`, BANNER | 2 / 1 + 5 / 1.7 (existing rows) | 3.3 + 4.4 (the finalize was 2.7 before W3-22 M-3 added the screening claim write; the whole-product writes per DAU move by under 0.01) | 1 (TTL) | 0.005 | 0.01 |
 | `ListLikedPosts`, page 20 / 50 | 23 / 53 cold; 20 / 50 warm; empty 2 (22) | 0 | 0 | 0.2 | 4.4 |
 | `GetProfileRelationship` (replaces the header's `GetRelationships`) | 3 cold (+1 overflow) / 0 warm (1; +0.5 net over the replaced call) | 0 | 0 | 2 | 1.0 |
-| `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm, 2 when the 60 s snapshot expired (W3-22 L-1) (25) | 0 | 0 | 1.0 | 25.0 |
+| `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm, 2 when the 60 s snapshot expired (W3-22 L-1) (25) | 0 | 0 | 1.0 (Amendment 2, proposed: 0.63 at 27.6 reads each) | 25.0 (Amendment 2: 17.2) |
 | Pin clean-up in the `post_delete` job | 2 (the post, fresh, then `users/{uid}` in the transaction; Amendment 1 A5) | ≤ 1 (only when the deleted post was the pin) | 0 | 0.05 | 0.10 |
 | `opsctl backfill-has-media` (one-off per project) | 1 per post | 1 per post lacking the field | 0 | n/a | n/a |
 | **Part A total** | | | | **≈ 2.3 new requests** | **≈ 40.2** |
@@ -778,7 +1081,8 @@ The pin clean-up (+0.10 reads per DAU at 2 reads per deleted post, Amendment 1 A
 cold-count correction (3, not 2) move no total by more than INR 0.5.
 - **Fixed monthly cost added: INR 0.** No new GCP service, topic, Scheduler job or Terraform resource. There are two
   composite indexes and five fieldOverrides. The credit window (ADR-0022) lifts nothing.
-- **Largest line:** who to follow (25 of 40.2 reads). Its levers, cheapest first:
+- **Largest line:** who to follow (25 of 40.2 reads; 35.7 of 51.5 as W3-23 restated it). Amendment 2 (proposed) takes the
+  first two levers. Its levers, cheapest first:
   - a 48 h client cache (−12.5);
   - `SUGGESTIONS_EDGE_LIMIT` 20 (−5 worst);
   - curated-only below 3 followees;
@@ -789,7 +1093,7 @@ cold-count correction (3, not 2) move no total by more than INR 0.5.
 
 | Concern | Stage 0 (this ADR) | Seam | Stage 2/3 target | Trigger |
 |---|---|---|---|---|
-| Who to follow | Friends of friends at query time, hard cap 42, per-viewer 1 h instance cache, curated fallback | `graph.Suggester` (no caller knows the source); no cursor on the wire | A precomputed table, refreshed by a batch job over a Firestore export (or SQL) and served at 1 read; later a ranking ADR | Suggestion reads above 10% of daily reads, or the §6 Firestore trigger, sustained 7 days |
+| Who to follow | Friends of friends at query time, hard cap 42, per-viewer 1 h instance cache, curated fallback | `graph.Suggester` (no caller knows the source); no cursor on the wire | A precomputed table, refreshed by a batch job over a Firestore export (or SQL) and served at 1 read; later a ranking ADR | Suggestion reads above 10% of daily reads, or the §6 Firestore trigger, sustained 7 days (Amendment 2, proposed: cap 32, 48 h client cache, modelled 6.1%) |
 | Profile tabs | One `Limit`ed indexed query per page, no cache (the Posts tab keeps author-recent) | `timeline` interface; tab-bound opaque tokens | A per-tab instance cache, then Memorystore with the Stage 2 timeline | Tab reads above 15% of daily reads |
 | Likes list | `userLikes.recent[]`, newest 1,000, resume-by-id cursor | `engagement.LikesList`; opaque `likes|uid` token | A `likes (uid, createdAt)` index or a SQL `likes` table with timestamps and full history | User demand, or most active users at the 1,000 cap |
 | "Follows you" | 1 cached point read per (caller, target) | `GetProfileRelationship` (single target by contract) | Served from the Stage 2 graph store (SQL edge table or Memorystore) | The §6 trigger |
@@ -824,7 +1128,7 @@ The plan's decisions, each with this ADR's recommended default.
 
 | # | Question | Recommended default |
 |---|---|---|
-| 2 | Who-to-follow source: (a) friends of friends + (c) curated fallback, (b) recent active authors, or curated only | **(a) + (c)**: planning 25 reads, about INR 7.6 / 76 a month at 300 / 3,000 DAU |
+| 2 | Who-to-follow source: (a) friends of friends + (c) curated fallback, (b) recent active authors, or curated only | **(a) + (c)**: planning 25 reads, about INR 7.6 / 76 a month at 300 / 3,000 DAU; Amendment 2 (proposed) restates it at 17.2 reads per DAU |
 | 3 | Likes visibility: owner only, newest 1,000 | **Yes**: no new index, no public scraping vector |
 | 4 | Tabs: Posts · Replies · Reposts · Media | **Yes**: dropping Reposts saves one index and 3 reads per DAU |
 | 5 | Location and website, no birthday | **Yes** (D2 rules) |

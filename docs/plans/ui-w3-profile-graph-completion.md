@@ -458,7 +458,7 @@ Definition of done per ticket:
 - **Rollback trigger:** error rate on a new RPC above 2% for 15 min, or reads per DAU above twice the W3-23 model (the Part A RPCs above about 103 reads/DAU).
 - **Kill switch:** the flag `off`. Data stays; no migration. Banners and meta already set keep rendering at no read cost; pins and websites stop rendering while `profile_extras` is globally off (the server omits `pinned_post_id` and `website`, Amendment 1 A1), which also stops the pin's `GetPost`. Owners can still clear any of the four (an exact `""`), and an operator clears one account's fields with `opsctl clear-profile-fields`.
 - **Risks:**
-  - Who to follow is the largest new read line (35.7 of 51.5 reads/DAU, 11.9% of all reads, above its own 10% trigger at the modelled usage; W3-23); the levers are in the cost section and should be chosen before the flag ramps past the dev allowlist.
+  - Who to follow is the largest new read line (35.7 of 51.5 reads/DAU, 11.9% of all reads, above its own 10% trigger at the modelled usage; W3-23); the levers are in the cost section and should be chosen before the flag ramps past the dev allowlist; ADR-0024 Amendment 2 (proposed) chooses both and gates the ramp on them.
   - `in` + `orderBy` on `follows` may need an index change (W3-12 checks first).
   - The likes list stops at 1,000.
   - Tabs read Firestore on every open (no cache).
@@ -468,7 +468,7 @@ Definition of done per ticket:
   - Another user's profile was not captured (W1.5), so the "Follows you" chip and the protected view use X-conformant defaults.
 
 ## Out of scope (with the Stage 2/3 version and its trigger, `stage-ladder`)
-- **Suggestions:** a precomputed or ranked source (a batch job over a Firestore export, or a ranking ADR). Trigger: suggestion reads above 10% of daily reads, or the §6 trigger, sustained 7 days. W3-23 models it at 11.9% already: pick a lever (48 h client cache, edge limit 20) or have the architect move the line before the ramp. Watch `source=fof` with `candidates` of 3 or fewer (L-5), `fs_reads` per RPC and Vision units per day (`cost-model.md` section 9).
+- **Suggestions:** a precomputed or ranked source (a batch job over a Firestore export, or a ranking ADR). Trigger: suggestion reads above 10% of daily reads, or the §6 trigger, sustained 7 days. W3-23 models it at 11.9% already. **ADR-0024 Amendment 2 (proposed) takes both levers and keeps the 10% line:** a 48 h client cache with guards for empty and used-up cards, and `SUGGESTIONS_EDGE_LIMIT` 20 (cap 42 to 32), bring it to 17.2 reads/DAU, 6.1% (the line fires at about 29.4); `follow_suggestions` stays on the dev allowlist until both are built and the edge limit is applied in the project (Amendment 2 Handoff, steps 3 to 5). Watch `source=fof` with `candidates` of 3 or fewer (L-5), `fs_reads` per RPC and Vision units per day (`cost-model.md` section 9).
 - **Full likes history:** a `likes (uid, createdAt)` index, or a SQL table at Stage 2. Trigger: user demand, or most active users at the 1,000 cap.
 - **Profile tabs:** a per-tab instance cache, then Memorystore. Trigger: tab reads above 15% of daily reads (tabs plus likes are 4.7% in the W3-23 model; the line needs about 3.6x the usage).
 - **Banner delivery:** CDN at Stage 3. Trigger: GCS egress above the §6 line.
