@@ -11,6 +11,13 @@ description: Test conventions, tooling and commands for Go and Flutter using the
 - Integration tag `//go:build integration`, run by `make test-int` against the **Firebase Emulator Suite**
   (`firebase emulators:exec --only firestore,auth,pubsub,storage 'go test -tags=integration ./...'`).
   Each test uses a unique project ID (`demo-test-<rand>`) so data never collides — the emulator treats `demo-*` projects as offline.
+- **Concurrent emulator suites (several agents on one machine).** Unique project IDs and different ports do **not** isolate the
+  Storage emulator: it keeps its blobs in `os.tmpdir()/firebase/storage/blobs`, shared machine-wide, and a second suite
+  starting or stopping wipes it, so the first dies mid-upload (`ENOENT ... firebase\storage\blobs\<id>`, then the Auth emulator
+  refuses connections). `make emulators`, `make test-int` and `make dev` already run behind `scripts/with-private-tmp.sh`
+  (a private per-run `TEMP`/`TMP`/`TMPDIR`, removed afterwards). A raw `firebase emulators:*` call must be wrapped the same way:
+  `bash scripts/with-private-tmp.sh firebase emulators:exec ...`. For ports and the leftover-`java.exe` rules see
+  `docs/runbooks/emulator-collisions.md`.
 - **Budget assertions:** repository wrapper counts reads/writes; integration tests assert each RPC stays within its
   documented budget (e.g., `assert.LessOrEqual(t, counter.Reads, 12)`). A budget regression fails CI.
 - Fuzz tests (`go test -fuzz`) for parsers: mentions, hashtags, URLs, cursors.
