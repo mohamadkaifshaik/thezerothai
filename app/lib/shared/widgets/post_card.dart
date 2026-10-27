@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/network/app_exception.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/engagement/presentation/widgets/post_engagement_bar.dart';
@@ -12,6 +15,7 @@ import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/graph_error_messages.dart';
 import '../../features/moderation/presentation/report_sheet.dart';
 import '../../features/posts/domain/post_text_parser.dart';
+import '../../features/profile/presentation/pin_error_messages.dart';
 import '../../features/profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -25,6 +29,7 @@ import 'app_menu_item_row.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
+import 'post_pin_control.dart';
 import 'unavailable_post_box.dart';
 
 part 'post_card_menu.dart';
@@ -93,6 +98,7 @@ class PostCard extends StatelessWidget {
     this.showReply = true,
     this.onOpenPost,
     this.bookmarkEnabled,
+    this.pinControl,
   });
 
   final pb.PostView view;
@@ -141,6 +147,10 @@ class PostCard extends StatelessWidget {
   /// Deletes a post after the user confirmed. Null hides Delete. A thrown
   /// error is reported with a snackbar.
   final Future<void> Function(String postId)? onDelete;
+
+  /// Pin / Unpin rows for the viewer's own POST, QUOTE or REPLY (W3-17).
+  /// Null (the default) offers none: a screen that can pin passes one.
+  final PostPinControl? pinControl;
 
   /// Opens a profile by user_id. Defaults to pushing `/u/<userId>`.
   final void Function(String userId)? onOpenProfile;
@@ -243,6 +253,7 @@ class PostCard extends StatelessWidget {
           graphActionsEnabled: graphActionsEnabled,
           reportsEnabled: reportsEnabled,
           onDelete: onDelete,
+          pinControl: pinControl,
           onRelationshipChanged: onRelationshipChanged,
         ),
       );
@@ -329,6 +340,7 @@ class PostCard extends StatelessWidget {
                     graphActionsEnabled: graphActionsEnabled,
                     reportsEnabled: reportsEnabled,
                     onDelete: onDelete,
+                    pinControl: pinControl,
                     onRelationshipChanged: onRelationshipChanged,
                   ),
                 ],
