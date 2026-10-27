@@ -6,7 +6,9 @@ package apiserver
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
-
+// caller outside the list is refused while the one inside gets through the gate: ListLikedPosts then answers an empty
+// list (W3-10), GetProfileRelationship is live since W3-11 and answers NOT_FOUND for an unknown target, and
+// ListSuggestedUsers still reaches its Unimplemented stub (W3-12). Helpers
 // come from posts_restricted_test.go and posts_contract_test.go.
 
 import (
