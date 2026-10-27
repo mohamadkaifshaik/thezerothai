@@ -433,3 +433,44 @@ func TestToProtoStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestServer_UpdateProfile_PassesTheProfileExtras(t *testing.T) {
+	svc := &fakeService{profile: Profile{
+		UserID: "uid-1", BannerURL: "https://m/b.webp", BannerThumbURL: "https://m/b_t.webp", Location: "Pune",
+		Website: "https://example.com", PinnedPostID: "0000000000000000301",
+	}}
+	client, closeFn := newTestServerHTTP(t, svc, "uid-1")
+	defer closeFn()
+
+	banner, location, website, pin := "0000000000000000202", "Pune", "https://example.com", "0000000000000000301"
+	resp, err := client.UpdateProfile(context.Background(), connect.NewRequest(&identityv1.UpdateProfileRequest{
+		IdempotencyKey: validKey, BannerMediaId: &banner, Location: &location, Website: &website, PinnedPostId: &pin,
+	}))
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	p := svc.lastParams
+	if p.BannerMediaID == nil || *p.BannerMediaID != banner || p.Location == nil || *p.Location != location ||
+		p.Website == nil || *p.Website != website || p.PinnedPostID == nil || *p.PinnedPostID != pin {
+		t.Fatalf("unexpected params passed to service: %+v", p)
+	}
+	got := resp.Msg.GetProfile()
+	if got.GetBannerUrl() != "https://m/b.webp" || got.GetBannerThumbUrl() != "https://m/b_t.webp" || got.GetLocation() != "Pune" ||
+		got.GetWebsite() != "https://example.com" || got.GetPinnedPostId() != "0000000000000000301" {
+		t.Fatalf("response profile = %+v", got)
+	}
+
+	// An explicit empty string reaches the service as a pointer to "" (a clear), an absent field as nil (unchanged).
+	empty := ""
+	if _, err := client.UpdateProfile(context.Background(), connect.NewRequest(&identityv1.UpdateProfileRequest{
+		IdempotencyKey: validKey, PinnedPostId: &empty,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if svc.lastParams.PinnedPostID == nil || *svc.lastParams.PinnedPostID != "" {
+		t.Fatalf("pinned_post_id = %v, want a pointer to the empty string", svc.lastParams.PinnedPostID)
+	}
+	if svc.lastParams.BannerMediaID != nil || svc.lastParams.Location != nil || svc.lastParams.Website != nil {
+		t.Fatalf("absent fields must stay nil: %+v", svc.lastParams)
+	}
+}

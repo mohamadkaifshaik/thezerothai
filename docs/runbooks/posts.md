@@ -34,8 +34,8 @@ Profile extras and tabs (ADR-0024 D9, W3-4 registration): `FEATURE_PROFILE_EXTRA
 `FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT]` / `feature_profile_tabs*` (`profile_tabs`) will gate `GetUserTimeline` tab MEDIA and REPOSTS (Posts
 and Replies stay ungated). Both default off in every environment (dev ceiling: allowlist, at most 3 uids; no prod raise) and
 `GetMe.enabled_features` lists them only when on for the caller. W3-4 registered them and the config; the `CreateUpload(BANNER)` gate is live since W3-5
-(`docs/runbooks/media.md`), and the other `UpdateProfile` gates arrive with W3-6, until then the new `UpdateProfile` fields are ignored without an error. The `GetUserTimeline` MEDIA and REPOSTS gate is live since W3-9
-(section 13): `tab` MEDIA or REPOSTS while `profile_tabs` is off for the caller is `FEATURE_DISABLED` `feature=profile_tabs` with 0 reads. Once gated, a field sent while off is `FEATURE_DISABLED`
+(`docs/runbooks/media.md`), the `UpdateProfile` gate is live since W3-6 (`docs/runbooks/identity.md`), and the `GetUserTimeline` MEDIA and REPOSTS gate is live since W3-9
+(section 13): `tab` MEDIA or REPOSTS while `profile_tabs` is off for the caller is `FEATURE_DISABLED` `feature=profile_tabs` with 0 reads. A field sent while off is `FEATURE_DISABLED`
 `feature=profile_extras` (0 writes); data set while a flag was on keeps rendering after a ramp-down (the pin is hidden while `profile_extras`
 is globally off). Kill switch: set the flag to `off` and deploy. No new failure mode yet.
 
@@ -394,4 +394,4 @@ it costs no write. The single definition is `posts.HasMediaFor`. The Media and R
   refreshing the tab in a loop (tabs are not cached on the server).
 - **Pin check (`posts.PinChecker`, used by `UpdateProfile`).** 1 read cold, 0 warm. A post deleted or taken down on another instance can
   still pass the check for up to the posts cache TTL (60 s); the client hides a pin whose `GetPost` answers NOT_FOUND and the
-  `post_delete` job clears the pin. A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause.
+  `post_delete` job clears the pin (`docs/runbooks/identity.md` section 3). A refused pin is always one `VALIDATION field=pinned_post_id` answer, whatever the cause (`docs/runbooks/identity.md` section 1).
