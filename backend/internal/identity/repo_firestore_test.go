@@ -105,3 +105,20 @@ func TestFirestoreRepo_Counters(t *testing.T) {
 		}
 	}
 }
+
+// TestUserDoc_RoundTripKeepsTheProfileExtras: UpdateProfile and ChangeHandle rewrite the whole users document from a
+// Profile, so every extra must survive userDoc -> Profile -> userDoc, and an absent extra must stay absent (omitempty).
+func TestUserDoc_RoundTripKeepsTheProfileExtras(t *testing.T) {
+	d := userDoc{
+		Handle: "alice", HandleLower: "alice", DisplayName: "Alice",
+		BannerURL: "https://m/b.webp", BannerThumbURL: "https://m/b_t.webp", Location: "Pune", Website: "https://example.com",
+		PinnedPostID: "0000000000000000301",
+	}
+	if got := profileToDoc(d.toProfile("uid-1")); got != d {
+		t.Fatalf("round trip dropped or changed a field:\n got %+v\nwant %+v", got, d)
+	}
+	if got := d.toProfile("uid-1"); got.BannerURL != d.BannerURL || got.BannerThumbURL != d.BannerThumbURL || got.Location != d.Location ||
+		got.Website != d.Website || got.PinnedPostID != d.PinnedPostID {
+		t.Fatalf("toProfile = %+v", got)
+	}
+}

@@ -1,7 +1,9 @@
 package identity
 
 import (
+	"net/url"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
@@ -71,4 +73,65 @@ func reservedDocID(id string) bool {
 // shared pkg/platform/idempotency validator (reuse-first: this used to be a local copy of the same regex).
 func idempotencyKeyIssue(key string) bool {
 	return !idempotency.KeyFormatValid(key)
+}
+
+// Profile extras limits (ADR-0024 D2).
+const (
+	maxLocationRunes = 30
+	maxWebsiteRunes  = 100
+)
+
+// isBidiControl reports the explicit bidi formatting controls U+202A-U+202E and U+2066-U+2069 (the same set the post
+// text rules reject, ADR-0010 D9; kept local because identity cannot import posts).
+func isBidiControl(r rune) bool {
+	return (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069)
+}
+
+// normalizeLocation applies NFC and trims surrounding whitespace.
+func normalizeLocation(s string) string {
+	return norm.NFC.String(strings.TrimSpace(s))
+}
+
+// locationIssue reports whether the already normalised location is unacceptable: invalid UTF-8, more than 30 code
+// points, or any control character (a newline included, it is a single line) or bidi formatting control. "" is a
+// valid clear.
+func locationIssue(normalized string) bool {
+	if !utf8.ValidString(normalized) || utf8.RuneCountInString(normalized) > maxLocationRunes {
+		return true
+	}
+	for _, r := range normalized {
+		if unicode.IsControl(r) || isBidiControl(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeWebsite validates s as a profile website and returns the value to store: the trimmed text with only the
+// scheme lower-cased. ok is false for anything that is not an absolute http or https URL with a non-empty host and no
+// userinfo, longer than 100 characters, or containing a control, whitespace or bidi character. "" is a valid clear.
+// The server never fetches the URL (no SSRF surface), so this is shape validation only.
+func normalizeWebsite(s string) (stored string, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", true
+	}
+	if !utf8.ValidString(s) || utf8.RuneCountInString(s) > maxWebsiteRunes {
+		return "", false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.IsSpace(r) || isBidiControl(r) {
+			return "", false
+		}
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Opaque != "" || u.User != nil || u.Host == "" || u.Hostname() == "" {
+		return "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "https" && scheme != "http" {
+		return "", false
+	}
+	// u.Scheme is the text before the first ":" of s, so its length is the prefix to lower-case.
+	return scheme + s[len(u.Scheme):], true
 }

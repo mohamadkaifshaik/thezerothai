@@ -70,22 +70,31 @@ type jobHandler interface {
 	Handle(ctx context.Context, data []byte) (string, error)
 }
 
-// postDeleteChain is the composite post_delete handler (ADR-0018 D10): the media step (a message without images is
-// a noop that reads nothing), then the engagement step. Both always run, so a failure of one never leaves the
-// other's work undone for a delivery; any error nacks the message and both steps are idempotent.
+// postDeleteChain is the composite post_delete handler (ADR-0018 D10, ADR-0024 D3): the media step (a message without
+// images is a noop that reads nothing), the engagement step, then the identity pin step (1 post read + 1 users read,
+// a write only when the deleted post was the author's pin). All three always run, so a failure of one never leaves
+// the others' work undone for a delivery; any error nacks the message and every step is idempotent.
 type postDeleteChain struct {
 	media jobHandler
 	eng   jobHandler
+	pins  jobHandler
 }
 
 func (c postDeleteChain) Handle(ctx context.Context, data []byte) (string, error) {
 	mo, merr := c.media.Handle(ctx, data)
 	eo, eerr := c.eng.Handle(ctx, data)
-	if err := errors.Join(merr, eerr); err != nil {
+	po, perr := c.pins.Handle(ctx, data)
+	if err := errors.Join(merr, eerr, perr); err != nil {
 		return "", err
 	}
+	out := mo + "+" + eo
 	if mo == "noop" {
-		return eo, nil
+		out = eo
 	}
-	return mo + "+" + eo, nil
+	// Only a cleared pin is news: the other pin outcomes (noop, refused, dropped) repeat what the media and engagement
+	// steps already report for the same message.
+	if po == "pin_cleared" {
+		out += "+" + po
+	}
+	return out, nil
 }
