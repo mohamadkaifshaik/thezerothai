@@ -148,9 +148,14 @@ go run ./cmd/opsctl clear-profile-fields --project $PROJ --uid <uid> --fields we
 - `--report` must be a report about this user; it is resolved as `PROFILE_CLEARED` after the write.
 - **Images.** `banner` clears both banner URLs and `avatar` both avatar URLs, and the command prints the two object names
   (`m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` in `<project>-media`). The URL stays live until the objects are deleted,
-  and the user's older posts keep the avatar URL in their author snapshot, so for an image that must go now delete the
-  printed objects by hand as `docs/runbooks/moderation.md` section 3a does (copy them out first if they are needed as
-  evidence). Automatic deletion after a grace is ADR-0024 Amendment 1 A4 and is not built yet.
+  and the user's older posts keep the avatar URL in their author snapshot. With `PROFILE_MEDIA_RETIRE` set in your shell to
+  the project's value (`banner` or `all`; unset is `off`) the command also schedules the delete after the clear committed
+  (ADR-0024 Amendment 1 A4, the same step the job runs: both objects get a `customTime` and the bucket's lifecycle rule deletes
+  them 24-48 h later; `docs/runbooks/media.md`). It prints `<image> retire: done.` and the cost line shows the extra 2 reads and
+  1 write. An invalid value is refused before any write (exit 2); a retire failure exits 1 after the clear, still resolves the
+  `--report`, and leaves the objects for you. For an image that must go now, delete the printed objects by hand as
+  `docs/runbooks/moderation.md` section 3a does, and copy them out first if they are needed as evidence (the 24-48 h grace
+  is shorter than the triage SLA; moderation.md, "Reported profile images").
 - **Staleness.** Each API instance serves the old profile for up to 60 s (3 instances at most), and clients show their
   cached profile until they refresh. opsctl cannot evict an instance cache.
 - A repeat offender is `suspend-user` (`docs/runbooks/moderation.md` section 2).
@@ -163,8 +168,8 @@ and pin (an empty value is always accepted), setting stays FEATURE_DISABLED. Ban
 still need per-account clears and the Vision `reject` policy (`docs/runbooks/media.md`). Reverse it by setting the mode back
 to anything but `off`: both fields return with no write.
 
-Cost: operator runs only. `clear-profile-fields` is 1 read and at most 1 write, `--report` adds 1 read to check it and
-1 read and 1 write to resolve it. See `docs/runbooks/identity.md` for what clients see.
+Cost: operator runs only. `clear-profile-fields` is 1 read and at most 1 write, plus 2 reads, 1 write and 2 Class A per image when
+the retire step runs, `--report` adds 1 read to check it and 1 read and 1 write to resolve it. See `docs/runbooks/identity.md` for what clients see.
 
 ## 6. Hard stop
 `max_instance_count = 3` caps compute no matter the volume. For a severe incident (data exposure, runaway cost),

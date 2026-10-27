@@ -78,7 +78,7 @@ The founder delegated the open P4 choices. Each is reversible by config unless n
 | D7 | **Exhausted Vision cap** (ADR-0005): accounts older than 7 days publish `READY_UNSCREENED`; newer accounts are `REJECTED` (retry after the 1st). `VISION_EXHAUSTED_POLICY=reject` rejects everyone. There is no upheld-report signal until P7. | ADR-0005 amendment, implemented as a config knob. | P7 adds the report signal. |
 | D8 | `DEGRADED_MODE=nomedia` blocks **CreateUpload and FinalizeUpload** only. CreatePost may still attach already-READY images and avatars may still be set from READY media. | `nomedia` exists to stop new storage, Class A/B and Vision spend; attaching a READY image costs none of those. | |
 | D9 | Quota unit is the **image**, not the call: `quotas/{uid}.uploads` += n, 20/day (`QUOTA_MEDIA_PER_DAY`; 5/day inside the 24 h new-account window, `QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY`), checked as a whole call (`quota.CheckAndReserveN`). | A 4-image call at 18/20 fails entirely instead of half-reserving. | |
-| D10 | **Old avatar objects are not deleted when an avatar is replaced** (they are removed with the account). | The profile keeps only URLs, not the previous media id; tracking it needs a field and a job. At ~30 KB per avatar this is noise at Stage 0. | Storage > 50% of 5 GB: add `avatarMediaId` to `users` and clean up in UpdateProfile's job. |
+| D10 | **Old avatar objects are not deleted when an avatar is replaced** (they are removed with the account). Amended by ADR-0024 Amendment 1 A4: once `PROFILE_MEDIA_RETIRE` covers the purpose, a replaced or removed avatar or banner is deleted 24-48 h later by the `profile_media_retired` job (`docs/runbooks/media.md`); until the switch is on, and for images no message covered, this row still holds. | The profile keeps only URLs, not the previous media id; tracking it needs a field and a job. At ~30 KB per avatar this is noise at Stage 0. | Storage > 50% of 5 GB: add `avatarMediaId` to `users` and clean up in UpdateProfile's job. |
 | D11 | **Emulator-only streamed copy.** GCS `rewrite` is the production path; the Storage emulator returns 501 for it, so `objstore.CopyTo` streams the copy **only** when `STORAGE_EMULATOR_HOST` is set. | Lets `make dev` and the integration tests finish a FinalizeUpload. Bytes still never pass through the API in any real environment. | |
 | D12 | Local dev uses an allow-all moderator (`ENV=local` only); every other environment builds the Vision client (lazy, no I/O before ListenAndServe). | There is no Vision emulator. | |
 
@@ -193,6 +193,6 @@ and it is bounded by code (`VISION_MONTHLY_CAP`), not by hope. With `VISION_SCRE
 - A failed `post_delete` publish leaves a deleted post's objects until the account is deleted (D4). The log line
   `post_delete_job_publish_failed` goes to Error Reporting; a reconciliation sweep (`media` where `postId` has no post)
   is a possible P5/P9 follow-up and would cost one query per run.
-- Replaced avatars are not cleaned up (D10).
+- Replaced avatars are not cleaned up (D10) unless `PROFILE_MEDIA_RETIRE` covers them (ADR-0024 Amendment 1 A4; default off).
 - The TTL policy on `media.expireAt` is already declared in Terraform (`modules/firestore`); confirm it is applied in
   both projects before enabling the flag.

@@ -176,7 +176,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, fmt.Errorf("jobs publisher: %w", err)
 	}
 	lateDirectory := &lateAccountDirectory{}
-	mediaMod, err := wireMedia(cfg, log, fsClient, featureFlags, lateDirectory, postsRepo, snowflakeNode, jobsPublisher)
+	mediaMod, err := wireMedia(cfg, log, fsClient, featureFlags, lateDirectory, postsRepo, snowflakeNode, jobsPublisher, identityRepo)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -189,6 +189,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithSignupAuth(authAdminClient, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),
+		// ADR-0024 Amendment 1 A4: a replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).
+		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithExtrasFlags(featureFlags),
 		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
@@ -385,6 +387,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)
+	}
+	// profile_media_retired (ADR-0024 Amendment 1 A4): the media step that schedules a replaced or removed avatar or
+	// banner for deletion. Registered whatever PROFILE_MEDIA_RETIRE says: with the switch off the handler acks without
+	// action, so a message published by a revision that had it on is never left in a retry loop.
+	if err := lifecycle.RegisterJobHandler(media.JobKindProfileMediaRetired, mediaMod.jobs.RetireHandler()); err != nil {
+		return nil, nil, fmt.Errorf("profile_media_retired job handler: %w", err)
 	}
 	identityServer := identity.NewServer(identitySvc,
 		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),

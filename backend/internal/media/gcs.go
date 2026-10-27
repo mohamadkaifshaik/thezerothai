@@ -38,8 +38,9 @@ func NewBuckets(uploadBucket, publicBucket string) (*Buckets, error) {
 }
 
 var (
-	_ Signer  = (*Buckets)(nil)
-	_ Objects = (*Buckets)(nil)
+	_ Signer       = (*Buckets)(nil)
+	_ Objects      = (*Buckets)(nil)
+	_ PublicTagger = (*Buckets)(nil)
 )
 
 // SignPut implements Signer.
@@ -70,4 +71,10 @@ func (b *Buckets) DeleteUpload(ctx context.Context, object string) error {
 // DeletePublic implements Objects.
 func (b *Buckets) DeletePublic(ctx context.Context, object string) error {
 	return b.Public.Delete(ctx, object)
+}
+
+// SetPublicCustomTime implements PublicTagger: one metadata patch (1 Class A) on an object of the public bucket. A missing
+// object is success.
+func (b *Buckets) SetPublicCustomTime(ctx context.Context, object string, t time.Time) error {
+	return b.Public.SetCustomTime(ctx, object, t)
 }

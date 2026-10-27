@@ -21,10 +21,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 )
 
@@ -64,6 +66,12 @@ type backends struct {
 	accounts   accountStatusSetter
 	// profiles serves clear-profile-fields (ADR-0024 Amendment 1 A3): identity's field-level clear of users/{uid}.
 	profiles profileClearer
+	// retire is the A4 retire step clear-profile-fields runs in process for a cleared banner or avatar (media.Jobs); nil
+	// means it never runs. retireMode is PROFILE_MEDIA_RETIRE read from the operator's shell (unset = off), and retireErr
+	// is its parse error, which clear-profile-fields reports before writing anything when an image is among the fields.
+	retire     profileRetirer
+	retireMode config.ProfileMediaRetire
+	retireErr  error
 	// actorSweeper removes the notification rows other users hold about a suspended actor (security audit N-4);
 	// nil skips the sweep.
 	actorSweeper notifications.ActorSweeper
@@ -104,6 +112,21 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		_ = client.Close()
 		return nil, err
 	}
+	// ADR-0024 Amendment 1 A4: the retire step clear-profile-fields runs in process. The switch is the operator's shell
+	// PROFILE_MEDIA_RETIRE (an opsctl run has no Cloud Run environment); unset is off. NewBuckets and the storage client do
+	// no I/O until the first object call.
+	retireMode, retireErr := config.ParseProfileMediaRetire(os.Getenv("PROFILE_MEDIA_RETIRE"))
+	var retire profileRetirer
+	if retireErr == nil {
+		buckets, err := media.NewBuckets(project+"-media-upload", project+"-media")
+		if err != nil {
+			_ = client.Close()
+			return nil, err
+		}
+		// No PostGone and no publisher: only Retire runs here, never the post_delete handler.
+		retire = media.NewJobs(media.NewFirestoreRepo(client, media.WriteDeps{}), buckets, nil, nil).
+			WithProfileRetire(media.RetireDeps{Mode: retireMode, Users: identityRepo, Tagger: buckets})
+	}
 	return &backends{
 		eraser:        graphRepo,
 		planner:       graphRepo,
@@ -119,6 +142,9 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		backfiller:    postsRepo,
 		accounts:      identityRepo,
 		profiles:      identityRepo,
+		retire:        retire,
+		retireMode:    retireMode,
+		retireErr:     retireErr,
 		actorSweeper:  notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
@@ -134,7 +160,9 @@ const usage = `usage:
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
   opsctl backfill-has-media --project P [--dry-run] [--after POST_ID]   (one-off per project; <= 5,000 writes per run)
   opsctl clear-profile-fields --project P --uid U --fields website,location,banner,avatar,bio [--report R] [--note N] [--dry-run]
-                          (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md)
+                          (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md.
+                          A cleared banner or avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=banner|all
+                          is set in this shell to the project's value; unset = off, delete the printed objects by hand)
 ` + modUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.

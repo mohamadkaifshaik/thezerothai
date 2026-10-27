@@ -127,6 +127,14 @@ extension type IdentityServiceClient (connect.Transport _transport) {
   /// writes 1 (0 when the request changes nothing, W3-22 L-4; + async jobs above). Per-uid daily call cap
   /// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
   /// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, 0 reads.
+  /// Replaced and removed images (ADR-0024 Amendment 1 A4): a commit that replaced or removed the avatar or the banner
+  /// hands the old image to a best-effort retire step after the commit. On this request path that is 0 extra reads (the
+  /// old URLs come from the document the transaction read), 0 extra writes and at most 2 Pub/Sub publishes, one per image,
+  /// so the budget above is unchanged; a failed hand-over is logged at ERROR and the image stays until account deletion.
+  /// The async job (kind profile_media_retired on the jobs topic) costs 2 reads, 1 write and 2 Class A operations per
+  /// image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
+  /// PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
+  /// again: it answers MEDIA_NOT_READY like any unusable id.
   Future<dzerothidentityv1identity.UpdateProfileResponse> updateProfile(
     dzerothidentityv1identity.UpdateProfileRequest input, {
     connect.Headers? headers,

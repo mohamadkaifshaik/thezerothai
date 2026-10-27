@@ -40,12 +40,13 @@ type PostGone interface {
 	PostGone(ctx context.Context, postID string) (bool, error)
 }
 
-// Jobs publishes and handles post_delete jobs.
+// Jobs publishes and handles post_delete jobs and, once WithProfileRetire is called, profile_media_retired jobs (retire.go).
 type Jobs struct {
 	repo    Repo
 	objects Objects
 	posts   PostGone
 	pub     JobPublisher
+	retire  RetireDeps
 }
 
 // NewJobs builds the job side. pub may be nil in tests that only exercise Handle.
