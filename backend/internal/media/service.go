@@ -22,6 +22,7 @@ import (
 // object path or URL.
 const (
 	fieldOp          = "media_op"
+	fieldPurpose     = "purpose" // POST, AVATAR or BANNER (enum only)
 	fieldOutcome     = "outcome"
 	fieldImages      = "media_images"
 	fieldReady       = "media_ready"
@@ -125,21 +126,50 @@ func idemKeyIssue(key string) error {
 	return nil
 }
 
-func validateUploadItem(i int, it UploadItem) error {
+// capsFor returns the signed-URL and verification byte caps of a purpose (ADR-0005; ADR-0024 D1 for BANNER).
+func capsFor(p Purpose) (full, thumb int64) {
+	if p == PurposeBanner {
+		return BannerMaxFullBytes, BannerMaxThumbBytes
+	}
+	return MaxFullBytes, MaxThumbBytes
+}
+
+func validateUploadItem(i int, p Purpose, it UploadItem) error {
 	field := func(name string) string { return fmt.Sprintf("items[%d].%s", i, name) }
+	maxFull, maxThumb := capsFor(p)
 	switch {
 	case it.ContentType != "image/webp" && it.ContentType != "image/jpeg":
 		return apierr.Validation(field("content_type"), "content_type must be image/webp or image/jpeg")
-	case it.FullBytes <= 0 || it.FullBytes > MaxFullBytes:
-		return apierr.Validation(field("full_size_bytes"), "the image must be at most 2 MiB after compression")
-	case it.ThumbBytes <= 0 || it.ThumbBytes > MaxThumbBytes:
-		return apierr.Validation(field("thumb_size_bytes"), "the thumbnail must be at most 256 KiB")
+	case it.FullBytes <= 0 || it.FullBytes > maxFull:
+		return apierr.Validation(field("full_size_bytes"), fmt.Sprintf("the image must be at most %s after compression", byteSize(maxFull)))
+	case it.ThumbBytes <= 0 || it.ThumbBytes > maxThumb:
+		return apierr.Validation(field("thumb_size_bytes"), fmt.Sprintf("the thumbnail must be at most %s", byteSize(maxThumb)))
 	case it.Width <= 0 || it.Width > MaxDimension || it.Height <= 0 || it.Height > MaxDimension:
 		return apierr.Validation(field("width"), "width and height must be between 1 and 4096")
 	case !md5b64Pattern.MatchString(it.FullMD5):
 		return apierr.Validation(field("full_md5"), "full_md5 must be the base64 MD5 of the file")
 	case !md5b64Pattern.MatchString(it.ThumbMD5):
 		return apierr.Validation(field("thumb_md5"), "thumb_md5 must be the base64 MD5 of the file")
+	}
+	if p == PurposeBanner {
+		return validateBannerShape(field("width"), it.Width, it.Height)
+	}
+	return nil
+}
+
+// byteSize renders a cap for a validation message (1 MiB, 256 KiB).
+func byteSize(n int64) string {
+	if n >= 1<<20 {
+		return fmt.Sprintf("%d MiB", n>>20)
+	}
+	return fmt.Sprintf("%d KiB", n>>10)
+}
+
+// validateBannerShape checks the declared banner size (ADR-0024 D1): width <= 1500, height <= 500 and 3:1 within 2%
+// (294*h <= 100*w <= 306*h, integer arithmetic, bounds inclusive). The server checks the declaration, not pixels.
+func validateBannerShape(field string, w, h int) error {
+	if w > BannerMaxWidth || h > BannerMaxHeight || 100*w < 294*h || 100*w > 306*h {
+		return apierr.Validation(field, "a banner must be 3:1, at most 1500 x 500")
 	}
 	return nil
 }
@@ -165,9 +195,10 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	if err := idemKeyIssue(in.IdempotencyKey); err != nil {
 		return nil, err
 	}
-	if in.Purpose != PurposePost && in.Purpose != PurposeAvatar {
-		return nil, apierr.Validation("purpose", "purpose must be POST or AVATAR")
+	if in.Purpose != PurposePost && in.Purpose != PurposeAvatar && in.Purpose != PurposeBanner {
+		return nil, apierr.Validation("purpose", "purpose must be POST, AVATAR or BANNER")
 	}
+	logger.SetRequestField(ctx, fieldPurpose, string(in.Purpose))
 	n := len(in.Items)
 	switch {
 	case n == 0:
@@ -176,9 +207,11 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 		return nil, apierr.Validation("items", "at most 4 images per upload")
 	case in.Purpose == PurposeAvatar && n != 1:
 		return nil, apierr.Validation("items", "an avatar is exactly one image")
+	case in.Purpose == PurposeBanner && n != 1:
+		return nil, apierr.Validation("items", "a banner is exactly one image")
 	}
 	for i, it := range in.Items {
-		if err := validateUploadItem(i, it); err != nil {
+		if err := validateUploadItem(i, in.Purpose, it); err != nil {
 			return nil, err
 		}
 	}
@@ -189,6 +222,7 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 		return nil, logger.RedactErr(fmt.Errorf("media: load account: %w", err), uid)
 	}
 	now := s.Now().UTC()
+	maxFull, maxThumb := capsFor(in.Purpose)
 	limit := s.MediaPerDay
 	if !createdAt.IsZero() && now.Sub(createdAt) < s.NewAccountWindow {
 		limit = s.NewAccountMediaPerDay
@@ -239,11 +273,11 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	targets := make([]UploadTarget, n)
 	for i, it := range in.Items {
 		ext := extension(it.ContentType)
-		full, err := s.sign(ctx, uploadObject(uid, ids[i], ext), it.ContentType, it.FullMD5, MaxFullBytes, now)
+		full, err := s.sign(ctx, uploadObject(uid, ids[i], ext), it.ContentType, it.FullMD5, maxFull, now)
 		if err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("media: sign full: %w", err), uid)
 		}
-		thumb, err := s.sign(ctx, uploadThumbObject(uid, ids[i], ext), it.ContentType, it.ThumbMD5, MaxThumbBytes, now)
+		thumb, err := s.sign(ctx, uploadThumbObject(uid, ids[i], ext), it.ContentType, it.ThumbMD5, maxThumb, now)
 		if err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("media: sign thumb: %w", err), uid)
 		}
