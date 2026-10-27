@@ -16,7 +16,8 @@ Git Bash on Windows; queries are for **Logs Explorer**
 
 Setting `banner_media_id`, `location`, `website` or `pinned_post_id` needs `profile_extras` on for the caller. The exact empty
 string `""` (a clear) never does: it is accepted from any authenticated caller whatever the flag, a globally off flag included,
-at the same 1 read and 1 write as a bio edit (ADR-0024 Amendment 1 A2; a DPDP or GDPR rectification or erasure request must
+at the same 1 read and 1 write as a bio edit (0 writes when the named fields are already empty, L-4; it counts toward the daily
+`profile_update_daily` cap like any call) (ADR-0024 Amendment 1 A2; a DPDP or GDPR rectification or erasure request must
 not wait for a flag). A value that is not exactly `""` is a set, whitespace-only included, so `"   "` is gated even though it
 would normalise to a clear; a request from outside the cohort that mixes a clear with a set is refused whole.
 `DEGRADED_MODE=readonly` still refuses every write, clears included. The name, bio and avatar path is not gated.

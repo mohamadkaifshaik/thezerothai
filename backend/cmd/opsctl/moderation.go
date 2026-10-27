@@ -135,15 +135,16 @@ func printReport(out io.Writer, r moderation.Report) {
 	}
 	fmt.Fprintf(out, "\ncreated  %s\nreporter %s\ntarget   %s %s (owner %s)\nreason   %s\nnote     %q\n",
 		r.CreatedAt.Format(time.RFC3339), orDash(r.ReporterID), r.TargetType, r.TargetID, r.TargetOwnerID, r.Reason, r.Note)
-	if r.Evidence != nil && r.TargetType == moderation.TargetAccount {
+	switch {
+	case r.Evidence != nil && r.TargetType == moderation.TargetAccount:
 		// ADR-0024 Amendment 1 A3(b): the profile as the reporter saw it. No website here while profile_extras was
 		// globally off at report time; a reopened report refreshes all of it.
 		e := r.Evidence
 		fmt.Fprintf(out, "evidence profile @%s: display name %q, bio %q, location %q, website %q\nevidence avatar %q, banner %q\n",
 			e.AuthorHandle, e.DisplayName, e.Bio, e.Location, e.Website, e.AvatarURL, e.BannerURL)
-	} else if r.Evidence == nil && r.TargetType == moderation.TargetAccount {
+	case r.TargetType == moderation.TargetAccount:
 		fmt.Fprintln(out, "evidence none (an account report filed before profile evidence was kept; look at the live profile)")
-	} else if r.Evidence != nil {
+	case r.Evidence != nil:
 		fmt.Fprintf(out, "evidence post by @%s at %s: %q\n", r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
 		if r.Evidence.OriginalPostID != "" {
 			fmt.Fprintf(out, "evidence is the ORIGINAL post %s (the reported post is a repost; owner above is the reposter)\n", r.Evidence.OriginalPostID)

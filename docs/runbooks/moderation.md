@@ -104,6 +104,21 @@ removes only the repost: the repost doc is deleted and its reposts record, the o
 is gone). `restore-post` on it then answers not found: the removal is a fresh state and the user can repost again. Account actions on `owner` concern the reposter. Reports filed before B2, or whose original was
 already unavailable, show empty evidence text.
 
+### Reading an account report
+A report with `target` type ACCOUNT keeps, under `evidence`, the profile **as the reporter saw it** (ADR-0024 Amendment 1
+A3(b)): `reports show` prints `evidence profile @handle: display name, bio, location, website` and `evidence avatar ..., banner ...`
+(URLs, never uids). It is copied from the profile the call already loaded (0 extra reads), so a link or image swapped right
+after the report is still on record, and a reopened report (the same reporter reporting the same account after it was
+resolved) refreshes it. Two things to know when reading it:
+- **No website is not "no link".** While `FEATURE_PROFILE_EXTRAS` was globally off at report time the reporter saw no website, so
+  none is kept. Look at the live document (`users/{uid}.website`, which the switch does not erase) before closing the report.
+- **Older reports.** An ACCOUNT report filed before this change has no evidence: `reports show` prints `evidence none ... look at
+  the live profile`. The evidence is never returned to any client, and it is deleted with the report (resolved + 90 days).
+
+For a bad link, location, bio or image the action is `clear-profile-fields --report R` (above, the full procedure is
+`docs/runbooks/abuse-spike.md` section 5b); a bad display name or a repeat offender is `suspend-user`. The resolution is
+`PROFILE_CLEARED`; `reports resolve` still accepts only `NO_ACTION` and `DISMISSED`.
+
 ## 3a. Media on takedown (manual until `--purge-media` exists)
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the
 post's `media[]` ids; also `media` docs with `ownerId` = the author) the objects are **still public** in the media
@@ -119,12 +134,23 @@ Note: P4's `post_delete` job removes the objects when the **author** deletes the
 evidence is destroyed at that point; resolve image reports before the author can react, and rely on the ids plus the
 text copy in the report. Ticket T14 in `docs/plans/reports.md` tracks `takedown-post --purge-media`.
 
+**A removed banner or avatar.** `clear-profile-fields --fields banner,avatar` stops the profile pointing at the image but
+deletes no object (the automatic delete after a grace is ADR-0024 Amendment 1 A4, a later PR): the command prints the object
+names, and steps 1 to 3 above apply to them (`media` docs with `ownerId` = the user and `purpose` AVATAR or BANNER; the report
+evidence keeps the image URLs, which hold the media ids). The old avatar URL also stays in the author snapshot of the user's
+older posts until a rename refreshes them.
+
 ## 4. Failure modes
 - **Suspended user still sees the app / their posts still show.** Instances cache the profile and posts for
   `CACHE_TTL` (60 s). Wait a minute. If posts of a suspended user still appear after that, re-run `suspend-user` (a post
   created during the cache window is normally hidden by the command's own settle pass; the re-run is the backstop).
 - **`suspend-user` says the account is DELETING.** Refused on purpose: a moderator action never overrides an account
   deletion. Let the deletion finish (`docs/runbooks/account-deletion.md`).
+- **`clear-profile-fields` refuses or reports nothing.** `the account is DELETING: refusing to change it` and `no such user` exit
+  1 and write nothing (the deletion job's checkpoints must not race an operator write; a purged account has nothing to clear).
+  `nothing to clear: 0 writes` means every named field was already empty (a rerun, or the user removed it first): not an error.
+  A `--report` that is about another user is refused before any write; one already RESOLVED only warns. The command does not
+  evict instance caches, so the old profile can show for up to 60 s.
 - **`reports list` fails with "The query requires an index".** The `(status, createdAt)` composite index on `reports` is
   in `firebase/firestore.indexes.json`; deploy the indexes (`firebase deploy --only firestore:indexes`) and retry.
 - **Reports spike or a single reporter floods.** `QUOTA_EXCEEDED quota=reports` (20/day, 5/day for accounts younger than

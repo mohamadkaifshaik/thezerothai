@@ -92,6 +92,22 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 			if after["avatarUrl"] != before["avatarUrl"] || after["bio"] != before["bio"] || after["handle"] != before["handle"] {
 				t.Errorf("a clear touched other fields: before %v after %v", before, after)
 			}
+
+			// Clearing what is already empty is the L-4 no-op (ADR-0024 Amendment 1 A2): the read, no write, and
+			// updatedAt stays where the first clear put it.
+			ctx, counter = budget.WithCounter(context.Background())
+			if _, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{
+				IdempotencyKey: validKeyForIntegration, BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty,
+			}); err != nil {
+				t.Fatalf("repeat clear: %v", err)
+			}
+			budgettest.Assert(t, "UpdateProfile (clear of empty fields)", counter, budgettest.Budget{Reads: 1})
+			if counter.Writes() != 0 {
+				t.Errorf("a repeat clear wrote %d times, want 0 (L-4 no-op)", counter.Writes())
+			}
+			if again := userData(t, client, itUID); !again["updatedAt"].(time.Time).Equal(after["updatedAt"].(time.Time)) {
+				t.Errorf("a no-op clear moved updatedAt: %v -> %v", after["updatedAt"], again["updatedAt"])
+			}
 		})
 	}
 }
