@@ -135,6 +135,7 @@ details) are not catalogued here — only what other code should import and reus
 | Item | Location | Use it for |
 |---|---|---|
 | scripts/dev.sh | scripts/dev.sh | The actual backend+Flutter-web startup logic for `make dev`. Not inlined in the Makefile's `emulators:exec` call (N8): that string runs through the OS default shell (cmd.exe on Windows), which can't parse bash's `trap`/`&`/subshells — `make dev` invokes `bash scripts/dev.sh` instead, a single cmd.exe-safe command line, and the script itself always runs under a real bash. Reads BACKEND_DIR/APP_DIR/PORT from the environment (exported by the Makefile), not Make substitution. |
+| scripts/with-private-tmp.sh | scripts/with-private-tmp.sh | Runs any command with a private per-run `TEMP`/`TMP`/`TMPDIR` (`mktemp -d`, removed on exit, exit status passed through) so two emulator suites on one machine cannot wipe each other's Storage emulator blob directory (`os.tmpdir()/firebase/storage/blobs`). The Makefile's `emulators`, `test-int` and `dev` targets run behind it (`EMULATOR_TMP`); wrap any raw `firebase emulators:*` call the same way. `docs/runbooks/emulator-collisions.md`. |
 
 ## Composition root
 

@@ -122,4 +122,4 @@ Firestore is schemaless: add fields with defaults in Go structs; backfill with a
 Never rename a field in place: add new → dual-write → backfill → switch reads → remove old.
 
 ## Local
-`firebase emulators:start --only firestore,auth,pubsub,storage` — Go picks the emulator via `FIRESTORE_EMULATOR_HOST`.
+`make emulators` (`firebase emulators:start --only firestore,auth,pubsub,storage` behind `scripts/with-private-tmp.sh`, see `docs/runbooks/emulator-collisions.md`) — Go picks the emulator via `FIRESTORE_EMULATOR_HOST`.
