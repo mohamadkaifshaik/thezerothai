@@ -102,6 +102,24 @@ class ProfileCubit extends Cubit<ProfileState> {
     );
   }
 
+  /// The viewer deleted their pinned post from its Pinned row: the header's
+  /// post count drops and the pin is gone at once (the server unpins in a job
+  /// after the delete, so the next read agrees).
+  void pinnedPostDeleted() {
+    final profile = state.profile;
+    if (profile == null) return;
+    emit(
+      state.copyWith(
+        profile: profile.copyWith((p) {
+          if (p.postsCount > Int64.ZERO) {
+            p.postsCount = p.postsCount - Int64.ONE;
+          }
+          p.pinnedPostId = '';
+        }),
+      ),
+    );
+  }
+
   /// The viewer's own profile was edited (Edit profile, which returns the
   /// server's profile): show it without a `GetProfile` (0 reads). Ignored
   /// unless it is the profile this cubit shows.
