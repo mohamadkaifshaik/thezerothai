@@ -36,15 +36,32 @@ type Purpose string
 const (
 	PurposePost   Purpose = "POST"
 	PurposeAvatar Purpose = "AVATAR"
+	// PurposeBanner is the profile cover image (ADR-0024 D1): exactly one image, full 1500 x 500 and thumb 600 x 200.
+	PurposeBanner Purpose = "BANNER"
 )
+
+// ProfileExtrasFlagName is the wire name of FEATURE_PROFILE_EXTRAS (ADR-0024 D9). CreateUpload(BANNER) needs it on
+// for the caller on top of FlagName. Defined here because media must not import identity.
+const ProfileExtrasFlagName = "profile_extras"
 
 // Limits (ADR-0005).
 const (
 	// MaxPerPost is the most images one post carries (and one CreateUpload reserves).
 	MaxPerPost = 4
-	// MaxFullBytes and MaxThumbBytes are the signed x-goog-content-length-range upper bounds.
+	// MaxFullBytes and MaxThumbBytes are the signed x-goog-content-length-range upper bounds (POST and AVATAR;
+	// BANNER has its own, stricter caps below, see capsFor).
 	MaxFullBytes  = 2 << 20
 	MaxThumbBytes = 256 << 10
+	// BannerMaxFullBytes and BannerMaxThumbBytes are the BANNER caps (ADR-0024 D1): a 1500 x 500 WebP q75 is about
+	// 60-150 KB, a 600 x 200 thumb about 20 KB.
+	BannerMaxFullBytes  = 1 << 20
+	BannerMaxThumbBytes = 128 << 10
+	// BannerMaxWidth and BannerMaxHeight bound the declared banner size; the declared shape must be 3:1 within
+	// 2% (see validateBannerShape).
+	BannerMaxWidth  = 1500
+	BannerMaxHeight = 500
+	// BannerVisionUnits is what one banner costs: SafeSearch on the full image and the thumbnail.
+	BannerVisionUnits = 2
 	// MaxDimension bounds the declared width/height (the client resizes to <= 1600 px; this is a sanity bound).
 	MaxDimension = 4096
 	// MaxBlurhashLen is the BlurHash length bound (common.MediaRef.blurhash <= 64 chars).
@@ -176,10 +193,13 @@ type Result struct {
 type Service interface {
 	// CreateUpload reserves len(items) media ids and signs their PUT URLs. Firestore: reads 2 (idempotency,
 	// quotas), writes 2 + len(items) (idempotency, quotas, one media doc each); replay: 1 read, 0 writes. GCS: 0.
+	// A BANNER (ADR-0024 D1) is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape; same
+	// reads and writes (2 / 3), and the Server additionally needs profile_extras on for the caller (0 reads when off).
 	CreateUpload(ctx context.Context, uid string, in CreateUploadInput) ([]UploadTarget, error)
 	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. Firestore: reads
 	// 2*len(items) + 1 (media docs, the Vision counter cached 60 s, +1 per item whose upload is missing, whose
 	// screening fails or whose finalize race is lost), plus the interceptor read; writes len(items) + 1.
+	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB and always 2 for a BANNER.
 	FinalizeUpload(ctx context.Context, uid string, items []FinalizeItem) ([]Result, error)
 }
 
@@ -195,4 +215,8 @@ type Reader interface {
 	// ResolveAvatar returns the READY (or READY_UNSCREENED) AVATAR media id owned by uid. ErrNotReady otherwise.
 	// Reads: 1.
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, error)
+	// ResolveBanner returns the READY (or READY_UNSCREENED) BANNER media id owned by uid (ADR-0024 D1; Ref.URL is the
+	// 1500 px image, Ref.ThumbURL the 600 px one). ErrNotReady for every other case: missing, someone else's,
+	// another purpose, PENDING or REJECTED. Reads: 1.
+	ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error)
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const (
@@ -53,6 +54,26 @@ func (s *Server) guard(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
+// guardPurpose is the sub-feature check for purposes that need more than FEATURE_MEDIA: a BANNER needs
+// FEATURE_PROFILE_EXTRAS for the caller too (ADR-0024 D1, D9). FEATURE_DISABLED with metadata feature=profile_extras,
+// before any Firestore access, signing or quota (0 reads, 0 writes). It lives here, next to the media guard, because
+// the handler is where the registry is held and the purpose is first known.
+func (s *Server) guardPurpose(ctx context.Context, uid string, p Purpose) error {
+	if p != PurposeBanner {
+		return nil
+	}
+	var enabled func(uid, name string) bool
+	if s.flags != nil {
+		enabled = s.flags.Enabled
+	}
+	if err := flags.Guard(ctx, enabled, uid, ProfileExtrasFlagName); err != nil {
+		logger.SetRequestField(ctx, fieldPurpose, string(p))
+		logger.SetRequestField(ctx, "feature", ProfileExtrasFlagName)
+		return flags.DisabledError().WithMeta("feature", ProfileExtrasFlagName)
+	}
+	return nil
+}
+
 // CreateUpload implements mediav1connect.MediaServiceHandler.
 func (s *Server) CreateUpload(ctx context.Context, req *connect.Request[mediav1.CreateUploadRequest]) (*connect.Response[mediav1.CreateUploadResponse], error) {
 	uid, err := s.guard(ctx)
@@ -63,6 +84,9 @@ func (s *Server) CreateUpload(ctx context.Context, req *connect.Request[mediav1.
 	defer cancel()
 	m := req.Msg
 	in := CreateUploadInput{IdempotencyKey: m.GetIdempotencyKey(), Purpose: purposeFromProto(m.GetPurpose())}
+	if err := s.guardPurpose(ctx, uid, in.Purpose); err != nil {
+		return nil, err
+	}
 	for _, it := range m.GetItems() {
 		in.Items = append(in.Items, UploadItem{
 			ContentType: it.GetContentType(), FullBytes: it.GetFullSizeBytes(), ThumbBytes: it.GetThumbSizeBytes(),
@@ -129,6 +153,8 @@ func purposeFromProto(p mediav1.MediaPurpose) Purpose {
 		return PurposePost
 	case mediav1.MediaPurpose_MEDIA_PURPOSE_AVATAR:
 		return PurposeAvatar
+	case mediav1.MediaPurpose_MEDIA_PURPOSE_BANNER:
+		return PurposeBanner
 	default:
 		return ""
 	}

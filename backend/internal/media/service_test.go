@@ -582,6 +582,9 @@ func TestBlockedBySafeSearch(t *testing.T) {
 		{"racy post passes", SafeSearch{Racy: LikelihoodVeryLikely}, PurposePost, false},
 		{"racy avatar blocks", SafeSearch{Racy: LikelihoodLikely}, PurposeAvatar, true},
 		{"possible racy avatar passes", SafeSearch{Racy: LikelihoodPossible}, PurposeAvatar, false},
+		{"racy banner blocks", SafeSearch{Racy: LikelihoodLikely}, PurposeBanner, true},
+		{"possible racy banner passes", SafeSearch{Racy: LikelihoodPossible}, PurposeBanner, false},
+		{"likely adult banner blocks", SafeSearch{Adult: LikelihoodLikely}, PurposeBanner, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

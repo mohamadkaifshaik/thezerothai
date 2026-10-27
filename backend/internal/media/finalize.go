@@ -41,6 +41,7 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 			return nil, notFound()
 		}
 	}
+	logger.SetRequestField(ctx, fieldPurpose, finalizePurpose(docs, ids))
 
 	results := make([]Result, len(items))
 	var (
@@ -92,6 +93,21 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 	return results, nil
 }
 
+// finalizePurpose is the purpose to log for a finalize: the shared one, or "MIXED" (a post batch never mixes
+// purposes in practice; a client could ask). Enum values only.
+func finalizePurpose(docs map[string]*Doc, ids []string) string {
+	p := ""
+	for _, id := range ids {
+		switch d := docs[id].Purpose; {
+		case p == "":
+			p = d
+		case p != d:
+			return "MIXED"
+		}
+	}
+	return p
+}
+
 func validateFinalize(items []FinalizeItem) error {
 	if len(items) == 0 || len(items) > MaxPerPost {
 		return apierr.Validation("items", "1 to 4 items are required")
@@ -132,7 +148,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 
 	// 2. Moderate: every image is screened while the monthly cap lasts (ADR-0005).
 	units := int64(1)
-	if s.ScreenThumb {
+	if s.screensThumb(d) {
 		units = 2
 	}
 	status := StatusReady
@@ -276,13 +292,14 @@ func (s *service) reload(ctx context.Context, uid, id string, spent int64) (Resu
 // there yet is reported as errUploadMissing (the caller decides: the client has not finished uploading, or a
 // concurrent finalize already published and deleted it).
 func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error) {
+	maxFull, maxThumb := capsFor(Purpose(d.Purpose))
 	for _, o := range []struct {
 		object, md5 string
 		size        int64
 		max         int64
 	}{
-		{d.UploadPath, d.FullMD5, d.Bytes, MaxFullBytes},
-		{d.ThumbUploadPath, d.ThumbMD5, d.ThumbBytes, MaxThumbBytes},
+		{d.UploadPath, d.FullMD5, d.Bytes, maxFull},
+		{d.ThumbUploadPath, d.ThumbMD5, d.ThumbBytes, maxThumb},
 	} {
 		a, err := s.Objects.UploadAttrs(ctx, o.object)
 		switch {
@@ -314,11 +331,17 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 	return "", nil
 }
 
+// screensThumb reports whether the thumbnail is screened too: always for a BANNER (ADR-0024 D1: 2 Vision units, the
+// thumb is a separate upload), otherwise per VISION_SCREEN_THUMB.
+func (s *service) screensThumb(d *Doc) bool {
+	return s.ScreenThumb || d.Purpose == string(PurposeBanner)
+}
+
 // screen runs SafeSearch on the full image and, when ScreenThumb, the thumbnail (the small image is what lists
 // show, and it is uploaded separately). It reports whether either is blocked by the policy.
 func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) {
 	objects := []string{d.UploadPath}
-	if s.ScreenThumb {
+	if s.screensThumb(d) {
 		objects = append(objects, d.ThumbUploadPath)
 	}
 	type out struct {
@@ -346,12 +369,13 @@ func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) 
 	return blocked, nil
 }
 
-// blockedBySafeSearch is ADR-0005's policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars.
+// blockedBySafeSearch is ADR-0005's policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars and
+// banners (ADR-0024 D1).
 func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 	if ss.Adult >= LikelihoodLikely || ss.Violence >= LikelihoodLikely {
 		return true
 	}
-	return p == PurposeAvatar && ss.Racy >= LikelihoodLikely
+	return (p == PurposeAvatar || p == PurposeBanner) && ss.Racy >= LikelihoodLikely
 }
 
 // establishedAccount reports whether uid may publish unscreened once the cap is spent (ADR-0005): the policy
