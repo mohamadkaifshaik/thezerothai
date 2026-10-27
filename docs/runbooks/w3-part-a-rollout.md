@@ -135,8 +135,8 @@ both as the 2026-10-27 apply did). **Never run a full `terraform apply` in `envs
 service and `+ lifecycle_rule { days_since_custom_time = 1, Delete }`). Terraform 1.16.6 has no `-exclude`. That rule was applied to dev at 15:31 UTC by a separate change that this ticket did not make (the same plan
 then read `1 to change` again), which is also why the dev state moves under you: **re-plan right before you apply and stop if a second resource shows up** (step 2).
 
-Plans made and saved in the preparing session (not committed): the one above (`w3-24-dev.tfplan`); the same without `SUGGESTED_USER_IDS` (`w3-24-dev-nosuggest.tfplan`, decision 2 = empty; still 0/1/0, `SUGGESTED_USER_IDS` added with an empty value); and a baseline with every W3 flag `off` (`baseline.tfplan`; 0/1/0 with the same 24 names, modes `off`). Saved plans are session scoped and
-go stale when state changes: **re-plan from your checkout** (step 2).
+Variants checked in the preparing session (saved plans, not committed and never to be applied: they are session scoped and stale after any state change): the plan above; the same without `SUGGESTED_USER_IDS`
+(decision 2 = empty; still 0/1/0, `SUGGESTED_USER_IDS` added with an empty value); and a baseline with every W3 flag `off` (0/1/0 with the same 24 names, modes `off`). **Re-plan from your checkout** (step 2).
 
 ### 2.2 Ceilings and validators (run on this branch, 2026-10-27)
 - `scripts/promotion/flag-ceiling.json` (dev): `PROFILE_EXTRAS`, `PROFILE_TABS`, `LIKES_LIST`, `FOLLOW_SUGGESTIONS` are all `allowlist`, `max_allowlist 3`, `max_percent 0` (W3-4, #330). No ceiling
@@ -161,12 +161,12 @@ gh run list --workflow deploy-dev.yml --limit 3 --json status,conclusion,headSha
 ```
 Serialise with W4-24 and W5-19 (the other dev applies) and do not merge anything meanwhile.
 
-**Step 1: backfill (decision 3).** From `backend/`, with ADC (`gcloud auth application-default login` once):
+**Step 1: backfill (decision 3).** With ADC (`gcloud auth application-default login` once):
 ```bash
-cd backend
-go run ./cmd/opsctl backfill-has-media --project dzeroth-dev --dry-run   # expect: dry-run: scanned=74 missing=73 would_update=73 runs_needed=1 (nothing written)
-go run ./cmd/opsctl backfill-has-media --project dzeroth-dev             # expect: reads=74 writes=73 deletes=0 ... complete: scanned=74 updated=73 checkpoint=<id>
-go run ./cmd/opsctl backfill-has-media --project dzeroth-dev             # THE PROOF: reads=74 writes=0 deletes=0 ... complete: scanned=74 updated=0
+# from the repo root of your MAIN checkout; each subshell below leaves the shell where it was
+(cd backend && go run ./cmd/opsctl backfill-has-media --project dzeroth-dev --dry-run)   # expect: dry-run: scanned=74 missing=73 would_update=73 runs_needed=1 (nothing written)
+(cd backend && go run ./cmd/opsctl backfill-has-media --project dzeroth-dev)             # expect: reads=74 writes=73 deletes=0 ... complete: scanned=74 updated=73 checkpoint=<id>
+(cd backend && go run ./cmd/opsctl backfill-has-media --project dzeroth-dev)             # THE PROOF: reads=74 writes=0 deletes=0 ... complete: scanned=74 updated=0
 ```
 Stop, and do not turn `profile_tabs` on, if the third run says anything but `writes=0`. Interrupted: rerun (committed pages stay written). `RESOURCE_EXHAUSTED`: the day's write
 quota is spent, rerun tomorrow. Details: `docs/runbooks/posts.md` section 13.
