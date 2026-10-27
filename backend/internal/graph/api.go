@@ -48,6 +48,11 @@ type Snapshot struct {
 	// growing at its 10,000 cap (ADR-0008 D2). Fail-closed paths (Follow, GetProfile, list target checks)
 	// then also consult the other party's own graph doc directly instead of trusting BlockedBy alone.
 	BlockedByOverflow bool
+	// RecentFollowing is the newest followees, newest first, at most recentFollowingMax (30) of them: the tail of the
+	// stored following array, which ArrayUnion appends in follow order (ADR-0024 D8 "the newest 30"). Following is a
+	// set and has no order; this is the one ordered view, bounded so the 60 s snapshot cache never holds the whole
+	// 5,000-entry array twice. Empty when the account follows nobody.
+	RecentFollowing []string
 }
 
 func (s Snapshot) isFollowing(uid string) bool { return s.Following[uid] }

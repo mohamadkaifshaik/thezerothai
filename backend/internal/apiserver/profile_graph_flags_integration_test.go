@@ -8,7 +8,7 @@ package apiserver
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
 // caller outside the list is refused while the one inside gets through the gate: ListLikedPosts then answers an empty
 // list (W3-10), GetProfileRelationship is live since W3-11 and answers NOT_FOUND for an unknown target, and
-// ListSuggestedUsers still reaches its Unimplemented stub (W3-12). Helpers
+// ListSuggestedUsers (W3-12) answers an empty list for a caller with no follows and no curated list. Helpers
 // come from posts_restricted_test.go and posts_contract_test.go.
 
 import (
@@ -169,12 +169,13 @@ func TestProfileGraphContract_AllowlistCohort(t *testing.T) {
 
 	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, env.url)
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)
-	// Inside: every RPC passes the gate. ListLikedPosts (W3-10) answers an empty list for a caller with no likes; the
-	// others are Unimplemented until W3-11 / W3-12.
+	// Inside: every RPC passes the gate. ListLikedPosts (W3-10) answers an empty list for a caller with no likes, and
+	// ListSuggestedUsers (W3-12) answers an empty list for a caller with no follows and no curated list; the rest are
+	// live (GetProfileRelationship, NOT_FOUND for an unknown target) or Unimplemented.
 	for name, err := range w3RPCs(eng, g, insideToken) {
-		if name == "ListLikedPosts" {
+		if name == "ListLikedPosts" || name == "ListSuggestedUsers" {
 			if err != nil {
-				t.Errorf("inside ListLikedPosts: err = %v, want an empty list past the gate", err)
+				t.Errorf("inside %s: err = %v, want an empty answer past the gate", name, err)
 			}
 			continue
 		}
