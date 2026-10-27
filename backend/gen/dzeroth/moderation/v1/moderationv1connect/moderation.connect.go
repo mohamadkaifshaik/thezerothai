@@ -55,7 +55,11 @@ type ModerationServiceClient interface {
 	// Reporting your own post or account => INVALID_ARGUMENT + VALIDATION field "target_id".
 	// note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
 	// The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
-	// delete does not destroy it.
+	// delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
+	// display name, bio, location, website, avatar URL and banner URL (ADR-0024 Amendment 1 A3), copied from the profile
+	// the call already loads (0 extra reads), so a link or image cannot be swapped before triage. While
+	// FEATURE_PROFILE_EXTRAS is globally off the reporter sees no website, so none is kept. Retention and access follow
+	// the post evidence: resolved + 90 days, never returned to any client.
 	// Idempotency: the report doc id is derived from (reporter, target_type, target_id), so the same reporter reporting
 	// the same target again is a success with already_reported=true, 0 writes and no quota charge, regardless of
 	// idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.
@@ -107,7 +111,11 @@ type ModerationServiceHandler interface {
 	// Reporting your own post or account => INVALID_ARGUMENT + VALIDATION field "target_id".
 	// note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
 	// The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
-	// delete does not destroy it.
+	// delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
+	// display name, bio, location, website, avatar URL and banner URL (ADR-0024 Amendment 1 A3), copied from the profile
+	// the call already loads (0 extra reads), so a link or image cannot be swapped before triage. While
+	// FEATURE_PROFILE_EXTRAS is globally off the reporter sees no website, so none is kept. Retention and access follow
+	// the post evidence: resolved + 90 days, never returned to any client.
 	// Idempotency: the report doc id is derived from (reporter, target_type, target_id), so the same reporter reporting
 	// the same target again is a success with already_reported=true, 0 writes and no quota charge, regardless of
 	// idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.

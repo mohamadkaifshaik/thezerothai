@@ -127,6 +127,45 @@ is in the error metadata the client sees, not in the log line, so identify it by
 **After:** a follow-farm account that is deleted needs the graph purge in `docs/runbooks/account-deletion.md`. Other
 graph failure modes are in `docs/runbooks/graph.md`.
 
+## 5b. Malicious profile link or banner (`profile_extras`, ADR-0024 Amendment 1)
+A phishing website, an abusive location or bio, or a bad banner or avatar on someone's profile. Two levers: a
+per-account command and a global switch.
+
+**Detect.** An ACCOUNT report (`reports list` shows `ACCOUNT` targets; `reports show --id R` prints the profile the
+reporter saw: handle, display name, bio, location, website, avatar and banner URL, copied when the report was filed, so
+a swap after the report does not hide it). While `profile_extras` was globally off at report time the copy has no
+website, because the reporter saw none.
+
+**One account.** From `backend/` (prod asks for the project id; the dry run does too):
+```bash
+go run ./cmd/opsctl clear-profile-fields --project $PROJ --uid <uid> --fields website --report <reportId> --note "phishing link" --dry-run
+go run ./cmd/opsctl clear-profile-fields --project $PROJ --uid <uid> --fields website --report <reportId> --note "phishing link"
+```
+- `--fields` takes one or more of `website`, `location`, `banner`, `avatar`, `bio` (an unknown or repeated name exits 2).
+  The display name and the pin are not in the list: a bad name is `suspend-user`, a bad pinned post is `takedown-post`.
+- One field-level update on `users/{uid}` (1 read, at most 1 write). Fields that are already empty are skipped, so a rerun
+  writes 0. The account must exist and must not be DELETING (exit 1).
+- `--report` must be a report about this user; it is resolved as `PROFILE_CLEARED` after the write.
+- **Images.** `banner` clears both banner URLs and `avatar` both avatar URLs, and the command prints the two object names
+  (`m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` in `<project>-media`). The URL stays live until the objects are deleted,
+  and the user's older posts keep the avatar URL in their author snapshot, so for an image that must go now delete the
+  printed objects by hand as `docs/runbooks/moderation.md` section 3a does (copy them out first if they are needed as
+  evidence). Automatic deletion after a grace is ADR-0024 Amendment 1 A4 and is not built yet.
+- **Staleness.** Each API instance serves the old profile for up to 60 s (3 instances at most), and clients show their
+  cached profile until they refresh. opsctl cannot evict an instance cache.
+- A repeat offender is `suspend-user` (`docs/runbooks/moderation.md` section 2).
+
+**A wave (many accounts).** Set `FEATURE_PROFILE_EXTRAS=off` through the pinned-traffic procedure in
+`docs/runbooks/cost-spike.md` (mode `off`; an allowlist or percent 0 is a rollout, not the switch). From that revision no
+`Profile` carries a `website` or a `pinned_post_id` (GetMe, GetProfile, UpdateProfile, ChangeHandle, CreateProfile, the
+owner's own view included), 0 reads; nothing stored is erased. Owners can still remove their own banner, location, website
+and pin (an empty value is always accepted), setting stays FEATURE_DISABLED. Banners and locations keep rendering, so they
+still need per-account clears and the Vision `reject` policy (`docs/runbooks/media.md`). Reverse it by setting the mode back
+to anything but `off`: both fields return with no write.
+
+Cost: operator runs only. `clear-profile-fields` is 1 read and at most 1 write, `--report` adds 1 read to check it and
+1 read and 1 write to resolve it. See `docs/runbooks/identity.md` for what clients see.
+
 ## 6. Hard stop
 `max_instance_count = 3` caps compute no matter the volume. For a severe incident (data exposure, runaway cost),
 follow `docs/runbooks/rollback.md` / the readiness report §6: disable Hosting, then route API traffic away. Never

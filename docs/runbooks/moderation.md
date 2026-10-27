@@ -30,6 +30,7 @@ Decide one of:
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
+| Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it prints the object names to delete by hand (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
 
 Every writing command ends with a `cost: reads=... writes=...` line (the `hidden:`/`settle pass:`/`restored:` lines before it are running totals). Prod project ids (`*-prod`) ask for the project id as a typed
 confirmation. Nothing here touches Firebase Auth.
@@ -45,10 +46,11 @@ confirmation. Nothing here touches Firebase Auth.
 | `suspend-user` | P + 2, or P + 4 with `--report` (+1 only when P is a multiple of 250, + the posts of the last ~3 minutes re-read by the settle pass) | 2P + 1, or 2P + 2 with `--report` |
 | &nbsp;&nbsp;↳ copy cleanup (part of `suspend-user`, issue #151) | + P to find the posts that have copies, then per such post 2 reads (minimum) | per repost 2 writes and 2 deletes, per quote 1 write |
 | `unsuspend-user` | P_hidden + 2 | 2 P_hidden + 1 |
+| `clear-profile-fields` | 1 (+1 to check `--report`, +1 to resolve it); a DELETING or missing account stops after the read | 1 (0 when every named field is already empty or with `--dry-run`; +1 to resolve the report) |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
 the post update plus its removal-log entry): run it
-off-peak and use `--dry-run` to see the number first (`suspend-user` is the only moderator command with a dry run; the
+off-peak and use `--dry-run` to see the number first (`suspend-user`, `unsuspend-user` and `clear-profile-fields` have a dry run; the
 others reject `--dry-run`). It is resumable and idempotent: if it stops half way, run the
 same command again (it accepts an already SUSPENDED account for exactly that reason; hidden posts are skipped at 0
 writes).
@@ -131,8 +133,9 @@ text copy in the report. Ticket T14 in `docs/plans/reports.md` tracks `takedown-
 - **Appeals.** Stage 0 has no appeal UI. If a user writes in, `restore-post` / `unsuspend-user` is the whole procedure.
 
 ## 5. Privacy and retention
-- Evidence (the post text and author handle at report time) is kept **90 days after resolution**, then Firestore TTL
-  deletes the report (`reports.expireAt`, set by `reports resolve`/`takedown-post`/`suspend-user`). Open reports are
+- Evidence (the post text and author handle at report time; for an ACCOUNT report the profile the reporter saw: handle, display
+  name, bio, location, website, avatar and banner URL, at most about 1.3 KB, ADR-0024 Amendment 1 A3) is kept **90 days after
+  resolution**, then Firestore TTL deletes the report (`reports.expireAt`, set by `reports resolve`/`takedown-post`/`suspend-user`/`clear-profile-fields --report`). Open reports are
   kept until resolved. Check the TTL policy exists on the project (`gcloud firestore fields ttls list`).
 - Account deletion anonymises reports the user **filed** (`reporterId := ""`, step `reports`) and leaves them as safety
   evidence; reports **about** the user stay until resolved + 90 days. The privacy policy

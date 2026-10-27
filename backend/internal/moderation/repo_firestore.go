@@ -98,6 +98,14 @@ type evidenceDoc struct {
 	PostCreatedAt time.Time `firestore:"postCreatedAt"`
 	// OriginalPostID is additive: present only on a repost report (the id of the original the other fields copy).
 	OriginalPostID string `firestore:"originalPostId,omitempty"`
+	// ACCOUNT reports only (ADR-0024 Amendment 1 A3(b)); additive and omitempty, so a POST report keeps its shape. The whole
+	// evidence map is index-exempt.
+	DisplayName string `firestore:"displayName,omitempty"`
+	Bio         string `firestore:"bio,omitempty"`
+	Location    string `firestore:"location,omitempty"`
+	Website     string `firestore:"website,omitempty"`
+	AvatarURL   string `firestore:"avatarUrl,omitempty"`
+	BannerURL   string `firestore:"bannerUrl,omitempty"`
 }
 
 type reportDoc struct {
@@ -127,7 +135,8 @@ func toDoc(r Report) reportDoc {
 			ids = []string{}
 		}
 		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt,
-			OriginalPostID: r.Evidence.OriginalPostID}
+			OriginalPostID: r.Evidence.OriginalPostID, DisplayName: r.Evidence.DisplayName, Bio: r.Evidence.Bio,
+			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL}
 	}
 	return d
 }
@@ -141,7 +150,8 @@ func (d reportDoc) toReport(id string) Report {
 	if d.Evidence != nil {
 		r.Evidence = &Evidence{Text: d.Evidence.Text, AuthorHandle: d.Evidence.AuthorHandle,
 			MediaIDs: d.Evidence.MediaIDs, PostCreatedAt: d.Evidence.PostCreatedAt.UTC(),
-			OriginalPostID: d.Evidence.OriginalPostID}
+			OriginalPostID: d.Evidence.OriginalPostID, DisplayName: d.Evidence.DisplayName, Bio: d.Evidence.Bio,
+			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL, BannerURL: d.Evidence.BannerURL}
 	}
 	if d.ResolvedAt != nil {
 		r.ResolvedAt = d.ResolvedAt.UTC()

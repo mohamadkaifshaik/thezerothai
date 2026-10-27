@@ -87,8 +87,10 @@ type UpdateProfileParams struct {
 	// item (WithAvatarResolver, P4). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
 	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
-	// ADR-0024 (W3-6). All four need FEATURE_PROFILE_EXTRAS on for the caller (FEATURE_DISABLED feature=profile_extras, 0 reads),
-	// even when the value is "" (a clear). nil = unchanged.
+	// ADR-0024 (W3-6). Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
+	// for the caller (FEATURE_DISABLED feature=profile_extras, 0 reads; a request that mixes a clear with a set is refused
+	// whole). The exact value "" is a clear and is accepted from any authenticated caller whatever the flag, globally off
+	// included (Amendment 1 A2). nil = unchanged.
 	//
 	// BannerMediaID: "" removes the banner; non-empty must be a READY, caller-owned BANNER media item (WithBannerResolver).
 	// Location: <= 30 code points after NFC and trim, single line. Website: http(s) URL, <= 100 characters, no userinfo.
@@ -255,14 +257,15 @@ type AvatarResolver interface {
 }
 
 // ProfileExtrasFlag is the wire name of FEATURE_PROFILE_EXTRAS (ADR-0024 D9): it gates SETTING the banner, location,
-// website and pinned post through UpdateProfile (and CreateUpload(BANNER), together with media). Rendering of data
-// already stored stays ungated, except the pin, which is omitted while the flag is globally off (D3).
+// website and pinned post through UpdateProfile (and CreateUpload(BANNER), together with media); a clear (the exact
+// value "") is never gated (Amendment 1 A2). Rendering of data already stored stays ungated, except the pin and the
+// website, which are omitted while the flag is globally off (D3, Amendment 1 A1).
 const ProfileExtrasFlag = "profile_extras"
 
 // ExtrasFlags is the consumer-side flag seam of the profile extras (*flags.Registry satisfies it). 0 Firestore reads.
 // Enabled is the per-caller answer that gates the writes; GloballyOff is the kill switch: only mode off, never a
-// rollout, so an allowlisted user's pin keeps showing to everyone while the flag ramps. A nil ExtrasFlags means off
-// for every caller (fail closed) and globally off.
+// rollout, so an allowlisted user's pin and website keep showing to everyone while the flag ramps. A nil ExtrasFlags
+// means off for every caller (fail closed) and globally off.
 type ExtrasFlags interface {
 	Enabled(uid, name string) bool
 	GloballyOff(name string) bool

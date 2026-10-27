@@ -27,7 +27,9 @@ type fakeOps struct {
 	list     []moderation.Report
 	listSt   moderation.Status
 	resolved map[string]moderation.Resolution
-	getErr   error
+	// notes is the resolution note each Resolve call passed.
+	notes  map[string]string
+	getErr error
 	// report, when set, is what Get returns (default: an OPEN report of testPostID owned by "u2").
 	report *moderation.Report
 }
@@ -51,11 +53,13 @@ func (f *fakeOps) Get(_ context.Context, id string) (moderation.Report, error) {
 		Evidence: &moderation.Evidence{Text: "evidence", AuthorHandle: "bob", MediaIDs: []string{"m1", "m2"}}}, nil
 }
 
-func (f *fakeOps) Resolve(_ context.Context, id string, res moderation.Resolution, _ string, now time.Time) (moderation.Report, error) {
+func (f *fakeOps) Resolve(_ context.Context, id string, res moderation.Resolution, note string, now time.Time) (moderation.Report, error) {
 	if f.resolved == nil {
 		f.resolved = map[string]moderation.Resolution{}
+		f.notes = map[string]string{}
 	}
 	f.resolved[id] = res
+	f.notes[id] = note
 	return moderation.Report{ID: id, Status: moderation.StatusResolved, Resolution: res, ExpireAt: now.Add(moderation.Retention)}, nil
 }
 

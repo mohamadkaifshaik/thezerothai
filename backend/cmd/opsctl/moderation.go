@@ -60,14 +60,16 @@ var (
 // modArgs are the flag values the moderator commands use.
 type modArgs struct {
 	id, post, report, status, resolution, note string
-	limit                                      int
-	dryRun                                     bool
+	// fields is clear-profile-fields' --fields list (parsed by identity.ParseProfileFields).
+	fields string
+	limit  int
+	dryRun bool
 }
 
 const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED] [--limit N (default 20, max 50)]
   opsctl reports show     --project P --id REPORT
   opsctl reports resolve  --project P --id REPORT --resolution NO_ACTION|DISMISSED [--note TEXT]
-                          (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)
+                          (TAKEDOWN, SUSPENDED and PROFILE_CLEARED are set by takedown-post / suspend-user / clear-profile-fields --report)
   opsctl takedown-post    --project P --post POSTID [--report REPORT] [--note TEXT]
   opsctl restore-post     --project P --post POSTID
   opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (hides every post, waits ~75 s, settle pass)
@@ -114,7 +116,7 @@ func reportsCommand(ctx context.Context, b *backends, sub string, a modArgs, out
 		}
 		res := moderation.Resolution(strings.ToUpper(a.resolution))
 		if res != moderation.ResolutionNoAction && res != moderation.ResolutionDismissed {
-			return usageErr("--resolution must be NO_ACTION or DISMISSED (TAKEDOWN and SUSPENDED are set by takedown-post / suspend-user --report)")
+			return usageErr("--resolution must be NO_ACTION or DISMISSED (TAKEDOWN, SUSPENDED and PROFILE_CLEARED are set by takedown-post / suspend-user / clear-profile-fields --report)")
 		}
 		r, err := b.reports.Resolve(cctx, a.id, res, a.note, now())
 		if err != nil {
@@ -133,7 +135,15 @@ func printReport(out io.Writer, r moderation.Report) {
 	}
 	fmt.Fprintf(out, "\ncreated  %s\nreporter %s\ntarget   %s %s (owner %s)\nreason   %s\nnote     %q\n",
 		r.CreatedAt.Format(time.RFC3339), orDash(r.ReporterID), r.TargetType, r.TargetID, r.TargetOwnerID, r.Reason, r.Note)
-	if r.Evidence != nil {
+	if r.Evidence != nil && r.TargetType == moderation.TargetAccount {
+		// ADR-0024 Amendment 1 A3(b): the profile as the reporter saw it. No website here while profile_extras was
+		// globally off at report time; a reopened report refreshes all of it.
+		e := r.Evidence
+		fmt.Fprintf(out, "evidence profile @%s: display name %q, bio %q, location %q, website %q\nevidence avatar %q, banner %q\n",
+			e.AuthorHandle, e.DisplayName, e.Bio, e.Location, e.Website, e.AvatarURL, e.BannerURL)
+	} else if r.Evidence == nil && r.TargetType == moderation.TargetAccount {
+		fmt.Fprintln(out, "evidence none (an account report filed before profile evidence was kept; look at the live profile)")
+	} else if r.Evidence != nil {
 		fmt.Fprintf(out, "evidence post by @%s at %s: %q\n", r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
 		if r.Evidence.OriginalPostID != "" {
 			fmt.Fprintf(out, "evidence is the ORIGINAL post %s (the reported post is a repost; owner above is the reposter)\n", r.Evidence.OriginalPostID)

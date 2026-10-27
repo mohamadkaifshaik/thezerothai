@@ -214,7 +214,7 @@ func TestProfileExtras_Chain(t *testing.T) {
 func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	ctx := context.Background()
 	aTok, aUID := mintToken(t, "")
-	bTok, _ := mintToken(t, "")
+	bTok, bUID := mintToken(t, "")
 	// Allowlist mode with a only: b is outside the cohort. The pin is omitted only when the flag is globally off.
 	e := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
 		relaxLimits(c)
@@ -223,14 +223,16 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	})
 	e.createProfile(t, aTok)
 	e.createProfile(t, bTok)
-	a, b := testUser{aTok, aUID}, testUser{token: bTok}
-	loc := "Pune"
+	a, b := testUser{aTok, aUID}, testUser{bTok, bUID}
+	loc, spaces := "Pune", "   "
 
-	// Outside the cohort: FEATURE_DISABLED feature=profile_extras, for a value and for a clear, with 0 writes.
+	// Outside the cohort: FEATURE_DISABLED feature=profile_extras for a SET, and for a request that mixes a clear with a
+	// set (refused whole), with 0 writes (ADR-0024 Amendment 1 A2: only a clear passes, below).
 	empty := ""
 	for name, req := range map[string]*identityv1.UpdateProfileRequest{
-		"location": {IdempotencyKey: "pinext-gate-000000001", Location: &loc},
-		"clear":    {IdempotencyKey: "pinext-gate-000000002", PinnedPostId: &empty},
+		"location":         {IdempotencyKey: "pinext-gate-000000001", Location: &loc},
+		"clear plus a set": {IdempotencyKey: "pinext-gate-000000002", PinnedPostId: &empty, Location: &loc},
+		"whitespace-only":  {IdempotencyKey: "pinext-gate-000000005", Website: &spaces},
 	} {
 		_, err := e.identity.UpdateProfile(ctx, authed(b.token, req))
 		d := wireError(t, err, connect.CodeFailedPrecondition)
@@ -250,6 +252,34 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	if _, err := e.identity.UpdateProfile(ctx, authed(b.token, &identityv1.UpdateProfileRequest{IdempotencyKey: "pinext-gate-000000003", Bio: &bio})); err != nil {
 		t.Fatalf("bio edit outside the cohort: %v", err)
 	}
+	// A clear is accepted from outside the cohort (A2): the extras a caller once set in the cohort can always be removed.
+	if _, err := e.fs.Doc("users/"+b.uid).Update(ctx, []firestore.Update{
+		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com"}, {Path: "pinnedPostId", Value: "0000000000000000301"},
+		{Path: "bannerUrl", Value: "https://m/b.webp"}, {Path: "bannerThumbUrl", Value: "https://m/b_t.webp"},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cleared, err := e.identity.UpdateProfile(ctx, authed(b.token, &identityv1.UpdateProfileRequest{
+		IdempotencyKey: "pinext-gate-000000006", BannerMediaId: &empty, Location: &empty, Website: &empty, PinnedPostId: &empty,
+	}))
+	if err != nil {
+		t.Fatalf("a clear outside the cohort: %v", err)
+	}
+	if p := cleared.Msg.GetProfile(); p.GetBannerUrl() != "" || p.GetLocation() != "" || p.GetWebsite() != "" || p.GetPinnedPostId() != "" {
+		t.Errorf("response after the clear = %v", p)
+	}
+	line := lastRequestLine(t, e, rpcUpdateProfile)
+	if writes, _ := line["fs_writes"].(float64); writes != 1 {
+		t.Errorf("a clear: fs_writes = %v, want 1", line["fs_writes"])
+	}
+	if reads, _ := line["fs_reads"].(float64); reads > 2 {
+		t.Errorf("a clear: fs_reads = %v, want <= 2 (interceptor + transaction)", line["fs_reads"])
+	}
+	for _, f := range []string{"location", "website", "pinnedPostId", "bannerUrl", "bannerThumbUrl"} {
+		if v := fsDocField(t, e, "users/"+b.uid, f); v != "" && v != nil {
+			t.Errorf("stored %s = %v after the clear", f, v)
+		}
+	}
 	// GetMe lists profile_extras only for the allowlisted caller.
 	meA, _ := e.identity.GetMe(ctx, authed(a.token, &identityv1.GetMeRequest{}))
 	meB, _ := e.identity.GetMe(ctx, authed(b.token, &identityv1.GetMeRequest{}))
@@ -267,9 +297,11 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	}
 }
 
-// TestProfileExtras_KillSwitchOmitsThePin: with profile_extras globally off (mode off) the stored pin is not returned by
-// any RPC, while banner, location and website still are (ADR-0024 D3: clients stop the GetPost call).
-func TestProfileExtras_KillSwitchOmitsThePin(t *testing.T) {
+// TestProfileExtras_KillSwitchOmitsThePinAndWebsite: with profile_extras globally off (mode off) the stored pin and website
+// are not returned by any RPC, the owner's own view included, while banner and location still are (ADR-0024 D3: clients
+// stop the GetPost call; Amendment 1 A1: the link stops rendering). A clear still works, at 1 read and 1 write
+// (Amendment 1 A2).
+func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 	e := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
 		relaxLimits(c)
 		c.FeatureProfileExtras = flags.Spec{Name: "profile_extras", Mode: flags.Off}
@@ -284,11 +316,11 @@ func TestProfileExtras_KillSwitchOmitsThePin(t *testing.T) {
 	}
 	check := func(rpc string, p *identityv1.Profile) {
 		t.Helper()
-		if p.GetPinnedPostId() != "" {
-			t.Errorf("%s: pinned_post_id = %q while profile_extras is globally off", rpc, p.GetPinnedPostId())
+		if p.GetPinnedPostId() != "" || p.GetWebsite() != "" {
+			t.Errorf("%s: pinned_post_id = %q, website = %q while profile_extras is globally off", rpc, p.GetPinnedPostId(), p.GetWebsite())
 		}
-		if p.GetLocation() != "Pune" || p.GetWebsite() != "https://example.com" || p.GetBannerUrl() != "https://m/b.webp" || p.GetBannerThumbUrl() != "https://m/b_t.webp" {
-			t.Errorf("%s: banner, location and website must stay visible: %v", rpc, p)
+		if p.GetLocation() != "Pune" || p.GetBannerUrl() != "https://m/b.webp" || p.GetBannerThumbUrl() != "https://m/b_t.webp" {
+			t.Errorf("%s: banner and location must stay visible: %v", rpc, p)
 		}
 	}
 	check("GetProfile (viewer)", e.profileOfUser(t, b, a.uid))
@@ -305,8 +337,33 @@ func TestProfileExtras_KillSwitchOmitsThePin(t *testing.T) {
 	}
 	check("UpdateProfile (bio)", upd.Msg.GetProfile())
 	// The stored pin is untouched, ready for the day the flag comes back.
-	if fsDocField(t, e, "users/"+a.uid, "pinnedPostId") != pid {
-		t.Errorf("stored pinnedPostId = %v, want %s", fsDocField(t, e, "users/"+a.uid, "pinnedPostId"), pid)
+	if fsDocField(t, e, "users/"+a.uid, "pinnedPostId") != pid || fsDocField(t, e, "users/"+a.uid, "website") != "https://example.com" {
+		t.Errorf("stored pinnedPostId = %v, website = %v, want both kept", fsDocField(t, e, "users/"+a.uid, "pinnedPostId"), fsDocField(t, e, "users/"+a.uid, "website"))
+	}
+
+	// The owner cannot see their website or pin now, but the clear still works (A2): 1 read and 1 write beyond the
+	// interceptor, the stored values go, and the response still shows neither.
+	empty := ""
+	cleared, err := e.identity.UpdateProfile(context.Background(), authed(a.token, &identityv1.UpdateProfileRequest{
+		IdempotencyKey: "pinext-kill-000000002", Website: &empty, Location: &empty, PinnedPostId: &empty, BannerMediaId: &empty,
+	}))
+	if err != nil {
+		t.Fatalf("a clear while profile_extras is globally off: %v", err)
+	}
+	if p := cleared.Msg.GetProfile(); p.GetWebsite() != "" || p.GetPinnedPostId() != "" || p.GetLocation() != "" || p.GetBannerUrl() != "" {
+		t.Errorf("response after the clear = %v", p)
+	}
+	line := lastRequestLine(t, e, rpcUpdateProfile)
+	if writes, _ := line["fs_writes"].(float64); writes != 1 {
+		t.Errorf("clear: fs_writes = %v, want 1", line["fs_writes"])
+	}
+	if reads, _ := line["fs_reads"].(float64); reads > 2 {
+		t.Errorf("clear: fs_reads = %v, want <= 2 (interceptor + transaction)", line["fs_reads"])
+	}
+	for _, f := range []string{"website", "location", "pinnedPostId", "bannerUrl", "bannerThumbUrl"} {
+		if v := fsDocField(t, e, "users/"+a.uid, f); v != "" && v != nil {
+			t.Errorf("stored %s = %v after the clear", f, v)
+		}
 	}
 }
 

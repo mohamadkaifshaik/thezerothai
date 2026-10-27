@@ -157,21 +157,19 @@ func TestUpdateProfile_Extras_FlagModes(t *testing.T) {
 	}
 }
 
-func TestUpdateProfile_Extras_FlagOffGatesEveryFieldEvenAClear(t *testing.T) {
-	empty := ""
+// TestUpdateProfile_Extras_FlagOffGatesEverySet: every SET of the four fields is FEATURE_DISABLED while the flag is off. A
+// clear (the exact string "") is not gated since ADR-0024 Amendment 1 A2; TestUpdateProfile_Extras_GateMatrix covers it.
+func TestUpdateProfile_Extras_FlagOffGatesEverySet(t *testing.T) {
 	tests := []struct {
 		name string
 		p    UpdateProfileParams
 	}{
 		{"banner", UpdateProfileParams{BannerMediaID: strp("0000000000000000201")}},
-		{"banner clear", UpdateProfileParams{BannerMediaID: &empty}},
 		{"location", UpdateProfileParams{Location: strp("Pune")}},
-		{"location clear", UpdateProfileParams{Location: &empty}},
 		{"website", UpdateProfileParams{Website: strp("https://example.com")}},
-		{"website clear", UpdateProfileParams{Website: &empty}},
 		{"pin", UpdateProfileParams{PinnedPostID: strp(pinID)}},
-		{"pin clear", UpdateProfileParams{PinnedPostID: &empty}},
 		{"extras next to a name edit", UpdateProfileParams{DisplayName: strp("Alice B."), Location: strp("Pune")}},
+		{"whitespace-only is a set, not a clear", UpdateProfileParams{Website: strp("   ")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -553,10 +551,11 @@ func TestUpdateProfile_Extras_FieldsChangedLogsNamesNeverValues(t *testing.T) {
 	}
 }
 
-// TestProfile_PinOmittedOnlyWhileGloballyOff covers every RPC that returns a Profile (the pin kill switch, ADR-0024 D3):
-// with profile_extras off for everyone the pin is gone from the response while the banner, location and website stay;
-// in a rollout (allowlist, even an empty one, or percent 0) and on the pin is returned to every viewer, listed or not.
-func TestProfile_PinOmittedOnlyWhileGloballyOff(t *testing.T) {
+// TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff covers every RPC that returns a Profile (the profile_extras kill
+// switch, ADR-0024 D3 and Amendment 1 A1): with profile_extras off for everyone the pin and the website are gone from the
+// response, the owner's own view included, while the banner and location stay; in a rollout (allowlist, even an empty
+// one, or percent 0) and on both are returned to every viewer, listed or not.
+func TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff(t *testing.T) {
 	tests := []struct {
 		name    string
 		mode    flags.Mode
@@ -586,8 +585,11 @@ func TestProfile_PinOmittedOnlyWhileGloballyOff(t *testing.T) {
 				if (got.PinnedPostID != "") != tt.wantPin {
 					t.Errorf("%s: pinned_post_id = %q, want present=%v", rpc, got.PinnedPostID, tt.wantPin)
 				}
-				if got.BannerURL != "https://m/b.webp" || got.BannerThumbURL != "https://m/b_t.webp" || got.Location != "Pune" || got.Website != "https://example.com" {
-					t.Errorf("%s: banner, location and website must be returned whatever the flag says: %+v", rpc, got)
+				if (got.Website != "") != tt.wantPin {
+					t.Errorf("%s: website = %q, want present=%v (it follows the pin: both are withheld only while globally off)", rpc, got.Website, tt.wantPin)
+				}
+				if got.BannerURL != "https://m/b.webp" || got.BannerThumbURL != "https://m/b_t.webp" || got.Location != "Pune" {
+					t.Errorf("%s: banner and location must be returned whatever the flag says: %+v", rpc, got)
 				}
 			}
 			me, err := svc.GetMe(ctx, extrasUID)
@@ -625,9 +627,13 @@ func TestProfile_PinOmittedOnlyWhileGloballyOff(t *testing.T) {
 				t.Fatal(err)
 			}
 			check("UpdateProfile (a name or bio edit)", updated)
-			// Nothing was erased on the way: the stored pin is still there for the day the flag comes back.
-			if repo.profiles[extrasUID].PinnedPostID != pinID {
-				t.Fatalf("stored pin = %q: hiding the pin must not erase it", repo.profiles[extrasUID].PinnedPostID)
+			// Nothing was erased on the way: the stored pin and website are still there for the day the flag comes back, in
+			// the repo and in the instance cache.
+			if repo.profiles[extrasUID].PinnedPostID != pinID || repo.profiles[extrasUID].Website != "https://example.com" {
+				t.Fatalf("stored pin = %q, website = %q: hiding them must not erase them", repo.profiles[extrasUID].PinnedPostID, repo.profiles[extrasUID].Website)
+			}
+			if cached, ok := svc.cache.GetProfile(extrasUID); !ok || cached.PinnedPostID != pinID || cached.Website != "https://example.com" {
+				t.Fatalf("cached profile = %+v (ok=%v): the cache must keep the stored values", cached, ok)
 			}
 		})
 	}

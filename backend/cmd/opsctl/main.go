@@ -62,6 +62,8 @@ type backends struct {
 	// backfiller serves backfill-has-media (ADR-0024 D4, W3-8): the posts repo helper that owns the hasMedia rule.
 	backfiller posts.HasMediaBackfiller
 	accounts   accountStatusSetter
+	// profiles serves clear-profile-fields (ADR-0024 Amendment 1 A3): identity's field-level clear of users/{uid}.
+	profiles profileClearer
 	// actorSweeper removes the notification rows other users hold about a suspended actor (security audit N-4);
 	// nil skips the sweep.
 	actorSweeper notifications.ActorSweeper
@@ -116,6 +118,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		copied:        postsRepo,
 		backfiller:    postsRepo,
 		accounts:      identityRepo,
+		profiles:      identityRepo,
 		actorSweeper:  notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
 		listAuthUsers: lister,
 		usersExist:    newUsersExist(client),
@@ -130,6 +133,8 @@ const usage = `usage:
   opsctl export-posts --project P --uid U [--out FILE]
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
   opsctl backfill-has-media --project P [--dry-run] [--after POST_ID]   (one-off per project; <= 5,000 writes per run)
+  opsctl clear-profile-fields --project P --uid U --fields website,location,banner,avatar,bio [--report R] [--note N] [--dry-run]
+                          (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md)
 ` + modUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
@@ -143,22 +148,23 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user: print counts, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user, clear-profile-fields: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media: resume after this post id (the checkpoint a capped run printed)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
-	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user: also resolve this report id")
+	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
-	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user: resolution note")
+	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields: resolution note")
+	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, banner, avatar, bio")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
-		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media":
+		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -180,7 +186,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	ma.dryRun = *dryRun
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -191,6 +197,19 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	if !validBackfillAfter(*after) {
 		fmt.Fprintf(errOut, "--after must be a post id (no \"/\")\n%s", usage)
+		return 2
+	}
+	// clear-profile-fields validates its own flags here, before anything is opened or confirmed; --fields on any other
+	// command would be silently ignored.
+	var clearFields []identity.ProfileField
+	if cmd == "clear-profile-fields" {
+		var err error
+		if clearFields, err = parseClearArgs(ma); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
+	} else if ma.fields != "" {
+		fmt.Fprintf(errOut, "--fields is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	if cmd == "reports" && sub == "" {
@@ -245,6 +264,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = suspendUser(ctx, b, *uid, ma, out, now)
 	case "unsuspend-user":
 		err = unsuspendUser(ctx, b, *uid, ma.dryRun, out, now)
+	case "clear-profile-fields":
+		err = clearProfileFields(ctx, b, *project, *uid, clearFields, ma, out, now)
 	default:
 		err = export(ctx, b, *uid, *outFile, out)
 	}

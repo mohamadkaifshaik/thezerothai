@@ -279,13 +279,17 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	return s.present(profile), nil
 }
 
-// present is the response view of a profile: the pin is omitted while profile_extras is globally off (ADR-0024 D3, the
-// kill switch that makes clients stop the GetPost call), 0 reads. Everything else is returned as stored; rendering
-// of banner, location and website stays ungated (D9). The cache keeps the stored value, so a re-enabled flag shows the
-// pin again without a write.
+// present is the response view of a profile, the one place the profile_extras kill switch is applied (ADR-0024 D3 and
+// Amendment 1 A1): while the flag is globally off (Registry.GloballyOff: mode off; an allowlist or a percent, even an
+// empty one or 0, is a rollout, not the switch; no flags wired counts as off) it omits pinned_post_id (so clients stop
+// the GetPost call) and website (the one field that sends a viewer somewhere else, the phishing surface). It covers
+// every Profile identity returns, the owner's own view included, with 0 reads. Everything else is returned as stored;
+// rendering of banner and location stays ungated (D9). The cache, the stored document and the export keep the stored
+// values, so a flag that comes back shows both again without a write.
 func (s *service) present(p Profile) Profile {
-	if p.PinnedPostID != "" && (s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag)) {
+	if s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag) {
 		p.PinnedPostID = ""
+		p.Website = ""
 	}
 	return p
 }
@@ -311,6 +315,10 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 	return nil
 }
 
+// setsExtra reports whether an optional profile-extras field sets a value: present and not exactly "". The exact empty
+// string is a clear (ADR-0024 Amendment 1 A2) and is never gated; anything else, whitespace-only included, is a set.
+func setsExtra(p *string) bool { return p != nil && *p != "" }
+
 // UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}), plus the account-status
 // interceptor's profile read when its cache is cold (+1, outside this method). Resolves before the transaction add
 // reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc,
@@ -319,8 +327,11 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 // also sets an avatar adds a fourth (5 with the interceptor). A media id that is not a READY, caller-owned AVATAR or
 // BANNER is ERROR_REASON_MEDIA_NOT_READY; any pinned_post_id the caller may not pin is VALIDATION
 // field=pinned_post_id (one answer for every cause, so the call is no existence oracle).
-// banner_media_id, location, website and pinned_post_id (even "") need profile_extras on for the caller: otherwise
-// FEATURE_DISABLED feature=profile_extras, checked before any validation or read, 0 writes (D9). None of them bumps
+// Setting banner_media_id, location, website or pinned_post_id (any non-empty value, whitespace-only included) needs
+// profile_extras on for the caller: otherwise FEATURE_DISABLED feature=profile_extras, checked before any validation or
+// read, 0 writes (D9), and a request that mixes a clear with a set is refused whole. The exact string "" (a clear) is
+// accepted from any authenticated caller whatever the flag, globally off included, at the same 1 read / 1 write
+// (Amendment 1 A2: a rectification or erasure request must not wait for a flag). None of them bumps
 // snapshotVersion, spends snapshotEdits or enqueues a snapshot job (not in AuthorSnapshot). The request log carries
 // profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
 // (never the cause).
@@ -334,10 +345,11 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if params.Bio != nil && bioIssue(*params.Bio) {
 		return Profile{}, apierr.Validation("bio", "bio must be at most 160 characters")
 	}
-	// ADR-0024 D9: the flag gate comes before the field validation and before any read, so a caller outside the
-	// cohort learns nothing about the fields and costs nothing.
-	hasExtras := params.BannerMediaID != nil || params.Location != nil || params.Website != nil || params.PinnedPostID != nil
-	if hasExtras {
+	// ADR-0024 D9 and Amendment 1 A2: the flag gate comes before the field validation and before any read, so a
+	// caller outside the cohort learns nothing about the fields and costs nothing. Only a SET is gated: the exact
+	// string "" is a clear and always passes. The test is on the raw value, before normalisation, so "   " (which
+	// would normalise to a clear) is still a set here.
+	if setsExtra(params.BannerMediaID) || setsExtra(params.Location) || setsExtra(params.Website) || setsExtra(params.PinnedPostID) {
 		if err := s.extrasDisabled(ctx, uid); err != nil {
 			return Profile{}, err
 		}
