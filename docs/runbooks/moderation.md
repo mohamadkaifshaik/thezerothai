@@ -149,9 +149,9 @@ triage SLA in section 1. `reports show` keeps the image URLs and the media ids, 
 image that matters (illegal or abusive imagery, anything law enforcement could ask for), at first sight, before any
 `clear-profile-fields` and before the user can react:
 1. Copy both objects (`m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` in `<proj>-media`) to a restricted location outside the
-   public bucket, for example `gcloud storage cp gs://<proj>-media/m/<mediaId>.<ext> <private local folder>` from an operator
-   account (Class B read, free at this volume). Do not use the `<proj>-exports` bucket: it is for user data exports and its
-   lifecycle rule deletes every object after 7 days. Delete the copy when the case closes.
+   public bucket, as section 3a step 2 says (when the imagery may be illegal, do not download it to a personal machine: ask the
+   founder where it goes). Do not use the `<proj>-exports` bucket: it is for user data exports and its lifecycle rule deletes every object
+   after 7 days. Delete the copy when the case closes.
 2. Note the ids in the report resolution note.
 An image that is already retired is still public until the lifecycle run, so the same copy works for up to 48 h after the
 change; after that only the ids and the text survive. This is the same rule as section 3a for post images.
@@ -165,8 +165,8 @@ change; after that only the ids and the text survive. This is the same rule as s
 - **`clear-profile-fields` printed `avatar retire: would not run`, `not run` or a retire error.** The clear itself committed (a
   retire failure never rolls it back). `PROFILE_MEDIA_RETIRE` in your shell does not cover the image, or the retire step failed
   (exit 1, the `--report` is still resolved): the objects stay public until deleted by hand or retired by a later message
-  (`docs/runbooks/media.md`, "Failure modes"). Re-run with the project's value to retire an image that was cleared earlier by
-  re-publishing the message by hand; a rerun of the command writes 0 and retires nothing.
+  (`docs/runbooks/media.md`, "Failure modes"). A rerun of the command writes 0 and retires nothing, because the field is already
+  empty; to retire an image that was cleared earlier, publish the message by hand (`docs/runbooks/media.md`, "Failure modes").
 - **`clear-profile-fields` refuses or reports nothing.** `the account is DELETING: refusing to change it` and `no such user` exit
   1 and write nothing (the deletion job's checkpoints must not race an operator write; a purged account has nothing to clear).
   `nothing to clear: 0 writes` means every named field was already empty (a rerun, or the user removed it first): not an error.
