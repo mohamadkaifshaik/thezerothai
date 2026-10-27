@@ -776,14 +776,18 @@ type UpdateProfileRequest struct {
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	DisplayName    *string                `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3,oneof" json:"display_name,omitempty"`
 	Bio            *string                `protobuf:"bytes,3,opt,name=bio,proto3,oneof" json:"bio,omitempty"`
-	// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar.
+	// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar. A replaced or removed avatar's
+	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all (ADR-0024 Amendment 1 A4), otherwise kept until
+	// account deletion; a retired avatar answers MEDIA_NOT_READY if sent again.
 	AvatarMediaId *string `protobuf:"bytes,4,opt,name=avatar_media_id,json=avatarMediaId,proto3,oneof" json:"avatar_media_id,omitempty"`
 	IsPrivate     *bool   `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
 	// ADR-0024 profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
 	// exact value "" (a clear) never does (see UpdateProfile).
 	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
 	// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
-	// MEDIA_NOT_READY, one answer for every cause. A replaced banner's objects are kept until account deletion.
+	// MEDIA_NOT_READY, one answer for every cause, a banner that was replaced or removed earlier (retired) included. A
+	// replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners (ADR-0024
+	// Amendment 1 A4), otherwise kept until account deletion.
 	BannerMediaId *string `protobuf:"bytes,6,opt,name=banner_media_id,json=bannerMediaId,proto3,oneof" json:"banner_media_id,omitempty"`
 	// <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
 	// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it (ADR-0024 D2).

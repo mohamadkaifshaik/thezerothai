@@ -57,6 +57,22 @@ resource "google_storage_bucket" "media" {
     max_age_seconds = 3600
   }
 
+  // ADR-0024 Amendment 1 A4: delete a replaced or removed avatar or banner after the grace. The API's retire step sets
+  // customTime on the two public objects of a retired image (nothing else in the app sets it, pinned by
+  // backend/internal/media/retire_invariant_test.go) and this rule deletes them once daysSinceCustomTime reaches 1,
+  // so an object goes 24-48 h after the change (lifecycle acts within about a day of the condition). Objects without a
+  // customTime are never touched. Lifecycle deletes are free. Apply this rule in a project BEFORE setting
+  // PROFILE_MEDIA_RETIRE there: a tagged object without the rule would outlive its TTL'd media document and escape the
+  // account eraser.
+  lifecycle_rule {
+    condition {
+      days_since_custom_time = 1
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
   lifecycle {
     prevent_destroy = true
   }

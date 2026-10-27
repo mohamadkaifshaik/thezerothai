@@ -515,6 +515,17 @@ variable "suggested_user_ids" {
   }
 }
 
+variable "profile_media_retire" {
+  description = "PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4): which replaced or removed profile images the API deletes 24-48 h later. off = nothing (default) | banner | all (banners and avatars). Per-project retention, not a cohort flag. Set banner only after the media bucket's customTime lifecycle rule (modules/media-buckets) is applied in this project (a tagged object without the rule outlives its TTL'd media document and escapes the account eraser); set all only after the app release that shows a placeholder for an avatar that no longer loads."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "banner", "all"], var.profile_media_retire)
+    error_message = "profile_media_retire must be one of: off, banner, all (backend/pkg/platform/config/modes.go)."
+  }
+}
+
 variable "feature_ui_shell" {
   description = "FEATURE_UI_SHELL rollout mode for the new app shell (client-only; bottom bar + avatar drawer, account chip, rail): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

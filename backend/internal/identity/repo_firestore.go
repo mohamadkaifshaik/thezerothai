@@ -423,6 +423,27 @@ func (r *FirestoreRepo) ClearIfPinned(ctx context.Context, uid, postID string) (
 
 var _ Pins = (*FirestoreRepo)(nil)
 
+// ProfileImageURLs returns, from one fresh read of users/{uid} that bypasses every cache (1 read), the image URLs the
+// profile holds right now: the avatar, its thumbnail, the banner and its thumbnail, empty ones omitted. found is false
+// when the document does not exist (not an error). It is what the media module's profile_media_retired step checks
+// before it retires an image: a job never acts on a message's word alone (ADR-0024 Amendment 1 A4). It implements
+// media.ProfileImages, which apiserver and opsctl bind to this repo.
+func (r *FirestoreRepo) ProfileImageURLs(ctx context.Context, uid string) (urls []string, found bool, err error) {
+	p, err := r.GetProfile(ctx, uid)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, err
+	}
+	for _, u := range []string{p.AvatarURL, p.AvatarThumbURL, p.BannerURL, p.BannerThumbURL} {
+		if u != "" {
+			urls = append(urls, u)
+		}
+	}
+	return urls, true, nil
+}
+
 // ChangeHandle: 2 reads (users, new handle) worst case, matching the proto doc comment; see api.go's Repo
 // interface doc comment for the full no-op/case-only/cooldown/idempotent-retry decision table (M4). Every
 // check runs against userSnap/handleSnap read fresh in *this* transaction — never a value the caller

@@ -267,3 +267,31 @@ func (s *Store) SignedGetURL(ctx context.Context, object, filename string, ttl t
 	}
 	return u, nil
 }
+
+// SetCustomTime sets the object's customTime metadata to t (1 Class A operation, a metadata patch). It is the only
+// place in the application that writes customTime: the media bucket's lifecycle rule deletes an object once
+// daysSinceCustomTime reaches 1, so setting it is how the profile-image retire step (ADR-0024 Amendment 1 A4) schedules
+// an object's deletion (TestCustomTimeIsSetOnlyByTheRetireStep pins that). A missing object is success: the lifecycle
+// rule or the account eraser already removed it, and a redelivered retire message must converge. Cloud Storage never
+// lets customTime move backwards, so repeating the same value is the redelivery case and is accepted.
+//
+// The Storage emulator does not implement objects.patch (it answers 501). Against the emulator only (STORAGE_EMULATOR_HOST
+// set, never against GCS) that answer is treated as success, so local development and the integration tests can run
+// the whole retire flow; the tag itself is verified on a real bucket in dev (docs/runbooks/media.md).
+func (s *Store) SetCustomTime(ctx context.Context, object string, t time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, opTimeout)
+	defer cancel()
+	obj, err := s.handle(ctx, object)
+	if err != nil {
+		return err
+	}
+	_, err = obj.Update(ctx, storage.ObjectAttrsToUpdate{CustomTime: t.UTC()})
+	var gerr *googleapi.Error
+	switch {
+	case err == nil, errors.Is(err, storage.ErrObjectNotExist):
+		return nil
+	case errors.As(err, &gerr) && gerr.Code == http.StatusNotImplemented && os.Getenv("STORAGE_EMULATOR_HOST") != "":
+		return nil
+	}
+	return fmt.Errorf("objstore: set custom time: %w", err)
+}

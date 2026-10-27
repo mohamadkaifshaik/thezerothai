@@ -39,6 +39,9 @@ type service struct {
 	signup *authAdmin
 	// snap is the P2 profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
 	snap *profileSnapshots
+	// retire hands a replaced or removed avatar or banner to the media module after the commit (media_retire.go, ADR-0024
+	// Amendment 1 A4); nil = never, the pre-A4 behaviour.
+	retire *mediaRetire
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -336,6 +339,13 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // snapshotVersion, spends snapshotEdits or enqueues a snapshot job (not in AuthorSnapshot). The request log carries
 // profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
 // (never the cause).
+//
+// A4 (ADR-0024 Amendment 1): a commit that replaced or removed the avatar or the banner hands the old image to the media
+// module's retire step (WithMediaRetirer, after the commit, best effort): 0 extra Firestore reads, since the old URLs are
+// in the document the transaction read, and at most 2 Pub/Sub publishes (one per image, each under a 2 s deadline). The
+// step deletes the old objects after a grace of at least 24 h, only while PROFILE_MEDIA_RETIRE allows it; a failed hand-over
+// is logged at ERROR and the image stays until the account is deleted. A request that changes nothing (0 writes) hands over
+// nothing.
 func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdateProfileParams) (Profile, error) {
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -443,8 +453,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	now := s.now().UTC()
 	snapshotChanged := false
 	var changed []string
+	var retired []retiredImage // the old avatar and banner this commit replaced or removed (A4); 0 extra reads
 	profile, err := s.repo.UpdateProfile(ctx, uid, func(p *Profile) {
-		changed, snapshotChanged = changed[:0], false // the transaction may run more than once
+		changed, snapshotChanged, retired = changed[:0], false, retired[:0] // the transaction may run more than once
 		// W3-22 L-4: a request that changes nothing must leave the profile (UpdatedAt included) as it was, so the repo
 		// skips the write; UpdatedAt moves only below, when something really changed.
 		orig := *p
@@ -503,6 +514,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		if *p != orig {
 			p.UpdatedAt = now
+			// Compared against the document this transaction read, so the old URLs cost no read of their own, and a
+			// request that changed nothing (no write) retires nothing.
+			retired = retiredImages(orig, *p)
 		}
 	})
 	if err != nil {
@@ -518,6 +532,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if len(changed) > 0 {
 		logger.SetRequestField(ctx, "profile_fields_changed", strings.Join(changed, ",")) // names only, never values
 	}
+	s.retireImages(ctx, uid, retired, now)
 	// TODO(Phase 2): if IsPrivate changed, publish the visibility job (ADR-0003); private accounts are deferred.
 	return s.present(profile), nil
 }
