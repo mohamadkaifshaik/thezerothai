@@ -1,6 +1,6 @@
 // attach.go is media's consumer-facing side for posts and identity: attaching READY images to a post inside the
-// CreatePost transaction, and resolving an avatar for UpdateProfile. Both answer ErrNotReady for every failing
-// case (missing, someone else's, wrong purpose, not READY, already attached): one answer, no oracle.
+// CreatePost transaction, and resolving an avatar or a banner for UpdateProfile. All answer ErrNotReady for every
+// failing case (missing, someone else's, wrong purpose, not READY, already attached): one answer, no oracle.
 package media
 
 import (
@@ -94,6 +94,17 @@ func (l *Library) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 
 // ResolveAvatar implements Reader.
 func (l *Library) ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, error) {
+	return l.resolveOwned(ctx, uid, mediaID, PurposeAvatar)
+}
+
+// ResolveBanner implements Reader (ADR-0024 D1).
+func (l *Library) ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error) {
+	return l.resolveOwned(ctx, uid, mediaID, PurposeBanner)
+}
+
+// resolveOwned is the one lookup behind the profile-image resolvers: 1 read, ErrNotReady unless the document
+// exists, is owned by uid, has the given purpose and is published (READY or READY_UNSCREENED).
+func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpose) (Ref, error) {
 	if !mediaIDPattern.MatchString(mediaID) {
 		return Ref{}, ErrNotReady
 	}
@@ -102,7 +113,7 @@ func (l *Library) ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, 
 		return Ref{}, err
 	}
 	d, ok := docs[mediaID]
-	if !ok || d.OwnerID != uid || d.Purpose != string(PurposeAvatar) || !d.Published() {
+	if !ok || d.OwnerID != uid || d.Purpose != string(p) || !d.Published() {
 		return Ref{}, ErrNotReady
 	}
 	return l.ref(d), nil

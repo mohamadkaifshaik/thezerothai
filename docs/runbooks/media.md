@@ -1,4 +1,4 @@
-# Runbook: media (images, avatars, SafeSearch)
+# Runbook: media (images, avatars, banners, SafeSearch)
 
 Owner: backend. Slice P4, ADR-0005. Flag: `FEATURE_MEDIA` (off | allowlist | percent | on). Plan: `docs/plans/media-uploads.md`.
 
@@ -7,7 +7,7 @@ Owner: backend. Slice P4, ADR-0005. Flag: `FEATURE_MEDIA` (off | allowlist | per
 |---|---|---|
 | `FEATURE_MEDIA`, `FEATURE_MEDIA_ALLOWLIST`, `FEATURE_MEDIA_PERCENT` | off | MediaService, CreatePost `media_ids`, UpdateProfile avatar. Off answers FEATURE_DISABLED / MEDIA_NOT_READY. `off` (not allowlist or percent) also holds scheduled posts that carry images PENDING instead of publishing them: `docs/runbooks/posts.md` section 12, "Images held while `FEATURE_MEDIA` is off" |
 | `DEGRADED_MODE=nomedia` | off | CreateUpload and FinalizeUpload answer UNAVAILABLE + DEGRADED_MODE; text posting and attaching READY images continue |
-| `FEATURE_PROFILE_EXTRAS`, `FEATURE_PROFILE_EXTRAS_ALLOWLIST`, `FEATURE_PROFILE_EXTRAS_PERCENT` | off | Will gate `CreateUpload(purpose=BANNER)` (needs `media` on too) and the UpdateProfile banner, location, website and pin fields (ADR-0024 D9). W3-4 registers the flag only; the gate arrives with W3-5 and W3-6. Details in `docs/runbooks/posts.md` |
+| `FEATURE_PROFILE_EXTRAS`, `FEATURE_PROFILE_EXTRAS_ALLOWLIST`, `FEATURE_PROFILE_EXTRAS_PERCENT` | off | Gates `CreateUpload(purpose=BANNER)` (needs `media` on too; W3-5): off for the caller answers FEATURE_DISABLED `feature=profile_extras` with 0 reads and nothing signed. AVATAR and POST uploads and every `FinalizeUpload` ignore it, so a banner upload started before the flag was lowered still completes. Also gates the UpdateProfile banner, location, website and pin fields (ADR-0024 D9, W3-6). Details in `docs/runbooks/posts.md` |
 | `VISION_MONTHLY_CAP` | 10000 | Most SafeSearch units per calendar month (UTC). 0 = never call Vision |
 | `VISION_EXHAUSTED_POLICY` | `unscreened_established` | At the cap: accounts older than 7 days publish unscreened, newer ones are rejected. `reject` rejects everyone |
 | `VISION_SCREEN_THUMB` | true | 2 units per image (full + thumbnail). `false` halves Vision spend and leaves the thumbnail unscreened |
@@ -48,9 +48,20 @@ for hours, set `VISION_MONTHLY_CAP=0` only if you accept unscreened publishing f
 PENDING and REJECTED documents are removed by the Firestore TTL (48 h) and the upload bucket's lifecycle rule deletes the
 objects after 2 days. No action. If the bucket grows, check the lifecycle rule is applied (`terraform plan`).
 
+### Banners (ADR-0024 D1, W3-5)
+A BANNER is one image per `CreateUpload` (declared width <= 1500, height <= 500, 3:1 within 2%), with its own byte caps bound
+into the signed URLs: full <= 1 MiB, thumb <= 128 KiB (POST and AVATAR keep 2 MiB / 256 KiB). `FinalizeUpload` always screens
+full and thumb for a BANNER (2 Vision units, whatever `VISION_SCREEN_THUMB` says) and blocks LIKELY racy, like an avatar. A
+rejected banner is `REJECTED` with reason `policy`; at the Vision cap `VISION_EXHAUSTED_POLICY` applies unchanged (one unit left
+is not enough for a banner: an established account publishes it `READY_UNSCREENED`). Banners share the 20/day `uploads` quota.
+The request log lines carry `purpose` (`POST`, `AVATAR`, `BANNER`; `MIXED` on a finalize that spans purposes) and, on
+FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUpload lines on `purpose=BANNER` and sum `vision_units`.
+
 ### Storage growth
-Replaced avatars are not deleted until the account is (plan D10). If `<proj>-media` approaches 4 GB, add `avatarMediaId`
-to `users` and delete the previous avatar on change (one extra read and a job message per avatar change).
+Replaced avatars are not deleted until the account is (plan D10), and neither are replaced or removed banners (ADR-0024 D1,
+Option 5A; the account purge deletes every media doc and object of the user, banners included). If `<proj>-media` approaches
+2.5 GB (50% of the 5 GB free tier, the ADR-0024 D10 trigger) or 4 GB, add `avatarMediaId` / `bannerMediaId` to `users` and
+delete the previous image on change (one extra read and a job message per change; ADR-0024 Option 5B for banners).
 
 ## Verification after enabling `FEATURE_MEDIA` for the allowlist (dev project, real GCS)
 1. CreateUpload returns signed URLs; PUT both files with the returned headers; FinalizeUpload returns READY with a
