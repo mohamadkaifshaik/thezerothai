@@ -68,7 +68,8 @@ func counted() (context.Context, *budget.Counter) { return budget.WithCounter(co
 
 // TestIntegration_CreateUploadAndFinalizeBudgets asserts the documented worst cases (CreateUpload proto comment):
 // CreateUpload reads 2 (idempotency, quotas) and writes 2 + n; a replay reads 1 and writes 0; FinalizeUpload reads
-// n + 1 (the media docs and, cold, the Vision counter) and writes n + 1.
+// n + 1 (the media docs and, cold, the Vision counter) and writes 2n + 1 (one screening claim and one resolve per image,
+// plus the Vision counter; W3-22 M-3 added the claim, it was n + 1 before).
 func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	full, thumb := jpegBytes("F1"), jpegBytes("T1")
@@ -112,7 +113,10 @@ func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
 			t.Fatalf("result = %+v", r)
 		}
 	}
-	budgettest.Assert(t, "FinalizeUpload n=2 cold", c, budgettest.Budget{Reads: 2 + 1, Writes: 2 + 1})
+	budgettest.Assert(t, "FinalizeUpload n=2 cold", c, budgettest.Budget{Reads: 2 + 1, Writes: 2*2 + 1})
+	if c.Writes() != 2*2+1 {
+		t.Errorf("writes = %d, want exactly 2n + 1 = 5 (claim and resolve per image, one Vision counter)", c.Writes())
+	}
 
 	// The Vision counter is a real document and the cap arithmetic reads it back.
 	used, err := e.real.VisionUsed(context.Background(), monthKey(testNow))
@@ -388,7 +392,7 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 }
 
 // TestIntegration_BannerBudgetsAndResolver asserts the BANNER rows of ADR-0024 D1 against the real repo: the
-// existing CreateUpload / FinalizeUpload budgets (2 reads / 2 + n writes; n + 1 reads / n + 1 writes) with 2 Vision
+// existing CreateUpload / FinalizeUpload budgets (2 reads / 2 + n writes; n + 1 reads / 2n + 1 writes) with 2 Vision
 // units, and ResolveBanner at 1 read with one answer for every unusable id.
 func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
@@ -416,7 +420,10 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 	if err != nil || res[0].Status != StatusReady {
 		t.Fatalf("finalize = %+v, %v", res, err)
 	}
-	budgettest.Assert(t, "FinalizeUpload BANNER cold", fc, budgettest.Budget{Reads: 1 + 1, Writes: 1 + 1})
+	budgettest.Assert(t, "FinalizeUpload BANNER cold", fc, budgettest.Budget{Reads: 1 + 1, Writes: 2*1 + 1})
+	if fc.Writes() != 3 {
+		t.Errorf("writes = %d, want exactly 3 (claim, resolve, Vision counter)", fc.Writes())
+	}
 	if used, err := e.real.VisionUsed(ctx, monthKey(testNow)); err != nil || used != BannerVisionUnits {
 		t.Fatalf("vision units = %d, %v, want %d", used, err, BannerVisionUnits)
 	}
@@ -523,5 +530,118 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 	}
 	if len(e.obj.public) != 2 {
 		t.Fatalf("public objects left = %v: only Bob's two may remain", e.obj.public)
+	}
+}
+
+// TestIntegration_ConcurrentBannerFinalizeScreensOnce is W3-22 M-3 (c) against the real repo: 10 concurrent
+// finalizes of one BANNER, spread over three instances (separate services, single-flight groups and Vision caches)
+// that all hold the same PENDING snapshot before any of them claims it, spend exactly the banner's 2 Vision units
+// and produce one READY document. The losers' answers are READY (they loaded after the winner finished, or share its
+// flight) or the retryable MEDIA_NOT_READY. The control run (claim turned into a no-op) screens once per instance,
+// so the scenario really races.
+func TestIntegration_ConcurrentBannerFinalizeScreensOnce(t *testing.T) {
+	ctx := context.Background()
+	e := newIntEnv(t, envOpts{})
+	tg := e.bannerUpload(t, uidA, "m3")
+
+	out, st := raceFinalize(t, e.env, e.real, uidA, tg.MediaID, 3, 10, true)
+	checkRaceOutcomes(t, out)
+
+	if got := len(e.mod.calls); got != BannerVisionUnits {
+		t.Errorf("SafeSearch calls = %d (%v), want exactly %d", got, e.mod.calls, BannerVisionUnits)
+	}
+	if used, err := e.real.VisionUsed(ctx, monthKey(testNow)); err != nil || used != BannerVisionUnits {
+		t.Errorf("vision counter = %d, %v, want exactly %d", used, err, BannerVisionUnits)
+	}
+	if st.attempts.Load() < 3 {
+		t.Errorf("claim attempts = %d, want at least one per instance", st.attempts.Load())
+	}
+	docs, err := e.real.GetMany(ctx, []string{tg.MediaID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := docs[tg.MediaID]; d.Status != string(StatusReady) || d.ScreeningUntil != nil || d.ExpireAt != nil || d.PublicPath == "" {
+		t.Errorf("doc = %+v, want one READY document with a public path, no claim and no TTL", d)
+	}
+
+	// Control: the same race with the claim disabled screens the image once per instance.
+	c := newIntEnv(t, envOpts{})
+	ct := c.bannerUpload(t, uidA, "m3c")
+	_, _ = raceFinalize(t, c.env, c.real, uidA, ct.MediaID, 3, 10, false)
+	if got := len(c.mod.calls); got <= BannerVisionUnits {
+		t.Errorf("control: SafeSearch calls = %d, want more than %d without the claim", got, BannerVisionUnits)
+	}
+}
+
+// TestIntegration_ScreeningClaimPreconditions pins the repo contract the service builds on, on the real emulator:
+// one write per claim and release, the claim moves the document's UpdateTime (the caller must use the returned one),
+// a second claim from the same snapshot loses, Resolve with the claimed time succeeds and clears the field, and
+// Resolve with the pre-claim time is a conflict.
+func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
+	ctx := context.Background()
+	e := newIntEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "cl")
+	load := func() *Doc {
+		t.Helper()
+		docs, err := e.real.GetMany(ctx, []string{tg.MediaID})
+		if err != nil || docs[tg.MediaID] == nil {
+			t.Fatalf("load: %v", err)
+		}
+		return docs[tg.MediaID]
+	}
+	pending := load()
+	until := time.Now().UTC().Add(30 * time.Second) // nanosecond precision, as the service writes it; Firestore keeps microseconds
+
+	cctx, c := counted()
+	claimedAt, err := e.real.ClaimScreening(cctx, pending.ID, pending.UpdateTime, until)
+	if err != nil || !claimedAt.After(pending.UpdateTime) {
+		t.Fatalf("claim = %v, %v, want a later UpdateTime", claimedAt, err)
+	}
+	budgettest.Assert(t, "ClaimScreening", c, budgettest.Budget{Writes: 1})
+	if c.Writes() != 1 {
+		t.Errorf("claim writes = %d, want 1", c.Writes())
+	}
+	got := load()
+	if got.ScreeningUntil == nil || !got.ScreeningUntil.Equal(until.Truncate(time.Microsecond)) || got.Status != string(StatusPending) || !got.UpdateTime.Equal(claimedAt) {
+		t.Fatalf("claimed doc = %+v, want PENDING with screeningUntil %v at %v", got, until, claimedAt)
+	}
+	if _, err := e.real.ClaimScreening(ctx, pending.ID, pending.UpdateTime, until); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a second claim from the same snapshot = %v, want ErrConflict", err)
+	}
+	if err := e.real.Resolve(ctx, pending.ID, pending.UpdateTime, Resolution{Status: StatusReady}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Resolve with the pre-claim time = %v, want ErrConflict", err)
+	}
+
+	// Release with the claim's own time clears the field; with a stale time it is a conflict and changes nothing.
+	if err := e.real.ReleaseScreening(ctx, pending.ID, pending.UpdateTime); !errors.Is(err, ErrConflict) {
+		t.Fatalf("release with a stale time = %v, want ErrConflict", err)
+	}
+	rctx, rc := counted()
+	if err := e.real.ReleaseScreening(rctx, pending.ID, claimedAt); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	budgettest.Assert(t, "ReleaseScreening", rc, budgettest.Budget{Writes: 1})
+	released := load()
+	if released.ScreeningUntil != nil || released.Status != string(StatusPending) {
+		t.Fatalf("released doc = %+v, want PENDING with no claim", released)
+	}
+
+	// Claim again, then Resolve with the claimed time: READY and no claim left behind.
+	claimedAt, err = e.real.ClaimScreening(ctx, pending.ID, released.UpdateTime, until)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.real.Resolve(ctx, pending.ID, claimedAt, Resolution{Status: StatusReady, PublicPath: "m/x.jpg", ThumbPath: "m/x_t.jpg"}); err != nil {
+		t.Fatalf("Resolve with the claimed time: %v", err)
+	}
+	if done := load(); done.Status != string(StatusReady) || done.ScreeningUntil != nil {
+		t.Fatalf("resolved doc = %+v, want READY with no claim", done)
+	}
+	if _, err := e.real.ClaimScreening(ctx, "0000000000000009998", testNow, until); !errors.Is(err, ErrConflict) {
+		t.Fatalf("claim of a missing document = %v, want ErrConflict (it must never create one)", err)
+	}
+	docs, err := e.real.GetMany(ctx, []string{"0000000000000009998"})
+	if err != nil || len(docs) != 0 {
+		t.Fatalf("a claim created a document: %v, %v", docs, err)
 	}
 }

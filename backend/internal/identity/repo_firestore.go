@@ -340,7 +340,9 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 	return result, replay, nil
 }
 
-// UpdateProfile: 1 read, 1 write (whole document, in one transaction; the extras are in userDoc, so they survive it).
+// UpdateProfile: 1 read, 1 write (whole document, in one transaction; the extras are in userDoc, so they survive it), or
+// 1 read and 0 writes when mutate leaves the profile exactly as it was read (W3-22 L-4: a save of unchanged values must
+// not rewrite the document, so the service moves UpdatedAt only when something changed).
 func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error) {
 	var result Profile
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -358,7 +360,12 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 			return fmt.Errorf("identity: decode user %s: %w", uid, err)
 		}
 		profile := d.toProfile(uid)
+		before := profile // Profile is comparable: a mutation that changed nothing leaves it == before
 		mutate(&profile)
+		if profile == before {
+			result = profile
+			return nil
+		}
 
 		b := store.NewFirestoreTxBatch(tx, counter)
 		b.Set(r.userRef(uid), profileToDoc(profile))

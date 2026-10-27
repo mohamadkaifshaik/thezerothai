@@ -25,6 +25,9 @@ type fakeRepo struct {
 	quota    int64 // images reserved today
 	visionRd int   // VisionUsed calls
 	resolves int
+	claims   int // ClaimScreening calls, won or lost
+	releases int // ReleaseScreening calls
+	getMany  int // GetMany calls
 	// failures
 	createErr error
 	resolveFn func(id string) error
@@ -69,6 +72,7 @@ func (r *fakeRepo) CreateUploads(_ context.Context, p CreateUploadsParams) (Crea
 func (r *fakeRepo) GetMany(_ context.Context, ids []string) (map[string]*Doc, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.getMany++
 	out := map[string]*Doc{}
 	for _, id := range ids {
 		if d, ok := r.docs[id]; ok {
@@ -93,6 +97,7 @@ func (r *fakeRepo) Resolve(_ context.Context, id string, updateTime time.Time, r
 		return ErrConflict
 	}
 	d.Status, d.PublicPath, d.ThumbPath = string(res.Status), res.PublicPath, res.ThumbPath
+	d.ScreeningUntil = nil
 	d.Blurhash, d.RejectionReason = res.Blurhash, res.RejectionReason
 	if res.ExpireAt.IsZero() {
 		d.ExpireAt = nil
@@ -100,6 +105,34 @@ func (r *fakeRepo) Resolve(_ context.Context, id string, updateTime time.Time, r
 		e := res.ExpireAt
 		d.ExpireAt = &e
 	}
+	d.UpdateTime = d.UpdateTime.Add(time.Second)
+	return nil
+}
+
+// ClaimScreening mirrors FirestoreRepo: the UpdateTime precondition makes exactly one concurrent caller win.
+func (r *fakeRepo) ClaimScreening(_ context.Context, id string, updateTime, until time.Time) (time.Time, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.claims++
+	d, ok := r.docs[id]
+	if !ok || !d.UpdateTime.Equal(updateTime) {
+		return time.Time{}, ErrConflict
+	}
+	u := until
+	d.ScreeningUntil = &u
+	d.UpdateTime = d.UpdateTime.Add(time.Second)
+	return d.UpdateTime, nil
+}
+
+func (r *fakeRepo) ReleaseScreening(_ context.Context, id string, updateTime time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.releases++
+	d, ok := r.docs[id]
+	if !ok || !d.UpdateTime.Equal(updateTime) {
+		return ErrConflict
+	}
+	d.ScreeningUntil = nil
 	d.UpdateTime = d.UpdateTime.Add(time.Second)
 	return nil
 }
@@ -275,14 +308,19 @@ type fakeModerator struct {
 
 func (m *fakeModerator) SafeSearch(_ context.Context, object string) (SafeSearch, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.calls = append(m.calls, object)
-	if hook := m.onCall; hook != nil {
-		m.onCall = nil
+	hook := m.onCall
+	m.onCall = nil
+	m.mu.Unlock()
+	// The hook runs outside the lock so it may drive another FinalizeUpload (a second instance) that would itself
+	// reach SafeSearch if the screening claim failed to stop it; the test then fails on the call count, not by hanging.
+	if hook != nil {
 		if err := hook(); err != nil {
 			return SafeSearch{}, err
 		}
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.err != nil {
 		return SafeSearch{}, m.err
 	}

@@ -198,8 +198,12 @@ type Service interface {
 	CreateUpload(ctx context.Context, uid string, in CreateUploadInput) ([]UploadTarget, error)
 	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. Firestore: reads
 	// 2*len(items) + 1 (media docs, the Vision counter cached 60 s, +1 per item whose upload is missing, whose
-	// screening fails or whose finalize race is lost), plus the interceptor read; writes len(items) + 1.
-	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB and always 2 for a BANNER.
+	// screening fails or whose finalize race is lost), plus the interceptor read; writes 2*len(items) + 1 (per item one
+	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter).
+	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB and always 2 for a BANNER, spent by one call per image at a
+	// time (W3-22 M-3): calls on one instance share a single flight and all get its result; across instances a
+	// screeningUntil claim (30 s) on the PENDING document makes the loser answer the retryable MEDIA_NOT_READY after one
+	// read, before any Vision call.
 	FinalizeUpload(ctx context.Context, uid string, items []FinalizeItem) ([]Result, error)
 }
 

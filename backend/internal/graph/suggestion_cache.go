@@ -30,10 +30,12 @@ type suggestionEntry struct {
 //
 // Staleness bound: a viewer's answer is served for at most CacheTTL (SUGGESTIONS_CACHE_TTL, default 1 h) after the
 // call that built it. This instance removes a user from the viewer's entry the moment its own Follow, Block or Mute
-// makes them unsuitable (remove below), and a warm hit is re-filtered against the viewer's snapshot when the 60 s
-// snapshot cache holds one (0 reads). What stays stale for up to CacheTTL: a change made on another instance or by
-// another user (X blocks the viewer, X deletes the account or is suspended) and the viewer's follows made elsewhere.
-// Keys are the viewer's uid, so no entry is ever shared across users.
+// makes them unsuitable (remove below), and EVERY warm hit is re-filtered against the viewer's snapshot: the 60 s
+// snapshot cache when it holds one (0 reads), else one read that refills it (W3-22 L-1). So whoever blocked the
+// viewer, or whom the viewer followed, blocked or muted on another instance, is hidden within 60 s. What stays stale
+// for up to CacheTTL: facts the snapshot does not hold, namely X deleting the account or being suspended (the row
+// still shows the profile hydrated when the entry was built; GetProfile and Follow answer NOT_FOUND for them) and a
+// changed handle, name or avatar. Keys are the viewer's uid, so no entry is ever shared across users.
 type suggestionCache struct {
 	// mu makes remove's read-modify-write atomic against put and other removes; the LRU is already thread safe.
 	mu  sync.Mutex

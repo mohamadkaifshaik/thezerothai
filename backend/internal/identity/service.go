@@ -319,7 +319,8 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 // string is a clear (ADR-0024 Amendment 1 A2) and is never gated; anything else, whitespace-only included, is a set.
 func setsExtra(p *string) bool { return p != nil && *p != "" }
 
-// UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}), plus the account-status
+// UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}; 0 writes when the request changes nothing,
+// W3-22 L-4: UpdatedAt moves only on a real change and the repo then skips the write), plus the account-status
 // interceptor's profile read when its cache is cold (+1, outside this method). Resolves before the transaction add
 // reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc,
 // ADR-0024 D1), +1 for a non-empty pinned_post_id (the post, cache-first so 1 cold / 0 warm, D3). Worst case with the
@@ -444,6 +445,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	var changed []string
 	profile, err := s.repo.UpdateProfile(ctx, uid, func(p *Profile) {
 		changed, snapshotChanged = changed[:0], false // the transaction may run more than once
+		// W3-22 L-4: a request that changes nothing must leave the profile (UpdatedAt included) as it was, so the repo
+		// skips the write; UpdatedAt moves only below, when something really changed.
+		orig := *p
 		// note records a field name for profile_fields_changed when the stored value really changes.
 		note := func(name string, differs bool) {
 			if differs {
@@ -459,7 +463,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			}
 		}
 		if params.Bio != nil {
-			bio := strings.TrimSpace(*params.Bio)
+			bio := normalizeBio(*params.Bio) // trim + NFC, the form bioIssue counted (W3-22 L-2c)
 			note("bio", bio != p.Bio)
 			p.Bio = bio
 		}
@@ -497,7 +501,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		if params.IsPrivate != nil {
 			p.IsPrivate = *params.IsPrivate
 		}
-		p.UpdatedAt = now
+		if *p != orig {
+			p.UpdatedAt = now
+		}
 	})
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {

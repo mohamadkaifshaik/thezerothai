@@ -23,6 +23,14 @@ const (
 	SuggestionSourceNone = "none"
 )
 
+// maxCandidatesPerFollowee is how many candidates one sampled followee may contribute to a window (W3-22 L-5): its
+// newest three usable edges. Without it one very active account that many people follow (a follow-back bait account
+// that follows thirty promotion accounts in a minute) fills the whole 30-edge window and picks every row for all of
+// its followers. A constant, not config: it is part of the ranking, like minSuggestions. It does not free the window
+// (a flooder's edges are still the newest 30 the one query returns): it bounds the damage to three candidates, which
+// shows in the log as source=fof with candidates <= 3 (docs/runbooks/graph.md section 6).
+const maxCandidatesPerFollowee = 3
+
 // minSuggestions is the "fewer than 3" of ADR-0024 D8: the viewer needs at least this many followees to seed the
 // friends-of-friends query, and at least this many usable friends of friends to skip the curated list.
 const minSuggestions = 3
@@ -46,6 +54,14 @@ type Suggester interface {
 	Suggest(ctx context.Context, viewerUID string, snap Snapshot) (Suggestion, error)
 }
 
+// inactiveProber is an optional extension of identity.Directory: which of uids its profile cache ALREADY knows are not
+// ACTIVE (SUSPENDED, DELETING) or are gone. Cache only: 0 reads, and a uid the cache has not seen is absent, never
+// "active". identity's service implements it (KnownInactive); a Directory that does not (a fake, a future source) simply
+// reports nothing. It is asserted lazily on service.directory, which is only set after construction (SetDirectory).
+type inactiveProber interface {
+	KnownInactive(uids []string) map[string]bool
+}
+
 // followerEdgeLister is the one storage call the default Suggester makes; Repo satisfies it.
 type followerEdgeLister interface {
 	ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error)
@@ -56,14 +72,18 @@ type friendsOfFriends struct {
 	edges  followerEdgeLister
 	limits SuggestionLimits // normalized
 	now    func() time.Time
+	// inactive reports which of the given uids are already known not to be ACTIVE, at 0 reads (see inactiveProber).
+	// nil, or a nil result, means nothing is known.
+	inactive func(uids []string) map[string]bool
 }
 
 func newFriendsOfFriends(edges followerEdgeLister, limits SuggestionLimits, now func() time.Time) *friendsOfFriends {
 	return &friendsOfFriends{edges: edges, limits: limits, now: now}
 }
 
-// Suggest implements Suggester. Reads: 0 when the viewer follows fewer than minSuggestions accounts (curated only),
-// else one query of at most EdgeLimit follow documents (minimum 1). The "fewer than 3 candidates" test is made after
+// Suggest implements Suggester. Reads: 0 when the viewer follows fewer than minSuggestions accounts (curated only) or
+// when every sampled followee is already known to be non-ACTIVE, else one query of at most EdgeLimit follow documents
+// (minimum 1). The "fewer than 3 candidates" test is made after
 // the exclusion matrix, so a candidate the viewer could not be shown does not count.
 func (f *friendsOfFriends) Suggest(ctx context.Context, viewer string, snap Snapshot) (Suggestion, error) {
 	if snap.BlockedByOverflow {
@@ -103,8 +123,13 @@ func (f *friendsOfFriends) Suggest(ctx context.Context, viewer string, snap Snap
 // followees), drops what suggestable() refuses, counts how many sampled followees follow each candidate and orders
 // by that count, then by a hash of (viewer, candidate, IST day) so the order is stable within a day and shuffles
 // across days. A count of one is the common case with the default 30-edge window, so the hash is the real order.
+//
+// W3-22 L-5, both at 0 reads: a sampled followee the Directory cache already knows is not ACTIVE is left out of the
+// query's follower list (a suspended spam account no longer steers, and its share of the window goes to the others),
+// and each remaining followee contributes at most maxCandidatesPerFollowee candidates, its newest usable edges (the
+// query returns edges newest first; an edge the exclusion matrix refuses takes no slot).
 func (f *friendsOfFriends) rankedFriendsOfFriends(ctx context.Context, viewer string, snap Snapshot) ([]string, error) {
-	sample := capLen(snap.RecentFollowing, f.limits.SampleFollowees)
+	sample := f.activeSample(capLen(snap.RecentFollowing, f.limits.SampleFollowees))
 	if len(sample) == 0 {
 		return nil, nil
 	}
@@ -113,10 +138,13 @@ func (f *friendsOfFriends) rankedFriendsOfFriends(ctx context.Context, viewer st
 		return nil, err
 	}
 	counts := make(map[string]int, len(edges))
+	perFollowee := make(map[string]int, len(sample))
 	for _, e := range edges {
-		if suggestable(viewer, snap, e.FolloweeID) {
-			counts[e.FolloweeID]++
+		if !suggestable(viewer, snap, e.FolloweeID) || perFollowee[e.FollowerID] >= maxCandidatesPerFollowee {
+			continue
 		}
+		perFollowee[e.FollowerID]++
+		counts[e.FolloweeID]++
 	}
 	day := quota.TodayAt(f.now())
 	type rankedUID struct {
@@ -136,6 +164,25 @@ func (f *friendsOfFriends) rankedFriendsOfFriends(ctx context.Context, viewer st
 		out[i] = r.uid
 	}
 	return out, nil
+}
+
+// activeSample is sample without the followees the Directory cache already knows are not ACTIVE. It returns sample itself
+// (never an edited copy of the snapshot's slice) when nothing is known.
+func (f *friendsOfFriends) activeSample(sample []string) []string {
+	if f.inactive == nil || len(sample) == 0 {
+		return sample
+	}
+	known := f.inactive(sample)
+	if len(known) == 0 {
+		return sample
+	}
+	out := make([]string, 0, len(sample))
+	for _, uid := range sample {
+		if !known[uid] {
+			out = append(out, uid)
+		}
+	}
+	return out
 }
 
 // tieBreak is the stable per-day order of equally ranked candidates: FNV-64a over viewer, candidate and the IST day

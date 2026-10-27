@@ -1,0 +1,33 @@
+{
+ "_comment": "Shared profile text fixture, field display name (ADR-0024 D2, W3-22 L-2c). See README.md in this directory for the schema and the rules. Backend-developer owns the Go side, frontend-developer the Dart side; change both runners in the same PR.",
+ "field": "display_name",
+ "accept": [
+  {"name": "plain", "raw": "Asha Rao", "stored": "Asha Rao"},
+  {"name": "trimmed", "raw": "  Asha  ", "stored": "Asha"},
+  {"name": "NFC composes e + combining acute", "raw": "Jose\u0301", "stored": "Jos\u00e9"},
+  {"name": "one code point", "raw": "A", "stored": "A"},
+  {"name": "exactly 50 code points", "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "stored": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  {"name": "50 code points of multi-byte text", "raw": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5", "stored": "\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5\u65e5"},
+  {"name": "emoji and zero width joiner", "raw": "\ud83d\udc69\u200d\ud83d\udcbb Dev", "stored": "\ud83d\udc69\u200d\ud83d\udcbb Dev"},
+  {"name": "combining marks in Devanagari", "raw": "\u0915\u094d\u0937\u093f", "stored": "\u0915\u094d\u0937\u093f"},
+  {"name": "trailing line separator is trimmed", "raw": "Asha\u2028", "stored": "Asha"}
+ ],
+ "reject": [
+  {"name": "empty", "raw": "", "why": "length"},
+  {"name": "whitespace only", "raw": "   ", "why": "length after trim"},
+  {"name": "51 code points", "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "why": "too long"},
+  {"name": "newline", "raw": "Asha\u000aRao", "why": "control"},
+  {"name": "carriage return", "raw": "Asha\u000dRao", "why": "control"},
+  {"name": "tab", "raw": "Asha\u0009Rao", "why": "control"},
+  {"name": "NUL", "raw": "Asha\u0000Rao", "why": "control"},
+  {"name": "DEL", "raw": "Asha\u007fRao", "why": "control"},
+  {"name": "C1 next line", "raw": "Asha\u0085Rao", "why": "control"},
+  {"name": "line separator U+2028", "raw": "Asha\u2028Rao", "why": "Zl"},
+  {"name": "paragraph separator U+2029", "raw": "Asha\u2029Rao", "why": "Zp"},
+  {"name": "right-to-left override", "raw": "Asha\u202eRao", "why": "L-2c: reorders the header and every post row"},
+  {"name": "left-to-right override", "raw": "Asha\u202dRao", "why": "bidi control"},
+  {"name": "right-to-left embedding", "raw": "Asha\u202bRao", "why": "bidi control"},
+  {"name": "right-to-left isolate", "raw": "Asha\u2067Rao", "why": "bidi control"},
+  {"name": "first strong isolate", "raw": "Asha\u2068Rao", "why": "bidi control"}
+ ]
+}

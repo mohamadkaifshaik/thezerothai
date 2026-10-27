@@ -52,6 +52,18 @@ type RateLimitConfig struct {
 	// 1 read (the per-viewer cache, SUGGESTIONS_CACHE_TTL).
 	SuggestionsCallsPerDay int64
 
+	// ProfileUpdatesPerDay is the in-memory daily cap on UpdateProfile calls (one counter per uid per instance,
+	// ratelimit.DailyCap), env PROFILE_UPDATES_PER_DAY, logged as limit_name "profile_update_daily" (W3-22 L-4).
+	// Before it, UpdateProfile had only the 60/min default bucket and the read budget, and rewrote the whole users
+	// document on every call even when nothing changed, so a save loop cost about 6,000 writes and 6,000 reads a day
+	// per account at 3 instances.
+	//
+	// Default 100. A real user changes their profile a handful of times a day (name, bio, avatar, banner, location,
+	// website, pin, plus retries), so 100 is generous. Worst case per account per day: 100 calls x 3 instances (the cap
+	// is per instance) = 300 calls, each at most 1 write (0 when the call changes nothing) and 4 reads (cold: the
+	// interceptor profile, the users doc, a banner resolve, a pin check) = 300 writes and 1,200 reads.
+	ProfileUpdatesPerDay int64
+
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
 	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is
