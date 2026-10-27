@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../../features/graph/presentation/graph_feature_flags.dart';
+import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -172,6 +174,16 @@ class MainShell extends StatelessWidget {
           ? (extended) => AppAccountChip(extended: extended)
           : null,
       sideColumn: AppSideColumn(
+        // "You might like" (W3-19): the new shell, `graph` and
+        // `follow_suggestions` all on. The card draws nothing until the shared
+        // list has rows, so the column is unchanged otherwise.
+        sections: [
+          if (newShell && isFollowSuggestionsEnabled(context))
+            const WhoToFollowCard(
+              title: 'You might like',
+              margin: EdgeInsets.only(bottom: AppSpacing.md),
+            ),
+        ],
         // Only what is already loaded: no profile, no card (nothing is fetched).
         profile: ownHandle == null || ownHandle.isEmpty
             ? null

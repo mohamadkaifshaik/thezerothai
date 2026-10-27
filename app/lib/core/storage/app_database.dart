@@ -169,11 +169,20 @@ class NotificationStateEntries extends Table {
   Set<Column> get primaryKey => {stateKey};
 }
 
+/// Prefix of the [AppSettingEntries] keys that hold data derived from one
+/// account's graph (for example the cached "Who to follow" list). Unlike the
+/// other device settings these are wiped on sign-out ([AppDatabase.clearAll]),
+/// so the next user on a shared device never sees them and a deleted account
+/// leaves nothing behind (CLAUDE.md rule 10).
+const kAccountSettingPrefix = 'account:';
+
 /// A device-level setting (key -> value text), e.g. the appearance choice.
 ///
 /// Unlike every other table this one is **not** wiped on sign-out
 /// ([AppDatabase.clearAll]): it describes the device, not the account, and
-/// holds no personal data (CLAUDE.md rule 10 is about user data).
+/// holds no personal data (CLAUDE.md rule 10 is about user data). The one
+/// exception is a key that starts with [kAccountSettingPrefix]: that is
+/// account-derived data and is wiped on sign-out.
 @DataClassName('DeviceSetting')
 class AppSettingEntries extends Table {
   TextColumn get settingKey => text()();
@@ -364,9 +373,28 @@ class AppDatabase extends _$AppDatabase {
     )..where((t) => t.settingKey.equals(key))).go();
   }
 
+  /// Sets an account-derived setting ([key] starts with
+  /// [kAccountSettingPrefix]). Guarded like every cache write: dropped when the
+  /// session ended since [epoch] was read, so a response of a signed-out user
+  /// can never land after [clearAll] wiped it.
+  Future<void> writeAccountSetting(
+    String key,
+    String value, {
+    required int epoch,
+  }) {
+    assert(key.startsWith(kAccountSettingPrefix));
+    return transaction(() async {
+      if (!sessionEpoch.allows(epoch)) return;
+      await into(appSettingEntries).insertOnConflictUpdate(
+        AppSettingEntriesCompanion.insert(settingKey: key, settingValue: value),
+      );
+    });
+  }
+
   /// Wipes all cached data. Called on sign-out so the next user on a shared
   /// device never sees a stale profile or follow list (privacy: CLAUDE.md
-  /// rule 10). Device settings ([AppSettingEntries]) are kept on purpose.
+  /// rule 10). Device settings ([AppSettingEntries]) are kept on purpose,
+  /// except the account-derived ones under [kAccountSettingPrefix].
   Future<void> clearAll() async {
     await transaction(() async {
       await delete(profileCacheEntries).go();
@@ -376,6 +404,9 @@ class AppDatabase extends _$AppDatabase {
       await delete(accountExportEntries).go();
       await delete(notificationEntries).go();
       await delete(notificationStateEntries).go();
+      await (delete(
+        appSettingEntries,
+      )..where((t) => t.settingKey.like('$kAccountSettingPrefix%'))).go();
     });
   }
 

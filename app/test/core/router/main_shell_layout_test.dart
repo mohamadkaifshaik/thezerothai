@@ -11,6 +11,10 @@ import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -22,6 +26,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../support/suggestions_fixtures.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -36,6 +42,8 @@ class _MemoryThemeStore implements ThemeModeStore {
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
+
+class _MockGraph extends Mock implements GraphRepository {}
 
 /// The shell's layout rules (W0-6): which navigation, compose control and
 /// drawer each width gets, and where each destination leads.
@@ -66,6 +74,8 @@ void main() {
     UnreadBadgeCubit? badge,
     bool profile = true,
     bool newShell = true,
+    SuggestionsCubit? suggestions,
+    Widget? body,
   }) async {
     whenListen(
       onboarding,
@@ -86,7 +96,7 @@ void main() {
       location: path,
       child: Scaffold(
         appBar: const AppTopBar(title: 'Page'),
-        body: Center(child: Text(text)),
+        body: body ?? Center(child: Text(text)),
       ),
     );
     final router = GoRouter(
@@ -143,11 +153,16 @@ void main() {
           BlocProvider<OnboardingBloc>.value(value: onboarding),
           BlocProvider<AuthBloc>.value(value: auth),
           BlocProvider<UnreadBadgeCubit>.value(value: effectiveBadge),
+          if (suggestions != null)
+            BlocProvider<SuggestionsCubit>.value(value: suggestions),
           BlocProvider<ThemeModeCubit>(
             create: (_) => ThemeModeCubit(_MemoryThemeStore()),
           ),
         ],
-        child: MaterialApp.router(theme: appLightTheme, routerConfig: router),
+        child: RepositoryProvider<GraphRepository>.value(
+          value: _MockGraph(),
+          child: MaterialApp.router(theme: appLightTheme, routerConfig: router),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -489,6 +504,120 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Select a setting'), findsOneWidget);
+    });
+  });
+
+  group('You might like (W3-19)', () {
+    const flags = {'posts', 'graph', 'follow_suggestions'};
+    late FakeSuggestionsRepository repo;
+    late SuggestionsCubit cubit;
+
+    setUp(() {
+      repo = FakeSuggestionsRepository([
+        for (var i = 1; i <= 5; i++) suggestedUser(i),
+      ]);
+      cubit = SuggestionsCubit(repository: repo);
+    });
+
+    tearDown(() => cubit.close());
+
+    Finder inColumn(Finder finder) =>
+        find.descendant(of: find.byType(AppSideColumn), matching: finder);
+
+    testWidgets('1200dp, new shell, both flags: the card sits between the '
+        'profile card and the quick links', (tester) async {
+      await pump(tester, width: 1200, flags: flags, suggestions: cubit);
+
+      expect(inColumn(find.text('You might like')), findsOneWidget);
+      expect(inColumn(find.byType(UserListRow)), findsNWidgets(3));
+      expect(find.text('Who to follow'), findsNothing);
+      final profile = tester.getTopLeft(inColumn(find.text('@alice'))).dy;
+      final card = tester.getTopLeft(inColumn(find.text('You might like'))).dy;
+      final link = tester.getTopLeft(inColumn(find.text('Settings'))).dy;
+      expect(profile, lessThan(card));
+      expect(card, lessThan(link));
+      expect(repo.calls, 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Show more opens all five inside the column', (tester) async {
+      await pump(tester, width: 1280, flags: flags, suggestions: cubit);
+
+      await tester.tap(inColumn(find.text('Show more')));
+      await tester.pumpAndSettle();
+
+      expect(inColumn(find.byType(UserListRow)), findsNWidgets(5));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('without ui_shell the column shows no card and asks '
+        'nothing', (tester) async {
+      await pump(
+        tester,
+        width: 1280,
+        flags: flags,
+        newShell: false,
+        suggestions: cubit,
+      );
+
+      expect(find.byType(AppSideColumn), findsOneWidget);
+      expect(find.text('You might like'), findsNothing);
+      expect(repo.calls, 0);
+    });
+
+    for (final missing in ['graph', 'follow_suggestions']) {
+      testWidgets('without $missing the column shows no card and asks '
+          'nothing', (tester) async {
+        await pump(
+          tester,
+          width: 1280,
+          flags: {...flags}..remove(missing),
+          suggestions: cubit,
+        );
+
+        expect(find.text('You might like'), findsNothing);
+        expect(repo.calls, 0);
+      });
+    }
+
+    testWidgets('below 1200dp there is no column and nothing is asked', (
+      tester,
+    ) async {
+      await pump(tester, width: 1199, flags: flags, suggestions: cubit);
+
+      expect(find.byType(AppSideColumn), findsNothing);
+      expect(find.text('You might like'), findsNothing);
+      expect(repo.calls, 0);
+    });
+
+    testWidgets('no suggestions: the column is unchanged, no gap', (
+      tester,
+    ) async {
+      repo.rows = const [];
+      await pump(tester, width: 1280, flags: flags, suggestions: cubit);
+
+      expect(find.text('You might like'), findsNothing);
+      expect(inColumn(find.byType(WhoToFollowCard)), findsOneWidget);
+      expect(tester.getSize(inColumn(find.byType(WhoToFollowCard))).height, 0);
+    });
+
+    testWidgets('a dismissal in the column is gone from the Home card too: '
+        'one shared list', (tester) async {
+      await pump(
+        tester,
+        width: 1280,
+        flags: flags,
+        suggestions: cubit,
+        body: const SingleChildScrollView(child: WhoToFollowCard()),
+      );
+      expect(find.text('User 2'), findsNWidgets(2));
+
+      await tester.tap(inColumn(find.byTooltip('Dismiss @user2')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('User 2'), findsNothing);
+      expect(find.text('Who to follow'), findsOneWidget);
+      expect(find.text('You might like'), findsOneWidget);
     });
   });
 
