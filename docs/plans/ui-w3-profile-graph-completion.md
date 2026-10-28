@@ -98,7 +98,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | Open (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Open (depends: W3-29a, W3-26a) |
 | W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Open (depends: W3-25b; merges after W3-29a and W3-26a) |
-| W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Open (depends: W3-25b; merges before W3-27) |
+| W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | In review (PR #381; depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Open (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Open (depends: W3-26a, W3-29a serving dev) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
@@ -969,7 +969,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `graph.FollowEvents`, `notifications.Emitter` on Pub/Sub, and the AQ5 checker.
 - **Cost.** 0.05 + 0.04 calls per DAU, about 2 reads per recipient: 0.18 reads and 0.09 writes per DAU, plus TTL deletes after 90 d.
 
-#### W3-32 Lifecycle: `follow_requests` eraser and export [backend-developer] [M] [depends: W3-25b; merges before W3-27] Status: Open
+#### W3-32 Lifecycle: `follow_requests` eraser and export [backend-developer] [M] [depends: W3-25b; merges before W3-27] Status: In review (PR #381)
 - **The eraser** (D11): a new appended step, `follow_requests` (`graph.RequestEraser`), registered after `bookmarks` and before `identity`. Step names are persisted in `deletionJob.step` (the ADR-0023 D6 precedent), so graph's internal step numbers do not change.
   - Outgoing: `followRequests where followerId == uid Limit(500)`, 1 read + 1 delete each.
   - Incoming: `followRequests where followeeId == uid ORDER BY createdAt DESC Limit(500)`, 1 read + 1 delete + 1 `Update` with `ArrayRemove(uid)` on the requester's `graph`. NotFound is skipped and logged as `purge_missing_counterpart`, never `Set`.
@@ -988,6 +988,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Flag.** None: never gated.
 - **Seam.** identity's `StepEraser` / `ExportSection`.
 - **Cost.** Per deletion and per export only.
+- **Built (W3-32).** `graph/purge_requests.go` (`RequestEraser`, `RequestCheckpoint{Phase}`), `graph/export_requests.go` (`ExportRequests`), `apiserver/lifecycle_wiring.go` (`registerFollowRequestsLifecycle`). The incoming page is 250, not 500: each doc is a delete plus a requester update, and a batch holds at most 500 operations. The outgoing pass uses the automatic `followerId` index, and the export orders the sent side by document id and sorts in memory, so no new composite index is needed.
 
 #### W3-33a Client: protected profile, lock badge, Requested and withdraw [frontend-developer] [M] [depends: W3-26a, W3-27, W3-30 serving dev] Status: Open
 - **Profile.**

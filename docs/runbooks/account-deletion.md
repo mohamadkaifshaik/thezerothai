@@ -178,6 +178,14 @@ against a cloud project.
   no other user's uid, so there is no residue to report. The export carries a `bookmarks` section (post id and bookmark time, newest
   first, never the post). A post that is deleted or purged leaves a dead id in other people's bookmarks; that is expected (the owner's
   list hides and prunes it, `docs/runbooks/bookmarks.md`). Neither step nor section is flag-gated.
+- **Follow requests (ADR-0025 D11, W3-32):** `followRequests/{followerId}_{followeeId}` holds both uids of a pending request, so the `follow_requests` step
+  (after `bookmarks`, before `identity`; `graph.RequestEraser`) deletes the docs on both sides: outgoing (`followerId == uid`, pages of 500) deletes only,
+  because `graph/{uid}` is already gone; incoming (`followeeId == uid ORDER BY createdAt DESC`, pages of 250 because each doc is a delete plus an update)
+  deletes the doc and `ArrayRemove(uid)`s the requester's `graph.requested` in the same batch. A requester whose graph doc is gone is skipped and logged
+  (`purge_missing_counterpart`, `collection=followRequests`), never recreated. Counts only in the log line `graph_purge_follow_requests`. Cost: 1 read per doc,
+  minimum 2 (an account that never sent or received a request pays 2 reads), +1 read per incoming doc only after a missing counterpart; 1 delete per doc and 1
+  write per incoming doc. The export carries a `follow_requests` section `{sent, received}` (userId, handle, requestedAt; newest first). Neither step nor
+  section is flag-gated. If the step fails, the failure mode is the generic one (job retries the slice; the step is self-resuming, so a retry continues).
 - **Notifications and devices (P6, ADR-0017):** the `notifications` step removes the user's devices and their
   `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
   `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when
@@ -250,7 +258,7 @@ GOWORK=off go run ./cmd/opsctl check-t26 --project dzeroth-prod   # asks you to 
 `DELETING` with a `deletionJob` and publishes to the Pub/Sub topic `jobs`. The push subscription `jobs-push` calls
 `/internal/pubsub/jobs` (OIDC, only the `pubsub-push` service account). After a **120 s gate** (so no instance still
 treats the user as ACTIVE) the job runs the steps in this fixed order, in 20 s slices that re-publish themselves:
-`auth_disable`, `posts`, `graph`, `media`, `notifications`, `engagement`, `reports`, `scheduled`, `bookmarks`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
+`auth_disable`, `posts`, `graph`, `media`, `notifications`, `engagement`, `reports`, `scheduled`, `bookmarks`, `follow_requests`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
 persisted in `deletionJob.step`; never rename or remove one without a migration. `RequestAccountExport` writes
 `exports/{id}` and a JSON object to the private bucket `<project>-exports` (7-day lifecycle, soft delete off); each
 `GetAccountExport` signs a fresh 15-minute GET URL. Exports are capped at 1 per day per user.
