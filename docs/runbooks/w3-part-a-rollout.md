@@ -360,6 +360,7 @@ the practical check is a cold call repeatedly above its ceiling in the 4.1 table
 3. **Faster, in seconds, no Terraform:** `gcloud run services update-traffic api --project=dzeroth-dev --region=asia-south1 --to-revisions=$SERVING=100`, where `$SERVING` is the revision noted
    in step 4. It has no W3 env, so every flag is off by the code default, and it still contains #335 and #354. `last-good` (`api-00555-yeq`) is also such a revision. Then make the Terraform
    change so state and live agree. **Do not run `deploy-dev` between the two**: it builds its candidate from the service template, which still carries the flags until Terraform is changed.
+   **Update 2026-10-28.** `deploy-dev` has run since (#368, 18:30 UTC on 2026-10-27). Dev now serves `api-00571-xat`, and `last-good` is `api-00307-fcs`. Both carry the W3 env (the four flags on `allowlist`, `PROFILE_MEDIA_RETIRE=banner`), so routing to `last-good` does **not** turn the flags off. The revisions with no W3 env are `api-00564-vik` (`$SERVING` above) and `api-00561-meb`; both also have the retire switch `off` and lack only #368's job-log fix. Re-check with `gcloud run revisions describe` before routing.
 4. The backfill is not rolled back: `hasMedia` on posts is harmless with the flag off.
 
 ## 7. Not verified here (and why)
@@ -406,3 +407,27 @@ No `TESTER_*` or `SMOKE_*` credential exists on the deploying machine (the smoke
 
 The cohort and the Vision figures are unchanged by this run (Vision units this month 10 of the 10,000 cap, 0 today, read from `make cost PROJECT_ID=dzeroth-dev` after the route).
 For the next reader: the dev `api` template now carries the 24 W3 entries, so the next `deploy-dev` run keeps the four flags on `allowlist`; a rollback by Terraform removes the nine tfvars lines as section 6 says.
+
+### 8.2 Tester traffic since the apply, read from the logs (2026-10-28)
+Read on 2026-10-28 at about 04:10 UTC with the 4.3 filters plus the request-log 5xx filter on every RPC, for the window from the route (17:16 UTC on 2026-10-27) to then. Counts only: no uid or uid hash is written here.
+Three allowlisted accounts used the app in that window. An account is counted as allowlisted only if a `MEDIA` or `REPOSTS` tab call answered `ok` for it, because `profile_tabs` refuses anyone else.
+
+| Leg | Evidence in the logs | Status |
+|---|---|---|
+| 1. Flags reach the client | `GetMe` `ok` for all three; the client then called the gated RPCs and got `ok` | Covered in effect (the log has no `enabledFeatures` list) |
+| 2, 4, 9. Location, website, pin, clear | 4 `UpdateProfile` `ok` from two accounts | Not provable: the request line does not say which fields changed |
+| 3. Banner set | 2 `CreateUpload` + `FinalizeUpload` pairs with purpose `BANNER`, each followed by `UpdateProfile` `ok`, from two accounts; 1 `AVATAR` pair | Covered. Dev Firestore holds exactly 2 `BANNER` media documents, one per account, both `READY`, so each was that account's first banner |
+| 5. The four tabs | `GetUserTimeline` `ok`: 4 `replies`, 5 `reposts` and 9 `media` across the three accounts; 21 `posts`, 2 of them from a fourth account that is not allowlisted (the Posts tab is never gated) | Covered. A `media` or `reposts` answer of `ok` also proves both W3-2 indexes |
+| 6. Likes | 2 `ListLikedPosts` `ok` (19 and 3 reads) | Covered; 19 is under the 23 cold ceiling |
+| 7. "Follows you" | No `GetProfileRelationship` call at all | **Owed** |
+| 8. Suggestions | 5 `ListSuggestedUsers` `ok` (1 to 9 reads) | Covered; all far under the 42 cap |
+| 4.2 Smoke A, the six checks | No `failed_precondition` on any W3 RPC; the one `failed_precondition` in the window is an `AddBookmark` from another flag's smoke | **Owed** |
+| Banner replace (`media.md`, "Owed to the testers") | No `account_job=profile_media_retired` line and no `profile_media_retire_enqueue_failed`. That is correct: both banner sets were first sets, which retire nothing | **Owed** |
+
+**Rollback trigger (section 6).** Not met. The four new RPCs answered 49 calls: 46 `ok` and 3 `unauthenticated` (the deployer's no-token probes at 17:17). No 5xx on any RPC in the window, and no line at ERROR or above; the only WARNING lines are the expected 401 and 400 request lines. No cold call went above its 4.1 ceiling. This is thin evidence: 49 calls from three accounts over about 11 hours, most of them in the first two hours.
+
+**What is still owed (testers or the founder, with the 4.1 helpers in a terminal that holds the credentials):**
+1. Step 7: tester B follows the tester, then the tester opens B's profile (or runs `GetProfileRelationship`).
+2. Steps 2, 4 and 9 as written, so the fields are checked, not only the status.
+3. Section 4.2, all six checks, as smoke account A.
+4. One banner **replace or remove** by either account that now has a banner, then the four checks in `media.md` "Owed to the testers".

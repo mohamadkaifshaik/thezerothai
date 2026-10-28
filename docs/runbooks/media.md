@@ -293,6 +293,11 @@ the switch is raised past `off`:
   6. No `profile_media_retire_enqueue_failed` in Error Reporting and no `account_job` line with `outcome=error`.
   If any expectation fails, set the switch back to `off` (rollback above) before looking further: objects already tagged are still
   deleted by the rule, so check `customTime` on them by hand first (the clear-by-hand command is in the kill-switch text above).
+  **Checked 2026-10-28, about 04:10 UTC: still owed.** Since the switch went to `banner`, two allowlisted accounts each set a
+  banner once (CreateUpload, FinalizeUpload and UpdateProfile all `ok`, 18:02 and 18:07 UTC on 2026-10-27). Dev Firestore holds
+  exactly two `BANNER` media documents, one per account, both `READY` with no `retiredAt`, so both were first sets and retired
+  nothing. No `account_job=profile_media_retired` line and no enqueue failure exist, which is correct. The leg needs one of those
+  two accounts to **replace or remove** its banner; then run checks 1 to 6 above (`w3-part-a-rollout.md` section 8.2).
 
 **Results, prod (`dzeroth-prod-media`, rule applied 2026-10-27 at 17:13 UTC after the founder's OK; the apply was run by the main
 session from a saved targeted plan).** Step 1 only; `PROFILE_MEDIA_RETIRE` is `off` and nothing was written to the bucket.
