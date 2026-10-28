@@ -477,7 +477,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     return AppBackHeader(
       title: name,
       onBack: _back,
-      titleContent: _PeerHeader(peer: peer),
+      titleContent: ThreadPeerHeader(peer: peer),
       actions: [
         if (state.status == ThreadStatus.ready)
           _InfoMenu(
@@ -710,7 +710,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   Widget _bottom(ThreadState state) {
     if (state.status != ThreadStatus.ready) return const SizedBox.shrink();
-    if (state.readOnly) return const _ReadOnlyLine();
+    if (state.readOnly) return const ThreadReadOnlyLine();
     final builder = widget.composerBuilder;
     return builder == null
         ? const SizedBox.shrink()
@@ -718,9 +718,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   }
 }
 
-/// Avatar, name and handle in the header; one button to the profile.
-class _PeerHeader extends StatelessWidget {
-  const _PeerHeader({required this.peer});
+/// Avatar, name and handle in the header; one button to the profile. Public
+/// since W7-17: the draft thread draws the same header.
+class ThreadPeerHeader extends StatelessWidget {
+  const ThreadPeerHeader({super.key, required this.peer});
 
   final common.AuthorSnapshot peer;
 
@@ -860,9 +861,10 @@ class _DaySeparator extends StatelessWidget {
   }
 }
 
-/// Replaces the composer on a conversation nobody can reply to.
-class _ReadOnlyLine extends StatelessWidget {
-  const _ReadOnlyLine();
+/// Replaces the composer on a conversation nobody can reply to (public since
+/// W7-17: the draft thread uses it too).
+class ThreadReadOnlyLine extends StatelessWidget {
+  const ThreadReadOnlyLine({super.key});
 
   @override
   Widget build(BuildContext context) {
