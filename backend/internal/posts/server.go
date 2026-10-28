@@ -112,7 +112,11 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&postsv1.CreatePostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
+	view := &postsv1.PostView{Post: ToProto(post)}
+	if h, ok := s.svc.(VisibilityHinter); ok { // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
+		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, post))
+	}
+	return connect.NewResponse(&postsv1.CreatePostResponse{Post: view}), nil
 }
 
 // mediaFlagName is the wire name of FEATURE_MEDIA (media.FlagName; posts does not import media).

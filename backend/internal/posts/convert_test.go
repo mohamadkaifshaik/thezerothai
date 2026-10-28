@@ -23,6 +23,8 @@ func TestToProto_KindAndVisibility(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := ToProto(&Post{ID: "1", Kind: tt.kind, Visibility: tt.vis, CreatedAt: time.UnixMilli(5)})
+		// The stored visibility never reaches the wire (ADR-0025 D2): always PUBLIC until ApplyWireVisibility.
+		tt.wv = postsv1.Visibility_VISIBILITY_PUBLIC
 		if got.GetKind() != tt.wk || got.GetVisibility() != tt.wv || got.GetCreatedAt().AsTime().UnixMilli() != 5 {
 			t.Errorf("%v/%v -> %v/%v", tt.kind, tt.vis, got.GetKind(), got.GetVisibility())
 		}

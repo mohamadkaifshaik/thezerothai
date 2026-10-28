@@ -27,8 +27,11 @@ func ToProto(p *Post) *postsv1.Post {
 		RepostCount:    p.RepostCount,
 		ReplyCount:     p.ReplyCount,
 		QuoteCount:     p.QuoteCount,
-		Visibility:     visibilityToProto(p.Visibility),
-		CreatedAt:      timestamppb.New(p.CreatedAt),
+		// The wire visibility is computed, never read from the stored field (always PUBLIC, ADR-0025 D2): PUBLIC here, and
+		// ApplyWireVisibility raises it to FOLLOWERS while the author is in the protected set. Every converter caller that can
+		// reach a protected author must apply it (GetPost, GetThread, CreatePost today; the lists and feeds in W3-29b and W3-30).
+		Visibility: postsv1.Visibility_VISIBILITY_PUBLIC,
+		CreatedAt:  timestamppb.New(p.CreatedAt),
 
 		PaidPartnership: p.PaidPartnership,
 		MadeWithAi:      p.MadeWithAI,
@@ -140,16 +143,5 @@ func kindToProto(k Kind) postsv1.PostKind {
 		return postsv1.PostKind_POST_KIND_REPOST
 	default:
 		return postsv1.PostKind_POST_KIND_UNSPECIFIED
-	}
-}
-
-func visibilityToProto(v Visibility) postsv1.Visibility {
-	switch v {
-	case VisibilityPublic:
-		return postsv1.Visibility_VISIBILITY_PUBLIC
-	case VisibilityFollowers:
-		return postsv1.Visibility_VISIBILITY_FOLLOWERS
-	default:
-		return postsv1.Visibility_VISIBILITY_UNSPECIFIED
 	}
 }
