@@ -1161,12 +1161,12 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Cost.** 0.
 
 #### W3-33d Client: Requested and Following fit user-list rows [frontend-developer] [S] [depends: W3-33c] Status: In review (PR #399)
-- **Description.** W3-33c found that the outlined Requested and Following `FollowButton` states were about 12 dp wider than the `UserListRow` at 360 dp x text scale 2.0 (with or without the badge), which hid the lock (name column under 48 dp). Same class as the W3-21 D-1 lesson: actions grow with text scale.
-  - `UserListRow` caps its default control at half the row width; the name column keeps the rest.
-  - `FollowButton` renders its label in `FittedBox(scaleDown)`: capped, the whole word shrinks instead of overflowing; uncapped (profile header) it is unchanged. The label is not cut to an icon.
-  - A caller's own `trailing` (Unblock/Unmute) is not capped.
-- **Acceptance.** For Follow, Requested and Following, protected and public, across the W3-21 matrix (360 / 600 / 1200 dp x light / dark x 1.0 / 1.3 / 2.0): no overflow, a 48 dp target, the badge shown on a protected row.
-- **Tests.** `user_list_row_badge_test.dart` no longer discards the overflow exception in any cell.
+- **Description.** W3-33c found that the outlined Requested and Following `FollowButton` states were about 12 dp wider than the `UserListRow` at 360 dp x text scale 2.0 (with or without the badge), which hid the lock (name column under 48 dp). Same class as the W3-21 D-1 lesson: actions grow with text scale. Founder decision 2026-10-28 (option A): the label is never scaled down, because shrinking it undoes the user's chosen text size (text must scale to 200% without loss).
+  - `FollowButton` is unchanged: its label always renders at the user's text scale.
+  - `UserListRow` lays out avatar, name column and the control with a small custom layout (`_AdaptiveRow`). The control keeps its natural width and the name column shrinks first (ellipsis), keeping the lock while it is at least 48 dp.
+  - Only when the name column would drop under 48 dp (decided from measured widths, not a text-scale threshold) the control moves onto its own line under the name and handle, aligned to the text column (a control wider than that column ends at the row's right edge), still a 48 dp target, as on X's narrow list rows.
+  - A caller's own `trailing` (Unblock/Unmute) follows the same rule; the dismiss "x" travels with the control.
+- **Tests.** `user_list_row_badge_test.dart` no longer discards the overflow exception in any cell: every state x protected/public x the full matrix asserts no overflow, a 48 dp target, the label at theme size x text scale (no `FittedBox`), and the badge when protected; plus the wrapped layout at 360 dp x2.0 and a custom `trailing`.
 - **Docs.** `docs/ui-catalog.md`: `FollowButton` and `UserListRow` rows.
 - **Flag.** None. **Cost.** 0 new RPCs, 0 reads.
 

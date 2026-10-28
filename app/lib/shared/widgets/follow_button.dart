@@ -97,11 +97,7 @@ class FollowButton extends StatelessWidget {
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            // Shrink-to-fit: a cell that caps the button's width (a user-list
-            // row at a large text scale, W3-33d) scales the whole word down
-            // rather than overflow; unbounded (the profile header) it is just
-            // the Text at its natural size.
-            : FittedBox(fit: BoxFit.scaleDown, child: Text(label));
+            : Text(label);
 
         // The app theme gives buttons a full-width 48dp minimum
         // (`Size.fromHeight`), which is an infinite width inside a Row (the
