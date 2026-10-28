@@ -2,6 +2,7 @@
 
 Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and applies nothing.
 Status (2026-10-29): **PREPARED, NOT APPLIED.** Nothing was applied, routed, deployed or written: the evidence below is read-only and the plan is saved, not applied.
+**ON HOLD (founder, 2026-10-29): do not apply yet.** The `api` service env list in `infra/terraform/envs/dev/main.tf` also carries 15 W7 messaging and `SHELLS` entries that were never applied to dev (unconditional entries, e.g. `FEATURE_MESSAGING` at :247 and `FEATURE_SHELLS` at :299), so any targeted apply adds them too. The founder chose not to let them ride along. Wait for the W7 work to apply its own dev env lines, then re-plan: the plan must show only the 7 Part B entries (3 flag, 4 limits) before the founder is asked to OK it. Do not work around this with `gcloud run services update --update-env-vars` (click-ops, and Terraform state would drift).
 Prod: no change (on hold, `docs/pending.md` 1.2). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-38). Decisions: ADR-0025 and the founder's answer B4 (the same 3 test uids as Part A).
 Related: `docs/runbooks/w3-part-a-rollout.md` (the precedent: helpers, targeted-plan method), `docs/runbooks/private-accounts.md` (sections 1, 6, 8), `docs/runbooks/graph.md`,
 `docs/runbooks/rollback.md` ("Private accounts: never roll back past enforcement"), `docs/reviews/security-review-w3b.md`, `docs/reviews/cost-model.md` (Part B).

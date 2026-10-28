@@ -4,17 +4,25 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
+import '../../features/graph/data/graph_repository.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../shared/widgets/app_avatar.dart';
 import '../router/app_router.dart';
+import 'app_drawer.dart'
+    show
+        FollowRequestCountBadge,
+        followRequestBadgeSpoken,
+        followRequestBadgeText,
+        followRequestsEntryVisible;
 import '../theme/app_theme.dart';
 
-enum _AccountAction { profile, settings, signOut }
+enum _AccountAction { profile, followRequests, settings, signOut }
 
 /// The account chip at the bottom of the navigation rail on wide layouts:
 /// the 40dp avatar with, when [extended], the display name, the handle and a
-/// "more" glyph. Tapping it opens a menu with Profile, Settings and Sign out
-/// (the destinations that are not in the rail), like the drawer on phones.
+/// "more" glyph. Tapping it opens a menu with Profile, Follow requests (a protected account, with its
+/// pending count; W3-34b), Settings and Sign out (the destinations that are
+/// not in the rail), like the drawer on phones.
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs.
 /// Nothing is drawn until there is a profile.
@@ -36,15 +44,26 @@ class AppAccountChip extends StatelessWidget {
       url: profile.avatarThumbUrl,
       radius: AppSize.avatarMd / 2,
     );
+    // Rule at build time; the backoff is read again when the menu opens.
+    final entryAllowed = followRequestsEntryVisible(context);
+    final pending = context.select(
+      (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
+    );
     return PopupMenuButton<_AccountAction>(
       tooltip: 'Account menu',
       position: PopupMenuPosition.over,
       onSelected: (action) => _onSelected(context, action, profile.handle),
-      itemBuilder: (context) => [
+      itemBuilder: (menuContext) => [
         if (profile.handle.isNotEmpty)
           const PopupMenuItem(
             value: _AccountAction.profile,
             child: Text('Profile'),
+          ),
+        if (entryAllowed &&
+            !context.read<GraphRepository>().followRequestsUnavailable)
+          PopupMenuItem(
+            value: _AccountAction.followRequests,
+            child: _FollowRequestsItem(count: pending),
           ),
         const PopupMenuItem(
           value: _AccountAction.settings,
@@ -105,10 +124,46 @@ class AppAccountChip extends StatelessWidget {
     switch (action) {
       case _AccountAction.profile:
         context.go(AppRouter.profilePath(handle));
+      case _AccountAction.followRequests:
+        context.go(AppRouter.followRequestsPath);
       case _AccountAction.settings:
         context.go(AppRouter.settingsPath);
       case _AccountAction.signOut:
         context.read<AuthBloc>().add(const AuthSignOutRequested());
     }
+  }
+}
+
+/// The "Follow requests" menu item: the label and, with requests pending, the
+/// same count pill as the drawer row, spoken as one label.
+class _FollowRequestsItem extends StatelessWidget {
+  const _FollowRequestsItem({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: count > 0
+          ? 'Follow requests, ${followRequestBadgeSpoken(count)}'
+          : 'Follow requests',
+      excludeSemantics: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Flexible(
+            child: Text(
+              'Follow requests',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (count > 0) ...[
+            const SizedBox(width: AppSpacing.sm),
+            FollowRequestCountBadge(text: followRequestBadgeText(count)),
+          ],
+        ],
+      ),
+    );
   }
 }

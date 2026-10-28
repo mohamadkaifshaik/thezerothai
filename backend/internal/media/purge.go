@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -31,9 +32,10 @@ func NewPurger(repo Repo, objects Objects, publicBaseURL string) *Purger {
 	return &Purger{repo: repo, objects: objects, publicBaseURL: publicBaseURL}
 }
 
-// publicNames returns every public object name a document may own: the recorded paths plus the deterministic
-// names for the document's own content type (the extension is fixed at upload init, so the other extension can
-// never exist). A finalize that copied the objects and then lost the race to record the paths (or was REJECTED
+// publicNames returns every public object name a document may own in its own shape (suffixed when it has a
+// nameSuffix, W3-39): the recorded paths plus the
+// deterministic names for the document's own content type (the extension is fixed at upload init, so the other
+// extension can never exist). A finalize that copied the objects and then lost the race to record the paths (or was REJECTED
 // after the copy) leaves public objects the document does not name (CLAUDE.md rule 10). Deduplicated, so a
 // READY document is 2 names.
 func publicNames(d *Doc) []string {
@@ -48,14 +50,32 @@ func publicNames(d *Doc) []string {
 	add(d.PublicPath)
 	add(d.ThumbPath)
 	ext := extension(d.ContentType)
-	add(publicObject(d.ID, ext))
-	add(publicThumbObject(d.ID, ext))
+	add(publicObject(d.ID, d.NameSuffix, ext))
+	add(publicThumbObject(d.ID, d.NameSuffix, ext))
+	return out
+}
+
+// allPublicNames is publicNames plus, for a document with a nameSuffix, the pre-W3-39 pair too: a suffixed document
+// finalized by an older revision (a rollback) published under the old names and may have lost the race to record
+// them. Only the deleters use it (deletes are free); the retire step tags publicNames, so it stays at 2 Class A per
+// image. A document without nameSuffix has the one (old) pair.
+func allPublicNames(d *Doc) []string {
+	out := publicNames(d)
+	if d.NameSuffix == "" {
+		return out
+	}
+	ext := extension(d.ContentType)
+	for _, p := range []string{publicObject(d.ID, "", ext), publicThumbObject(d.ID, "", ext)} {
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
 	return out
 }
 
 // deleteObjects removes every object a document may own; a missing object is success (free operations).
 func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
-	for _, p := range publicNames(d) {
+	for _, p := range allPublicNames(d) {
 		if err := o.DeletePublic(ctx, p); err != nil {
 			return err
 		}
@@ -75,8 +95,8 @@ func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
 // document the owner has, whatever its state, retired AVATAR and BANNER documents included: until its TTL a retired
 // document still names the image (ADR-0024 Amendment 1 A4), so an account deleted during the grace loses the objects
 // at once. done is true when the page was short (the account is DELETING, so no new uploads arrive). Reads: one per
-// document, minimum 1; deletes: one per document; GCS: free deletes, 2 public (deterministic names) + up to 2 private per
-// document.
+// document, minimum 1; deletes: one per document; GCS: free deletes, 2 public (deterministic names; 4 for a
+// suffixed document, both shapes) + up to 2 private per document.
 func (p *Purger) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := p.repo.ListByOwner(ctx, uid, "", opsPage)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -246,7 +247,7 @@ func TestListBookmarks_InvalidTokens(t *testing.T) {
 	zero := cursor.EncodeAt(listKey, bookmarksBinding(caller), cursor.Cursor{}, e.now)
 	for name, token := range map[string]string{
 		"foreign (another user's token)": other, "another list's binding": scheduled, "sealed with another key": wrongKey,
-		"tampered": tok[:len(tok)-2] + "AA", "truncated": tok[:10], "garbage": "!!!not base64!!!", "not a post id": badID,
+		"tampered": cursortest.Tamper(tok), "truncated": tok[:10], "garbage": "!!!not base64!!!", "not a post id": badID,
 		"zero position": zero,
 	} {
 		t.Run(name, func(t *testing.T) {

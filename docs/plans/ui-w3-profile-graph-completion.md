@@ -106,14 +106,15 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
+| W3-34b | Part B client fix: Follow requests entry points (wide layouts, one visibility rule, backoff) | frontend-developer | S | In review (PR #420; depends: W3-34, W3-35c) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
-| W3-38 | Part B dev rollout | production-deployer | S | In review: plan ready, awaiting founder OK (PR #422; depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
-| W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
-| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | In review (PR #417) |
+| W3-38 | Part B dev rollout | production-deployer | S | On hold: plan ready (PR #422), waiting for the W7 dev env apply (founder 2026-10-29: the 15 W7 and shell env lines in `main.tf` must not ride along); depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
+| W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Done (PR #418) (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
+| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Done (PR #417) |
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
@@ -616,6 +617,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-33c | Client: lock badge on `UserListRow` | frontend-developer | S | W3-28c serving dev, W3-33a | 0 new RPCs, 0 reads |
 | W3-33d | Client: outlined Requested/Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | W3-33c | 0 new RPCs, 0 reads |
 | W3-34 | Client: Follow requests screen, badge, notification rows | frontend-developer | M | W3-28a, W3-26b, W3-31 serving dev | 1 ListFollowRequests per open (42 cold), 1 Respond per tap |
+| W3-34b | Client fix: entry points, shared rule, backoff | frontend-developer | S | W3-34, W3-35c | 0 |
 | W3-35a | Tests: D4 matrix, byte identity, leaks, guard, budget table | tester | M | W3-26b, W3-28a, W3-29b, W3-30, W3-31 | 0 (emulators) |
 | W3-35b | Tests: lifecycle, races, invariants, job, flags, eraser and export | tester | M | W3-27, W3-28a, W3-28b, W3-32 | 0 (emulators) |
 | W3-35c | Tests: client matrix, flag-off routing | tester | S | W3-33a, W3-33b, W3-34 | 0 |
@@ -1123,6 +1125,23 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
+#### W3-34b Client fix: Follow requests entry points [frontend-developer] [S] [depends: W3-34, W3-35c] Status: In review (PR #420)
+- **Why.** The W3-35c report (`docs/reviews/test-report-w3b-client.md`) found D-2 (medium), D-1 and D-3 (low). Founder decision 2026-10-28 on the design.
+- **D-2: entry points at 600 dp and wider.**
+  - "Follow requests" with the count badge in the account chip menu (`AppAccountChip`), the same pattern as the other menu entries.
+  - A "Follow requests · N" row at the top of the Notifications screen (under the tabs), at every width, when the rule holds and the count is above 0. It opens `/follow-requests`.
+  - No NavigationRail destination: the rail is for high-frequency destinations only.
+- **D-1: one rule.** `followRequestsAllowed` (`features/graph/domain/follow_requests_entry.dart`): `graph` on and (`private_accounts` on or the caller is protected). The router guard, the drawer row, the account menu entry and the Notifications row all call it. The pending count only drives the badge number, never visibility.
+- **D-3: the backoff.** While `GraphRepository.followRequestsUnavailable` is set (the 10-minute `ListFollowRequests` backoff), the entry and badge are hidden on all three surfaces, with no error report and no extra GetMe. They return after the backoff or on the next sign-in. The router guard does not read the backoff: the screen explains itself.
+- **Respond** stays never-gated for a protected caller. The badge comes only from `pending_follow_request_count`.
+- **Acceptance.**
+  - Given a protected caller at 600 dp or wider, then the account menu shows Follow requests with the badge.
+  - Given a public caller with `private_accounts` off and a stale count, then no surface shows the entry and the router sends Home.
+  - Given the backoff, then no surface shows the entry.
+- **Tests.** The six W3-35c repros turned on; the W3-21 matrix for the menu entry and the Notifications row; a table test (`test/core/follow_requests_entry_agreement_test.dart`) that the drawer, the account menu, the Notifications row and the router agree across flag on and off, protected, public and the backoff.
+- **Docs.** `docs/ui-catalog.md`.
+- **Cost.** 0 new RPCs.
+
 #### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Done (PR #410)
 - **The matrix.** Every D4 row on the emulators through `apiserver.Build`.
   - Viewer classes: self, approved follower, non-follower, P blocks A, A blocks P, A mutes P, P suspended, post taken down, `blockedBy` overflow.
@@ -1234,7 +1253,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Verdict.** BUDGET: HOLDS, or not.
 - **Cost.** 0.
 
-#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: In review: plan ready, awaiting founder OK (PR #422)
+#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: On hold: plan ready (PR #422), waiting for the W7 dev env apply (founder 2026-10-29: the 15 W7 and shell env lines in `main.tf` must not ride along))
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
   2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
@@ -1257,7 +1276,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 #### Part B: W3-36 fix tickets (from `docs/reviews/security-review-w3b.md`, founder decisions 2026-10-28)
 The founder's decisions on the review: M-2 accepted (unguessable public names for new uploads); M-1 gets the runbook rule now (PR #404) and the `resolve-rollback.sh` floor before any prod ramp; the Lows are fixed in the next fix PRs. O-1 of the W3-35b test report (PR #405) and D-2 of the W3-35a test report (PR #410) ride with the Lows. W3-35a's D-1 (two further `ProtectedSet.CanSee` callers) is closed by the ADR-0025 "Implementation note (W3-35a D-1)", with no code change. Every ticket below follows "Part B: common to every ticket" (budget assertions through `apiserver.Build`, logs with hashes or counts only, `make ci` and `make test-int` green).
 
-#### W3-39 Media: unguessable public object names for new uploads (W3-36 M-2) [backend-developer] [M] [depends: W3-36 review] Status: Open
+#### W3-39 Media: unguessable public object names for new uploads (W3-36 M-2) [backend-developer] [M] [depends: W3-36 review] Status: Done (PR #418)
 - **Design.** ADR-0025 "Implementation note (W3-36 M-2, 2026-10-28)", with a pointer note on ADR-0005. New uploads publish as `m/<mediaId>-<suffix>.<ext>` and `m/<mediaId>-<suffix>_t.<ext>`. The suffix is 128 bits from `crypto/rand` as 32 lowercase hex characters, chosen at `CreateUpload` and stored as `nameSuffix` on the PENDING media doc in the existing create write. Old docs and objects keep the old shape (founder B1).
 - **Seam.** `MediaRef.url` and `thumb_url` stay opaque full URLs built only by `media` (`publicBaseURL + "/" + PublicPath`); no proto change, and no caller or client builds a name.
 - **Gate.** It must be serving 100% of a project's traffic and be on its `last-good` before `private_accounts` leaves the dev allowlist (more uids, a percent, or on) in that project. It does not gate W3-38.
@@ -1280,7 +1299,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - **Flag.** None: names change for every new upload; there is no user-visible behaviour to ramp.
 - **Cost.** +0 operations; bytes as in the budget row (ADR-0025 note).
 
-#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: In review (PR #417)
+#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: Done (PR #417)
 - **L-1, the undo oracle** (`engagement/service.go`, `resolveForCounts` and the Unlike and Undo repost paths).
   - The write stays ungated (rule 4): an undo always lands.
   - The answer is the missing-post shape (`post_id` only, zero counts, the same bytes as a deleted post) when `Audience.VisibleAuthor` is false for the caller, when the post is hidden (taken down, author suspended), or when the author blocks the caller.

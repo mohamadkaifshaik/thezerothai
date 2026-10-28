@@ -344,7 +344,7 @@ Prices (§7):
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Part 1 done (#406); part 2 (repository, drift tables, gate) in review (PR pending) |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | In review (PR pending) |
-| W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Open |
+| W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | In review (PR pending) |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Open |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Open |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
@@ -719,7 +719,7 @@ Order:
 - **Flag.** `messaging` (route); `ui_shell` for the shell placement.
 - **Seam.** `ConversationsCubit` over `MessagingRepository`; `ConversationRow` is presentational (added to `docs/ui-catalog.md`).
 
-### W7-15 — Conversation screen  [owner: frontend-developer] [size: M] [depends: W7-13]  Status: Open
+### W7-15 — Conversation screen  [owner: frontend-developer] [size: M] [depends: W7-13]  Status: In review (PR pending)
 - **Description.**
   - `/messages/:id`: an `AppBackHeader` with the peer avatar, name and handle (tap → profile) and an info action (Block, Report conversation peer, Delete conversation).
   - The messages list is reversed (newest at the bottom), with bubbles: own on the accent `#1d9bf0` with white text, the peer's on the raised surface; grouped by sender with a time under the last of a group; day separators. Links use `parsePostText` link spans only.

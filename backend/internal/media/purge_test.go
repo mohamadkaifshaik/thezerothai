@@ -65,7 +65,7 @@ func TestPurgeUser_DeletesDeterministicPublicNamesForUnrecordedObjects(t *testin
 	r, o := newFakeRepo(), newFakeObjects()
 	id := "0000000000000008001"
 	r.docs[id] = &Doc{ID: id, OwnerID: uidA, Status: string(StatusRejected), ContentType: "image/webp"} // no PublicPath recorded
-	for _, name := range []string{publicObject(id, "webp"), publicThumbObject(id, "webp")} {
+	for _, name := range []string{publicObject(id, "", "webp"), publicThumbObject(id, "", "webp")} {
 		o.public[name] = "image/jpeg"
 	}
 	seedPublished(r, o, "0000000000000009000", uidB, "")
@@ -84,7 +84,7 @@ func TestPurgeUser_DeletesDeterministicPublicNamesForUnrecordedObjects(t *testin
 func TestPurgeUser_ReadyWebpDeletesFourObjects(t *testing.T) {
 	r, o := newFakeRepo(), newFakeObjects()
 	id := "0000000000000008002"
-	pub, thumb := publicObject(id, "webp"), publicThumbObject(id, "webp")
+	pub, thumb := publicObject(id, "", "webp"), publicThumbObject(id, "", "webp")
 	r.docs[id] = &Doc{
 		ID: id, OwnerID: uidA, Status: string(StatusReady), ContentType: "image/webp",
 		PublicPath: pub, ThumbPath: thumb,
