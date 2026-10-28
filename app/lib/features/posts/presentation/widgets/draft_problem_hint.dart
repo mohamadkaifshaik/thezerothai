@@ -6,14 +6,22 @@ import '../../domain/post_text_rules.dart';
 /// Shared by the composer screen and the thread's reply field. Renders an
 /// [Expanded], so place it in a `Row`.
 class DraftProblemHint extends StatelessWidget {
-  const DraftProblemHint({super.key, required this.problem});
+  const DraftProblemHint({
+    super.key,
+    required this.problem,
+    this.noun = 'Posts',
+  });
 
   final PostDraftProblem? problem;
+
+  /// What the text is, plural, for the line-limit hint ("Messages" in a
+  /// conversation, W7-16). The rules are the same; only the copy differs.
+  final String noun;
 
   @override
   Widget build(BuildContext context) {
     final message = switch (problem) {
-      PostDraftProblem.tooManyLines => 'Posts can have at most 10 lines.',
+      PostDraftProblem.tooManyLines => '$noun can have at most 10 lines.',
       PostDraftProblem.forbiddenCharacter =>
         'Remove the unsupported characters.',
       _ => null,
