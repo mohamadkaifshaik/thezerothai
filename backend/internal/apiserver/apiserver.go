@@ -92,7 +92,11 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (http.Handl
 
 // build is Build with an optional ID-token verifier override. Only integration tests pass one (the Auth emulator's
 // verifier checks revoked/disabled users on every call, which production does not); Build always passes nil.
-func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierOverride authn.IDTokenVerifier) (http.Handler, *firestore.Client, error) {
+func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierOverride authn.IDTokenVerifier, opts ...buildOption) (http.Handler, *firestore.Client, error) {
+	var bo buildOpts
+	for _, o := range opts {
+		o(&bo)
+	}
 	fsClient, err := fsclient.New(ctx, cfg.ProjectID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("firestore client: %w", err)
@@ -243,10 +247,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return ok && !p.CreatedAt.IsZero() && time.Since(p.CreatedAt) < cfg.Quota.NewAccountWindow
 	}
 	recipientCap := notifications.NewRecipientCap(cfg.RateLimit.NotificationRecipientsPerActorPerDay, cfg.RateLimit.NotificationRecipientsPerNewActorPerDay, isNewActor)
+	notifAudience := protectedAudience(protectedAuthors)
 	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
-		Audience:  protectedAudience(protectedAuthors),
+		Audience:  notifAudience,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
 	})
 	switch cfg.NotificationsDelivery {
@@ -319,6 +324,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Quotas: quota.New(fsClient), Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
 		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs (ADR-0023 D4)
 	})
+	audienceSvc := postsSvc
+	if bo.audienceSource != nil {
+		audienceSvc = bo.audienceSource(postsSvc)
+	}
+	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
 	engagementMod, err := engagement.New(engagement.Deps{
 		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
 		Events:      engagementNotifier{slot: notifSlot},
@@ -332,7 +342,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// hydration, the cursor key seals the page tokens, and readonly mode skips the lazy prune.
 		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		// W3-29b: both lists decide protected authors' rows through the one posts.Audience (ADR-0025 D4).
-		Audience: rowAudience(posts.AudienceOf(postsSvc)),
+		Audience: engAudience,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -353,6 +363,20 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Removals:  removals,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	}, timeline.WithProtectedAuthors(protectedAuthors)) // ADR-0025 D4 (W3-30)
+
+	// W3-36 L-5: every module reads a nil loader or audience as "nobody is protected", so a refactor that drops one seam
+	// would fail open. All seven are passed above from these values; refuse to start if any is nil.
+	if err := requireProtectedSeams([]protectedSeam{
+		{"identity.ProtectedAuthors loader", protectedAuthors},
+		{"graph.Deps.Protected", protectedAuthors},
+		{"identity.WithProtectedAuthors", protectedAuthors},
+		{"notifications.FanoutDeps.Audience", notifAudience},
+		{"posts.WithProtectedAuthors", protectedAuthors},
+		{"engagement.Deps.Audience (posts.AudienceOf)", engAudience},
+		{"timeline.WithProtectedAuthors", protectedAuthors},
+	}); err != nil {
+		return nil, nil, err
+	}
 
 	// --- account lifecycle (ADR-0011, P8): DeleteAccount / RequestAccountExport / GetAccountExport and the job
 	// handlers. The Firebase Auth admin client (built above) is handed only to identity (IAM control C2); the

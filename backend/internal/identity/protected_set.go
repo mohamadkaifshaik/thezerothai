@@ -104,7 +104,16 @@ type ProtectedSetLoader struct {
 	set       *protectedSet
 	fetchedAt time.Time // when the read that produced set started (conservative)
 	lastFail  time.Time
-	gen       uint64 // bumped by Install and Apply so a refresh in flight cannot overwrite a newer local write
+	gen       uint64 // bumped by Install and Apply so a refresh in flight can tell a local write landed during its read
+	installs  uint64 // bumped by Install only: a fresh transaction copy that a refresh in flight must not replace
+	inflight  bool   // a refresh read is in flight: Apply logs its deltas in applied (W3-40a, W3-36 L-3)
+	applied   []setDelta
+}
+
+// setDelta is one Apply that landed while a refresh read was in flight, replayed onto the fetched copy.
+type setDelta struct {
+	uid       string
+	protected bool
 }
 
 var _ ProtectedAuthors = (*ProtectedSetLoader)(nil)
@@ -169,23 +178,35 @@ func (l *ProtectedSetLoader) refresh(reqCtx context.Context) error {
 		l.mu.Unlock()
 		return nil
 	}
-	gen := l.gen
+	gen, installs := l.gen, l.installs
+	l.inflight, l.applied = true, nil
 	l.mu.Unlock()
 	started := l.now()
 	uids, err := l.src.LoadProtectedSet(rctx)
 	logger.SetRequestField(reqCtx, fieldProtectedSetReads, counter.Reads())
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	deltas := l.applied
+	l.inflight, l.applied = false, nil
 	if err != nil {
 		l.lastFail = started
 		return fmt.Errorf("identity: load protected set: %w", err)
 	}
 	l.lastFail = time.Time{}
-	if l.gen != gen {
-		// A local toggle landed while the read was in flight: the fetched copy may predate it. Keep the newer local copy.
+	if l.installs != installs {
+		// A transaction copy was installed while the read was in flight: it is fresher than the read. Keep it.
 		return nil
 	}
-	l.set, l.fetchedAt = newProtectedSet(uids), started
+	fetched := newProtectedSet(uids)
+	if l.gen != gen {
+		// A local toggle landed while the read was in flight, so the fetched copy may predate it. Install the fetched
+		// copy with those toggles re-applied: the local write is kept and the copy's age is the read's, so Current
+		// never serves a copy older than maxStale because a refresh was thrown away (W3-36 L-3).
+		for _, d := range deltas {
+			fetched = fetched.with(d.uid, d.protected)
+		}
+	}
+	l.set, l.fetchedAt = fetched, started
 	return nil
 }
 
@@ -196,6 +217,7 @@ func (l *ProtectedSetLoader) Install(uids []string, commitAt time.Time) {
 	defer l.mu.Unlock()
 	l.set, l.fetchedAt, l.lastFail = newProtectedSet(uids), commitAt, time.Time{}
 	l.gen++
+	l.installs++
 }
 
 // Apply records a committed toggle in the instance copy. An instance that never loaded a set keeps none (it must not
@@ -208,4 +230,7 @@ func (l *ProtectedSetLoader) Apply(uid string, protected bool) {
 	}
 	l.set = l.set.with(uid, protected)
 	l.gen++
+	if l.inflight {
+		l.applied = append(l.applied, setDelta{uid: uid, protected: protected})
+	}
 }

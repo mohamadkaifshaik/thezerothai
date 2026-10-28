@@ -296,6 +296,7 @@ Future<void> bootstrap() async {
       postsGate: postsGate,
       mediaRepository: mediaRepository,
       notificationsRepository: notificationsRepository,
+      messagingRepository: messagingRepository,
       moderationRepository: moderationRepository,
       engagementRepository: engagementRepository,
       bookmarksRepository: bookmarksRepository,

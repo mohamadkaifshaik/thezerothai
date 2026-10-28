@@ -43,6 +43,16 @@ void main() {
         findsOneWidget,
       );
       expectMinTarget(tester, find.byType(InkWell));
+      // W3-35c: the row and its words stay inside the screen.
+      expectInsideHorizontally(
+        tester,
+        find.byType(NotificationRow),
+        env.size.width,
+      );
+      expect(
+        tester.getRect(find.byType(NotificationRow)).height,
+        greaterThanOrEqualTo(48),
+      );
       await tester.tap(find.byType(InkWell));
       expect(taps, 1);
     }, textScales: kMatrixTextScalesLarge);
