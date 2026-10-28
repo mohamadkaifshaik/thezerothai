@@ -1,5 +1,5 @@
 # UI W8: Creator, Premium, Ads and Calls as read-only shells
-Plan owner: planner · Date: 2026-10-27 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** four informational screens, 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no Firebase or index change, no new package, no new GCP service, no fixed cost · Flags: new `FEATURE_SHELLS` (wire name `shells`, client-only, registered on the server like `ui_shell` so `GetMe.enabled_features` reports it; dev ceiling allowlist 3, prod ceiling `on`, founder decision 2026-10-28); existing `ui_shell` (navigation chrome) · Founder decisions F1–F8 recorded 2026-10-28 (section below); the Premium prices and pop-up are recorded in an ADR (W8-10)
+Plan owner: planner · Date: 2026-10-27 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** four informational screens, 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no Firebase or index change, no new package, no new GCP service, no fixed cost · Flags: new `FEATURE_SHELLS` (wire name `shells`, client-only, registered on the server like `ui_shell` so `GetMe.enabled_features` reports it; dev ceiling allowlist 3, prod ceiling `on`, founder decision 2026-10-28); existing `ui_shell` (navigation chrome) · Founder decisions F1–F8 recorded 2026-10-28 (section below); the Premium prices and pop-up are recorded in ADR-0026 (W8-10, Proposed)
 
 Source:
 - `docs/plans/roadmap.md`: the W8 row ("Creator, Premium, Ads, Calls | none (shells) | payments, ads, video and live audio each need a future approved ADR"), founder decisions 2026-10-22 ("W8 = UI shells only, payments / ads / video each need a future approved ADR"), Q1 2026-10-23 (Spaces dropped: no shell, no research, no ticket), the risk row "only colours and structure follow X; own icons, copy, names; no Grok / Premium / ads upsell surfaces";
@@ -24,7 +24,7 @@ The founder answered F1–F8 on 2026-10-28. Where an answer differs from the 202
 | F7 | Premium as page or pop-up | **A pop-up over the current page (usually the feed), opened only when the user taps Premium.** Never shown automatically (not on launch, resume, feed load, scroll or after any action) | W8-5 is a dialog route; W8-8 adds a structural test that only the entry taps open it |
 | F8 | Creator tools numbers | **Yes:** followers, following, posts and join month from the profile already in memory | unchanged |
 
-**What these decisions reverse, and the ADR that records it.** The roadmap's founder decisions of 2026-10-22 and its risk row say "own names" and "no Grok / Premium / ads upsell surfaces". F2 (shown prices, X's plan name "Premium") and F7 (a pop-up over the feed) reverse those rules for W8. That reversal is recorded in an ADR (W8-10, architect; the next free number when written, ADR-0026 if no other ADR lands first), which the founder accepts. W8-5 merges only after that ADR is Accepted.
+**What these decisions reverse, and the ADR that records it.** The roadmap's founder decisions of 2026-10-22 and its risk row say "own names" and "no Grok / Premium / ads upsell surfaces". F2 (shown prices, X's plan name "Premium") and F7 (a pop-up over the feed) reverse those rules for W8. That reversal is recorded in [ADR-0026](../adr/0026-w8-coming-soon-pages-premium-prices-and-pop-up.md) (W8-10, Proposed), which the founder accepts. W8-5 merges only after that ADR is Accepted.
 
 ## What exists already (verified on `main` 434099a; rechecked on `main` 29bd1fc, 2026-10-28)
 | Piece | State | W8 delta |
@@ -159,7 +159,7 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 - **No dependency on W7.** The Calls page does not link to Messages. A "Send a message instead" action can be added when `messaging` exists; it is a one-line follow-up and not part of W8.
 
 **Questions for @architect (W8-10):**
-- **A1. Does W8 need an ADR?** **Yes, since 2026-10-28.** No contract, data, service or cost changes, but F2 and F7 reverse recorded founder rules (roadmap 2026-10-22: "own names", "no Premium / ads upsell surfaces") and add a prod ceiling for a page that shows prices before payments exist. W8-10 writes it (Proposed); the founder accepts it.
+- **A1. Does W8 need an ADR?** **Yes, since 2026-10-28.** No contract, data, service or cost changes, but F2 and F7 reverse recorded founder rules (roadmap 2026-10-22: "own names", "no Premium / ads upsell surfaces") and add a prod ceiling for a page that shows prices before payments exist. W8-10 writes it (Proposed); the founder accepts it. Answered: ADR-0026 (A1–A3 under its Decision).
 - **A2. The stage-ladder rows** (table in Scope): confirm the wording, the triggers and the heading "Locked features (shell only)" in `.claude/skills/stage-ladder/SKILL.md`, and that Calls sits behind the Real-time row.
 - **A3. Future ADR numbering:** none is reserved by W8. The W5 and W6 plans both name 0028 as a planned number; whichever ADR PR opens second takes the next free number (their plans already say "or the next free number").
 
@@ -174,12 +174,12 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 | W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | Open |
 | W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | Open |
 | W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | Open |
-| W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after the W8-10 ADR is Accepted | yes (own files) | Open |
+| W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | Open |
 | W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | Open |
 | W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | Open |
 | W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | Open |
 | W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | Open |
-| W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | Open |
+| W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | In review (ADR-0026 Proposed) |
 | W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Open |
 
 Order:
@@ -309,7 +309,7 @@ Order:
 - **Flag.** `shells` (route); `shells` + `ui_shell` (entry).
 - **Seam.** `CreatorInsightsGroup` and `CreatorProgramsGroup` are separate widgets, so insights v1 and monetisation each replace one group without touching the page.
 
-### W8-5 — Premium pop-up  [owner: frontend-developer] [size: S] [depends: W8-2; merges after the W8-10 ADR is Accepted]  Status: Open
+### W8-5 — Premium pop-up  [owner: frontend-developer] [size: S] [depends: W8-2; merges after ADR-0026 is Accepted]  Status: Open
 - **Description.** `/premium`, a **modal pop-up over the current page** (F7), opened only from the Premium entry (drawer row or More menu item):
   - Below 600 dp a full-screen dialog; from 600 dp a centred `AppSurface` card at most 600 dp wide over a scrim. Header: title "Premium" and a Close (×) button, the only button.
   - Hero: icon disc (`workspace_premium_outlined`), title "Premium is coming soon", subtitle "Optional paid plans to help cover running costs. Nothing is for sale yet, and your account works the same either way."
@@ -417,7 +417,7 @@ Order:
 - **Flag.** Confirms the `shells` prod ceiling matches the founder decision (F2) and that entries still require `ui_shell`.
 - **Seam.** Confirms the shells name their routes only through `shellEntries` and `AppRouter`.
 
-### W8-10 — ADR and stage-ladder rows  [owner: architect] [size: S] [depends: —]  Status: Open
+### W8-10 — ADR and stage-ladder rows  [owner: architect] [size: S] [depends: —]  Status: In review (ADR-0026 Proposed)
 - **Description.**
   - Answer A1–A3 in the PR description.
   - **ADR (Proposed)**, the next free number: "W8 coming-soon pages, Premium prices and pop-up". It records the founder decisions of 2026-10-28 (F1–F8), the reversal of the roadmap rules "own names" and "no Premium / ads upsell surfaces" for W8 only, what the Premium pop-up may and may not show (W8-5), the prod ceiling `on`, the accepted store-review risk, and that payments still need their own ADR. Cost section: INR 0 / 0 / 2 a month (this plan). The founder accepts it; W8-5 merges after that. The roadmap risk row is updated in the same PR to point at it.
@@ -450,7 +450,7 @@ Order:
 ## Rollout plan
 - **Dev:** allowlist (3 uids with `ui_shell`), after W8-9.
 - **Prod (accepted by the founder 2026-10-28, F2):** the ceiling (W8-1) allows `on`. The raise needs:
-  - the W8-10 ADR Accepted and your sign-off on the final copy (W8-5 PR);
+  - ADR-0026 Accepted and your sign-off on the final copy (W8-5 PR);
   - `ui_shell` on in prod (F6, a separate decision), otherwise nobody sees an entry;
   - allowlist, then `on`, each step a Terraform change plus a `v*` tag, a production-reviewer GO and `promote-prod` (ADR-0019), all platforms (web and the next store builds).
 - **Rollback triggers:**
@@ -464,7 +464,7 @@ Order:
 | Risk | Mitigation |
 |---|---|
 | Store review rejects "coming soon" screens or shown prices for a subscription not sold through store billing. Apple's App Completeness guideline (2.1) asks that placeholder content be removed; Apple 3.1.1 and Google Play's payments policy require store billing for digital subscriptions; Google Play has a minimum-functionality policy | **risk accepted by the founder for all platforms (2026-10-28)**. No buy button or external link, so nothing steers to outside payment. If a store rejects a build: drop the cited kind from `kVisibleShells` for the store build (web keeps it), or set `shells` off; W8-9 restates the current guideline wording before the prod raise |
-| The Premium pop-up with prices reads as a pre-sale or an upsell (the roadmap rule "no Premium / ads upsell surfaces" is reversed for W8 by the founder, recorded in the W8-10 ADR) and India's consumer-protection rules on dark patterns and price display | tap-only (F7, tested), "Coming soon" on every card, prices incl. GST, no purchase affordance, no urgency, no date; the copy guard test; W8-9 review; your copy sign-off; legal advice with the Terms review (`pending.md` 3.9) |
+| The Premium pop-up with prices reads as a pre-sale or an upsell (the roadmap rule "no Premium / ads upsell surfaces" is reversed for W8 by the founder, recorded in ADR-0026) and India's consumer-protection rules on dark patterns and price display | tap-only (F7, tested), "Coming soon" on every card, prices incl. GST, no purchase affordance, no urgency, no date; the copy guard test; W8-9 review; your copy sign-off; legal advice with the Terms review (`pending.md` 3.9) |
 | The shown prices go stale or differ from what Payments later charges | one constant `kPremiumPlans`; a change is a one-line reviewed PR; the Payments ADR replaces it with server-provided plan data |
 | `comingsoon@dzeroth.com` gets spam once public | ships off until the mailbox exists; use a dedicated alias with a spam filter, never a personal inbox |
 | Someone adds a waitlist or "notify me" later, collecting personal data with no privacy basis | explicitly out of scope; the copy guard fails on "waitlist" and "notify me"; adding a field is a scope change for you |
