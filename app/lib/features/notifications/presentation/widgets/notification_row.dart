@@ -5,6 +5,7 @@ import '../../../../gen/dzeroth/notifications/v1/notifications.pb.dart' as pb;
 import '../../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/widgets/app_avatar.dart';
+import '../../domain/notification_location.dart';
 
 /// "Alice followed you", "Alice and 2 others liked your post": the action
 /// text after the actor's name, and the whole sentence for semantics.
@@ -20,6 +21,10 @@ String notificationAction(pb.Notification n) {
     NotificationType.NOTIFICATION_TYPE_LIKE => 'liked your post',
     NotificationType.NOTIFICATION_TYPE_REPOST => 'reposted your post',
     NotificationType.NOTIFICATION_TYPE_QUOTE => 'quoted your post',
+    NotificationType.NOTIFICATION_TYPE_FOLLOW_REQUEST =>
+      'requested to follow you',
+    NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED =>
+      'accepted your follow request',
     _ => 'interacted with you',
   };
   return '$subject $verb';
@@ -32,6 +37,10 @@ IconData notificationIcon(NotificationType type) => switch (type) {
   NotificationType.NOTIFICATION_TYPE_LIKE => Icons.favorite_border,
   NotificationType.NOTIFICATION_TYPE_REPOST => Icons.repeat,
   NotificationType.NOTIFICATION_TYPE_QUOTE => Icons.format_quote,
+  NotificationType.NOTIFICATION_TYPE_FOLLOW_REQUEST =>
+    Icons.person_add_alt_outlined,
+  NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED =>
+    Icons.how_to_reg_outlined,
   _ => Icons.notifications_none,
 };
 
@@ -193,3 +202,14 @@ class NotificationRow extends StatelessWidget {
     );
   }
 }
+
+/// The `type` string of [type] that [notificationLocation] and the push data
+/// use (`follow`, `follow_request`, `follow_accepted`), else empty.
+String notificationTypeWire(NotificationType type) => switch (type) {
+  NotificationType.NOTIFICATION_TYPE_FOLLOW => kNotificationTypeFollow,
+  NotificationType.NOTIFICATION_TYPE_FOLLOW_REQUEST =>
+    kNotificationTypeFollowRequest,
+  NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED =>
+    kNotificationTypeFollowAccepted,
+  _ => '',
+};

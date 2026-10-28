@@ -11,7 +11,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
-import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
@@ -272,9 +271,7 @@ class _NotificationsViewState extends State<_NotificationsView>
             final unread =
                 created != null && (since == null || created.isAfter(since));
             final location = notificationLocation(
-              type: n.type == NotificationType.NOTIFICATION_TYPE_FOLLOW
-                  ? kNotificationTypeFollow
-                  : '',
+              type: notificationTypeWire(n.type),
               postId: n.postId,
               actorId: n.actor.userId,
             );

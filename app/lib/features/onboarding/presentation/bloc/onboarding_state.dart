@@ -46,6 +46,10 @@ abstract class OnboardingState with _$OnboardingState {
     // `GetMe.unread_notification_count` (capped server-side at 100), seeded
     // into the unread badge on every fresh GetMe; 0 extra reads.
     @Default(0) int unreadNotificationCount,
+    // `GetMe.pending_follow_request_count` (W3-26b): set for a protected caller
+    // only, capped at 1,000 and cached 30 s server-side. Drives the drawer
+    // badge; an answered request lowers it locally (no GetMe refetch).
+    @Default(0) int pendingFollowRequestCount,
     // The caller's account is suspended or being deleted: every RPC but
     // DeleteAccount answers ACCOUNT_RESTRICTED (ADR-0016), including GetMe.
     // Cleared by the next successful GetMe.
