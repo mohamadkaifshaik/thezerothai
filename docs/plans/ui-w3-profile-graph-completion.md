@@ -105,7 +105,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
-| W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | In review (PR #NNN; depends: W3-28a, W3-26b, W3-31 serving dev) |
+| W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | In review (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
@@ -1091,7 +1091,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `UserListRow` reads the generated field; no second user-list model.
 - **Cost.** 0 new RPCs, 0 reads.
 
-#### W3-34 Client: Follow requests screen [frontend-developer] [M] [depends: W3-28a, W3-26b, W3-31 serving dev] Status: In review (PR #NNN)
+#### W3-34 Client: Follow requests screen [frontend-developer] [M] [depends: W3-28a, W3-26b, W3-31 serving dev] Status: In review (PR #409)
 - **The screen.** `/follow-requests`: a `PagedUserList` over `ListFollowRequests`.
   - Page 20. It follows `next_page_token` through short pages, sends the token back unchanged, and reloads page 1 on VALIDATION `page_token`.
   - Accept and Decline per row. After Accept, "Follow back" uses the response's `relationship`. The row leaves on success and returns on failure.
