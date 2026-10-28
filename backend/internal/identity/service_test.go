@@ -372,6 +372,8 @@ func TestGetProfile_NotFound(t *testing.T) {
 // path independent of graph.Service, whose emulator-backed transactions are exercised separately.
 type fakeBlockChecker struct {
 	blockedBy map[string]map[string]bool // viewer -> set of targets that blocked viewer
+	following map[string]map[string]bool // viewer -> set of targets the viewer follows (W3-26b)
+	followErr error
 	err       error
 	calls     int
 }
@@ -382,6 +384,13 @@ func (f *fakeBlockChecker) IsBlockedBy(_ context.Context, viewerUID, targetUID s
 		return false, f.err
 	}
 	return f.blockedBy[viewerUID][targetUID], nil
+}
+
+func (f *fakeBlockChecker) IsFollowing(_ context.Context, viewerUID, targetUID string) (bool, error) {
+	if f.followErr != nil {
+		return false, f.followErr
+	}
+	return f.following[viewerUID][targetUID], nil
 }
 
 // TestGetProfile_BlockedByTarget_NotFound (ADR-0008 D9): byte-identical NOT_FOUND to a missing profile.

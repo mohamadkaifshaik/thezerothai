@@ -103,3 +103,25 @@ Failure modes:
   within its first day). Past the cap the edges are all created but the surplus requesters get no `follow_accepted` row or push; the
   fan-out logs `notification_fanout_capped`. That is the abuse cap working, not a job failure.
 - A crash between a page's commit and its emits loses that page's notifications (the edges are safe).
+
+## 7. The pin on a protected profile and the GetMe badge (W3-26b)
+
+`GetProfile` of a protected account returns the whole header to everyone and omits `pinned_post_id` for a viewer who is neither the
+account nor a follower (ADR-0025 D4). Order, so the common cases cost nothing: the owner skips the check; a follower is decided from
+the viewer's cached graph snapshot (`identity.BlockChecker.IsFollowing`, 0 extra reads, the block check just loaded it) and never needs
+the set; anyone else asks the protected set. The stored profile keeps the pin, so unprotecting or following brings it back with no write.
+Reads: +0 over before Part B (3 cold for a viewer, 1 for the owner). It is never gated by `FEATURE_PRIVATE_ACCOUNTS`.
+
+`GetMe.pending_follow_request_count` is read only for a caller whose `isPrivate` is true: `FollowRequestCounter.PendingFollowRequests`
+(graph, one `count()` on `followRequests`, 1 read per 1,000 matches, capped at 1,000), cached 30 s per uid in identity. A public caller
+reads and reports nothing. On this instance the cached count is evicted together with the unread count (`Directory.Forget` and `ForgetUnread`, called
+by any notification row written, a post or follow counter change, an accepted request), so a protected caller pays the +1 `count()` again after
+any of those; a decline, a withdraw by the requester and other instances show the change within 30 s. A request-count failure leaves the badge at 0 and is retried by the next GetMe.
+
+| Log line | Meaning | What to do |
+|---|---|---|
+| request field `pin_omitted=protected` | The pin was hidden from an unapproved viewer. Normal; no uid is logged. | Nothing. |
+| WARN `pin_omitted` with `pin_omitted=set_unavailable` | The set could not be loaded (see section 2) and the viewer is neither the account nor a follower: the header is served without the pin (fail closed). | Fix the set first (section 2). Owners and followers are unaffected. |
+| WARN `pin_omitted` with `pin_omitted=follow_check_failed` | The viewer's graph snapshot could not be read; the pin was omitted. The block check ran just before and would normally have failed first. | Look for the Firestore error on the same trace. |
+| WARN `pending_count_failed` | The `count()` failed; the badge shows 0 for that call. GetMe still succeeds. | Firestore status or quota (`docs/runbooks/cost-spike.md`). |
+| request field `follow_requests_count_cache_hit` | `true` when the 30 s count was served from the instance cache (0 reads). | Nothing. |

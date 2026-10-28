@@ -89,13 +89,13 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-24 | Dev rollout, Part A: indexes built, backfill, Terraform plan, allowlist, smoke | production-deployer | S | Done (dev applied 2026-10-27; smoke: the server-side legs that need no credential ran and passed, namely `/health` 200, the new revision `Ready` and serving with no ERROR log line, `validate-revision.sh` all checks passed, the three new RPC paths answering 401 unauthenticated, and the 5xx filter on the four RPCs empty after the 15-minute watch (no call of those RPCs was made in it, so the error-rate trigger can only be judged once the testers use them); the authenticated legs of runbook 4.1 and 4.2 and the app steps are owed to the testers, because no tester or smoke credential is on the deploying machine; the flag-off check of runbook section 5 was not run, it is the rollback check and its command is documented). On the founder's GO for all three decisions: the real `opsctl backfill-has-media` ran in dev (dry run 74 scanned and 73 missing; real run 73 writes; rerun 0 writes), the nine lines went into the gitignored dev `terraform.tfvars` (the four flags to `allowlist` with the same 3 test uids as bookmarks, percents 0, `SUGGESTED_USER_IDS` = the same 3 uids), and the targeted plan (`-target` the `api` service and the `billing_alerts` topic: 0 to add, 1 to change, 0 to destroy; 24 env entries added, none removed or changed; the pending.md 3.10 drift excluded) was applied. The new revision `api-00306-482` (same image digest as the revision serving before, `api-00564-vik`, main `b0bc56d7`) serves 100% since about 17:16 UTC; a plan after the apply says No changes; fallback revision `api-00564-vik`. Evidence and the numbers: `docs/runbooks/w3-part-a-rollout.md`, Status and section 8 (PR pending). The open W3-23 item stands: who to follow is modelled at 11.9% of daily reads against its 10% trigger (levers: a 48 h client cache or `SUGGESTIONS_EDGE_LIMIT` 20); choose before `follow_suggestions` ramps past the dev allowlist. Still to do: the authenticated smoke legs by the testers, then the flag-off check |
 | W3-25a | Part B contract: the ADR-0025 D14 protos, the D15 `privacy.uids` fieldOverride and ack, the D16 pointer notes, `firestore-data-model` rows | architect | S | Done (PR #372): protos `buf lint` / `buf breaking` clean, no generated code (W3-25b); 36 overrides, ack re-hashed (founder-gated files); skill rows; ADR-0003 / ADR-0008 notes; AQ1 to AQ6 answered in ADR-0025 |
 | W3-25b | Part B plumbing: `make proto`, `FEATURE_PRIVATE_ACCOUNTS`, config and limits, `quota.PrivacyToggles`, ceiling, Terraform vars, seam declarations | backend-developer | S | Done (PR #379) (depends: W3-25a) |
-| W3-25c | Part B contract: `AuthorSnapshot.is_private` (field 6) for the lock badge on user-list rows, ADR-0025 implementation note | architect | S | In review (PR #391): proto only, `buf lint` / `buf breaking` clean, no generated code (W3-28c runs `make proto`); founder decision 2026-10-28, Option A |
+| W3-25c | Part B contract: `AuthorSnapshot.is_private` (field 6) for the lock badge on user-list rows, ADR-0025 implementation note | architect | S | Done (PR #391): proto only, `buf lint` / `buf breaking` clean, no generated code (W3-28c runs `make proto`); founder decision 2026-10-28, Option A |
 | W3-26a | Part B identity: the protected set, the `ProtectedAuthors` loader, the `is_private` toggle (quota, cap), `PrivacyListener`, identity-step clean-up and T11 `privacy` row | backend-developer | M | Done (PR #383; depends: W3-25b) |
-| W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Open (depends: W3-26a, W3-28a) |
+| W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | In review (PR #395) (depends: W3-26a, W3-28a) |
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Done (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Done (PR #388) (depends: W3-27, W3-26a) |
-| W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | In review (PR #396) (depends: W3-28a, W3-26a) |
-| W3-28c | Part B graph: `make proto` and `is_private` on every graph user-list row from the hydrated profile | backend-developer | S | In review (PR #393): `make proto` run, generated Go and Dart committed; `toProtoAuthorSnapshot` fills `is_private` from the hydrated profile, +0 reads; full-chain emulator test over the six lists |
+| W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Done (PR #396) (depends: W3-28a, W3-26a) |
+| W3-28c | Part B graph: `make proto` and `is_private` on every graph user-list row from the hydrated profile | backend-developer | S | Done (PR #393): `make proto` run, generated Go and Dart committed; `toProtoAuthorSnapshot` fills `is_private` from the hydrated profile, +0 reads; full-chain emulator test over the six lists |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Done (PR #382) (depends: W3-25b; merges after W3-26a) |
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | In review (PR #386) (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Done (PR #384) |
@@ -103,7 +103,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Done (PR #381; depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Done (PR #389) (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
-| W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | In review (PR #394; depends: W3-28c serving dev, W3-33a) |
+| W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
@@ -675,7 +675,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** Flags stay env vars checked in the service layer (`flags.Guard`).
 - **Cost.** 0.
 
-#### W3-25c Part B contract: `AuthorSnapshot.is_private` [architect] [S] [depends: founder decision 2026-10-28, Option A] Status: In review (PR #391)
+#### W3-25c Part B contract: `AuthorSnapshot.is_private` [architect] [S] [depends: founder decision 2026-10-28, Option A] Status: Done (PR #391)
 - **Description.** W3-33a could not build the lock badge on user-list rows: `graph.v1.UserListItem.user` is the shared `common.v1.AuthorSnapshot`, which had no privacy field. Founder decision 2026-10-28 (Option A): add one. Protos only, no generated code, as W3-25a did; W3-28c runs `make proto`.
 - **Proto** (additive): `common.v1.AuthorSnapshot`: `bool is_private = 6`. The comment says it is set only on live rows (`graph.v1.UserListItem.user`, every graph user list), always false in the frozen copies (`Post.author`, `EmbeddedPost.author`, `Notification.actor`), and that false never means public: the authoritative signals stay `Profile.is_private` and the post's `visibility` / `EmbedViewerState`.
 - **Records.** ADR-0025 "Implementation note (W3-25c, 2026-10-28)" and its header pointer line.
@@ -741,7 +741,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - Set refresh: ≤ 1,440 reads per instance per day, about 960 / 2,400 / 4,320 a day at 300 / 1,000 / 3,000 DAU. That is +3.2 / 2.4 / 1.4 reads per DAU.
   - 0 when idle: the refresh happens only when a request needs the set.
 
-#### W3-26b Identity: GetProfile and GetMe for protected accounts [backend-developer] [S] [depends: W3-26a, W3-28a] Status: Open
+#### W3-26b Identity: GetProfile and GetMe for protected accounts [backend-developer] [S] [depends: W3-26a, W3-28a] Status: In review (PR #395)
 - **GetProfile(P) for an unapproved viewer** (D4):
   - It returns the header: name, handle, bio, avatar, banner, location, website, counts and `is_private = true`. It omits `pinned_post_id`.
   - "Approved" is the AQ2 expression over the set and `BlockChecker.IsFollowing(ctx, viewer, target)`. That method extends the interface, and graph implements it from the viewer's cached snapshot (0 reads warm).
@@ -852,7 +852,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - List: 0.02 calls per DAU, 0.84 reads per DAU.
   - Respond: 0.04 calls per DAU, 0.12 reads, 0.16 writes and 0.04 deletes per DAU.
 
-#### W3-28b Graph: the `privacy_public` job [backend-developer] [S] [depends: W3-28a, W3-26a] Status: In review (PR #396)
+#### W3-28b Graph: the `privacy_public` job [backend-developer] [S] [depends: W3-28a, W3-26a] Status: Done (PR #396)
 - **Description** (D8, AQ1).
   - An `apiserver` adapter implements `identity.PrivacyListener` by publishing `{kind: privacy_public, uid}` to the existing `jobs` topic.
   - Graph's handler is registered with `lifecycle.RegisterJobHandler`, as `profile_media_retired` is (`apiserver.go`:394).
@@ -876,7 +876,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `identity.PrivacyListener`, the `jobs` topic, and one accept implementation.
 - **Cost.** Rare, about 0 per DAU. Worst case is 500 pending: 1,000 reads, 1,505 writes, 500 deletes (7.5% of the free daily writes), bounded by the 4-a-day toggle quota.
 
-#### W3-28c Graph: `is_private` on user-list rows [backend-developer] [S] [depends: W3-25c, W3-28a] Status: In review (PR #393)
+#### W3-28c Graph: `is_private` on user-list rows [backend-developer] [S] [depends: W3-25c, W3-28a] Status: Done (PR #393)
 - **Description** (ADR-0025 "Implementation note (W3-25c)").
   - `make proto`, with the generated Go and Dart committed (the W3-25c field).
   - Set `IsPrivate: p.IsPrivate` in `toProtoAuthorSnapshot` (`graph/server.go`), the one helper behind every `UserListItem`. That fills ListFollowers, ListFollowing, ListFollowRequests (as built by W3-28a), ListSuggestedUsers, ListBlockedUsers and ListMutedUsers from the profile the list already hydrated through `identity.Directory`.
@@ -1074,7 +1074,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** One settings row and one embed widget variant, so W5 and W7 reuse them.
 - **Cost.** 1 UpdateProfile per toggle (4 / 3 reads, 3 writes).
 
-#### W3-33c Client: the lock badge on user-list rows [frontend-developer] [S] [depends: W3-28c serving dev, W3-33a] Status: In review (PR #394)
+#### W3-33c Client: the lock badge on user-list rows [frontend-developer] [S] [depends: W3-28c serving dev, W3-33a] Status: Done (PR #394)
 - **Description** (ADR-0025 "Implementation note (W3-25c)").
   - `UserListRow` shows the lock badge after the display name when `UserListItem.user.is_private` is true, with the same badge widget and semantics label as the profile header (W3-33a).
   - Every surface that renders `UserListRow` gets it: Followers, Following, Follow requests (W3-34), Who to follow (the Home card and the right column), Blocked and Muted accounts.
