@@ -6,7 +6,13 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/presentation/draft_thread_screen.dart';
+import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart';
+import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
@@ -34,6 +40,10 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockMessagingRepository extends Mock implements MessagingRepository {}
 
+class _MockGraphRepository extends Mock implements GraphRepository {}
+
+class _MockIdentityRepository extends Mock implements IdentityRepository {}
+
 class _NoThemeStore implements ThemeModeStore {
   @override
   Future<String?> read() async => null;
@@ -54,6 +64,39 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(Folder.FOLDER_INBOX);
+  });
+
+  late _MockGraphRepository graphRepo;
+
+  setUp(() {
+    graphRepo = _MockGraphRepository();
+    when(
+      () => graphRepo.listFollowing(
+        userId: any(named: 'userId'),
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer(
+      (_) async => GraphPage(
+        items: [
+          graph.UserListItem(
+            user: common.AuthorSnapshot(
+              userId: 'u-ada',
+              handle: 'ada',
+              displayName: 'Ada Lovelace',
+            ),
+          ),
+          graph.UserListItem(
+            user: common.AuthorSnapshot(
+              userId: 'u-sam',
+              handle: 'sam',
+              displayName: 'Sam Rivera',
+            ),
+          ),
+        ],
+        nextPageToken: '',
+      ),
+    );
   });
 
   Future<(String, _MockMessagingRepository)> openAt(
@@ -78,6 +121,11 @@ void main() {
       ),
     );
     when(() => repo.rateLimitHold).thenReturn(RateLimitHold());
+    // The cache holds a conversation with Sam only (the thread fixture's peer).
+    when(() => repo.cachedConversationWith(any())).thenAnswer(
+      (invocation) async =>
+          invocation.positionalArguments.first == 'u-sam' ? threadConv() : null,
+    );
     when(() => repo.cachedThread(any())).thenAnswer(
       (_) async =>
           ThreadSnapshot(messages: msgs(1, 2), conversation: threadConv()),
@@ -122,6 +170,10 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<MessagingRepository>.value(value: repo),
+          RepositoryProvider<GraphRepository>.value(value: graphRepo),
+          RepositoryProvider<IdentityRepository>.value(
+            value: _MockIdentityRepository(),
+          ),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
         child: MultiBlocProvider(
@@ -145,6 +197,8 @@ void main() {
     expect(AppRouter.messagesPath, '/messages');
     expect(AppRouter.messageRequestsPath, '/messages/requests');
     expect(AppRouter.messagePath(kThreadId), '/messages/$kThreadId');
+    expect(AppRouter.messageNewPath, '/messages/new');
+    expect(AppRouter.messageDraftPath, '/messages/new/draft');
   });
 
   testWidgets('with messaging off the inbox redirects Home, with no RPC', (
@@ -286,6 +340,103 @@ void main() {
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
       expect(find.byType(ConversationsScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  group('/messages/new (W7-17)', () {
+    testWidgets('with messaging off it redirects Home, no RPC', (tester) async {
+      final (path, _) = await openAt(tester, const {
+        'graph',
+      }, location: AppRouter.messageNewPath);
+
+      expect(path, AppRouter.homePath);
+      expect(find.byType(RecipientPicker), findsNothing);
+      verifyNever(
+        () => graphRepo.listFollowing(
+          userId: any(named: 'userId'),
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      );
+    });
+
+    testWidgets('"new" is the picker, never a conversation id', (tester) async {
+      final (path, repo) = await openAt(tester, const {
+        'messaging',
+        'graph',
+      }, location: AppRouter.messageNewPath);
+
+      expect(path, AppRouter.messageNewPath);
+      expect(find.byType(RecipientPicker), findsOneWidget);
+      expect(find.byType(ThreadScreen), findsNothing);
+      verifyNever(() => repo.refreshThread(any()));
+      verify(
+        () => graphRepo.listFollowing(
+          userId: 'uid-1',
+          pageSize: 20,
+          pageToken: '',
+        ),
+      ).called(1);
+      expect(find.text('Ada Lovelace'), findsOneWidget);
+    });
+
+    testWidgets('the inbox "New message" action opens the picker', (
+      tester,
+    ) async {
+      await openAt(tester, const {'messaging', 'graph'});
+
+      await tester.tap(find.byTooltip('New message'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RecipientPicker), findsOneWidget);
+      expect(find.text('Sam Rivera'), findsOneWidget);
+    });
+
+    testWidgets('the draft route without a person goes back to the picker', (
+      tester,
+    ) async {
+      final (path, _) = await openAt(tester, const {
+        'messaging',
+        'graph',
+      }, location: AppRouter.messageDraftPath);
+
+      expect(path, AppRouter.messageNewPath);
+      expect(find.byType(DraftThreadScreen), findsNothing);
+      expect(find.byType(RecipientPicker), findsOneWidget);
+    });
+
+    testWidgets('someone with no conversation opens a draft; someone with '
+        'one opens that conversation', (tester) async {
+      final (_, repo) = await openAt(tester, const {
+        'messaging',
+        'graph',
+      }, location: AppRouter.messageNewPath);
+
+      await tester.tap(find.text('Ada Lovelace'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DraftThreadScreen), findsOneWidget);
+      verifyNever(() => repo.refreshThread(any()));
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('an existing conversation is opened, not duplicated', (
+      tester,
+    ) async {
+      final (_, repo) = await openAt(tester, const {
+        'messaging',
+        'graph',
+      }, location: AppRouter.messageNewPath);
+
+      await tester.tap(find.text('Sam Rivera'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DraftThreadScreen), findsNothing);
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      verify(() => repo.refreshThread(kThreadId)).called(1);
       await tester.pumpWidget(const SizedBox());
     });
   });

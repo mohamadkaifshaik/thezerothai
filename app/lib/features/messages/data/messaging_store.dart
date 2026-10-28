@@ -136,6 +136,26 @@ class MessagingStore {
   }
 
   /// Replaces [folder] with a first page (no tokens sent).
+  /// The cached conversation with [peerUserId], whichever folder it is in
+  /// (W7-17: "open the existing one, never a duplicate"). The cache is the
+  /// inbox and requests pages only, so this is a scan of at most a few dozen
+  /// rows; the newest activity wins if two entries ever named the same peer.
+  Future<pb.Conversation?> conversationWithPeer(String peerUserId) async {
+    if (peerUserId.isEmpty) return null;
+    final rows = await (_db.select(
+      _db.conversationEntries,
+    )..orderBy([(t) => OrderingTerm.desc(t.sortKey)])).get();
+    for (final row in rows) {
+      try {
+        final c = pb.Conversation.fromBuffer(row.payload);
+        if (c.peer.userId == peerUserId) return c;
+      } catch (_) {
+        // An undecodable row is dropped by the next read of its folder.
+      }
+    }
+    return null;
+  }
+
   Future<void> applyConversationsColdOpen(
     Folder folder, {
     required List<pb.Conversation> items,

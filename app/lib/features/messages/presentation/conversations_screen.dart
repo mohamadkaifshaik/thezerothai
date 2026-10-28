@@ -36,8 +36,8 @@ import 'widgets/conversation_row.dart';
 ///
 /// - [onOpenConversation] opens `/messages/<id>`. The route belongs to W7-15;
 ///   until it is wired the rows are drawn without a tap action.
-/// - [onNewMessage] opens `/messages/new`. The route belongs to W7-17; until
-///   it is wired the action is shown disabled.
+/// - [onNewMessage] opens `/messages/new` (W7-17, the people picker). Null
+///   (a test, or a caller that cannot) shows the action disabled.
 class ConversationsScreen extends StatelessWidget {
   const ConversationsScreen({
     super.key,
@@ -166,8 +166,6 @@ class _ConversationsViewState extends State<_ConversationsView>
                         actions: [
                           IconButton(
                             tooltip: 'New message',
-                            // TODO(W7-17): /messages/new is not built yet;
-                            // the router passes the callback then.
                             onPressed: widget.onNewMessage,
                             icon: const Icon(Icons.mail_outline),
                           ),
