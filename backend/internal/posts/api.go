@@ -487,6 +487,11 @@ type Engagement interface {
 	// or non-ACTIVE author are the single ErrNotFound). It reads like GetPost (post 1, author 1, caller graph 1
 	// cold) and sets no request-log fields.
 	Viewable(ctx context.Context, callerUID, postID string) (*Post, error)
+	// RefuseShare is the ADR-0025 D5 write rule, called by RepostPost on the post Viewable returned (CreatePost applies
+	// it to a quote target itself): a protected author's post can be reposted or quoted only by that author; any other
+	// caller who passed Viewable gets FAILED_PRECONDITION PROTECTED_ACCOUNT, 0 writes, 0 reads. UNAVAILABLE when the
+	// protected set is unknown.
+	RefuseShare(ctx context.Context, callerUID string, p *Post) error
 	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
 	CountsChanged(postID string, likeDelta, repostDelta int64)
 	// RepostCreated caches a REPOST this instance just committed: posts cache, author-recent, and the author's

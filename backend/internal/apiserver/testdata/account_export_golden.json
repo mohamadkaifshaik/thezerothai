@@ -25,6 +25,10 @@
     "reposts": []
   },
   "exportVersion": 1,
+  "follow_requests": {
+    "received": [],
+    "sent": []
+  },
   "generatedAt": "<time>",
   "graph": {
     "blocked": [

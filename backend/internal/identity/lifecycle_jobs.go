@@ -438,6 +438,11 @@ func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) (
 	if outcome == HandleOwnerMismatch {
 		l.log.WarnContext(ctx, "handle_owner_mismatch", append([]any{"uid_hash", logger.HashUID(p.UserID)}, logger.TraceAttrs(ctx)...)...)
 	}
+	// ADR-0025 D11: the protected set lists uids, so the entry goes before users/{uid} is deleted (this step runs before
+	// stepUserDoc). Unconditional on isPrivate so a drifted entry cannot outlive the account. At most 1 write.
+	if err := l.repo.RemoveFromProtectedSet(ctx, p.UserID); err != nil {
+		return nil, false, logger.RedactErr(fmt.Errorf("identity: remove from protected set: %w", err), p.UserID)
+	}
 	if err := l.repo.DeleteQuotas(ctx, p.UserID); err != nil {
 		return nil, false, logger.RedactErr(fmt.Errorf("identity: delete quotas: %w", err), p.UserID)
 	}

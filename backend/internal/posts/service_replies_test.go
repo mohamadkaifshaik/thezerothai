@@ -153,7 +153,7 @@ func TestCreateReply_NotFoundIsUniform(t *testing.T) {
 		{"missing parent", func(*createEnv) {}, "0000000000000000999"},
 		{"parent author blocks the caller", func(e *createEnv) { e.graph.snap.BlockedBy = map[string]bool{uZed: true} }, rRoot},
 		{"parent author suspended or deleting", func(e *createEnv) { delete(e.dir.profiles, uZed) }, rRoot},
-		{"parent not public", func(e *createEnv) { e.repo.docs[rRoot].Visibility = VisibilityFollowers }, rRoot},
+		{"parent author protected", func(e *createEnv) { e.protect(uZed) }, rRoot},
 		{"parent deleted before commit", func(e *createEnv) { e.repo.parentGone = true }, rRoot},
 	}
 	for _, tc := range tests {
@@ -250,7 +250,7 @@ func TestCreateReply_ToARepostNotFound(t *testing.T) {
 	}{
 		{"original deleted", func(e *createEnv) { delete(e.repo.docs, rRoot) }},
 		{"original author blocks the caller", func(e *createEnv) { e.graph.snap.BlockedBy = map[string]bool{uZed: true} }},
-		{"original not public", func(e *createEnv) { e.repo.docs[rRoot].Visibility = VisibilityFollowers }},
+		{"original author protected", func(e *createEnv) { e.protect(uZed) }},
 		{"repost without an original id", func(e *createEnv) { e.repo.docs[rRepost].RepostOfID = "" }},
 	}
 	for _, tc := range tests {

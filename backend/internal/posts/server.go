@@ -112,7 +112,11 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&postsv1.CreatePostResponse{Post: &postsv1.PostView{Post: ToProto(post)}}), nil
+	view := &postsv1.PostView{Post: ToProto(post)}
+	if h, ok := s.svc.(VisibilityHinter); ok { // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
+		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, post))
+	}
+	return connect.NewResponse(&postsv1.CreatePostResponse{Post: view}), nil
 }
 
 // mediaFlagName is the wire name of FEATURE_MEDIA (media.FlagName; posts does not import media).
@@ -161,7 +165,10 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
 	}
 	if h, ok := s.svc.(EmbedHinter); ok {
-		v.EmbedViewerState = h.EmbedViewerState(ctx, uid, post) // 0 reads without an embed, else the cached graph
+		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // 0 reads without an embed, else the cached graph; PROTECTED strips the copy
+	}
+	if h, ok := s.svc.(VisibilityHinter); ok {
+		ApplyWireVisibility(v, h.ProtectedAuthor(ctx, post))
 	}
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
 }
@@ -216,6 +223,12 @@ type EmbedHinter interface {
 	EmbedViewerState(ctx context.Context, viewer string, p *Post) postsv1.EmbedViewerState
 }
 
+// VisibilityHinter is implemented by the concrete service: whether the post's author is protected, for the computed wire
+// visibility (VISIBILITY_FOLLOWERS, ADR-0025 D2). 0 reads for the caller.
+type VisibilityHinter interface {
+	ProtectedAuthor(ctx context.Context, p *Post) bool
+}
+
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
 func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.GetThreadRequest]) (*connect.Response[postsv1.GetThreadResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
@@ -240,7 +253,10 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 		v := ToView(p, vs, uid)
 		v.ViewerReplyPermission = t.ReplyPermission
 		if h, ok := s.svc.(EmbedHinter); ok {
-			v.EmbedViewerState = h.EmbedViewerState(ctx, uid, p)
+			ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, p))
+		}
+		if h, ok := s.svc.(VisibilityHinter); ok {
+			ApplyWireVisibility(v, h.ProtectedAuthor(ctx, p))
 		}
 		return v
 	}

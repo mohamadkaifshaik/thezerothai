@@ -186,6 +186,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// ADR-0024 (W3-6): the pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
+	// ADR-0025 (W3-26a): the one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). The
+	// consumers (posts.Audience, timeline, notifications) take protectedAuthors in their own tickets; identity's toggle
+	// feeds it the committing instance's own change.
+	protectedAuthors := identity.NewProtectedSetLoader(identityRepo, cfg.CacheTTL, cfg.Privacy.ProtectedSetMaxStale, nil, log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -196,6 +200,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithExtrasFlags(featureFlags),
+		identity.WithPrivacy(identity.PrivacyDeps{
+			Repo: identityRepo, Set: protectedAuthors,
+			Limits: identity.PrivacyLimits{TogglesPerDay: int64(cfg.Quota.PrivacyTogglesPerDay), SetMax: cfg.Privacy.ProtectedAuthorsMax},
+		}),
 		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
 			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
 			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
@@ -231,6 +239,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
+		Audience:  protectedAudience(protectedAuthors),
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
 	})
 	switch cfg.NotificationsDelivery {
@@ -291,7 +300,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 				MaxLateness: cfg.Scheduled.MaxLateness, MaxAttempts: cfg.Scheduled.MaxAttempts, TerminalTTL: cfg.Scheduled.TerminalTTL,
 			},
 		},
-	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
+	}, posts.WithAllowAnonymous(cfg.AuthEmulator), posts.WithProtectedAuthors(protectedAuthors))
 	// ADR-0024 D3: identity's UpdateProfile asks posts whether a post is the caller's own visible pin candidate. Bound here, once,
 	// before ListenAndServe (posts needs identity.Directory, so identity was built first).
 	pinChecker.c = posts.NewPinChecker(postsSvc)
@@ -373,6 +382,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// on; the step runs after scheduled, before identity.
 	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
 		return nil, nil, fmt.Errorf("bookmarks lifecycle registry: %w", err)
+	}
+	// follow_requests (ADR-0025 D11): the erase step and export section are registered whether or not
+	// FEATURE_PRIVATE_ACCOUNTS is on; the step runs after bookmarks, before identity.
+	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
+		return nil, nil, fmt.Errorf("follow_requests lifecycle registry: %w", err)
 	}
 	moderationSvc := moderation.New(moderation.Deps{
 		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,

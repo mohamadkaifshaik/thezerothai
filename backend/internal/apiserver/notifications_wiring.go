@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
@@ -130,5 +131,22 @@ func (f followNotifier) FollowRequested(ctx context.Context, requesterUID, targe
 func (f followNotifier) FollowRequestAccepted(ctx context.Context, targetUID, requesterUID string, at time.Time) {
 	f.slot.emit(ctx, notifications.Event{
 		Type: notifications.TypeFollowAccepted, ActorID: targetUID, RecipientIDs: []string{requesterUID}, At: at,
+	})
+}
+
+// protectedAudience adapts the one protected-set loader to notifications.AudienceChecker (ADR-0025 AQ5). The rule is
+// identity.ProtectedSet.CanSee, the single expression posts.Audience.CanSee also delegates to (AQ2); nothing here
+// restates it. Like posts.Audience.visibleAuthor, the loader is asked only for an author who is neither the viewer
+// nor followed, so the common case never touches the set. An error is "set unknown" and the fan-out retries.
+func protectedAudience(authors identity.ProtectedAuthors) notifications.AudienceChecker {
+	return notifications.AudienceFunc(func(ctx context.Context, viewer, author string, following bool) (bool, error) {
+		if viewer == author || following {
+			return true, nil
+		}
+		set, err := authors.Current(ctx)
+		if err != nil {
+			return false, err
+		}
+		return set.CanSee(viewer, author, following), nil
 	})
 }

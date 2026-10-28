@@ -76,6 +76,9 @@ type service struct {
 	newAccountWindow      time.Duration
 	// allowAnonymous is set only by WithAllowAnonymous (wired from config.AuthEmulator); the default is false.
 	allowAnonymous bool
+	// protected is the ADR-0025 protected-set loader (WithProtectedAuthors); nil until it is wired, then nobody is protected.
+	protected identity.ProtectedAuthors
+	aud       *Audience
 }
 
 // Option configures New.
@@ -85,6 +88,12 @@ type Option func(*service)
 // never from a request or a global.
 func WithAllowAnonymous(allow bool) Option {
 	return func(s *service) { s.allowAnonymous = allow }
+}
+
+// WithProtectedAuthors wires the loader of the protected-author set that posts.Audience consults (ADR-0025 D3, W3-26a).
+// Without it nobody is protected and the predicate costs nothing.
+func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
+	return func(s *service) { s.protected = p }
 }
 
 // New builds the posts service. A nil Events defaults to the no-op hook.
@@ -97,6 +106,7 @@ func New(d Deps, opts ...Option) Service {
 	for _, o := range opts {
 		o(s)
 	}
+	s.aud = newAudience(s.protected, s.blockedBy)
 	if s.events == nil {
 		s.events = NopEvents{}
 	}

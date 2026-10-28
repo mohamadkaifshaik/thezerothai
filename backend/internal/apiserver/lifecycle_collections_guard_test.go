@@ -69,6 +69,7 @@ var lifecycleCollections = []collectionRow{
 	{Name: "handles", Disposition: erasedByStep, Step: "identity", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (only when owned by the uid)"},
 	{Name: "exports", Disposition: erasedByStep, Step: "identity", ExportNote: "the export file itself", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (objects first, then docs)"},
 	{Name: "quotas", Disposition: erasedByStep, Step: "identity", ExportNote: "operational counters, not user content", Owner: "platform", Cite: "ADR-0011 Q1 step 5"},
+	{Name: "privacy", Disposition: erasedByStep, Step: "identity", ExportNote: "protectedAuthors lists other users, so the uid entry is removed (ArrayRemove) and the doc is never exported", Owner: "identity", Cite: "ADR-0025 D2, D11"},
 	{Name: "idempotency", Disposition: notPersonal, ExportNote: "24 h TTL key records", Owner: "platform", Cite: "ADR-0011 Q10 (a): uid until the 24 h TTL"},
 	{Name: "graph", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
 	{Name: "follows", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
@@ -80,7 +81,10 @@ var lifecycleCollections = []collectionRow{
 	{Name: "deviceTokens", Disposition: erasedByStep, Step: "notifications", ExportNote: "reverse index sha256(token) -> uid; the token itself is never exported", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
 
 	// Declared in ADR-0003, no code yet.
-	{Name: "followRequests", Disposition: pendingEraser, Owner: "graph (private accounts, later ADR)", Cite: "ADR-0003 data model"},
+	// ADR-0025 D11 (W3-32): followRequests/{followerId}_{followeeId} holds {followerId, followeeId, createdAt}, both uids of
+	// a pending request. The `follow_requests` step (graph.RequestEraser, BeforeIdentity after bookmarks) deletes the docs
+	// on both sides and removes the deleted uid from each requester's graph.requested; the section lists sent and received.
+	{Name: "followRequests", Disposition: erasedByStep, Step: "follow_requests", Section: "follow_requests", Owner: "graph", Cite: "ADR-0025 D11"},
 	// P5 (ADR-0018 D7): one `engagement` step erases the user's likes and reposts (each with its post's counter) and
 	// userLikes/{uid}; the posts step also removes the copies of the user's content inside other users' docs.
 	{Name: "likes", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
@@ -290,6 +294,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerBookmarkLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerFollowRequestsLifecycle(l, graph.NewFirestoreRepo(nil)); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -330,7 +337,7 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 		{"new collection constant without a row", append(slices.Clone(real), collectionRef{"pinboards", "pinboardsCollection at x.go:1"}), lifecycleCollections, `"pinboards"`},
 		{"row names an unregistered step", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "likes2", Disposition: erasedByStep, Step: "engagement2", ExportNote: "n", Owner: "o", Cite: "c"}), `step "engagement2" is not registered`},
 		{"row names an unregistered section", nil, append(slices.Clone(lifecycleCollections), collectionRow{Name: "x", Disposition: erasedByStep, Step: "graph", Section: "likes", Owner: "o", Cite: "c"}), `export section "likes" is not registered`},
-		{"pending row for a collection the code writes", []collectionRef{{"followRequests", "followRequestsCollection at m.go:1"}}, lifecycleCollections, `still pendingEraser`},
+		{"pending row for a collection the code writes", []collectionRef{{"pendingthing", "pendingthingCollection at m.go:1"}}, append(slices.Clone(lifecycleCollections), collectionRow{Name: "pendingthing", Disposition: pendingEraser, Owner: "o", Cite: "ADR-0025 D11"}), `still pendingEraser`},
 		{"row without a citation", nil, []collectionRow{{Name: "x", Disposition: notPersonal, Owner: "o"}}, `no Owner/Cite`},
 		{"row without a disposition", nil, []collectionRow{{Name: "x", Owner: "o", Cite: "c"}}, `no disposition`},
 	}
@@ -341,6 +348,16 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 				t.Errorf("problems = %q, want one containing %q", problems, tt.want)
 			}
 		})
+	}
+	// W3-32: the followRequests row is only green while the follow_requests step and section are registered.
+	without := func(in []string, name string) []string {
+		return slices.DeleteFunc(slices.Clone(in), func(s string) bool { return s == name })
+	}
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "follow_requests"), sections), "\n"); !strings.Contains(p, `step "follow_requests" is not registered`) {
+		t.Errorf("dropping the follow_requests step went unnoticed: %q", p)
+	}
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "follow_requests")), "\n"); !strings.Contains(p, `export section "follow_requests" is not registered`) {
+		t.Errorf("dropping the follow_requests section went unnoticed: %q", p)
 	}
 	if problems := coverageProblems(nil, lifecycleCollections, steps, sections); len(problems) != 0 {
 		t.Errorf("the shipped table has problems on its own: %v", problems)

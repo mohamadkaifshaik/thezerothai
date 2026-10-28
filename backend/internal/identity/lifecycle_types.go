@@ -256,6 +256,9 @@ type LifecycleRepo interface {
 	DeletePrivate(ctx context.Context, uid string, limit int) (int, error)
 	// DeleteHandleIfOwned deletes handles/{handleLower} only when it points at uid (1 read, 1 delete).
 	DeleteHandleIfOwned(ctx context.Context, handleLower, uid string) (HandleOutcome, error)
+	// RemoveFromProtectedSet removes uid from privacy/protectedAuthors (ADR-0025 D11): 0 reads, at most 1 write (a
+	// field-level ArrayRemove; a missing set doc is success and is never created). Idempotent and unconditional.
+	RemoveFromProtectedSet(ctx context.Context, uid string) error
 	// DeleteQuotas deletes quotas/{uid} (1 delete); a missing doc is success.
 	DeleteQuotas(ctx context.Context, uid string) error
 	// DeleteUserDoc deletes users/{uid} in one transaction (1 read, 1 delete) only while it is still DELETING with
