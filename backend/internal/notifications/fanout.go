@@ -34,11 +34,13 @@ type wireEvent struct {
 	ActorID      string   `json:"actorId"`
 	RecipientIDs []string `json:"recipientIds"`
 	PostID       string   `json:"postId,omitempty"`
-	AtMillis     int64    `json:"at"`
+	// ConversationID is additive (ADR-0027 D9): an older revision ignores the field and drops the unknown type.
+	ConversationID string `json:"conversationId,omitempty"`
+	AtMillis       int64  `json:"at"`
 }
 
 func encodeEvent(e Event) ([]byte, error) {
-	return json.Marshal(wireEvent{V: eventVersion, Type: e.Type, ActorID: e.ActorID, RecipientIDs: e.RecipientIDs, PostID: e.PostID, AtMillis: e.At.UnixMilli()})
+	return json.Marshal(wireEvent{V: eventVersion, Type: e.Type, ActorID: e.ActorID, RecipientIDs: e.RecipientIDs, PostID: e.PostID, ConversationID: e.ConversationID, AtMillis: e.At.UnixMilli()})
 }
 
 // validateEvent reports why e can never become deliverable ("" when it is valid).
@@ -52,6 +54,8 @@ func validateEvent(e Event) string {
 		return "invalid_recipients"
 	case e.Type.needsPost() && !ids.ValidPostID(e.PostID):
 		return "invalid_post"
+	case e.Type == TypeMessage && !validConversationID(e.ConversationID):
+		return "invalid_conversation"
 	}
 	for _, r := range e.RecipientIDs {
 		if !ids.ValidUID(r) {
@@ -59,6 +63,19 @@ func validateEvent(e Event) string {
 		}
 	}
 	return ""
+}
+
+// validConversationID reports whether s is a messaging conversation id: 32 lower-case hex characters (ADR-0027 D3).
+func validConversationID(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // actorFromProfile is the denormalized actor snapshot stored on a row: the thumbnail avatar when there is one.
@@ -106,7 +123,11 @@ type FanoutDeps struct {
 	// PushLimit is the per-recipient inbound push token bucket (N-2; NewPushLimiter builds the shipped one). Nil
 	// means unlimited. A throttled push still has its row written; only the FCM send is skipped.
 	PushLimit *ratelimit.Limiter
-	Now       func() time.Time
+	// MessagePushLimit is the push-only message type's own per-recipient bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR,
+	// ADR-0027 D9), separate from PushLimit so a chatty thread cannot starve follow or reply pushes and vice versa.
+	// Nil means unlimited. Keyed uid|message.
+	MessagePushLimit *ratelimit.Limiter
+	Now              func() time.Time
 }
 
 // pushLimiterIdleTTL keeps an idle recipient's bucket longer than its refill window so an eviction can never refill
@@ -122,6 +143,9 @@ func NewPushLimiter(perHour int) *ratelimit.Limiter {
 	}
 	return ratelimit.NewLimiterWindow(perHour, time.Hour, pushLimiterIdleTTL)
 }
+
+// messageLimitKey is the key of a recipient in the message bucket (plan W7-10: uid|message).
+func messageLimitKey(uid string) string { return uid + "|" + string(TypeMessage) }
 
 // Fanout turns one event into rows and pushes. It is both the Pub/Sub push handler and, in local dev, called inline.
 type Fanout struct {
@@ -180,7 +204,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			continue // self-actions never notify
 		}
 		seen[r] = true
-		if f.d.Flags != nil && !f.d.Flags.Enabled(r, FlagName) {
+		if !recipientFlagsOn(f.d.Flags, r, e.Type) {
 			continue
 		}
 		recipients = append(recipients, r)
@@ -256,6 +280,12 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 				continue
 			}
 		}
+		if e.Type.pushOnly() {
+			// ADR-0027 D9: no row, no ForgetUnread, no badge move. The push below is the whole delivery; a redelivery
+			// sends at most one more, which the device collapses on the `message` key.
+			toPush = append(toPush, pending{r, Push{Type: e.Type, ConversationID: e.ConversationID}})
+			continue
+		}
 		now := f.d.Now().UTC().Truncate(time.Microsecond)
 		n := Notification{
 			ID: notificationID(e.Type, e.ActorID, e.PostID, bucketAt), Type: e.Type, Actor: actor,
@@ -293,7 +323,14 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
 	// recipient's commit past the 5 s since-token settle window.
 	for _, pd := range toPush {
-		if f.d.PushLimit != nil {
+		if pd.p.Type.pushOnly() {
+			if f.d.MessagePushLimit != nil {
+				if ok, _ := f.d.MessagePushLimit.Allow(messageLimitKey(pd.uid)); !ok {
+					out.Throttled++
+					continue
+				}
+			}
+		} else if f.d.PushLimit != nil {
 			if ok, _ := f.d.PushLimit.Allow(pd.uid); !ok {
 				out.Throttled++
 				continue
@@ -383,7 +420,7 @@ func (f *Fanout) Handler() http.Handler {
 		defer cancel()
 		ctx, counter := budget.WithCounter(ctx)
 		started := f.d.Now()
-		out, derr := f.Deliver(ctx, Event{Type: m.Type, ActorID: m.ActorID, RecipientIDs: m.RecipientIDs, PostID: m.PostID, At: time.UnixMilli(m.AtMillis)})
+		out, derr := f.Deliver(ctx, Event{Type: m.Type, ActorID: m.ActorID, RecipientIDs: m.RecipientIDs, PostID: m.PostID, ConversationID: m.ConversationID, At: time.UnixMilli(m.AtMillis)})
 		attrs := append([]any{
 			"event", "notification_delivery", "type", string(m.Type), "message_id", d.MessageID, "delivery_attempt", d.Attempt,
 			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed, "suppressed_protected", out.SuppressedProtected,

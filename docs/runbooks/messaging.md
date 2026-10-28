@@ -4,9 +4,9 @@ Owner module: `backend/internal/messaging`. Plan: `docs/plans/ui-w7-messaging.md
 W7-7 to W7-9 lists, read, accept and delete; W7-10 push; W7-11 badge; W7-12 report). Flag: `FEATURE_MESSAGING` (wire name `messaging`, default
 `off`; dev ceiling allowlist 3, no prod raise before W7-22 and W7-23 pass in dev).
 
-What exists on `main` after W7-5, W7-6 and W7-7: SendMessage, ListConversations, the `messaging` account-deletion step and the `messages` export section. The other
+What exists on `main` after W7-5, W7-6, W7-7 and W7-10: SendMessage, ListConversations, the `messaging` account-deletion step and the `messages` export section. The other
 four RPCs (ListMessages, MarkConversationRead, AcceptMessageRequest, DeleteConversation) answer `Unimplemented` after the
-flag gate until W7-7 to W7-9; the push is emitted by the send but dropped by notifications until W7-10 adds the `message` type. Sections that
+flag gate until W7-8 and W7-9; the push is emitted by the send and delivered by the push-only `message` type of notifications (W7-10). Sections that
 describe those later pieces say so.
 
 Data (all index-free, no composite index; fieldOverrides `indexes: []` for `messages.text`, `messages.requestHash`, `dmInbox.peer`,
@@ -118,8 +118,7 @@ Prerequisites: `FEATURE_MESSAGING` and `FEATURE_NOTIFICATIONS` both `allowlist` 
    (`jsonPayload.event="notification_delivery"`). The handset shows the generic "New message" with the conversation id as its only data: no sender, no text.
 3. Negative checks: a request (non-mutual) pushes nothing; a recipient who muted the sender gets the message with no push and no unread; `FEATURE_NOTIFICATIONS=off` for the recipient drops it; 21 messages inside an hour show `push_throttled` once
    `MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR` (20) is reached while every message is still stored.
-4. **Until W7-10 ships**, step 2 cannot happen: the send emits its event, but `notifications` has no `message` type, so the producer drops it before publishing (0 cost) and a fan-out that received one would count it as `dropped` and acknowledge it
-   (`unknown_type`, ADR-0027 D9). A send still succeeds and stores everything; only the push is missing. Check the send path alone with the request line (`kind=send`, `state`, `silent`, `fs_reads`, `fs_writes`).
+4. **Mixed rollout:** an older revision that receives a `message` event drops it as `unknown_type` and acknowledges it, so a rollout can lose at most a push, never a message (ADR-0027 D9). The event carries `conversationId` additively (`v` stays 1). The push is **push-only**: no `users/{uid}/notifications` row, no badge move, never in ListNotifications. A send that stored its message but pushed nothing: check the recipient's two flags, the `suppressed` and `push_throttled` counters on the `notification_delivery` line, and the request line (`kind=send`, `state`, `silent`).
 5. On the emulators (`make dev`), `NOTIFICATIONS_DELIVERY=inline` delivers in-process; the push goes to `LogSender`, so look for the `notification_push_local` log line instead of a handset.
 
 ## 6. Other failure modes
