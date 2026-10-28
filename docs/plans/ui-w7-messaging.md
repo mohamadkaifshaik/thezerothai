@@ -339,7 +339,7 @@ Prices (§7):
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Open |
 | W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Open |
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
-| W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Open |
+| W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | In review (PR pending) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Open |
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Part 1 done (#406); part 2 (repository, drift tables, gate) in review (PR pending) |
@@ -615,7 +615,7 @@ Order:
 - **Flag.** Accept per caller; Delete not globally off.
 - **Seam.** `messaging.Service`.
 
-### W7-10 — Notifications hook: push-only `message` type  [owner: backend-developer] [size: M] [depends: W7-4, W7-5]  Status: Open
+### W7-10 — Notifications hook: push-only `message` type  [owner: backend-developer] [size: M] [depends: W7-4, W7-5]  Status: In review (PR pending)
 - **Description.**
   - `notifications.TypeMessage` (`"message"`). `Event.ConversationID` and `wireEvent.conversationId` are additive, and `v` stays 1. `validateEvent` requires a 32-hex conversation id and no post for this type.
   - `Fanout.Deliver` for `message`:

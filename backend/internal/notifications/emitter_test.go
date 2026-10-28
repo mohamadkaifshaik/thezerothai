@@ -118,11 +118,11 @@ func TestNopEmitter(t *testing.T) {
 }
 
 func TestType(t *testing.T) {
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage} {
 		if !ty.Valid() {
 			t.Errorf("%s not valid", ty)
 		}
-		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted; got != want {
+		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted && ty != TypeMessage; got != want {
 			t.Errorf("%s needsPost = %v", ty, got)
 		}
 	}
