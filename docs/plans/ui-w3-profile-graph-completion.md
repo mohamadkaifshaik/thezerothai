@@ -103,7 +103,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Done (PR #381; depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Done (PR #389) (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
-| W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Open (depends: W3-28c serving dev, W3-33a) |
+| W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | In review (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
@@ -1072,7 +1072,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** One settings row and one embed widget variant, so W5 and W7 reuse them.
 - **Cost.** 1 UpdateProfile per toggle (4 / 3 reads, 3 writes).
 
-#### W3-33c Client: the lock badge on user-list rows [frontend-developer] [S] [depends: W3-28c serving dev, W3-33a] Status: Open
+#### W3-33c Client: the lock badge on user-list rows [frontend-developer] [S] [depends: W3-28c serving dev, W3-33a] Status: In review (PR #394)
 - **Description** (ADR-0025 "Implementation note (W3-25c)").
   - `UserListRow` shows the lock badge after the display name when `UserListItem.user.is_private` is true, with the same badge widget and semantics label as the profile header (W3-33a).
   - Every surface that renders `UserListRow` gets it: Followers, Following, Follow requests (W3-34), Who to follow (the Home card and the right column), Blocked and Muted accounts.

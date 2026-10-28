@@ -5,6 +5,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../shared/widgets/app_avatar.dart';
 import '../../../../shared/widgets/follow_button.dart';
+import '../../../../shared/widgets/protected_badge.dart';
 import '../../data/graph_repository.dart';
 import '../bloc/relationship_cubit.dart';
 import '../bloc/relationship_state.dart';
@@ -101,13 +102,36 @@ class UserListRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      user.displayName.isEmpty
-                          ? '@${user.handle}'
-                          : user.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall,
+                    // A hint from the server (W3-25c): false draws nothing
+                    // and never means "public". The name gives way first (it
+                    // ellipsizes) so the lock stays; only when the column is
+                    // too narrow for both, at the largest text scale beside a
+                    // wide control, the lock is dropped rather than drawn
+                    // over the control.
+                    LayoutBuilder(
+                      builder: (context, box) {
+                        final badge =
+                            user.isPrivate &&
+                            box.maxWidth >= _badgeMinColumnWidth;
+                        return Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                user.displayName.isEmpty
+                                    ? '@${user.handle}'
+                                    : user.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall,
+                              ),
+                            ),
+                            if (badge) ...[
+                              const SizedBox(width: AppSpacing.xs),
+                              const ProtectedBadge(),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                     Text(
                       '@${user.handle}',
@@ -144,6 +168,10 @@ class UserListRow extends StatelessWidget {
     );
   }
 }
+
+/// The narrowest name column (dp) that still gets the lock: the 16dp badge,
+/// its 4dp gap and a little of the name.
+const double _badgeMinColumnWidth = 48;
 
 bool _isConfirmedFollow(RelationshipState state) =>
     !state.isUpdating &&
