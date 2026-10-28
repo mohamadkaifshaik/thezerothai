@@ -40,7 +40,7 @@ func (f fakeAudience) Decide(_ context.Context, viewer string, snap graph.Snapsh
 	return posts.Decision{Verdict: posts.Show}, nil
 }
 
-func (f fakeAudience) ProtectedAuthor(_ context.Context, author string) bool {
+func (f fakeAudience) ProtectedAuthor(_ context.Context, _, author string, _ bool) bool {
 	return f.protected[author]
 }
 

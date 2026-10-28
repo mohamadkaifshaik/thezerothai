@@ -116,7 +116,10 @@ type setDelta struct {
 	protected bool
 }
 
-var _ ProtectedAuthors = (*ProtectedSetLoader)(nil)
+var (
+	_ ProtectedAuthors       = (*ProtectedSetLoader)(nil)
+	_ ProtectedAuthorsCached = (*ProtectedSetLoader)(nil)
+)
 
 // NewProtectedSetLoader builds the loader. ttl is config.CacheTTL, maxStale PROTECTED_SET_MAX_STALE; now nil means
 // time.Now (tests inject a fake clock); log nil means slog.Default().
@@ -163,8 +166,29 @@ func (l *ProtectedSetLoader) fallback(ctx context.Context, set *protectedSet, fe
 		l.log.WarnContext(ctx, "protected_set_stale", "age_s", int64(now.Sub(fetched).Seconds()))
 		return set, nil
 	}
-	mw.ReportError(ctx, l.log, "protected_set_unavailable", ErrProtectedSetUnavailable)
+	// One ERROR per request (W3-36 L-4): a page of 50 rows asks up to 50 times, and Error Reporting counts entries.
+	// The repeats are WARN, so the rollback check "Error Reporting is quiet" sees one signal per affected request.
+	if logger.FirstInRequest(ctx, "protected_set_unavailable") {
+		mw.ReportError(ctx, l.log, "protected_set_unavailable", ErrProtectedSetUnavailable)
+	} else {
+		l.log.WarnContext(ctx, "protected_set_unavailable", "repeat", true)
+	}
 	return nil, ErrProtectedSetUnavailable
+}
+
+// Cached returns the copy this instance already holds, without refreshing, logging or counting a read: ok is false
+// when none was loaded or it is older than CACHE_TTL. It is the hint path's accessor (W3-36 L-4): the wire-visibility
+// hint for the viewer's own or a followed author is served from it while it is fresh. Staleness bound: CACHE_TTL (60 s), the
+// same bound as Current; past it the caller asks Current, which refreshes (at most one detached read per instance per
+// CACHE_TTL) and fails closed as before.
+func (l *ProtectedSetLoader) Cached() (ProtectedSet, bool) {
+	l.mu.Lock()
+	set, fetched := l.set, l.fetchedAt
+	l.mu.Unlock()
+	if set == nil || l.now().Sub(fetched) >= l.ttl {
+		return nil, false
+	}
+	return set, true
 }
 
 // refresh runs the one shared read. It uses its own context (not the first caller's cancellation) and its own counter.

@@ -68,7 +68,7 @@ func (d dropTally) total() int { return d.missing + d.hidden + d.blocked + d.mut
 // protected and not followed, and marks a QUOTE of one PROTECTED; ProtectedAuthor feeds the computed wire visibility.
 type RowAudience interface {
 	Decide(ctx context.Context, viewer string, snap graph.Snapshot, p *posts.Post, surface posts.Surface) (posts.Decision, error)
-	ProtectedAuthor(ctx context.Context, author string) bool
+	ProtectedAuthor(ctx context.Context, viewer, author string, following bool) bool
 }
 
 // RowHint is what the handler needs to render a kept row besides the post: the embed state and whether the author is
@@ -174,7 +174,7 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 				res.Tally.protected++ // kept in storage: a follow, or an unprotect, brings it back
 				continue
 			}
-			hint = RowHint{Embed: d.Embed, Protected: s.d.Audience.ProtectedAuthor(ctx, p.AuthorID)}
+			hint = RowHint{Embed: d.Embed, Protected: s.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, snap.Following[p.AuthorID])}
 		}
 		res.Kept = append(res.Kept, i)
 		res.Hints = append(res.Hints, hint)
