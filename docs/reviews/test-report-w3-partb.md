@@ -457,6 +457,7 @@ cd backend && go test ./internal/posts/ -run TestW341aAttack
 ```
 
 VERDICT: PASS after 01f967b7 (was FAIL, D-1 Low): own-profile REPOST of an author who blocked the caller is kept when the caller's blockedBy overflowed (posts/audience.go:167-178, timeline/service.go:331).
+Re-verified after fix (commit 01f967b7, merged with origin/main): TestW341aAttack_OwnProfileRepostWithBlockedByOverflow, TestW341aAttack_BlockedByOverflow and the whole W3-41a/W3-35a/W3-29b/W3-30 integration set pass on the emulators (apiserver, posts, engagement, timeline); budgets unchanged. Residual (follow-up, not fixed): a PUBLIC author with an overflowed caller still keeps the full REPOST on the caller's own profile (older behaviour, the `p.AuthorID == viewer` Show after visibleAuthor); the new arm fails closed only for the PROTECTED case. The tester's control line for a no-block overflow now expects the row dropped.
 
 ---
 
