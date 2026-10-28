@@ -169,6 +169,63 @@ class NotificationStateEntries extends Table {
   Set<Column> get primaryKey => {stateKey};
 }
 
+/// One conversation of the signed-in user's cached inbox or requests list
+/// (W7-13, ADR-0027 D14): the serialized `Conversation` of the caller's entry.
+/// Rows sort by [sortKey] descending (zero-padded `updated_at` microseconds,
+/// `|`, the id), per [folder] (`Folder.value`: 1 inbox, 2 requests). Wiped on
+/// sign-out ([AppDatabase.clearAll]).
+@DataClassName('CachedConversation')
+class ConversationEntries extends Table {
+  /// 32-character lower-case hex id (opaque, ADR-0027 D2).
+  TextColumn get conversationId => text()();
+  IntColumn get folder => integer()();
+  TextColumn get sortKey => text()();
+
+  /// Serialized `Conversation`.
+  BlobColumn get payload => blob()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId};
+}
+
+/// One cached message (W7-13, ADR-0027 D14): the newest 200 per conversation.
+/// Rows sort by [sortKey] descending (zero-padded `created_at` microseconds,
+/// `|`, the id). The payload is a serialized `Message`: it carries `from_self`
+/// and no sender uid (D5). Wiped on sign-out ([AppDatabase.clearAll]).
+@DataClassName('CachedMessage')
+class MessageEntries extends Table {
+  TextColumn get conversationId => text()();
+  TextColumn get messageId => text()();
+  TextColumn get sortKey => text()();
+
+  /// Serialized `Message`.
+  BlobColumn get payload => blob()();
+
+  /// For a row that ended a fetched page: that page's `next_page_token`
+  /// (lets the 200-row trim cut at a page boundary and resume scrolling).
+  TextColumn get pageToken => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId, messageId};
+}
+
+/// Refresh state of one cached messaging list: the `since_token` of the last
+/// response and the `next_page_token` below the oldest cached row. [stateKey]
+/// is `inbox`, `requests` or `thread:{conversationId}`. Tokens live 30 days
+/// server-side (ADR-0027 D7). Wiped on sign-out ([AppDatabase.clearAll]).
+@DataClassName('CachedMessagingState')
+class MessagingStateEntries extends Table {
+  TextColumn get stateKey => text()();
+  TextColumn get sinceToken => text().withDefault(const Constant(''))();
+
+  /// Token for scrolling older than the oldest cached row; '' = none/end.
+  TextColumn get olderPageToken => text().withDefault(const Constant(''))();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {stateKey};
+}
+
 /// Prefix of the [AppSettingEntries] keys that hold data derived from one
 /// account's graph (for example the cached "Who to follow" list). Unlike the
 /// other device settings these are wiped on sign-out ([AppDatabase.clearAll]),
@@ -201,6 +258,9 @@ class AppSettingEntries extends Table {
     AccountExportEntries,
     NotificationEntries,
     NotificationStateEntries,
+    ConversationEntries,
+    MessageEntries,
+    MessagingStateEntries,
     AppSettingEntries,
   ],
 )
@@ -215,7 +275,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -242,6 +302,13 @@ class AppDatabase extends _$AppDatabase {
       // v5 -> v6 (UI wave W0-8): device-level settings (appearance).
       if (from < 6) {
         await m.createTable(appSettingEntries);
+      }
+      // v6 -> v7 (UI wave W7-13): the cached direct-message inbox, threads
+      // and their tokens.
+      if (from < 7) {
+        await m.createTable(conversationEntries);
+        await m.createTable(messageEntries);
+        await m.createTable(messagingStateEntries);
       }
     },
   );
@@ -404,6 +471,9 @@ class AppDatabase extends _$AppDatabase {
       await delete(accountExportEntries).go();
       await delete(notificationEntries).go();
       await delete(notificationStateEntries).go();
+      await delete(conversationEntries).go();
+      await delete(messageEntries).go();
+      await delete(messagingStateEntries).go();
       await (delete(
         appSettingEntries,
       )..where((t) => t.settingKey.like('$kAccountSettingPrefix%'))).go();
