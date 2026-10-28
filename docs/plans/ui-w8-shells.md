@@ -171,7 +171,7 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 | ID | Ticket | Owner | Size | Depends | Parallel with W3–W7? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | W8-1 | `FEATURE_SHELLS` registration: `config.go` `LoadSpec` + test, `NewRegistry`, `flag-ceiling.json` (gate; dev allowlist 3; prod `on` recorded in ADR-0026, not the file), Terraform vars, runbook | backend-developer | S | — | **yes, start now**; shared files serialise with W3-4, W3-25, W4-3, W5-3, W5-22, W6-4, W7-4 | In review |
-| W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | Open |
+| W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | In review |
 | W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | In review |
 | W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | Open |
 | W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | Open |
@@ -227,7 +227,7 @@ Order:
 - **Flag.** Adds `FEATURE_SHELLS` (default `off`; dev ceiling allowlist 3; prod `on` accepted by the founder, recorded in ADR-0026 and the runbook, not in the ceiling file).
 - **Seam.** The flag is only a client gate; when a real feature ships, it gets its own flag. `shells` is retired with `NewRetired` and never reused.
 
-### W8-2 — Client flag, entry points and routes  [owner: frontend-developer] [size: M] [depends: —]  Status: Open
+### W8-2 — Client flag, entry points and routes  [owner: frontend-developer] [size: M] [depends: —]  Status: In review
 - **Description.**
   - `kFeatureShells = 'shells'` in `app/lib/features/shells/domain/shells_feature_flag.dart` (doc comment as `kFeatureUiShell`'s; never hardcode the string elsewhere).
   - `app/lib/features/shells/domain/shell_entries.dart`:

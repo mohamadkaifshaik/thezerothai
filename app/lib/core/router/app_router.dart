@@ -25,6 +25,12 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
+import '../../features/shells/domain/shell_entries.dart';
+import '../../features/shells/domain/shells_feature_flag.dart';
+import '../../features/shells/presentation/advertise_screen.dart';
+import '../../features/shells/presentation/calls_screen.dart';
+import '../../features/shells/presentation/creator_studio_screen.dart';
+import '../../features/shells/presentation/premium_dialog.dart';
 import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -80,6 +86,14 @@ class AppRouter {
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
+  // W8-2: the read-only shells, behind the `shells` flag (every path redirects
+  // Home without it). The first three are ShellRoute children, built only when
+  // their kind is in `kVisibleShells`. `/premium` is a dialog on the root
+  // navigator, reachable only by `push` (see `kShellPushExtra`).
+  static const creatorStudioPath = '/creator-studio';
+  static const premiumPath = '/premium';
+  static const advertisePath = '/advertise';
+  static const callsPath = '/calls';
   static String profilePath(String handle) => '/profile/$handle';
 
   /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
@@ -152,6 +166,15 @@ class AppRouter {
         path: accountDeletedPath,
         builder: (context, state) => const AccountDeletedScreen(),
       ),
+      // A dialog over the current page, so it lives on the root navigator
+      // outside the shell. Only `push` (with `kShellPushExtra`) opens it: a
+      // typed URL, a reload or a cold start lands Home (`_shellsFlagRedirect`).
+      if (kVisibleShells.contains(ShellKind.premium))
+        GoRoute(
+          path: premiumPath,
+          pageBuilder: (context, state) =>
+              PremiumDialogPage(key: state.pageKey),
+        ),
       ShellRoute(
         builder: (context, state, child) =>
             MainShell(location: state.matchedLocation, child: child),
@@ -177,6 +200,23 @@ class AppRouter {
               ),
             ),
           ),
+          if (kVisibleShells.contains(ShellKind.creatorStudio))
+            GoRoute(
+              path: creatorStudioPath,
+              builder: (context, state) =>
+                  const AuthGate(child: CreatorStudioScreen()),
+            ),
+          if (kVisibleShells.contains(ShellKind.advertise))
+            GoRoute(
+              path: advertisePath,
+              builder: (context, state) =>
+                  const AuthGate(child: AdvertiseScreen()),
+            ),
+          if (kVisibleShells.contains(ShellKind.calls))
+            GoRoute(
+              path: callsPath,
+              builder: (context, state) => const AuthGate(child: CallsScreen()),
+            ),
           GoRoute(
             path: '/u/:userId',
             builder: (context, state) => AuthGate(
@@ -367,7 +407,8 @@ class AppRouter {
         if (loc == onboardingPath) return _landingPath;
         // Only meaningful without a profile; Settings has the real entry.
         if (loc == onboardingDeletePath) return settingsPath;
-        return _graphFlagRedirect(loc) ??
+        return _shellsFlagRedirect(loc, state.extra) ??
+            _graphFlagRedirect(loc) ??
             _accountFlagRedirect(loc) ??
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
@@ -399,6 +440,24 @@ class AppRouter {
       return null;
     }
     return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
+  }
+
+  /// The four shell paths redirect Home unless `shells` is on for this caller
+  /// (W8-2). `/premium` also redirects Home when it was not pushed from inside
+  /// the app (no [kShellPushExtra]): a typed URL, a reload or a cold start
+  /// never opens the dialog on its own. The routes do not need `ui_shell`.
+  String? _shellsFlagRedirect(String loc, Object? extra) {
+    if (loc != creatorStudioPath &&
+        loc != premiumPath &&
+        loc != advertisePath &&
+        loc != callsPath) {
+      return null;
+    }
+    if (!_onboardingBloc.state.enabledFeatures.contains(kFeatureShells)) {
+      return homePath;
+    }
+    if (loc == premiumPath && extra != kShellPushExtra) return homePath;
+    return null;
   }
 
   /// `/notifications` redirects Home when the flag is off for this caller.

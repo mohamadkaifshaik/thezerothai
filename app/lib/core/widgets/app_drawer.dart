@@ -9,6 +9,7 @@ import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/shells/domain/shell_entries.dart';
 import '../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../shared/widgets/app_avatar.dart';
 import '../feature_flags/feature_flags.dart';
@@ -24,7 +25,8 @@ import '../theme/app_theme.dart';
 /// row closes the drawer, then navigates; the counts open the same lists as
 /// the profile header. Bookmarks (W2-7) sits between Profile and Settings
 /// with the `bookmarks` and `posts` flags on; later waves add Lists here,
-/// behind its flag.
+/// behind its flag. With `shells` and `ui_shell` on, the shell rows (Creator
+/// tools, Premium, Advertise, Calls) follow under a divider, before Settings.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -32,6 +34,7 @@ class AppDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = context.select((OnboardingBloc bloc) => bloc.state.profile);
     final handle = profile?.handle ?? '';
+    final shellEntries = shellEntriesFor(context);
     return Drawer(
       // 277dp, never more than 85 % of the screen on a very narrow phone.
       width: math.min(
@@ -61,6 +64,19 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.bookmarksPath)),
               ),
+            // The read-only shells (W8-2): after every feature row, before
+            // Settings, under a hairline. Needs `shells` and `ui_shell`.
+            if (shellEntries.isNotEmpty) ...[
+              const Divider(height: 1),
+              for (final entry in shellEntries)
+                _DrawerRow(
+                  key: ValueKey('shell-${entry.kind.name}'),
+                  icon: entry.icon,
+                  label: entry.label,
+                  onTap: () =>
+                      _go(context, () => openShellEntry(context, entry)),
+                ),
+            ],
             _DrawerRow(
               icon: Icons.settings_outlined,
               label: 'Settings',
@@ -212,6 +228,7 @@ class _CountLink extends StatelessWidget {
 /// One 56dp destination row: a 24dp outline icon and a bold 20dp label.
 class _DrawerRow extends StatelessWidget {
   const _DrawerRow({
+    super.key,
     required this.icon,
     required this.label,
     required this.onTap,
