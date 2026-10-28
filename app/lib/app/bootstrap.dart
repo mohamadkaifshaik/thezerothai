@@ -31,6 +31,8 @@ import '../features/media/data/media_repository.dart';
 import '../features/media/domain/media_feature_flag.dart';
 import '../features/moderation/data/moderation_repository.dart';
 import '../features/moderation/domain/reports_feature_flag.dart';
+import '../features/messages/data/messaging_repository.dart';
+import '../features/messages/data/messaging_store.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/notifications/data/notifications_store.dart';
 import '../features/notifications/data/push_messaging.dart';
@@ -226,6 +228,18 @@ Future<void> bootstrap() async {
     gate: notificationsGate,
     rateLimitHold: rateLimitHold,
   );
+  // Direct messages (ADR-0027): the only caller of MessagingService. The
+  // screens (W7-14 onwards) take it from here; sign-out clears its in-flight
+  // work and `clearAll` wipes its tables. Its list reads share the read hold.
+  final messagingRepository = MessagingRepository(
+    apiClient: apiClient,
+    store: MessagingStore(database),
+    gate: buildMessagingGate(
+      onboardingBloc,
+      onUnexpectedError: reportUnexpectedError,
+    ),
+    rateLimitHold: rateLimitHold,
+  );
   final moderationRepository = ModerationRepository(
     apiClient: apiClient,
     gate: reportsGate,
@@ -252,6 +266,7 @@ Future<void> bootstrap() async {
           database: database,
           timelineRepository: timelineRepository,
           notificationsRepository: notificationsRepository,
+          messagingRepository: messagingRepository,
         ),
       );
       graphRepository.clearCache();
