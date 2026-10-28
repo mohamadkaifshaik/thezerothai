@@ -81,9 +81,9 @@ func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
 	if post == nil {
 		return
 	}
-	if post.Visibility != "" && post.Visibility != posts.VisibilityPublic {
-		return // never announce a post that is not publicly visible (moderation hold, followers-only)
-	}
+	// No filter on the stored post.Visibility: it stays PUBLIC for protected authors (ADR-0025 D2). A protected
+	// author's post still notifies recipients who may see it; the fan-out drops the rest through the audience seam
+	// (notifications.AudienceChecker, W3-31).
 	covered := "" // the one user a quote or reply of this post already notifies
 	typ := notifications.Type("")
 	switch {
@@ -116,8 +116,19 @@ func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
 // clears them.
 func (postNotifier) Deleted(context.Context, string, string) {}
 
-// FollowRequested and FollowRequestAccepted are no-ops until W3-31 maps them to the follow_request and follow_accepted
-// notification types (ADR-0025 D10); declared now so graph.FollowEvents compiles with its two new methods.
-func (f followNotifier) FollowRequested(context.Context, string, string, time.Time) {}
+// FollowRequested notifies the protected target that requesterUID asked to follow (ADR-0025 D10). graph calls it only
+// on the commit that created the request, never on a replay. The row id is deterministic, so a withdraw and a new
+// request inside the 90 d TTL is AlreadyExists in the fan-out: no second row and no second push.
+func (f followNotifier) FollowRequested(ctx context.Context, requesterUID, targetUID string, at time.Time) {
+	f.slot.emit(ctx, notifications.Event{
+		Type: notifications.TypeFollowRequest, ActorID: requesterUID, RecipientIDs: []string{targetUID}, At: at,
+	})
+}
 
-func (f followNotifier) FollowRequestAccepted(context.Context, string, string, time.Time) {}
+// FollowRequestAccepted notifies the requester that targetUID accepted (ADR-0025 D10). The actor is the target. The
+// accept does not call Followed, so the target gets no FOLLOW row for an edge they approved themselves.
+func (f followNotifier) FollowRequestAccepted(ctx context.Context, targetUID, requesterUID string, at time.Time) {
+	f.slot.emit(ctx, notifications.Event{
+		Type: notifications.TypeFollowAccepted, ActorID: targetUID, RecipientIDs: []string{requesterUID}, At: at,
+	})
+}

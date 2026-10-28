@@ -133,7 +133,7 @@ func TestNewPushLimiterNonPositiveIsUnlimited(t *testing.T) {
 
 func TestBuildMessageCollapsesByTypeAndKeepsID(t *testing.T) {
 	t.Parallel()
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted} {
 		t.Run(string(ty), func(t *testing.T) {
 			t.Parallel()
 			m := buildMessage("tok", Push{Type: ty, NotificationID: "like_" + postA + "_2026101012", PostID: postA, ActorID: "alice"})

@@ -97,7 +97,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Open (depends: W3-25b; merges after W3-26a) |
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | Open (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Open (depends: W3-29a, W3-26a) |
-| W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Open (depends: W3-25b; merges after W3-29a and W3-26a) |
+| W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | In review (PR #TBD; depends: W3-25b; merges after W3-29a and W3-26a) |
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Open (depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Open (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Open (depends: W3-26a, W3-29a serving dev) |
@@ -943,7 +943,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** The `timeline` interface and the opaque tokens.
 - **Cost.** No more than today's NOT_FOUND path.
 
-#### W3-31 Notifications: request types and protected-actor suppression [backend-developer] [S] [depends: W3-25b; merges after W3-29a and W3-26a] Status: Open
+#### W3-31 Notifications: request types and protected-actor suppression [backend-developer] [S] [depends: W3-25b; merges after W3-29a and W3-26a] Status: In review (PR #TBD)
 - **The two types** (D10):
   - `follow_request`, id `follow_request_{requesterUid}`, sent to the target.
   - `follow_accepted`, id `follow_accepted_{targetUid}`, sent to the requester.
