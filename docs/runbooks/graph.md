@@ -256,3 +256,35 @@ tab or window left open for days drops the rows at expiry (security L-1; a faili
 | Fewer than 5 rows although many candidates | Hydration dropped suspended or deleted users, or the viewer's graph is small. The top-up is made before hydration, never after, to keep the 32-read cap. With the 20-edge window (Amendment 2) a small, dense network, where many friends of friends are already followed, gives up to a third fewer usable candidates, so more cards come back with 3 or 4 rows or with curated rows after the friends of friends: the B3 fill check watches it (section 6, cost trigger); walk `SUGGESTIONS_EDGE_LIMIT` back toward 30 if it persists. |
 | `fs_reads` 33 to 42 on a cold call | Expected only where `SUGGESTIONS_EDGE_LIMIT=30` is still set (prod until its literal is applied; a project that walked the limit back; dev was applied on 2026-10-28): cap `2 + edge limit + hydrate max`. Read the serving revision's env first. Above that cap, or above 32 where the limit is 20, it is a regression (Reads, above). |
 | ERROR logs mentioning a graph error with hashed uids | Firestore failure in the edge query or hydration; the text is redacted (`logger.RedactErr`). Not cached, the next call retries. A canceled request is CANCELED, not INTERNAL. |
+
+## 7. Follow requests: Follow to a protected account, withdraw, Block clean-up (ADR-0025 D6, D7, AQ4; ticket W3-27)
+A Follow of a protected account (`users/{uid}.isPrivate`, the single source of truth) is a request, not an edge. It is
+never gated by `FEATURE_PRIVATE_ACCOUNTS`; only `FEATURE_GRAPH` applies (section 4), and withdrawing (Unfollow of a
+REQUESTED target) is undo, so no private-accounts check sits on it either.
+
+**What Follow writes.** The transaction reads the target's `users` doc fresh (`identity.TxProfiles.ProfileInTx`), the caller's
+`graph` doc and `quotas`. Protected and not followed: `Create followRequests/{caller}_{target}` + `ArrayUnion` into the
+caller's `requested` + `quotas.follows` (3 writes, answer `FOLLOW_STATE_REQUESTED`). Already following: a replay, before
+any request logic (invariant I-X). Request already there (`requested` holds the target): `REQUESTED`, 0 writes, no quota.
+A request doc that exists while `requested` lacks the entry (drift) fails the commit with AlreadyExists and is answered
+as the same replay. A target that is missing, SUSPENDED or DELETING is the same NOT_FOUND a missing user gets.
+A public target that still has a pending request (the `privacy_public` job has not run, AQ4) takes the edge path and also
+deletes the request and its `requested` entry in the same transaction (+1 delete).
+
+**Reads and writes.** Follow 4 cold / 3 warm (planning 4; +1 for an overflowed caller): target `users`, caller `graph`,
+`quotas`, plus the caller's profile when cold. Writes 5 (edge) or 3 (request); a replay 0. Withdraw: 0 reads in the two
+blind batches, 1 write (`requested` `ArrayRemove`) + 1 delete (the request, `Exists`); nothing to withdraw 0. Block:
++0 reads, +0 writes, at most +2 deletes (plain `Delete`, no `Exists`, so drift can never fail a Block).
+
+**Request-line fields** (counts and enums only). `follow_outcome=edge|requested|replay`; `withdraw=request|none` (set only
+when the edge batch found nothing); `requests_removed` (0 to 2) on Block; `txn_attempts`; `target_uid_hash` on Follow.
+
+| Symptom | Cause and action |
+|---|---|
+| `LIMIT_REACHED` with metadata `limit=follow_requests` | The caller has 500 pending requests (`graph.requested` cap). Expected for a spammer. The user withdraws some, or the targets answer. No action unless a legitimate user hits it: the cap is code, a change needs the ADR |
+| Follow on one target shows `txn_attempts > 3`, WARN `graph_txn_contention`, or UNAVAILABLE "temporarily busy" | The D6 contention signal. The target's `users` doc is in every Follow's read set, so concurrent Follows of one popular account serialize on it (they already wrote its `followersCount`). Group by `target_uid_hash`: one hash is a popular account or a brigade (also see `abuse-spike.md` 5a). **Fallback (a reviewed code change, not a live switch):** read the target from the 60 s identity cache again, which accepts a 60 s window in which a Follow can become an edge to a just-protected account; if that is not enough, the sharded follower counter of ADR-0008 D3's revisit line (ADR) |
+| `fs_reads` of a Follow above 4 cold / 3 warm | Regression: the service must ask `identity.Directory` for the caller only; the target comes from the transaction. Check `Follow` in `rpcs.go` |
+| A user shows `REQUESTED` but the target never saw a request | I-R drift: `graph/{uid}.requested` has the entry but `followRequests/{uid}_{target}` is gone (a failed hand-over, an interrupted purge). Withdraw (Unfollow) clears the entry only if the doc exists: the second batch's `Exists` precondition fails first. Repair by `ArrayRemove` of the entry (founder-approved one-off), and file the cause. A new Follow of a public target heals it (AQ4 plain `Delete`) |
+| A request doc exists and `requested` lacks the entry | Opposite drift. A repeat Follow answers REQUESTED (AlreadyExists = replay) and writes nothing, so the entry stays missing until the doc is deleted (withdraw works: the batch deletes the doc) |
+| Follow to a protected account returned FEATURE_DISABLED | Pre-W3-27 behaviour (ADR-0008 D1 legacy rule). Only an older revision does this: check the serving revision |
+| A Block left a request behind | The Block transaction deletes `followRequests` in both directions when the other side is in `requested`; a request the arrays do not show (drift) survives. The account purge (`follow_requests` step) removes it later |

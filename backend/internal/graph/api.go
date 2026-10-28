@@ -23,7 +23,8 @@ const (
 	FollowStateUnspecified FollowState = iota
 	FollowStateNone
 	FollowStateFollowing
-	// FollowStateRequested is returned for a pending follow request to a protected account (ADR-0025); unreachable until W3-27.
+	// FollowStateRequested is a pending follow request to a protected account (ADR-0025 D2): the target is in the caller's
+	// graph.requested array, so every path that holds the caller's Snapshot reports it at 0 extra reads.
 	FollowStateRequested
 )
 
@@ -59,6 +60,7 @@ func (s Snapshot) isFollowing(uid string) bool { return s.Following[uid] }
 func (s Snapshot) isBlocked(uid string) bool   { return s.Blocked[uid] }
 func (s Snapshot) isMuted(uid string) bool     { return s.Muted[uid] }
 func (s Snapshot) isBlockedBy(uid string) bool { return s.BlockedBy[uid] }
+func (s Snapshot) isRequested(uid string) bool { return s.Requested[uid] }
 
 // relationshipFor computes a Relationship from a caller's own Snapshot only (ADR-0008 D4): never reports
 // followed_by, never reflects BlockedBy (a user who blocked the caller looks like a stranger).
@@ -66,6 +68,8 @@ func relationshipFor(callerSnap Snapshot, targetUID string) Relationship {
 	rel := Relationship{UserID: targetUID}
 	if callerSnap.isFollowing(targetUID) {
 		rel.FollowState = FollowStateFollowing
+	} else if callerSnap.isRequested(targetUID) { // I-X: never together with an edge, so following wins
+		rel.FollowState = FollowStateRequested
 	} else {
 		rel.FollowState = FollowStateNone
 	}
