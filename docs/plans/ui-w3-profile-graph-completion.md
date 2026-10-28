@@ -108,7 +108,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
-| W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
+| W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
@@ -1182,7 +1182,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Docs.** `docs/ui-catalog.md`: `FollowButton` and `UserListRow` rows.
 - **Flag.** None. **Cost.** 0 new RPCs, 0 reads.
 
-#### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: Open
+#### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: In review (PR #415): FAIL on D-2 (medium), D-1 and D-3 (low), `docs/reviews/test-report-w3b-client.md`
 - **The responsive matrix** (360 / 600 / 1200 dp x light / dark x 1.0 / 1.3 / 2.0, 48 dp targets, inside the screen) for:
   - the protected profile view, the lock badge (header and `UserListRow`, W3-33c) and Requested;
   - the protect switch and its two confirms;

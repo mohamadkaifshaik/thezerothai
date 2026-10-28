@@ -6,6 +6,7 @@ import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -20,12 +21,24 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/geometry.dart';
+import '../../support/suggestions_fixtures.dart' show suggestedUser;
+import '../../support/theme_harness.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
+
+class _MockGraph extends Mock implements GraphRepository {}
+
+Widget _withGraph(GraphRepository? repository, Widget child) =>
+    repository == null
+    ? child
+    : RepositoryProvider<GraphRepository>.value(
+        value: repository,
+        child: child,
+      );
 
 final _alice = identity.Profile(
   userId: 'u-alice',
@@ -62,6 +75,7 @@ void main() {
     int pending = 0,
     Brightness brightness = Brightness.light,
     double textScale = 1,
+    GraphRepository? graphRepository,
   }) async {
     whenListen(
       onboarding,
@@ -120,18 +134,21 @@ void main() {
     tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MultiBlocProvider(
-        providers: [
-          BlocProvider<OnboardingBloc>.value(value: onboarding),
-          BlocProvider<AuthBloc>.value(value: auth),
-        ],
-        child: MaterialApp.router(
-          theme: buildAppTheme(brightness: brightness),
-          routerConfig: router,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
+      _withGraph(
+        graphRepository,
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OnboardingBloc>.value(value: onboarding),
+            BlocProvider<AuthBloc>.value(value: auth),
+          ],
+          child: MaterialApp.router(
+            theme: buildAppTheme(brightness: brightness),
+            routerConfig: router,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
           ),
         ),
       ),
@@ -259,6 +276,122 @@ void main() {
         semantics.dispose();
       });
 
+      // W3-35c: the badge row in every cell of the W3-21 matrix.
+      for (final pending in [7, 1000]) {
+        forEachThemeAndWidth(
+          'badge row with $pending pending fits the drawer and keeps 56dp',
+          (tester, env) async {
+            await pump(
+              tester,
+              profile: protectedAlice,
+              flags: {'graph'},
+              pending: pending,
+              size: env.size,
+              brightness: env.brightness,
+              textScale: env.textScale,
+            );
+            await openDrawer(tester);
+            expectNoOverflow(tester);
+
+            final drawer = tester.getRect(find.byType(Drawer));
+            final row = find.byKey(const ValueKey('drawer-follow-requests'));
+            expect(
+              tester.getSize(row).height,
+              greaterThanOrEqualTo(AppSize.drawerRow - 0.5),
+              reason: 'row height',
+            );
+            final label = find.text('Follow requests');
+            final badge = find.text(followRequestBadgeText(pending));
+            expect(badge, findsOneWidget);
+            for (final part in [label, badge]) {
+              final rect = tester.getRect(part);
+              expect(rect.left, greaterThanOrEqualTo(drawer.left - 0.5));
+              expect(rect.right, lessThanOrEqualTo(drawer.right + 0.5));
+            }
+            expect(
+              tester.getRect(label).overlaps(tester.getRect(badge)),
+              isFalse,
+              reason: 'badge over the label',
+            );
+          },
+          // The drawer is a phone surface: below 600 dp only (wide layouts
+          // use the rail and the account chip, see D-2 in the W3-35c report).
+          widths: const [360],
+          textScales: kMatrixTextScalesLarge,
+        );
+      }
+
+      testWidgets('the badge is the GetMe count and nothing else: a long '
+          'list is never fetched to count it', (tester) async {
+        final graphRepo = _MockGraph();
+        when(
+          () => graphRepo.listFollowRequests(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        ).thenAnswer(
+          (_) async => GraphPage(
+            items: [for (var i = 1; i <= 20; i++) suggestedUser(i)],
+            nextPageToken: 'more',
+          ),
+        );
+        when(() => graphRepo.followRequestsUnavailable).thenReturn(false);
+        await pump(
+          tester,
+          profile: protectedAlice,
+          flags: {'graph'},
+          pending: 3,
+          graphRepository: graphRepo,
+        );
+        await openDrawer(tester);
+        expect(find.text('3'), findsOneWidget);
+        expect(find.text('20'), findsNothing);
+        verifyNever(
+          () => graphRepo.listFollowRequests(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        );
+      });
+
+      // D-3 (low): after ListFollowRequests answers FEATURE_DISABLED or
+      // UNIMPLEMENTED the repository is "unavailable" for 10 minutes
+      // (`followRequestsUnavailable`), but nothing outside it reads that, so
+      // a protected caller keeps the drawer entry and the tap lands on "not
+      // available". Plan W3-34: "FEATURE_DISABLED hides it with a 10-minute
+      // backoff". Flip to false when the owner resolves it.
+      const d3Open = true;
+      testWidgets(
+        'D-3: while the repository is backed off the entry is hidden',
+        (tester) async {
+          final graphRepo = _MockGraph();
+          when(() => graphRepo.followRequestsUnavailable).thenReturn(true);
+          await pump(
+            tester,
+            profile: protectedAlice,
+            flags: {'graph'},
+            pending: 3,
+            graphRepository: graphRepo,
+          );
+          await openDrawer(tester);
+          expect(find.text('Follow requests'), findsNothing);
+        },
+        skip: d3Open,
+      );
+
+      // D-1 (low): the drawer shows the entry for any count above 0, while
+      // the router redirects a public caller without `private_accounts` Home
+      // (app_drawer.dart:45-47 vs app_router.dart:495-498). The plan's W3-34
+      // states both rules. Flip to false when the owner resolves it.
+      const d1Open = true;
+      testWidgets('D-1: a public account with a stale count and '
+          'private_accounts off has no entry that the router sends Home', (
+        tester,
+      ) async {
+        await pump(tester, profile: _alice, flags: {'graph'}, pending: 3);
+        await openDrawer(tester);
+        expect(find.text('Follow requests'), findsNothing);
+      }, skip: d1Open);
       testWidgets('fits and keeps a 56dp row at 360dp x2.0 in dark', (
         tester,
       ) async {
