@@ -520,6 +520,11 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	if err != nil {
 		return Result{}, err
 	}
+	// ADR-0025 D5: a protected author's post is reposted only by that author; any other caller who can see it (an
+	// approved follower) gets PROTECTED_ACCOUNT, 0 writes. Undo (UndoRepost) never reaches this.
+	if err := s.d.Posts.RefuseShare(ctx, uid, target); err != nil {
+		return Result{}, err
+	}
 	prof, err := s.profile(ctx, uid)
 	if err != nil {
 		return Result{}, err

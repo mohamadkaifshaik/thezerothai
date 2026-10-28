@@ -127,7 +127,9 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 // overflowed. Another user's QUOTE or REPOST adds nothing when the author check already read the caller graph
 // (the same cached snapshot) and, on a blockedBy overflow, 1 read for the embedded author's graph, so the
 // overflow worst case is +2. The caller's own QUOTE or REPOST is exempt from the embed check (D13, same as a
-// direct post): no graph read at all. 0 warm; writes 0.
+// direct post): no graph read at all, except that with a protected-set loader wired the caller's own copy of someone
+// else's post reads the caller graph (+1 cold, ADR-0025 D4: the follow state toward the copied author decides the
+// copy). The protected-set refresh is detached and never charged here. 0 warm; writes 0.
 func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "get")
 	defer func() {
@@ -179,40 +181,39 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 	}
 
 	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller
-	// the copy must not leak their content, so the whole post is NOT_FOUND (ADR-0018 D13). The caller's own
-	// embedded posts and tombstones (no author) are exempt.
+	// the copy must not leak their content, so the whole post is NOT_FOUND (ADR-0018 D13); when that author is
+	// protected and the caller may not see them (ADR-0025 D4) a REPOST is NOT_FOUND and a QUOTE is shown with its
+	// copy stripped (ApplyEmbedState). The block check exempts the caller's own copies and tombstones (no author);
+	// the protected check exempts neither the caller's own copy nor anything else, but costs a graph read only for
+	// a caller's own REPOST/QUOTE of someone else's post while a protected-set loader is wired.
 	embAuthor := p.EmbeddedAuthor()
-	checkEmbed := embAuthor != "" && embAuthor != callerUID && embAuthor != p.AuthorID && p.AuthorID != callerUID
+	needSnap := p.AuthorID != callerUID || (s.aud.Enabled() && embAuthor != "" && embAuthor != callerUID)
 
-	if p.AuthorID != callerUID || checkEmbed {
-		snap, err := s.graph.Snapshot(ctx, callerUID)
+	var snap graph.Snapshot
+	if needSnap {
+		snap, err = s.graph.Snapshot(ctx, callerUID)
 		if err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID, p.AuthorID)
 		}
-		if p.AuthorID != callerUID {
-			blocked, err := s.blockedBy(ctx, snap, callerUID, p.AuthorID)
-			if err != nil {
-				return nil, err
-			}
-			if blocked {
-				return nil, ErrNotFound
-			}
-			// Follower-only posts need an accepted follow; P1 writes only public posts, so this fails closed.
-			if p.Visibility != VisibilityPublic && !snap.Following[p.AuthorID] {
-				return nil, ErrNotFound
-			}
-		}
-		if checkEmbed {
-			blocked, err := s.blockedBy(ctx, snap, callerUID, embAuthor)
-			if err != nil {
-				return nil, err
-			}
-			if blocked {
-				return nil, ErrNotFound
-			}
-		}
+	}
+	// Block, then the one visibility predicate (ADR-0025 D3). Never the stored visibility, which is always PUBLIC.
+	d, err := s.aud.Decide(ctx, callerUID, snap, p, SurfaceDirect)
+	if err != nil {
+		return nil, s.audienceErr(err, callerUID, p.AuthorID)
+	}
+	if d.Verdict != Show {
+		return nil, ErrNotFound
 	}
 	return p, nil
+}
+
+// audienceErr passes an apierr (UNAVAILABLE from the protected set, or a graph error already redacted) through.
+func (s *service) audienceErr(err error, uids ...string) error {
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return err
+	}
+	return logger.RedactErr(err, uids...)
 }
 
 // blockedBy reports whether other blocks the caller: the caller's blockedBy set, or, once that set overflowed its
