@@ -253,6 +253,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		Audience:  notifAudience,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
+		// ADR-0027 D9: the push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
+		MessagePushLimit: notifications.NewPushLimiter(cfg.Messaging.PushesPerRecipientPerHour),
 	})
 	switch cfg.NotificationsDelivery {
 	case "inline":

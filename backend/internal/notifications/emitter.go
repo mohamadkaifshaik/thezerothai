@@ -25,7 +25,7 @@ func prepare(e Event, fl FlagChecker, now time.Time) (Event, bool) {
 			continue
 		}
 		seen[r] = true
-		if fl != nil && !fl.Enabled(r, FlagName) {
+		if !recipientFlagsOn(fl, r, e.Type) {
 			continue
 		}
 		out.RecipientIDs = append(out.RecipientIDs, r)
@@ -37,6 +37,18 @@ func prepare(e Event, fl FlagChecker, now time.Time) (Event, bool) {
 		out.At = now
 	}
 	return out, len(out.RecipientIDs) > 0 && validateEvent(out) == ""
+}
+
+// recipientFlagsOn reports whether uid may receive an event of type t: `notifications` for every type, and also
+// `messaging` for the push-only message type (ADR-0027 D9). A nil checker allows everything (tests).
+func recipientFlagsOn(fl FlagChecker, uid string, t Type) bool {
+	if fl == nil {
+		return true
+	}
+	if !fl.Enabled(uid, FlagName) {
+		return false
+	}
+	return t != TypeMessage || fl.Enabled(uid, MessagingFlagName)
 }
 
 // RecipientCap is the per-actor daily cap on notification recipients (security audit N-1, CLAUDE.md rule 11). Every

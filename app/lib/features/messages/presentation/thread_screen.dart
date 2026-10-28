@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/scroll_constants.dart';
@@ -29,10 +30,12 @@ import '../data/messaging_repository.dart';
 import '../data/timer_thread_poller.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/thread_poller.dart';
+import 'bloc/message_composer_cubit.dart';
 import 'bloc/thread_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'thread_items.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/outgoing_bubble.dart';
 
 /// The line that replaces the composer on a read-only conversation.
 const kThreadReadOnlyText = "You can't reply to this conversation";
@@ -65,12 +68,16 @@ typedef ThreadPollerBuilder = ThreadPoller Function(
 ///   arrive while visible, only with unread above 0.
 /// - Info menu: Block (the graph flow), Report (the [onReport] seam, W7-18;
 ///   disabled until it is wired) and Delete conversation.
-/// - Read-only (`can_reply` false): no composer, the line
-///   [kThreadReadOnlyText].
+/// - Read-only (`can_reply` false, or a send answered CANNOT_MESSAGE): no
+///   composer, the line [kThreadReadOnlyText].
+/// - Sends (W7-16): a [MessageComposerCubit] is provided next to the
+///   `ThreadCubit`. Its outgoing rows draw at the bottom of the list as
+///   [OutgoingBubble]s, hidden once the thread holds the server's message (deduped
+///   by id); a send scrolls to the newest.
 ///
 /// Seams for later tickets:
 /// - [composerBuilder] (W7-16) draws the composer under the list when the
-///   conversation can be replied to.
+///   conversation can be replied to (the router passes a `MessageComposer`).
 /// - [bannerBuilder] (W7-18) draws the request banner between the header and
 ///   the list.
 /// - [onReport] (W7-18) opens the report sheet.
@@ -125,27 +132,23 @@ class ThreadScreen extends StatelessWidget {
         ),
       );
     }
-    return BlocProvider<ThreadCubit>(
-      create: (context) {
-        final repository = context.read<MessagingRepository>();
-        final report = context.read<UnexpectedErrorReporter>();
-        late final ThreadCubit cubit;
-        Future<PollResult> pull() => cubit.pull();
-        final poller = pollerBuilder != null
-            ? pollerBuilder!(pull, repository)
-            : TimerThreadPoller(
-                pull: pull,
-                rateLimitHold: repository.rateLimitHold,
-                onError: report,
-              );
-        cubit = ThreadCubit(
-          repository: repository,
-          poller: poller,
-          conversationId: conversationId,
-          onUnexpectedError: report,
-        )..load();
-        return cubit;
-      },
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<ThreadCubit>(create: _createThreadCubit),
+        BlocProvider<MessageComposerCubit>(
+          create: (context) {
+            final thread = context.read<ThreadCubit>();
+            return MessageComposerCubit(
+              repository: context.read<MessagingRepository>(),
+              conversationId: conversationId,
+              onActivity: thread.noteInput,
+              onSent: thread.noteSent,
+              onCannotMessage: thread.markCannotMessage,
+              onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+            );
+          },
+        ),
+      ],
       child: _ThreadView(
         composerBuilder: composerBuilder,
         bannerBuilder: bannerBuilder,
@@ -154,6 +157,27 @@ class ThreadScreen extends StatelessWidget {
         now: now,
       ),
     );
+  }
+
+  ThreadCubit _createThreadCubit(BuildContext context) {
+    final repository = context.read<MessagingRepository>();
+    final report = context.read<UnexpectedErrorReporter>();
+    late final ThreadCubit cubit;
+    Future<PollResult> pull() => cubit.pull();
+    final poller = pollerBuilder != null
+        ? pollerBuilder!(pull, repository)
+        : TimerThreadPoller(
+            pull: pull,
+            rateLimitHold: repository.rateLimitHold,
+            onError: report,
+          );
+    cubit = ThreadCubit(
+      repository: repository,
+      poller: poller,
+      conversationId: conversationId,
+      onUnexpectedError: report,
+    )..load();
+    return cubit;
   }
 }
 
@@ -380,13 +404,35 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
-          child: BlocListener<ThreadCubit, ThreadState>(
-            listenWhen: (a, b) =>
-                a.messages != b.messages || a.hasMore != b.hasMore,
-            listener: (context, state) {
-              if (widget.now == null) _now = DateTime.now();
-              WidgetsBinding.instance.addPostFrameCallback((_) => _maybeFill());
-            },
+          child: MultiBlocListener(
+            listeners: [
+              BlocListener<ThreadCubit, ThreadState>(
+                listenWhen: (a, b) =>
+                    a.messages != b.messages || a.hasMore != b.hasMore,
+                listener: (context, state) {
+                  if (widget.now == null) _now = DateTime.now();
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _maybeFill(),
+                  );
+                },
+              ),
+              // CANNOT_MESSAGE: the thread went read-only; say why once.
+              BlocListener<ThreadCubit, ThreadState>(
+                listenWhen: (a, b) => !a.cannotMessage && b.cannotMessage,
+                listener: (context, state) => ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(
+                      content: Text(CannotMessageException.userMessage),
+                    ),
+                  ),
+              ),
+              // A new send scrolls to the newest message.
+              BlocListener<MessageComposerCubit, MessageComposerState>(
+                listenWhen: (a, b) => b.outgoing.length > a.outgoing.length,
+                listener: (context, state) => _jumpToNewest(cubit),
+              ),
+            ],
             child: Column(
               children: [
                 BlocBuilder<ThreadCubit, ThreadState>(
@@ -407,7 +453,8 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                   buildWhen: (a, b) =>
                       a.status != b.status ||
                       a.conversation != b.conversation ||
-                      a.peerBlocked != b.peerBlocked,
+                      a.peerBlocked != b.peerBlocked ||
+                      a.cannotMessage != b.cannotMessage,
                   builder: (context, state) => _bottom(state),
                 ),
               ],
@@ -488,29 +535,61 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
           ),
         ?banner,
         Expanded(
-          child: state.hasMessages
-              ? _messages(cubit, state)
-              : state.refreshing
-              ? const _ThreadSkeleton()
-              : const Center(
-                  child: AppEmptyView(
-                    icon: Icons.chat_bubble_outline,
-                    title: 'No messages yet',
-                    subtitle: 'Messages in this conversation will show here.',
-                  ),
-                ),
+          child: BlocBuilder<MessageComposerCubit, MessageComposerState>(
+            buildWhen: (a, b) => a.outgoing != b.outgoing,
+            builder: (context, composer) {
+              final outgoing = _visibleOutgoing(composer, state);
+              return state.hasMessages || outgoing.isNotEmpty
+                  ? _messages(cubit, state, outgoing)
+                  : _noMessages(state);
+            },
+          ),
         ),
       ],
     );
   }
 
-  Widget _messages(ThreadCubit cubit, ThreadState state) {
+  /// The rows still on their way, newest first: those the thread does not
+  /// hold yet (a sent row hides once its id is in the list, deduped by id).
+  List<OutgoingMessage> _visibleOutgoing(
+    MessageComposerState composer,
+    ThreadState state,
+  ) {
+    if (composer.outgoing.isEmpty) return const [];
+    final held = {for (final m in state.messages) m.id};
+    return [
+      for (final m in composer.outgoing.reversed)
+        if (m.sent == null || !held.contains(m.sent!.id)) m,
+    ];
+  }
+
+  Widget _noMessages(ThreadState state) {
+    return state.refreshing
+        ? const _ThreadSkeleton()
+        : const Center(
+            child: AppEmptyView(
+              icon: Icons.chat_bubble_outline,
+              title: 'No messages yet',
+              subtitle: 'Messages in this conversation will show here.',
+            ),
+          );
+  }
+
+  Widget _messages(
+    ThreadCubit cubit,
+    ThreadState state,
+    List<OutgoingMessage> outgoing,
+  ) {
     final items = buildThreadItems(state.messages);
     final peer = state.conversation?.peer;
     final peerName = peer == null || peer.displayName.isEmpty
         ? '@${peer?.handle ?? ''}'
         : peer.displayName;
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
+    final keys = [
+      for (final m in outgoing) 'outgoing-${m.localId}',
+      for (final i in items) i.key,
+    ];
     return Stack(
       children: [
         // Taps and scrolls start with a pointer down: the thread stays hot.
@@ -527,14 +606,36 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                 role: SemanticsRole.list,
                 label: 'Messages',
                 sliver: SliverList.builder(
-                  itemCount: items.length,
+                  itemCount: outgoing.length + items.length,
                   findChildIndexCallback: (key) {
                     if (key is! ValueKey<String>) return null;
-                    final index = items.indexWhere((i) => i.key == key.value);
+                    final index = keys.indexOf(key.value);
                     return index < 0 ? null : index;
                   },
                   itemBuilder: (context, index) {
-                    final item = items[index];
+                    if (index < outgoing.length) {
+                      final row = outgoing[index];
+                      // Own messages stack: the gap shows only above the
+                      // first of a run.
+                      final olderIsOwn = index + 1 < outgoing.length
+                          ? true
+                          : items.isNotEmpty &&
+                                items.first is MessageItem &&
+                                (items.first as MessageItem).message.fromSelf;
+                      return Semantics(
+                        key: ValueKey(keys[index]),
+                        role: SemanticsRole.listItem,
+                        container: true,
+                        child: OutgoingBubble(
+                          message: row,
+                          onRetry: (id) => unawaited(
+                            context.read<MessageComposerCubit>().retry(id),
+                          ),
+                          topGap: olderIsOwn ? AppSpacing.xs : AppSpacing.sm,
+                        ),
+                      );
+                    }
+                    final item = items[index - outgoing.length];
                     // One list item per row, so the list node does not
                     // absorb the times and day labels.
                     return Semantics(
@@ -610,7 +711,6 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   Widget _bottom(ThreadState state) {
     if (state.status != ThreadStatus.ready) return const SizedBox.shrink();
     if (state.readOnly) return const _ReadOnlyLine();
-    // TODO(W7-16): the composer. Until it is wired there is no input.
     final builder = widget.composerBuilder;
     return builder == null
         ? const SizedBox.shrink()
