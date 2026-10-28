@@ -106,7 +106,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
-| W3-34b | Part B client fix: Follow requests entry points (wide layouts, one visibility rule, backoff) | frontend-developer | S | In review (PR #PRN; depends: W3-34, W3-35c) |
+| W3-34b | Part B client fix: Follow requests entry points (wide layouts, one visibility rule, backoff) | frontend-developer | S | In review (PR #420; depends: W3-34, W3-35c) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
@@ -1125,7 +1125,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
-#### W3-34b Client fix: Follow requests entry points [frontend-developer] [S] [depends: W3-34, W3-35c] Status: In review (PR #PRN)
+#### W3-34b Client fix: Follow requests entry points [frontend-developer] [S] [depends: W3-34, W3-35c] Status: In review (PR #420)
 - **Why.** The W3-35c report (`docs/reviews/test-report-w3b-client.md`) found D-2 (medium), D-1 and D-3 (low). Founder decision 2026-10-28 on the design.
 - **D-2: entry points at 600 dp and wider.**
   - "Follow requests" with the count badge in the account chip menu (`AppAccountChip`), the same pattern as the other menu entries.
