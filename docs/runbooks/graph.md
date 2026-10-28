@@ -315,7 +315,8 @@ drift 1 + 1 delete, requester at the 5,000 following cap or a replay 0. `ListFol
 account for an unapproved viewer: PROTECTED_ACCOUNT after 3 cold reads (interceptor, target profile, caller graph), no page
 read; it needs no flag and no extra read (the set is the detached instance cache of ADR-0025 D3). The pending-request count
 (`graph.service.PendingFollowRequests`, the `identity.FollowRequestCounter` implementation, AQ3) is one `count()` capped at
-1,000 matches (1 read); GetMe wires it in W3-26b.
+1,000 matches (1 read); GetMe wires it in W3-26b. The cold standalone Respond cost and the 1,000 cap are founder-accepted
+(2026-10-28, ADR-0025 "Implementation note (W3-28a)").
 
 **Request-line fields.** `respond=accept|decline|replay|requester_inactive|drift|requester_cap`, `rows_dropped` on a list
 page, `audience=protected|set_unavailable` on a refused follower or following list, `graph_op`, `fs_reads`, `fs_writes`.

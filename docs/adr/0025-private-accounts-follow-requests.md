@@ -704,3 +704,17 @@ Founder decision 2026-10-28: accepted.
   caller's graph once: +1 read cold, 0 warm (cached 60 s), only while a protected-set loader is wired. Own Media
   and Reposts tabs go from 24 to 25 cold at page 20; other viewers' tabs and Home are unchanged. Same reason:
   the copier's follow state toward the original's author decides whether the copy stays.
+
+## Implementation note (W3-28a, 2026-10-28): Respond on a cold instance, and the request-count cap
+
+Founder decisions 2026-10-28: both accepted.
+
+- **Respond cold standalone.** RespondToFollowRequest costs 3 reads cold / 2 warm when it follows a
+  ListFollowRequests on the same instance (the D7 row). On a fully cold instance with no List before it, an
+  Accept or Decline reads up to 2 more (the requester's `users` doc through the Directory, and the caller's
+  `graph` snapshot for the response relationship): up to 5 cold. A cold replay reads 1 more (3). A requester who
+  is not ACTIVE or has drifted reads 4 on first sight. Writes are unchanged. The normal client flow (open the
+  requests screen, then tap) stays at 3 / 2, so no free-tier line moves.
+- **Request-count cap.** `pending_follow_request_count` (AQ3) is one `count()` aggregation on `followRequests`
+  capped at 1,000 matches: 1 read, and the badge shows at most 1,000. The cap applies CLAUDE.md rule 5 (every
+  query has a limit) to the aggregation.
