@@ -1,6 +1,6 @@
 # 0005. Images via client-side resize, V4 signed PUT to GCS (us-central1), SafeSearch on every image
 Status: Accepted
-Date: 2026-09-26 (amended 2026-09-27: founder chose paid screening past the free quota; amended 2026-10-17: client image library)
+Date: 2026-09-26 (amended 2026-09-27: founder chose paid screening past the free quota; amended 2026-10-17: client image library; amendment note 2026-10-28: unguessable public names, W3-36 M-2)
 Deciders: architect, founder
 
 ## Context
@@ -104,3 +104,13 @@ Does not change the Decision above or this ADR's Accepted status; it records the
 
 ## Note (ADR-0022, 2026-10-23; decisions above unchanged)
 Note (ADR-0022): superseded in part until 2026-12-26: `VISION_MONTHLY_CAP` 20,000 (40,000 above 1,300 DAU) and `VISION_EXHAUSTED_POLICY=reject` until 2026-12-22. Correction: with `VISION_SCREEN_THUMB=true` each image costs 2 units, so 10,000 covers about 820 DAU, not 1,600.
+
+## Amendment note (W3-36 M-2, 2026-10-28; accepted by the founder 2026-10-28)
+Founder decision 2026-10-28 on W3-36 M-2: new uploads get unguessable public object names. The Decision's object
+names `m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` become `m/<mediaId>-<suffix>.<ext>` and
+`m/<mediaId>-<suffix>_t.<ext>` for every upload created after W3-39 ships. The suffix is 128 random bits as 32
+lowercase hex characters, chosen at `CreateUpload` and stored on the media doc as `nameSuffix`. Objects created
+before then keep their names (ADR-0025 founder question B1). Buckets, public-read IAM, signed URLs, caching and
+screening are unchanged, and the change costs +0 operations. Design, cost and stage ladder: ADR-0025
+"Implementation note (W3-36 M-2, 2026-10-28)". Option C stays rejected: unguessable names are added, but objects are still
+screened before they are public.
