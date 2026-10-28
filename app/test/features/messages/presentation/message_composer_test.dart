@@ -419,7 +419,7 @@ void main() {
     ) async {
       await open(tester);
       await type(tester, List.filled(11, 'x').join('\n'));
-      expect(find.text('Posts can have at most 10 lines.'), findsOneWidget);
+      expect(find.text('Messages can have at most 10 lines.'), findsOneWidget);
       expect(sendEnabled(tester), isFalse);
 
       await type(tester, 'bad\u202Echar');

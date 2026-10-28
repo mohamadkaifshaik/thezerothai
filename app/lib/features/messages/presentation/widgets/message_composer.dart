@@ -233,7 +233,10 @@ class _MessageComposerState extends State<MessageComposer> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      DraftProblemHint(problem: draft.problem),
+                      DraftProblemHint(
+                        problem: draft.problem,
+                        noun: 'Messages',
+                      ),
                       CharacterCounter(remaining: draft.remaining),
                     ],
                   ),
