@@ -40,7 +40,7 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 	steps := []struct {
 		name string
 		call func() error
-		// replay calls read at most this many docs (ADR-0008 budgets: Follow replay 2, Block replay 3).
+		// replay calls read at most this many docs (Follow replay 3 since ADR-0025 D6, Block replay 3).
 		maxReads int64
 	}{
 		{"Follow", func() error {
@@ -54,7 +54,7 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 		{"Follow replay 2", func() error {
 			_, err := a.graph.Follow(ctx, connect.NewRequest(&graphv1.FollowRequest{IdempotencyKey: key(3), UserId: "uid-mcb"}))
 			return err
-		}, 2},
+		}, 3},
 		{"Block", func() error {
 			_, err := a.graph.Block(ctx, connect.NewRequest(&graphv1.BlockRequest{IdempotencyKey: key(4), UserId: "uid-mcc"}))
 			return err

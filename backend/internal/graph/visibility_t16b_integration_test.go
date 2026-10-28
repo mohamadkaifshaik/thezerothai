@@ -571,14 +571,17 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 		t.Errorf("RespondToFollowRequest reads = %d, want 0", ops.Reads())
 	}
 
-	// Legacy data: a stored isPrivate=true target.
+	// A stored isPrivate=true target: ADR-0025 D6 turns the Follow into a request (it used to be FEATURE_DISABLED).
 	if _, err := w.client.Doc("users/"+uidB).Update(ctx, []firestore.Update{{Path: "isPrivate", Value: true}}); err != nil {
 		t.Fatal(err)
 	}
 	w.identity.(identity.Directory).Forget(uidB)
-	_, err = a.graph.Follow(ctx, connect.NewRequest(&graphv1.FollowRequest{IdempotencyKey: t16bKey(4), UserId: uidB}))
-	if info := decodeErr(t, err); info.Code != connect.CodeFailedPrecondition || info.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
-		t.Errorf("Follow(legacy private) = %+v", info)
+	fresp, err := a.graph.Follow(ctx, connect.NewRequest(&graphv1.FollowRequest{IdempotencyKey: t16bKey(4), UserId: uidB}))
+	if err != nil {
+		t.Fatalf("Follow(protected) = %v, want a request", err)
+	}
+	if got := fresp.Msg.GetRelationship().GetFollowState(); got != graphv1.FollowState_FOLLOW_STATE_REQUESTED {
+		t.Errorf("Follow(protected) follow_state = %v, want REQUESTED", got)
 	}
 	if _, err := a.graph.ListFollowers(ctx, connect.NewRequest(&graphv1.ListFollowersRequest{UserId: uidB})); err != nil {
 		t.Errorf("ListFollowers(legacy private) = %v, want treated as public", err)

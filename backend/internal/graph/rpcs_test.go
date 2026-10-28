@@ -41,14 +41,17 @@ func TestFollow_SelfFollow(t *testing.T) {
 	assertAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 }
 
+// The target's existence is decided inside the repo transaction now (ADR-0025 D6): a missing or non-ACTIVE target comes
+// back as ErrNotFoundOrBlocked and is NOT_FOUND on the wire.
 func TestFollow_TargetMissing_NotFound(t *testing.T) {
 	repo := newFakeRepo()
+	repo.followErr = ErrNotFoundOrBlocked
 	dir := &fakeDirectory{profiles: map[string]identity.Profile{"uid-1": activeProfile("uid-1", time.Now())}}
 	svc := newTestServiceWithDirectory(repo, dir, Deps{})
 	_, err := svc.Follow(context.Background(), "uid-1", validKey, "ghost")
 	assertAPIErr(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
-	if repo.followCalls != 0 {
-		t.Error("expected the repo transaction to never open for a missing target")
+	if repo.followCalls != 1 {
+		t.Errorf("followCalls = %d, want 1 (the repo transaction decides)", repo.followCalls)
 	}
 }
 
@@ -73,7 +76,7 @@ func TestFollow_Success(t *testing.T) {
 	if repo.followCalls != 1 {
 		t.Fatalf("followCalls = %d, want 1", repo.followCalls)
 	}
-	if got := repo.lastFollowArgs[3]; got != int64(200) {
+	if got := repo.lastFollowArgs[2]; got != int64(200) {
 		t.Errorf("dailyLimit = %v, want 200 (not a new account)", got)
 	}
 	if dir.forgetCalled != 1 {
@@ -94,7 +97,7 @@ func TestFollow_NewAccountUsesLowerQuota(t *testing.T) {
 	if _, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2"); err != nil {
 		t.Fatalf("Follow() error = %v", err)
 	}
-	if got := repo.lastFollowArgs[3]; got != int64(50) {
+	if got := repo.lastFollowArgs[2]; got != int64(50) {
 		t.Errorf("dailyLimit = %v, want 50 (new account)", got)
 	}
 }
@@ -130,7 +133,6 @@ func TestFollow_RepoErrors_MapToConnectErrors(t *testing.T) {
 	}{
 		{"blocked by target", ErrNotFoundOrBlocked, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED},
 		{"caller blocks target", ErrCallerBlocksTarget, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED},
-		{"target private", ErrTargetPrivate, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED},
 		{"limit reached", &LimitReachedError{Limit: "following"}, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED},
 	}
 	for _, tt := range tests {
@@ -203,7 +205,8 @@ func TestUnfollow_Noop_SkipsForget(t *testing.T) {
 }
 
 type recordingFollowEvents struct {
-	calls []struct{ follower, followee string }
+	calls    []struct{ follower, followee string }
+	requests []struct{ requester, target string }
 }
 
 func (r *recordingFollowEvents) Followed(_ context.Context, follower, followee string, _ time.Time) {
@@ -258,6 +261,8 @@ func TestFollow_EventsHook(t *testing.T) {
 	})
 }
 
-func (r *recordingFollowEvents) FollowRequested(context.Context, string, string, time.Time) {}
+func (r *recordingFollowEvents) FollowRequested(_ context.Context, requester, target string, _ time.Time) {
+	r.requests = append(r.requests, struct{ requester, target string }{requester, target})
+}
 
 func (r *recordingFollowEvents) FollowRequestAccepted(context.Context, string, string, time.Time) {}

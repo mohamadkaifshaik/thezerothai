@@ -18,11 +18,17 @@ func (s *service) checkFlag(callerUID string) error {
 	return nil
 }
 
-// Follow (ADR-0008 T7). Validation order: flag -> idempotency key format -> target id format -> self ->
-// (via identity.Directory, cache-first) target missing/inactive -> repo transaction (blocked-by, blocks,
-// private, replay, cap, quota — see repo_firestore.go's Follow doc comment for that precedence).
-// Firestore: reads 4 cold / 2 warm (+1 on an overflowed caller), writes 5; replay reads 4 cold / 2 warm, writes 0
-// (ADR-0008 A2; cold = caller and target profiles both miss the identity cache, which a preceding Follow's Forget makes the norm).
+// Follow (ADR-0008 T7, ADR-0025 D6). Validation order: flag -> idempotency key format -> target id format -> self ->
+// repo transaction (target missing or not ACTIVE, blocked-by, blocks, already following, then the protected-target
+// request path or the edge path; see repo_firestore.go's Follow doc comment for that precedence). The target's users doc
+// is read inside the transaction, so only the caller's profile goes through identity.Directory (cache-first).
+//
+// Firestore: reads 4 cold / 3 warm (+1 on an overflowed caller): target users, caller graph and quotas in the
+// transaction, plus the caller's profile (cold only; the account-status interceptor loads it on the request line).
+// Writes: 5 for an edge (follows doc, caller graph, 2 counters, quota), 3 for a request to a protected target
+// (followRequests Create, caller `requested`, quota), +1 delete when a leftover request to a now-public target is
+// removed (AQ4); a replay (already following, or already requested) 0 writes. Planning value 4 (ADR-0008 A2).
+// A request counts against the follows quota and returns FOLLOW_STATE_REQUESTED; FEATURE_PRIVATE_ACCOUNTS never gates it.
 func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "follow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -38,31 +44,44 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, selfActionErr("user_id")
 	}
 
-	profiles, err := s.directory.GetProfiles(ctx, []string{callerUID, targetUID})
+	profiles, err := s.directory.GetProfiles(ctx, []string{callerUID})
 	if err != nil {
 		return Relationship{}, s.internalErr("follow", err, callerUID, targetUID)
-	}
-	target, ok := profiles[targetUID]
-	if !ok {
-		return Relationship{}, notFoundErr()
 	}
 	caller := profiles[callerUID]
 	now := s.now()
 	dailyLimit := s.followsLimit(s.isNewAccount(caller, now))
+	// The D6 contention signal: the target's users doc is in every Follow's read set, so a hot target shows as
+	// txn_attempts > 1 or UNAVAILABLE here. The hash identifies the target without naming it.
+	logger.SetRequestField(ctx, fieldTargetHash, logger.HashUID(targetUID))
 
-	rel, outcome, err := s.repo.Follow(ctx, callerUID, targetUID, target.IsPrivate, dailyLimit, now)
+	rel, outcome, err := s.repo.Follow(ctx, callerUID, targetUID, dailyLimit, now)
 	if err != nil {
 		return Relationship{}, s.mapFollowErr(callerUID, targetUID, err)
 	}
 	setOutcome(ctx, outcome)
+	requested := rel.FollowState == FollowStateRequested
+	switch {
+	case outcome == OutcomeReplay:
+		logger.SetRequestField(ctx, fieldFollowOutcome, "replay")
+	case requested:
+		logger.SetRequestField(ctx, fieldFollowOutcome, "requested")
+	default:
+		logger.SetRequestField(ctx, fieldFollowOutcome, "edge")
+	}
 	// The caller now follows the target (or already did, on a replay): the target's cached "does the caller follow
 	// me" answer on this instance is stale. The caller's own view of the opposite edge is untouched (ADR-0024 D7).
 	s.cache.ForgetEdge(callerUID, targetUID)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
-		s.directory.Forget(callerUID, targetUID)
-		s.events.Followed(ctx, callerUID, targetUID, now)
-		// ADR-0024 D8: the followed user leaves this viewer's cached suggestions at once.
+		if requested {
+			// A request changes no counter and creates no edge: no directory Forget, no Followed, one FollowRequested.
+			s.events.FollowRequested(ctx, callerUID, targetUID, now)
+		} else {
+			s.directory.Forget(callerUID, targetUID)
+			s.events.Followed(ctx, callerUID, targetUID, now)
+		}
+		// ADR-0024 D8: the followed (or requested) user leaves this viewer's cached suggestions at once.
 		s.dropSuggested(callerUID, targetUID)
 	}
 	return rel, nil
@@ -74,8 +93,6 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 		return notFoundErr()
 	case errors.Is(err, ErrCallerBlocksTarget):
 		return targetBlockedErr()
-	case errors.Is(err, ErrTargetPrivate):
-		return flags.DisabledError()
 	}
 	var lim *LimitReachedError
 	if errors.As(err, &lim) {
@@ -84,9 +101,12 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 	return s.internalErr("follow", err, callerUID, targetUID)
 }
 
-// Unfollow (ADR-0008 T7): a blind batch, idempotent. Not following (or a replayed/racing Unfollow) is
-// NONE with 0 writes. Firestore: the batch reads 0, writes 3 (0 on no-op), deletes 1; the request line logs 1 read
-// (the caller's AccountStatusInterceptor profile read, cold after a Forget; ADR-0008 Amendment 2026-09-30 (2)).
+// Unfollow (ADR-0008 T7, ADR-0025 D7): two blind batches, idempotent. The edge batch runs first; on its failed
+// precondition the withdraw batch deletes a pending follow request (WithdrawRequest). Both failing is NONE with 0
+// writes (not following, nothing requested, or a replayed/racing Unfollow). Undo is never gated: withdrawing needs no
+// FEATURE_PRIVATE_ACCOUNTS, only the module flag every graph RPC checks. Firestore: both batches read 0; an edge removal
+// writes 3 and deletes 1, a withdraw writes 1 and deletes 1, a no-op 0; the request line logs 1 read (the caller's
+// AccountStatusInterceptor profile read, cold after a Forget; ADR-0008 Amendment 2026-09-30 (2)).
 func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unfollow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -102,16 +122,31 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 		return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
 	}
 
-	changed, err := s.repo.Unfollow(ctx, callerUID, targetUID, s.now())
+	now := s.now()
+	changed, err := s.repo.Unfollow(ctx, callerUID, targetUID, now)
 	if err != nil {
 		return Relationship{}, s.internalErr("unfollow", err, callerUID, targetUID)
 	}
-	setChanged(ctx, changed)
+	withdrawn := false
+	if !changed {
+		withdrawn, err = s.repo.WithdrawRequest(ctx, callerUID, targetUID, now)
+		if err != nil {
+			return Relationship{}, s.internalErr("unfollow", err, callerUID, targetUID)
+		}
+		if withdrawn {
+			logger.SetRequestField(ctx, fieldWithdraw, "request")
+		} else {
+			logger.SetRequestField(ctx, fieldWithdraw, "none")
+		}
+	}
+	setChanged(ctx, changed || withdrawn)
 	// The caller's edge to the target is gone (or never was, on a no-op): drop the target's cached answer for it.
 	s.cache.ForgetEdge(callerUID, targetUID)
-	if changed {
+	if changed || withdrawn {
 		s.cache.Invalidate(callerUID)
-		s.directory.Forget(callerUID, targetUID)
+	}
+	if changed {
+		s.directory.Forget(callerUID, targetUID) // counters moved; a withdraw moves none
 	}
 	return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
 }
@@ -120,7 +155,8 @@ func (s *service) blockLimits() dailyLimits {
 	return dailyLimits{Standard: s.blocksPerDay, NewAccount: s.newAccountBlocksPerDay, NewAccountWindow: s.newAccountWindow}
 }
 
-// Block (ADR-0008 T8). Firestore: reads 3/3, writes 5/3, deletes 2/0.
+// Block (ADR-0008 T8, ADR-0025 D7). Firestore: reads 3/3, writes 5/3, deletes 2/0, plus at most 2 deletes for pending
+// follow requests in either direction (so at most 4): +0 reads, +0 writes.
 func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "block")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -150,6 +186,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 	}
 	setOutcome(ctx, result.Outcome)
 	logger.SetRequestField(ctx, fieldEdgesGone, b2i(result.CallerWasFollowing)+b2i(result.TargetWasFollowing))
+	logger.SetRequestField(ctx, fieldRequestsGone, result.RequestsGone)
 	// A Block deletes both follow edges: drop the cached answer for each direction (ADR-0024 D7).
 	s.cache.ForgetEdge(callerUID, targetUID)
 	s.cache.ForgetEdge(targetUID, callerUID)

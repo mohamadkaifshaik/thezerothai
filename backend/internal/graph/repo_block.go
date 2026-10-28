@@ -27,12 +27,16 @@ type BlockResult struct {
 	CallerWasFollowing   bool // caller -> target edge existed and was removed
 	TargetWasFollowing   bool // target -> caller edge existed and was removed
 	BlockedByOverflowHit bool
+	RequestsGone         int // pending follow requests deleted: caller -> target and target -> caller (ADR-0025 D7), 0 to 2
 }
 
 // Block runs the whole Block transaction (ADR-0008 T8/D2/D9). Reads: caller graph + target graph + quotas
 // (3, always — the target graph doubles as the "unknown user" existence check, ADR-0008 D9). Writes on a
 // real block: caller graph, target graph, quotas, plus up to 2 combined-per-doc counter updates (worst 5);
-// deletes: up to 2 follows docs (mutual follow). Typical (no prior edges): 3 writes, 0 deletes.
+// deletes: up to 2 follows docs (mutual follow). Typical (no prior edges): 3 writes, 0 deletes. ADR-0025 D7: a pending
+// follow request in either direction (target in the caller's `requested`, caller in the target's) is deleted too, with
+// a plain Delete (no Exists: drift cannot fail a Block) and its array entry removed in the graph writes already made: +0
+// reads, +0 writes, at most +2 deletes (so at most 4 deletes with a mutual follow).
 func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error) {
 	var result BlockResult
 	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -76,12 +80,18 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 		targetWasFollowing := targetDoc.hasFollowing(callerUID) // target -> caller edge
 		blockedByOverflow := len(targetDoc.BlockedBy) >= maxBlockedBy
 
+		callerRequested := callerDoc.hasRequested(targetUID) // caller -> target request
+		targetRequested := targetDoc.hasRequested(callerUID) // target -> caller request
+
 		callerUpdates := []firestore.Update{
 			{Path: "blocked", Value: firestore.ArrayUnion(targetUID)},
 			{Path: "updatedAt", Value: now},
 		}
 		if callerWasFollowing {
 			callerUpdates = append(callerUpdates, firestore.Update{Path: "following", Value: firestore.ArrayRemove(targetUID)})
+		}
+		if callerRequested {
+			callerUpdates = append(callerUpdates, firestore.Update{Path: "requested", Value: firestore.ArrayRemove(targetUID)})
 		}
 		b.Update(r.graphRef(callerUID), callerUpdates)
 
@@ -93,6 +103,9 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 		}
 		if targetWasFollowing {
 			targetUpdates = append(targetUpdates, firestore.Update{Path: "following", Value: firestore.ArrayRemove(callerUID)})
+		}
+		if targetRequested {
+			targetUpdates = append(targetUpdates, firestore.Update{Path: "requested", Value: firestore.ArrayRemove(callerUID)})
 		}
 		b.Update(r.graphRef(targetUID), targetUpdates)
 
@@ -109,6 +122,23 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 				return err
 			}
 			b.Delete(ref, firestore.Exists)
+		}
+		requestsGone := 0
+		if callerRequested {
+			ref, err := r.requestRef(callerUID, targetUID)
+			if err != nil {
+				return err
+			}
+			b.Delete(ref)
+			requestsGone++
+		}
+		if targetRequested {
+			ref, err := r.requestRef(targetUID, callerUID)
+			if err != nil {
+				return err
+			}
+			b.Delete(ref)
+			requestsGone++
 		}
 
 		// Counter decrements, combined per doc (ADR-0008 D3): at most one Update() per user doc.
@@ -138,6 +168,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 			CallerWasFollowing:   callerWasFollowing,
 			TargetWasFollowing:   targetWasFollowing,
 			BlockedByOverflowHit: blockedByOverflow,
+			RequestsGone:         requestsGone,
 		}
 		return nil
 	})
