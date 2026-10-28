@@ -28,6 +28,8 @@ func isPad(uid string) bool { return strings.HasPrefix(uid, seedPadPrefix) }
 type graphState struct {
 	// Edges maps follows doc ID -> its stored (followerId, followeeId).
 	Edges map[string][2]string
+	// Requests maps followRequests doc ID -> its stored (followerId, followeeId) (ADR-0025 D2, W3-35b).
+	Requests map[string][2]string
 	// Graphs maps uid -> graph/{uid}. A uid absent from the map has no graph doc.
 	Graphs map[string]graphDocState
 	// Users maps uid -> the two counters on users/{uid}.
@@ -36,7 +38,9 @@ type graphState struct {
 
 type graphDocState struct {
 	Following, Blocked, Muted, BlockedBy []string
-	BlockedByOverflow                    bool
+	// Requested is graph/{uid}.requested, the outgoing pending follow requests (ADR-0025 D2).
+	Requested         []string
+	BlockedByOverflow bool
 }
 
 type userCounters struct{ Followers, Following int64 }
@@ -49,7 +53,10 @@ type userCounters struct{ Followers, Following int64 }
 //	I3  b in graph/{a}.blocked <=> a in graph/{b}.blockedBy (except when graph/{b}.blockedByOverflow)
 //	I4  no follow edge in either direction between a and b while either blocks the other
 //	S1  follows doc ID == followerId_followeeId, no self-follow, no self-block/self-mute
-//	S2  no duplicate entries in any graph array; caps respected (5,000/2,000/2,000/10,000)
+//	S2  no duplicate entries in any graph array; caps respected (5,000/2,000/2,000/10,000, requested 500)
+//	I-R followRequests/{a}_{b} exists <=> b in graph/{a}.requested (ADR-0025 D9)
+//	I-X never both follows/{a}_{b} and followRequests/{a}_{b}; never b in both graph/{a}.following and .requested (ADR-0025 D9)
+//	S1  (also) a followRequests doc ID == followerId_followeeId, no self-request
 func graphInvariantViolations(st graphState) []string {
 	var v []string
 	add := func(format string, args ...interface{}) { v = append(v, fmt.Sprintf(format, args...)) }
@@ -70,6 +77,21 @@ func graphInvariantViolations(st graphState) []string {
 		followeeEdges[e[1]]++
 	}
 
+	reqSet := map[[2]string]bool{}
+	for id, e := range st.Requests {
+		if id != e[0]+"_"+e[1] {
+			add("S1: followRequests/%s stores followerId=%q followeeId=%q (doc id mismatch)", id, e[0], e[1])
+		}
+		if e[0] == e[1] {
+			add("S1: followRequests/%s is a self-request", id)
+		}
+		reqSet[e] = true
+		// I-X (docs): a pair is never both an edge and a request.
+		if edgeSet[e] {
+			add("I-X: follows/%s_%s and followRequests/%s_%s both exist", e[0], e[1], e[0], e[1])
+		}
+	}
+
 	uids := make([]string, 0, len(st.Graphs))
 	for uid := range st.Graphs {
 		uids = append(uids, uid)
@@ -79,7 +101,7 @@ func graphInvariantViolations(st graphState) []string {
 	for _, a := range uids {
 		g := st.Graphs[a]
 		// S2 caps + duplicates, S1 self entries.
-		for name, arr := range map[string][]string{"following": g.Following, "blocked": g.Blocked, "muted": g.Muted, "blockedBy": g.BlockedBy} {
+		for name, arr := range map[string][]string{"following": g.Following, "blocked": g.Blocked, "muted": g.Muted, "blockedBy": g.BlockedBy, "requested": g.Requested} {
 			seen := map[string]bool{}
 			for _, x := range arr {
 				if isPad(x) {
@@ -98,6 +120,22 @@ func graphInvariantViolations(st graphState) []string {
 			add("S2: graph/%s exceeds a cap (following=%d blocked=%d muted=%d blockedBy=%d)", a, len(g.Following), len(g.Blocked), len(g.Muted), len(g.BlockedBy))
 		}
 
+		if len(g.Requested) > 500 {
+			add("S2: graph/%s.requested has %d entries, over the 500 cap", a, len(g.Requested))
+		}
+
+		// I-R (array -> request doc) and I-X (arrays): requested[] entries have a request doc and no edge.
+		for _, b := range g.Requested {
+			if isPad(b) {
+				continue
+			}
+			if !reqSet[[2]string{a, b}] {
+				add("I-R: %s is in graph/%s.requested but followRequests/%s_%s does not exist", b, a, a, b)
+			}
+			if containsUID(g.Following, b) {
+				add("I-X: %s is in both graph/%s.following and graph/%s.requested", b, a, a)
+			}
+		}
 		// I1 (array -> edge doc).
 		for _, b := range g.Following {
 			if isPad(b) {
@@ -153,6 +191,14 @@ func graphInvariantViolations(st graphState) []string {
 		}
 	}
 
+	// I-R (request doc -> array).
+	for e := range reqSet {
+		g, ok := st.Graphs[e[0]]
+		if !ok || !containsUID(g.Requested, e[1]) {
+			add("I-R: followRequests/%s_%s exists but %s is not in graph/%s.requested", e[0], e[1], e[1], e[0])
+		}
+	}
+
 	// I2: counters must equal edge counts, for every user that has a users doc.
 	userIDs := make([]string, 0, len(st.Users))
 	for uid := range st.Users {
@@ -202,7 +248,7 @@ func containsUID(vals []string, v string) bool {
 // owns a unique demo-test-<rand> project, so this is exactly the scenario's data). Emulator-only: it is an
 // unbounded scan by design.
 func loadGraphState(ctx context.Context, client *firestore.Client) (graphState, error) {
-	st := graphState{Edges: map[string][2]string{}, Graphs: map[string]graphDocState{}, Users: map[string]userCounters{}}
+	st := graphState{Edges: map[string][2]string{}, Requests: map[string][2]string{}, Graphs: map[string]graphDocState{}, Users: map[string]userCounters{}}
 
 	each := func(coll string, fn func(*firestore.DocumentSnapshot) error) error {
 		it := client.Collection(coll).Documents(ctx)
@@ -227,10 +273,16 @@ func loadGraphState(ctx context.Context, client *firestore.Client) (graphState, 
 	}); err != nil {
 		return st, err
 	}
+	if err := each("followRequests", func(s *firestore.DocumentSnapshot) error {
+		st.Requests[s.Ref.ID] = [2]string{strField(s, "followerId"), strField(s, "followeeId")}
+		return nil
+	}); err != nil {
+		return st, err
+	}
 	if err := each("graph", func(s *firestore.DocumentSnapshot) error {
 		g := graphDocState{
 			Following: strsField(s, "following"), Blocked: strsField(s, "blocked"),
-			Muted: strsField(s, "muted"), BlockedBy: strsField(s, "blockedBy"),
+			Muted: strsField(s, "muted"), BlockedBy: strsField(s, "blockedBy"), Requested: strsField(s, "requested"),
 		}
 		if v, err := s.DataAt("blockedByOverflow"); err == nil {
 			g.BlockedByOverflow, _ = v.(bool)
@@ -302,7 +354,8 @@ func assertGraphInvariants(t *testing.T, client *firestore.Client) {
 func TestGraphInvariantChecker_DetectsEveryViolation(t *testing.T) {
 	clean := func() graphState {
 		return graphState{
-			Edges: map[string][2]string{"a_b": {"a", "b"}},
+			Edges:    map[string][2]string{"a_b": {"a", "b"}},
+			Requests: map[string][2]string{},
 			Graphs: map[string]graphDocState{
 				"a": {Following: []string{"b"}},
 				"b": {},
@@ -310,6 +363,12 @@ func TestGraphInvariantChecker_DetectsEveryViolation(t *testing.T) {
 			},
 			Users: map[string]userCounters{"a": {Following: 1}, "b": {Followers: 1}, "c": {}},
 		}
+	}
+	pendingReq := func() graphState { // c has asked a (a is not followed by c)
+		st := clean()
+		st.Graphs["c"] = graphDocState{Requested: []string{"a"}}
+		st.Requests = map[string][2]string{"c_a": {"c", "a"}}
+		return st
 	}
 	blockedPair := func() graphState { // c blocks b, no edges between them
 		st := clean()
@@ -394,6 +453,76 @@ func TestGraphInvariantChecker_DetectsEveryViolation(t *testing.T) {
 			st.Edges["a_b"] = [2]string{"a", "c"}
 			return st
 		}, "S1"},
+		{"clean with a pending request", pendingReq, ""},
+		{"clean padded requested", func() graphState {
+			st := pendingReq()
+			g := st.Graphs["c"]
+			g.Requested = append(g.Requested, seedPadPrefix+"1", seedPadPrefix+"2")
+			st.Graphs["c"] = g
+			return st
+		}, ""},
+		{"I-R request doc without a requested entry", func() graphState {
+			st := pendingReq()
+			st.Graphs["c"] = graphDocState{}
+			return st
+		}, "I-R: followRequests/c_a exists but a is not in graph/c.requested"},
+		{"I-R request doc whose requester has no graph doc", func() graphState {
+			st := pendingReq()
+			delete(st.Graphs, "c")
+			delete(st.Users, "c")
+			return st
+		}, "I-R: followRequests/c_a exists"},
+		{"I-R requested entry without a request doc", func() graphState {
+			st := pendingReq()
+			delete(st.Requests, "c_a")
+			return st
+		}, "I-R: a is in graph/c.requested but followRequests/c_a does not exist"},
+		{"I-X request next to an edge doc", func() graphState {
+			st := pendingReq()
+			st.Requests["a_b"] = [2]string{"a", "b"}
+			g := st.Graphs["a"]
+			g.Requested = []string{"b"}
+			st.Graphs["a"] = g
+			return st
+		}, "I-X: follows/a_b and followRequests/a_b both exist"},
+		{"I-X followee in both following and requested", func() graphState {
+			st := clean()
+			g := st.Graphs["a"]
+			g.Requested = []string{"b"}
+			st.Graphs["a"] = g
+			return st
+		}, "I-X: b is in both graph/a.following and graph/a.requested"},
+		{"S1 request doc id mismatch", func() graphState {
+			st := pendingReq()
+			st.Requests["c_a"] = [2]string{"c", "b"}
+			return st
+		}, "S1: followRequests/c_a stores"},
+		{"S1 self-request", func() graphState {
+			st := clean()
+			st.Requests["c_c"] = [2]string{"c", "c"}
+			g := st.Graphs["c"]
+			g.Requested = []string{"c"}
+			st.Graphs["c"] = g
+			return st
+		}, "self-request"},
+		{"S2 duplicate requested entry", func() graphState {
+			st := pendingReq()
+			g := st.Graphs["c"]
+			g.Requested = []string{"a", "a"}
+			st.Graphs["c"] = g
+			return st
+		}, "graph/c.requested contains \"a\" twice"},
+		{"S2 requested over the 500 cap", func() graphState {
+			st := pendingReq()
+			g := st.Graphs["c"]
+			for i := 0; i < 500; i++ {
+				u := fmt.Sprintf("t%03d", i)
+				g.Requested = append(g.Requested, u)
+				st.Requests["c_"+u] = [2]string{"c", u}
+			}
+			st.Graphs["c"] = g
+			return st
+		}, "over the 500 cap"},
 		{"S2 duplicate array entry", func() graphState {
 			st := clean()
 			st.Graphs["c"] = graphDocState{Muted: []string{"a", "a"}}
