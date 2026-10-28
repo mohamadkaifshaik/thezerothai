@@ -122,7 +122,9 @@ expect "rollback target over ceiling" 1 "$R" "$fx/service-ok.json" "$tmp/lg5" "$
 # --- resolve-rollback.sh rollback floors (W3-42): a throwaway git repo with commits before, at and after the floor
 fr=$tmp/floorrepo
 git init -q "$fr" && git -C "$fr" config user.email t@example.invalid && git -C "$fr" config user.name t && git -C "$fr" config commit.gpgsign false
-for n in before floor after; do git -C "$fr" commit -q --allow-empty -m "$n"; eval "c_$n=$(git -C "$fr" rev-parse HEAD)"; done
+git -C "$fr" commit -q --allow-empty -m before && c_before=$(git -C "$fr" rev-parse HEAD)
+git -C "$fr" commit -q --allow-empty -m floor && c_floor=$(git -C "$fr" rev-parse HEAD)
+git -C "$fr" commit -q --allow-empty -m after && c_after=$(git -C "$fr" rev-parse HEAD)
 git -C "$fr" checkout -q -b side "$c_before" && git -C "$fr" commit -q --allow-empty -m sideways && c_side=$(git -C "$fr" rev-parse HEAD)
 git -C "$fr" checkout -q - 2>/dev/null
 mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
