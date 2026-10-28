@@ -9,6 +9,10 @@ Implementation notes 2026-10-28 (W3-25a): "Implementation notes (W3-25a, 2026-10
 design points AQ1 to AQ6. Every default stands; no decision of this ADR changed.
 Implementation note 2026-10-28 (W3-25c): "Implementation note (W3-25c, 2026-10-28)" at the end adds the additive
 `AuthorSnapshot.is_private` field for the user-list lock badge (founder decision, Option A); +0 reads.
+Implementation notes 2026-10-28 (W3-36): "Implementation note (W3-36 M-2, 2026-10-28)" at the end gives new uploads
+unguessable public object names (founder decision on M-2), and "Implementation note (W3-36 L-2, 2026-10-28)" keeps the
+caller's own rows of a protected author as stripped placeholders on the owner's lists. Both are proposed for the
+founder's review on merge; no other decision of this ADR changed.
 
 Plan: `docs/plans/ui-w3-profile-graph-completion.md`, Part B, tickets W3-3 (this ADR) and W3-25 to W3-38; founder
 question 1. Related ADRs:
@@ -763,3 +767,136 @@ Founder decision 2026-10-28: keep the existing per-actor cap.
 - Why: the cap is the abuse guard for any single actor's fan-out, and the follows themselves are never affected.
   It only matters for an account with hundreds of pending requests. No separate cap for this type.
 - Cost: unchanged (+0); the cap only removes writes.
+
+## Implementation note (W3-36 M-2, 2026-10-28): unguessable public object names for new uploads
+
+Founder decision 2026-10-28: accept unguessable public object names for new uploads (W3-36 question 1). The choice
+of suffix below (random, not HMAC) is the architect's and is proposed for the founder's review on merge. Ticket
+W3-39. ADR-0005 carries a pointer to this note.
+
+- **Problem (W3-36 M-2).** The public copy of an image is `m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>`
+  (`media/service.go`:116-117), public-read, and published at finalize, before the post exists. A media id is a
+  Snowflake (`pkg/platform/snowflake`): 41 bits of milliseconds, a 10-bit node id that any fresh public post id
+  reveals, and a 12-bit sequence that is almost always 0 at Stage 0. Guessing a two-minute window of a protected
+  author's activity takes about 7.2 x 10^5 anonymous GETs (about INR 27 of Class B, billed to us), and the hits
+  include that author's new images.
+- **Decision.** Every new upload, of every purpose (POST, AVATAR, BANNER), gets a public name with a random suffix:
+  - full image: `m/<mediaId>-<suffix>.<ext>`; thumbnail: `m/<mediaId>-<suffix>_t.<ext>`;
+  - `<suffix>` is 128 bits from `crypto/rand`, written as 32 lowercase hex characters. It is hex because `_` (the
+    thumbnail marker) and `-` (the separator) must not occur in it, which rules out base64url;
+  - the private upload names (`u/<uid>/<mediaId>.<ext>`) do not change, because that bucket is private.
+- **The suffix is chosen at `CreateUpload` and stored on the PENDING doc.** It is written as `nameSuffix` in the
+  same `CreateUploads` transaction write that creates `media/{mediaId}` (no extra write), and it never changes.
+  Finalize, the converge path (`resolvedElsewhere`, `dropOrphanedCopies`), the eraser and the retire step all derive
+  the same two names from the doc. Choosing the suffix at finalize instead would break two existing guarantees:
+  - two concurrent finalizes of one doc (W3-22 M-3) would publish under two different names;
+  - `publicNames` (`media/purge.go`:39-54) re-derives the deterministic names. That way, a finalize that copied the
+    objects and then lost the race to record the paths (or was REJECTED after the copy) still has its objects
+    deleted. An unrecorded random name would remove that backstop (rule 10).
+  A `CreateUpload` replay returns the existing docs, and their suffixes with them.
+- **Why random, not HMAC(key, mediaId).** The only advantage of an HMAC is a name derivable without storage. Every
+  path that needs the name already reads the doc, so storing the suffix costs nothing. Random also avoids two costs:
+  - A new Secret Manager secret. Each project holds one active version today (`cursor-hmac-key`, Terraform
+    `module "secrets"`, `generated_secret_ids`), so a second one would fit inside the 6 free versions. But it would
+    add a startup access and a rotation story (rotating the key would rename every image), and a leaked key would
+    make every name guessable again.
+  - Reusing `cursor-hmac-key`. That would tie image names to cursor-key rotation and widen the key's blast radius.
+  A random suffix has none of these problems and is independent for each image.
+- **Old objects keep their names (founder B1).** There is no backfill, rename or copy. A doc without `nameSuffix`
+  keeps the old shape at finalize. That covers every doc created before W3-39, and any PENDING doc an older
+  revision creates. "Absent = old shape" is the whole migration.
+- **No proto change (verified).** `MediaRef.url` and `thumb_url` already carry the full URL, built as
+  `PublicBaseURL + "/" + d.PublicPath` (`media/service.go`:305, `media/attach.go`:59, `media/purge.go`:145). Posts
+  store copies of those URLs (`posts/repo_firestore.go`:160-161), and the profile stores `avatarUrl` and `bannerUrl`
+  the same way. New posts and profiles carry the suffix automatically, and old ones keep their URLs. The client
+  never builds an image URL: `app/lib` constructs no `/m/` path.
+- **Both name shapes are parsed.**
+  - The one name parser (`ParseObjectName`, `media/retire.go`:211) becomes
+    `^m/([0-9]{19})(?:-([0-9a-f]{32}))?(_t)?\.(jpg|webp)$`, and `ImageObject` gains `Suffix` ("" for the old shape).
+  - `parseRetiredImage` (:249-262) also requires the thumbnail's suffix to equal the full image's, as it already does
+    for the id and the extension.
+  - The retire step's current-URL check (:168, `cur.ID == id`) is unchanged.
+  - `ObjectNameFromURL` (used by `opsctl clear-profile-fields`, `cmd/opsctl/clear_profile.go`:215) does not validate
+    the name and is unaffected.
+  - `publicNames` returns the recorded paths plus the names derived for the doc's own shape: the suffixed pair when
+    `nameSuffix` is set, otherwise the old pair. The eraser, the `post_delete` job (`media/jobs.go`:120) and the
+    retire step (`retire.go`:186) all use it, so each image still touches 2 public names. That is 2 Class A for the
+    retire step's `customTime`; deletes are free.
+- **Cost.** +0 Firestore reads, +0 writes, +0 deletes, +0 Class A and +0 Class B on every path. Bytes:
+  - each object name: +33 characters;
+  - each media doc: about +110 bytes (`nameSuffix` about 44, `publicPath` and `thumbPath` +33 each);
+  - each stored image copy in a post's `media[]` or an embed: +66 bytes;
+  - each post by an author with a new avatar: +33 bytes in the `author{}` snapshot;
+  - on the wire, per `PostView`: +66 bytes per image and +33 per new-avatar author snapshot (random hex compresses
+    poorly).
+
+  At 300 DAU (about 60 images a day), storage grows by under 1 MB a month, so the free 1 GiB does not move. Egress is
+  at most about 1 KB per timeline page of 20, roughly 0.1 GB a month at 300 DAU. That is about INR 1 a month at
+  300 DAU, INR 2 at 600 and INR 10 at 3,000 DAU, within the cost model's rounding. `nameSuffix` keeps its default
+  single-field index entry: no query uses it, so it adds no query cost, and an entry this short is not worth a
+  gate-file fieldOverride.
+- **Rollback.** A revision older than W3-39 ignores `nameSuffix` (the Go client drops unknown fields). It finalizes
+  new docs under the old, guessable names and records those paths, and the eraser still finds them through the
+  recorded paths. Its retire regex rejects suffixed URLs, so an avatar or banner replaced during such a rollback is
+  not retired: it stays public until the account is erased, as before ADR-0024 A4. Before `private_accounts` leaves
+  the dev allowlist, W3-42 therefore raises the `PRIVATE_ACCOUNTS` rollback floor to W3-39's merge commit.
+- **What this does not fix.** URLs a viewer received while an image was public keep working (B1, W3-36 I-2), and an
+  approved follower can still share an image URL. Revoking access to an image someone has already seen needs signed
+  URLs (see the stage ladder below).
+- **Stage ladder.**
+  - Stage 0 (this note): public-read objects with an unguessable name, at 0 fixed cost. Seam: `MediaRef.url` and
+    `thumb_url` are opaque full URLs that only `media` builds; no caller or client constructs one.
+  - Stage 2/3 target: short-lived signed URLs for protected authors' media (or Cloud CDN signed cookies behind the
+    Stage 3 load balancer), minted by `media` behind the same `Ref` fields. If object writes ever approach the Cloud
+    Storage ramp guidance for sequential names (about 1,000 object writes a second), add a hash prefix before the id
+    inside the same `publicObject` helper.
+  - Triggers: a product requirement that revoked access (unfollow, block, protect) stops images already seen, W7 DM
+    media, or measured image scraping. Each one needs an ADR. Signed URLs per view cost Cloud Run CPU and give up the
+    year-long immutable caching.
+- **Model change.** `media/{mediaId}` gains `nameSuffix`: 32 lowercase hex characters, set at creation, absent on
+  old docs. The matching row in the `firestore-data-model` skill is a `/.claude/` change, so it is a founder-gated
+  follow-up listed in W3-39.
+
+## Implementation note (W3-36 L-2, 2026-10-28): the owner keeps an undo on their own rows of a protected author
+
+Founder decision 2026-10-28: fix the W3-36 Lows in the next fix PRs. This note is the design for L-2, proposed for
+the founder's review on merge. It changes the D4 list row **for the owner only**. Tickets: W3-41a and W3-41b.
+
+- **Problem (W3-36 L-2).** A is no longer approved for P once A unfollows P or P protects. From then on, A's own
+  REPOST of P is dropped from A's profile, and A's likes and bookmarks of P's posts are dropped from A's Likes and
+  Bookmarks lists (kept, not pruned, D4). The undo RPCs stay ungated, but no screen shows a row to act on. The
+  REPOST doc, a copy of P's text, stays until A deletes the account. Plan rule 4 ("a user can always undo") is not
+  met in the client.
+- **Decision.** On the caller's **own** surfaces only, such a row is kept as a stripped placeholder instead of being
+  dropped:
+  - `GetUserTimeline` with target == caller, on every tab that returns the caller's REPOST rows. The REPOST of P's
+    post is kept with `embed_viewer_state = PROTECTED` and `reposted_by_viewer = true`. Its `embedded` is stripped
+    exactly as a PROTECTED QUOTE embed is: `ApplyEmbedState` keeps `post_id`, `unavailable` and the author snapshot
+    only. The action is Undo repost (the original's id is `embedded.post_id`).
+  - `ListLikedPosts` and `ListBookmarks`, which are already owner-only RPCs. A row whose post is by P is kept with
+    `PostView.withheld = true` and the post stripped to `post_id`, `kind` and the author snapshot. Text, media,
+    labels, hashtags, mentions, counts, reply fields, the embed and the timestamp are all removed.
+    `liked_by_viewer` or `bookmarked_by_viewer` stays true. The actions are Unlike and Remove bookmark.
+  - Every other viewer and every other surface (Home, other users' profiles, GetPost, GetThread) keeps D4 exactly:
+    the REPOST is dropped and GetPost answers NOT_FOUND. A blocked or muted P keeps today's outcome (ADR-0018 D13,
+    ADR-0010 D6). Block is decided first, so a P who blocks A is still dropped everywhere.
+- **Contract (W3-41a; the architect's proto change lands first).**
+  - One additive field: `bool withheld = 7` on `posts.v1.PostView`, the next free number after
+    `bookmarked_by_viewer = 6` (verify at the time). Its comment: "the server stripped this row's post to post_id,
+    kind and author because the caller may no longer see its protected author; set only on the caller's own Likes
+    and Bookmarks lists; render the protected placeholder with the undo action".
+  - The `EMBED_VIEWER_STATE_PROTECTED` comment changes from "a REPOST of such a post is dropped" to "dropped, except
+    on the caller's own profile, where the caller's REPOST is kept with this state so it can be undone".
+  - The change is additive and comment-only: `buf lint` and `buf breaking` stay clean, and no field is reused or
+    renumbered.
+  - Rejected: overloading `embed_viewer_state` on a row with no embed. The enum describes an embed, and giving one
+    value a second meaning is the reuse of meaning that rule 9 exists to prevent.
+- **Undo answers.** After W3-40a (L-1), Unlike and Undo repost of a post the caller may not see return the
+  missing-post shape (`post_id`, zero counts), and the write still lands. The client treats that answer as success
+  and removes the row. RemoveBookmark has no visibility check and is unchanged.
+- **Cost.** +0 reads and +0 writes on every path: the rows were already read and decided, and the change keeps and
+  strips them instead of skipping them. On the wire, a placeholder row is smaller than the full row.
+- **Flag.** None. Like withdraw and unprotect, an undo must work whatever `private_accounts` is set to. The
+  placeholder only appears while a protected-set loader is wired and P is in the set.
+- **Stage ladder.** No change. The owner rule is decided per row through `posts.Audience` with an owner-only surface
+  value, so W4 search and W5 lists keep calling the same predicate and never see the owner surface.
