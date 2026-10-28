@@ -65,6 +65,8 @@ func (w wired) SkipInvariantSweep(reason string) { w.sweep.skipReason = reason }
 type graphSvcHandle struct {
 	graph.Service
 	repo *graph.FirestoreRepo
+	// counter is the service as identity.FollowRequestCounter (ADR-0025 AQ3).
+	counter identity.FollowRequestCounter
 	// setDirectory re-wires the service's identity.Directory (e.g. with a test decorator).
 	setDirectory func(identity.Directory)
 }
@@ -73,6 +75,13 @@ type graphSvcHandle struct {
 type wiredOption func(*graph.Deps)
 
 func withFlags(f graph.FlagChecker) wiredOption { return func(d *graph.Deps) { d.Flags = f } }
+
+// withProtected wires the instance's protected-author loader (ADR-0025 D3) into the graph service; withEvents wires the
+// post-commit FollowEvents hook (W3-28a asserts FollowRequestAccepted).
+func withProtected(p identity.ProtectedAuthors) wiredOption {
+	return func(d *graph.Deps) { d.Protected = p }
+}
+func withEvents(e graph.FollowEvents) wiredOption { return func(d *graph.Deps) { d.Events = e } }
 
 // withNewAccountWindow changes how long an account counts as "new" (default 24h; with a 1ns window every
 // profile is an established account, which is how tests reach the standard quota tier without a clock seam).
@@ -134,7 +143,7 @@ func newInstance(client *firestore.Client, opts ...wiredOption) wired {
 	)
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
-	return wired{client: client, identity: identitySvc, graph: &graphSvcHandle{Service: graphSvc, repo: graphRepo, setDirectory: graphSvc.SetDirectory}, sweep: &invariantSweep{}}
+	return wired{client: client, identity: identitySvc, graph: &graphSvcHandle{Service: graphSvc, repo: graphRepo, counter: graphSvc, setDirectory: graphSvc.SetDirectory}, sweep: &invariantSweep{}}
 }
 
 func mustCreateProfile(t *testing.T, svc identity.Service, uid, handle string) {

@@ -207,6 +207,7 @@ func TestUnfollow_Noop_SkipsForget(t *testing.T) {
 type recordingFollowEvents struct {
 	calls    []struct{ follower, followee string }
 	requests []struct{ requester, target string }
+	accepted []struct{ target, requester string }
 }
 
 func (r *recordingFollowEvents) Followed(_ context.Context, follower, followee string, _ time.Time) {
@@ -265,4 +266,6 @@ func (r *recordingFollowEvents) FollowRequested(_ context.Context, requester, ta
 	r.requests = append(r.requests, struct{ requester, target string }{requester, target})
 }
 
-func (r *recordingFollowEvents) FollowRequestAccepted(context.Context, string, string, time.Time) {}
+func (r *recordingFollowEvents) FollowRequestAccepted(_ context.Context, target, requester string, _ time.Time) {
+	r.accepted = append(r.accepted, struct{ target, requester string }{target, requester})
+}

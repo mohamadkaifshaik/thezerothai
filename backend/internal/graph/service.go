@@ -80,6 +80,12 @@ type Repo interface {
 	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read, 1 read whether or
 	// not the document is there (ADR-0024 D7, GetProfileRelationship). A missing document is false, not an error.
 	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
+
+	// RespondToRequest answers one pending follow request in a single transaction (ADR-0025 D7, W3-28a): accept, decline,
+	// or a replay (the request is gone) with 0 writes. A requester at the 5,000 following cap is a LimitReachedError.
+	RespondToRequest(ctx context.Context, a RespondArgs) (RespondOutcome, error)
+	// CountRequests counts the pending requests addressed to uid, capped at 1,000: 1 read (ADR-0025 AQ3).
+	CountRequests(ctx context.Context, uid string) (int64, error)
 }
 
 // Deps are service's constructor dependencies (ADR-0008 T5).
@@ -109,6 +115,10 @@ type Deps struct {
 	// Suggester overrides the candidate source of ListSuggestedUsers (friends of friends with the curated fallback by
 	// default). It is the seam for ADR-0024 D8 option (b) or a precomputed list: callers see no change.
 	Suggester Suggester
+
+	// Protected is the one protected-author loader of the instance (ADR-0025 D3, built once in apiserver). Nil means nobody
+	// is protected (the pre-W3-28a behaviour): ListFollowers and ListFollowing then never answer PROTECTED_ACCOUNT.
+	Protected identity.ProtectedAuthors
 }
 
 // service is the default Service implementation. It also implements Reader, FollowEvents, Eraser and
@@ -137,6 +147,7 @@ type service struct {
 	newAccountWindow        time.Duration
 	suggestions             SuggestionLimits
 	suggester               Suggester
+	protected               identity.ProtectedAuthors
 	// suggested is the per-viewer ListSuggestedUsers result cache (suggestion_cache.go).
 	suggested *suggestionCache
 }
@@ -158,6 +169,7 @@ func New(d Deps) *service {
 		newAccountWindow:        d.NewAccountWindow,
 		suggestions:             d.Suggestions.normalized(),
 		suggester:               d.Suggester,
+		protected:               d.Protected,
 	}
 	s.suggested = newSuggestionCache(s.suggestions.CacheTTL)
 	if s.events == nil {
@@ -190,6 +202,7 @@ var _ Service = (*service)(nil)
 var _ Reader = (*service)(nil)
 var _ FollowEvents = (*service)(nil)
 var _ identity.BlockChecker = (*service)(nil)
+var _ identity.FollowRequestCounter = (*service)(nil)
 
 // Snapshot implements Reader: cache-first read of graph/{uid}, 60s TTL (ADR-0008 D8). 1 read on a miss, 0 on
 // a hit.

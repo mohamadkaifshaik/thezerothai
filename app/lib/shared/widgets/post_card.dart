@@ -31,6 +31,7 @@ import 'post_action_bar.dart';
 import 'post_media.dart';
 import 'post_pin_control.dart';
 import 'protected_badge.dart';
+import 'protected_post_box.dart';
 import 'unavailable_post_box.dart';
 
 part 'post_card_menu.dart';
@@ -247,6 +248,7 @@ class PostCard extends StatelessWidget {
         reposter: _post.author,
         isOwn: _isOwn,
         placeholder: placeholder,
+        original: embedded!.author,
         menu: _PostMenu(
           post: _post,
           isOwn: _isOwn,
@@ -455,6 +457,8 @@ class PostCard extends StatelessWidget {
         return EmbedPlaceholder.blocked;
       case pb.EmbedViewerState.EMBED_VIEWER_STATE_MUTED:
         return EmbedPlaceholder.muted;
+      case pb.EmbedViewerState.EMBED_VIEWER_STATE_PROTECTED:
+        return EmbedPlaceholder.protected;
       default:
         break;
     }
@@ -536,12 +540,16 @@ class _RepostPlaceholder extends StatelessWidget {
     required this.reposter,
     required this.isOwn,
     required this.placeholder,
+    required this.original,
     required this.menu,
   });
 
   final common.AuthorSnapshot reposter;
   final bool isOwn;
   final EmbedPlaceholder placeholder;
+
+  /// The original's author: shown only for the protected placeholder.
+  final common.AuthorSnapshot original;
 
   /// Actions on the repost itself (the hidden original gets none).
   final Widget menu;
@@ -563,9 +571,11 @@ class _RepostPlaceholder extends StatelessWidget {
             padding: const EdgeInsetsDirectional.only(
               start: AppSpacing.minTapTarget + AppSpacing.sm,
             ),
-            child: UnavailablePostBox(
-              message: EmbeddedPostCard.placeholderMessage(placeholder),
-            ),
+            child: placeholder == EmbedPlaceholder.protected
+                ? ProtectedPostBox(author: original)
+                : UnavailablePostBox(
+                    message: EmbeddedPostCard.placeholderMessage(placeholder),
+                  ),
           ),
         ],
       ),

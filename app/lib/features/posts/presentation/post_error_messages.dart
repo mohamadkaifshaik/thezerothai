@@ -64,6 +64,7 @@ String replyErrorMessage(AppException error) {
 String quoteErrorMessage(AppException error) {
   return switch (error) {
     NotFoundException() => "The post you're quoting isn't available any more.",
+    ProtectedAccountException() => ProtectedAccountException.userMessage,
     FeatureDisabledException() => "Quotes aren't available right now.",
     NetworkException() =>
       'No connection. Your quote was not sent; check your network and try '
