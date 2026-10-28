@@ -28,7 +28,12 @@ class TimelineState {
     this.newPosts = 0,
     this.error,
     this.notice,
+    this.authorProtected = false,
   });
+
+  /// The author is protected and the viewer is not approved (ADR-0025 D4):
+  /// show the protected view, not an empty feed.
+  final bool authorProtected;
 
   final TimelineStatus status;
 
@@ -71,6 +76,7 @@ class TimelineState {
     bool clearError = false,
     AppException? notice,
     bool clearNotice = false,
+    bool? authorProtected,
   }) => TimelineState(
     status: status ?? this.status,
     entries: entries ?? this.entries,
@@ -84,5 +90,6 @@ class TimelineState {
     newPosts: newPosts ?? this.newPosts,
     error: clearError ? null : (error ?? this.error),
     notice: clearNotice ? null : (notice ?? this.notice),
+    authorProtected: authorProtected ?? this.authorProtected,
   );
 }

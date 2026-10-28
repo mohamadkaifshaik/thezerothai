@@ -448,4 +448,44 @@ void main() {
       );
     });
   });
+
+  group('ERROR_REASON_PROTECTED_ACCOUNT (ADR-0025 D14)', () {
+    test('maps to ProtectedAccountException, whatever the code', () {
+      for (final code in [
+        connect.Code.failedPrecondition,
+        connect.Code.permissionDenied,
+      ]) {
+        expect(
+          mapConnectError(
+            _withDetail(
+              code,
+              'fallback',
+              common.ErrorDetail(
+                reason: common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT,
+                message: 'server text',
+              ),
+            ),
+          ),
+          isA<ProtectedAccountException>(),
+          reason: '$code',
+        );
+      }
+    });
+
+    test('LIMIT_REACHED follow_requests keeps the limit name', () {
+      final mapped = mapConnectError(
+        _withDetail(
+          connect.Code.failedPrecondition,
+          'fallback',
+          common.ErrorDetail(
+            reason: common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+            message: 'x',
+            metadata: {'limit': 'follow_requests'}.entries,
+          ),
+        ),
+      );
+      expect(mapped, isA<LimitReachedException>());
+      expect((mapped as LimitReachedException).quota, 'follow_requests');
+    });
+  });
 }

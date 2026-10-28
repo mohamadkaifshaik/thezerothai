@@ -251,7 +251,14 @@ class GraphRepository {
     );
     final relationship = _withUserId(response.relationship, userId);
     _cache(relationship, epoch);
-    await _database.upsertFollowing(userId, epoch: epoch);
+    // A protected account answers REQUESTED (ADR-0025 D6): nothing is followed
+    // yet, so the local following set (what Home and the lists trust) must not
+    // gain the account until an accept turns it into FOLLOWING.
+    if (relationship.followState == graph.FollowState.FOLLOW_STATE_REQUESTED) {
+      await _database.removeFollowing(userId, epoch: epoch);
+    } else {
+      await _database.upsertFollowing(userId, epoch: epoch);
+    }
     return relationship;
   }
 

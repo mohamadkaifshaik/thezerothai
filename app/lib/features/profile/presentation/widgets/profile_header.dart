@@ -23,6 +23,7 @@ import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
 import '../../../graph/presentation/graph_error_messages.dart';
 import '../../../moderation/presentation/report_sheet.dart';
+import '../../../../shared/widgets/protected_badge.dart';
 import 'block_confirmation_dialog.dart';
 import 'profile_cover_band.dart';
 
@@ -106,6 +107,7 @@ class ProfileHeader extends StatelessWidget {
         graphRepository: context.read<GraphRepository>(),
         userId: profile.userId,
         initial: relationship!,
+        targetIsPrivate: profile.isPrivate,
       ),
       child: BlocListener<RelationshipCubit, RelationshipState>(
         listener: (context, state) {
@@ -255,8 +257,22 @@ class _ProfileHeaderBody extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          profile.displayName,
+                        // The lock sits in the name's own text flow, so at a large
+                        // text scale it wraps with the last word and cannot
+                        // overlap the name (W3-21 D-1).
+                        Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(text: profile.displayName),
+                              if (profile.isPrivate) ...[
+                                const TextSpan(text: ' '),
+                                const WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: ProtectedBadge(),
+                                ),
+                              ],
+                            ],
+                          ),
                           key: nameKey,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,

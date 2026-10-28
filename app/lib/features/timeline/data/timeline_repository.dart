@@ -66,6 +66,12 @@ class TimelineRepository {
   late final RateLimitHold _hold;
 
   final Map<String, Future<void>> _lockTails = {};
+
+  /// Authors the server reported as protected for this viewer (`author_protected`,
+  /// ADR-0025 D4), with the session they were learned in. Memory only: the
+  /// cached rows of such an author are deleted, so a screen opened inside the
+  /// refresh throttle still knows to show the protected view, not an empty feed.
+  final Map<String, int> _protectedAuthors = {};
   final Map<String, Future<TimelineSnapshot>> _inflight = {};
 
   /// Sign-out: forget in-flight and queued work and invalidate every write
@@ -77,6 +83,7 @@ class TimelineRepository {
     _lockTails.clear();
     _refreshedAt.clear();
     _attemptedAt.clear();
+    _protectedAuthors.clear();
     _hold.clear();
   }
 
@@ -104,7 +111,28 @@ class TimelineRepository {
   RateLimitedException? rateLimitedFor() => _hold.check();
 
   /// What is on disk for [feed]. Never touches the network.
-  Future<TimelineSnapshot> cached(FeedKey feed) => _store.read(feed);
+  Future<TimelineSnapshot> cached(FeedKey feed) async {
+    if (_isProtected(feed)) {
+      return const TimelineSnapshot(authorProtected: true);
+    }
+    return _store.read(feed);
+  }
+
+  bool _isProtected(FeedKey feed) {
+    final userId = feed.userId;
+    return userId != null && _protectedAuthors[userId] == _store.session;
+  }
+
+  /// The server answered `author_protected` for [userId]: forget the cached
+  /// rows of every tab (a warm start must never show what the server now
+  /// hides, ADR-0025 D4) and remember the answer for this session.
+  Future<void> _markProtected(String userId, int session) async {
+    if (_store.session != session) return;
+    _protectedAuthors[userId] = session;
+    for (final tab in UserFeedTab.values) {
+      await _store.removeFeed(FeedKey.user(userId, tab: tab));
+    }
+  }
 
   /// Pull-to-refresh / app resume / first open. Returns the merged feed.
   Future<TimelineSnapshot> refresh(FeedKey feed) {
@@ -255,6 +283,7 @@ class TimelineRepository {
         );
       }
       final tab = feed.tab!;
+      final session = _store.session;
       final r = await _gate.run(
         () => _apiClient.timeline.getUserTimeline(
           tl.GetUserTimelineRequest(
@@ -271,6 +300,11 @@ class TimelineRepository {
         // GetMe resets the gate.
         requires: [if (tab.requiresProfileTabs) kFeatureProfileTabs],
       );
+      if (r.authorProtected) {
+        await _markProtected(feed.userId!, session);
+        throw const _AuthorProtected();
+      }
+      _protectedAuthors.remove(feed.userId);
       return _Page(
         r.posts.toList(),
         r.nextPageToken,
@@ -299,7 +333,13 @@ class TimelineRepository {
     final running = _inflight[key];
     if (running != null) return running;
     final previous = _lockTails[feed.value] ?? Future<void>.value();
-    final future = previous.catchError((Object _) {}).then((_) => body());
+    final future = previous
+        .catchError((Object _) {})
+        .then((_) => body())
+        .catchError(
+          (Object _) => const TimelineSnapshot(authorProtected: true),
+          test: (error) => error is _AuthorProtected,
+        );
     _inflight[key] = future;
     final tail = future.then<void>((_) {}, onError: (Object _) {});
     _lockTails[feed.value] = tail;
@@ -329,6 +369,12 @@ tl.UserTimelineTab? _wireTab(UserFeedTab tab) => switch (tab) {
 Duration Function() _stopwatchClock() {
   final stopwatch = Stopwatch()..start();
   return () => stopwatch.elapsed;
+}
+
+/// Thrown inside the repository when a page says `author_protected`; [_single]
+/// turns it into a snapshot with [TimelineSnapshot.authorProtected].
+class _AuthorProtected implements Exception {
+  const _AuthorProtected();
 }
 
 class _Page {

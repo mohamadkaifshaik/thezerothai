@@ -93,6 +93,7 @@ class TimelineCubit extends Cubit<TimelineState> {
             : TimelineStatus.loading,
         entries: visible,
         hasMore: cached.hasMore,
+        authorProtected: cached.authorProtected,
       ),
     );
     final since = _timeline.sinceRefresh(_feed);
@@ -340,6 +341,7 @@ class TimelineCubit extends Cubit<TimelineState> {
         entries: _visible(_snapshot),
         hasMore: _snapshot.hasMore,
         newPosts: _held.length,
+        authorProtected: _snapshot.authorProtected,
       ),
     );
   }

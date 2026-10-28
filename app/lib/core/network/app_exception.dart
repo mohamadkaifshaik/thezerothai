@@ -200,3 +200,16 @@ final class ServicePausedException extends AppException {
 final class UnknownApiException extends AppException {
   const UnknownApiException(super.message);
 }
+
+/// The target account is protected and the caller may not read what they asked
+/// for (`ERROR_REASON_PROTECTED_ACCOUNT`, ADR-0025 D4/D14): a non-follower's
+/// Followers / Following list, or a Repost / Quote of a protected post. It is a
+/// state to explain, not a failure to retry: the UI shows the protected view or
+/// a fixed sentence, never the server text.
+final class ProtectedAccountException extends AppException {
+  const ProtectedAccountException([super.message = userMessage]);
+
+  /// The only text the UI shows for this error on an action.
+  static const userMessage =
+      "You can't repost or quote posts from a protected account.";
+}

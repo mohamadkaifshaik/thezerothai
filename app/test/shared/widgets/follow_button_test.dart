@@ -109,24 +109,76 @@ void main() {
     verify(() => cubit.unblock()).called(1);
   });
 
-  testWidgets('shows a disabled "Requested" state (hidden variant)', (
-    tester,
-  ) async {
-    whenListen(
+  group('Requested (ADR-0025 D6, D7)', () {
+    void showRequested({bool isUpdating = false}) => whenListen(
       cubit,
       const Stream<RelationshipState>.empty(),
       initialState: RelationshipState(
         relationship: graph.Relationship(
           followState: graph.FollowState.FOLLOW_STATE_REQUESTED,
         ),
+        isUpdating: isUpdating,
       ),
     );
 
-    await tester.pumpWidget(wrap());
+    testWidgets('shows an outlined, tappable "Requested" 48dp target', (
+      tester,
+    ) async {
+      showRequested();
 
-    expect(find.text('Requested'), findsOneWidget);
-    final button = tester.widget<OutlinedButton>(find.byType(OutlinedButton));
-    expect(button.onPressed, isNull);
+      await tester.pumpWidget(wrap());
+
+      expect(find.text('Requested'), findsOneWidget);
+      final button = tester.widget<OutlinedButton>(find.byType(OutlinedButton));
+      expect(button.onPressed, isNotNull);
+      expect(tester.getSize(find.byType(OutlinedButton)).height, 48);
+      expect(
+        tester.getSize(find.byType(OutlinedButton)).width,
+        greaterThanOrEqualTo(48),
+      );
+    });
+
+    testWidgets('a tap asks first, and Cancel request sends one unfollow', (
+      tester,
+    ) async {
+      showRequested();
+      when(() => cubit.unfollow()).thenAnswer((_) async {});
+      await tester.pumpWidget(wrap());
+
+      await tester.tap(find.text('Requested'));
+      await tester.pumpAndSettle();
+      expect(find.text('Cancel your follow request?'), findsOneWidget);
+      verifyNever(() => cubit.unfollow());
+
+      await tester.tap(find.text('Cancel request'));
+      await tester.pumpAndSettle();
+
+      verify(() => cubit.unfollow()).called(1);
+    });
+
+    testWidgets('Keep request closes the dialog and sends nothing', (
+      tester,
+    ) async {
+      showRequested();
+      await tester.pumpWidget(wrap());
+
+      await tester.tap(find.text('Requested'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Keep request'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cancel your follow request?'), findsNothing);
+      verifyNever(() => cubit.unfollow());
+    });
+
+    testWidgets('is disabled while the withdraw is in flight', (tester) async {
+      showRequested(isUpdating: true);
+
+      await tester.pumpWidget(wrap());
+
+      final button = tester.widget<OutlinedButton>(find.byType(OutlinedButton));
+      expect(button.onPressed, isNull);
+    });
   });
 
   testWidgets(

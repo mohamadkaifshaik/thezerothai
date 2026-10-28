@@ -920,4 +920,27 @@ void main() {
       expect(find.textContaining('Report'), findsNothing);
     });
   });
+
+  group('protected author (ADR-0025 D4)', () {
+    testWidgets('a FOLLOWERS post shows the lock, announced', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final view = _view();
+      view.post.visibility = pb.Visibility.VISIBILITY_FOLLOWERS;
+
+      await tester.pumpWidget(wrap(PostCard(view: view, now: _now)));
+
+      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('protected account')), findsWidgets);
+      semantics.dispose();
+    });
+
+    testWidgets('a PUBLIC post shows none', (tester) async {
+      final view = _view();
+      view.post.visibility = pb.Visibility.VISIBILITY_PUBLIC;
+
+      await tester.pumpWidget(wrap(PostCard(view: view, now: _now)));
+
+      expect(find.byIcon(Icons.lock_outline), findsNothing);
+    });
+  });
 }

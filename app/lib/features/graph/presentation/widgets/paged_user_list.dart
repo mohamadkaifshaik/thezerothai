@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_error_view.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../shared/widgets/app_empty_view.dart';
+import '../../../../shared/widgets/protected_posts_view.dart';
 import '../../../../shared/widgets/user_list_skeleton.dart';
 import '../bloc/user_list_cubit.dart';
 import '../bloc/user_list_state.dart';
@@ -24,10 +26,16 @@ class PagedUserList extends StatefulWidget {
     required this.emptyMessage,
     this.emptyIcon = Icons.people_outline,
     this.rowBuilder,
+    this.protectedMessage,
   });
 
   final UserListCubit cubit;
   final String emptyMessage;
+
+  /// What a `PROTECTED_ACCOUNT` answer says (ADR-0025 D4: a protected
+  /// account's lists are for approved followers). Null = list screens that
+  /// cannot meet it show the ordinary error.
+  final String? protectedMessage;
 
   /// The icon above [emptyMessage] in the empty state.
   final IconData emptyIcon;
@@ -77,6 +85,19 @@ class _PagedUserListState extends State<PagedUserList> {
             return const SingleChildScrollView(
               physics: NeverScrollableScrollPhysics(),
               child: UserListSkeleton(),
+            );
+          }
+          final protectedMessage = widget.protectedMessage;
+          if (protectedMessage != null &&
+              state.error is ProtectedAccountException) {
+            // A state to explain, not a failure to retry.
+            return Center(
+              child: SingleChildScrollView(
+                child: ProtectedPostsView(
+                  title: 'This list is protected',
+                  message: protectedMessage,
+                ),
+              ),
             );
           }
           if (state.status == UserListStatus.error ||

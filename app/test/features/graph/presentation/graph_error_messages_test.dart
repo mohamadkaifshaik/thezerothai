@@ -39,4 +39,30 @@ void main() {
       );
     });
   });
+
+  group('protected accounts (ADR-0025)', () {
+    test('a full follow-requests limit has its own words', () {
+      final msg = relationshipErrorMessage(
+        const LimitReachedException('x', quota: 'follow_requests'),
+      );
+      expect(msg, contains('follow requests'));
+      expect(msg, isNot(contains('limit for this action')));
+    });
+
+    test('other limits keep the generic words', () {
+      expect(
+        relationshipErrorMessage(
+          const LimitReachedException('x', quota: 'following'),
+        ),
+        contains('limit for this action'),
+      );
+    });
+
+    test('PROTECTED_ACCOUNT never shows the server text', () {
+      expect(
+        relationshipErrorMessage(const ProtectedAccountException('raw')),
+        isNot(contains('raw')),
+      );
+    });
+  });
 }
