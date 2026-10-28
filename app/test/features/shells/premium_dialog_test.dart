@@ -7,6 +7,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/geometry.dart';
+import '../../support/shells_copy_guard.dart';
 import '../../support/shells_harness.dart';
 import '../../support/theme_harness.dart';
 
@@ -164,23 +165,10 @@ void main() {
       await openDialog(tester);
       final text = dialogText(tester);
 
-      expect(
-        RegExp(
-          r'subscribe|upgrade|buy|trial|waitlist|notify me|pre-order|'
-          r'reserve|limited|early bird|/year|annual',
-          caseSensitive: false,
-        ).hasMatch(text),
-        isFalse,
-        reason: text,
-      );
-      final allowed = kPremiumPlans.map((p) => formatRupees(p.pricePaise));
-      final amounts = RegExp(r'₹[\d,.]+').allMatches(text).map((m) => m[0]);
-      expect(amounts, isNotEmpty);
-      for (final a in amounts) {
-        expect(allowed, contains(a), reason: 'unexpected amount $a');
-      }
+      // The shared guard (words, dates, amounts): support/shells_copy_guard.
+      expectCleanShellCopy(text, allowPlanAmounts: true, where: 'pop-up');
+      expect(RegExp(r'₹[\d,.]+').hasMatch(text), isTrue);
       expect(RegExp(r'https?:|www\.|mailto:').hasMatch(text), isFalse);
-      expect(RegExp(r'\d{4}|\d{1,2}[/-]\d{1,2}').hasMatch(text), isFalse);
     });
 
     shellsTest('each card reads once, as one non-button node', (tester) async {
