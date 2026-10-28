@@ -94,7 +94,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Open (depends: W3-26a, W3-28a) |
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Done (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Done (PR #388) (depends: W3-27, W3-26a) |
-| W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
+| W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | In review (PR #396) (depends: W3-28a, W3-26a) |
 | W3-28c | Part B graph: `make proto` and `is_private` on every graph user-list row from the hydrated profile | backend-developer | S | In review (PR #393): `make proto` run, generated Go and Dart committed; `toProtoAuthorSnapshot` fills `is_private` from the hydrated profile, +0 reads; full-chain emulator test over the six lists |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Done (PR #382) (depends: W3-25b; merges after W3-26a) |
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | In review (PR #386) (depends: W3-29a) |
@@ -850,7 +850,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - List: 0.02 calls per DAU, 0.84 reads per DAU.
   - Respond: 0.04 calls per DAU, 0.12 reads, 0.16 writes and 0.04 deletes per DAU.
 
-#### W3-28b Graph: the `privacy_public` job [backend-developer] [S] [depends: W3-28a, W3-26a] Status: Open
+#### W3-28b Graph: the `privacy_public` job [backend-developer] [S] [depends: W3-28a, W3-26a] Status: In review (PR #396)
 - **Description** (D8, AQ1).
   - An `apiserver` adapter implements `identity.PrivacyListener` by publishing `{kind: privacy_public, uid}` to the existing `jobs` topic.
   - Graph's handler is registered with `lifecycle.RegisterJobHandler`, as `profile_media_retired` is (`apiserver.go`:394).
