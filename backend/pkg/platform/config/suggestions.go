@@ -19,8 +19,9 @@ type SuggestionsConfig struct {
 	// SampleFollowees is how many of the caller's newest followees seed the friends-of-friends query
 	// (SUGGESTIONS_SAMPLE_FOLLOWEES, default 30, at most 30: the Firestore `in` limit).
 	SampleFollowees int
-	// EdgeLimit is the Limit of that query (SUGGESTIONS_EDGE_LIMIT, default 20, at most 50: CLAUDE.md rule 5). A project
-	// may set 20 to 30 by a reviewed config PR that cites the ADR-0024 Amendment 2 B3 fill check; above 30 needs an ADR.
+	// EdgeLimit is the Limit of that query (SUGGESTIONS_EDGE_LIMIT, default 20, at most 30: startup refuses more).
+	// A project may set 20 to 30 by a reviewed config PR that cites the ADR-0024 Amendment 2 B3 fill check; above 30
+	// needs an ADR and a change to this bound (Amendment 2 security review, L-2).
 	EdgeLimit int
 	// HydrateMax is the most candidates hydrated through identity.Directory (SUGGESTIONS_HYDRATE_MAX, default 10, at
 	// most 50).
@@ -50,7 +51,7 @@ func loadSuggestions() (SuggestionsConfig, error) {
 		min, max int
 	}{
 		{&c.SampleFollowees, "SUGGESTIONS_SAMPLE_FOLLOWEES", 30, 1, 30},
-		{&c.EdgeLimit, "SUGGESTIONS_EDGE_LIMIT", 20, 1, 50},
+		{&c.EdgeLimit, "SUGGESTIONS_EDGE_LIMIT", 20, 1, 30},
 		{&c.HydrateMax, "SUGGESTIONS_HYDRATE_MAX", 10, 1, 50},
 		{&c.MaxResults, "SUGGESTIONS_MAX_RESULTS", 5, 1, 5},
 	}
