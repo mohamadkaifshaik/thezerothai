@@ -346,7 +346,7 @@ Prices (§7):
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | In review (PR pending) |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | In review (PR pending) |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | In review (PR pending) |
-| W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Open |
+| W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | In review (PR pending) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Open |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
@@ -755,7 +755,7 @@ Order:
 - **Flag.** `messaging` per caller (the composer is hidden when off for the caller).
 - **Seam.** `MessageComposerCubit` mirrors `ComposerCubit`'s intent rules; no second text validator.
 
-### W7-17 — New-message flow and profile "Message" button  [owner: frontend-developer] [size: M] [depends: W7-13; W3-14 for the profile button]  Status: Open
+### W7-17 — New-message flow and profile "Message" button  [owner: frontend-developer] [size: M] [depends: W7-13; W3-14 for the profile button]  Status: In review (PR pending)
 - **Description.**
   - **`/messages/new`:** full screen under 600 dp, a 600 dp dialog above, with a "To:" search field.
     - Empty: the caller's **Following list** (`GraphRepository.listFollowing`, paged, `UserListRow` without a FollowButton).
