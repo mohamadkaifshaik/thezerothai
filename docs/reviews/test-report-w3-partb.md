@@ -395,3 +395,66 @@ bash scripts/with-private-tmp.sh firebase --config <copy>.json emulators:exec --
 ```
 
 VERDICT: PASS
+
+## W3-41a: owner placeholders for protected authors (PR #430, head `70732b66`, tested after the origin/main merge)
+
+**VERDICT: FAIL for W3-41a: one Low defect, D-1 (block is not decided first on the owner's profile when the caller's
+`blockedBy` overflowed).** Everything else holds. Two new tests are red by design until D-1 is fixed.
+
+### 1. Cases the author asked to attack
+
+All in `backend/internal/apiserver/w341a_attack_integration_test.go` (emulators) and
+`backend/internal/posts/audience_w341a_attack_test.go` (unit, no emulators).
+
+| # | Case | Test | Result |
+|---|---|---|---|
+| 1 | A REPOST by R of protected P's post in the caller's Likes list | `TestW341aAttack_RepostByOtherInOwnerLists`, `..._OwnListRepostByOtherShapes` | PASS. Withheld row: `kind` REPOST, author R, no `embedded`, `liked_by_viewer`. Dropped (never a placeholder) when S mutes P, S mutes R, S blocks R, P blocks S, or R blocks S; the placeholder returns after the undo of each; S approved for P gives the full REPOST with its embed. Cold ListLikedPosts 5 reads (ceiling 23), ListBookmarks 5 (ceiling 43). See R-1. |
+| 2 | Withheld rows with the protected set unavailable | `TestW341aAttack_SetUnavailableNeverSendsRows`, `..._OwnSurfacesFailClosedOnSetError` | PASS. Isolated project, set document corrupted after the like, bookmark and REPOST were made. ListLikedPosts, ListBookmarks and the Posts, Replies and Reposts tabs answer 503 `unavailable` on a fresh chain and on a warm chain polled across `PROTECTED_SET_MAX_STALE`; the raw body never holds the marker text, `"withheld"` or `"postId"`; the reason is not `PROTECTED_ACCOUNT`. The Media tab of an account with no media post answers 200 with no rows (no row to decide). Unit: `Decide` returns the set error, never Show or Withheld, for all four owner shapes. |
+| 3 | `blockedBy` overflowed | `TestW341aAttack_BlockedByOverflow`, `TestW341aAttack_OwnProfileRepostWithBlockedByOverflow` | **FAIL, D-1.** The lists fail closed (a foreign row is dropped, no placeholder, no leak: PASS). The own Reposts tab returns the REPOST of a P who blocked S. |
+| 4 | Own REPOST on the Posts and Replies tabs, `since` refresh | `TestW341aAttack_OwnRepostOnEveryTabAndRefresh` | PASS. Baseline tabs holding the REPOST (P public): Posts, Replies, Reposts (not Media). After P protects, exactly those three return it as `PROTECTED` + `reposted_by_viewer` with `embedded` reduced to `post_id` and author: first page on a cold chain, `since` refresh on a cold chain and on a chain warmed after the protect (including the author-recent path), `page_size` 1 paging. Another viewer never gets it on any tab, nor does S's Home (first page and `since`). One chain shared by S, another viewer and Home, in both orders: nothing crosses viewers. |
+| 5 | Viewer flags after a `userLikes` cap or trim | `TestW341aAttack_FlagsAfterUserLikesTrim` | PASS. With `recentReposts` trimmed, `recent` and `recentReposts` emptied, and the `userLikes` document deleted, the kept REPOST still has `reposted_by_viewer`; a placeholder keeps `liked_by_viewer` / `bookmarked_by_viewer`. A like trimmed out of `recent` simply leaves the Likes list (ADR-0018 D8, older than this PR). |
+
+### 2. Also checked
+
+- **Bytes** (`TestW341aAttack_WireBytesAndUnchangedSurfaces`): JSON keys of every placeholder are within `post`, `withheld` and the caller's three viewer flags; `post` holds only `postId`, `kind`, `author`; the Bookmark wrapper adds only `bookmarkedAt`. Binary: the decoded `PostView` equals the expected message (`proto.Equal`), field sets are `post_id`/`kind`/`author` plus `withheld` plus the viewer flags, no unknown fields, no marker text or image id in the raw bytes of Likes, Bookmarks or the own Reposts tab. The viewer flags (`liked`, `reposted`, `bookmarked` of the caller) are allowed by the ADR and not flagged.
+- **Other viewers and surfaces**: `oracleParity` (the W3-20 `rawRPC` comparator against the deleted post) holds for GetPost and the GetThread focal of P's post as S and as another viewer, and of S's own REPOST id as S and as another viewer: status, content type and body byte for byte. Another viewer's body for each of S's four tabs holds neither the REPOST id, P's uid, a placeholder nor a leak marker.
+- **Budgets**: +0 reads and +0 writes against the documented rows. ListLikedPosts 5 and ListBookmarks 5 reads on these fixtures (ceilings 23 and 43), 0 writes; own Reposts tab 4 reads (ceiling 24), also with an overflowed caller; 0 writes everywhere.
+- **Suites rerun after the origin/main merge** (`make test-int FIREBASE="firebase --config <untracked 40xxx copy>"`, Windows, no `-race` because CGO is off): `internal/apiserver`, `internal/posts`, `internal/engagement`, `internal/timeline` and `internal/timeline/integration` pass, with the exceptions below. `go vet -tags=integration` and `gofmt -l` are clean. `golangci-lint run ./internal/posts/... ./internal/apiserver/...` reports 0 issues without the tag; with `--build-tags=integration` only 3 `SA1019` (`firestore.Client.Batch`) in `posts/has_media_integration_test.go`, `removals_integration_test.go` and `removals_scope_integration_test.go`, files this PR does not touch.
+  - `TestW335a_PartBBudgetTable` failed once: `RespondToFollowRequest Respond accept, standalone cold ... Reads() = 7, want <= 5` (`w335a_budget_integration_test.go:112`). The known order-dependent flake, W3-35d. Not touched.
+  - The two D-1 tests, red on purpose.
+- **Coverage on `internal/`** (`-coverprofile=cover-internal.out -coverpkg=./internal/...`, unit plus integration): **92.7%** (gate 70%).
+
+### 3. Defects
+
+**D-1 (Low, backend-developer): `SurfaceOwnProfile` keeps the REPOST of an author who blocked the caller when the caller's `blockedBy` overflowed.**
+`posts.NewSnapshotAudience` tests a block with `snap.BlockedBy[other]` only (`posts/audience.go` ~:306); its comment leaves the overflow to `timeline.embedAllowed`. `timeline.filterEmbeds` skips `embedAllowed` when `caller == target` (`timeline/service.go:331`), and the new branch at `posts/audience.go:167-178` then returns `Show` + `PROTECTED`. The ADR says "Block is decided first, so a P who blocks A is still dropped everywhere"; before this PR the same state was dropped (an unapproved protected author, REPOST refused). The row exposes P's author snapshot (handle, display name, avatar) to a user P blocked; the embedded text and media are stripped, and S saw them while they could. The lists are not affected (`blockCause` drops a foreign row on overflow).
+- Unit repro: `cd backend && GOWORK=off go test ./internal/posts/ -run TestW341aAttack_OwnProfileRepostWithBlockedByOverflow` fails with "own REPOST of P kept (verdict 0, embed EMBED_VIEWER_STATE_PROTECTED) although the viewer's blockedBy overflowed".
+- Emulator repro: `TestW341aAttack_BlockedByOverflow` (S likes, bookmarks and reposts P's post; P blocks S; `graph/{S}` gets `blockedBy` ArrayRemove(P) and `blockedByOverflow: true`, as `TestW335a_OverflowFallbackRefusesAStaleEdge` does; P protects; S reads the own Reposts tab, 4 reads). The test logs a control: with P still public the same state keeps the full REPOST on the own profile, so the overflow gap in the own-profile path exists before this PR; only the protected case is new.
+- Suggested fix (owner's call): on `SurfaceOwnProfile`, when `snap.BlockedByOverflow` and P is not provably non-blocking, drop the row (fail closed, as the lists do) or pay the one author-graph read the posts `blockedBy` fallback already pays. A read added to the own Reposts tab is a budget decision for `sre-performance`, not a test change.
+
+### 4. Observations (not defects)
+
+- **R-1, case 1 reachability.** `LikePost(REPOST id)` and `AddBookmark(REPOST id)` both store the original's id (`userLikes` after both calls: `recent` and `bookmarks` hold only the original). A REPOST row therefore reaches the Likes list only through a hand-seeded `recent`, and never reaches Bookmarks. The withheld handling of a REPOST row is correct but reachable only for such legacy data, and `UnlikePost(REPOST id)` resolves to the original, so a seeded REPOST id stays in `recent` (the test logs it). Seeding is how `TestW341aAttack_RepostByOtherInOwnerLists` builds the row.
+- **R-2, overflow and the lists.** An overflowed caller cannot undo a like or bookmark of any foreign author from the lists (`blockCause` drops every foreign row). It is fail-closed and older than this PR; the own Reposts tab still offers Undo.
+- **R-3, staleness.** A chain that cached the protected set before P protected (CACHE_TTL) still serves S's Home page and the own REPOST in full until it refreshes; the ADR accepts the bounded staleness. The tests that need the new state use chains started after the protect.
+- The `since` refresh returns the previous REPOST again inside its overlap window, stripped like the new one.
+
+### 5. Test seam
+
+None. No production file was changed.
+
+### 6. Leftovers
+
+The Windows `java.exe` Pub/Sub emulators of my four `emulators:exec` runs were left running; I did not kill them: PIDs 33744 (port 40085), 35120 (40086), 21392 (40087), 15012 (40088). The untracked config copy and the `*-debug.log` files were deleted.
+
+### 7. Reproduce
+
+```sh
+export GOWORK=off
+# an untracked copy of firebase.graph-loadtest.json with the six ports in 40xxx, then:
+bash scripts/with-private-tmp.sh firebase --config <copy>.json emulators:exec --project demo-dzeroth-local \
+  --only firestore,auth,pubsub,storage 'cd backend && go test -tags=integration -count=1 -v -run "TestW341a" ./internal/apiserver/'
+cd backend && go test ./internal/posts/ -run TestW341aAttack
+```
+
+VERDICT: FAIL — D-1 (Low): own-profile REPOST of an author who blocked the caller is kept when the caller's blockedBy overflowed (posts/audience.go:167-178, timeline/service.go:331).
