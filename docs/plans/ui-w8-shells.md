@@ -172,7 +172,7 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 | --- | --- | --- | --- | --- | --- | --- |
 | W8-1 | `FEATURE_SHELLS` registration: `config.go` `LoadSpec` + test, `NewRegistry`, `flag-ceiling.json` (gate; dev allowlist 3; prod `on` recorded in ADR-0026, not the file), Terraform vars, runbook | backend-developer | S | — | **yes, start now**; shared files serialise with W3-4, W3-25, W4-3, W5-3, W5-22, W6-4, W7-4 | In review |
 | W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | Open |
-| W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | Open |
+| W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | In review |
 | W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | Open |
 | W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | Open |
 | W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | Open |
@@ -269,7 +269,7 @@ Order:
 - **Flag.** `shells` + `ui_shell` (entries), `shells` (routes).
 - **Seam.** `shellEntries` and the four path constants are the only places a shell is named; `AppMoreMenu` takes a list of entries, so later waves add rows without editing it. A real feature swaps the entry's gate and the route's builder and changes no caller (section "How each shell is replaced").
 
-### W8-3 — Shared grouped rows and status pill  [owner: frontend-developer] [size: S] [depends: —]  Status: Open
+### W8-3 — Shared grouped rows and status pill  [owner: frontend-developer] [size: S] [depends: —]  Status: In review
 - **Description.** `reuse-first` step 3, generalise and move:
   - `SettingsGroup` and `SettingsRow` move from `features/settings/presentation/widgets/settings_group.dart` to `app/lib/shared/widgets/settings_group.dart`, names unchanged. The Settings screen's imports are updated, and the old file is deleted (no re-export shim).
   - Two backward-compatible extensions:

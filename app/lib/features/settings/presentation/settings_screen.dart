@@ -7,6 +7,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_mode_cubit.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
+import '../../../shared/widgets/settings_group.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
@@ -14,7 +15,6 @@ import '../../graph/presentation/graph_feature_flags.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
 import 'widgets/appearance_sheet.dart';
-import 'widgets/settings_group.dart';
 
 /// Phase 0 settings: account info + sign out. Notification, privacy and
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
