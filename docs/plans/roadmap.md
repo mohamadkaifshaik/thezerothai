@@ -59,7 +59,7 @@ W2 to W3 may run in parallel with W4 once W1.5 is planned. W5 to W8 follow in or
 1. **Close M1:** record the founder's visual review of the merged W0/W1 screens and add the Linux-CI golden job (B-01). Decide the `ui_shell` ramp (B-20); a ramp needs a Terraform plan shown to the founder first.
 2. **W1.5 capture session** (section 5), then a W1.5 client plan.
 3. ~~**W2 plan** by the planner, with the bookmarks ADR drafted by the architect.~~ Done: W2 built and applied in dev (2026-10-27).
-4. ~~**W3 plan** after the W2 ADR, reusing the media pipeline for covers.~~ Done: W3 Part A applied in dev; Part B in progress (2026-10-28). Next waves: W4 to W8 plans are written; W4 to W7 have not started, and a W8 shells PR (#392) is open.
+4. ~~**W3 plan** after the W2 ADR, reusing the media pipeline for covers.~~ Done: W3 Part A applied in dev; Part B in progress (2026-10-28). Next waves: W4 to W8 plans are written; W4 to W7 have not started; the W8 shell pages merged in #392 (2026-10-28, docs follow-up #397).
 
 ## 5. Research gaps to close before building (needs the founder; no screenshot is committed)
 REA capture times out on tabs that are not the active tab of their window, so each capture needs the founder to open and focus the tab. Not captured yet and required before the matching work:
