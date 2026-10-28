@@ -5,6 +5,8 @@ Deciders: architect (proposal); founder. Merging this ADR is the founder's accep
 reversal of ADR-0008 D1, the deferral the founder accepted on 2026-09-28. The first Part B implementation PR flips
 the status (W3-25) and adds dated pointer notes to ADR-0003 and ADR-0008 (D16). Eight founder questions are listed
 below, each with a recommended default.
+Implementation notes 2026-10-28 (W3-25a): "Implementation notes (W3-25a, 2026-10-28)" at the end answers the plan's
+design points AQ1 to AQ6. Every default stands; no decision of this ADR changed.
 
 Plan: `docs/plans/ui-w3-profile-graph-completion.md`, Part B, tickets W3-3 (this ADR) and W3-25 to W3-38; founder
 question 1. Related ADRs:
@@ -622,3 +624,61 @@ deletes are unchanged in practice.
   - allowlist 3 on OK;
   - the smoke: protect, request, accept, withdraw, unprotect with auto-accept, flag off keeps protection;
   - prod unchanged.
+
+## Implementation notes (W3-25a, 2026-10-28)
+Records only: no decision above changes. They answer the six open design points of the plan
+(`docs/plans/ui-w3-profile-graph-completion.md`, Part B, AQ1 to AQ6). Every default stands. Three notes add a detail
+the tickets need (AQ4, AQ5, AQ6). Cost: +0 reads and +0 writes on every row of the Cost impact table, except AQ4's
++1 delete on a rare path.
+
+- **AQ1. The `privacy_public` job runs in graph.** Default kept.
+  - Identity reports an unprotect through `identity.PrivacyListener.BecamePublic` after its commit. Graph owns the
+    job: the publish (through an `apiserver` adapter), the handler and the accept code. This is the ADR-0024 A4 split,
+    where identity calls `MediaRetirer` and media owns the job.
+  - Why: the job's transaction writes `follows`, `graph` and `followRequests`, which graph owns (ADR-0002), and it must
+    reuse W3-28a's one accept implementation. D8's behaviour is unchanged; only the owner of the handler moves (the
+    Handoff listed it under W3-26).
+  - A failed hand-over is ERROR `privacy_public_enqueue_failed`. The requests stay pending until the job is
+    republished (runbook), and AQ4 keeps Follow correct meanwhile.
+- **AQ2. The predicate's expression is written once, on `identity.ProtectedSet`.** Default kept.
+  - `ProtectedSet` gets a pure method holding the D3 expression, `viewer == author || !Has(author) || following`.
+    `posts.Audience.CanSee` delegates to it, so the rule exists in one place, as D3 requires.
+  - Why: posts imports identity, so identity cannot import posts, yet GetProfile must decide the pin (D4).
+  - GetProfile is the one caller outside `posts.Audience`. Every read path still calls only `posts.Audience`.
+    W3-35a's audience guard enforces that these two are the only callers.
+  - As D3 says, a caller decides own and followed authors before it asks the loader, so those never trigger a refresh.
+- **AQ3. `pending_follow_request_count` comes through `identity.FollowRequestCounter`.** Default kept.
+  - A consumer-side interface in identity, implemented by graph (the `BlockChecker` pattern), cached 30 s per uid in
+    identity like the unread-notification count.
+  - Why: identity cannot query graph's collection (ADR-0002), and a `count()` on demand is the D7 design. A counter
+    on the target stays the Stage-ladder rung.
+- **AQ4. A Follow of a public target with a leftover request becomes the edge.** Default kept.
+  - The case: the target is not protected and is in the caller's `requested`, because the job has not run yet or its
+    hand-over failed.
+  - Follow's transaction then creates the edge as usual and, in the same transaction:
+    - deletes `followRequests/{caller}_{target}` with a plain `Delete` (no `Exists` precondition, so a drifted entry
+      cannot fail the Follow);
+    - removes the target from `requested` in the caller-graph write it already makes.
+  - That keeps I-R and I-X. Cost: +1 delete and 0 reads, because the caller's graph is already read fresh. The quota
+    and the counters are an ordinary Follow's.
+  - It serializes with the job: both transactions read and write `graph/{caller}`, and the job re-reads the request.
+    So a request is accepted once, and `followersCount` moves once.
+  - Why: without it, Follow answers REQUESTED for a public account until the job runs.
+- **AQ5. Notifications declare a consumer-side audience checker.** Default kept.
+  - notifications declares the check it needs at fan-out: may this recipient see this actor, given the recipient's
+    snapshot. `apiserver` adapts it from `posts.Audience.CanSee`. notifications never calls `identity.ProtectedSet`
+    itself, although it imports identity.
+  - Why: notifications keeps depending only on graph and identity, so it can still split into its own service, and
+    the one rule still runs through `posts.Audience`. Importing posts would also work (no cycle), but it would tie the
+    fan-out to the posts module for one function.
+  - Fail closed: when the set is unavailable, the fan-out of a post-bearing type (mention, reply, quote, repost)
+    returns a retryable error, so Pub/Sub redelivers it. It never writes the row on an unknown set. Like, follow and the
+    two request types do not need the set.
+- **AQ6. GetProfile while the set is unavailable: the header needs no set, only the pin does.** Default kept.
+  - The header is public data whatever the set says, and `is_private` comes from the `users` doc.
+  - So GetProfile returns the header and omits `pinned_post_id` (fail closed), with WARN `pin_omitted=set_unavailable`.
+    This applies only to a viewer who is neither the account nor a follower. The owner and followers get the pin
+    without the set.
+  - D3's rule stands: no path reads an unknown set as "everyone public", and every path that needs the set for content
+    answers UNAVAILABLE.
+  - Why: failing the whole profile would turn a set outage into a profile outage and protect nothing more.

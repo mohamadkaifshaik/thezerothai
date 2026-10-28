@@ -79,6 +79,13 @@ enum NotificationType {
   NOTIFICATION_TYPE_REPOST = 5;
   // actor quoted your post; post_id is the quote post.
   NOTIFICATION_TYPE_QUOTE = 6;
+  // actor asked to follow you, a protected account (ADR-0025 D10). post_id is empty; tapping opens the follow requests
+  // screen. One row per requester for 90 days: a withdrawn or declined request keeps its row, and asking again adds
+  // no row and no push. The requests screen (ListFollowRequests) is the truth.
+  NOTIFICATION_TYPE_FOLLOW_REQUEST = 7;
+  // actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
+  // sends nothing.
+  NOTIFICATION_TYPE_FOLLOW_ACCEPTED = 8;
 }
 
 enum DevicePlatform {
@@ -95,7 +102,8 @@ message Notification {
   dzeroth.common.v1.AuthorSnapshot actor = 3;
   // Distinct actors folded into this row (>= 1; only LIKE is > 1). Render "@actor and N-1 others".
   int32 actor_count = 4;
-  // Subject post (empty for FOLLOW). Tapping opens /post/:id, or the actor's profile for FOLLOW.
+  // Subject post (empty for FOLLOW, FOLLOW_REQUEST and FOLLOW_ACCEPTED). Tapping opens /post/:id, or the actor's
+  // profile for FOLLOW and FOLLOW_ACCEPTED.
   string post_id = 5;
   // Last activity; the sort key.
   google.protobuf.Timestamp created_at = 6;
