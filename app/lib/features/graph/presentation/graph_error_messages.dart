@@ -10,7 +10,13 @@ String relationshipErrorMessage(AppException error) {
   return switch (error) {
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",
+    // ADR-0025 D6: 500 pending outgoing requests (metadata["limit"]).
+    LimitReachedException(quota: 'follow_requests') =>
+      "You've sent too many follow requests that are still pending. Cancel "
+          'some, or wait for them to be answered.',
     LimitReachedException() => "You've reached the limit for this action.",
+    ProtectedAccountException() =>
+      'Only approved followers can see this account.',
     final RateLimitedException e => rateLimitedMessage(e),
     EmailNotVerifiedException() =>
       'Please verify your email address to continue.',

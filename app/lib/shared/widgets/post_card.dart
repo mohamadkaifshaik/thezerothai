@@ -30,6 +30,7 @@ import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
 import 'post_pin_control.dart';
+import 'protected_badge.dart';
 import 'protected_post_box.dart';
 import 'unavailable_post_box.dart';
 
@@ -280,8 +281,14 @@ class PostCard extends StatelessWidget {
         ? '@${author.handle}'
         : author.displayName;
 
+    // The viewer may see this post only because the author protects their
+    // posts and the viewer is the author or an approved follower (ADR-0025 D4).
+    final protectedAuthor =
+        !isRepost && _post.visibility == pb.Visibility.VISIBILITY_FOLLOWERS;
+
     final authorLabel = [
       displayName,
+      if (protectedAuthor) 'protected account',
       if (author.verified) 'verified',
       '@${author.handle}',
       if (spokenTime.isNotEmpty) spokenTime,
@@ -328,6 +335,7 @@ class PostCard extends StatelessWidget {
                               displayName: displayName,
                               handle: author.handle,
                               verified: author.verified,
+                              protected: protectedAuthor,
                               time: shortTime,
                             ),
                           ),
@@ -587,11 +595,13 @@ class _AuthorLine extends StatelessWidget {
     required this.handle,
     required this.verified,
     required this.time,
+    this.protected = false,
   });
 
   final String displayName;
   final String handle;
   final bool verified;
+  final bool protected;
   final String time;
 
   @override
@@ -615,6 +625,10 @@ class _AuthorLine extends StatelessWidget {
             size: AppIconSize.sm,
             color: theme.colorScheme.primary,
           ),
+        ],
+        if (protected) ...[
+          const SizedBox(width: AppSpacing.xs),
+          const ProtectedBadge(),
         ],
         const SizedBox(width: AppSpacing.xs),
         Flexible(

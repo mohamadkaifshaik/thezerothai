@@ -406,7 +406,7 @@ void main() {
     }
 
     testWidgets('each state: Follow (filled), Following, Unblock and the '
-        'disabled Requested', (tester) async {
+        'tappable Requested', (tester) async {
       stubBoth([
         _item(1),
         _item(2, follow: graph.FollowState.FOLLOW_STATE_FOLLOWING),
@@ -421,7 +421,8 @@ void main() {
       final requested = tester.widget<OutlinedButton>(
         find.widgetWithText(OutlinedButton, 'Requested'),
       );
-      expect(requested.onPressed, isNull);
+      // Tapping it asks to cancel the request (ADR-0025 D7), so it is live.
+      expect(requested.onPressed, isNotNull);
       for (final b in tester.widgetList<ButtonStyleButton>(
         find.byWidgetPredicate((w) => w is ButtonStyleButton),
       )) {

@@ -262,4 +262,84 @@ void main() {
       ),
     );
   });
+
+  group('PROTECTED_ACCOUNT (ADR-0025 D4)', () {
+    testWidgets('a protected state replaces the error, with no Retry', (
+      tester,
+    ) async {
+      stubFollowing(const GraphPage(items: [], nextPageToken: ''));
+      when(
+        () => graphRepository.listFollowers(
+          userId: 'target-uid',
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((_) async => throw const ProtectedAccountException());
+
+      await tester.pumpWidget(
+        wrap(const GraphListScreen(handle: 'kaif', userId: 'target-uid')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('This list is protected'), findsOneWidget);
+      expect(
+        find.text('Only approved followers can see who follows @kaif.'),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsNothing);
+      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+    });
+
+    testWidgets('the Following tab says whose list it is', (tester) async {
+      when(
+        () => graphRepository.listFollowers(
+          userId: 'target-uid',
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((_) async => const GraphPage(items: [], nextPageToken: ''));
+      when(
+        () => graphRepository.listFollowing(
+          userId: 'target-uid',
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((_) async => throw const ProtectedAccountException());
+
+      await tester.pumpWidget(
+        wrap(
+          const GraphListScreen(
+            handle: 'kaif',
+            userId: 'target-uid',
+            initialTab: GraphListTab.following,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Only approved followers can see who @kaif follows.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('other errors keep the error view with Retry', (tester) async {
+      stubFollowing(const GraphPage(items: [], nextPageToken: ''));
+      when(
+        () => graphRepository.listFollowers(
+          userId: 'target-uid',
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((_) async => throw const NetworkException('offline'));
+
+      await tester.pumpWidget(
+        wrap(const GraphListScreen(handle: 'kaif', userId: 'target-uid')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('This list is protected'), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
+    });
+  });
 }
