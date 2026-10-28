@@ -299,7 +299,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 				MaxLateness: cfg.Scheduled.MaxLateness, MaxAttempts: cfg.Scheduled.MaxAttempts, TerminalTTL: cfg.Scheduled.TerminalTTL,
 			},
 		},
-	}, posts.WithAllowAnonymous(cfg.AuthEmulator))
+	}, posts.WithAllowAnonymous(cfg.AuthEmulator), posts.WithProtectedAuthors(protectedAuthors))
 	// ADR-0024 D3: identity's UpdateProfile asks posts whether a post is the caller's own visible pin candidate. Bound here, once,
 	// before ListenAndServe (posts needs identity.Directory, so identity was built first).
 	pinChecker.c = posts.NewPinChecker(postsSvc)
