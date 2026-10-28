@@ -100,7 +100,7 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 		return nil, err
 	}
 
-	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, page.Items, af.embed), RemovedIds: removed}
+	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, snap.Following, page.Items, af.embed), RemovedIds: removed}
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -278,10 +278,10 @@ func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.
 	return it
 }
 
-// toViews renders a page with the viewer's state: one cached userLikes read per request when FEATURE_ENGAGEMENT or
+// toViews renders a page with the viewer's state (following: the viewer's followed authors, for the wire-visibility hint): one cached userLikes read per request when FEATURE_ENGAGEMENT or
 // FEATURE_BOOKMARKS is on for uid (0 when the page is empty; posts.HydrateViewer), else every flag false. Without
 // engagement only the bookmarks are hydrated, so no like or repost flag leaks (ADR-0023 D5).
-func (s *Server) toViews(ctx context.Context, uid string, ps []*posts.Post, embed map[string]postsv1.EmbedViewerState) []*postsv1.PostView {
+func (s *Server) toViews(ctx context.Context, uid string, following map[string]bool, ps []*posts.Post, embed map[string]postsv1.EmbedViewerState) []*postsv1.PostView {
 	var vs posts.ViewerSet
 	if len(ps) > 0 {
 		vs = posts.HydrateViewer(ctx, s.deps.Flags, s.deps.Viewer, uid)
@@ -292,7 +292,7 @@ func (s *Server) toViews(ctx context.Context, uid string, ps []*posts.Post, embe
 		if st, ok := embed[p.ID]; ok {
 			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens (W3-29a)
 		}
-		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, p.AuthorID)) // FOLLOWERS while the author is protected (D2)
+		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, uid, p.AuthorID, following[p.AuthorID])) // FOLLOWERS while the author is protected (D2)
 		out = append(out, v)
 	}
 	return out
@@ -376,7 +376,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	logger.SetRequestField(ctx, fieldMode, string(md))
 	logger.SetRequestField(ctx, fieldPageSize, limit)
 
-	protected, err := s.checkVisible(ctx, caller, target)
+	protected, following, err := s.checkVisible(ctx, caller, target)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	if err != nil {
 		return nil, err
 	}
-	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, items, embed), RemovedIds: removed}
+	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, following, items, embed), RemovedIds: removed}
 	it := s.tokens(f, md, tok, res.page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -448,41 +448,41 @@ func (s *Server) resolveTab(ctx context.Context, caller string, req *timelinev1.
 // non-ACTIVE or caller-blocking target (D6). A caller who blocks or mutes the target still sees the posts.
 // After those rules it applies ADR-0025 D4: protected is true when the target is a protected account and the caller is
 // neither that account nor a follower of it, so every tab answers author_protected. The decision uses the caller's
-// graph snapshot checkVisible already read (3 cold reads: interceptor, target users, caller graph) and the detached
+// graph snapshot checkVisible already read (it also returns the caller's following set for the wire-visibility hint, L-4) (3 cold reads: interceptor, target users, caller graph) and the detached
 // protected-set loader, and runs before any page or author-recent entry is touched. A set error is UNAVAILABLE.
 // Staleness bound: a follow, unfollow or toggle is seen within CACHE_TTL (60 s, the graph and set caches).
-func (s *Server) checkVisible(ctx context.Context, caller, target string) (protected bool, err error) {
+func (s *Server) checkVisible(ctx context.Context, caller, target string) (protected bool, following map[string]bool, err error) {
 	profs, err := s.deps.Directory.GetProfiles(ctx, []string{target})
 	if err != nil {
-		return false, logger.RedactErr(fmt.Errorf("timeline: target profile: %w", err), caller, target)
+		return false, nil, logger.RedactErr(fmt.Errorf("timeline: target profile: %w", err), caller, target)
 	}
 	if _, ok := profs[target]; !ok {
-		return false, identity.ProfileNotFoundError()
+		return false, nil, identity.ProfileNotFoundError()
 	}
 	if target == caller {
-		return false, nil
+		return false, nil, nil
 	}
 	snap, err := s.deps.Graph.Snapshot(ctx, caller)
 	if err != nil {
-		return false, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller, target)
+		return false, nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller, target)
 	}
 	if snap.BlockedBy[target] {
-		return false, identity.ProfileNotFoundError()
+		return false, nil, identity.ProfileNotFoundError()
 	}
 	if snap.BlockedByOverflow {
 		ts, err := s.deps.Graph.Snapshot(ctx, target)
 		if err != nil {
-			return false, logger.RedactErr(fmt.Errorf("timeline: target graph: %w", err), caller, target)
+			return false, nil, logger.RedactErr(fmt.Errorf("timeline: target graph: %w", err), caller, target)
 		}
 		if ts.Blocked[caller] {
-			return false, identity.ProfileNotFoundError()
+			return false, nil, identity.ProfileNotFoundError()
 		}
 	}
 	ok, err := s.aud.VisibleAuthor(ctx, caller, target, snap)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	return !ok, nil
+	return !ok, snap.Following, nil
 }
 
 type userResult struct {

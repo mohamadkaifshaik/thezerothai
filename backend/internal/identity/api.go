@@ -339,6 +339,13 @@ type ProtectedAuthors interface {
 	Current(ctx context.Context) (ProtectedSet, error)
 }
 
+// ProtectedAuthorsCached is the optional second face of a ProtectedAuthors loader (W3-36 L-4): the copy the instance
+// already holds, with no refresh, no log and no read. posts.Audience.ProtectedAuthor type-asserts it for the viewer's
+// own and followed authors; a loader without it (a test fake) is asked through Current as before. Staleness: CACHE_TTL.
+type ProtectedAuthorsCached interface {
+	Cached() (ProtectedSet, bool)
+}
+
 // PrivacyListener is told by identity, after the commit, that an account stopped being protected (ADR-0025 D8, AQ1).
 // graph owns the privacy_public job that accepts the pending requests; apiserver adapts this to its publish (the
 // ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing (apiserver wires graph.PrivacyListener since W3-28b). identity calls it
