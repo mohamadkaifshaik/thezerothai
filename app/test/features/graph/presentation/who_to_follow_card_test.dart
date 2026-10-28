@@ -4,6 +4,8 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/graph/data/suggestions_repository.dart'
+    show kSuggestionsTtl;
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
@@ -272,6 +274,93 @@ void main() {
       expect(repo.dropped, {'u1'});
     });
 
+    testWidgets('following the last visible row asks for the list again and '
+        'shows the new rows (once)', (tester) async {
+      repo.rows = five().take(2).toList();
+      repo.refillRows = [suggestedUser(7), suggestedUser(8)];
+      await open(tester);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+      expect(find.text('User 2'), findsOneWidget);
+      expect(repo.calls, 1);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(followed, ['u1', 'u2']);
+      expect(repo.calls, 2);
+      expect(find.byType(UserListRow), findsNWidgets(2));
+      expect(find.text('User 7'), findsOneWidget);
+      expect(find.text('User 8'), findsOneWidget);
+
+      // The new rows are the last ones of the session: following them empties
+      // the card for good and sends nothing more.
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(UserListRow), findsNothing);
+      expect(find.text('Who to follow'), findsNothing);
+      expect(repo.calls, 2);
+      expect(repo.followedIds, ['u1', 'u2', 'u7', 'u8']);
+    });
+
+    testWidgets('a follow that leaves rows does not ask again', (tester) async {
+      repo.refillRows = [suggestedUser(7)];
+      await open(tester);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(repo.calls, 1);
+      expect(find.text('User 7'), findsNothing);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+    });
+
+    testWidgets('resume: free while the entry is fresh, one call past the '
+        'lifetime (a card left mounted never shows stale rows)', (
+      tester,
+    ) async {
+      final rig = SuggestionsRig();
+      addTearDown(rig.database.close);
+      await cubit.close();
+      cubit = SuggestionsCubit(repository: rig.repository);
+      await tester.runAsync(() async {
+        await open(tester);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      expect(rig.suggestionCalls, 1);
+      expect(find.text('User 1'), findsOneWidget);
+
+      Future<void> resume() async {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      rig.clock = kSuggestionsTtl - const Duration(minutes: 1);
+      await resume();
+      expect(rig.suggestionCalls, 1);
+      expect(find.text('User 1'), findsOneWidget);
+
+      rig.clock = kSuggestionsTtl + const Duration(minutes: 1);
+      rig.users = [suggestedUser(9)];
+      await resume();
+      expect(rig.suggestionCalls, 2);
+      expect(find.text('User 9'), findsOneWidget);
+      expect(find.text('User 1'), findsNothing);
+
+      await resume();
+      expect(rig.suggestionCalls, 2);
+    });
+
     testWidgets('a rejected follow keeps the row and says why', (tester) async {
       followError = const QuotaExceededException('limit');
       await open(tester);
@@ -318,8 +407,10 @@ void main() {
       expect(find.byType(UserListRow), findsNWidgets(3));
     });
 
-    testWidgets('dismissing everything removes the card', (tester) async {
+    testWidgets('dismissing everything removes the card and never asks '
+        'again', (tester) async {
       repo.rows = five().take(2).toList();
+      repo.refillRows = [suggestedUser(7)];
       await open(tester);
 
       await tester.tap(find.byTooltip('Dismiss @user1'));
@@ -328,6 +419,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Who to follow'), findsNothing);
+      expect(repo.calls, 1);
+      expect(repo.followedIds, isEmpty);
     });
 
     testWidgets('the flag turning off removes the card', (tester) async {

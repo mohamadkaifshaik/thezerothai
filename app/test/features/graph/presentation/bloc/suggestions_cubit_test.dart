@@ -60,7 +60,7 @@ void main() {
       cubit.drop('u2');
 
       expect(_ids(cubit), ['u1', 'u3', 'u4', 'u5']);
-      // A restart within the 24 h window reads the disk entry without it.
+      // A restart within the TTL reads the disk entry without it.
       final restarted = rig.newRepository();
       expect(
         [
@@ -72,6 +72,148 @@ void main() {
       expect(rig.suggestionCalls, 1);
     },
   );
+
+  group('followed (Amendment 2 B2 rule 4)', () {
+    /// A confirmed follow: the graph state first, then the cubit.
+    Future<void> follow(String userId) async {
+      await rig.graphRepository.follow(userId: userId, idempotencyKey: 'k');
+      await cubit.followed(userId);
+    }
+
+    test('a follow that leaves rows hides the row and asks nothing', () async {
+      await cubit.ensureLoaded('me');
+
+      await follow('u2');
+
+      expect(_ids(cubit), ['u1', 'u3', 'u4', 'u5']);
+      expect(rig.suggestionCalls, 1);
+    });
+
+    test(
+      'the follow that takes the last row loads the new list, once',
+      () async {
+        rig.users = [suggestedUser(1), suggestedUser(2)];
+        await cubit.ensureLoaded('me');
+        rig.users = [suggestedUser(7), suggestedUser(8), suggestedUser(9)];
+
+        await follow('u1');
+        expect(_ids(cubit), ['u2']);
+        await follow('u2');
+
+        expect(_ids(cubit), ['u7', 'u8', 'u9']);
+        expect(rig.suggestionCalls, 2);
+
+        // The second exhaustion leaves the card empty and sends nothing.
+        await follow('u7');
+        await follow('u8');
+        await follow('u9');
+        expect(cubit.state.items, isEmpty);
+        await cubit.ensureLoaded('me');
+        expect(cubit.state.items, isEmpty);
+        expect(rig.suggestionCalls, 2);
+      },
+    );
+
+    test('the card keeps its state until the new list arrives', () async {
+      rig.users = [suggestedUser(1)];
+      await cubit.ensureLoaded('me');
+      final gate = Completer<graph.ListSuggestedUsersResponse>();
+      rig.onSuggestions = () => gate.future;
+      await rig.graphRepository.follow(userId: 'u1', idempotencyKey: 'k');
+
+      final pending = cubit.followed('u1');
+      await Future<void>.delayed(Duration.zero);
+      expect(_ids(cubit), ['u1']);
+      gate.complete(
+        graph.ListSuggestedUsersResponse(users: [suggestedUser(7)]),
+      );
+      await pending;
+
+      expect(_ids(cubit), ['u7']);
+    });
+
+    test('a surface mounting during the refill shares its one call', () async {
+      rig.users = [suggestedUser(1)];
+      await cubit.ensureLoaded('me');
+      rig.users = [suggestedUser(7)];
+      await rig.graphRepository.follow(userId: 'u1', idempotencyKey: 'k');
+
+      await Future.wait([cubit.followed('u1'), cubit.ensureLoaded('me')]);
+
+      expect(_ids(cubit), ['u7']);
+      expect(rig.suggestionCalls, 2);
+    });
+
+    test('dismissals never refill, even when they empty the card', () async {
+      rig.users = [suggestedUser(1), suggestedUser(2)];
+      await cubit.ensureLoaded('me');
+
+      cubit
+        ..hide('u1')
+        ..hide('u2');
+      await cubit.ensureLoaded('me');
+
+      expect(cubit.state.items, isEmpty);
+      expect(rig.suggestionCalls, 1);
+    });
+
+    test('a NOT_FOUND drop never refills', () async {
+      rig.users = [suggestedUser(1)];
+      await cubit.ensureLoaded('me');
+
+      cubit.drop('u1');
+      await cubit.ensureLoaded('me');
+
+      expect(cubit.state.items, isEmpty);
+      expect(rig.suggestionCalls, 1);
+    });
+
+    test(
+      'a refill that fails leaves the card empty and does not throw',
+      () async {
+        rig.users = [suggestedUser(1)];
+        await cubit.ensureLoaded('me');
+        rig.onSuggestions = () async => throw StateError('boom');
+
+        await follow('u1');
+
+        expect(cubit.state.items, isEmpty);
+        expect(rig.suggestionCalls, 2);
+      },
+    );
+
+    test('a sign-out during the refill drops its late answer', () async {
+      rig.users = [suggestedUser(1)];
+      await cubit.ensureLoaded('me');
+      final gate = Completer<graph.ListSuggestedUsersResponse>();
+      rig.onSuggestions = () => gate.future;
+      await rig.graphRepository.follow(userId: 'u1', idempotencyKey: 'k');
+
+      final pending = cubit.followed('u1');
+      await Future<void>.delayed(Duration.zero);
+      cubit.reset();
+      gate.complete(
+        graph.ListSuggestedUsersResponse(users: [suggestedUser(7)]),
+      );
+      await pending;
+
+      expect(cubit.state.items, isEmpty);
+    });
+
+    test('before anything is loaded it does nothing', () async {
+      await cubit.followed('u1');
+
+      expect(cubit.state.items, isEmpty);
+      expect(rig.suggestionCalls, 0);
+    });
+
+    test('after close it does not throw', () async {
+      await cubit.ensureLoaded('me');
+      await cubit.close();
+
+      await expectLater(cubit.followed('u1'), completes);
+    });
+  });
 
   test('drop before anything is loaded does nothing', () {
     cubit.drop('u2');
