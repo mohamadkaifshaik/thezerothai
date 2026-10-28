@@ -688,7 +688,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **After the commit.**
   - On unprotect, call `PrivacyListener.BecamePublic` with a detached, short-deadline context, as `retireImages` does (`identity/media_retire.go`:82-95). A failure is ERROR `privacy_public_enqueue_failed` (Error Reporting, uid scrubbed). A nil listener publishes nothing, which is the case until W3-28b.
   - The committing instance updates its cached set in place, so the toggle applies at once there and within 60 s elsewhere.
-  - Then `Directory.Forget(uid)`.
+  - The written profile is cached in place (`s.cache.SetProfile`), as for every UpdateProfile. No `Directory.Forget(uid)`: it would only evict that fresh entry and cost the next request a cold read (founder decision 2026-10-28; `Forget` is for other modules whose commits change `users/{uid}` without the profile in hand).
 - **The loader** (implements `identity.ProtectedAuthors`, D3):
   - Lazy: it reads only when a caller asks and the cached copy is older than `CACHE_TTL` (60 s).
   - Singleflight: concurrent requests share one refresh.
