@@ -6,6 +6,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:dzeroth/shared/widgets/protected_badge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -63,10 +64,10 @@ void main() {
     expect(find.bySemanticsLabel(RegExp('Protected account')), findsWidgets);
     expectMinTarget(tester, find.byType(FilledButton));
 
-    // The badge stays on screen, right of the name and clear of the button.
+    // The badge stays on screen and never touches the button.
     final badge = tester.getRect(find.byType(ProtectedBadge));
     final button = tester.getRect(find.byType(FilledButton));
-    expect(badge.right, lessThanOrEqualTo(button.left + 0.5));
+    expect(badge.overlaps(button), isFalse);
     expect(badge.right, lessThanOrEqualTo(env.size.width));
     semantics.dispose();
   }, textScales: kMatrixTextScalesLarge);
@@ -103,35 +104,135 @@ void main() {
             textScale: scale,
           ),
         );
-        // The outlined Requested / Following buttons are already 12dp wider
-        // than the row at x2.0 without any badge (follow_button.dart, not part
-        // of W3-33c), so overflow is asserted for every other cell.
-        final knownButtonOverflow =
-            scale == 2.0 && state != graph.FollowState.FOLLOW_STATE_NONE;
-        if (knownButtonOverflow) {
-          tester.takeException();
-        } else {
-          expectNoOverflow(tester);
-        }
-        if (knownButtonOverflow) {
-          // The name column is too narrow for a lock there; if one is drawn
-          // it must still not touch the button.
-          if (find.byType(ProtectedBadge).evaluate().isEmpty) return;
-        } else {
-          expect(find.byType(ProtectedBadge), findsOneWidget);
-        }
+        expectNoOverflow(tester);
+        expect(find.byType(ProtectedBadge), findsOneWidget);
         final button = find.byWidgetPredicate(
           (w) => w is FilledButton || w is OutlinedButton,
         );
         expectMinTarget(tester, button);
-        final badge = tester.getRect(find.byType(ProtectedBadge));
         expect(
-          badge.right,
-          lessThanOrEqualTo(tester.getRect(button).left + 0.5),
+          tester
+              .getRect(find.byType(ProtectedBadge))
+              .overlaps(tester.getRect(button)),
+          isFalse,
         );
       });
     }
   }
+
+  // W3-33d: every FollowButton state fits the row across the whole matrix
+  // (the outlined Requested / Following used to overflow at 360dp x2.0).
+  for (final state in [
+    graph.FollowState.FOLLOW_STATE_NONE,
+    graph.FollowState.FOLLOW_STATE_REQUESTED,
+    graph.FollowState.FOLLOW_STATE_FOLLOWING,
+  ]) {
+    for (final private in [true, false]) {
+      forEachThemeAndWidth(
+        '${state.name} private=$private fits, 48dp, badge when private',
+        (tester, env) async {
+          await open(
+            tester,
+            item(isPrivate: private, name: long, follow: state),
+            env: env,
+          );
+          expectNoOverflow(tester);
+          expect(
+            find.byType(ProtectedBadge),
+            private ? findsOneWidget : findsNothing,
+          );
+          final button = find.byWidgetPredicate(
+            (w) => w is FilledButton || w is OutlinedButton,
+          );
+          expectMinTarget(tester, button);
+          expect(
+            tester.getRect(button).right,
+            lessThanOrEqualTo(env.size.width),
+          );
+          // The label is never scaled down: it renders at the user's text
+          // scale and no FittedBox sits in the button.
+          expect(
+            find.descendant(of: button, matching: find.byType(FittedBox)),
+            findsNothing,
+          );
+          final label = tester.renderObject<RenderParagraph>(
+            find.descendant(of: button, matching: find.byType(RichText)),
+          );
+          expect(label.textScaler.scale(10), closeTo(10 * env.textScale, 0.01));
+          expect(label.didExceedMaxLines, isFalse);
+        },
+        textScales: kMatrixTextScalesLarge,
+      );
+    }
+  }
+
+  group('the control wraps under the name only when it must', () {
+    final textFinder = find.text('@user1');
+
+    testWidgets('inline at 360dp x1.0: beside the name, centred', (
+      tester,
+    ) async {
+      await open(tester, item(isPrivate: true, name: long));
+      final button = tester.getRect(find.byType(FilledButton));
+      final name = tester.getRect(textFinder);
+      expect(button.left, greaterThanOrEqualTo(name.right));
+      expectNoOverflow(tester);
+    });
+
+    for (final state in [
+      graph.FollowState.FOLLOW_STATE_REQUESTED,
+      graph.FollowState.FOLLOW_STATE_FOLLOWING,
+    ]) {
+      testWidgets('${state.name} at 360dp x2.0 sits under the name and '
+          'handle, aligned to the text column', (tester) async {
+        await open(
+          tester,
+          item(isPrivate: true, name: long, follow: state),
+          env: const MatrixEnv(
+            brightness: Brightness.light,
+            size: Size(360, 800),
+            textScale: 2.0,
+          ),
+        );
+        expectNoOverflow(tester);
+        final button = find.byType(OutlinedButton);
+        expectMinTarget(tester, button);
+        final rect = tester.getRect(button);
+        final handle = tester.getRect(textFinder);
+        expect(rect.top, greaterThanOrEqualTo(handle.bottom - 0.5));
+        // Aligned to the text column; one wider than the column (the outlined
+        // Following at x2.0) ends at the row's right edge instead.
+        if (rect.width <= 344 - handle.left) {
+          expect(rect.left, closeTo(handle.left, 0.5));
+        } else {
+          expect(rect.right, closeTo(344, 0.5));
+        }
+        expect(rect.right, lessThanOrEqualTo(360));
+        expect(find.byType(ProtectedBadge), findsOneWidget);
+      });
+    }
+
+    testWidgets('a custom trailing follows the same rule', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      await pumpThemed(
+        tester,
+        UserListRow(
+          item: item(isPrivate: false, name: long),
+          trailing: OutlinedButton(
+            style: OutlinedButton.styleFrom(minimumSize: const Size(88, 48)),
+            onPressed: () {},
+            child: const Text('Unblock'),
+          ),
+        ),
+        size: const Size(360, 800),
+        textScale: 2.0,
+      );
+      expectNoOverflow(tester);
+      final rect = tester.getRect(find.byType(OutlinedButton));
+      expect(rect.left, closeTo(tester.getRect(textFinder).left, 0.5));
+      expectMinTarget(tester, find.byType(OutlinedButton));
+    });
+  });
 
   group('the post card keeps its own rule', () {
     pb.PostView view(pb.Visibility visibility, {required bool authorPrivate}) =>
