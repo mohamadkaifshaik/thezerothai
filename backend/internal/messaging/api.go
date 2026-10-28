@@ -4,8 +4,8 @@
 // this file only (ADR-0027 D15).
 //
 // W7-4 shipped the skeleton: the flag gate (FEATURE_MESSAGING, D6) and the six Connect handlers. W7-5 adds SendMessage
-// (service_send.go, repo_firestore.go) and W7-6 the lifecycle (eraser.go, export.go); the other four RPCs still answer
-// Unimplemented once the gate passes (W7-7 to W7-9).
+// (service_send.go, repo_firestore.go) and W7-6 the lifecycle (eraser.go, export.go), W7-7 ListConversations
+// (service_list.go); the other three RPCs still answer Unimplemented once the gate passes (W7-8 and W7-9).
 package messaging
 
 import (

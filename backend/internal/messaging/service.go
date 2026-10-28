@@ -40,7 +40,7 @@ type Limits struct {
 	ConversationCacheEntries int
 }
 
-// Deps are the collaborators of the service. Repo, Social and Profiles are required for SendMessage; Events and Badge may
+// Deps are the collaborators of the service. Repo and Social are required for ListConversations, Repo, Social and Profiles for SendMessage; Events and Badge may
 // be nil (no push, no badge cache yet).
 type Deps struct {
 	Repo     Repo
@@ -49,6 +49,10 @@ type Deps struct {
 	Events   Events
 	Badge    BadgeCache
 	Limits   Limits
+	// CursorKey seals the list tokens (CURSOR_HMAC_KEY, like every other module); required for ListConversations.
+	CursorKey []byte
+	// TokenTTL is the lifetime of a persisted since or page token (RefreshTokenTTL, 30 days, when zero).
+	TokenTTL time.Duration
 	// Now is the clock (tests); nil is time.Now.
 	Now func() time.Time
 	Log *slog.Logger
@@ -69,8 +73,8 @@ type service struct {
 	newSends *ratelimit.DailyCap
 }
 
-// New builds the Service: the flag gate, then the rules of the RPCs that exist (SendMessage; the other four answer
-// Unimplemented until W7-7 to W7-9).
+// New builds the Service: the flag gate, then the rules of the RPCs that exist (SendMessage, ListConversations; the other
+// three answer Unimplemented until W7-8 and W7-9).
 func New(fc FlagChecker, d Deps) Service {
 	if d.Now == nil {
 		d.Now = time.Now
@@ -111,14 +115,6 @@ func (s *service) guard(ctx context.Context, uid string, class flagClass) error 
 		return ae.WithMeta("feature", FlagName)
 	}
 	return err
-}
-
-// ListConversations: not globally off. Skeleton: 0 reads, 0 writes.
-func (s *service) ListConversations(ctx context.Context, uid string, _ *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
-	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
-		return nil, err
-	}
-	return nil, ErrNotImplemented
 }
 
 // ListMessages: not globally off. Skeleton: 0 reads, 0 writes.

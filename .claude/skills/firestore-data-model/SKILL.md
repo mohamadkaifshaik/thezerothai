@@ -88,6 +88,7 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | Expire / UNSUPPORTED / INVALID_CONTENT / transient / panic (outside the publish txn) | 0 (`LastUpdateTime` precondition on the query snapshot) | 1 (+ 1 TTL delete after 7 d when terminal) |
 | Cancel / fail inside the publish txn (status, quota, media) | 2 to 7 (reads up to that check), typical 2 to 3 | 1 (+ 1 TTL delete after 7 d) |
 | ListNotifications (ADR-0017) | cold / older page: 1 + page (≤ 21 at 20; ≤ 51 at 50); `since` refresh: 1 + new (an empty query bills 1) | 0 |
+| ListConversations (ADR-0027 D4, D7; W7-7) | first INBOX page 20: 23 worst cold (interceptor 1, `users/{uid}/dmInbox ORDER BY lastMessageAt DESC, __name__ DESC Limit(page)` <= page, caller graph 1, `dmRequests` `count()` 1), planning 9; REQUESTS or an older INBOX page: 22 worst (no `count()`); `since` refresh: 3 with one entry returned (interceptor, query = entries returned, min 1, graph; the graph is not read for an empty query), planning 2. The `since` token trails the newest entry by 5 s, so the previous newest comes back once (a refresh that moves another conversation reads 4); no gap token, at most page_size entries; bad / foreign / expired token or bad folder 0 | 0 |
 | MarkNotificationsSeen | 0 | 1 (`users.notificationsSeenAt`, field update) |
 | RegisterDevice | 8 worst / 2 typical (device, token index, previous owner's device, list of ≤ 5) | 2 typical, 0 when fresh within 24 h; worst 2 writes + 3 deletes |
 | UnregisterDevice | 2 (1 for an unknown device) | 0 + 2 deletes |
