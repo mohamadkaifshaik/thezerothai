@@ -365,6 +365,7 @@ const PostView$json = {
       '5': 8,
       '10': 'bookmarkedByViewer'
     },
+    {'1': 'withheld', '3': 7, '4': 1, '5': 8, '10': 'withheld'},
   ],
 };
 
@@ -376,7 +377,8 @@ final $typed_data.Uint8List postViewDescriptor = $convert.base64Decode(
     '4YBCABKA4yIS5kemVyb3RoLnBvc3RzLnYxLlJlcGx5UGVybWlzc2lvblIVdmlld2VyUmVwbHlQ'
     'ZXJtaXNzaW9uElAKEmVtYmVkX3ZpZXdlcl9zdGF0ZRgFIAEoDjIiLmR6ZXJvdGgucG9zdHMudj'
     'EuRW1iZWRWaWV3ZXJTdGF0ZVIQZW1iZWRWaWV3ZXJTdGF0ZRIwChRib29rbWFya2VkX2J5X3Zp'
-    'ZXdlchgGIAEoCFISYm9va21hcmtlZEJ5Vmlld2Vy');
+    'ZXdlchgGIAEoCFISYm9va21hcmtlZEJ5Vmlld2VyEhoKCHdpdGhoZWxkGAcgASgIUgh3aXRoaG'
+    'VsZA==');
 
 @$core.Deprecated('Use createPostRequestDescriptor instead')
 const CreatePostRequest$json = {

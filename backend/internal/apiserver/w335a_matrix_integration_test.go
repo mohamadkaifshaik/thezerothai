@@ -64,6 +64,8 @@ const (
 	na tri = iota
 	yes
 	no
+	// held (bookmarks and likes only): the row is there as a withheld placeholder, stripped to post_id, kind and author (W3-41a).
+	held
 )
 
 // w335aMarker is the text of P's posts; w335aMarkerPrefix is what the leak scan looks for in every body.
@@ -247,8 +249,8 @@ func TestW335a_VisibilityMatrix(t *testing.T) {
 	viewers := []w335aViewer{
 		{"self", self, yes, yes, yes, yes, yes, yes, yes, yes},
 		{"approved follower", follower, yes, yes, yes, yes, yes, yes, yes, yes},
-		{"requester", requester, no, no, no, no, no, no, no, no},
-		{"stranger", stranger, no, no, no, no, no, no, no, no},
+		{"requester", requester, no, no, no, no, held, held, no, no},
+		{"stranger", stranger, no, no, no, no, held, held, no, no},
 		{"follower who muted P", muter, yes, na, yes, yes, no, no, na, na},
 		{"P blocks the viewer", pBlocked, no, na, na, na, no, no, no, na},
 		{"viewer blocked P", aBlocks, no, na, na, na, no, no, no, na},
@@ -375,18 +377,18 @@ func (w *w335aWorld) checkOwnerLists(t *testing.T, r *w320Chain, v w335aViewer) 
 		for _, b := range bm.GetBookmarks() {
 			ids = append(ids, b.GetPost().GetPost().GetPostId())
 		}
-		if got := slices.Contains(ids, w.pid); got != (v.bookmarks == yes) {
-			t.Errorf("%s: P's post in ListBookmarks = %v, want %v (%v)", v.name, got, v.bookmarks == yes, ids)
+		var views []*postsv1.PostView
+		for _, b := range bm.GetBookmarks() {
+			views = append(views, b.GetPost())
 		}
+		w.checkListCell(t, "ListBookmarks", v, v.bookmarks, ids, views)
 	}
 	if v.likes != na {
 		lk, err := r.listLiked(v.u, 20, "")
 		if err != nil {
 			t.Fatalf("%s ListLikedPosts: %v", v.name, err)
 		}
-		if got := slices.Contains(w329bIDs(lk.GetPosts()), w.pid); got != (v.likes == yes) {
-			t.Errorf("%s: P's post in ListLikedPosts = %v, want %v", v.name, got, v.likes == yes)
-		}
+		w.checkListCell(t, "ListLikedPosts", v, v.likes, w329bIDs(lk.GetPosts()), lk.GetPosts())
 	}
 }
 
@@ -507,36 +509,29 @@ func TestW335a_RefollowRequestAcceptBringsBackBookmarksAndLikes(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.w.like(t, u, w.pid)
-	rows := func(what string, want bool) {
+	rows := func(what string, want tri) {
 		t.Helper()
 		r := newW320Chain(t, w335aOn)
-		w.checkOwnerLists(t, r, w335aViewer{name: what, u: u, bookmarks: triOf(want), likes: triOf(want)})
+		w.checkOwnerLists(t, r, w335aViewer{name: what, u: u, bookmarks: want, likes: want})
 	}
-	rows("follower, P public", true)
+	rows("follower, P public", yes)
 	w.protect(t, true)
-	rows("still an approved follower after P protects", true)
+	rows("still an approved follower after P protects", yes)
 	if _, err := w.w.graph.Unfollow(ctx, authed(u.token, &graphv1.UnfollowRequest{IdempotencyKey: contractKey("w335a-rf-uf"), UserId: w.p.uid})); err != nil {
 		t.Fatal(err)
 	}
-	rows("unfollowed", false)
+	rows("unfollowed (withheld placeholder, W3-41a)", held)
 	w.w.w328Request(t, u, w.p.uid)
-	rows("requested again, not yet accepted", false)
+	rows("requested again, not yet accepted (withheld placeholder)", held)
 	if _, err := w.w.w328Respond(w.p, u.uid, true); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
-	rows("accepted", true)
+	rows("accepted", yes)
 	// Home too: X's repost of P's post is back for a follower of X.
 	w.w.w320Follow(t, u, w.x.uid)
 	if _, ok := w330Views(newW320Chain(t, w335aOn).w330Home(t, u).GetPosts())[w.repostID]; !ok {
 		t.Errorf("after the accept, X's repost of P's post is not in the follower's Home")
 	}
-}
-
-func triOf(b bool) tri {
-	if b {
-		return yes
-	}
-	return no
 }
 
 // oracleWrites asserts that every write that names a post (like, bookmark, report, reply, quote, repost) answers for P's
@@ -571,6 +566,30 @@ func (w *w335aWorld) oracleWrites(t *testing.T, r *w320Chain, v w335aViewer) {
 		}
 		if st != wst || ct != wct || b != wb {
 			t.Errorf("%s as %s differs from the deleted post\n  deleted:   %d %s %s\n  protected: %d %s %s", kind, v.name, wst, wct, wb, st, ct, b)
+		}
+	}
+}
+
+// checkListCell asserts one owner-list cell: yes = the full row, held = the withheld placeholder (nothing but post_id,
+// kind and author, the flag true), no = no row at all.
+func (w *w335aWorld) checkListCell(t *testing.T, what string, v w335aViewer, cell tri, ids []string, views []*postsv1.PostView) {
+	t.Helper()
+	got := slices.Contains(ids, w.pid)
+	if got != (cell == yes || cell == held) {
+		t.Errorf("%s: P's post in %s = %v, want %v (%v)", v.name, what, got, cell != no, ids)
+		return
+	}
+	for _, pv := range views {
+		if pv.GetPost().GetPostId() != w.pid {
+			continue
+		}
+		if cell == held {
+			if !pv.GetWithheld() || pv.GetPost().GetText() != "" || len(pv.GetPost().GetMedia()) != 0 || pv.GetPost().GetCreatedAt() != nil ||
+				pv.GetPost().GetAuthor().GetHandle() == "" || pv.GetPost().GetKind() != postsv1.PostKind_POST_KIND_POST {
+				t.Errorf("%s: %s row = %v, want a withheld placeholder with the author and nothing else", v.name, what, pv)
+			}
+		} else if pv.GetWithheld() || pv.GetPost().GetText() == "" {
+			t.Errorf("%s: %s row = %v, want the full row", v.name, what, pv)
 		}
 	}
 }

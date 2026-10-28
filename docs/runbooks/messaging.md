@@ -1,12 +1,12 @@
 # Runbook: direct messages (ADR-0027)
 
 Owner module: `backend/internal/messaging`. Plan: `docs/plans/ui-w7-messaging.md` (W7-5 SendMessage, W7-6 lifecycle and this runbook;
-W7-7 to W7-9 lists, read, accept and delete; W7-10 push; W7-11 badge; W7-12 report). Flag: `FEATURE_MESSAGING` (wire name `messaging`, default
+W7-7 and W7-8 the lists and mark-read, W7-9 accept and delete; W7-10 push; W7-11 badge; W7-12 report). Flag: `FEATURE_MESSAGING` (wire name `messaging`, default
 `off`; dev ceiling allowlist 3, no prod raise before W7-22 and W7-23 pass in dev).
 
-What exists on `main` after W7-5, W7-6, W7-7 and W7-10: SendMessage, ListConversations, the `messaging` account-deletion step and the `messages` export section. The other
-four RPCs (ListMessages, MarkConversationRead, AcceptMessageRequest, DeleteConversation) answer `Unimplemented` after the
-flag gate until W7-8 and W7-9; the push is emitted by the send and delivered by the push-only `message` type of notifications (W7-10). Sections that
+What exists on `main` after W7-5, W7-6, W7-7, W7-8 and W7-10: SendMessage, ListConversations, ListMessages, MarkConversationRead, the `messaging` account-deletion step and the `messages` export section. The other
+two RPCs (AcceptMessageRequest, DeleteConversation) answer `Unimplemented` after the
+flag gate until W7-9; the push is emitted by the send and delivered by the push-only `message` type of notifications (W7-10). Sections that
 describe those later pieces say so.
 
 Data (all index-free, no composite index; fieldOverrides `indexes: []` for `messages.text`, `messages.requestHash`, `dmInbox.peer`,
@@ -130,5 +130,10 @@ Prerequisites: `FEATURE_MESSAGING` and `FEATURE_NOTIFICATIONS` both `allowlist` 
 | The Inbox or Requests list is short or empty but has a `next_page_token` | Expected: ListConversations filters after the page query (REQUESTS hides entries whose peer the caller blocks or mutes or who blocks the caller), so the client keeps following the token (ADR-0027 D4). A hidden request still counts in `request_count` | Nothing to fix. The request line (`kind=list_conversations`, `folder`, `results`, `dropped_blocked`, `dropped_muted`, `dropped_blocked_by`, `fs_reads`) shows how many were dropped per cause; a first INBOX page reads at most 23 (1 + 20 + graph 1 + count() 1), a `since` refresh 2 + the entries returned |
 | `VALIDATION since_token` / `page_token` on the list | The token is older than 30 days, belongs to another user, folder or token kind, or was edited; the secret `CURSOR_HMAC_KEY` changed (every sealed token fails to open) | The client drops it and lists with no token. Nothing is read for a rejected token. A burst of these after a deploy means the cursor key was rotated |
 | A conversation shows "Deleted account" in the list | The other person's account was erased: the eraser wrote `peerId = deleted` and a placeholder snapshot into this user's entry (D8). The list never looks the placeholder up and sets `can_reply = false` | Expected. The entry stays until its owner deletes it |
+| A thread poll (`since`) returns the newest message again | Expected: the `since` token trails the newest message by the 5 s settle window so a message committed a moment later by another instance is not missed; the client dedupes by id (ADR-0027 D7). An empty poll therefore reads 1 document | Nothing to fix |
+| A poll response has `gap_page_token` | The refresh page was full (more new messages than `page_size` since the token). The client keeps its cache and pages `gap_page_token` (bounded below by the old `since` position) | Expected after a long absence; the request line shows `kind=poll`, `results` = page size |
+| `NOT_FOUND conversation not found` on a thread the user believes exists | Same answer for an unknown id, a conversation the caller is not in, and a deleted one (D11). The request line has `conversation_hash` only | Compare the hash with `logger.HashUID(convId)` of the id from the client; never log the id |
+| Messages the user deleted for themselves reappear on one instance, or an Inbox badge keeps its old count | The conversation cache holds `clearedAt` for 60 s per instance (D14) and the badge cache is evicted on the instance that handled the mark-read only | Converges within the cache TTL (60 s thread, 30 s badge); no action. `cache_hit=true` on `kind=list_messages` shows the cached read |
+| `MarkConversationRead` succeeds but nothing changes | The caller has no entry in either folder (unknown id, non-participant, deleted for the caller): success with 0 writes by design | `kind=mark_read` has `entry_found=false` and `fs_writes=0` |
 | A message was sent twice | It was not: the message id derives from sender and key, so a retry replays. Two ids means two keys | Check the client generates one key per composed message |
 | `VALIDATION idempotency_key` on a retry | The same key was reused with other text or another conversation | A client bug: a new message needs a new key |
