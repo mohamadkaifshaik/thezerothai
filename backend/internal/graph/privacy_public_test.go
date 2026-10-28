@@ -1,10 +1,13 @@
 package graph
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -110,14 +113,76 @@ func TestPrivacyPublicJob_Run(t *testing.T) {
 }
 
 func TestPrivacyPublicJob_BoundedPerDelivery(t *testing.T) {
+	// A delivery that accepted something and still has more is nacked, so the next delivery continues.
 	var pages []PendingPageResult
 	for i := 0; i < privacyPublicMaxPages+1; i++ {
-		pages = append(pages, PendingPageResult{Scanned: 100, Last: &PendingCursor{ID: "x"}})
+		pages = append(pages, PendingPageResult{Scanned: 100, Accepted: []string{"a"}, Last: &PendingCursor{ID: "x"}})
 	}
 	p := &fakePager{pages: pages}
 	_, err := newJob(p, nil).Run(context.Background(), "uid-p")
 	if !errors.Is(err, ErrPrivacyPublicMore) || len(p.calls) != privacyPublicMaxPages {
 		t.Fatalf("err = %v after %d pages, want ErrPrivacyPublicMore after %d", err, len(p.calls), privacyPublicMaxPages)
+	}
+}
+
+// TestPrivacyPublicJob_StuckAcks is W3-40b O-1: a delivery whose every page was skipped acks as "stuck" with a counts-only
+// log line instead of nacking; one inactive request dropped, or one accepted, is progress and still nacks.
+func TestPrivacyPublicJob_StuckAcks(t *testing.T) {
+	full := func(mut func(*PendingPageResult)) []PendingPageResult {
+		var pages []PendingPageResult
+		for i := 0; i < privacyPublicMaxPages+1; i++ {
+			r := PendingPageResult{Scanned: 100, SkippedCap: 100, Last: &PendingCursor{ID: "x"}}
+			if i == privacyPublicMaxPages-1 && mut != nil {
+				mut(&r)
+			}
+			pages = append(pages, r)
+		}
+		return pages
+	}
+	tests := []struct {
+		name        string
+		pages       []PendingPageResult
+		wantStuck   bool
+		wantScanned int
+	}{
+		{"every page skipped at the cap", full(nil), true, 100 * privacyPublicMaxPages},
+		{"last page accepted one", full(func(r *PendingPageResult) { r.Accepted = []string{"a"}; r.SkippedCap = 99 }), false, 0},
+		{"last page dropped one inactive", full(func(r *PendingPageResult) { r.SkippedInactive = 1; r.SkippedCap = 99 }), false, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			p := &fakePager{pages: tt.pages}
+			job := newJob(p, nil)
+			job.log = slog.New(slog.NewJSONHandler(&buf, nil))
+			out, err := job.Run(context.Background(), "uid-p")
+			if len(p.calls) != privacyPublicMaxPages {
+				t.Fatalf("pages = %d, want %d", len(p.calls), privacyPublicMaxPages)
+			}
+			if !tt.wantStuck {
+				if !errors.Is(err, ErrPrivacyPublicMore) {
+					t.Fatalf("out=%q err=%v, want ErrPrivacyPublicMore", out, err)
+				}
+				return
+			}
+			if err != nil || out != "stuck" {
+				t.Fatalf("out=%q err=%v, want an ack with outcome stuck", out, err)
+			}
+			var last map[string]any
+			for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+				var m map[string]any
+				if json.Unmarshal([]byte(line), &m) == nil && m["outcome"] == "stuck" {
+					last = m
+				}
+			}
+			if last == nil || last["level"] != "WARN" || int(last["scanned"].(float64)) != tt.wantScanned ||
+				int(last["skipped_cap"].(float64)) != tt.wantScanned || int(last["pages"].(float64)) != privacyPublicMaxPages {
+				t.Fatalf("stuck log = %v", last)
+			}
+			if strings.Contains(buf.String(), "uid-p") {
+				t.Fatalf("the log line holds a raw uid: %s", buf.String())
+			}
+		})
 	}
 }
 

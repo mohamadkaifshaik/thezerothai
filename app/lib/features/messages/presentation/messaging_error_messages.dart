@@ -11,8 +11,7 @@ String messagingErrorMessage(AppException error) {
     // Fixed text, identical for every cause (D4).
     CannotMessageException() => CannotMessageException.userMessage,
     LimitReachedException(quota: kMessagingLimitRequestUnanswered) =>
-      'Wait for a reply before sending more. They need to accept your '
-          'request first.',
+      'You can send more once they accept your request',
     LimitReachedException(quota: kMessagingLimitDmNewDaily) =>
       "You've started as many new conversations as allowed today. It resets "
           'tomorrow.',

@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // setClock is a settable clock for the loader.
@@ -282,5 +284,62 @@ func TestProtectedSetLoader_InstallDuringRefreshWins(t *testing.T) {
 	s, err := l.Current(context.Background())
 	if err != nil || !s.Has("n") {
 		t.Fatalf("err=%v has n=%v, want the installed copy", err, s.Has("n"))
+	}
+}
+
+// TestProtectedSetLoader_OutageReportsOncePerRequest is W3-40b L-4: a page of 50 rows during an outage raises one
+// ERROR for the request and WARN after that; a second request raises its own ERROR.
+func TestProtectedSetLoader_OutageReportsOncePerRequest(t *testing.T) {
+	t.Parallel()
+	src := &fakeSetSource{err: errors.New("firestore down")}
+	l, _, buf := newLoaderForTest(src)
+	for req := 0; req < 2; req++ {
+		ctx, _ := logger.WithRequestInfo(context.Background())
+		for i := 0; i < 50; i++ {
+			if _, err := l.Current(ctx); !errors.Is(err, ErrProtectedSetUnavailable) {
+				t.Fatalf("call %d: %v", i, err)
+			}
+		}
+	}
+	var errs, warns int
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if !strings.Contains(line, "protected_set_unavailable") {
+			continue
+		}
+		switch {
+		case strings.Contains(line, `"level":"ERROR"`):
+			errs++
+		case strings.Contains(line, `"level":"WARN"`):
+			warns++
+		}
+	}
+	if errs != 2 || warns != 98 {
+		t.Fatalf("2 requests x 50 rows logged %d ERROR and %d WARN, want 2 and 98", errs, warns)
+	}
+}
+
+func TestProtectedSetLoader_Cached(t *testing.T) {
+	t.Parallel()
+	src := &fakeSetSource{uids: []string{"p"}}
+	l, clock, buf := newLoaderForTest(src)
+	if s, ok := l.Cached(); ok || s != nil {
+		t.Fatal("nothing loaded: Cached must report not ok")
+	}
+	if src.reads.Load() != 0 {
+		t.Fatal("Cached must never read")
+	}
+	if _, err := l.Current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := l.Cached(); !ok || !s.Has("p") {
+		t.Fatalf("fresh copy: %v, %v", s, ok)
+	}
+	clock.advance(2 * time.Minute) // past CACHE_TTL, inside maxStale
+	src.set(nil, errors.New("down"))
+	if _, ok := l.Cached(); ok {
+		t.Fatal("a copy past CACHE_TTL must not be served by Cached")
+	}
+	if src.reads.Load() != 1 || strings.Contains(buf.String(), "protected_set") {
+		t.Fatalf("Cached must not refresh or log: reads=%d log=%s", src.reads.Load(), buf.String())
 	}
 }

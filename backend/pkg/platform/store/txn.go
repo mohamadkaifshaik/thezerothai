@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"cloud.google.com/go/firestore"
 
@@ -44,4 +45,40 @@ func RunTransaction(ctx context.Context, client TxnRunner, fn TxnFunc) (attempts
 		real.AddDeletes(last.Deletes())
 	}
 	return attempts, err
+}
+
+// TxnRetry bounds RunTransactionRetry: the whole call (all runs) ends after Timeout; a transaction that still reports
+// contention after the SDK's own attempts is re-run up to MaxRuns times in all, with a full-jitter wait that starts at
+// Backoff and doubles.
+type TxnRetry struct {
+	Timeout time.Duration
+	MaxRuns int
+	Backoff time.Duration
+}
+
+// RunTransactionRetry is RunTransaction re-run a bounded number of times when Firestore reports contention (Aborted)
+// after the SDK's own attempts, under one overall timeout. It returns the total number of body runs, for
+// NoteTxnAttempts. Budget accounting is RunTransaction's: only the committing run's writes are counted.
+func RunTransactionRetry(ctx context.Context, client TxnRunner, cfg TxnRetry, fn TxnFunc) (int, error) {
+	if cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+	}
+	total := 0
+	var err error
+	for run := 0; run < max(cfg.MaxRuns, 1); run++ {
+		if run > 0 {
+			if werr := Wait(ctx, cfg.Backoff<<(run-1)); werr != nil {
+				return total, werr
+			}
+		}
+		var n int
+		n, err = RunTransaction(ctx, client, fn)
+		total += n
+		if !IsContention(err) {
+			break
+		}
+	}
+	return total, err
 }

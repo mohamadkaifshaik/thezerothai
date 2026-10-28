@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
@@ -72,5 +75,54 @@ func TestRunTransaction_BodyErrorCountsNoWrites(t *testing.T) {
 	})
 	if !errors.Is(err, boom) || c.Reads() != 1 || c.Writes() != 0 {
 		t.Errorf("err %v reads %d writes %d", err, c.Reads(), c.Writes())
+	}
+}
+
+// scriptedRunner answers each RunTransaction call with the next error of its script (nil = commit), running the body
+// once per call, like the SDK after its own attempts.
+type scriptedRunner struct {
+	script []error
+	calls  int
+}
+
+func (s *scriptedRunner) RunTransaction(ctx context.Context, fn func(context.Context, *firestore.Transaction) error, _ ...firestore.TransactionOption) error {
+	i := s.calls
+	s.calls++
+	if err := fn(ctx, nil); err != nil {
+		return err
+	}
+	if i < len(s.script) {
+		return s.script[i]
+	}
+	return nil
+}
+
+// TestRunTransactionRetry_BoundedReruns: contention re-runs the transaction up to MaxRuns in all; any other result
+// (success or a different error) stops at once; the run count is the total number of body runs.
+func TestRunTransactionRetry_BoundedReruns(t *testing.T) {
+	aborted := status.Error(codes.Aborted, "lock")
+	boom := errors.New("boom")
+	tests := []struct {
+		name         string
+		script       []error
+		wantErr      error
+		wantAttempts int
+	}{
+		{"commits first time", nil, nil, 1},
+		{"one conflict then commits", []error{aborted}, nil, 2},
+		{"conflict on every run gives up after MaxRuns", []error{aborted, aborted, aborted, aborted, aborted}, aborted, 3},
+		{"other error is not retried", []error{boom}, boom, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &scriptedRunner{script: tt.script}
+			attempts, err := RunTransactionRetry(context.Background(), r, TxnRetry{Timeout: time.Second, MaxRuns: 3, Backoff: time.Microsecond}, func(context.Context, *firestore.Transaction) error { return nil })
+			if tt.wantErr == nil && err != nil || tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if attempts != tt.wantAttempts {
+				t.Errorf("attempts = %d, want %d", attempts, tt.wantAttempts)
+			}
+		})
 	}
 }

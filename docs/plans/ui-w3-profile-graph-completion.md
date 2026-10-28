@@ -113,11 +113,11 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-35d | Part B tests: `TestW335a_PartBBudgetTable` independent of test order | tester | S | In review (PR #NNN) (depends: W3-35a) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
-| W3-38 | Part B dev rollout | production-deployer | S | On hold: plan ready (PR #422), waiting for the W7 dev env apply (founder 2026-10-29: the 15 W7 and shell env lines in `main.tf` must not ride along); depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
+| W3-38 | Part B dev rollout | production-deployer | S | Applied in dev 2026-10-29 (founder OK; runbook PR #422, results PR #425): `api-00350-h87` serves 100% with `private_accounts` on the 3-uid allowlist; the 15 inert W7 and shell env lines were applied with it; smoke owed; depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Done (PR #418) (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
 | W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Done (PR #417) |
-| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
-| W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
+| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | In review (PR #424) |
+| W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | In progress (proto PR #427; backend after W3-40b #424 merges) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
 | W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | Open (depends: none; founder review of the gate file; gates any prod ramp) |
 
@@ -1262,7 +1262,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Verdict.** BUDGET: HOLDS, or not.
 - **Cost.** 0.
 
-#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: On hold: plan ready (PR #422), waiting for the W7 dev env apply (founder 2026-10-29: the 15 W7 and shell env lines in `main.tf` must not ride along))
+#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: Applied in dev 2026-10-29 (founder OK; runbook PR #422, results PR #425): `api-00350-h87` serves 100% with `private_accounts` on the 3-uid allowlist; the 15 inert W7 and shell env lines were applied with it; smoke owed)
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
   2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
@@ -1327,18 +1327,19 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
   - AC: both tests pass when run alone, after a test that created the set doc, and with `-shuffle=on`.
 - **Flag.** None (server-side correctness). **Cost.** As the budget row.
 
-#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: Open
+#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: In review (PR #424)
 - **L-4, the wire-visibility hint** (`posts/audience.go` `ProtectedAuthor`, `timeline/service.go`, `posts/server.go`, `engagement/list_common.go`, `identity/protected_set.go`).
   - `ProtectedAuthor` answers without the loader for the caller's own and followed authors, from the snapshot the path already holds (D3's "only when needed").
   - A set outage is reported once per request (`protected_set_unavailable` at ERROR), then WARN, so Error Reporting does not count one error per row (up to 50 per page) and does not prompt an M-1-hazard rollback.
-  - AC: a Home page of followed authors makes 0 `Current` calls; an outage page of 50 rows logs exactly one ERROR; the wire `visibility` of every row is unchanged against the W3-30 and W3-29b tests.
+  - AC: a Home page of followed authors makes 0 `Current` calls on a warm instance (a fresh cached copy, under `CACHE_TTL`); a cold instance or a copy older than 60 s still makes one refresh-triggering call (reworded 2026-10-29: the original wording conflicted with "wire `visibility` unchanged", see the implementation notes); an outage page of 50 rows logs exactly one ERROR; the wire `visibility` of every row is unchanged against the W3-30 and W3-29b tests.
 - **O-1, the stuck `privacy_public` delivery** (`graph/privacy_public.go`; W3-35b test report, Low).
   - A request whose requester is at the 5,000 following cap never leaves the job's query, so with more than 5,000 such requests every redelivery ends `ErrPrivacyPublicMore` (a nack) and Pub/Sub retries to the DLQ until the owner declines them.
   - Fix: when a whole delivery (every page up to `privacyPublicMaxPages`) accepted nothing, ack with one log line, `privacy_public` outcome `stuck` (counts only: pages, scanned, `skipped_cap`, `skipped_inactive`), instead of returning `ErrPrivacyPublicMore`. A delivery that accepted at least one request still nacks, so the next delivery continues.
   - AC: a test using the W3-35b page-size setter (`graph/export_w335b_test.go`) fills more than `privacyPublicMaxPages` pages with requesters at the cap and asserts outcome `stuck`, an ack, 0 writes and no `ErrPrivacyPublicMore`; a mixed fixture (some acceptable) still nacks after accepting. Update `docs/runbooks/private-accounts.md` section 6 (the `stuck` outcome: the owner declines, or the requesters unfollow someone).
 - **Flag.** None. **Cost.** As the budget row; a stuck delivery stops costing redeliveries.
+- **Implementation notes (W3-40b).** (1) The first criterion and "the wire `visibility` of every row is unchanged" conflict as written: whether a followed or own author is protected is only known from the set, and Home rows of a followed protected author must stay FOLLOWERS. Resolved with a no-refresh accessor: `identity.ProtectedSetLoader.Cached()` (optional interface `ProtectedAuthorsCached`) serves the copy younger than `CACHE_TTL` to `Audience.ProtectedAuthor(ctx, viewer, author, following)` for own and followed authors, so a warm Home page makes 0 `Current` calls; with no fresh copy (cold instance, copy older than 60 s) the hint asks `Current` as before, so no row ever changes its wire value. Staleness bound unchanged (60 s). The once-per-request report lives in the loader's `fallback` (`logger.FirstInRequest`), so `Decide`'s own `Current` calls are covered too. (2) O-1 acks as `stuck` only when the delivery accepted nothing and dropped nothing (a dropped inactive request is progress and still nacks). (3) Residual from W3-40a: `UnlikePost` and `UndoRepost` of a REPOST id whose original is hidden now echo the original's id, exactly like the gone case. (4) `cost-model.md` DeleteAccount writes 301 to 302 (D-2, founder-accepted).
 
-#### W3-41a Backend: the owner's placeholder rows (W3-36 L-2) [architect (proto) then backend-developer] [M] [depends: W3-40b (same files)] Status: Open
+#### W3-41a Backend: the owner's placeholder rows (W3-36 L-2) [architect (proto) then backend-developer] [M] [depends: W3-40b (same files)] Status: In progress (proto PR #427; backend after W3-40b #424 merges)
 - **Design.** ADR-0025 "Implementation note (W3-36 L-2, 2026-10-28)": it changes the D4 list row for the owner only.
 - **Contract first (architect).** `bool withheld = 7` on `posts.v1.PostView` (verify the next free number), and the `EMBED_VIEWER_STATE_PROTECTED` comment change. Additive, `buf lint` and `buf breaking` clean, `make proto` (one proto PR at a time).
 - **Work (backend-developer).**
@@ -1352,6 +1353,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
   4. Unlike, Undo repost and RemoveBookmark from the placeholder ids remove the row on the next page.
   5. Budget: every list and tab keeps its ceiling (+0 reads, +0 writes).
 - **Flag.** None (undo paths are never gated). **Cost.** +0.
+- **Built (W3-41a, proto step, PR #427).** `bool withheld = 7` on `posts.v1.PostView` (7 was free; nothing reused or renumbered), commented as the ADR note says: set only on the caller's own Likes and Bookmarks lists, row stripped to `post_id`, `kind` and the author snapshot, placeholder with Unlike or Remove bookmark, false elsewhere. The `EMBED_VIEWER_STATE_PROTECTED` and `embed_viewer_state` comments now say the caller's own REPOST on their own profile is kept with PROTECTED so it can be undone. `buf lint` and `buf breaking` (against origin/main) clean; no generated code committed: the backend-developer runs `make proto` in the backend step after W3-40b (#424) merges.
 
 #### W3-41b Client: the owner's placeholder rows (W3-36 L-2) [frontend-developer] [S] [depends: W3-41a and W3-40a serving dev] Status: Open
 - Render the protected placeholder (the W3-33b embed placeholder, reused) on the caller's own profile tabs for a REPOST row with `embed_viewer_state = PROTECTED`, and on the Likes and Bookmarks lists for a row with `withheld = true`, with one action each: Undo repost, Unlike, Remove.

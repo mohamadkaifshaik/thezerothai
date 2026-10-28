@@ -253,6 +253,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		Audience:  notifAudience,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
+		// ADR-0027 D9: the push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
+		MessagePushLimit: notifications.NewPushLimiter(cfg.Messaging.PushesPerRecipientPerHour),
 	})
 	switch cfg.NotificationsDelivery {
 	case "inline":
@@ -421,6 +423,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
 		return nil, nil, fmt.Errorf("follow_requests lifecycle registry: %w", err)
 	}
+	// messaging (ADR-0027 D8): the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
+	// step runs after follow_requests, before identity. The repo is also the send path's storage (wired with the routes).
+	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
+	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), log); err != nil {
+		return nil, nil, fmt.Errorf("messaging lifecycle registry: %w", err)
+	}
 	moderationSvc := moderation.New(moderation.Deps{
 		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
@@ -525,9 +533,20 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
-	// Messaging (ADR-0027, W7-4 skeleton): the service layer checks FEATURE_MESSAGING (per caller for SendMessage and
-	// AcceptMessageRequest, not globally off for the rest) and then answers Unimplemented; 0 reads and writes.
-	messagingServer := messaging.NewServer(messaging.New(featureFlags))
+	// Messaging (ADR-0027): SendMessage (W7-5) behind FEATURE_MESSAGING, per caller and per recipient; the other four RPCs
+	// check the flag (not globally off) and answer Unimplemented until W7-7 to W7-9. Badge is nil until W7-11 builds the
+	// unread-conversation cache; the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).
+	messagingSvc := messaging.New(featureFlags, messaging.Deps{
+		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
+		Limits: messaging.Limits{
+			RequestMaxUnanswered: int64(cfg.Messaging.RequestMaxUnanswered),
+			DMNewPerDay:          int64(cfg.Quota.DMNewConversationsPerDay), NewAccountDMNewPerDay: int64(cfg.Quota.NewAccountDMNewConversationsPerDay),
+			NewAccountSendsPerDay: int64(cfg.Messaging.NewAccountSendsPerDay), NewAccountWindow: cfg.Quota.NewAccountWindow,
+			ConversationCacheEntries: cfg.Messaging.ConversationCacheEntries,
+		},
+		Log: log,
+	})
+	messagingServer := messaging.NewServer(messagingSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
 	})

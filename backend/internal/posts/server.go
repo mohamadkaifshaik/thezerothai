@@ -114,7 +114,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 	}
 	view := &postsv1.PostView{Post: ToProto(post)}
 	if h, ok := s.svc.(VisibilityHinter); ok { // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
-		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, post))
+		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, uid, post))
 	}
 	return connect.NewResponse(&postsv1.CreatePostResponse{Post: view}), nil
 }
@@ -168,7 +168,7 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // 0 reads without an embed, else the cached graph; PROTECTED strips the copy
 	}
 	if h, ok := s.svc.(VisibilityHinter); ok {
-		ApplyWireVisibility(v, h.ProtectedAuthor(ctx, post))
+		ApplyWireVisibility(v, h.ProtectedAuthor(ctx, uid, post))
 	}
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
 }
@@ -226,7 +226,7 @@ type EmbedHinter interface {
 // VisibilityHinter is implemented by the concrete service: whether the post's author is protected, for the computed wire
 // visibility (VISIBILITY_FOLLOWERS, ADR-0025 D2). 0 reads for the caller.
 type VisibilityHinter interface {
-	ProtectedAuthor(ctx context.Context, p *Post) bool
+	ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool
 }
 
 // GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
@@ -256,7 +256,7 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 			ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, p))
 		}
 		if h, ok := s.svc.(VisibilityHinter); ok {
-			ApplyWireVisibility(v, h.ProtectedAuthor(ctx, p))
+			ApplyWireVisibility(v, h.ProtectedAuthor(ctx, uid, p))
 		}
 		return v
 	}

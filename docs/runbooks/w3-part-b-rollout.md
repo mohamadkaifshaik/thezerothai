@@ -2,7 +2,7 @@
 
 Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and applies nothing.
 Status (2026-10-29): **PREPARED, NOT APPLIED.** Nothing was applied, routed, deployed or written: the evidence below is read-only and the plan is saved, not applied.
-**ON HOLD (founder, 2026-10-29): do not apply yet.** The `api` service env list in `infra/terraform/envs/dev/main.tf` also carries 15 W7 messaging and `SHELLS` entries that were never applied to dev (unconditional entries, e.g. `FEATURE_MESSAGING` at :247 and `FEATURE_SHELLS` at :299), so any targeted apply adds them too. The founder chose not to let them ride along. Wait for the W7 work to apply its own dev env lines, then re-plan: the plan must show only the 7 Part B entries (3 flag, 4 limits) before the founder is asked to OK it. Do not work around this with `gcloud run services update --update-env-vars` (click-ops, and Terraform state would drift).
+**APPLIED IN DEV 2026-10-29 (founder OK "apply w3-38").** The hold for the W7 lines was lifted: the W7 session has no dev credentials, and all 15 W7 messaging and `SHELLS` env entries were checked against the code (both flags `off`, empty allowlists, percent 0, every limit equal to its code default), so they changed no behaviour. They were applied with this rollout; the W7 work does not need to apply them again. Results: section 9.
 Prod: no change (on hold, `docs/pending.md` 1.2). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-38). Decisions: ADR-0025 and the founder's answer B4 (the same 3 test uids as Part A).
 Related: `docs/runbooks/w3-part-a-rollout.md` (the precedent: helpers, targeted-plan method), `docs/runbooks/private-accounts.md` (sections 1, 6, 8), `docs/runbooks/graph.md`,
 `docs/runbooks/rollback.md` ("Private accounts: never roll back past enforcement"), `docs/reviews/security-review-w3b.md`, `docs/reviews/cost-model.md` (Part B).
@@ -190,3 +190,15 @@ so it is a safe target even when someone is protected. Then make the Terraform c
 - The wide-screen requests entry (W3-34b, in review) and the app side of every row.
 - The 15 inert messaging and `SHELLS` entries: read from the plan, not checked line by line against the code defaults.
 - The plan is session-scoped and stale after any state change. Re-plan at step 1.
+
+
+## 9. Results, dev, 2026-10-29
+- **Preconditions re-checked just before the apply.** Serving 100% `api-00693-naq` (image tag `a8f9dafc`, #420) and `last-good` `api-00690-yiq` (image tag `e29fe804`, #423), both at or after the floor `061395a0` (`git merge-base --is-ancestor`). `privacy/protectedAuthors` was 404 (nobody protected). No deploy-dev run between plan and apply (#422 was docs-only, skipped by `paths-ignore`).
+- **Plan:** `0 to add, 1 to change, 0 to destroy` on `module.cloud_run_api.google_cloud_run_v2_service.api`; env 129 to 151 (22 added, 0 removed, 0 changed): 7 Part B (`FEATURE_PRIVATE_ACCOUNTS=allowlist`, its 3-uid allowlist equal to the other dev allowlists, percent 0; `QUOTA_PRIVACY_TOGGLES_PER_DAY` 4, `PROTECTED_AUTHORS_MAX` 20000, `PROTECTED_SET_MAX_STALE` 10m, `RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN` 60) and the 15 inert W7/`SHELLS` entries.
+- **Apply:** the saved plan, from the main checkout at `a8f9dafc`: `Apply complete! Resources: 0 added, 1 changed, 0 destroyed.` New revision **`api-00350-h87`** (Ready), the same image digest as `api-00693-naq`.
+- **Validate:** `validate-revision.sh ... dev`: `RESULT: all checks passed`, including `PRIVATE_ACCOUNTS mode=allowlist allowlist=3/3 percent=0/0`, `MESSAGING mode=off`, `SHELLS mode=off`.
+- **Route:** `update-traffic --to-revisions=api-00350-h87=100`. Now: `api-00350-h87` 100%; `last-good` tag on `api-00690-yiq`, `candidate` on `api-00693-naq` (both 0%). `/health` 200; no ERROR lines from the new revision in the first 15 minutes checked.
+- **tfvars:** the gitignored `infra/terraform/envs/dev/terraform.tfvars` in the main checkout now carries `feature_private_accounts = "allowlist"`, the 3-uid allowlist and percent 0, so a plain targeted plan says `No changes` and a later apply keeps the flag (backup of the previous file kept locally).
+- **Re-plan after:** `No changes. Your infrastructure matches the configuration.`
+- **Rollback now:** `last-good` (`api-00690-yiq`) is post-floor but has no `FEATURE_PRIVATE_ACCOUNTS`, so routing to it turns protecting off for testers (existing protections stay enforced because the code is post-floor). Fallback with the flag: none yet; the next deploy-dev builds from the template, which now carries the flag, and moves `last-good` after it passes.
+- **Owed:** the smoke in section 4 (founder or testers; no tester credentials on this machine), then the 15-minute and first-day watch in section 6.

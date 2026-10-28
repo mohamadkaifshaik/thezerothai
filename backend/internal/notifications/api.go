@@ -56,12 +56,20 @@ const (
 	// requester when the request is approved (ADR-0025 D10). Neither carries a post or needs the protected set.
 	TypeFollowRequest  Type = "follow_request"
 	TypeFollowAccepted Type = "follow_accepted"
+	// TypeMessage is the push-only direct-message type (ADR-0027 D9, ADR-0017 note 2026-10-28): one generic FCM push
+	// to the recipient, no users/{uid}/notifications row, no badge move, never listed. It names a conversation, not a post.
+	TypeMessage Type = "message"
 )
+
+// MessagingFlagName is the wire name of FEATURE_MESSAGING (messaging.FlagName). notifications cannot import messaging,
+// so the push-only message type checks the recipient's flag by this literal; a test pins it to the messaging constant
+// through the apiserver wiring.
+const MessagingFlagName = "messaging"
 
 // Valid reports whether t is a known type.
 func (t Type) Valid() bool {
 	switch t {
-	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted:
+	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage:
 		return true
 	}
 	return false
@@ -69,8 +77,11 @@ func (t Type) Valid() bool {
 
 // needsPost reports whether events of type t must name a post.
 func (t Type) needsPost() bool {
-	return t != TypeFollow && t != TypeFollowRequest && t != TypeFollowAccepted
+	return t != TypeFollow && t != TypeFollowRequest && t != TypeFollowAccepted && t != TypeMessage
 }
+
+// pushOnly reports whether events of type t produce a push and no users/{uid}/notifications row.
+func (t Type) pushOnly() bool { return t == TypeMessage }
 
 // postBearing reports whether a row of type t exposes a post of the actor to the recipient, so an actor the recipient
 // may not see must not produce it (ADR-0025 D10). Like is excluded by design (the actor liked the recipient's own
@@ -98,6 +109,8 @@ type Event struct {
 	RecipientIDs []string
 	// PostID is the subject post: the mentioning/replying/quoting post, or the liked/reposted post.
 	PostID string
+	// ConversationID is the 32-hex direct-message conversation (TypeMessage only; additive, wire v stays 1).
+	ConversationID string
 	// At is when the action committed (informational: createdAt is the handler's commit time, ADR-0017 D3).
 	At time.Time
 }
@@ -146,6 +159,8 @@ type Push struct {
 	NotificationID string
 	PostID         string
 	ActorID        string
+	// ConversationID is the only identifier a TypeMessage push carries (no actor, no post, no text).
+	ConversationID string
 }
 
 // ErrTokenUnregistered is returned by PushSender.Send when FCM says the token is no longer valid: the device is
