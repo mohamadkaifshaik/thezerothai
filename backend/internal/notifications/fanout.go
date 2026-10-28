@@ -75,6 +75,10 @@ func notificationID(t Type, actorID, postID string, at time.Time) string {
 	switch t {
 	case TypeFollow:
 		return "follow_" + actorID
+	case TypeFollowRequest:
+		return "follow_request_" + actorID // the requester; a withdraw and re-request within the TTL is AlreadyExists: no second row or push
+	case TypeFollowAccepted:
+		return "follow_accepted_" + actorID // the target that accepted
 	case TypeMention, TypeReply, TypeQuote:
 		return string(t) + "_" + postID
 	case TypeRepost:
@@ -96,6 +100,9 @@ type FanoutDeps struct {
 	ProjectID string
 	// ReadOnly makes the handler acknowledge and drop every event (DEGRADED_MODE=readonly: no Firestore writes).
 	ReadOnly bool
+	// Audience decides whether a recipient may see the actor of a post-bearing event (ADR-0025 AQ5). Nil disables the
+	// check (tests, and a build where the protected set is not wired).
+	Audience AudienceChecker
 	// PushLimit is the per-recipient inbound push token bucket (N-2; NewPushLimiter builds the shipped one). Nil
 	// means unlimited. A throttled push still has its row written; only the FCM send is skipped.
 	PushLimit *ratelimit.Limiter
@@ -135,6 +142,8 @@ func NewFanout(d FanoutDeps) *Fanout {
 // Outcome counts what one delivery did, for the one log line per delivery.
 type Outcome struct {
 	Created, Duplicate, Suppressed, Dropped, Pushed, Pruned int
+	// SuppressedProtected counts rows dropped because the recipient may not see a protected actor (post-bearing types).
+	SuppressedProtected int
 	// Throttled counts recipients whose push was skipped by the per-recipient hourly limit (the row was written).
 	Throttled int
 }
@@ -232,6 +241,20 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		if suppressed {
 			out.Suppressed++
 			continue
+		}
+		if e.Type.postBearing() && f.d.Audience != nil {
+			// ADR-0025 D10: a protected actor's post-bearing event reaches only recipients who may see the actor.
+			// 0 reads: the recipient's snapshot is already in hand and the protected set is an instance copy.
+			// Fail closed (AQ5): an unavailable set is a retry (Pub/Sub redelivers), never a row.
+			can, err := f.d.Audience.CanSee(ctx, r, e.ActorID, snap.Following[e.ActorID])
+			if err != nil {
+				errs = append(errs, fmt.Errorf("audience check: %w", err))
+				continue
+			}
+			if !can {
+				out.SuppressedProtected++
+				continue
+			}
 		}
 		now := f.d.Now().UTC().Truncate(time.Microsecond)
 		n := Notification{
@@ -363,7 +386,7 @@ func (f *Fanout) Handler() http.Handler {
 		out, derr := f.Deliver(ctx, Event{Type: m.Type, ActorID: m.ActorID, RecipientIDs: m.RecipientIDs, PostID: m.PostID, At: time.UnixMilli(m.AtMillis)})
 		attrs := append([]any{
 			"event", "notification_delivery", "type", string(m.Type), "message_id", d.MessageID, "delivery_attempt", d.Attempt,
-			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed,
+			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed, "suppressed_protected", out.SuppressedProtected,
 			"dropped", out.Dropped, "pushed", out.Pushed, "pruned", out.Pruned, "push_throttled", out.Throttled,
 			// rpc and fanout_fs_reads make the handler's Firestore cost a project-level field: `make cost` prints
 			// both, and the fan-out is otherwise invisible next to the Connect request lines.

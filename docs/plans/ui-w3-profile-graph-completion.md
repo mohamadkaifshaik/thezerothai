@@ -97,7 +97,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | In review (PR #382) (depends: W3-25b; merges after W3-26a) |
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | Open (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Open (depends: W3-29a, W3-26a) |
-| W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Open (depends: W3-25b; merges after W3-29a and W3-26a) |
+| W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | In review (PR #380; depends: W3-25b; W3-26a and W3-29a merged) |
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | In review (PR #381; depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Open (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Open (depends: W3-26a, W3-29a serving dev) |
@@ -597,7 +597,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-29a | Posts: `Audience`, GetPost, `Viewable`, D5 refusals, computed visibility, PROTECTED embed | backend-developer | M | W3-25b; merges after W3-26a | +0 reads on every path (GetPost 4 cold / 0 warm unchanged), except +1 cold / 0 warm when a caller opens their own REPOST or QUOTE of another user's post (founder-accepted 2026-10-28, ADR-0025 "Implementation note (W3-29a)"); refusals 0 writes |
 | W3-29b | Posts + engagement: GetThread, ListBookmarks, ListLikedPosts | backend-developer | M | W3-29a | +0 (ListBookmarks 43 / 103 / 2, ListLikedPosts 23 / 53 / 2, GetThread unchanged) |
 | W3-30 | Timeline: `author_protected`, feed embeds | backend-developer | S | W3-29a, W3-26a | P unapproved 3 cold, 0 page reads; tabs 24 / 54 cold and Home unchanged |
-| W3-31 | Notifications: two types, suppression | backend-developer | S | W3-25b; merges after W3-29a, W3-26a | fan-out about 2 reads per recipient, 1 write, 1 TTL delete (90 d); suppression 0 |
+| W3-31 | Notifications: two types, suppression | backend-developer | S | W3-25b; W3-26a, W3-29a merged | fan-out about 2 reads per recipient, 1 write, 1 TTL delete (90 d); suppression 0 |
 | W3-32 | Lifecycle: `follow_requests` step and section | backend-developer | M | W3-25b; merges before W3-27 | eraser: outgoing 1 read + 1 delete per doc, incoming 1 read + 1 delete + 1 write per doc, minimum 2 reads; export 1 read per doc, minimum 2 |
 | W3-33a | Client: protected profile, lock badge, Requested and withdraw | frontend-developer | M | W3-26a, W3-27, W3-30 serving dev | 0 new RPCs; a protected profile open is 3 reads |
 | W3-33b | Client: protect setting, protected embed, copy | frontend-developer | M | W3-26a, W3-29a serving dev | 1 UpdateProfile per toggle (4 / 3 reads, 3 writes) |
@@ -688,7 +688,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **After the commit.**
   - On unprotect, call `PrivacyListener.BecamePublic` with a detached, short-deadline context, as `retireImages` does (`identity/media_retire.go`:82-95). A failure is ERROR `privacy_public_enqueue_failed` (Error Reporting, uid scrubbed). A nil listener publishes nothing, which is the case until W3-28b.
   - The committing instance updates its cached set in place, so the toggle applies at once there and within 60 s elsewhere.
-  - Then `Directory.Forget(uid)`.
+  - The written profile is cached in place (`s.cache.SetProfile`), as for every UpdateProfile. No `Directory.Forget(uid)`: it would only evict that fresh entry and cost the next request a cold read (founder decision 2026-10-28; `Forget` is for other modules whose commits change `users/{uid}` without the profile in hand).
 - **The loader** (implements `identity.ProtectedAuthors`, D3):
   - Lazy: it reads only when a caller asks and the cached copy is older than `CACHE_TTL` (60 s).
   - Singleflight: concurrent requests share one refresh.
@@ -943,7 +943,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** The `timeline` interface and the opaque tokens.
 - **Cost.** No more than today's NOT_FOUND path.
 
-#### W3-31 Notifications: request types and protected-actor suppression [backend-developer] [S] [depends: W3-25b; merges after W3-29a and W3-26a] Status: Open
+#### W3-31 Notifications: request types and protected-actor suppression [backend-developer] [S] [depends: W3-25b; W3-26a and W3-29a merged] Status: In review (PR #380)
 - **The two types** (D10):
   - `follow_request`, id `follow_request_{requesterUid}`, sent to the target.
   - `follow_accepted`, id `follow_accepted_{targetUid}`, sent to the requester.
@@ -1328,6 +1328,8 @@ Assumptions (ADR-0025): 5% of DAU protected; 0.05 follows per DAU to a protected
 
 #### Part B: questions for the founder
 Each question has a default. Nothing blocks W3-25a.
+
+**Answered 2026-10-28 (founder): every default stands.** B1: link-reachable images of a protected account are accepted, and the W3-33b confirm dialog says so. B2: ADR-0025 confirmed (followers kept, Likes owner-only, counts public). B3: no undo on Accept or Decline. B4: the same 3 test uids on the W3-38 dev allowlist.
 1. **B1. Post images of a protected account.** Protecting hides every image URL from people who are not approved followers (lesson 9). It cannot revoke a link someone already copied while the account was public: the objects stay public-read at unlisted, random-looking addresses. Listing has been closed since M-2.
    - Default: accept this, and say it in the confirm dialog (W3-33b).
    - Alternative: ask the architect for a private-media ADR before the prod ramp. Images would then need signed links, which is more cost and work.
