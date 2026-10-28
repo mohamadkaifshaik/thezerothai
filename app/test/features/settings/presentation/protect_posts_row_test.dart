@@ -221,6 +221,58 @@ void main() {
     expect(rowSwitch, findsNothing);
   });
 
+  // W3-35c: who sees the switch and in which position (the visibility rule:
+  // the flag decides turning ON; a protected account always sees its way
+  // OFF, the undo rule), and which confirm each row opens.
+  for (final entry in {
+    'public, flag off': (
+      flags: const <String>{},
+      isPrivate: false,
+      shown: false,
+      on: false,
+    ),
+    'public, flag on': (
+      flags: const {kFeaturePrivateAccounts},
+      isPrivate: false,
+      shown: true,
+      on: false,
+    ),
+    'protected, flag off': (
+      flags: const <String>{},
+      isPrivate: true,
+      shown: true,
+      on: true,
+    ),
+    'protected, flag on': (
+      flags: const {kFeaturePrivateAccounts},
+      isPrivate: true,
+      shown: true,
+      on: true,
+    ),
+  }.entries) {
+    testWidgets('visibility: ${entry.key}', (tester) async {
+      final v = entry.value;
+      await open(tester, flags: v.flags, isPrivate: v.isPrivate);
+      expect(
+        find.text(kProtectPostsTitle),
+        v.shown ? findsOneWidget : findsNothing,
+      );
+      if (!v.shown) return;
+      await reveal(tester);
+      expect(tester.widget<Switch>(rowSwitch).value, v.on);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(
+        find.text(v.on ? kUnprotectConfirmTitle : kProtectConfirmTitle),
+        findsOneWidget,
+      );
+      expect(
+        find.text(v.on ? kProtectConfirmTitle : kUnprotectConfirmTitle),
+        findsNothing,
+      );
+    });
+  }
+
   testWidgets('Cancel saves nothing', (tester) async {
     await open(tester);
     await reveal(tester);
