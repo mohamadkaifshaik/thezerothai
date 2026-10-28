@@ -118,7 +118,7 @@ func TestAudienceDecide(t *testing.T) {
 			a := newAudience(f, noBlockOverflow)
 			d, err := a.Decide(context.Background(), viewer, tt.snap, tt.p, tt.surf)
 			if tt.wantErr {
-				wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+				_ = wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 				return
 			}
 			if err != nil {
@@ -170,7 +170,7 @@ func TestAudienceRefuseShare(t *testing.T) {
 				}
 				return
 			}
-			wantAPIError(t, err, tt.code, tt.reason)
+			_ = wantAPIError(t, err, tt.code, tt.reason)
 		})
 	}
 }
@@ -227,7 +227,7 @@ func TestGetForViewerProtectedMatchesDeleted(t *testing.T) {
 	e3 := newDeleteEnv()
 	e3.protect(otherUID).err = errBoom
 	_, _, err := e3.get(pidOther)
-	wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+	_ = wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }
 
 func TestEmbedViewerStateProtected(t *testing.T) {
@@ -295,7 +295,7 @@ func TestCreateQuoteOfProtectedPost(t *testing.T) {
 
 	e.graph.snaps = map[string]graph.Snapshot{testUID: following(otherUID)}
 	_, c, err = e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
-	wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
+	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 	if c.Writes() != 0 {
 		t.Fatalf("writes = %d", c.Writes())
 	}

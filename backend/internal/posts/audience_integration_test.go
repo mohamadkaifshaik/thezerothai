@@ -105,7 +105,7 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	}
 	actx2, wc2 := budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle}))
 	_, err = in2.svc.Create(actx2, "uid-alice", CreateInput{IdempotencyKey: key(4), Text: "q", QuoteOfPostID: bobPost.ID, QuotesEnabled: true})
-	wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
+	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 	if wc2.Writes() != 0 {
 		t.Fatalf("PROTECTED_ACCOUNT quote wrote %d", wc2.Writes())
 	}
