@@ -104,6 +104,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Done (PR #389) (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
+| W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
@@ -607,6 +608,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-33a | Client: protected profile, lock badge, Requested and withdraw | frontend-developer | M | W3-26a, W3-27, W3-30 serving dev | 0 new RPCs; a protected profile open is 3 reads |
 | W3-33b | Client: protect setting, protected embed, copy | frontend-developer | M | W3-26a, W3-29a serving dev | 1 UpdateProfile per toggle (4 / 3 reads, 3 writes) |
 | W3-33c | Client: lock badge on `UserListRow` | frontend-developer | S | W3-28c serving dev, W3-33a | 0 new RPCs, 0 reads |
+| W3-33d | Client: outlined Requested/Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | W3-33c | 0 new RPCs, 0 reads |
 | W3-34 | Client: Follow requests screen, badge, notification rows | frontend-developer | M | W3-28a, W3-26b, W3-31 serving dev | 1 ListFollowRequests per open (42 cold), 1 Respond per tap |
 | W3-35a | Tests: D4 matrix, byte identity, leaks, guard, budget table | tester | M | W3-26b, W3-28a, W3-29b, W3-30, W3-31 | 0 (emulators) |
 | W3-35b | Tests: lifecycle, races, invariants, job, flags, eraser and export | tester | M | W3-27, W3-28a, W3-28b, W3-32 | 0 (emulators) |
@@ -1158,6 +1160,16 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Report.** A section of `docs/reviews/test-report-w3b.md`.
 - **Cost.** 0.
 
+#### W3-33d Client: Requested and Following fit user-list rows [frontend-developer] [S] [depends: W3-33c] Status: In review (PR #399)
+- **Description.** W3-33c found that the outlined Requested and Following `FollowButton` states were about 12 dp wider than the `UserListRow` at 360 dp x text scale 2.0 (with or without the badge), which hid the lock (name column under 48 dp). Same class as the W3-21 D-1 lesson: actions grow with text scale. Founder decision 2026-10-28 (option A): the label is never scaled down, because shrinking it undoes the user's chosen text size (text must scale to 200% without loss).
+  - `FollowButton` is unchanged: its label always renders at the user's text scale.
+  - `UserListRow` lays out avatar, name column and the control with a small custom layout (`_AdaptiveRow`). The control keeps its natural width and the name column shrinks first (ellipsis), keeping the lock while it is at least 48 dp.
+  - Only when the name column would drop under 48 dp (decided from measured widths, not a text-scale threshold) the control moves onto its own line under the name and handle, aligned to the text column (a control wider than that column ends at the row's right edge), still a 48 dp target, as on X's narrow list rows.
+  - A caller's own `trailing` (Unblock/Unmute) follows the same rule; the dismiss "x" travels with the control.
+- **Tests.** `user_list_row_badge_test.dart` no longer discards the overflow exception in any cell: every state x protected/public x the full matrix asserts no overflow, a 48 dp target, the label at theme size x text scale (no `FittedBox`), and the badge when protected; plus the wrapped layout at 360 dp x2.0 and a custom `trailing`.
+- **Docs.** `docs/ui-catalog.md`: `FollowButton` and `UserListRow` rows.
+- **Flag.** None. **Cost.** 0 new RPCs, 0 reads.
+
 #### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: Open
 - **The responsive matrix** (360 / 600 / 1200 dp x light / dark x 1.0 / 1.3 / 2.0, 48 dp targets, inside the screen) for:
   - the protected profile view, the lock badge (header and `UserListRow`, W3-33c) and Requested;
@@ -1238,7 +1250,7 @@ At most 5 agents run at once, each in its own worktree under `.claude/worktrees/
 | B3 | W3-27, W3-29b, W3-30 (+ W3-31 if still open) | W3-27: W3-32 merged; W3-29b and W3-30: W3-29a merged | W3-30 after W3-26a |
 | B4 | W3-28a, W3-33a, W3-33b | W3-28a: W3-27 merged; W3-33a: W3-27 and W3-30 serving dev; W3-33b: W3-26a and W3-29a serving dev | |
 | B5 | W3-28b, W3-26b, W3-28c, W3-33c | W3-28b, W3-26b: W3-28a merged; W3-28c: W3-25c and W3-28a merged; W3-33c: W3-28c serving dev and W3-33a merged | W3-28b and W3-26b both edit `apiserver.go` wiring: one at a time; W3-28c edits `graph/server.go` (no `apiserver.go` line): after W3-28a, one at a time with W3-28b |
-| B6 | W3-34, W3-35a, W3-35b, W3-36, W3-37 (5) | W3-34: W3-26b and W3-31 serving dev; tests, review and cost: their backend tickets merged | |
+| B6 | W3-34, W3-35a, W3-35b, W3-36, W3-37 (5); W3-33d rides along (after W3-33c, one at a time with W3-34 on `user_list_row.dart`) | W3-34: W3-26b and W3-31 serving dev; tests, review and cost: their backend tickets merged | |
 | B7 | W3-35c | W3-33a, W3-33b, W3-34 merged | |
 | B8 | W3-38 | all of the above, founder OK | |
 
@@ -1293,6 +1305,7 @@ Method: `free-tier-budget` §2 and the cost-model marginal method (§5, §7 pric
 | W3-28a, W3-30 | GetUserTimeline, ListFollowers, ListFollowing of P, unapproved | replaces page reads | 3 | ≤ 0 | 0 | 0 |
 | W3-31 | `follow_request` / `follow_accepted` fan-out | 0.05 / 0.04 | about 2 per recipient | 0.18 | 0.09 | TTL after 90 d |
 | W3-28b | `privacy_public` job | rare | 2 per request | ~0 | ~0 | ~0 |
+| W3-33d | Layout fix only (no call) | none | +0 | 0 | 0 | 0 |
 | W3-25c, W3-28c, W3-33c | `AuthorSnapshot.is_private` on graph user-list rows (from the hydrated profile) | all list calls | +0 | 0 | 0 | 0 |
 | W3-32 | eraser, export | per deletion or export | 1 per doc | n/a | n/a | n/a |
 | **Part B** | | **about +0.1 requests** | | **+1.25 request path + 3.2 / 2.4 / 1.4 refresh** | **+0.16** | **+0.05** |
