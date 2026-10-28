@@ -460,6 +460,155 @@ void main() {
       );
     });
 
+    group('persisted request count', () {
+      pb.ListConversationsResponse list(
+        List<pb.Conversation> items, {
+        String since = 's1',
+        int requests = 0,
+      }) => pb.ListConversationsResponse(
+        conversations: items,
+        sinceToken: since,
+        requestCount: Int64(requests),
+      );
+
+      pb.Conversation request(String id) => conv(
+        id,
+        folder: Folder.FOLDER_REQUESTS,
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+
+      Future<void> seed({required int requests}) async {
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [request('q1'), request('q2')],
+            sinceToken: 'r',
+          ),
+        );
+        await repo.refreshConversations(Folder.FOLDER_REQUESTS);
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [conv('a')],
+            sinceToken: 'i',
+            requestCount: Int64(requests),
+          ),
+        );
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        convRequests.clear();
+      }
+
+      test('a warm start reads the count from disk with no network', () async {
+        convAnswers.add(list([conv('a')], requests: 3));
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        convRequests.clear();
+
+        final restarted = MessagingRepository(
+          apiClient: ApiClient.withTransport(transport),
+          store: MessagingStore(db),
+          gate: gate,
+          rateLimitHold: hold,
+        );
+        final cached = await restarted.cachedConversations(Folder.FOLDER_INBOX);
+
+        expect(cached.requestCount, 3);
+        expect(convRequests, isEmpty);
+        expect(
+          (await restarted.cachedConversations(Folder.FOLDER_REQUESTS))
+              .requestCount,
+          isNull,
+        );
+      });
+
+      test('is unknown (null) before any first INBOX page', () async {
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          isNull,
+        );
+      });
+
+      test(
+        'a fresh first INBOX page overwrites it; a since keeps it',
+        () async {
+          convAnswers.add(list([conv('a')], requests: 3));
+          await repo.refreshConversations(Folder.FOLDER_INBOX);
+          convAnswers.add(list([conv('a')], since: 's2'));
+          final since = await repo.refreshConversations(Folder.FOLDER_INBOX);
+          expect(since.requestCount, isNull);
+          expect(since.snapshot.requestCount, 3);
+
+          // A cold reopen (rejected since token) carries a fresh count.
+          await store.clearConversationsSince(
+            Folder.FOLDER_INBOX,
+            session: store.session,
+          );
+          convAnswers.add(list([conv('a')], requests: 0));
+          await repo.refreshConversations(Folder.FOLDER_INBOX);
+
+          expect(
+            (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+            0,
+          );
+        },
+      );
+
+      test('accepting a request lowers it by one', () async {
+        await seed(requests: 2);
+
+        await repo.acceptMessageRequest(
+          idempotencyKey: 'k',
+          conversationId: 'q1',
+        );
+
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          1,
+        );
+      });
+
+      test('deleting a request lowers it, never below 0', () async {
+        await seed(requests: 1);
+
+        await repo.deleteConversation(
+          idempotencyKey: 'k1',
+          conversationId: 'q1',
+        );
+        await repo.deleteConversation(
+          idempotencyKey: 'k2',
+          conversationId: 'q2',
+        );
+
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          0,
+        );
+      });
+
+      test('deleting an inbox conversation leaves it alone', () async {
+        await seed(requests: 2);
+
+        await repo.deleteConversation(idempotencyKey: 'k', conversationId: 'a');
+
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          2,
+        );
+      });
+
+      test('a failed accept leaves it alone', () async {
+        await seed(requests: 2);
+        readAnswer = const UnknownApiException('boom');
+
+        await expectLater(
+          repo.acceptMessageRequest(idempotencyKey: 'k', conversationId: 'q1'),
+          throwsA(isA<AppException>()),
+        );
+
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          2,
+        );
+      });
+    });
+
     test('mark read zeroes the cached unread count', () async {
       convAnswers.add(
         pb.ListConversationsResponse(conversations: [conv('a', unread: 4)]),

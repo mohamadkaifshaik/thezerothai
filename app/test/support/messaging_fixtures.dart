@@ -52,6 +52,10 @@ pb.Conversation conv(
   Folder folder = Folder.FOLDER_INBOX,
   ConversationState state = ConversationState.CONVERSATION_STATE_ACCEPTED,
   int unread = 0,
+  String? snippet,
+  bool fromSelf = false,
+  bool silent = false,
+  MessageState lastState = MessageState.MESSAGE_STATE_VISIBLE,
 }) {
   return pb.Conversation(
     id: id,
@@ -65,7 +69,16 @@ pb.Conversation conv(
     folder: folder,
     unreadCount: Int64(unread),
     canReply: true,
+    silent: silent,
     updatedAt: _stamp(kMsgBase.subtract(Duration(minutes: minutesAgo))),
+    lastMessage: snippet == null
+        ? null
+        : pb.MessagePreview(
+            snippet: snippet,
+            fromSelf: fromSelf,
+            state: lastState,
+            createdAt: _stamp(kMsgBase.subtract(Duration(minutes: minutesAgo))),
+          ),
   );
 }
 

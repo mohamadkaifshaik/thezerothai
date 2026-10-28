@@ -16,8 +16,11 @@ import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -64,6 +67,11 @@ class AppRouter {
   static const settingsPath = '/settings';
   // P6: the Notifications tab, behind the `notifications` flag.
   static const notificationsPath = '/notifications';
+  // W7-14: the inbox and its Requests folder, behind the `messaging` flag
+  // (both redirect Home without it). ShellRoute children. `/messages/new`
+  // (W7-17) and `/messages/:id` (W7-15) are added by those tickets.
+  static const messagesPath = '/messages';
+  static const messageRequestsPath = '/messages/requests';
   // The Settings routes land with T15; the constants live here so
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
@@ -204,6 +212,21 @@ class AppRouter {
             path: notificationsPath,
             builder: (context, state) =>
                 const AuthGate(child: NotificationsScreen()),
+          ),
+          GoRoute(
+            path: messagesPath,
+            builder: (context, state) => const AuthGate(
+              // TODO(W7-15): onOpenConversation opens `/messages/<id>`.
+              // TODO(W7-17): onNewMessage opens `/messages/new`.
+              child: ConversationsScreen(),
+            ),
+          ),
+          GoRoute(
+            path: messageRequestsPath,
+            builder: (context, state) => const AuthGate(
+              // TODO(W7-15): onOpenConversation opens `/messages/<id>`.
+              child: ConversationsScreen(folder: Folder.FOLDER_REQUESTS),
+            ),
           ),
           GoRoute(
             path: bookmarksPath,
@@ -430,6 +453,7 @@ class AppRouter {
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
             _bookmarksFlagRedirect(loc) ??
+            _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
             _notificationsFlagRedirect(loc);
       case OnboardingStatus.unknown:
@@ -483,6 +507,16 @@ class AppRouter {
   bool _premiumPushAllowed(Object? extra) =>
       extra is ShellPush &&
       _onboardingBloc.state.enabledFeatures.contains(kFeatureShells);
+
+  /// `/messages` and `/messages/requests` redirect Home unless `messaging` is
+  /// on for this caller (W7-14). `GetMe` lists the flag per caller, so a flag
+  /// that is off for everyone is the same case.
+  String? _messagesFlagRedirect(String loc) {
+    if (loc != messagesPath && loc != messageRequestsPath) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)
+        ? null
+        : homePath;
+  }
 
   /// `/follow-requests` redirects Home unless `graph` is on and the caller is
   /// protected or has `private_accounts` (W3-34). A protected caller keeps the

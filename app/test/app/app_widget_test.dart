@@ -19,6 +19,7 @@ import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
+import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
@@ -58,6 +59,8 @@ class MockAuthRepository extends Mock implements AuthRepository {}
 class MockPostsRepository extends Mock implements PostsRepository {}
 
 class MockTimelineRepository extends Mock implements TimelineRepository {}
+
+class MockMessagingRepository extends Mock implements MessagingRepository {}
 
 class MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
@@ -156,6 +159,7 @@ void main() {
         postsGate: PostsFeatureGate(isPostsEnabled: () => false),
         mediaRepository: MockMediaRepository(),
         notificationsRepository: notifications,
+        messagingRepository: MockMessagingRepository(),
         moderationRepository: MockModerationRepository(),
         engagementRepository: MockEngagementRepository(),
         bookmarksRepository: MockBookmarksRepository()..stubEvents(),

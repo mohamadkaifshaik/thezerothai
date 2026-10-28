@@ -3624,12 +3624,24 @@ class $MessagingStateEntriesTable extends MessagingStateEntries
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _requestCountMeta = const VerificationMeta(
+    'requestCount',
+  );
+  @override
+  late final GeneratedColumn<int> requestCount = GeneratedColumn<int>(
+    'request_count',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     stateKey,
     sinceToken,
     olderPageToken,
     updatedAt,
+    requestCount,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3674,6 +3686,15 @@ class $MessagingStateEntriesTable extends MessagingStateEntries
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('request_count')) {
+      context.handle(
+        _requestCountMeta,
+        requestCount.isAcceptableOrUnknown(
+          data['request_count']!,
+          _requestCountMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3699,6 +3720,10 @@ class $MessagingStateEntriesTable extends MessagingStateEntries
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      requestCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}request_count'],
+      ),
     );
   }
 
@@ -3716,11 +3741,16 @@ class CachedMessagingState extends DataClass
   /// Token for scrolling older than the oldest cached row; '' = none/end.
   final String olderPageToken;
   final DateTime updatedAt;
+
+  /// Last known pending message-request count, on the `inbox` row only (v8).
+  /// Null = never received (unknown), which is not the same as 0.
+  final int? requestCount;
   const CachedMessagingState({
     required this.stateKey,
     required this.sinceToken,
     required this.olderPageToken,
     required this.updatedAt,
+    this.requestCount,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3729,6 +3759,9 @@ class CachedMessagingState extends DataClass
     map['since_token'] = Variable<String>(sinceToken);
     map['older_page_token'] = Variable<String>(olderPageToken);
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || requestCount != null) {
+      map['request_count'] = Variable<int>(requestCount);
+    }
     return map;
   }
 
@@ -3738,6 +3771,9 @@ class CachedMessagingState extends DataClass
       sinceToken: Value(sinceToken),
       olderPageToken: Value(olderPageToken),
       updatedAt: Value(updatedAt),
+      requestCount: requestCount == null && nullToAbsent
+          ? const Value.absent()
+          : Value(requestCount),
     );
   }
 
@@ -3751,6 +3787,7 @@ class CachedMessagingState extends DataClass
       sinceToken: serializer.fromJson<String>(json['sinceToken']),
       olderPageToken: serializer.fromJson<String>(json['olderPageToken']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      requestCount: serializer.fromJson<int?>(json['requestCount']),
     );
   }
   @override
@@ -3761,6 +3798,7 @@ class CachedMessagingState extends DataClass
       'sinceToken': serializer.toJson<String>(sinceToken),
       'olderPageToken': serializer.toJson<String>(olderPageToken),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'requestCount': serializer.toJson<int?>(requestCount),
     };
   }
 
@@ -3769,11 +3807,13 @@ class CachedMessagingState extends DataClass
     String? sinceToken,
     String? olderPageToken,
     DateTime? updatedAt,
+    Value<int?> requestCount = const Value.absent(),
   }) => CachedMessagingState(
     stateKey: stateKey ?? this.stateKey,
     sinceToken: sinceToken ?? this.sinceToken,
     olderPageToken: olderPageToken ?? this.olderPageToken,
     updatedAt: updatedAt ?? this.updatedAt,
+    requestCount: requestCount.present ? requestCount.value : this.requestCount,
   );
   CachedMessagingState copyWithCompanion(MessagingStateEntriesCompanion data) {
     return CachedMessagingState(
@@ -3785,6 +3825,9 @@ class CachedMessagingState extends DataClass
           ? data.olderPageToken.value
           : this.olderPageToken,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      requestCount: data.requestCount.present
+          ? data.requestCount.value
+          : this.requestCount,
     );
   }
 
@@ -3794,14 +3837,20 @@ class CachedMessagingState extends DataClass
           ..write('stateKey: $stateKey, ')
           ..write('sinceToken: $sinceToken, ')
           ..write('olderPageToken: $olderPageToken, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('requestCount: $requestCount')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(stateKey, sinceToken, olderPageToken, updatedAt);
+  int get hashCode => Object.hash(
+    stateKey,
+    sinceToken,
+    olderPageToken,
+    updatedAt,
+    requestCount,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3809,7 +3858,8 @@ class CachedMessagingState extends DataClass
           other.stateKey == this.stateKey &&
           other.sinceToken == this.sinceToken &&
           other.olderPageToken == this.olderPageToken &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.requestCount == this.requestCount);
 }
 
 class MessagingStateEntriesCompanion
@@ -3818,12 +3868,14 @@ class MessagingStateEntriesCompanion
   final Value<String> sinceToken;
   final Value<String> olderPageToken;
   final Value<DateTime> updatedAt;
+  final Value<int?> requestCount;
   final Value<int> rowid;
   const MessagingStateEntriesCompanion({
     this.stateKey = const Value.absent(),
     this.sinceToken = const Value.absent(),
     this.olderPageToken = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.requestCount = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagingStateEntriesCompanion.insert({
@@ -3831,6 +3883,7 @@ class MessagingStateEntriesCompanion
     this.sinceToken = const Value.absent(),
     this.olderPageToken = const Value.absent(),
     required DateTime updatedAt,
+    this.requestCount = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : stateKey = Value(stateKey),
        updatedAt = Value(updatedAt);
@@ -3839,6 +3892,7 @@ class MessagingStateEntriesCompanion
     Expression<String>? sinceToken,
     Expression<String>? olderPageToken,
     Expression<DateTime>? updatedAt,
+    Expression<int>? requestCount,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3846,6 +3900,7 @@ class MessagingStateEntriesCompanion
       if (sinceToken != null) 'since_token': sinceToken,
       if (olderPageToken != null) 'older_page_token': olderPageToken,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (requestCount != null) 'request_count': requestCount,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3855,6 +3910,7 @@ class MessagingStateEntriesCompanion
     Value<String>? sinceToken,
     Value<String>? olderPageToken,
     Value<DateTime>? updatedAt,
+    Value<int?>? requestCount,
     Value<int>? rowid,
   }) {
     return MessagingStateEntriesCompanion(
@@ -3862,6 +3918,7 @@ class MessagingStateEntriesCompanion
       sinceToken: sinceToken ?? this.sinceToken,
       olderPageToken: olderPageToken ?? this.olderPageToken,
       updatedAt: updatedAt ?? this.updatedAt,
+      requestCount: requestCount ?? this.requestCount,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3881,6 +3938,9 @@ class MessagingStateEntriesCompanion
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (requestCount.present) {
+      map['request_count'] = Variable<int>(requestCount.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3894,6 +3954,7 @@ class MessagingStateEntriesCompanion
           ..write('sinceToken: $sinceToken, ')
           ..write('olderPageToken: $olderPageToken, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('requestCount: $requestCount, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6285,6 +6346,7 @@ typedef $$MessagingStateEntriesTableCreateCompanionBuilder =
       Value<String> sinceToken,
       Value<String> olderPageToken,
       required DateTime updatedAt,
+      Value<int?> requestCount,
       Value<int> rowid,
     });
 typedef $$MessagingStateEntriesTableUpdateCompanionBuilder =
@@ -6293,6 +6355,7 @@ typedef $$MessagingStateEntriesTableUpdateCompanionBuilder =
       Value<String> sinceToken,
       Value<String> olderPageToken,
       Value<DateTime> updatedAt,
+      Value<int?> requestCount,
       Value<int> rowid,
     });
 
@@ -6322,6 +6385,11 @@ class $$MessagingStateEntriesTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get requestCount => $composableBuilder(
+    column: $table.requestCount,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -6354,6 +6422,11 @@ class $$MessagingStateEntriesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get requestCount => $composableBuilder(
+    column: $table.requestCount,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MessagingStateEntriesTableAnnotationComposer
@@ -6380,6 +6453,11 @@ class $$MessagingStateEntriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get requestCount => $composableBuilder(
+    column: $table.requestCount,
+    builder: (column) => column,
+  );
 }
 
 class $$MessagingStateEntriesTableTableManager
@@ -6432,12 +6510,14 @@ class $$MessagingStateEntriesTableTableManager
                 Value<String> sinceToken = const Value.absent(),
                 Value<String> olderPageToken = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<int?> requestCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessagingStateEntriesCompanion(
                 stateKey: stateKey,
                 sinceToken: sinceToken,
                 olderPageToken: olderPageToken,
                 updatedAt: updatedAt,
+                requestCount: requestCount,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -6446,12 +6526,14 @@ class $$MessagingStateEntriesTableTableManager
                 Value<String> sinceToken = const Value.absent(),
                 Value<String> olderPageToken = const Value.absent(),
                 required DateTime updatedAt,
+                Value<int?> requestCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessagingStateEntriesCompanion.insert(
                 stateKey: stateKey,
                 sinceToken: sinceToken,
                 olderPageToken: olderPageToken,
                 updatedAt: updatedAt,
+                requestCount: requestCount,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
