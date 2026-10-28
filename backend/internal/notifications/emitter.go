@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -193,7 +194,10 @@ func (e *InlineEmitter) Emit(ctx context.Context, ev Event) error {
 		e.log.WarnContext(ctx, "notification_inline_dropped", "type", string(ev.Type), "reason", "busy")
 		return nil
 	}
-	bg := context.WithoutCancel(ctx)
+	// The delivery is its own unit of work (a push request in production), so it gets its own budget counter:
+	// WithoutCancel keeps ctx's values, and the fan-out's reads would otherwise land on the producer's counter
+	// whenever they beat its request log line, making the producer's fs_reads depend on goroutine timing.
+	bg, _ := budget.WithCounter(context.WithoutCancel(ctx))
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
