@@ -147,6 +147,7 @@ type RequestInfo struct {
 	// mu guards fields: handlers may fan out under errgroup, and Logging reads after next() returns.
 	mu     sync.Mutex
 	fields []slog.Attr
+	once   map[string]struct{} // keys already reported by FirstInRequest
 }
 
 // Set records a module-specific field (e.g. graph_op, outcome, txn_attempts) for the request's single
@@ -256,4 +257,24 @@ type loggerCtxKey struct{}
 // WithLogger attaches a (possibly request-scoped, field-enriched) logger to ctx.
 func WithLogger(ctx context.Context, l *slog.Logger) context.Context {
 	return context.WithValue(ctx, loggerCtxKey{}, l)
+}
+
+// FirstInRequest reports whether this is the first call with key in the request, so a condition that repeats per row
+// (up to 50 per page) is reported once at ERROR and then at a lower level. With no RequestInfo on ctx (unit tests,
+// background jobs) it always reports true: those callers keep their per-call behaviour.
+func FirstInRequest(ctx context.Context, key string) bool {
+	info := RequestInfoFromContext(ctx)
+	if info == nil {
+		return true
+	}
+	info.mu.Lock()
+	defer info.mu.Unlock()
+	if info.once == nil {
+		info.once = map[string]struct{}{}
+	}
+	if _, seen := info.once[key]; seen {
+		return false
+	}
+	info.once[key] = struct{}{}
+	return true
 }
