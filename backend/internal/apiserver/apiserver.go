@@ -195,6 +195,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
+		identity.WithProtectedAuthors(protectedAuthors, log), identity.WithFollowRequestCounter(graphSvc, log), // ADR-0025 W3-26b: the pin rule (AQ6) and the GetMe badge (AQ3)
 		identity.WithSignupAuth(authAdminClient, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),

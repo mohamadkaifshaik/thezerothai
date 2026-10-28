@@ -46,6 +46,13 @@ type service struct {
 	privacy *privacyDeps
 	// listener is told after a committed unprotect (WithPrivacyListener); nil publishes nothing.
 	listener *privacyListener
+	// protected is the ADR-0025 D3 set loader GetProfile asks (AQ6) before it returns the pin of a protected account to a
+	// viewer who is neither the account nor a follower; nil = the pin is not filtered (tests, W3-25b behaviour).
+	protected ProtectedAuthors
+	// requests counts a protected caller's pending follow requests for GetMe (ADR-0025 AQ3); nil = always 0.
+	requests FollowRequestCounter
+	// pinLog and reqLog receive the W3-26b WARN lines; nil means slog.Default().
+	pinLog, reqLog *slog.Logger
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -57,6 +64,16 @@ type Option func(*service)
 // disables the check, matching the Phase 0 bootstrap's behavior.
 func WithBlockChecker(bc BlockChecker) Option {
 	return func(s *service) { s.blockChecker = bc }
+}
+
+// WithProtectedAuthors wires the protected set into GetProfile's pin rule (ADR-0025 D4, AQ6, W3-26b). Nil keeps the pin unfiltered. log receives the WARN pin_omitted line; nil means slog.Default().
+func WithProtectedAuthors(p ProtectedAuthors, log *slog.Logger) Option {
+	return func(s *service) { s.protected, s.pinLog = p, log }
+}
+
+// WithFollowRequestCounter wires GetMe's pending_follow_request_count (ADR-0025 D7, AQ3, W3-26b). Nil leaves it 0. log receives the WARN for a failed count; nil means slog.Default().
+func WithFollowRequestCounter(c FollowRequestCounter, log *slog.Logger) Option {
+	return func(s *service) { s.requests, s.reqLog = c, log }
 }
 
 // WithAvatarResolver wires UpdateProfile.avatar_media_id (P4). Nil keeps non-empty values rejected.
@@ -208,6 +225,9 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 
 // GetMe: reads 2 worst case (profile + unread count, both cache misses), 1 typical (ADR-0003/proto).
 // enabled_features (ADR-0008 D6) comes from the FeatureFlags provider, 0 extra reads.
+// pending_follow_request_count (ADR-0025 D7, AQ3) is +1 read per 1,000 matches (minimum 1, one count() on followRequests)
+// for a caller whose isPrivate is true and whose 30 s cached count is gone; 0 reads for every other caller (a public
+// caller never reaches the counter) and on a hit. A failed count is WARN pending_count_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	profile, err := s.getProfileCached(ctx, uid)
 	if err != nil {
@@ -217,15 +237,39 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	if s.features != nil {
 		enabled = s.features.EnabledFeatures(uid)
 	}
+	res := MeResult{Profile: s.present(profile), EnabledFeatures: enabled, PendingFollowRequestCount: s.pendingRequests(ctx, profile)}
 	if n, ok := s.cache.GetUnreadCount(uid); ok {
-		return MeResult{Profile: s.present(profile), UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
+		res.UnreadNotificationCount = n
+		return res, nil
 	}
 	n, err := s.repo.UnreadNotificationCount(ctx, uid, profile.NotificationsSeenAt)
 	if err != nil {
 		return MeResult{}, logger.RedactErr(fmt.Errorf("identity: get me: %w", err), uid)
 	}
 	s.cache.SetUnreadCount(uid, n)
-	return MeResult{Profile: s.present(profile), UnreadNotificationCount: n, EnabledFeatures: enabled}, nil
+	res.UnreadNotificationCount = n
+	return res, nil
+}
+
+// pendingRequests is the GetMe badge: the caller's pending follow requests when the caller is protected, else 0 with no
+// read. Cached 30 s per uid (staleness bound: 30 s, shorter when this instance sees a follow_request notification or an
+// accept, which evict it). An error is logged and answers 0; it is never cached, so the next GetMe retries.
+func (s *service) pendingRequests(ctx context.Context, p Profile) int64 {
+	if s.requests == nil || !p.IsPrivate {
+		return 0
+	}
+	if n, ok := s.cache.GetPendingCount(p.UserID); ok {
+		logger.SetRequestField(ctx, "follow_requests_count_cache_hit", true)
+		return n
+	}
+	logger.SetRequestField(ctx, "follow_requests_count_cache_hit", false)
+	n, err := s.requests.PendingFollowRequests(ctx, p.UserID)
+	if err != nil {
+		orDefault(s.reqLog).WarnContext(ctx, "pending_count_failed", append([]any{"uid_hash", logger.HashUID(p.UserID), "error", logger.CauseChain(logger.RedactErr(err, p.UserID))}, logger.TraceAttrs(ctx)...)...)
+		return 0
+	}
+	s.cache.SetPendingCount(p.UserID, n)
+	return n
 }
 
 // GetProfile: reads up to 2 (handle resolve + profile; both cacheable), +1 more when BlockChecker is wired
@@ -283,7 +327,11 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 			return Profile{}, notFoundErr()
 		}
 	}
-	return s.present(profile), nil
+	out := s.present(profile)
+	if out.PinnedPostID != "" && callerUID != uid {
+		out.PinnedPostID = s.pinForViewer(ctx, callerUID, uid, out.PinnedPostID)
+	}
+	return out, nil
 }
 
 // present is the response view of a profile, the one place the profile_extras kill switch is applied (ADR-0024 D3 and
@@ -784,4 +832,50 @@ func (s *service) privateAccountsDisabled(ctx context.Context, uid string) error
 		return flags.DisabledError().WithMeta("feature", PrivateAccountsFlag)
 	}
 	return nil
+}
+
+// pinForViewer is the ADR-0025 D4 pin rule for GetProfile (W3-26b): the pin of a protected account is shown to the account
+// itself (the caller never gets here), to its followers and to nobody else; every other header field is public. Order, so
+// that the common cases cost nothing (AQ6): a follower keeps the pin on the viewer's cached snapshot alone, without the set;
+// anyone else needs the set (a detached instance cache, 0 reads charged to the caller), and a set that cannot be loaded
+// omits the pin (fail closed) with WARN pin_omitted=set_unavailable while the rest of the profile is returned. Reads: +0
+// (the snapshot was loaded by the block check just before). A failed follow check also omits the pin.
+func (s *service) pinForViewer(ctx context.Context, viewerUID, targetUID, pin string) string {
+	if s.protected == nil {
+		return pin
+	}
+	following := false
+	if s.blockChecker != nil && viewerUID != "" {
+		f, err := s.blockChecker.IsFollowing(ctx, viewerUID, targetUID)
+		if err != nil {
+			s.warnPinOmitted(ctx, "follow_check_failed", viewerUID)
+			return ""
+		}
+		following = f
+	}
+	if following {
+		return pin
+	}
+	set, err := s.protected.Current(ctx)
+	if err != nil {
+		s.warnPinOmitted(ctx, "set_unavailable", viewerUID)
+		return ""
+	}
+	if set.CanSee(viewerUID, targetUID, false) { // not a follower here: visible only when the account is public
+		return pin
+	}
+	logger.SetRequestField(ctx, "pin_omitted", "protected")
+	return ""
+}
+
+func (s *service) warnPinOmitted(ctx context.Context, reason, viewerUID string) {
+	logger.SetRequestField(ctx, "pin_omitted", reason)
+	orDefault(s.pinLog).WarnContext(ctx, "pin_omitted", append([]any{"pin_omitted", reason, "uid_hash", logger.HashUID(viewerUID)}, logger.TraceAttrs(ctx)...)...)
+}
+
+func orDefault(l *slog.Logger) *slog.Logger {
+	if l == nil {
+		return slog.Default()
+	}
+	return l
 }

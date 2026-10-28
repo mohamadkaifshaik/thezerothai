@@ -131,11 +131,12 @@ func (s *Server) GetMe(ctx context.Context, _ *connect.Request[identityv1.GetMeR
 		return nil, err
 	}
 	return connect.NewResponse(&identityv1.GetMeResponse{
-		Profile:                 toProtoProfile(result.Profile),
-		Status:                  toProtoStatus(result.Profile.Status),
-		EmailVerified:           claims.EmailVerified,
-		UnreadNotificationCount: result.UnreadNotificationCount,
-		EnabledFeatures:         result.EnabledFeatures,
+		Profile:                   toProtoProfile(result.Profile),
+		Status:                    toProtoStatus(result.Profile.Status),
+		EmailVerified:             claims.EmailVerified,
+		UnreadNotificationCount:   result.UnreadNotificationCount,
+		EnabledFeatures:           result.EnabledFeatures,
+		PendingFollowRequestCount: result.PendingFollowRequestCount,
 	}), nil
 }
 

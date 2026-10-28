@@ -75,6 +75,9 @@ type MeResult struct {
 	// EnabledFeatures is the caller's server feature flags (ADR-0008 D6), e.g. ["graph"]. Nil when no
 	// FeatureFlags provider was wired (Phase 0 default) — GetMe still returns 0 reads either way.
 	EnabledFeatures []string
+	// PendingFollowRequestCount is the number of follow requests waiting for a protected caller (ADR-0025 D7, AQ3), capped at
+	// 1,000 by the counter; 0 for every other caller and when the count failed (WARN, never an error).
+	PendingFollowRequestCount int64
 }
 
 // UpdateProfileParams carries only the fields the caller wants to change (nil = unchanged), matching the
@@ -202,6 +205,10 @@ type FeatureFlags interface {
 // overflow fallback may add one read on the rare account that has been blocked by more than 10,000 users).
 type BlockChecker interface {
 	IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error)
+	// IsFollowing reports whether viewerUID follows targetUID, from the viewer's own cached graph snapshot (0 reads on a hit;
+	// ADR-0025 AQ2/AQ6, W3-26b). GetProfile uses it to decide, before it touches the protected set, whether a viewer is an
+	// approved follower who keeps the pin.
+	IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error)
 }
 
 // Directory is the batched, cache-first profile lookup other modules use to hydrate list rows (ADR-0008
