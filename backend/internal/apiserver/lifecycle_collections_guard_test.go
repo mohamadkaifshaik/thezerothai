@@ -25,6 +25,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -107,6 +108,17 @@ var lifecycleCollections = []collectionRow{
 	// documents hold only the owner's data (no other user's uid), so no residue allowlist entry exists, and a post's
 	// deletion fans nothing out to its bookmarkers (the owner's list hides and prunes the row).
 	{Name: "bookmarks", Sub: true, Disposition: erasedByStep, Step: "bookmarks", Section: "bookmarks", Owner: "engagement", Cite: "ADR-0023 D6, D8"},
+	// ADR-0027 D8 (W7-5 + W7-6): direct messages. `conversations/{convId}` (root; participants hold both uids) with its
+	// `messages` subcollection and the per-user `dmInbox` and `dmRequests` entries, none of which deleting users/{uid}
+	// removes. The `messaging` step (messaging.Eraser, BeforeIdentity after follow_requests) marks the conversation gone,
+	// tombstones the user's messages, rewrites the peer's entry, deletes the user's own entries and, when both
+	// participants are gone, the whole tree; the `messages` section exports own messages in full and received ones as time
+	// and "received". quotas.dmNew is covered by the `quotas` row. The shipped table has no residue allowlist entry for a
+	// surviving peer's conversation (its participants, gone and senderId name the deleted uid): see the W7-6 report.
+	{Name: "conversations", Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
+	{Name: "messages", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
+	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
+	{Name: "dmRequests", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 }
 
@@ -297,6 +309,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerFollowRequestsLifecycle(l, graph.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -358,6 +373,35 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 	}
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "follow_requests")), "\n"); !strings.Contains(p, `export section "follow_requests" is not registered`) {
 		t.Errorf("dropping the follow_requests section went unnoticed: %q", p)
+	}
+	// W7-6: the four messaging rows are only green while the messaging step and the messages section are registered ...
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "messaging"), sections), "\n"); !strings.Contains(p, `step "messaging" is not registered`) {
+		t.Errorf("dropping the messaging step went unnoticed: %q", p)
+	}
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "messages")), "\n"); !strings.Contains(p, `export section "messages" is not registered`) {
+		t.Errorf("dropping the messages section went unnoticed: %q", p)
+	}
+	// ... and the guard fails, naming the collection, when any one of the four rows is removed.
+	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+		t.Run("without the "+name+" row", func(t *testing.T) {
+			rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == name })
+			if len(rows) != len(lifecycleCollections)-1 {
+				t.Fatalf("the table has no %q row to remove", name)
+			}
+			if p := strings.Join(coverageProblems(real, rows, steps, sections), "\n"); !strings.Contains(p, `collection "`+name+`"`) || !strings.Contains(p, "has no row in lifecycleCollections") {
+				t.Errorf("removing the %s row went unnoticed: %q", name, p)
+			}
+		})
+	}
+	// The scan sees all four collections in messaging's sources (the rows above are what it must be matched against).
+	seen := map[string]bool{}
+	for _, r := range real {
+		seen[r.Name] = true
+	}
+	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+		if !seen[name] {
+			t.Errorf("the scan did not find the %q collection in internal/messaging", name)
+		}
 	}
 	if problems := coverageProblems(nil, lifecycleCollections, steps, sections); len(problems) != 0 {
 		t.Errorf("the shipped table has problems on its own: %v", problems)
