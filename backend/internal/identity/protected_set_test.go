@@ -222,3 +222,65 @@ func TestProtectedSetLoader_InstallAndApply(t *testing.T) {
 		t.Errorf("after Apply(x, false): has x=%v has a=%v", s2.Has("x"), s2.Has("a"))
 	}
 }
+
+// hookSetSource runs a hook inside the read, to land a local write while the refresh is in flight.
+type hookSetSource struct {
+	reads atomic.Int64
+	uids  []string
+	hook  func()
+}
+
+func (s *hookSetSource) LoadProtectedSet(context.Context) ([]string, error) {
+	if s.reads.Add(1) > 1 && s.hook != nil {
+		s.hook()
+	}
+	return s.uids, nil
+}
+
+// W3-36 L-3: an Apply during a refresh read must not throw the read away. After an idle period past maxStale the
+// fetched copy is installed with the local delta re-applied, so Current serves a fresh copy that still shows the
+// local unprotect, and the next call within ttl reads nothing.
+func TestProtectedSetLoader_ApplyDuringRefreshKeepsFreshCopy(t *testing.T) {
+	t.Parallel()
+	src := &hookSetSource{uids: []string{"a", "p"}}
+	clock := &setClock{t: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
+	l := NewProtectedSetLoader(src, time.Minute, 10*time.Minute, clock.now, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	if _, err := l.Current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(11 * time.Minute) // idle past PROTECTED_SET_MAX_STALE
+	src.uids = []string{"p", "q"}   // the truth changed meanwhile (a was unprotected elsewhere, q protected)
+	src.hook = func() { l.Apply("p", false) }
+	s, err := l.Current(context.Background())
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if !s.Has("q") || s.Has("a") {
+		t.Errorf("served a copy older than maxStale: has q=%v has a=%v", s.Has("q"), s.Has("a"))
+	}
+	if s.Has("p") {
+		t.Error("the local unprotect of p was lost")
+	}
+	src.hook = nil
+	s2, err := l.Current(context.Background())
+	if err != nil || !s2.Has("q") || s2.Has("p") || src.reads.Load() != 2 {
+		t.Fatalf("second call: err=%v has q=%v has p=%v reads=%d, want the installed copy with no new read", err, s2.Has("q"), s2.Has("p"), src.reads.Load())
+	}
+}
+
+// An Install (a committed transaction's fresh copy) during the read still wins over the read.
+func TestProtectedSetLoader_InstallDuringRefreshWins(t *testing.T) {
+	t.Parallel()
+	src := &hookSetSource{uids: []string{"a"}}
+	clock := &setClock{t: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
+	l := NewProtectedSetLoader(src, time.Minute, 10*time.Minute, clock.now, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	if _, err := l.Current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(11 * time.Minute)
+	src.hook = func() { l.Install([]string{"a", "n"}, clock.now()) }
+	s, err := l.Current(context.Background())
+	if err != nil || !s.Has("n") {
+		t.Fatalf("err=%v has n=%v, want the installed copy", err, s.Has("n"))
+	}
+}

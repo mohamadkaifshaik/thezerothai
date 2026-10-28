@@ -158,8 +158,10 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 	if reads > float64(planDeleteReads+deleteLines) {
 		t.Errorf("delete job reads = %.0f, over the plan T16 criterion %d (509 + P7 reports) + job state (D=%d)", reads, planDeleteReads, deleteLines)
 	}
-	if writes > float64(refDeleteWrites+progressed) {
-		t.Errorf("delete job writes = %.0f, over %d + %d checkpoints", writes, refDeleteWrites, progressed)
+	// refDeleteWrites + 1: the identity step's ArrayRemove on privacy/protectedAuthors (W3-26a, ADR-0025 D11), a real write
+	// because the setup creates the set doc as dev and prod always have it (W3-35a D-2).
+	if writes != float64(refDeleteWrites+1+progressed) {
+		t.Errorf("delete job writes = %.0f, want exactly %d + 1 (set ArrayRemove) + %d checkpoints", writes, refDeleteWrites, progressed)
 	}
 	if deletes > refDeleteDeletes {
 		t.Errorf("delete job deletes = %.0f, over %d", deletes, refDeleteDeletes)

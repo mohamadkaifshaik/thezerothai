@@ -113,7 +113,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
-| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Open (depends: W3-36 review) |
+| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | In review (PR #417) |
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
@@ -1280,7 +1280,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - **Flag.** None: names change for every new upload; there is no user-visible behaviour to ramp.
 - **Cost.** +0 operations; bytes as in the budget row (ADR-0025 note).
 
-#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: Open
+#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: In review (PR #417)
 - **L-1, the undo oracle** (`engagement/service.go`, `resolveForCounts` and the Unlike and Undo repost paths).
   - The write stays ungated (rule 4): an undo always lands.
   - The answer is the missing-post shape (`post_id` only, zero counts, the same bytes as a deleted post) when `Audience.VisibleAuthor` is false for the caller, when the post is hidden (taken down, author suspended), or when the author blocks the caller.
