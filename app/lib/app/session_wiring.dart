@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 
 import '../core/feature_flags/service_feature_gate.dart';
 import '../core/storage/app_database.dart';
+import '../features/messages/data/messaging_repository.dart';
+import '../features/messages/domain/messaging_feature_gate.dart';
+import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
@@ -60,6 +63,27 @@ ServiceFeatureGate buildServiceGate(
   return gate;
 }
 
+/// Builds the `messaging` gate (ADR-0027 D6 / F6) wired to [onboardingBloc]:
+/// [MessagingFeatureGate.run] (SendMessage, AcceptMessageRequest) needs
+/// `messaging` in `GetMe.enabled_features`; [MessagingFeatureGate.runRead]
+/// (the other four RPCs) needs only "not globally off", which the server
+/// decides. FEATURE_DISABLED dispatches [OnboardingRefreshRequested] and every
+/// fresh `GetMe` resets what earlier answers taught, as for the other gates.
+MessagingFeatureGate buildMessagingGate(
+  OnboardingBloc onboardingBloc, {
+  void Function(Object error, StackTrace stack)? onUnexpectedError,
+}) {
+  final gate = MessagingFeatureGate(
+    isMessagingEnabled: () =>
+        onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging),
+    onDisabledByServer: () =>
+        onboardingBloc.add(const OnboardingRefreshRequested()),
+    onUnexpectedError: onUnexpectedError,
+  );
+  _wireGateReset(onboardingBloc, gate);
+  return gate;
+}
+
 /// Reports an unexpected (non-user) error. One shared hook, wired from
 /// bootstrap into every cubit that wants Crashlytics non-fatals. For now it
 /// goes through [FlutterError.reportError] (the Crashlytics handler hooks it).
@@ -80,6 +104,7 @@ Future<void> wipeSessionData({
   required AppDatabase database,
   required TimelineRepository timelineRepository,
   NotificationsRepository? notificationsRepository,
+  MessagingRepository? messagingRepository,
 }) async {
   // Ends the shared SessionEpoch and forgets in-flight and queued timeline
   // work (a new user must never be handed the old user's future).
@@ -89,5 +114,6 @@ Future<void> wipeSessionData({
   database.sessionEpoch.end();
   timelineRepository.clearSession();
   notificationsRepository?.clearSession();
+  messagingRepository?.clearSession();
   await database.clearAll();
 }

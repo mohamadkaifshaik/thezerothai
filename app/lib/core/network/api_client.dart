@@ -6,6 +6,7 @@ import '../../gen/dzeroth/engagement/v1/engagement.connect.client.dart';
 import '../../gen/dzeroth/graph/v1/graph.connect.client.dart';
 import '../../gen/dzeroth/identity/v1/identity.connect.client.dart';
 import '../../gen/dzeroth/media/v1/media.connect.client.dart';
+import '../../gen/dzeroth/messaging/v1/messaging.connect.client.dart';
 import '../../gen/dzeroth/moderation/v1/moderation.connect.client.dart';
 import '../../gen/dzeroth/notifications/v1/notifications.connect.client.dart';
 import '../../gen/dzeroth/posts/v1/posts.connect.client.dart';
@@ -56,6 +57,9 @@ class ApiClient {
   late final notifications = NotificationServiceClient(_transport);
   late final moderation = ModerationServiceClient(_transport);
   late final engagement = EngagementServiceClient(_transport);
+
+  /// Direct messages (ADR-0027). Only `MessagingRepository` calls it.
+  late final messaging = MessagingServiceClient(_transport);
 }
 
 /// Runs [call], converting any thrown error into a typed [AppException].

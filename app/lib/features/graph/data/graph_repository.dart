@@ -27,6 +27,10 @@ typedef FetchGraphPage = Future<GraphPage> Function({
   required String pageToken,
 });
 
+/// How long the client stops asking `ListFollowRequests` after the server
+/// answered FEATURE_DISABLED or UNIMPLEMENTED (W3-34).
+const kFollowRequestsBackoff = Duration(minutes: 10);
+
 /// The most `GetRelationships` accepts per call (ADR-0008).
 const _maxRelationshipsPerCall = 50;
 
@@ -412,6 +416,103 @@ class GraphRepository {
     );
   }
 
+  /// How many empty pages (every row dropped server-side) one
+  /// [listFollowRequests] call follows before it hands the cursor back.
+  static const _maxEmptyPages = 5;
+
+  /// Set while `ListFollowRequests` is known to be unavailable.
+  DateTime? _followRequestsUnavailableUntil;
+
+  /// Whether the follow-requests list was refused (FEATURE_DISABLED or
+  /// UNIMPLEMENTED) less than [kFollowRequestsBackoff] ago.
+  bool get followRequestsUnavailable {
+    final until = _followRequestsUnavailableUntil;
+    return until != null && _now().isBefore(until);
+  }
+
+  /// The caller's incoming follow requests, newest first (W3-34). A page may
+  /// be short (the server drops requesters who are gone or blocked), so an
+  /// empty page that still has a token is followed, at most
+  /// [_maxEmptyPages] times. The token goes back unchanged. FEATURE_DISABLED
+  /// and UNIMPLEMENTED are remembered for [kFollowRequestsBackoff] (0 RPCs
+  /// meanwhile) and thrown as [FeatureDisabledException].
+  Future<GraphPage> listFollowRequests({
+    required int pageSize,
+    required String pageToken,
+  }) async {
+    if (followRequestsUnavailable) {
+      throw const FeatureDisabledException('Follow requests are unavailable.');
+    }
+    var token = pageToken;
+    for (var attempt = 0; ; attempt++) {
+      try {
+        final page = await _listUsers(
+          () => _unimplementedAsDisabled(
+            () => _apiClient.graph.listFollowRequests(
+              graph.ListFollowRequestsRequest(
+                pageSize: pageSize,
+                pageToken: token,
+              ),
+            ),
+          ),
+          (response) => (response.requests, response.nextPageToken),
+        );
+        if (page.items.isNotEmpty ||
+            !page.hasMore ||
+            attempt >= _maxEmptyPages) {
+          return page;
+        }
+        token = page.nextPageToken;
+      } on FeatureDisabledException {
+        _followRequestsUnavailableUntil = _now().add(kFollowRequestsBackoff);
+        rethrow;
+      }
+    }
+  }
+
+  /// Accepts or declines the pending request from [requesterUserId] (W3-34).
+  /// Never flag-gated for a protected caller (the undo rule). Returns the
+  /// caller's relationship to the requester, so the screen can offer "Follow
+  /// back". An accept makes the requester follow the caller, so the cached
+  /// `followed_by` for them becomes true; a decline makes it false.
+  Future<graph.Relationship> respondToFollowRequest({
+    required String requesterUserId,
+    required bool accept,
+    required String idempotencyKey,
+  }) async {
+    final epoch = _database.sessionEpoch.value;
+    final response = await guardApiCall(
+      () => _apiClient.graph.respondToFollowRequest(
+        graph.RespondToFollowRequestRequest(
+          idempotencyKey: idempotencyKey,
+          requesterUserId: requesterUserId,
+          accept: accept,
+        ),
+      ),
+    );
+    final relationship = _withUserId(response.relationship, requesterUserId);
+    _cache(relationship, epoch);
+    if (_database.sessionEpoch.allows(epoch)) {
+      _followedBy[requesterUserId] = (accept, _now());
+    }
+    return relationship;
+  }
+
+  /// UNIMPLEMENTED (the RPC is not deployed to this environment) reads as
+  /// "not available", like FEATURE_DISABLED.
+  Future<T> _unimplementedAsDisabled<T>(Future<T> Function() call) async {
+    try {
+      return await call();
+    } on connect.ConnectException catch (error) {
+      if (error.code == connect.Code.unimplemented) {
+        throw const FeatureDisabledException(
+          'Follow requests are unavailable.',
+        );
+      }
+      rethrow;
+    }
+  }
+
   Future<GraphPage> _listUsers<T>(
     Future<T> Function() call,
     (Iterable<graph.UserListItem>, String) Function(T) unwrap,
@@ -444,5 +545,6 @@ class GraphRepository {
     _relationships.clear();
     _followedBy.clear();
     _profileRelationshipUnavailableUntil = null;
+    _followRequestsUnavailableUntil = null;
   }
 }
