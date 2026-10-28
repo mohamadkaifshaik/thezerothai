@@ -36,6 +36,59 @@ type fakeRepo struct {
 	counts  int
 	queries []ListQuery
 	listErr error
+
+	// msgs is conversations/{id}/messages (W7-8); msgQueries records the queries. marked records MarkRead calls as
+	// "uid|convID"; markFound is what it answers (default found).
+	msgs        map[string][]MessageRow
+	msgQueries  []MessageQuery
+	msgErr      error
+	marked      []string
+	markMissing bool
+	markErr     error
+}
+
+// ListMessages answers like the Firestore query: `createdAt DESC, __name__ DESC`, createdAt > ClearedAt, StartAfter /
+// EndBefore, Limit.
+func (f *fakeRepo) ListMessages(_ context.Context, convID string, q MessageQuery) ([]MessageRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.msgQueries = append(f.msgQueries, q)
+	if f.msgErr != nil {
+		return nil, f.msgErr
+	}
+	older := func(t time.Time, id string, c *cursor.Cursor) bool {
+		return t.Before(c.CreatedAt) || (t.Equal(c.CreatedAt) && id < c.DocID)
+	}
+	var out []MessageRow
+	for _, r := range f.msgs[convID] {
+		if !q.ClearedAt.IsZero() && !r.CreatedAt.After(q.ClearedAt) {
+			continue
+		}
+		if q.Before != nil && !older(r.CreatedAt, r.ID, q.Before) {
+			continue
+		}
+		if q.After != nil && (older(r.CreatedAt, r.ID, q.After) || (r.CreatedAt.Equal(q.After.CreatedAt) && r.ID == q.After.DocID)) {
+			continue
+		}
+		out = append(out, r)
+	}
+	slices.SortFunc(out, func(a, b MessageRow) int {
+		if c := b.CreatedAt.Compare(a.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(b.ID, a.ID)
+	})
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) MarkRead(_ context.Context, uid, convID string, _ time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.marked = append(f.marked, uid+"|"+convID)
+	return !f.markMissing, f.markErr
 }
 
 func entryKey(uid, folder string) string { return uid + "|" + folder }

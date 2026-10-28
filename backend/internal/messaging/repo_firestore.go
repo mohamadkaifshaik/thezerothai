@@ -325,3 +325,55 @@ func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, e
 	}
 	return out.Count, nil
 }
+
+// ListMessages implements Repo: conversations/{id}/messages ordered `createdAt DESC, __name__ DESC` (automatic
+// single-field index, no composite), Limit q.Limit, and `createdAt > ClearedAt` when the caller cleared the thread (a
+// range on the ordered field, the same index). Reads one per document returned, minimum 1 (an empty query bills 1).
+func (r *FirestoreRepo) ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error) {
+	col := r.convRef(convID).Collection(messagesCollection)
+	query := col.Query
+	if !q.ClearedAt.IsZero() {
+		query = query.Where("createdAt", ">", q.ClearedAt)
+	}
+	query = query.OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	if q.Before != nil {
+		query = query.StartAfter(q.Before.CreatedAt, col.Doc(q.Before.DocID))
+	}
+	if q.After != nil {
+		query = query.EndBefore(q.After.CreatedAt, col.Doc(q.After.DocID))
+	}
+	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
+	budget.FromContext(ctx).AddQueryReads(len(docs))
+	if err != nil {
+		return nil, fmt.Errorf("messaging: list messages: %w", err)
+	}
+	out := make([]MessageRow, 0, len(docs))
+	for _, d := range docs {
+		var m MsgDoc
+		if err := d.DataTo(&m); err != nil {
+			return nil, fmt.Errorf("messaging: decode message: %w", err)
+		}
+		out = append(out, MessageRow{ID: d.Ref.ID, MsgDoc: m})
+	}
+	return out, nil
+}
+
+// MarkRead implements Repo: a field-level Update (never Set) of the caller's own entry; Update carries the Exists precondition by
+// definition, so a missing entry (unknown id, non-participant, deleted for the caller) is NotFound and writes nothing. dmInbox is tried
+// first, then dmRequests: an entry lives in exactly one of them. 0 reads; 1 write when found (a NotFound attempt is not a
+// write).
+func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at time.Time) (bool, error) {
+	updates := []firestore.Update{{Path: "unreadCount", Value: 0}, {Path: "lastReadAt", Value: wireTime(at)}}
+	for _, ref := range []*firestore.DocumentRef{r.inboxRef(uid, convID), r.requestsRef(uid, convID)} {
+		_, err := ref.Update(ctx, updates) // Update itself requires the document to exist (an explicit Exists precondition is refused by the SDK)
+		switch status.Code(err) {
+		case codes.OK:
+			budget.FromContext(ctx).AddWrites(1)
+			return true, nil
+		case codes.NotFound:
+		default:
+			return false, fmt.Errorf("messaging: mark read: %w", err)
+		}
+	}
+	return false, nil
+}

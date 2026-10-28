@@ -337,7 +337,7 @@ Prices (§7):
 | W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | In review (PR pending) |
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | In review (PR pending) |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | In review (PR pending) |
-| W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Open |
+| W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | In review (PR pending) |
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Open |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Open |
@@ -577,7 +577,7 @@ Order:
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListConversations`; the folder is an enum, so an "archived" folder is additive.
 
-### W7-8 — ListMessages and MarkConversationRead  [owner: backend-developer] [size: M] [depends: W7-5]  Status: Open
+### W7-8 — ListMessages and MarkConversationRead  [owner: backend-developer] [size: M] [depends: W7-5]  Status: In review (PR pending)
 - **Description.**
   - **ListMessages.**
     - The participant check (conversation doc, per-instance cache 60 s; NOT_FOUND byte-identical for unknown, malformed-after-validation and non-participant).
