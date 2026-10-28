@@ -8,10 +8,11 @@ package apiserver
 //   - GetThread: a protected focal is byte-identical to a deleted focal; a protected parent or root is a tombstone
 //     (parent_unavailable / root_unavailable) and the focal reply's text stays; replies by the protected author are
 //     dropped for a stranger and kept for a follower; the reads stay inside GetThread's 38 cold ceiling;
-//   - ListBookmarks and ListLikedPosts (owner-only): rows by the protected author are dropped for an unapproved caller,
-//     a REPOST of the author's post is dropped, a QUOTE of it is kept with the stripped PROTECTED embed, nothing is
-//     pruned, the drop is counted under rows_dropped_protected, and the cold budgets stay 43 and 23 at page 20;
-//   - a follower keeps the rows (wire visibility FOLLOWERS); unfollowing drops them and the author unprotecting brings them back (a Follow of a
+//   - ListBookmarks and ListLikedPosts (owner-only): rows by the protected author stay for an unapproved caller as
+//     stripped withheld placeholders (W3-41a); a REPOST of the author's post is dropped; a QUOTE of it is kept with the
+//     stripped PROTECTED embed, nothing is pruned, the placeholders are counted under rows_withheld (rows_dropped_protected
+//     is 0), and the cold budgets stay 43 and 23 at page 20;
+//   - a follower keeps the rows (wire visibility FOLLOWERS); unfollowing turns them into placeholders and the author unprotecting brings them back (a Follow of a
 //     protected account is a follow request, W3-27, so "follow again" is covered by the engagement unit table).
 
 import (
@@ -180,11 +181,11 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		return lk.GetPosts()
 	}
 
-	t.Run("lists: a stranger loses P's rows and the repost, keeps the stripped quote", func(t *testing.T) {
+	t.Run("lists: a stranger keeps P's rows as withheld placeholders, drops the repost, and the stripped quote", func(t *testing.T) {
 		r := newW320Chain(t, w329bOn)
 		bm := marks(r, stranger)
 		got := w329bIDs(bm)
-		if slices.Contains(got, root) || slices.Contains(got, pReply) || slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
+		if !slices.Contains(got, root) || !slices.Contains(got, pReply) || slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
 			t.Fatalf("bookmarks = %v", got)
 		}
 		for _, v := range bm {
@@ -196,8 +197,8 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 				t.Errorf("quote embed = %v state %v, want post_id and handle only, PROTECTED", v.GetPost().GetEmbedded(), v.GetEmbedViewerState())
 			}
 		}
-		if line := r.line(t, rpcListBookmarks); num(line, "rows_dropped_protected") != 3 {
-			t.Errorf("bookmarks rows_dropped_protected = %v, want 3", line["rows_dropped_protected"])
+		if line := r.line(t, rpcListBookmarks); num(line, "rows_withheld") != 2 || num(line, "rows_dropped_protected") != 1 {
+			t.Errorf("bookmarks rows_withheld = %v rows_dropped_protected = %v, want 2 and 1", line["rows_withheld"], line["rows_dropped_protected"])
 		}
 		for _, id := range []string{root, pReply, repostID} {
 			if !w.bookmarkDocExists(t, stranger.uid, id) {
@@ -207,11 +208,11 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 
 		r = newW320Chain(t, w329bOn)
 		got = w329bIDs(likes(r, stranger))
-		if slices.Contains(got, root) || slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
+		if !slices.Contains(got, root) || slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
 			t.Fatalf("liked = %v", got)
 		}
-		if line := r.line(t, rpcListLiked); num(line, "rows_dropped_protected") != 3 {
-			t.Errorf("likes rows_dropped_protected = %v, want 3", line["rows_dropped_protected"])
+		if line := r.line(t, rpcListLiked); num(line, "rows_withheld") != 2 || num(line, "rows_dropped_protected") != 1 {
+			t.Errorf("likes rows_withheld = %v rows_dropped_protected = %v, want 2 and 1", line["rows_withheld"], line["rows_dropped_protected"])
 		}
 	})
 
@@ -237,8 +238,16 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		}
 
 		w.w320Unfollow(t, follower, p.uid)
-		if slices.Contains(w329bIDs(marks(newW320Chain(t, w329bOn), follower)), root) || slices.Contains(w329bIDs(likes(newW320Chain(t, w329bOn), follower)), root) {
-			t.Fatal("unfollowed but the rows remain")
+		for what, vs := range map[string][]*postsv1.PostView{"bookmarks": marks(newW320Chain(t, w329bOn), follower), "likes": likes(newW320Chain(t, w329bOn), follower)} {
+			var row *postsv1.PostView
+			for _, v := range vs {
+				if v.GetPost().GetPostId() == root {
+					row = v
+				}
+			}
+			if row == nil || !row.GetWithheld() || row.GetPost().GetText() != "" {
+				t.Fatalf("unfollowed: the %s row of %s = %v, want a withheld placeholder", what, root, row)
+			}
 		}
 		if !w.bookmarkDocExists(t, follower.uid, root) {
 			t.Error("the bookmark was pruned")
