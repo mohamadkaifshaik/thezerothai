@@ -111,7 +111,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
-| W3-38 | Part B dev rollout | production-deployer | S | In review: plan ready, awaiting founder OK (PR #PRN; depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
+| W3-38 | Part B dev rollout | production-deployer | S | In review: plan ready, awaiting founder OK (PR #422; depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
 | W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | In review (PR #417) |
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
@@ -1234,7 +1234,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Verdict.** BUDGET: HOLDS, or not.
 - **Cost.** 0.
 
-#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: In review: plan ready, awaiting founder OK (PR #PRN)
+#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: In review: plan ready, awaiting founder OK (PR #422)
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
   2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
