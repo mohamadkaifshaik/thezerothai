@@ -162,6 +162,17 @@ final class ReplyNotAllowedException extends AppException {
   final String? policy;
 }
 
+/// The target account protects its posts (ADR-0025 D14, FAILED_PRECONDITION +
+/// PROTECTED_ACCOUNT): a Repost or Quote of its post was refused. The text is
+/// fixed and generic; never show the server's.
+final class ProtectedAccountException extends AppException {
+  const ProtectedAccountException() : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage =
+      "You can't repost or quote posts from a protected account.";
+}
+
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
 final class NotFoundException extends AppException {
   const NotFoundException(super.message);

@@ -5,6 +5,7 @@ import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../format/relative_time.dart';
 import 'app_avatar.dart';
 import 'post_media.dart';
+import 'protected_post_box.dart';
 import 'unavailable_post_box.dart';
 
 /// Why a quote's embed is not shown as the quoted post.
@@ -17,6 +18,11 @@ enum EmbedPlaceholder {
 
   /// The viewer mutes the quoted author.
   muted,
+
+  /// The quoted author protects their posts and the viewer is not an approved
+  /// follower (`EMBED_VIEWER_STATE_PROTECTED`, ADR-0025 D5): only the author
+  /// is shown.
+  protected,
 }
 
 /// The quoted post inside a QUOTE (ADR-0018 D12): a bordered, compact copy
@@ -49,12 +55,17 @@ class EmbeddedPostCard extends StatelessWidget {
       EmbedPlaceholder.unavailable => 'This post is unavailable',
       EmbedPlaceholder.blocked => 'You blocked this account',
       EmbedPlaceholder.muted => 'You muted this account',
+      EmbedPlaceholder.protected =>
+        'This post is from an account that protects its posts.',
     };
   }
 
   @override
   Widget build(BuildContext context) {
     final hidden = placeholder;
+    if (hidden == EmbedPlaceholder.protected) {
+      return ProtectedPostBox(author: embedded.author);
+    }
     if (hidden != null) {
       return UnavailablePostBox(message: placeholderMessage(hidden));
     }
