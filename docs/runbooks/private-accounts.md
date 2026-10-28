@@ -75,9 +75,9 @@ Reads: +0 over before Part B (3 cold for a viewer, 1 for the owner). It is never
 
 `GetMe.pending_follow_request_count` is read only for a caller whose `isPrivate` is true: `FollowRequestCounter.PendingFollowRequests`
 (graph, one `count()` on `followRequests`, 1 read per 1,000 matches, capped at 1,000), cached 30 s per uid in identity. A public caller
-reads and reports nothing. On this instance the cached count is dropped at once when a `follow_request` notification is delivered or
-the account accepts a request (`Directory.Forget` / `ForgetUnread`); a decline, a withdraw by the requester and other instances show the
-change within 30 s. A request-count failure leaves the badge at 0 and is retried by the next GetMe.
+reads and reports nothing. On this instance the cached count is evicted together with the unread count (`Directory.Forget` and `ForgetUnread`, called
+by any notification row written, a post or follow counter change, an accepted request), so a protected caller pays the +1 `count()` again after
+any of those; a decline, a withdraw by the requester and other instances show the change within 30 s. A request-count failure leaves the badge at 0 and is retried by the next GetMe.
 
 | Log line | Meaning | What to do |
 |---|---|---|

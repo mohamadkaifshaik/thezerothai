@@ -1,8 +1,11 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -192,5 +195,34 @@ func TestGetMe_PendingCountCache(t *testing.T) {
 	ctr.err = nil
 	if get() != 5 {
 		t.Error("a failure is not cached")
+	}
+}
+
+// The WARN lines carry the reason and a hashed uid, never the uid itself, and go to the injected logger.
+func TestPinAndCountWarnLines(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	repo := newFakeRepo()
+	seedPinned(repo, "p", true)
+	bc := &fakeBlockChecker{followErr: errors.New("boom")}
+	svc := New(repo, NewCache(time.Minute), time.Hour, WithBlockChecker(bc), WithExtrasFlags(&flipFlags{}),
+		WithProtectedAuthors(&fakeProtectedAuthors{set: newProtectedSet([]string{"p"})}, log),
+		WithFollowRequestCounter(&fakeCounter{err: errors.New("down")}, log)).(*service)
+	ctx := context.Background()
+	if got, err := svc.GetProfile(ctx, "viewer-uid", ProfileTarget{UserID: "p"}); err != nil || got.PinnedPostID != "" {
+		t.Fatalf("GetProfile = %+v, %v, want the header without the pin", got, err)
+	}
+	if me, err := svc.GetMe(ctx, "p"); err != nil || me.PendingFollowRequestCount != 0 {
+		t.Fatalf("GetMe = %+v, %v, want 0 and no error", me, err)
+	}
+	out := buf.String()
+	for _, want := range []string{`"msg":"pin_omitted"`, `"pin_omitted":"follow_check_failed"`, `"msg":"pending_count_failed"`, `"level":"WARN"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %s:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "viewer-uid") {
+		t.Errorf("a raw uid was logged:\n%s", out)
 	}
 }

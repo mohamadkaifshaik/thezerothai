@@ -12,7 +12,7 @@ const (
 	// unreadTTL matches the proto doc comment ("cached 30 s") for GetMe's notification count.
 	unreadTTL = 30 * time.Second
 	// pendingTTL bounds GetMe's pending_follow_request_count (ADR-0025 D7, AQ3): at most 30 s stale on this instance, and
-	// evicted at once by Forget and ForgetUnread (the follow_request notification and an accept both call one).
+	// evicted with the unread count by any Forget or ForgetUnread on this instance (an accept, a notification row, a counter change).
 	pendingTTL = 30 * time.Second
 	// notFoundTTL (M1) is deliberately short: a signed-up-but-profile-less caller hitting any non-exempt
 	// RPC would otherwise re-read users/{uid} on every single call (authn.AccountStatusInterceptor ->
