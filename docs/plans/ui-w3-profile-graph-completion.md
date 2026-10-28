@@ -1327,6 +1327,8 @@ Assumptions (ADR-0025): 5% of DAU protected; 0.05 follows per DAU to a protected
 
 #### Part B: questions for the founder
 Each question has a default. Nothing blocks W3-25a.
+
+**Answered 2026-10-28 (founder): every default stands.** B1: link-reachable images of a protected account are accepted, and the W3-33b confirm dialog says so. B2: ADR-0025 confirmed (followers kept, Likes owner-only, counts public). B3: no undo on Accept or Decline. B4: the same 3 test uids on the W3-38 dev allowlist.
 1. **B1. Post images of a protected account.** Protecting hides every image URL from people who are not approved followers (lesson 9). It cannot revoke a link someone already copied while the account was public: the objects stay public-read at unlisted, random-looking addresses. Listing has been closed since M-2.
    - Default: accept this, and say it in the confirm dialog (W3-33b).
    - Alternative: ask the architect for a private-media ADR before the prod ramp. Images would then need signed links, which is more cost and work.
