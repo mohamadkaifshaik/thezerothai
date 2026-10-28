@@ -9,6 +9,8 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -73,13 +75,15 @@ func TestUpdateProfile_PrivateAccountsFlagModes(t *testing.T) {
 			}
 			before := repo.updateCalls
 			tt.params.IdempotencyKey = validKey
-			_, err := svc.UpdateProfile(context.Background(), tt.uid, tt.params)
+			ctx, counter := budget.WithCounter(context.Background())
+			_, err := svc.UpdateProfile(ctx, tt.uid, tt.params)
 			switch {
 			case tt.wantDisabled:
 				_ = wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "private_accounts")
 				if repo.updateCalls != before {
 					t.Errorf("updateCalls = %d, want %d: a refused request must not reach the repo", repo.updateCalls, before)
 				}
+				budgettest.Assert(t, "UpdateProfile(is_private=true) refused", counter, budgettest.Budget{}) // 0 reads, 0 writes, 0 deletes
 			case tt.params.IsPrivate != nil && *tt.params.IsPrivate:
 				// Past the gate, before W3-26a: the old refusal, still 0 writes.
 				wantValidationField(t, err, "is_private")

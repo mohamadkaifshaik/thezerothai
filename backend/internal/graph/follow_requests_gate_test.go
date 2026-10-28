@@ -10,6 +10,7 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -75,9 +76,7 @@ func TestFollowRequestsGate_FlagModes(t *testing.T) {
 				if dir.gets != tt.wantDirGets || repo.calls != 0 {
 					t.Errorf("directory gets = %d (want %d), graph snapshot reads = %d (want 0)", dir.gets, tt.wantDirGets, repo.calls)
 				}
-				if counter.Reads() != 0 || counter.Writes() != 0 {
-					t.Errorf("charged reads=%d writes=%d, want 0", counter.Reads(), counter.Writes())
-				}
+				budgettest.Assert(t, "follow requests gate", counter, budgettest.Budget{})
 			})
 		}
 	}

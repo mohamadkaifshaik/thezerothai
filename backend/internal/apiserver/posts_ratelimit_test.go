@@ -39,6 +39,8 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 		{"list suggested users 10/min (ADR-0024 D10)", graphv1connect.GraphServiceListSuggestedUsersProcedure, 10},
 		{"list liked posts 10/min (ADR-0024 D10)", engagementv1connect.EngagementServiceListLikedPostsProcedure, 10},
 		{"get profile relationship 60/min (ADR-0024 D10, own bucket)", graphv1connect.GraphServiceGetProfileRelationshipProcedure, 60},
+		{"list follow requests 20/min (ADR-0025 D13, the graph list bucket)", graphv1connect.GraphServiceListFollowRequestsProcedure, 20},
+		{"respond to follow request 60/min (ADR-0025 D13, own bucket)", graphv1connect.GraphServiceRespondToFollowRequestProcedure, 60},
 		{"get post 60/min (default bucket)", postsv1connect.PostServiceGetPostProcedure, 60},
 	}
 	cfg := defaultRateLimitCfg()

@@ -234,7 +234,7 @@ func (s *Server) ListFollowRequests(ctx context.Context, _ *connect.Request[grap
 		if err := s.svc.FollowRequestsGate(ctx, uid); err != nil {
 			return nil, err
 		}
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ListFollowRequests is not built yet"))
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ListFollowRequests is not built yet (W3-28a)"))
 	})
 }
 
@@ -243,7 +243,7 @@ func (s *Server) RespondToFollowRequest(ctx context.Context, _ *connect.Request[
 		if err := s.svc.FollowRequestsGate(ctx, uid); err != nil {
 			return nil, err
 		}
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RespondToFollowRequest is not built yet"))
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RespondToFollowRequest is not built yet (W3-28a)"))
 	})
 }
 
