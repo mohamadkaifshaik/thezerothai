@@ -109,7 +109,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
-| W3-36 | Part B security review | security-auditor | M | Open (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
+| W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Open (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK) |
 
@@ -1181,7 +1181,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Report.** `docs/reviews/test-report-w3b-client.md`.
 - **Cost.** 0.
 
-#### W3-36 Security review, Part B [security-auditor] [M] [depends: W3-26a to W3-32 merged; client at branch heads] Status: Open
+#### W3-36 Security review, Part B [security-auditor] [M] [depends: W3-26a to W3-32 merged; client at branch heads] Status: Done (PR #403): CLEAR WITH FIXES, `docs/reviews/security-review-w3b.md`
 - **Every D4 leak path:**
   - embed strip completeness: text, media, alt text, hashtags, mentions;
   - notification rows and push payloads;
@@ -1225,7 +1225,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 #### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK] Status: Open
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
-  2. 100% of dev traffic **and** the `last-good` tag are on a revision with W3-26a to W3-32 (lesson 10).
+  2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
   3. The W3-36 findings that gate the dev allowlist are fixed.
   4. A targeted dev Terraform plan (`-target` the `api` service only, so the `pending.md` 3.10 drift is excluded) for `feature_private_accounts*` and the four new limits is shown to the founder. It is applied only on OK, with the allowlist of 3 test uids (founder question B4).
 - **Smoke** (runbook `docs/runbooks/w3-part-b-rollout.md`):

@@ -374,3 +374,14 @@ correct if **no moderation action runs with an old opsctl after that date**: reb
 
 **Flutter client contract: unchanged.** The client still drops each `removed_ids` id from every cached feed that holds it and
 replaces the feed with the cold open on a rejected `since_token`. No proto field changes (`buf breaking` clean; only comments).
+
+## Note (2026-10-28): message reports carry private text (ADR-0027 D12, W7)
+ADR-0027 (Messaging v1, Proposed) adds `REPORT_TARGET_TYPE_MESSAGE = 3` with `target_id = "<convId>:<msgId>"`
+(32 hex each). It takes effect when ADR-0027 is accepted and W7-12 merges.
+- Only a participant may report, and only the peer's message. `evidence` holds **that one message's text**, the
+  sender's handle and its time, nothing else from the conversation. This is private content that an operator reads
+  in `opsctl reports`; the founder accepted it with F11 on 2026-10-28.
+- Retention and privacy are D5's: the existing `expireAt` (resolved + 90 d) and the `reporterId` erasure apply.
+- Moderation reaches the message only through a consumer-side `moderation.MessageLookup` implemented by messaging.
+- `opsctl` gains "take down a message" (tombstone, `state = REMOVED`) next to the existing suspend.
+No decision of this ADR changes.
