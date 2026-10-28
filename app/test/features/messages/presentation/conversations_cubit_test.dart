@@ -169,6 +169,30 @@ void main() {
       expect(cubit.state.requestCount, 3);
     });
 
+    test('a warm start shows the persisted count before the network', () async {
+      final network = Completer<ConversationsResult>();
+      when(() => repo.cachedConversations(Folder.FOLDER_INBOX)).thenAnswer(
+        (_) async => ConversationsSnapshot(
+          conversations: [conv('a')],
+          sinceToken: 's',
+          requestCount: 4,
+        ),
+      );
+      when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+          .thenAnswer((_) => network.future);
+      final cubit = build();
+      addTearDown(cubit.close);
+
+      final loading = cubit.load();
+      await pumpEventQueue();
+
+      expect(cubit.state.requestCount, 4);
+      expect(cubit.state.refreshing, isTrue);
+      network.complete(ConversationsResult(snap(['a'])));
+      await loading;
+      expect(cubit.state.requestCount, 4);
+    });
+
     test('the REQUESTS folder never carries a count', () async {
       when(() => repo.refreshConversations(Folder.FOLDER_REQUESTS)).thenAnswer(
         (_) async => ConversationsResult(snap(['a']), requestCount: 5),

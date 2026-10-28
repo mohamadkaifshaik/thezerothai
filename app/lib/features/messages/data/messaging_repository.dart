@@ -154,6 +154,9 @@ class MessagingRepository {
       sinceToken: page.sinceToken,
       nextPageToken: page.nextPageToken,
       session: session,
+      requestCount: folder == Folder.FOLDER_INBOX
+          ? page.requestCount.toInt()
+          : null,
     );
     final snapshot = await _keepPagingConversations(
       folder,
@@ -405,6 +408,7 @@ class MessagingRepository {
     required String conversationId,
   }) async {
     final session = _store.session;
+    final wasRequest = await _isRequest(conversationId);
     await _gate.run(
       () => _apiClient.messaging.acceptMessageRequest(
         pb.AcceptMessageRequestRequest(
@@ -414,6 +418,7 @@ class MessagingRepository {
       ),
     );
     await _store.markConversationAccepted(conversationId, session: session);
+    if (wasRequest) await _store.adjustRequestCount(-1, session: session);
   }
 
   /// Deletes the conversation for the caller only (also "delete request").
@@ -422,6 +427,8 @@ class MessagingRepository {
     required String idempotencyKey,
     required String conversationId,
   }) async {
+    final session = _store.session;
+    final wasRequest = await _isRequest(conversationId);
     await _gate.runRead(
       () => _apiClient.messaging.deleteConversation(
         pb.DeleteConversationRequest(
@@ -431,7 +438,14 @@ class MessagingRepository {
       ),
     );
     await _store.removeConversation(conversationId);
+    if (wasRequest) await _store.adjustRequestCount(-1, session: session);
   }
+
+  /// Whether [conversationId] is cached in the REQUESTS folder (so accepting
+  /// or deleting it lowers the persisted request count).
+  Future<bool> _isRequest(String conversationId) async =>
+      (await _store.conversation(conversationId))?.folder ==
+      Folder.FOLDER_REQUESTS;
 
   // --- internals -----------------------------------------------------------
 
