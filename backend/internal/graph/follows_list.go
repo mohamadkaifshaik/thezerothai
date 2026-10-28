@@ -63,42 +63,56 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: %w", err), callerUID, targetUID)
 	}
 
+	// ADR-0025 D5 (W3-28a): a protected account's follower and following lists belong to its approved followers. Decided
+	// before any page read, from the caller's own snapshot already held (3 cold reads: interceptor, target, caller graph).
+	if err := s.refuseProtectedList(ctx, callerUID, targetUID, snap); err != nil {
+		return Page{}, err
+	}
+
 	size := limits.ClampPageSize(pageSize)
 	edges, err := s.repo.ListEdges(ctx, EdgeQuery{UID: targetUID, Followers: followers, Limit: size, After: after})
 	if err != nil {
 		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: %w", err), callerUID, targetUID)
 	}
+	return s.edgePage(ctx, callerUID, snap, edges, size, edgeCursorBinding(callerUID, targetUID, followers), func(e Edge) string { return e.otherUID(followers) }, targetUID)
+}
+
+// edgePage turns one query result into a Page: it hydrates the other side through identity.Directory (one GetAll),
+// drops rows for deleted or inactive users and for anyone in a block relationship with the caller in either direction
+// (the page may come back short and the client follows next_page_token, ADR-0008 T10), attaches the caller's
+// relationship from snap, and seals the next token to binding when the query returned a full page. ListFollowers,
+// ListFollowing and ListFollowRequests share it (reuse-first: one hydration, one drop rule, one cursor). redact names
+// extra uids to scrub from error text. Reads: <= len(edges) profiles.
+func (s *service) edgePage(ctx context.Context, callerUID string, snap Snapshot, edges []Edge, size int, binding string, other func(Edge) string, redact ...string) (Page, error) {
 	// ADR-0008 "List paging": Limit(page_size), not +1 - a token is issued whenever the query returned a
 	// full page (one empty final call when the total is an exact multiple of the page size).
 	hasMore := len(edges) == size
 	if len(edges) == 0 {
 		return Page{}, nil
 	}
-
-	ids := make([]string, len(edges))
+	uids := make([]string, len(edges))
 	for i, e := range edges {
-		ids[i] = e.otherUID(followers)
+		uids[i] = other(e)
 	}
-	profiles, err := s.directory.GetProfiles(ctx, ids)
+	profiles, err := s.directory.GetProfiles(ctx, uids)
 	if err != nil {
-		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: hydrate: %w", err), append([]string{callerUID, targetUID}, ids...)...)
+		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: hydrate: %w", err), append(append([]string{callerUID}, redact...), uids...)...)
 	}
-
 	page := Page{}
+	dropped := 0
 	for i, e := range edges {
-		uid := ids[i]
+		uid := uids[i]
 		p, ok := profiles[uid]
-		// Rows for deleted/inactive users, and for anyone in a block relationship with the caller in
-		// either direction, are dropped: the page may come back short and the client follows
-		// next_page_token (ADR-0008 T10).
 		if !ok || snap.isBlockedBy(uid) || snap.isBlocked(uid) {
+			dropped++
 			continue
 		}
 		page.Items = append(page.Items, ListItem{User: p, Since: e.CreatedAt, Relationship: relationshipFor(snap, uid)})
 	}
+	logger.SetRequestField(ctx, fieldRowsDropped, dropped)
 	if hasMore {
 		last := edges[len(edges)-1]
-		page.NextPageToken = cursor.Encode(s.cursorKey, edgeCursorBinding(callerUID, targetUID, followers), cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.DocID})
+		page.NextPageToken = cursor.Encode(s.cursorKey, binding, cursor.Cursor{CreatedAt: last.CreatedAt, DocID: last.DocID})
 	}
 	return page, nil
 }
@@ -116,18 +130,24 @@ func edgeCursorBinding(callerUID, targetUID string, followers bool) string {
 // decodeEdgeCursor verifies the token and that its doc id belongs to this list (a followers token replayed
 // against following, or another user's list, is rejected rather than silently skipping rows).
 func (s *service) decodeEdgeCursor(callerUID, token, targetUID string, followers bool) (*cursor.Cursor, error) {
-	cur, err := cursor.Decode(s.cursorKey, edgeCursorBinding(callerUID, targetUID, followers), token)
+	ownsDoc := func(id string) bool { return strings.HasPrefix(id, targetUID+"_") }
+	if followers {
+		ownsDoc = func(id string) bool { return strings.HasSuffix(id, "_"+targetUID) }
+	}
+	return s.decodeBoundCursor(edgeCursorBinding(callerUID, targetUID, followers), token, ownsDoc)
+}
+
+// decodeBoundCursor opens a page token sealed to binding and checks with ownsDoc that its doc id belongs to the list.
+// An empty token is the first page (nil). Any failure is VALIDATION page_token, at 0 reads.
+func (s *service) decodeBoundCursor(binding, token string, ownsDoc func(docID string) bool) (*cursor.Cursor, error) {
+	cur, err := cursor.Decode(s.cursorKey, binding, token)
 	if err != nil {
 		return nil, apierr.Validation("page_token", "invalid page_token")
 	}
 	if cursor.IsFirstPage(cur) {
 		return nil, nil
 	}
-	ok := strings.HasPrefix(cur.DocID, targetUID+"_")
-	if followers {
-		ok = strings.HasSuffix(cur.DocID, "_"+targetUID)
-	}
-	if !ok {
+	if !ownsDoc(cur.DocID) {
 		return nil, apierr.Validation("page_token", "invalid page_token")
 	}
 	return &cur, nil

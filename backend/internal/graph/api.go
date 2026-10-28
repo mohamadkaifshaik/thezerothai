@@ -120,8 +120,13 @@ type Service interface {
 	// ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC: at most maxResults rows (0 => 5, clamped to 1..5), no cursor.
 	ListSuggestedUsers(ctx context.Context, callerUID string, maxResults int32) ([]ListItem, error)
 	// FollowRequestsGate is the ADR-0025 D12 gate shared by ListFollowRequests and RespondToFollowRequest (both
-	// Unimplemented until W3-28a): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now.
+	// built by W3-28a): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now.
 	FollowRequestsGate(ctx context.Context, callerUID string) error
+	// ListFollowRequests is ADR-0025 D7: the caller's incoming follow requests, newest first (gate first, then the page).
+	ListFollowRequests(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
+	// RespondToFollowRequest accepts or declines the pending request from requesterUID and returns the caller's
+	// Relationship to the requester (ADR-0025 D7). idempotencyKey is validated, not stored.
+	RespondToFollowRequest(ctx context.Context, callerUID, idempotencyKey, requesterUID string, accept bool) (Relationship, error)
 }
 
 // Reader is graph's read-only seam other modules use for filtering (ADR-0008: "the timeline, posts and

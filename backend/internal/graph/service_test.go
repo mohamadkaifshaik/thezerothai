@@ -74,6 +74,32 @@ type fakeRepo struct {
 	followEdges     map[edgeKey]bool
 	edgeExistsCalls int
 	edgeExistsErr   error
+
+	respondOutcome RespondOutcome
+	respondErr     error
+	respondCalls   int
+	respondArgs    RespondArgs
+	// respondAskActive makes the fake call RespondArgs.RequesterActive, as the transaction does for an accept.
+	respondAskActive bool
+	countN           int64
+	countErr         error
+	countCalls       int
+}
+
+func (f *fakeRepo) RespondToRequest(ctx context.Context, a RespondArgs) (RespondOutcome, error) {
+	f.respondCalls++
+	f.respondArgs = a
+	if f.respondAskActive {
+		if _, err := a.RequesterActive(ctx); err != nil {
+			return "", err
+		}
+	}
+	return f.respondOutcome, f.respondErr
+}
+
+func (f *fakeRepo) CountRequests(context.Context, string) (int64, error) {
+	f.countCalls++
+	return f.countN, f.countErr
 }
 
 func (f *fakeRepo) Block(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (BlockResult, error) {
@@ -122,7 +148,7 @@ func (f *fakeRepo) ListEdges(_ context.Context, q EdgeQuery) ([]Edge, error) {
 	var out []Edge
 	started := q.After == nil
 	for _, e := range f.edges {
-		if (q.Followers && e.FolloweeID != q.UID) || (!q.Followers && e.FollowerID != q.UID) {
+		if ((q.Followers || q.Requests) && e.FolloweeID != q.UID) || (!q.Followers && !q.Requests && e.FollowerID != q.UID) {
 			continue
 		}
 		if !started {
