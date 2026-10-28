@@ -125,8 +125,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(PremiumDialog), findsOneWidget);
-      expect(find.text('Premium'), findsOneWidget);
-      expect(find.text('Coming soon'), findsOneWidget);
+      expect(find.byKey(PremiumDialog.titleKey), findsOneWidget);
+      expect(find.text('Coming soon'), findsNWidgets(2));
       // The page below is still there.
       expect(find.byType(Scaffold, skipOffstage: false), findsWidgets);
 

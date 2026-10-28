@@ -425,8 +425,8 @@ void main() {
             );
             await tester.pumpAndSettle();
 
-            expect(find.text('Premium'), findsOneWidget);
-            expect(find.text('Coming soon'), findsOneWidget);
+            expect(find.byKey(PremiumDialog.titleKey), findsOneWidget);
+            expect(find.text('Coming soon'), findsNWidgets(2));
             expect(find.byTooltip('Close'), findsOneWidget);
             // Close is the only button.
             expect(
@@ -471,8 +471,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        tester.getSemantics(find.text('Premium')),
-        matchesSemantics(label: 'Premium', isHeader: true),
+        tester.getSemantics(find.byKey(PremiumDialog.titleKey)),
+        matchesSemantics(
+          label: 'Premium',
+          isHeader: true,
+          // W8-5: the screen-reader / keyboard focus starts on the title.
+          isFocusable: true,
+          isFocused: true,
+          hasFocusAction: true,
+        ),
       );
     });
 
