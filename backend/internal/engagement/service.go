@@ -236,28 +236,55 @@ func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*pos
 	return orig, nil
 }
 
-// resolveForCounts is resolveViewable without the visibility rules, for Unlike and UndoRepost (a user can always
-// retract): the post for the returned counts, cache first. found is false when the post is gone, and id is then
-// the id to act on: the original's id when postID was a REPOST whose original is gone, else postID itself.
-func (s *service) resolveForCounts(ctx context.Context, postID string) (p *posts.Post, id string, found bool, err error) {
+// resolveForCounts is resolveViewable without the refusal, for Unlike and UndoRepost (a user can always retract, so
+// the write is never gated): the post for the returned counts, cache first. found is false when the post is gone, and
+// id is then the id to act on: the original's id when postID was a REPOST whose original is gone, else postID itself.
+// visible is false when the caller may not see what was found (a hidden post, an author who blocks the caller, a
+// protected author the caller does not follow, on the post or on the original behind a REPOST id; W3-40a, W3-36 L-1):
+// the caller then answers the missing-post shape, byte-identical to a deleted post, so the counts of a post the caller
+// cannot see are no oracle. id is still the id to write on (the original behind a REPOST id), so an undo always lands.
+// Reads: +0 warm, +1 cold (the caller's graph snapshot, cached 60 s); a protected-set error answers as not visible.
+func (s *service) resolveForCounts(ctx context.Context, uid, postID string) (p *posts.Post, id string, found, visible bool, err error) {
 	p, err = s.d.Reader.Get(ctx, postID)
 	if errors.Is(err, posts.ErrNotFound) {
-		return nil, postID, false, nil
+		return nil, postID, false, false, nil
 	}
 	if err != nil {
-		return nil, postID, false, err
+		return nil, postID, false, false, err
 	}
+	var snap graph.Snapshot
+	checked := s.d.Audience != nil && s.d.Graph != nil
+	if checked {
+		if snap, err = s.d.Graph.Snapshot(ctx, uid); err != nil {
+			return nil, postID, false, false, err
+		}
+	}
+	visible = s.countsVisible(ctx, uid, snap, checked, p)
 	if p.Kind == posts.KindRepost && p.RepostOfID != "" {
 		o, err := s.d.Reader.Get(ctx, p.RepostOfID)
 		if errors.Is(err, posts.ErrNotFound) {
-			return nil, p.RepostOfID, false, nil
+			return nil, p.RepostOfID, false, false, nil
 		}
 		if err != nil {
-			return nil, postID, false, err
+			return nil, postID, false, false, err
 		}
-		return o, o.ID, true, nil
+		return o, o.ID, true, visible && s.countsVisible(ctx, uid, snap, checked, o), nil
 	}
-	return p, p.ID, true, nil
+	return p, p.ID, true, visible, nil
+}
+
+// countsVisible is the one visibility decision of the undo paths: the direct-surface Audience.Decide (moderation, block,
+// protected author, and for a REPOST doc the copied author). Without an Audience or Graph (tests) only moderation
+// applies; a decision error fails closed to "not visible", never to a distinct error answer.
+func (s *service) countsVisible(ctx context.Context, uid string, snap graph.Snapshot, checked bool, p *posts.Post) bool {
+	if !p.Visible() {
+		return false
+	}
+	if !checked {
+		return true
+	}
+	d, err := s.d.Audience.Decide(ctx, uid, snap, p, posts.SurfaceDirect)
+	return err == nil && d.Verdict == posts.Show
 }
 
 func (s *service) profile(ctx context.Context, uid string) (identity.Profile, error) {
@@ -478,7 +505,7 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 	if err := validate(key, postID); err != nil {
 		return Result{}, err
 	}
-	target, id, found, err := s.resolveForCounts(ctx, postID)
+	target, id, found, visible, err := s.resolveForCounts(ctx, uid, postID)
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: unlike: load post: %w", err), uid)
 	}
@@ -501,6 +528,9 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 	})
 	if !found {
 		return Result{PostID: id}, nil
+	}
+	if !visible {
+		return Result{PostID: postID}, nil // the missing-post shape (W3-36 L-1)
 	}
 	return s.result(ctx, uid, target, delta, 0), nil
 }
@@ -592,7 +622,7 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 		return Result{}, err
 	}
 	// Like Unlike: a REPOST's own id resolves to the original it copies, so undoing "from the repost" works.
-	orig, id, found, err := s.resolveForCounts(ctx, postID)
+	orig, id, found, visible, err := s.resolveForCounts(ctx, uid, postID)
 	if err != nil {
 		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: load post: %w", err), uid)
 	}
@@ -614,6 +644,9 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 	})
 	if !found {
 		return Result{PostID: id}, nil
+	}
+	if !visible {
+		return Result{PostID: postID}, nil // the missing-post shape (W3-36 L-1)
 	}
 	delta := int64(0)
 	if res.Removed {

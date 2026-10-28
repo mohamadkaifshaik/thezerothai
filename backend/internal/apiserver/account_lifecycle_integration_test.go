@@ -62,6 +62,16 @@ func newLifecycleEnv(t *testing.T) *lifecycleEnv {
 	return newLifecycleEnvWith(t, nil)
 }
 
+// seedProtectedSetDoc creates privacy/protectedAuthors (ADR-0025 D2) the way dev and prod always have it, so the identity
+// step's ArrayRemove is a real write on every run: the cost is deterministic whatever ran before on the emulator (W3-35a D-2).
+// Merge-only: it never clears uids another test protected.
+func seedProtectedSetDoc(t *testing.T, c *firestore.Client) {
+	t.Helper()
+	if _, err := c.Doc("privacy/protectedAuthors").Set(context.Background(), map[string]any{"updatedAt": time.Now()}, firestore.MergeAll); err != nil {
+		t.Fatalf("seed privacy/protectedAuthors: %v", err)
+	}
+}
+
 // newLifecycleEnvWith is newLifecycleEnv with an optional ID-token verifier override (nil = the real one).
 func newLifecycleEnvWith(t *testing.T, verifier authn.IDTokenVerifier) *lifecycleEnv {
 	t.Helper()
@@ -87,6 +97,7 @@ func newLifecycleEnvCfg(t *testing.T, verifier authn.IDTokenVerifier, mutate fun
 		}
 	}, verifier)
 	cfg, _ := config.Load()
+	seedProtectedSetDoc(t, env.fs)
 
 	ps, err := pubsub.NewService(ctx, option.WithEndpoint("http://"+os.Getenv("PUBSUB_EMULATOR_HOST")+"/"), option.WithoutAuthentication())
 	if err != nil {
@@ -428,8 +439,10 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	// reads = 23.
 	// The follow_requests step (W3-32, ADR-0025 D11: outgoing + incoming empty pages, one read each) adds 2 reads:
 	// reads = 25.
-	if work["fs_reads"].(float64) > 25 || work["fs_writes"].(float64) > 3 || work["fs_deletes"].(float64) > 9 {
-		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 25, writes 3, deletes 9)", work)
+	// W3-26a (ADR-0025 D11): the identity step also ArrayRemoves the uid from privacy/protectedAuthors, a real write whenever
+	// that doc exists (always, in dev and prod; the setup creates it), so writes = 4 exactly (W3-35a D-2).
+	if work["fs_reads"].(float64) > 25 || work["fs_writes"].(float64) != 4 || work["fs_deletes"].(float64) > 9 {
+		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 25, writes exactly 4, deletes 9)", work)
 	}
 	for _, l := range e.jobLines() {
 		if l["uid_hash"] == a.uid || strings.Contains(fmt.Sprint(l), a.uid) {
