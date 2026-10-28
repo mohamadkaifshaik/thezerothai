@@ -343,7 +343,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals:  removals,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
-	})
+	}, timeline.WithProtectedAuthors(protectedAuthors)) // ADR-0025 D4 (W3-30)
 
 	// --- account lifecycle (ADR-0011, P8): DeleteAccount / RequestAccountExport / GetAccountExport and the job
 	// handlers. The Firebase Auth admin client (built above) is handed only to identity (IAM control C2); the
