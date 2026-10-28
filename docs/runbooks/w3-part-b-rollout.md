@@ -2,7 +2,7 @@
 
 Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and applies nothing.
 Status (2026-10-29): **PREPARED, NOT APPLIED.** Nothing was applied, routed, deployed or written: the evidence below is read-only and the plan is saved, not applied.
-**ON HOLD (founder, 2026-10-29): do not apply yet.** The `api` service env list in `infra/terraform/envs/dev/main.tf` also carries 15 W7 messaging and `SHELLS` entries that were never applied to dev (unconditional entries, e.g. `FEATURE_MESSAGING` at :247 and `FEATURE_SHELLS` at :299), so any targeted apply adds them too. The founder chose not to let them ride along. Wait for the W7 work to apply its own dev env lines, then re-plan: the plan must show only the 7 Part B entries (3 flag, 4 limits) before the founder is asked to OK it. Do not work around this with `gcloud run services update --update-env-vars` (click-ops, and Terraform state would drift).
+**APPLIED IN DEV 2026-10-29 (founder OK "apply w3-38").** The hold for the W7 lines was lifted: the W7 session has no dev credentials, and all 15 W7 messaging and `SHELLS` env entries were checked against the code (both flags `off`, empty allowlists, percent 0, every limit equal to its code default), so they changed no behaviour. They were applied with this rollout; the W7 work does not need to apply them again. Results: section 9.
 Prod: no change (on hold, `docs/pending.md` 1.2). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-38). Decisions: ADR-0025 and the founder's answer B4 (the same 3 test uids as Part A).
 Related: `docs/runbooks/w3-part-a-rollout.md` (the precedent: helpers, targeted-plan method), `docs/runbooks/private-accounts.md` (sections 1, 6, 8), `docs/runbooks/graph.md`,
 `docs/runbooks/rollback.md` ("Private accounts: never roll back past enforcement"), `docs/reviews/security-review-w3b.md`, `docs/reviews/cost-model.md` (Part B).
@@ -190,3 +190,33 @@ so it is a safe target even when someone is protected. Then make the Terraform c
 - The wide-screen requests entry (W3-34b, in review) and the app side of every row.
 - The 15 inert messaging and `SHELLS` entries: read from the plan, not checked line by line against the code defaults.
 - The plan is session-scoped and stale after any state change. Re-plan at step 1.
+
+
+## 9. Results, dev, 2026-10-29
+- **Preconditions re-checked just before the apply.** Serving 100% `api-00693-naq` (image tag `a8f9dafc`, #420) and `last-good` `api-00690-yiq` (image tag `e29fe804`, #423), both at or after the floor `061395a0` (`git merge-base --is-ancestor`). `privacy/protectedAuthors` was 404 (nobody protected). No deploy-dev run between plan and apply (#422 was docs-only, skipped by `paths-ignore`).
+- **Plan:** `0 to add, 1 to change, 0 to destroy` on `module.cloud_run_api.google_cloud_run_v2_service.api`; env 129 to 151 (22 added, 0 removed, 0 changed): 7 Part B (`FEATURE_PRIVATE_ACCOUNTS=allowlist`, its 3-uid allowlist equal to the other dev allowlists, percent 0; `QUOTA_PRIVACY_TOGGLES_PER_DAY` 4, `PROTECTED_AUTHORS_MAX` 20000, `PROTECTED_SET_MAX_STALE` 10m, `RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN` 60) and the 15 inert W7/`SHELLS` entries.
+- **Apply:** the saved plan, from the main checkout at `a8f9dafc`: `Apply complete! Resources: 0 added, 1 changed, 0 destroyed.` New revision **`api-00350-h87`** (Ready), the same image digest as `api-00693-naq`.
+- **Validate:** `validate-revision.sh ... dev`: `RESULT: all checks passed`, including `PRIVATE_ACCOUNTS mode=allowlist allowlist=3/3 percent=0/0`, `MESSAGING mode=off`, `SHELLS mode=off`.
+- **Route:** `update-traffic --to-revisions=api-00350-h87=100`. Now: `api-00350-h87` 100%; `last-good` tag on `api-00690-yiq`, `candidate` on `api-00693-naq` (both 0%). `/health` 200; no ERROR lines from the new revision in the first 15 minutes checked.
+- **tfvars:** the gitignored `infra/terraform/envs/dev/terraform.tfvars` in the main checkout now carries `feature_private_accounts = "allowlist"`, the 3-uid allowlist and percent 0, so a plain targeted plan says `No changes` and a later apply keeps the flag (backup of the previous file kept locally).
+- **Re-plan after:** `No changes. Your infrastructure matches the configuration.`
+- **Rollback now:** `last-good` (`api-00690-yiq`) is post-floor but has no `FEATURE_PRIVATE_ACCOUNTS`, so routing to it turns protecting off for testers (existing protections stay enforced because the code is post-floor). Fallback with the flag: none yet; the next deploy-dev builds from the template, which now carries the flag, and moves `last-good` after it passes.
+- **Owed after the smoke:** the flag-off check (section 5, its own plan and OK), the first-day watch (section 6), and turning A protected again: A used its 4 privacy toggles for the IST day, so the 5th (20:27:41 UTC, re-protect) was refused `resource_exhausted` (`QUOTA_PRIVACY_TOGGLES_PER_DAY` 4, correct). A is public until it re-protects after 18:30 UTC (00:00 IST).
+
+### 9.1 Smoke results (section 4), dev, run by the founder in the web app
+
+The founder drove the three windows: A = `@disha` (uid hash `a4c975`), B = `@hello1` (`ff58f4`), C = `@fan_of_ur_s` (`73eb40`), the 3 allowlisted test uids. Evidence is the `api` request lines in Cloud Logging and read-only Firestore REST reads, times in UTC on 2026-10-28 (2026-10-29 IST). A scripted run with Firebase custom tokens was tried first and refused by the identity gate (`sign_in_provider=custom` is not allowed, ADR-0010 D5), as designed; the temporary Token Creator grant used for it was removed.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1. A protects | PASS | `UpdateProfile` ok 20:00:51 (3 reads, 3 writes); `privacy/protectedAuthors` written 20:00:51 with 1 uid; `users/A.isPrivate` true |
+| 2. B (non-follower) sees nothing | PASS | `GetUserTimeline` 20:01:18 `author_protected=true`, 0 reads; A's post by link: `GetThread` `not_found` 20:02:41 |
+| 3. B requests, A accepts, B sees posts | PASS | `Follow` (B) 20:03:10 and 20:14:55 `outcome=created` (3/3); A found Follow requests (account menu; `ListFollowRequests` 1-2 reads); `RespondToFollowRequest` ok 20:15:19 (2 reads, 4 writes) + accept notification; `follows` B to A created 20:15:19; B's next `GetUserTimeline` returned A's posts |
+| 4. C requests then withdraws | PASS | C's `Unfollow` on the pending request 20:20:43 (`fs_deletes=1`); C's next `GetUserTimeline` of A 20:21:00 `author_protected=true`; no `followRequests` C to A left |
+| 5. C requests, A unprotects, the job accepts | PASS | first try had no pending request (`privacy_public` 20:21:31 `scanned=0 accepted=0`, done); redone: A protects 20:24:28, C `Follow` 20:24:47 `outcome=created`, A unprotects 20:25:00, `privacy_public` 20:25:01 `scanned=1 accepted=1 drift=0 outcome=done`; `follows` C to A created 20:25:01; C's button shows Following |
+| 5b. A protects again | REFUSED (expected) | 5th toggle of the IST day, `UpdateProfile` 20:27:41 `resource_exhausted` (0 writes): the daily toggle quota works; re-protect owed after 18:30 UTC |
+| 6. Flag-off checks | OWED | section 5, separate targeted plan and OK |
+
+**Watch, 19:55 to 20:28 UTC:** 0 ERROR lines and 0 HTTP 5xx from `api`; no `protected_set_unavailable`, `privacy_public_enqueue_failed` or `notification_fanout_capped`. WARNING lines were only signed-out `GetMe` 401s. Read costs stayed inside the documented rows: profile timelines at most 22 reads for a 20-item page, Respond 2 warm, Follow 3/3, the accept fanout 4 reads 1 write.
+
+**UI note:** Follow requests is not a tab or rail item (W3-34b design): it is in the account menu on wide layouts, the drawer on narrow ones, and a row at the top of Notifications. A browser tab on `dev.dzeroth.com` signed in before the apply did not show it until a hard refresh and re-sign-in (the client reads enabled features at sign-in); both hostnames serve the same build.

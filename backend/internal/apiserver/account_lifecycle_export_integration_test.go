@@ -213,6 +213,16 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		}
 	}
 
+	// ADR-0027 F5 (W7-6): an accepted conversation with f and a request from g in the `messages` section. A's own messages
+	// are exported in full; f's and g's only as a time and "received"; neither uid appears.
+	e.seedConversation(t, a.uid, f.uid, "ACCEPTED", "", "", dmMsg{a.uid, "hello f, from A"}, dmMsg{f.uid, "SECRET-RECEIVED-REPLY from f"}, dmMsg{a.uid, "second message from A"})
+	gReq := e.seedConversation(t, g.uid, a.uid, "REQUEST", a.uid, "", dmMsg{g.uid, "SECRET-RECEIVED-REQUEST from g"})
+	// Conversations are exported newest first by creation: a distinct createdAt keeps the order independent of the random ids.
+	must("order the request after the accepted conversation", func() error {
+		_, err := e.fs.Doc("conversations/"+gReq).Update(ctx, []firestore.Update{{Path: "createdAt", Value: dmSeedBase.Add(time.Hour)}})
+		return err
+	}())
+
 	fHandle, _ := e.profileOf(t, f)
 	for i, text := range []string{
 		"plain ascii post #golden",
@@ -284,6 +294,7 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		{"the email of a followed user", fEmail},
 		{"the email of a blocked user", xEmail},
 		{"the email of a muted user", zEmail},
+		{"the text of a message A received (ADR-0027 F5)", "SECRET-RECEIVED"},
 		{"the key blockedBy", `"blockedBy"`},
 		{"snapshotVersion", `"snapshotVersion"`},
 		{"deletionJob", `"deletionJob"`},

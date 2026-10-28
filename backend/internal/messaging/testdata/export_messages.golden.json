@@ -1,0 +1,68 @@
+{
+  "conversations": [
+    {
+      "peerHandle": "",
+      "peerDeleted": true,
+      "state": "ACCEPTED",
+      "createdAt": "2026-01-05T03:04:05Z",
+      "messages": [
+        {
+          "direction": "received",
+          "at": "2026-01-05T03:04:05Z"
+        }
+      ]
+    },
+    {
+      "peerHandle": "",
+      "state": "ACCEPTED",
+      "createdAt": "2026-01-04T03:04:05Z",
+      "messages": [
+        {
+          "direction": "sent",
+          "at": "2026-01-04T03:04:05Z",
+          "state": "VISIBLE",
+          "text": "multi\nline & <html> \"quotes\" é"
+        }
+      ]
+    },
+    {
+      "peerHandle": "carol",
+      "state": "REQUEST",
+      "createdAt": "2026-01-03T03:04:05Z",
+      "messages": [
+        {
+          "direction": "received",
+          "at": "2026-01-03T03:04:06Z"
+        },
+        {
+          "direction": "received",
+          "at": "2026-01-03T03:04:05Z"
+        }
+      ]
+    },
+    {
+      "peerHandle": "bob",
+      "state": "ACCEPTED",
+      "createdAt": "2026-01-02T03:04:05Z",
+      "clearedAt": "2026-01-02T04:04:05Z",
+      "messages": [
+        {
+          "direction": "sent",
+          "at": "2026-01-02T03:04:07Z",
+          "state": "VISIBLE",
+          "text": "see you"
+        },
+        {
+          "direction": "received",
+          "at": "2026-01-02T03:04:06Z"
+        },
+        {
+          "direction": "sent",
+          "at": "2026-01-02T03:04:05Z",
+          "state": "VISIBLE",
+          "text": "hi bob"
+        }
+      ]
+    }
+  ]
+}

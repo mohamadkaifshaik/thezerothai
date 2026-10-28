@@ -31,7 +31,7 @@ func newClient(t *testing.T, reg *flags.Registry) messagingv1connect.MessagingSe
 		}
 	})
 	mux := http.NewServeMux()
-	mux.Handle(messagingv1connect.NewMessagingServiceHandler(messaging.NewServer(messaging.New(reg)), connect.WithInterceptors(uidOf, mw.ErrorMapping(slog.New(slog.NewTextHandler(io.Discard, nil))))))
+	mux.Handle(messagingv1connect.NewMessagingServiceHandler(messaging.NewServer(messaging.New(reg, messaging.Deps{})), connect.WithInterceptors(uidOf, mw.ErrorMapping(slog.New(slog.NewTextHandler(io.Discard, nil))))))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return messagingv1connect.NewMessagingServiceClient(srv.Client(), srv.URL)
@@ -72,7 +72,8 @@ func asConnect(err error, target **connect.Error) bool {
 // TestServer_AllSixHandlers drives each RPC over the wire in allowlist mode with a caller outside the allowlist:
 // SendMessage and AcceptMessageRequest are FAILED_PRECONDITION FEATURE_DISABLED feature=messaging, the other four reach
 // Unimplemented (the flag is not globally off). With the flag off, all six are FEATURE_DISABLED. An allowlisted caller
-// reaches Unimplemented on all six.
+// gets past the gate on all six: Unimplemented for the three skeleton RPCs and, for SendMessage (W7-5) and
+// ListConversations (W7-7), their own validation of the empty request.
 func TestServer_AllSixHandlers(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(c messagingv1connect.MessagingServiceClient, uid string) error{
@@ -102,6 +103,13 @@ func TestServer_AllSixHandlers(t *testing.T) {
 		},
 	}
 	perCaller := map[string]bool{"SendMessage": true, "AcceptMessageRequest": true}
+	// open is the code a caller past the gate gets from this RPC.
+	open := func(name string) connect.Code {
+		if name == "SendMessage" || name == "ListConversations" {
+			return connect.CodeInvalidArgument
+		}
+		return connect.CodeUnimplemented
+	}
 
 	allow := newClient(t, registry(flags.Allowlist, 0))
 	off := newClient(t, registry(flags.Off, 0))
@@ -111,12 +119,12 @@ func TestServer_AllSixHandlers(t *testing.T) {
 			err := call(allow, outList)
 			if perCaller[name] {
 				wantDisabled(t, err)
-			} else if connect.CodeOf(err) != connect.CodeUnimplemented {
-				t.Errorf("outside the allowlist: code = %v (%v), want Unimplemented", connect.CodeOf(err), err)
+			} else if connect.CodeOf(err) != open(name) {
+				t.Errorf("outside the allowlist: code = %v (%v), want %v", connect.CodeOf(err), err, open(name))
 			}
 			// Inside the allowlist.
-			if err := call(allow, inList); connect.CodeOf(err) != connect.CodeUnimplemented {
-				t.Errorf("allowlisted: code = %v (%v), want Unimplemented", connect.CodeOf(err), err)
+			if err := call(allow, inList); connect.CodeOf(err) != open(name) {
+				t.Errorf("allowlisted: code = %v (%v), want %v", connect.CodeOf(err), err, open(name))
 			}
 			// Globally off: everything is FEATURE_DISABLED, even for a listed uid.
 			wantDisabled(t, call(off, inList))

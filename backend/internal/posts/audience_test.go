@@ -137,7 +137,7 @@ func TestAudienceNoLoaderMeansNobodyProtected(t *testing.T) {
 	if err != nil || d.Verdict != Show {
 		t.Fatalf("d=%+v err=%v", d, err)
 	}
-	if a.ProtectedAuthor(context.Background(), "p") {
+	if a.ProtectedAuthor(context.Background(), "v", "p", false) {
 		t.Fatal("no loader: nobody is protected")
 	}
 	if err := a.RefuseShare(context.Background(), "v", post("1", "p")); err != nil {
@@ -304,5 +304,54 @@ func TestCreateQuoteOfProtectedPost(t *testing.T) {
 	e.protect(testUID)
 	if _, _, err = e.create(CreateInput{IdempotencyKey: key2, Text: "t", QuoteOfPostID: pidMine, QuotesEnabled: true}); err != nil {
 		t.Fatalf("own quote: %v", err)
+	}
+}
+
+// cachedProtected is a loader with the optional Cached face (identity.ProtectedAuthorsCached).
+type cachedProtected struct {
+	fakeProtected
+	fresh bool
+}
+
+func (c *cachedProtected) Cached() (identity.ProtectedSet, bool) { return c.set, c.fresh }
+
+// TestAudienceProtectedAuthorSkipsSetForOwnAndFollowed is W3-40b L-4: own and followed authors are answered from the
+// loader's cached copy (0 Current calls); everyone else, and any row without a fresh copy, asks Current; the wire value
+// is the same either way.
+func TestAudienceProtectedAuthorSkipsSetForOwnAndFollowed(t *testing.T) {
+	tests := []struct {
+		name      string
+		fresh     bool
+		viewer    string
+		author    string
+		following bool
+		want      bool
+		wantCalls int
+	}{
+		{"own protected author, fresh copy", true, "p", "p", false, true, 0},
+		{"followed protected author, fresh copy", true, "v", "p", true, true, 0},
+		{"followed public author, fresh copy", true, "v", "q", true, false, 0},
+		{"stranger protected author asks Current", true, "v", "p", false, true, 1},
+		{"followed protected author, no fresh copy asks Current", false, "v", "p", true, true, 1},
+		{"own protected author, no fresh copy asks Current", false, "p", "p", false, true, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &cachedProtected{fakeProtected: fakeProtected{set: fakeSet{"p": true}}, fresh: tt.fresh}
+			a := newAudience(f, noBlockOverflow)
+			if got := a.ProtectedAuthor(context.Background(), tt.viewer, tt.author, tt.following); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			if f.calls != tt.wantCalls {
+				t.Fatalf("Current calls = %d, want %d", f.calls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestAudienceProtectedAuthorOutageIsFalse(t *testing.T) {
+	f := &fakeProtected{err: identity.ErrProtectedSetUnavailable}
+	if newAudience(f, noBlockOverflow).ProtectedAuthor(context.Background(), "v", "p", false) {
+		t.Fatal("an unknown set reports false for the informational hint")
 	}
 }

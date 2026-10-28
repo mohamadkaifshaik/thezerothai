@@ -177,7 +177,22 @@ func (a *Audience) EmbedState(ctx context.Context, viewer string, snap graph.Sna
 
 // ProtectedAuthor reports whether author is in the set, for the computed wire visibility. Best effort: with no
 // loader or an unknown set it reports false, because the value is informational for a viewer Decide already admitted.
-func (a *Audience) ProtectedAuthor(ctx context.Context, author string) bool {
+// following is the viewer's follow state toward author from the snapshot the path already holds. For the viewer's own
+// and a followed author (the rows Decide never asks the set about) it answers from the loader's cached copy when one is
+// fresh (identity.ProtectedAuthorsCached: no refresh, no log), so a Home page makes no Current call; with no fresh copy
+// it asks Current like any other row, so the wire value never changes. A set outage logs one ERROR per request
+// (the loader's fallback), WARN after that (W3-36 L-4).
+func (a *Audience) ProtectedAuthor(ctx context.Context, viewer, author string, following bool) bool {
+	if !a.Enabled() {
+		return false
+	}
+	if author == viewer || following {
+		if c, ok := a.authors.(identity.ProtectedAuthorsCached); ok {
+			if set, fresh := c.Cached(); fresh {
+				return set.Has(author)
+			}
+		}
+	}
 	set, err := a.set(ctx)
 	return err == nil && set != nil && set.Has(author)
 }

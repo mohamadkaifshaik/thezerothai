@@ -38,7 +38,7 @@ const (
 	privacyPublicPublishTimeout = 2 * time.Second
 )
 
-// ErrPrivacyPublicMore is returned by a run that hit privacyPublicMaxPages with requests left: the delivery is nacked.
+// ErrPrivacyPublicMore is returned by a run that hit privacyPublicMaxPages with requests left after accepting at least one: the delivery is nacked (a run that accepted none acks as "stuck").
 var ErrPrivacyPublicMore = errors.New("graph: privacy_public: more pending requests than one delivery handles")
 
 // PrivacyPublicMessage is the payload of a privacy_public job. Only the uid matters: the job acts on what Firestore says
@@ -115,7 +115,9 @@ func (j *PrivacyPublicJob) Handle(ctx context.Context, data []byte) (string, err
 
 // Run accepts uid's pending requests, one transaction per page of 100, until a short page. Outcomes: "done" (every
 // request answered, or none), "stopped:protected" (the account is protected again; the job accepts nothing from then on),
-// "stopped:target_gone", "stopped:target_inactive". Idempotent: an accepted request has dropped out of the query, a
+// "stopped:target_gone", "stopped:target_inactive", "stuck" (the whole delivery, every page up to the cap, accepted nothing and dropped nothing: acked,
+// never nacked, because a redelivery would scan the same skipped requests; W3-40b O-1). A delivery that accepted at least one
+// request and still has more returns ErrPrivacyPublicMore (nack), so the next delivery continues. Idempotent: an accepted request has dropped out of the query, a
 // redelivery re-reads only what is left, and a crash between pages loses nothing and doubles nothing, because the
 // followersCount increment is in the same transaction as the edges it counts.
 //
@@ -126,6 +128,7 @@ func (j *PrivacyPublicJob) Handle(ctx context.Context, data []byte) (string, err
 // commits.
 func (j *PrivacyPublicJob) Run(ctx context.Context, uid string) (string, error) {
 	var cur *PendingCursor
+	var tot runTotals
 	for page := 1; page <= privacyPublicMaxPages; page++ {
 		now := j.s.now()
 		res, err := j.repo.AcceptPendingPage(ctx, PendingPageArgs{
@@ -149,13 +152,34 @@ func (j *PrivacyPublicJob) Run(ctx context.Context, uid string) (string, error) 
 			"uid_hash", logger.HashUID(uid), "page", page, "scanned", res.Scanned, "accepted", len(res.Accepted),
 			"skipped_inactive", res.SkippedInactive, "skipped_cap", res.SkippedCap, "drift", res.Drift, "outcome", outcome,
 		}, logger.TraceAttrs(ctx)...)...)
+		tot.add(res)
 		j.afterCommit(ctx, uid, res.Accepted, now)
 		if outcome != "page" {
 			return outcome, nil
 		}
 		cur = res.Last
 	}
+	if tot.accepted+tot.skippedInactive == 0 { // a dropped (inactive) request is progress too: it leaves the query
+		// O-1 (W3-35b): every page up to the cap was skipped (requesters at the 5,000 following cap, or not ACTIVE), so a
+		// redelivery would only repeat the same scan until the DLQ. Ack with counts only; the owner declines the requests or
+		// the requesters unfollow someone (docs/runbooks/private-accounts.md section 6).
+		j.log.WarnContext(ctx, "privacy_public", append([]any{
+			"uid_hash", logger.HashUID(uid), "pages", privacyPublicMaxPages, "scanned", tot.scanned,
+			"skipped_cap", tot.skippedCap, "skipped_inactive", tot.skippedInactive, "outcome", "stuck",
+		}, logger.TraceAttrs(ctx)...)...)
+		return "stuck", nil
+	}
 	return "", ErrPrivacyPublicMore
+}
+
+// runTotals sums one delivery's pages for the stuck decision.
+type runTotals struct{ accepted, scanned, skippedCap, skippedInactive int }
+
+func (t *runTotals) add(r PendingPageResult) {
+	t.accepted += len(r.Accepted)
+	t.scanned += r.Scanned
+	t.skippedCap += r.SkippedCap
+	t.skippedInactive += r.SkippedInactive
 }
 
 // afterCommit drops this instance's cached copies the page changed and emits FollowRequestAccepted per accepted request.

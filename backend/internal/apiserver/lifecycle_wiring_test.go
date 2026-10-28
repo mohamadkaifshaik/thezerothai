@@ -16,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -221,11 +222,14 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerFollowRequestsLifecycle(l, graphRepo); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "identity", "auth_delete", "users_doc"}
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}
@@ -237,6 +241,50 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	}
 	if err := registerFollowRequestsLifecycle(l, graphRepo); err == nil {
 		t.Error("registering the follow_requests step twice was accepted")
+	}
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err == nil {
+		t.Error("registering the messaging step twice was accepted")
+	}
+}
+
+// nopHandles is a messaging.HandleSource that knows nobody.
+type nopHandles struct{}
+
+func (nopHandles) GetProfiles(context.Context, []string) (map[string]identity.Profile, error) {
+	return nil, nil
+}
+
+// fakeMessagingEraser records the checkpoint it was handed and returns a fixed answer.
+type fakeMessagingEraser struct {
+	gotUID string
+	gotCP  []byte
+}
+
+func (f *fakeMessagingEraser) PurgeUser(_ context.Context, uid string, cp []byte) ([]byte, bool, error) {
+	f.gotUID, f.gotCP = uid, cp
+	return []byte(`{"after":"x"}`), false, nil
+}
+
+type fakeMessagingExporter struct{}
+
+func (fakeMessagingExporter) ExportUser(_ context.Context, _ string, w io.Writer) error {
+	_, err := io.WriteString(w, `{"conversations":[]}`)
+	return err
+}
+
+// TestMessagingAdapters: the step is named `messaging` and hands the opaque checkpoint through unchanged; the section is
+// named `messages` and streams what messaging.Exporter writes.
+func TestMessagingAdapters(t *testing.T) {
+	e := &fakeMessagingEraser{}
+	step := messagingStep{e}
+	next, done, err := step.Run(context.Background(), "u1", []byte(`{"after":"a"}`))
+	if step.Name() != "messaging" || err != nil || done || string(next) != `{"after":"x"}` || e.gotUID != "u1" || string(e.gotCP) != `{"after":"a"}` {
+		t.Errorf("step %q: next %s done %v err %v; eraser saw %q %q", step.Name(), next, done, err, e.gotUID, e.gotCP)
+	}
+	var buf bytes.Buffer
+	sec := messagesSection{fakeMessagingExporter{}}
+	if sec.Name() != "messages" || sec.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != `{"conversations":[]}` {
+		t.Errorf("section %q = %q", sec.Name(), buf.String())
 	}
 }
 

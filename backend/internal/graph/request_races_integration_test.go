@@ -446,12 +446,12 @@ func TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun(t *testing.T) {
 	}
 }
 
-// TestW335b_PrivacyPublic_AtCapRequestersNeverDropOut is a scale model of the same fact at a page size of 1 (O-1 in the
-// W3-35b report): a delivery whose first 50 pages are all requests that cannot be accepted ends in ErrPrivacyPublicMore
-// (nack) and so does every redelivery, until the target declines them. At the production page of 100 this needs more
-// than 5,000 stuck requests at once, and a request is stuck only while its requester follows 5,000 accounts, so this
-// is characterization, not a defect at Stage 0.
-func TestW335b_PrivacyPublic_AtCapRequestersNeverDropOut(t *testing.T) {
+// TestW335b_PrivacyPublic_AtCapRequestersAckAsStuck is a scale model of the same fact at a page size of 1 (O-1 in the
+// W3-35b report): a delivery whose first 50 pages are all requests that cannot be accepted acks with outcome
+// "stuck" (W3-40b O-1; it used to nack with ErrPrivacyPublicMore on every redelivery until the DLQ). At the production page
+// of 100 this needs more than 5,000 stuck requests at once, and a request is stuck only while its requester follows 5,000
+// accounts, so this is a guard for an unlikely case, not a Stage 0 defect.
+func TestW335b_PrivacyPublic_AtCapRequestersAckAsStuck(t *testing.T) {
 	w := newWired(t)
 	n := graph.PrivacyPublicMaxPagesForTest + 1
 	reqs := pendingTo(t, w, n)
@@ -465,11 +465,11 @@ func TestW335b_PrivacyPublic_AtCapRequestersNeverDropOut(t *testing.T) {
 	job := pendingJob(w, 1)
 	for run := 1; run <= 2; run++ {
 		ctx, c := budget.WithCounter(context.Background())
-		_, err := job.Run(ctx, "uid-p")
-		if !errors.Is(err, graph.ErrPrivacyPublicMore) {
-			t.Fatalf("run %d err = %v, want ErrPrivacyPublicMore", run, err)
+		out, err := job.Run(ctx, "uid-p")
+		if err != nil || out != "stuck" {
+			t.Fatalf("run %d = %q, %v; want an ack with outcome stuck", run, out, err)
 		}
-		t.Logf("run %d nacked after %d reads, %d writes", run, c.Reads(), c.Writes())
+		t.Logf("run %d acked as stuck after %d reads, %d writes", run, c.Reads(), c.Writes())
 		if c.Writes() != 0 {
 			t.Errorf("run %d wrote %d with nothing acceptable", run, c.Writes())
 		}

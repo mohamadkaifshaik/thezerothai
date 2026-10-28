@@ -102,7 +102,7 @@ func (e *bmChain) remove(u bmUser, key, postID string) (*engagementv1.BookmarkSt
 }
 
 // lineBudget is the last logged request line of rpc as a budget.Counter, so budgettest.Assert can check it.
-func (e *bmChain) lineBudget(t *testing.T, rpc string) *budget.Counter {
+func (e *chainEnv) lineBudget(t *testing.T, rpc string) *budget.Counter {
 	t.Helper()
 	lines := e.logs.requestLines(rpc)
 	if len(lines) == 0 {

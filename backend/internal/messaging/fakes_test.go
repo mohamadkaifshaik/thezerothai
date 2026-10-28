@@ -1,0 +1,264 @@
+package messaging
+
+import (
+	"bytes"
+	"context"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
+
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+)
+
+// fakeRepo is a Repo that records its calls and answers from a script.
+type fakeRepo struct {
+	mu       sync.Mutex
+	convs    map[string]ConvDoc
+	gets     int
+	sends    []SendParams
+	sendRes  SendResult
+	sendErr  error
+	freshErr error // what FreshRecipient returned when the fake ran it
+
+	// entries is users/{uid}/{folder} keyed "uid|folder" (W7-7); lists and counts record the calls, queries the queries.
+	entries map[string][]EntryRow
+	lists   int
+	counts  int
+	queries []ListQuery
+	listErr error
+}
+
+func entryKey(uid, folder string) string { return uid + "|" + folder }
+
+// ListEntries answers like the Firestore query: `lastMessageAt DESC, __name__ DESC`, StartAfter / EndBefore, Limit.
+func (f *fakeRepo) ListEntries(_ context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lists++
+	f.queries = append(f.queries, q)
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	rows := slices.Clone(f.entries[entryKey(uid, folder)])
+	// after reports whether (t, id) sorts strictly after (ct, cid) in the DESC order, i.e. is older.
+	older := func(t time.Time, id string, c *cursor.Cursor) bool {
+		return t.Before(c.CreatedAt) || (t.Equal(c.CreatedAt) && id < c.DocID)
+	}
+	var out []EntryRow
+	for _, r := range rows {
+		if q.Before != nil && !older(r.LastMessageAt, r.ID, q.Before) {
+			continue
+		}
+		if q.After != nil && (older(r.LastMessageAt, r.ID, q.After) || (r.LastMessageAt.Equal(q.After.CreatedAt) && r.ID == q.After.DocID)) {
+			continue
+		}
+		out = append(out, r)
+	}
+	slices.SortFunc(out, func(a, b EntryRow) int {
+		if c := b.LastMessageAt.Compare(a.LastMessageAt); c != 0 {
+			return c
+		}
+		return strings.Compare(b.ID, a.ID)
+	})
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) CountRequests(_ context.Context, uid string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counts++
+	return int64(len(f.entries[entryKey(uid, dmRequestsCollection)])), nil
+}
+
+func (f *fakeRepo) GetConversation(_ context.Context, id string) (ConvDoc, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gets++
+	c, ok := f.convs[id]
+	return c, ok, nil
+}
+
+func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
+	f.mu.Lock()
+	f.sends = append(f.sends, p)
+	f.mu.Unlock()
+	if p.FreshRecipient != nil && f.sendRes.Created {
+		f.freshErr = p.FreshRecipient(ctx)
+		if f.freshErr != nil {
+			return SendResult{}, f.freshErr
+		}
+	}
+	if f.sendErr != nil {
+		return SendResult{}, f.sendErr
+	}
+	res := f.sendRes
+	if res.Msg.CreatedAt.IsZero() {
+		res.Msg = MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: wireTime(p.Now)}
+	}
+	if res.Conv.State == "" {
+		res.Conv = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: stateAccepted}
+	}
+	return res, nil
+}
+
+// fakeSocial serves graph snapshots.
+type fakeSocial struct {
+	mu    sync.Mutex
+	snaps map[string]graph.Snapshot
+	calls int
+	err   error
+}
+
+func (f *fakeSocial) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.snaps[uid], f.err
+}
+
+// fakeProfiles is identity's directory: only ACTIVE profiles are returned, and Forget makes the next call "fresh".
+type fakeProfiles struct {
+	mu       sync.Mutex
+	profiles map[string]identity.Profile
+	calls    int
+	forgot   []string
+	err      error
+}
+
+func (f *fakeProfiles) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := map[string]identity.Profile{}
+	for _, u := range uids {
+		if p, ok := f.profiles[u]; ok && p.Status == identity.AccountStatusActive {
+			out[u] = p
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeProfiles) Forget(uids ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forgot = append(f.forgot, uids...)
+}
+
+type recEvents struct {
+	mu  sync.Mutex
+	got []MessageEvent
+}
+
+func (r *recEvents) MessageSent(_ context.Context, e MessageEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.got = append(r.got, e)
+}
+
+type recBadge struct {
+	mu  sync.Mutex
+	got [][]string
+}
+
+func (r *recBadge) Forget(uids ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.got = append(r.got, uids)
+}
+
+// testCursorKey seals the list tokens of the unit tests.
+var testCursorKey = []byte("0123456789abcdef0123456789abcdef")
+
+const (
+	alice = "uid-alice"
+	bob   = "uid-bob"
+)
+
+func activeProfile(uid, handle string, createdAt time.Time) identity.Profile {
+	return identity.Profile{UserID: uid, Handle: handle, DisplayName: "Name " + handle, AvatarThumbURL: "https://img/" + handle, Status: identity.AccountStatusActive, CreatedAt: createdAt}
+}
+
+// rig is one service over fakes. Both users have the flag on and are established accounts unless a test says otherwise.
+type rig struct {
+	svc    *service
+	repo   *fakeRepo
+	social *fakeSocial
+	profs  *fakeProfiles
+	events *recEvents
+	badge  *recBadge
+	reg    *flags.Registry
+	now    time.Time
+	limits Limits
+}
+
+func newRig(t *testing.T, mut func(*rig)) *rig {
+	t.Helper()
+	r := &rig{
+		repo: &fakeRepo{convs: map[string]ConvDoc{}}, social: &fakeSocial{snaps: map[string]graph.Snapshot{}},
+		events: &recEvents{}, badge: &recBadge{}, now: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC),
+		limits: Limits{RequestMaxUnanswered: 3, DMNewPerDay: 20, NewAccountDMNewPerDay: 5, NewAccountSendsPerDay: 50, NewAccountWindow: 72 * time.Hour, ConversationCacheEntries: 100},
+		reg:    flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}),
+	}
+	old := r.now.Add(-30 * 24 * time.Hour)
+	r.profs = &fakeProfiles{profiles: map[string]identity.Profile{alice: activeProfile(alice, "alice", old), bob: activeProfile(bob, "bob", old)}}
+	if mut != nil {
+		mut(r)
+	}
+	r.svc = New(r.reg, Deps{
+		Repo: r.repo, Social: r.social, Profiles: r.profs, Events: r.events, Badge: r.badge, Limits: r.limits, CursorKey: testCursorKey, Now: func() time.Time { return r.now },
+	}).(*service)
+	return r
+}
+
+// wireBytes is an error as the client receives it: code, message and every attached detail, serialised.
+func wireBytes(t *testing.T, err error) []byte {
+	t.Helper()
+	ce := apierr.ToConnect(err)
+	if ce == nil {
+		t.Fatal("no error")
+	}
+	var buf bytes.Buffer
+	buf.WriteString(ce.Code().String() + "|" + ce.Message() + "|")
+	for _, d := range ce.Details() {
+		v, verr := d.Value()
+		if verr != nil {
+			t.Fatalf("detail: %v", verr)
+		}
+		raw, merr := proto.MarshalOptions{Deterministic: true}.Marshal(v)
+		if merr != nil {
+			t.Fatalf("marshal detail: %v", merr)
+		}
+		buf.Write(raw)
+	}
+	return buf.Bytes()
+}
+
+// reasonOf is the ErrorDetail reason and metadata of err.
+func reasonOf(t *testing.T, err error) (connect.Code, commonv1.ErrorReason, map[string]string) {
+	t.Helper()
+	ce := apierr.ToConnect(err)
+	for _, d := range ce.Details() {
+		if v, verr := d.Value(); verr == nil {
+			if ed, ok := v.(*commonv1.ErrorDetail); ok {
+				return ce.Code(), ed.GetReason(), ed.GetMetadata()
+			}
+		}
+	}
+	return ce.Code(), commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil
+}

@@ -681,3 +681,84 @@ func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 		t.Error("alice's own follow_accepted row survived her purge")
 	}
 }
+
+// TestIntegration_MessagePushIsPushOnlyAndBudgeted (W7-10, ADR-0027 D9): a message event writes nothing (no row, no
+// badge move), keeps the fan-out's two fresh profile reads, reads the devices, and sends one push per device whose
+// data holds the type and the conversation id only. The own limiter bucket throttles the 21st push inside the hour.
+func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client)
+	rig := newRig(t, bothOn("alice", "bob"))
+	rig.f.d.Repo = repo
+	rig.f.d.MessagePushLimit = NewPushLimiter(20)
+	rig.f.d.PushLimit = NewPushLimiter(10)
+	register(t, repo, "bob", "device-bbbbbbbbbbbb", "tok-b1", t0)
+	register(t, repo, "bob", "device-bbbbbbbbbbbc", "tok-b2", t0)
+
+	ctx, c := counted()
+	out, err := rig.f.Deliver(ctx, msgEvent())
+	mustNoErr(t, err)
+	if out.Pushed != 2 || out.Created != 0 {
+		t.Fatalf("outcome = %+v", out)
+	}
+	// 2 fresh profile reads (actor, recipient) + 2 device rows; the recipient's graph snapshot is a cached fake here
+	// (+1 on a cold graph, +1 actor graph on a blockedBy overflow: the documented 3.5 planning / 9 worst).
+	budgettest.Assert(t, "fan-out message", c, budgettest.Budget{Reads: 4, Writes: 0})
+	if n := countDocs(t, client, "users/bob/notifications"); n != 0 {
+		t.Errorf("a message left %d notification rows", n)
+	}
+	for _, s := range rig.sender.sent {
+		m := buildMessage(s.Token, s.Push)
+		if len(m.Data) != 2 || m.Data["type"] != "message" || m.Data["conversationId"] != convA {
+			t.Errorf("data = %v", m.Data)
+		}
+	}
+	if len(rig.dir.forgottenUnread) != 0 {
+		t.Errorf("badge moved: %v", rig.dir.forgottenUnread)
+	}
+
+	// Worst case devices: 5 rows.
+	for i := 3; i <= 5; i++ {
+		register(t, repo, "bob", fmt.Sprintf("device-bbbbbbbbbb%02d", i), fmt.Sprintf("tok-b%d", i), t0)
+	}
+	ctx, c = counted()
+	_, err = rig.f.Deliver(ctx, msgEvent())
+	mustNoErr(t, err)
+	budgettest.Assert(t, "fan-out message, 5 devices", c, budgettest.Budget{Reads: 7, Writes: 0})
+
+	// The 20/h bucket: two messages above were sent; 18 more fit, the 21st delivery is throttled before any device read.
+	for i := 0; i < 18; i++ {
+		_, err = rig.f.Deliver(context.Background(), msgEvent())
+		mustNoErr(t, err)
+	}
+	ctx, c = counted()
+	out, err = rig.f.Deliver(ctx, msgEvent())
+	mustNoErr(t, err)
+	if out.Throttled != 1 || out.Pushed != 0 {
+		t.Fatalf("21st message = %+v", out)
+	}
+	budgettest.Assert(t, "fan-out message throttled", c, budgettest.Budget{Reads: 2, Writes: 0})
+}
+
+// TestIntegration_MessagePushFlagMatrix: no push (and no device read) when notifications or messaging is off for the recipient.
+func TestIntegration_MessagePushFlagMatrix(t *testing.T) {
+	for name, fl := range map[string]FlagChecker{
+		"notifications off": flagSet{"bob|" + MessagingFlagName: true},
+		"messaging off":     flagSet{"bob|" + FlagName: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := newTestClient(t)
+			repo := NewFirestoreRepo(client)
+			rig := newRig(t, fl)
+			rig.f.d.Repo = repo
+			register(t, repo, "bob", "device-bbbbbbbbbbbb", "tok-b1", t0)
+			ctx, c := counted()
+			out, err := rig.f.Deliver(ctx, msgEvent())
+			mustNoErr(t, err)
+			if out.Pushed != 0 || len(rig.sender.sent) != 0 {
+				t.Fatalf("pushed with a flag off: %+v", out)
+			}
+			budgettest.Assert(t, "fan-out message, flag off", c, budgettest.Budget{Reads: 0, Writes: 0})
+		})
+	}
+}

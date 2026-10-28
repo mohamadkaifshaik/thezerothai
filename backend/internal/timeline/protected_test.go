@@ -319,3 +319,66 @@ func TestProtected_NoLoaderChangesNothing(t *testing.T) {
 		t.Fatalf("%v %v", resp, err)
 	}
 }
+
+// cachedProtected is a fakeProtected with the loader's optional Cached face; it counts Current calls.
+type cachedProtected struct {
+	*fakeProtected
+	fresh   bool
+	current int
+}
+
+func (c *cachedProtected) Current(ctx context.Context) (identity.ProtectedSet, error) {
+	c.current++
+	return c.fakeProtected.Current(ctx)
+}
+
+func (c *cachedProtected) Cached() (identity.ProtectedSet, bool) {
+	s, _ := c.fakeProtected.Current(context.Background())
+	return s, c.fresh
+}
+
+// TestProtected_WireVisibilityHintSkipsSetForFollowedAndOwn is W3-40b L-4: a Home page of followed authors, one of them
+// protected, makes 0 Current calls while a fresh copy is held and still marks the protected author's row FOLLOWERS;
+// without a fresh copy the same page asks Current and the wire values are identical.
+func TestProtected_WireVisibilityHintSkipsSetForFollowedAndOwn(t *testing.T) {
+	t.Parallel()
+	for _, fresh := range []bool{true, false} {
+		t.Run(fmt.Sprintf("fresh=%v", fresh), func(t *testing.T) {
+			t.Parallel()
+			r, fp := protectedRig(t)
+			cp := &cachedProtected{fakeProtected: fp, fresh: fresh}
+			r.srv = NewServer(Deps{
+				Flags: fakeFlags{on: true}, Posts: r.posts, Graph: r.graph, Directory: r.dir,
+				CursorKey: testKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: r.clock.Now,
+			}, WithProtectedAuthors(cp))
+			fp.protect("P")
+			r.follow("me", 1) // f1 = X, public
+			s := r.graph.snaps["me"]
+			s.Following["P"] = true
+			r.graph.snaps["me"] = s
+			plain := r.posts.add("f1", r.ms(-5*time.Second))
+			own := r.posts.add("P", r.ms(-2*time.Second))
+
+			resp, _, err := r.home("me", "", "", 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			byID := map[string]*postsv1.PostView{}
+			for _, v := range resp.GetPosts() {
+				byID[v.GetPost().GetPostId()] = v
+			}
+			if byID[own.ID].GetPost().GetVisibility() != postsv1.Visibility_VISIBILITY_FOLLOWERS {
+				t.Fatalf("followed protected author's row = %v, want FOLLOWERS", byID[own.ID].GetPost().GetVisibility())
+			}
+			if byID[plain.ID].GetPost().GetVisibility() == postsv1.Visibility_VISIBILITY_FOLLOWERS {
+				t.Fatal("a public author's row must not be FOLLOWERS")
+			}
+			if fresh && cp.current != 0 {
+				t.Fatalf("Current calls = %d, want 0 for a page of followed authors", cp.current)
+			}
+			if !fresh && cp.current == 0 {
+				t.Fatal("without a fresh copy the hint must ask Current")
+			}
+		})
+	}
+}

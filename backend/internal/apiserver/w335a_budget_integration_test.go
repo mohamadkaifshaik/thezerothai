@@ -92,7 +92,11 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 		}
 	})
 
-	// Respond: after a List on the same instance (the client flow), then standalone cold.
+	// Respond: after a List on the same instance (the client flow), then standalone cold. The decline is measured
+	// first, straight after the List: an accept forgets the caller's cached profile (its followersCount moved), so a
+	// Respond that follows an accept on the same instance pays the account-status read again (3, the cold row) unless
+	// the local inline notification fan-out of that accept happened to re-read the profile first. Measured after the
+	// accept, the decline was 2 or 3 depending on goroutine timing.
 	rc := newW320Chain(t, w335aOn)
 	if _, err := rc.w328List(w.p); err != nil {
 		t.Fatal(err)
@@ -102,13 +106,15 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 			t.Fatalf("Respond(%v): %v", accept, err)
 		}
 	}
-	respond(rc, reqs[0], true)
-	rc.w320Measure(t, rpcRespondToFollowReq, "Respond accept, after List (3 / 4 writes / 1 delete)", budgettest.Budget{Reads: 3, Writes: 4, Deletes: 1})
 	respond(rc, reqs[1], false)
 	rc.w320Measure(t, rpcRespondToFollowReq, "Respond decline, after List", budgettest.Budget{Reads: 2, Writes: 1, Deletes: 1})
 	respond(rc, reqs[0], true)
+	rc.w320Measure(t, rpcRespondToFollowReq, "Respond accept, after List (3 / 4 writes / 1 delete)", budgettest.Budget{Reads: 3, Writes: 4, Deletes: 1})
+	// The replay follows the accept, so it is held to the cold replay row (2: the account-status read and the request).
+	respond(rc, reqs[0], true)
 	rc.w320Measure(t, rpcRespondToFollowReq, "Respond replay of an accept", budgettest.Budget{Reads: 2})
-	// A fully cold standalone Respond reads up to 5 (ADR-0025 W3-28a implementation note); writes unchanged.
+	// A fully cold standalone Respond reads up to 5 (ADR-0025 W3-28a implementation note); writes unchanged. Its
+	// accept's notification fan-out runs on its own budget counter (notifications.InlineEmitter), never on this one.
 	meas(rpcRespondToFollowReq, "Respond accept, standalone cold (W3-28a note: up to 5)", budgettest.Budget{Reads: 5, Writes: 4, Deletes: 1}, func(r *w320Chain) {
 		respond(r, reqs[2], true)
 	})

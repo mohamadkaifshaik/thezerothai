@@ -241,7 +241,8 @@ func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*pos
 // id is then the id to act on: the original's id when postID was a REPOST whose original is gone, else postID itself.
 // visible is false when the caller may not see what was found (a hidden post, an author who blocks the caller, a
 // protected author the caller does not follow, on the post or on the original behind a REPOST id; W3-40a, W3-36 L-1):
-// the caller then answers the missing-post shape, byte-identical to a deleted post, so the counts of a post the caller
+// the caller then answers the missing-post shape with id, byte-identical to a deleted original (W3-40b: the same PostID for a
+// REPOST id whose original is gone and one whose original is hidden), so the counts of a post the caller
 // cannot see are no oracle. id is still the id to write on (the original behind a REPOST id), so an undo always lands.
 // Reads: +0 warm, +1 cold (the caller's graph snapshot, cached 60 s); a protected-set error answers as not visible.
 func (s *service) resolveForCounts(ctx context.Context, uid, postID string) (p *posts.Post, id string, found, visible bool, err error) {
@@ -530,7 +531,7 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 		return Result{PostID: id}, nil
 	}
 	if !visible {
-		return Result{PostID: postID}, nil // the missing-post shape (W3-36 L-1)
+		return Result{PostID: id}, nil // the missing-post shape (W3-36 L-1): id is the original behind a REPOST id, exactly as when it is gone (W3-40b)
 	}
 	return s.result(ctx, uid, target, delta, 0), nil
 }
@@ -646,7 +647,7 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 		return Result{PostID: id}, nil
 	}
 	if !visible {
-		return Result{PostID: postID}, nil // the missing-post shape (W3-36 L-1)
+		return Result{PostID: id}, nil // the missing-post shape (W3-36 L-1): id is the original behind a REPOST id, exactly as when it is gone (W3-40b)
 	}
 	delta := int64(0)
 	if res.Removed {
