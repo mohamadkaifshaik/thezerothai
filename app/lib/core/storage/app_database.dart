@@ -222,6 +222,10 @@ class MessagingStateEntries extends Table {
   TextColumn get olderPageToken => text().withDefault(const Constant(''))();
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// Last known pending message-request count, on the `inbox` row only (v8).
+  /// Null = never received (unknown), which is not the same as 0.
+  IntColumn get requestCount => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {stateKey};
 }
@@ -275,7 +279,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -309,6 +313,14 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(conversationEntries);
         await m.createTable(messageEntries);
         await m.createTable(messagingStateEntries);
+      }
+      // v7 -> v8 (W7-14): the last known message-request count. A database
+      // older than v7 just got the table above, already with the column.
+      if (from == 7) {
+        await m.addColumn(
+          messagingStateEntries,
+          messagingStateEntries.requestCount,
+        );
       }
     },
   );

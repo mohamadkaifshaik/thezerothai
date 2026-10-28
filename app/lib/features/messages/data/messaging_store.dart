@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
 
@@ -15,11 +17,15 @@ class ConversationsSnapshot {
     this.conversations = const [],
     this.sinceToken = '',
     this.olderPageToken = '',
+    this.requestCount,
   });
 
   final List<pb.Conversation> conversations;
   final String sinceToken;
   final String olderPageToken;
+
+  /// Last known pending message-request count (INBOX only; null = unknown).
+  final int? requestCount;
 
   bool get hasMore => olderPageToken.isNotEmpty;
 }
@@ -112,6 +118,7 @@ class MessagingStore {
       conversations: items,
       sinceToken: state?.sinceToken ?? '',
       olderPageToken: state?.olderPageToken ?? '',
+      requestCount: folder == Folder.FOLDER_INBOX ? state?.requestCount : null,
     );
   }
 
@@ -135,6 +142,7 @@ class MessagingStore {
     required String sinceToken,
     required String nextPageToken,
     required int session,
+    int? requestCount,
   }) {
     return _tx(session, () async {
       await (_db.delete(
@@ -146,6 +154,7 @@ class MessagingStore {
         sinceToken: sinceToken,
         olderPageToken: nextPageToken,
         replaceOlder: true,
+        requestCount: requestCount,
       );
     });
   }
@@ -191,6 +200,16 @@ class MessagingStore {
           replaceSince: true,
         ),
       );
+
+  /// Adds [delta] to the stored request count, floor 0 (an accepted or
+  /// deleted request). No-op while the count is unknown (null).
+  Future<void> adjustRequestCount(int delta, {required int session}) {
+    return _tx(session, () async {
+      final old = (await _state('inbox'))?.requestCount;
+      if (old == null) return;
+      await _saveState('inbox', requestCount: math.max(0, old + delta));
+    });
+  }
 
   /// Sets the caller's unread count of [id] to 0 (after MarkConversationRead).
   Future<void> markConversationRead(String id, {required int session}) {
@@ -411,6 +430,7 @@ class MessagingStore {
     String? olderPageToken,
     bool replaceSince = false,
     bool replaceOlder = false,
+    int? requestCount,
   }) async {
     final old = await _state(key);
     final since =
@@ -428,6 +448,7 @@ class MessagingStore {
             stateKey: key,
             sinceToken: Value(since),
             olderPageToken: Value(older),
+            requestCount: Value(requestCount ?? old?.requestCount),
             updatedAt: DateTime.now(),
           ),
         );
