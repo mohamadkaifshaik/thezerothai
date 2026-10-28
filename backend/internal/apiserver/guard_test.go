@@ -86,6 +86,10 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.GraphListPerMinute = 20 // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
 	cfg.RateLimit.GraphListCallsPerDay = 100
 	cfg.RateLimit.ProfileUpdatesPerDay = 100 // W3-22 L-4
+	// ADR-0027 D13 (the config.Load defaults).
+	cfg.RateLimit.MessagesSendPerUserPerMinute = 20
+	cfg.RateLimit.MessagesReadPerUserPerMinute = 30
+	cfg.RateLimit.MessagesSendsPerDay = 300
 	return cfg
 }
 

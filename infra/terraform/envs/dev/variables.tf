@@ -387,6 +387,34 @@ variable "feature_bookmarks_percent" {
   }
 }
 
+variable "feature_messaging" {
+  description = "FEATURE_MESSAGING rollout mode for direct messages (ADR-0027 D6; SendMessage and AcceptMessageRequest need it on for the caller, the list, read and delete RPCs only need it not off): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_messaging)
+    error_message = "feature_messaging must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_messaging_allowlist" {
+  description = "FEATURE_MESSAGING_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_messaging_percent" {
+  description = "FEATURE_MESSAGING_PERCENT: 0-100, only meaningful when feature_messaging = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_messaging_percent >= 0 && var.feature_messaging_percent <= 100 && floor(var.feature_messaging_percent) == var.feature_messaging_percent
+    error_message = "feature_messaging_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_profile_extras" {
   description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates UpdateProfile banner, location, website and pin fields and CreateUpload(BANNER), which also needs media): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

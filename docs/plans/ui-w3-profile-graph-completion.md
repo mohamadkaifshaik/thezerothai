@@ -105,12 +105,12 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
-| W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
-| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
-| W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
+| W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
+| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
+| W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
-| W3-37 | Part B cost report and load smoke | sre-performance | S | Open (depends: W3-26a to W3-32 merged) |
+| W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
 | W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Open (depends: W3-36 review) |
@@ -1103,7 +1103,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `UserListRow` reads the generated field; no second user-list model.
 - **Cost.** 0 new RPCs, 0 reads.
 
-#### W3-34 Client: Follow requests screen [frontend-developer] [M] [depends: W3-28a, W3-26b, W3-31 serving dev] Status: Open
+#### W3-34 Client: Follow requests screen [frontend-developer] [M] [depends: W3-28a, W3-26b, W3-31 serving dev] Status: Done (PR #409)
 - **The screen.** `/follow-requests`: a `PagedUserList` over `ListFollowRequests`.
   - Page 20. It follows `next_page_token` through short pages, sends the token back unchanged, and reloads page 1 on VALIDATION `page_token`.
   - Accept and Decline per row. After Accept, "Follow back" uses the response's `relationship`. The row leaves on success and returns on failure.
@@ -1123,7 +1123,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
-#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Open
+#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Done (PR #410)
 - **The matrix.** Every D4 row on the emulators through `apiserver.Build`.
   - Viewer classes: self, approved follower, non-follower, P blocks A, A blocks P, A mutes P, P suspended, post taken down, `blockedBy` overflow.
   - Paths:
@@ -1150,10 +1150,10 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 
   It catches W4 search, W5 lists and W7 the day they land. It replaces the ADR's "W4 placeholder test that fails until search calls Decide", which cannot compile before the package exists.
 - **Budget table.** Every Part B RPC and every modified read path, at the ADR-0025 ceilings and +0 against the W3-20 table.
-- **Report.** `docs/reviews/test-report-w3b.md`.
+- **Report.** `docs/reviews/test-report-w3-partb.md` (the read-path half; the W3-35b lifecycle half adds its own section or file). Two Low defects: D-1 (two extra `ProtectedSet.CanSee` callers, allowlisted in the guard) and D-2 (the two account-lifecycle write budgets are one short once the protected-set document exists).
 - **Cost.** 0.
 
-#### W3-35b Tests: lifecycle, races, invariants, job, eraser [tester] [M] [depends: W3-27, W3-28a, W3-28b, W3-32] Status: Open
+#### W3-35b Tests: lifecycle, races, invariants, job, eraser [tester] [M] [depends: W3-27, W3-28a, W3-28b, W3-32] Status: Done (PR #405)
 - **D7 cells and races.** Every D7 cell, plus these races:
   - follow vs protect;
   - accept vs withdraw;
@@ -1219,7 +1219,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Output.** `docs/reviews/security-review-w3b.md`. Findings are fixed or ticketed before W3-38.
 - **Cost.** 0.
 
-#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: Open
+#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: Done (PR #407)
 - **`docs/reviews/cost-model.md`.** The ADR-0025 rows go into §1 to §6 and §9, plus a new §13 of measurements:
   - +1.25 request-path reads, the set-refresh line (detached), +0.16 writes and +0.05 deletes per DAU, restated on the 300.2 base ("Part B: cost" below);
   - the who-to-follow share after Part B;
@@ -1237,7 +1237,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 #### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: Open
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
-  2. 100% of dev traffic **and** the `last-good` tag are on a revision with W3-26a to W3-32 (lesson 10). The deployer checks both before the allowlist apply and records both revision names in the rollout record. This is W3-36 M-1(c).
+  2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
   3. The W3-36 findings that gate the dev allowlist are fixed. Only M-1(c), precondition 2 above, gates the allowlist of 3 (the runbook rule of M-1(a) is PR #404). The other findings gate later steps, not this ticket:
      - M-2 (W3-39) must be serving 100% of a project's traffic **and** be on its `last-good` before `private_accounts` leaves the dev allowlist (more uids, a percent, or on) in any project;
      - M-1(b) (W3-42, the rollback floor) and M-1(d) gate any prod ramp of `private_accounts`;

@@ -105,7 +105,7 @@ Does not change the Decision above or this ADR's Accepted status; it records the
 ## Note (ADR-0022, 2026-10-23; decisions above unchanged)
 Note (ADR-0022): superseded in part until 2026-12-26: `VISION_MONTHLY_CAP` 20,000 (40,000 above 1,300 DAU) and `VISION_EXHAUSTED_POLICY=reject` until 2026-12-22. Correction: with `VISION_SCREEN_THUMB=true` each image costs 2 units, so 10,000 covers about 820 DAU, not 1,600.
 
-## Amendment note (W3-36 M-2, 2026-10-28; proposed for the founder's review on merge)
+## Amendment note (W3-36 M-2, 2026-10-28; accepted by the founder 2026-10-28)
 Founder decision 2026-10-28 on W3-36 M-2: new uploads get unguessable public object names. The Decision's object
 names `m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>` become `m/<mediaId>-<suffix>.<ext>` and
 `m/<mediaId>-<suffix>_t.<ext>` for every upload created after W3-39 ships. The suffix is 128 random bits as 32

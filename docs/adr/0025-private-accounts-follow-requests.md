@@ -772,7 +772,7 @@ Founder decision 2026-10-28: keep the existing per-actor cap.
 ## Implementation note (W3-36 M-2, 2026-10-28): unguessable public object names for new uploads
 
 Founder decision 2026-10-28: accept unguessable public object names for new uploads (W3-36 question 1). The choice
-of suffix below (random, not HMAC) is the architect's and is proposed for the founder's review on merge. Ticket
+of suffix below (random, not HMAC) is the architect's, accepted by the founder 2026-10-28 with this PR. Ticket
 W3-39. ADR-0005 carries a pointer to this note.
 
 - **Problem (W3-36 M-2).** The public copy of an image is `m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>`
@@ -864,8 +864,8 @@ W3-39. ADR-0005 carries a pointer to this note.
 
 ## Implementation note (W3-36 L-2, 2026-10-28): the owner keeps an undo on their own rows of a protected author
 
-Founder decision 2026-10-28: fix the W3-36 Lows in the next fix PRs. This note is the design for L-2, proposed for
-the founder's review on merge. It changes the D4 list row **for the owner only**. Tickets: W3-41a and W3-41b.
+Founder decision 2026-10-28: fix the W3-36 Lows in the next fix PRs. This note is the design for L-2, accepted by
+the founder 2026-10-28 with this PR, including the additive `PostView.withheld = 7` field. It changes the D4 list row **for the owner only**. Tickets: W3-41a and W3-41b.
 
 - **Problem (W3-36 L-2).** A is no longer approved for P once A unfollows P or P protects. From then on, A's own
   REPOST of P is dropped from A's profile, and A's likes and bookmarks of P's posts are dropped from A's Likes and

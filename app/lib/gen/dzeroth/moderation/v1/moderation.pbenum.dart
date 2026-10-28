@@ -23,14 +23,22 @@ class ReportTargetType extends $pb.ProtobufEnum {
   static const ReportTargetType REPORT_TARGET_TYPE_ACCOUNT =
       ReportTargetType._(2, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_ACCOUNT');
 
+  /// A direct message (ADR-0027 D12). target_id = "<convId>:<msgId>": the conversation id and the message id, 32
+  /// lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
+  /// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
+  /// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
+  static const ReportTargetType REPORT_TARGET_TYPE_MESSAGE =
+      ReportTargetType._(3, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_MESSAGE');
+
   static const $core.List<ReportTargetType> values = <ReportTargetType>[
     REPORT_TARGET_TYPE_UNSPECIFIED,
     REPORT_TARGET_TYPE_POST,
     REPORT_TARGET_TYPE_ACCOUNT,
+    REPORT_TARGET_TYPE_MESSAGE,
   ];
 
   static final $core.List<ReportTargetType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 2);
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
   static ReportTargetType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

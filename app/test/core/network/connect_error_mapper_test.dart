@@ -470,6 +470,21 @@ void main() {
     });
   });
 
+  test('ERROR_REASON_CANNOT_MESSAGE maps to CannotMessageException with fixed text (ADR-0027 D4)', () {
+    final mapped = mapConnectError(
+      _withDetail(
+        connect.Code.failedPrecondition,
+        'server text',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_CANNOT_MESSAGE,
+          message: 'blocked',
+        ),
+      ),
+    );
+    expect(mapped, isA<CannotMessageException>());
+    expect(mapped.message, "You can't message this account.");
+  });
+
   group('ERROR_REASON_PROTECTED_ACCOUNT (ADR-0025 D14)', () {
     test('maps to ProtectedAccountException, whatever the code', () {
       for (final code in [

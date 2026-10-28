@@ -128,6 +128,28 @@ new revision never becomes ready and `gcloud run deploy` fails. **User impact:**
 **Fix:** restore it through Terraform (`var.env` is `dev` or `prod`); do not hand-edit the service. Check with
 `gcloud run services describe api --project=<proj> --region=asia-south1 --format='value(spec.template.spec.containers[0].env)'`.
 
+## Private accounts: never roll back past enforcement (W3-36 M-1)
+Stored posts stay `PUBLIC` (ADR-0025 D2). Only revisions that contain the Part B enforcement code hide a protected
+account's posts, so a revision without it shows them to everyone, and no flag can fix that.
+
+- **Enforcement floor:** an image built from `main` at **061395a0** (#395, W3-26b, the last Part B read path) or later.
+  It contains every Part B read path: GetPost and Viewable (#382), notifications (#380), timelines and feeds (#384), thread,
+  bookmarks and likes (#386), follower lists (#388), the pin (#395).
+- **Before any rollback or traffic split** (dev or prod, manual or the deploy-dev automatic rollback to `last-good`):
+  1. Read the set (1 read) in the Firestore console, or with
+     `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://firestore.googleapis.com/v1/projects/<proj>/databases/(default)/documents/privacy/protectedAuthors"`
+     (a 404 means the doc is missing). If the doc is missing or `uids` is empty, nobody is protected and the normal rollback
+     steps apply.
+  2. If `uids` is non-empty, the target revision's image must be at or after the floor. Check its digest against the
+     deploy-dev or release run that built it. If it is older, **do not roll back**: roll forward with a fix instead, or
+     first route to another post-floor revision.
+- **Prod:** `private_accounts` stays `off` until the first release carrying Part B is at 100% **and** its `last-good` is also
+  post-floor. A 10% candidate step leaves 90% on the old revision, so nobody may protect during a split onto a pre-floor
+  revision.
+- **Planned guard (before any prod ramp):** `scripts/promotion/resolve-rollback.sh` refuses a `last-good` image older than a
+  floor recorded next to `PRIVATE_ACCOUNTS` in `scripts/promotion/flag-ceiling.json` whenever that flag is not `off`
+  (a founder-gated file). Until then this section is the control.
+
 ## After any rollback
 - Confirm `/health` (not `/healthz`: `*.run.app` reserves paths ending in `z`) and the uptime check are green, and Error Reporting is quiet for the restored revision.
 - Record what happened and the fix in `docs/reviews/` (or a runbook update if a new failure mode was discovered —

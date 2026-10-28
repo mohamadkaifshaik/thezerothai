@@ -44,4 +44,28 @@ void main() {
     const message = PushMessage(type: 'follow', postId: '5', actorId: 'u/1');
     expect(message.location, '/u/u%2F1');
   });
+
+  test(
+    'follow_request opens the requests screen, follow_accepted the profile',
+    () {
+      expect(
+        notificationLocation(
+          type: kNotificationTypeFollowRequest,
+          postId: '',
+          actorId: 'u9',
+        ),
+        '/follow-requests',
+      );
+      expect(
+        notificationLocation(
+          type: kNotificationTypeFollowAccepted,
+          postId: '',
+          actorId: 'u9',
+        ),
+        '/u/u9',
+      );
+      const push = PushMessage(type: 'follow_request', actorId: 'u9');
+      expect(push.location, '/follow-requests');
+    },
+  );
 }

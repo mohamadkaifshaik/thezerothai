@@ -120,4 +120,9 @@ enum ErrorReason {
   // FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
   // a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
   ERROR_REASON_PROTECTED_ACCOUNT = 17;
+  // FAILED_PRECONDITION: this account cannot be messaged (ADR-0027 D4). One reason with identical bytes for a block in
+  // either direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose
+  // peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
+  // message this account".
+  ERROR_REASON_CANNOT_MESSAGE = 18;
 }

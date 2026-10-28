@@ -11,6 +11,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -60,6 +61,34 @@ void main() {
         expect(bloc.state.profile!.handle, 'new');
         expect(bloc.state.profile!.displayName, 'New');
         expect(bloc.state.enabledFeatures, {'profile_snapshot'});
+      },
+    );
+  });
+
+  group('pending follow requests (W3-34)', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'GetMe seeds the count and an answer lowers it, never below 0',
+      build: () {
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'a'),
+            pendingFollowRequestCount: Int64(1),
+          ),
+        );
+        return OnboardingBloc(identityRepository: identityRepository);
+      },
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.pendingFollowRequestCount, 1);
+        bloc.add(const OnboardingFollowRequestAnswered());
+        bloc.add(const OnboardingFollowRequestAnswered());
+      },
+      verify: (bloc) {
+        expect(bloc.state.pendingFollowRequestCount, 0);
+        // No extra GetMe for the answers.
+        verify(() => identityRepository.getMe()).called(1);
       },
     );
   });

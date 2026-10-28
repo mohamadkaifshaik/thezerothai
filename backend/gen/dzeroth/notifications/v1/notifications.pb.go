@@ -66,6 +66,12 @@ const (
 	// actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
 	// sends nothing.
 	NotificationType_NOTIFICATION_TYPE_FOLLOW_ACCEPTED NotificationType = 8
+	// PUSH DATA ONLY (ADR-0027 D9): a direct message arrived. It writes no row in users/{uid}/notifications, does not
+	// move unread_notification_count, and is NEVER returned by ListNotifications. It appears only as the FCM data field
+	// type = "message", next to conversationId (no sender, no text, no uid); the push text is generic ("New message").
+	// Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side
+	// and they did not mute the sender. Tapping opens the conversation (MessagingService.ListMessages).
+	NotificationType_NOTIFICATION_TYPE_MESSAGE NotificationType = 9
 )
 
 // Enum value maps for NotificationType.
@@ -80,6 +86,7 @@ var (
 		6: "NOTIFICATION_TYPE_QUOTE",
 		7: "NOTIFICATION_TYPE_FOLLOW_REQUEST",
 		8: "NOTIFICATION_TYPE_FOLLOW_ACCEPTED",
+		9: "NOTIFICATION_TYPE_MESSAGE",
 	}
 	NotificationType_value = map[string]int32{
 		"NOTIFICATION_TYPE_UNSPECIFIED":     0,
@@ -91,6 +98,7 @@ var (
 		"NOTIFICATION_TYPE_QUOTE":           6,
 		"NOTIFICATION_TYPE_FOLLOW_REQUEST":  7,
 		"NOTIFICATION_TYPE_FOLLOW_ACCEPTED": 8,
+		"NOTIFICATION_TYPE_MESSAGE":         9,
 	}
 )
 
@@ -724,7 +732,7 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17UnregisterDeviceRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\x1a\n" +
-	"\x18UnregisterDeviceResponse*\xb3\x02\n" +
+	"\x18UnregisterDeviceResponse*\xd2\x02\n" +
 	"\x10NotificationType\x12!\n" +
 	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18NOTIFICATION_TYPE_FOLLOW\x10\x01\x12\x1d\n" +
@@ -734,7 +742,8 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x18NOTIFICATION_TYPE_REPOST\x10\x05\x12\x1b\n" +
 	"\x17NOTIFICATION_TYPE_QUOTE\x10\x06\x12$\n" +
 	" NOTIFICATION_TYPE_FOLLOW_REQUEST\x10\a\x12%\n" +
-	"!NOTIFICATION_TYPE_FOLLOW_ACCEPTED\x10\b*g\n" +
+	"!NOTIFICATION_TYPE_FOLLOW_ACCEPTED\x10\b\x12\x1d\n" +
+	"\x19NOTIFICATION_TYPE_MESSAGE\x10\t*g\n" +
 	"\x0eDevicePlatform\x12\x1f\n" +
 	"\x1bDEVICE_PLATFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13DEVICE_PLATFORM_IOS\x10\x01\x12\x1b\n" +

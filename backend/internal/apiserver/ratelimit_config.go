@@ -7,6 +7,7 @@ import (
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
+	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
@@ -101,6 +102,15 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// the default's math. Logged as limit_name "bookmark_mutation_daily". ListBookmarks is a read: the read budget covers it.
 	bookmarkMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BookmarkMutationsPerDay)
 
+	// ADR-0027 D13: SendMessage has its own per-user bucket (RATE_LIMIT_MESSAGES_SEND_PER_MIN, 20/min per instance) and a per-uid
+	// daily call cap (MESSAGES_SENDS_PER_DAY, limit_name "messages_daily"); ListConversations and ListMessages share one read
+	// bucket (RATE_LIMIT_MESSAGES_READ_PER_MIN, 30/min per instance). MarkConversationRead, AcceptMessageRequest and
+	// DeleteConversation use the default bucket (the read budget covers every RPC). The new-account tier of the daily cap
+	// (Messaging.NewAccountSendsPerDay) is applied by the send service, because a DailyCap holds one number per procedure.
+	rlMessagesSend := ratelimit.NewLimiter(cfg.RateLimit.MessagesSendPerUserPerMinute, idleBucketTTL)
+	rlMessagesRead := ratelimit.NewLimiter(cfg.RateLimit.MessagesReadPerUserPerMinute, idleBucketTTL)
+	messagesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesSendsPerDay)
+
 	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
 	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
 	// and Vision spend by VISION_MONTHLY_CAP.
@@ -141,6 +151,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceRespondToFollowRequestProcedure:        rlFollowRequestsRespond,
 			graphv1connect.GraphServiceGetProfileRelationshipProcedure:        rlProfileRelationship,
 			graphv1connect.GraphServiceListSuggestedUsersProcedure:            rlSuggestions,
+			messagingv1connect.MessagingServiceSendMessageProcedure:           rlMessagesSend,
+			messagingv1connect.MessagingServiceListConversationsProcedure:     rlMessagesRead,
+			messagingv1connect.MessagingServiceListMessagesProcedure:          rlMessagesRead,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceListFollowersProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
@@ -160,6 +173,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure: {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 
 			graphv1connect.GraphServiceListSuggestedUsersProcedure: {Name: "suggestions_daily", Cap: suggestionsDailyCap},
+
+			messagingv1connect.MessagingServiceSendMessageProcedure: {Name: "messages_daily", Cap: messagesDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 
