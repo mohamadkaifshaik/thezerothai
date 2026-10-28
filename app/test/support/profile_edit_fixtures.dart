@@ -54,6 +54,7 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
     String? location,
     String? website,
     String? pinnedPostId,
+    bool? isPrivate,
   }) async {
     calls.add(
       UpdateProfileCall(
@@ -83,6 +84,7 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
     }
     if (location != null) next.location = location;
     if (website != null) next.website = website;
+    if (isPrivate != null) next.isPrivate = isPrivate;
     return profile = next;
   }
 }

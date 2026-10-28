@@ -7,6 +7,11 @@ import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../profile/domain/profile_edit_feature_flag.dart';
 
+/// How long the Settings "Protect your posts" switch stays hidden after the
+/// server refused to turn protection on (FEATURE_DISABLED), as for the other
+/// degrade patterns (W3-14, W3-18).
+const kPrivateAccountsRefusalBackoff = Duration(minutes: 10);
+
 /// Builds an `UpdateProfile` request where **field presence is the signal**
 /// (ADR-0024 D1-D3): a null argument leaves the field out (unchanged), a
 /// non-null one sets it, and `""` is a real value that clears
@@ -22,6 +27,7 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   String? location,
   String? website,
   String? pinnedPostId,
+  bool? isPrivate,
 }) {
   final request = identity.UpdateProfileRequest(idempotencyKey: idempotencyKey);
   if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
@@ -31,6 +37,7 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   if (location != null) request.location = location;
   if (website != null) request.website = website;
   if (pinnedPostId != null) request.pinnedPostId = pinnedPostId;
+  if (isPrivate != null) request.isPrivate = isPrivate;
   return request;
 }
 
@@ -41,11 +48,26 @@ class IdentityRepository {
   IdentityRepository({
     required ApiClient apiClient,
     required AppDatabase database,
+    DateTime Function()? clock,
   }) : _apiClient = apiClient,
-       _database = database;
+       _database = database,
+       _clock = clock ?? DateTime.now;
 
   final ApiClient _apiClient;
   final AppDatabase _database;
+  final DateTime Function() _clock;
+
+  DateTime? _privateAccountsRefusedAt;
+
+  /// The server answered FEATURE_DISABLED (or UNIMPLEMENTED) to turning
+  /// protection ON less than [kPrivateAccountsRefusalBackoff] ago: the Settings
+  /// switch stays hidden for a protect-off account until then (W3-33b). Turning
+  /// it OFF is never refused (ADR-0025, the undo rule), so it never sets this.
+  bool get privateAccountsRefused {
+    final at = _privateAccountsRefusedAt;
+    return at != null &&
+        _clock().difference(at) < kPrivateAccountsRefusalBackoff;
+  }
 
   bool _profileExtrasRefused = false;
 
@@ -126,8 +148,9 @@ class IdentityRepository {
   /// Partial update of the caller's own profile (P2): only the non-null
   /// fields are sent and changed (see [buildUpdateProfileRequest]).
   /// [avatarMediaId] is a READY avatar media id from MediaService (P4; with
-  /// `FEATURE_MEDIA` off the server answers MEDIA_NOT_READY). Privacy is
-  /// deliberately not exposed (the server rejects it until private accounts).
+  /// `FEATURE_MEDIA` off the server answers MEDIA_NOT_READY).
+  /// [isPrivate] is the privacy switch (W3-26a); callers send it alone, through
+  /// [setProtected].
   ///
   /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
   /// `profile_extras` fields (ADR-0024): the server refuses a **set** of any
@@ -148,6 +171,7 @@ class IdentityRepository {
     String? location,
     String? website,
     String? pinnedPostId,
+    bool? isPrivate,
   }) {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
@@ -160,11 +184,33 @@ class IdentityRepository {
         location: location,
         website: website,
         pinnedPostId: pinnedPostId,
+        isPrivate: isPrivate,
       );
       final response = await _apiClient.identity.updateProfile(request);
       await _cacheProfile(response.profile, epoch);
       return response.profile;
     });
+  }
+
+  /// Protects ([protect] true) or unprotects the caller's posts (W3-26a): an
+  /// [updateProfile] that sends only `is_private`, 1 call per change. Turning
+  /// it on needs `private_accounts`; a FEATURE_DISABLED / UNIMPLEMENTED answer
+  /// is remembered ([privateAccountsRefused], 10 minutes) and rethrown. Turning
+  /// it off is accepted whatever the flag. [idempotencyKey] must be reused when
+  /// retrying the same intent.
+  Future<identity.Profile> setProtected({
+    required String idempotencyKey,
+    required bool protect,
+  }) async {
+    try {
+      return await updateProfile(
+        idempotencyKey: idempotencyKey,
+        isPrivate: protect,
+      );
+    } on FeatureDisabledException {
+      if (protect) _privateAccountsRefusedAt = _clock();
+      rethrow;
+    }
   }
 
   /// Renames the caller (7-day cooldown on the server). Throws
