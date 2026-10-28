@@ -426,8 +426,10 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	// reads = 22.
 	// The bookmarks step (ADR-0023 D6: users/{uid}/bookmarks, one page query, an empty query bills 1 read) adds 1 read:
 	// reads = 23.
-	if work["fs_reads"].(float64) > 23 || work["fs_writes"].(float64) > 3 || work["fs_deletes"].(float64) > 9 {
-		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 23, writes 3, deletes 9)", work)
+	// The follow_requests step (W3-32, ADR-0025 D11: outgoing + incoming empty pages, one read each) adds 2 reads:
+	// reads = 25.
+	if work["fs_reads"].(float64) > 25 || work["fs_writes"].(float64) > 3 || work["fs_deletes"].(float64) > 9 {
+		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 25, writes 3, deletes 9)", work)
 	}
 	for _, l := range e.jobLines() {
 		if l["uid_hash"] == a.uid || strings.Contains(fmt.Sprint(l), a.uid) {

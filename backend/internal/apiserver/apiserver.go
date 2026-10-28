@@ -382,6 +382,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
 		return nil, nil, fmt.Errorf("bookmarks lifecycle registry: %w", err)
 	}
+	// follow_requests (ADR-0025 D11): the erase step and export section are registered whether or not
+	// FEATURE_PRIVATE_ACCOUNTS is on; the step runs after bookmarks, before identity.
+	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
+		return nil, nil, fmt.Errorf("follow_requests lifecycle registry: %w", err)
+	}
 	moderationSvc := moderation.New(moderation.Deps{
 		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),

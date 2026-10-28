@@ -217,11 +217,15 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerBookmarkLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "identity", "auth_delete", "users_doc"}
+	graphRepo := graph.NewFirestoreRepo(nil)
+	if err := registerFollowRequestsLifecycle(l, graphRepo); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}
@@ -230,6 +234,9 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	}
 	if err := registerBookmarkLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err == nil {
 		t.Error("registering the bookmarks step twice was accepted")
+	}
+	if err := registerFollowRequestsLifecycle(l, graphRepo); err == nil {
+		t.Error("registering the follow_requests step twice was accepted")
 	}
 }
 
@@ -269,5 +276,68 @@ func TestBookmarkSection(t *testing.T) {
 	}
 	if got := bookmarkEraserStep(engagement.NewBookmarkEraser(nil)).Name(); got != "bookmarks" {
 		t.Errorf("step name = %q", got)
+	}
+}
+
+type fakeRequestsExporter struct {
+	out graph.RequestsExport
+	err error
+}
+
+func (f fakeRequestsExporter) ExportRequests(context.Context, string) (graph.RequestsExport, error) {
+	return f.out, f.err
+}
+
+// TestFollowRequestsSection: the section is named `follow_requests` (a key of the export file), streams
+// {sent, received} newest first, never null, and passes an error through; the step name is persisted in
+// deletionJob.step and has its own checkpoint type.
+func TestFollowRequestsSection(t *testing.T) {
+	at := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		out     graph.RequestsExport
+		want    string
+		wantErr bool
+	}{
+		{"empty is arrays, not null", graph.RequestsExport{Sent: []graph.RequestExportRow{}, Received: []graph.RequestExportRow{}}, "{\"sent\":[],\"received\":[]}\n", false},
+		{"rows keep their order", graph.RequestsExport{
+			Sent:     []graph.RequestExportRow{{UserID: "u2", Handle: "bob", RequestedAt: at}},
+			Received: []graph.RequestExportRow{{UserID: "u3", RequestedAt: at}},
+		}, "{\"sent\":[{\"userId\":\"u2\",\"handle\":\"bob\",\"requestedAt\":\"2026-10-28T09:00:00Z\"}],\"received\":[{\"userId\":\"u3\",\"requestedAt\":\"2026-10-28T09:00:00Z\"}]}\n", false},
+		{"source error", graph.RequestsExport{}, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.wantErr {
+				err = errors.New("boom")
+			}
+			s := followRequestsSection{fakeRequestsExporter{out: tt.out, err: err}}
+			if s.Name() != "follow_requests" {
+				t.Fatalf("Name = %q", s.Name())
+			}
+			var buf bytes.Buffer
+			gotErr := s.WriteSection(context.Background(), "u1", &buf)
+			if (gotErr != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", gotErr, tt.wantErr)
+			}
+			if buf.String() != tt.want {
+				t.Errorf("section = %q, want %q", buf.String(), tt.want)
+			}
+		})
+	}
+	if got := followRequestsEraserStep(graph.NewRequestEraser(nil)).Name(); got != "follow_requests" {
+		t.Errorf("step name = %q", got)
+	}
+}
+
+// TestFollowRequestsEraserStep_Checkpoint: the adapter decodes an empty checkpoint as the start and refuses garbage.
+func TestFollowRequestsEraserStep_Checkpoint(t *testing.T) {
+	s := followRequestsEraserStep(graph.NewRequestEraser(nil))
+	if _, _, err := s.Run(context.Background(), "u1", []byte("{not json")); err == nil {
+		t.Error("a corrupt checkpoint was accepted")
+	}
+	if _, _, err := s.Run(context.Background(), "u1", []byte(`{"Phase":9}`)); err == nil {
+		t.Error("an unknown phase was accepted")
 	}
 }
