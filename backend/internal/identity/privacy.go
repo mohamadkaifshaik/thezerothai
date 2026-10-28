@@ -48,7 +48,7 @@ func WithPrivacy(d PrivacyDeps) Option {
 	}
 }
 
-// privacyListener is the BecamePublic hand-over (nil = publishes nothing, the case until W3-28b).
+// privacyListener is the BecamePublic hand-over (nil = publishes nothing; apiserver wires graph.PrivacyListener since W3-28b).
 type privacyListener struct {
 	l   PrivacyListener
 	log *slog.Logger

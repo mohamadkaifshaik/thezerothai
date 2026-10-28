@@ -26,9 +26,10 @@ bumps no `snapshotVersion` and enqueues no snapshot job.
 unprotect are limited to 4 a day per user, so it takes a burst of different users. The planned fallback is 16 shards
 (`privacy/protectedAuthors-{0..f}`) behind the same loader; it needs an ADR amendment, do not add shards by hand.
 
-An unprotect hands `PrivacyListener.BecamePublic` the uid after the commit (detached, 2 s deadline). Until W3-28b wires a listener it
-publishes nothing. If it fails, ERROR `privacy_public_enqueue_failed` (Error Reporting): the toggle succeeded, the account is public,
-and its pending follow requests stay pending until the `privacy_public` job is republished (W3-28b runbook section). A follow of
+An unprotect hands `PrivacyListener.BecamePublic` the uid after the commit (detached, 2 s deadline); `graph.PrivacyListener` (wired in
+`apiserver.go`) publishes `{kind: privacy_public, uid}` to the `jobs` topic. If it fails, ERROR `privacy_public_enqueue_failed` (Error
+Reporting): the toggle succeeded, the account is public, and its pending follow requests stay pending until the `privacy_public` job is
+republished (section 6). A follow of
 that account meanwhile becomes an edge (ADR-0025 AQ4).
 
 ## 2. The stale set and UNAVAILABLE
@@ -64,3 +65,41 @@ hand only with the founder's OK: add the missing uid with `ArrayUnion`, remove a
 The identity eraser step removes the uid with `ArrayRemove` (0 reads, at most 1 write, NotFound of the doc is success, never
 creates it) before `users/{uid}` is deleted; it runs for every deleted account, protected or not, so a drifted entry cannot outlive
 the account. The set lists other users, so it is never exported (T11 row `privacy`, `erasedByStep: identity`).
+
+## 6. The `privacy_public` job (W3-28b)
+
+What it does: when an account goes public, `graph.PrivacyPublicJob` accepts every pending follow request addressed to it. It rides
+the shared `jobs` topic and `/internal/pubsub/jobs` (OIDC push), is registered whatever the flags say (never gated), and acts on
+Firestore, never on the message's word: a forged message for an account that is still protected logs `outcome=stopped:protected` and
+writes nothing.
+
+How it works: pages of 100 (`followRequests where followeeId == uid ORDER BY createdAt DESC, __name__ DESC`), one transaction per page
+that reads `users/{uid}` fresh, the page itself, the requesters' status (Directory, cache-first) and each requester's `graph` doc, then
+queues the W3-28a accept (`classifyAccept` + `queueAccept`) per request and `followersCount += n` once. Accepted requests drop out of
+the query, so a redelivery resumes where the crash left off; the counter increment shares the transaction with the edges it counts, so
+it is never doubled or lost. `FollowRequestAccepted` notifications go out after each page commits.
+
+Cost: per page 1 read (users) + 2 per request (the request, the requester graph) + the cache-first Directory lookup; per accepted
+request 3 writes + 1 delete, + 1 write per page. 500 pending: about 1,005 reads, 1,505 writes, 500 deletes. A redelivery after
+completion: 2 reads, 0 writes.
+
+Log line, one per page (`msg=privacy_public`): `page`, `scanned`, `accepted`, `skipped_inactive`, `skipped_cap`, `drift`, `outcome`
+(`page` = more follow, `done`, `stopped:protected`, `stopped:target_gone`, `stopped:target_inactive`, `error`); the delivery line
+(`account_job=privacy_public`) carries `fs_reads`/`fs_writes`/`fs_deletes` and the final outcome.
+
+Failure modes:
+- **The owner protects again while the job runs.** The next page's transaction reads `isPrivate` and stops (`stopped:protected`);
+  what was accepted stays accepted (those people followed while the account was public), the rest stay pending. A protect that lands
+  inside a page conflicts with that transaction and wins on the retry. Nothing to do.
+- **Stuck or partial** (the message was lost, the enqueue failed, or the job nacked until the DLQ): the account is public and some
+  requests are still pending. Republish by hand (any publisher of the `jobs` topic): `{"kind":"privacy_public","uid":"<uid>"}`. The job is
+  idempotent; a Follow of that account meanwhile already creates an edge and removes its own leftover request (ADR-0025 AQ4).
+- **`ErrPrivacyPublicMore`** (error `more pending requests than one delivery handles`): more than 5,000 pending in one delivery. The
+  delivery nacks and the redelivery continues. Seen only for an account with thousands of pending requests.
+- **A requester at the 5,000 following cap** is `skipped_cap`: its request is left in place (D7), so every rerun counts it again. A
+  requester that is not ACTIVE or has no `graph` doc is `skipped_inactive`: the request is dropped without an edge.
+- **Large accepts and notifications.** The accept notifications are emitted with the accepting account as actor, so they pass
+  through the per-actor daily recipient cap (`NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY` 200, 50 for a new account
+  within its first day). Past the cap the edges are all created but the surplus requesters get no `follow_accepted` row or push; the
+  fan-out logs `notification_fanout_capped`. That is the abuse cap working, not a job failure.
+- A crash between a page's commit and its emits loses that page's notifications (the edges are safe).
