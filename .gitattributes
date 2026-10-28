@@ -11,3 +11,8 @@ scripts/promotion/** text eol=lf
 # Markdown stays LF: the release workflows grep whole lines in docs/reviews/release-*-readiness.md for `VERDICT: GO`, so a stray CR
 # would make them fail closed; core.autocrlf=true Windows checkouts would otherwise risk it.
 *.md      text eol=lf
+
+# Test fixtures and golden files: LF always. Go tests compare bytes, so a CRLF checkout on Windows (core.autocrlf=true)
+# fails golden comparisons that pass on Linux CI (seen on TestW335b_FollowRequestsThroughAccountLifecycle, 2026-10-28).
+backend/**/testdata/** text eol=lf
+testdata/**            text eol=lf
