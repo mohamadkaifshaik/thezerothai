@@ -109,7 +109,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
-| W3-36 | Part B security review | security-auditor | M | Open (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
+| W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | In review (PR #407) (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK) |
 
@@ -1181,7 +1181,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Report.** `docs/reviews/test-report-w3b-client.md`.
 - **Cost.** 0.
 
-#### W3-36 Security review, Part B [security-auditor] [M] [depends: W3-26a to W3-32 merged; client at branch heads] Status: Open
+#### W3-36 Security review, Part B [security-auditor] [M] [depends: W3-26a to W3-32 merged; client at branch heads] Status: Done (PR #403): CLEAR WITH FIXES, `docs/reviews/security-review-w3b.md`
 - **Every D4 leak path:**
   - embed strip completeness: text, media, alt text, hashtags, mentions;
   - notification rows and push payloads;
