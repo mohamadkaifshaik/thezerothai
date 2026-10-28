@@ -137,8 +137,9 @@ class SuggestionsRepository {
 
   /// What [suggestionsFor] would return from memory: no I/O, no RPC. For the
   /// rows still to show after a dismissal or a follow. An entry past its
-  /// lifetime is not returned, so the "up to 48 h" bound also holds for a card
-  /// that stays mounted.
+  /// lifetime is not returned. The "up to 48 h" bound holds for a card that
+  /// stays mounted because the cubit re-reads this at expiry (its one timer,
+  /// [untilExpiry]) and on resume, and clears what it shows.
   List<graph.UserListItem> current(String uid) {
     _syncEpoch();
     return _visible(uid, _fresh(_memory[uid])?.users ?? const []);
@@ -149,6 +150,26 @@ class SuggestionsRepository {
   void hide(String uid, String userId) {
     _syncEpoch();
     _hidden.putIfAbsent(uid, () => {}).add(userId);
+  }
+
+  /// How long the held answer of [uid] stays fresh, by this repository's
+  /// clock; null when nothing is held or it already ran out. For the one
+  /// expiry timer of the cubit: an expired entry gives null, so a timer that
+  /// fires into a backoff is not re-armed and cannot loop.
+  Duration? untilExpiry(String uid) {
+    _syncEpoch();
+    final entry = _fresh(_memory[uid]);
+    if (entry == null) return null;
+    final left = entry.at.add(entry.life.ttl).difference(_now());
+    return left > Duration.zero ? left : null;
+  }
+
+  /// Whether a held answer of [uid] has run out of lifetime (so what a surface
+  /// still shows from it is past its bound). False when nothing is held.
+  bool hasExpired(String uid) {
+    _syncEpoch();
+    final entry = _memory[uid];
+    return entry != null && _fresh(entry) == null;
   }
 
   /// A follow of [userId] from the card went through (the server confirmed it).

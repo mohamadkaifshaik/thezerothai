@@ -237,8 +237,8 @@ changes handle, name or avatar after the entry was built (the status check happe
 answer. The client caches on top (W3-19, Amendment 2 B2): 48 h for a non-empty answer, 6 h for an empty one, 24 h after
 a limit (24 h in every case on a build without B2). **On a device, then, a blocker is bounded by the client TTL, not by
 the server's minute: up to block + 60 s + 48 h (24 h on an old build) from when the list was built, while the app is
-restarted or resumed. A card left mounted with no resume is not bounded today (security review L-3, tracked as a
-follow-up fix). A tap on Follow that gets NOT_FOUND drops the row for good; opening the profile from the row does not.
+restarted or resumed. While the card stays mounted, the cubit sets one timer for the entry's expiry that asks once more, so a
+tab or window left open for days drops the rows at expiry (security L-1; a failing call falls under the usual backoffs, no retry loop). A tap on Follow that gets NOT_FOUND drops the row for good; opening the profile from the row does not.
 "More than a minute" applies to the server's answer only.** The cache is cleared by a restart or scale-in; nothing else clears it.
 
 | Symptom | Cause and action |
