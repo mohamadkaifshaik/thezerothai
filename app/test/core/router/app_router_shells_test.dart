@@ -76,7 +76,13 @@ void main() {
 
         expect(app.path, entry.key);
         expect(entry.value, findsOneWidget);
-        expect(find.text('Coming soon'), findsOneWidget);
+        // Creator tools shows one "Coming soon" pill per placeholder row.
+        expect(
+          find.text('Coming soon'),
+          entry.key == AppRouter.creatorStudioPath
+              ? findsWidgets
+              : findsOneWidget,
+        );
       });
     }
 

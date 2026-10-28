@@ -519,7 +519,7 @@ void main() {
 
   group('shell pages', () {
     final pages = {
-      'Creator tools': AppRouter.creatorStudioPath,
+      // Creator tools has its own screen test (creator_studio_screen_test).
       'Advertise': AppRouter.advertisePath,
       'Calls': AppRouter.callsPath,
     };
