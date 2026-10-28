@@ -110,6 +110,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
+| W3-35d | Part B tests: `TestW335a_PartBBudgetTable` independent of test order | tester | S | In review (PR #433) (depends: W3-35a) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Applied in dev 2026-10-29 (founder OK; runbook PR #422, results PR #425): `api-00350-h87` serves 100% with `private_accounts` on the 3-uid allowlist; the 15 inert W7 and shell env lines were applied with it; dev smoke PASSED (runbook 9.1), flag-off check and first-day watch owed; depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
@@ -621,6 +622,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-35a | Tests: D4 matrix, byte identity, leaks, guard, budget table | tester | M | W3-26b, W3-28a, W3-29b, W3-30, W3-31 | 0 (emulators) |
 | W3-35b | Tests: lifecycle, races, invariants, job, flags, eraser and export | tester | M | W3-27, W3-28a, W3-28b, W3-32 | 0 (emulators) |
 | W3-35c | Tests: client matrix, flag-off routing | tester | S | W3-33a, W3-33b, W3-34 | 0 |
+| W3-35d | Tests: budget table independent of test order | tester | S | W3-35a | 0 (emulators) |
 | W3-36 | Security review, Part B | security-auditor | M | W3-26a to W3-32 merged; client at branch heads | 0 |
 | W3-37 | Cost report, Part B | sre-performance | S | W3-26a to W3-32 merged | 0 (emulators) |
 | W3-38 | Dev rollout, Part B | production-deployer | S | W3-35a to W3-35c, W3-36 M-1(c), W3-37, founder OK | a handful of reads and writes in dev |
@@ -1210,6 +1212,13 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - the two notification rows.
 - **Flag-off routing.** `/follow-requests` for `private_accounts` off and on x protected and public. Turn-off and withdraw stay visible with the flag off.
 - **Report.** `docs/reviews/test-report-w3b-client.md`.
+- **Cost.** 0.
+
+#### W3-35d Tests: `TestW335a_PartBBudgetTable` independent of test order [tester] [S] [depends: W3-35a] Status: In review (PR #433)
+- **Defect (found by W3-40b).** The table failed when run alone, including on clean main (Respond decline 3 vs 2; accept 7 vs 5), and passed only in the full package run.
+- **Cause.** Two test-only effects, no production defect: (1) a decline measured after an accept on the same instance, because an accept calls `Directory.Forget(requester, caller)`, which evicts the caller's own profile, so the next call re-reads the account status; (2) `InlineEmitter` fan-out reads, which carry the request's budget counter and land in the measured line by a race.
+- **Fix.** Every Respond row builds its own instance (warm = fresh plus one List; cold = fresh), and the table runs with `FEATURE_NOTIFICATIONS` off so the fan-out (a separate request in production) cannot leak in. No ceiling moved: ADR-0025's 3 / 2 warm and up to 5 cold hold (measured 2 / 2 / 5 / 4).
+- **Report.** `docs/reviews/test-report-w3-partb.md`, section "W3-35d".
 - **Cost.** 0.
 
 #### W3-36 Security review, Part B [security-auditor] [M] [depends: W3-26a to W3-32 merged; client at branch heads] Status: Done (PR #403): CLEAR WITH FIXES, `docs/reviews/security-review-w3b.md`
