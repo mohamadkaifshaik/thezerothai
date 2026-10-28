@@ -92,16 +92,22 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		}
 		panic("unknown rpc " + rpc)
 	}
-	type call struct{ name, rpc, protected, deleted string }
+	type call struct {
+		name, rpc, protected, deleted string
+		// ceil is the measured reads of the refusal (W3-35a, warm: the oracle call ran first on this chain) plus one read of
+		// documented headroom. Measured 2026-10-28: GetPost 3; Like, AddBookmark, Report, reply and quote 0. Was a loose 12
+		// for every call.
+		ceil int64
+	}
 	calls := []call{
-		{"GetPost", rpcGet, body(rpcGet, pid, 1), body(rpcGet, gone, 1)},
-		{"LikePost", rpcLike, body(rpcLike, pid, 1), body(rpcLike, gone, 1)},
-		{"AddBookmark", rpcAddBookmark, body(rpcAddBookmark, pid, 1), body(rpcAddBookmark, gone, 1)},
-		{"ReportContent", rpcReport, body(rpcReport, pid, 1), body(rpcReport, gone, 1)},
+		{"GetPost", rpcGet, body(rpcGet, pid, 1), body(rpcGet, gone, 1), 4},
+		{"LikePost", rpcLike, body(rpcLike, pid, 1), body(rpcLike, gone, 1), 1},
+		{"AddBookmark", rpcAddBookmark, body(rpcAddBookmark, pid, 1), body(rpcAddBookmark, gone, 1), 1},
+		{"ReportContent", rpcReport, body(rpcReport, pid, 1), body(rpcReport, gone, 1), 1},
 		{"reply", rpcCreate, fmt.Sprintf(`{"idempotencyKey":"w329a-key-reply-01-padpad","text":"hi","replyToPostId":%q}`, pid),
-			fmt.Sprintf(`{"idempotencyKey":"w329a-key-reply-01-padpad","text":"hi","replyToPostId":%q}`, gone)},
+			fmt.Sprintf(`{"idempotencyKey":"w329a-key-reply-01-padpad","text":"hi","replyToPostId":%q}`, gone), 1},
 		{"quote", rpcCreate, fmt.Sprintf(`{"idempotencyKey":"w329a-key-quote-01-padpad","text":"q","quoteOfPostId":%q}`, pid),
-			fmt.Sprintf(`{"idempotencyKey":"w329a-key-quote-01-padpad","text":"q","quoteOfPostId":%q}`, gone)},
+			fmt.Sprintf(`{"idempotencyKey":"w329a-key-quote-01-padpad","text":"q","quoteOfPostId":%q}`, gone), 1},
 	}
 	for _, c := range calls {
 		t.Run("stranger "+c.name, func(t *testing.T) {
@@ -113,7 +119,7 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 			if st != wantSt || ct != wantCT || b != wantBody {
 				t.Errorf("protected post differs from deleted post\n  deleted:   %d %s %s\n  protected: %d %s %s", wantSt, wantCT, wantBody, st, ct, b)
 			}
-			budgettest.Assert(t, c.name+" refusal", r.lineBudget(t, c.rpc), budgettest.Budget{Reads: 12})
+			budgettest.Assert(t, c.name+" refusal", r.lineBudget(t, c.rpc), budgettest.Budget{Reads: c.ceil})
 		})
 	}
 
@@ -195,7 +201,8 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT {
 			t.Errorf("repost reason = %v", d.GetReason())
 		}
-		budgettest.Assert(t, "RepostPost refusal", r.lineBudget(t, "/dzeroth.engagement.v1.EngagementService/RepostPost"), budgettest.Budget{Reads: 12})
+		// Measured 2 (2026-10-28); 3 is one read of documented headroom (was a loose 12).
+		budgettest.Assert(t, "RepostPost refusal", r.lineBudget(t, "/dzeroth.engagement.v1.EngagementService/RepostPost"), budgettest.Budget{Reads: 3})
 		if w := r.lineBudget(t, "/dzeroth.engagement.v1.EngagementService/RepostPost").Writes(); w != 0 {
 			t.Errorf("repost refusal writes = %d", w)
 		}
