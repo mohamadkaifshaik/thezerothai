@@ -36,6 +36,17 @@ type RateLimitConfig struct {
 	// and 20k deletes a day free quotas.
 	BookmarkMutationsPerDay int64
 
+	// MessagesSendPerUserPerMinute is the SendMessage bucket (ADR-0027 D13), env RATE_LIMIT_MESSAGES_SEND_PER_MIN, default 20;
+	// MessagesReadPerUserPerMinute is the bucket shared by ListConversations, ListMessages and MarkConversationRead, env
+	// RATE_LIMIT_MESSAGES_READ_PER_MIN, default 30. Both are per instance (60/min and 90/min with 3 instances).
+	MessagesSendPerUserPerMinute int
+	MessagesReadPerUserPerMinute int
+
+	// MessagesSendsPerDay is the in-memory daily cap on SendMessage calls (one counter per uid per instance,
+	// ratelimit.DailyCap), env MESSAGES_SENDS_PER_DAY, default 300, logged as limit_name "messages_daily" (ADR-0027 D13).
+	// Worst case per account: 300 x 3 instances = 900 messages a day. The new-account value is Messaging.NewAccountSendsPerDay.
+	MessagesSendsPerDay int64
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket (ADR-0024 D10), env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60 (0 reads warm). All are per instance, so the
@@ -187,4 +198,10 @@ type QuotaConfig struct {
 	// quota.PrivacyToggles), env QUOTA_PRIVACY_TOGGLES_PER_DAY, default 4. An is_private equal to the stored value is not
 	// charged. There is no new-account tier: the cap is already small.
 	PrivacyTogglesPerDay int
+
+	// DMNewConversationsPerDay/NewAccountDMNewConversationsPerDay cap the new conversations a user opens per IST day
+	// (ADR-0027 D13, quota.DMNew), env QUOTA_DM_NEW_CONVERSATIONS_PER_DAY (20) and QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY
+	// (5, accounts younger than NewAccountWindow). Messages in an existing conversation are not charged.
+	DMNewConversationsPerDay           int
+	NewAccountDMNewConversationsPerDay int
 }

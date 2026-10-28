@@ -18,6 +18,7 @@ Source:
 Branches: `feat/ui-w7-N-<slug>` off `main` (not stacked); one ticket per PR; merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR or proto tickets)
+**Decided 2026-10-28: the founder accepted every default, F1 to F11.** They are recorded with options and INR lines in ADR-0027 ("Founder decisions F1–F11"). The text below is kept as the question record.
 - **F1. Images in messages?** **Default: text only in v1.** Images would reuse the media pipeline (signed upload, SafeSearch at 2 Vision units per image) with a new `MEDIA_PURPOSE_MESSAGE`. They need private-read objects, because media objects are public-read today (`CLAUDE.md`), and a public URL for a private photo is a leak. They also add Vision spend inside the shared cap. That is its own ADR (Out of scope, with its trigger).
 - **F2. Who can message whom.** **Default:**
   - Mutual follows land directly in the Inbox.
@@ -329,10 +330,10 @@ Prices (§7):
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3–W6? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W7-1 | ADR-0029 (or the next free number) "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | Open |
-| W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | Open |
-| W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Open |
-| W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | Open |
+| W7-1 | ADR-0027 "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | Done: ADR-0027 accepted by the founder's merge of #400 (2026-10-28) |
+| W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | Done (#402): `GetMeResponse.unread_conversation_count = 7`, `NOTIFICATION_TYPE_MESSAGE = 9`, `REPORT_TARGET_TYPE_MESSAGE = 3`, `ERROR_REASON_CANNOT_MESSAGE = 18` |
+| W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Done (#401): six exemptions, ack updated (42 overrides); the `firestore-data-model` rows came with ADR-0027 (#400) |
+| W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | In review (PR pending) |
 | W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | Open |
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Open |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Open |
@@ -341,7 +342,7 @@ Prices (§7):
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Open |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Open |
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
-| W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Open |
+| W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Part 1 (ThreadPoller) in review (PR pending); repository, drift tables and gate wait for W7-4 |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Open |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Open |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Open |
@@ -391,8 +392,8 @@ Order:
 
 ## Tickets
 
-### W7-1 — ADR "Messaging v1"  [owner: architect] [size: M] [depends: —]  Status: Open
-- **Description.** ADR-0029, or the next free number when the PR opens (W3 holds 0024/0025, W4 0026, W5 0027, W6 0028 as planned numbers; take the highest existing plus one). It decides:
+### W7-1 — ADR "Messaging v1"  [owner: architect] [size: M] [depends: —]  Status: Done (ADR-0027, accepted 2026-10-28, #400)
+- **Description.** ADR-0027: the highest existing was 0026 (the W8 shells took it, not W4), so W7 takes 0027 and W5 and W6 take the next free numbers when theirs open. It decides:
   - the data model (A1, the table above), message and conversation ids (A2, A3);
   - the delivery model: pull, the poll intervals, the `since` codec (A9), the push-only type (A4);
   - the who-can-message rules and caps (F2), block, mute and read rules (F9, A8);
@@ -415,8 +416,9 @@ Order:
 - **Budget.** Its table is the source for W7-5 to W7-12.
 - **Flag.** None (docs); it names `FEATURE_MESSAGING` and its dev ceiling.
 - **Seam.** It defines `messaging.Service` (Send, ListConversations, ListMessages, MarkRead, Accept, Delete), `messaging.Eraser`, `messaging.Exporter`, `identity.MessageBadge`, `moderation.MessageLookup` and `notifications.Event.ConversationID`.
+- **Done in the ADR PR (2026-10-28).** ADR-0027 records F1–F11 (all defaults) and decides A1–A11 at this plan's defaults, with this plan's cost figures unchanged (about INR 12 / 58 / 480 a month at 300 / 1,000 / 3,000 DAU; writes free to about 509 DAU). Same PR: the `stage-ladder` "Direct messages" rows, the `firestore-data-model` rows, and the dated notes on ADR-0016 and ADR-0017 (so W7-12 needs no ADR-0016 note).
 
-### W7-2 — Proto `dzeroth.messaging.v1` and additive fields  [owner: architect] [size: M] [depends: W7-1 drafted]  Status: Open
+### W7-2 — Proto `dzeroth.messaging.v1` and additive fields  [owner: architect] [size: M] [depends: W7-1 drafted]  Status: Done (#402)
 - **Description.**
   - **New `proto/dzeroth/messaging/v1/messaging.proto`**, with `MessagingService`:
     - `SendMessage(idempotency_key, oneof {conversation_id, recipient_user_id}, text)` → `Message`, `Conversation`;
@@ -454,7 +456,7 @@ Order:
 - **Flag.** None (contract); the comments name `messaging`.
 - **Seam.** Opaque tokens and ids; `ConversationKind` and `MessageState` are enums (additive); `from_self` keeps uids off the wire.
 
-### W7-3 — Index exemptions (founder-gated)  [owner: architect] [size: S] [depends: W7-1 drafted]  Status: Open
+### W7-3 — Index exemptions (founder-gated)  [owner: architect] [size: S] [depends: W7-1 drafted]  Status: Done (#401)
 - **Description.**
   - fieldOverrides `indexes: []` at COLLECTION scope for `messages.text`, `messages.requestHash`, `dmInbox.peer`, `dmInbox.last`, `dmRequests.peer`, `dmRequests.last`.
   - The `firebase/field-overrides.ack` hash is regenerated by the repo's ack step.
@@ -470,7 +472,7 @@ Order:
 - **Flag.** None (deployed with `firebase deploy --only firestore:indexes` by the dev deploy; prod with the held release, before `messaging` leaves `off` there).
 - **Seam.** No query depends on an exempted field.
 
-### W7-4 — Generate, flag, config, module skeleton  [owner: backend-developer] [size: M] [depends: W7-2]  Status: Open
+### W7-4 — Generate, flag, config, module skeleton  [owner: backend-developer] [size: M] [depends: W7-2]  Status: In review (PR pending)
 - **Description.**
   - `make proto` (generated Go and Dart committed).
   - Register `FEATURE_MESSAGING` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
@@ -673,7 +675,7 @@ Order:
 - **Flag.** `reports` (existing) + `messaging` not globally off.
 - **Seam.** `moderation.MessageLookup`: moderation never reads `conversations` directly.
 
-### W7-13 — Client data layer  [owner: frontend-developer] [size: M] [depends: — (poller); W7-4 (repository)]  Status: Open
+### W7-13 — Client data layer  [owner: frontend-developer] [size: M] [depends: — (poller); W7-4 (repository)]  Status: Part 1 (ThreadPoller) in review (PR pending); repository, drift tables and gate wait for W7-4
 - **Description.**
   - **`ThreadPoller`** (pure Dart, injectable clock):
     - 15 s while hot (input or a new message within 2 min), 45 s while warm, stop after 5 min idle;
@@ -930,5 +932,5 @@ Order:
 | Purge race recreates a deleted user's entry | `gone` mark serialised with sends, a fresh status read on new conversations, the backstop re-run (A7) |
 | Uncaptured visuals (conversation view, new-message flow) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
 | Merge conflicts with W3–W6 in shared files | the shared-file table; one PR at a time (`pending.md` rules) |
-| ADR number clash | "ADR-0029 or the next free number" |
+| ADR number clash | resolved: W7 is ADR-0027 (2026-10-28) |
 | 5-item bar is full once Explore and Messages land | F10 fixes the order; Lists (W5) go in the drawer |

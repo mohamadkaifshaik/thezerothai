@@ -207,6 +207,13 @@ const GetMeResponse$json = {
       '5': 3,
       '10': 'pendingFollowRequestCount'
     },
+    {
+      '1': 'unread_conversation_count',
+      '3': 7,
+      '4': 1,
+      '5': 3,
+      '10': 'unreadConversationCount'
+    },
   ],
 };
 
@@ -218,7 +225,8 @@ final $typed_data.Uint8List getMeResponseDescriptor = $convert.base64Decode(
     'ZpZWQSOgoZdW5yZWFkX25vdGlmaWNhdGlvbl9jb3VudBgEIAEoA1IXdW5yZWFkTm90aWZpY2F0'
     'aW9uQ291bnQSKQoQZW5hYmxlZF9mZWF0dXJlcxgFIAMoCVIPZW5hYmxlZEZlYXR1cmVzEj8KHH'
     'BlbmRpbmdfZm9sbG93X3JlcXVlc3RfY291bnQYBiABKANSGXBlbmRpbmdGb2xsb3dSZXF1ZXN0'
-    'Q291bnQ=');
+    'Q291bnQSOgoZdW5yZWFkX2NvbnZlcnNhdGlvbl9jb3VudBgHIAEoA1IXdW5yZWFkQ29udmVyc2'
+    'F0aW9uQ291bnQ=');
 
 @$core.Deprecated('Use getProfileRequestDescriptor instead')
 const GetProfileRequest$json = {

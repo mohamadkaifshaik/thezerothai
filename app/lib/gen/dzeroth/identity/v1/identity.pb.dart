@@ -636,6 +636,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     $fixnum.Int64? unreadNotificationCount,
     $core.Iterable<$core.String>? enabledFeatures,
     $fixnum.Int64? pendingFollowRequestCount,
+    $fixnum.Int64? unreadConversationCount,
   }) {
     final result = GetMeResponse._();
     if (profile != null) result.profile = profile;
@@ -646,6 +647,8 @@ class GetMeResponse extends $pb.GeneratedMessage {
     if (enabledFeatures != null) result.enabledFeatures.addAll(enabledFeatures);
     if (pendingFollowRequestCount != null)
       result.pendingFollowRequestCount = pendingFollowRequestCount;
+    if (unreadConversationCount != null)
+      result.unreadConversationCount = unreadConversationCount;
     return result;
   }
 
@@ -671,6 +674,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     ..aInt64(4, _omitFieldNames ? '' : 'unreadNotificationCount')
     ..pPS(5, _omitFieldNames ? '' : 'enabledFeatures')
     ..aInt64(6, _omitFieldNames ? '' : 'pendingFollowRequestCount')
+    ..aInt64(7, _omitFieldNames ? '' : 'unreadConversationCount')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -750,6 +754,19 @@ class GetMeResponse extends $pb.GeneratedMessage {
   $core.bool hasPendingFollowRequestCount() => $_has(5);
   @$pb.TagNumber(6)
   void clearPendingFollowRequestCount() => $_clearField(6);
+
+  /// Inbox conversations with unread messages (ADR-0027 D10): set only when FEATURE_MESSAGING is on for the caller,
+  /// else 0. Capped at 100 (show "99+"); message requests do not count (ListConversations.request_count shows them). A
+  /// count cached 30 s, evicted on the serving instance by a send to or a mark-read by the caller, so it may lag by up
+  /// to 30 s. Drives the Messages badge.
+  @$pb.TagNumber(7)
+  $fixnum.Int64 get unreadConversationCount => $_getI64(6);
+  @$pb.TagNumber(7)
+  set unreadConversationCount($fixnum.Int64 value) => $_setInt64(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasUnreadConversationCount() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearUnreadConversationCount() => $_clearField(7);
 }
 
 enum GetProfileRequest_Target { userId, handle, notSet }
@@ -1760,7 +1777,10 @@ class IdentityServiceApi {
   /// pending_follow_request_count (ADR-0025 D7): for a protected caller only, a count() aggregation on followRequests
   /// where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
   /// failed count leaves it 0 and GetMe still answers.
-  /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s), writes 0.
+  /// unread_conversation_count (ADR-0027 D10): only when FEATURE_MESSAGING is on for the caller, a count() aggregation
+  /// on users/{uid}/dmInbox where unreadCount > 0, Limit 100 (1 read, min 1), cached 30 s; 0 reads otherwise.
+  /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s; +1 count() of unread conversations with messaging
+  /// on, cached 30 s), writes 0.
   $async.Future<GetMeResponse> getMe(
           $pb.ClientContext? ctx, GetMeRequest request) =>
       _client.invoke<GetMeResponse>(

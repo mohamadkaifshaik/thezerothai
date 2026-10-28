@@ -316,3 +316,57 @@ func TestPrivacyTogglesKind(t *testing.T) {
 		t.Errorf("increment(PrivacyToggles, 2) = %+v", r)
 	}
 }
+
+// TestDMNewKind: the dmNew counter (ADR-0027 D13) reserves like the others, never touches another kind, and the Record
+// field, valueFor and increment ship together (ADR-0021 I-3: the whole-record Set of CheckAndReserveN would zero a field
+// one of them forgot). The Firestore field name is dmNew.
+func TestDMNewKind(t *testing.T) {
+	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
+	tests := []struct {
+		name     string
+		rec      Record
+		limit    int64
+		wantErr  bool
+		wantUsed int64
+	}{
+		{"first new conversation of the day", Record{Day: Today()}, 20, false, 1},
+		{"last one that fits", Record{Day: Today(), DMNew: 19}, 20, false, 20},
+		{"at the daily cap", Record{Day: Today(), DMNew: 20}, 20, true, 20},
+		{"new-account cap of 5", Record{Day: Today(), DMNew: 5}, 5, true, 5},
+		{"other kinds at their cap do not block", Record{Day: Today(), Posts: 100, Follows: 200, Bookmarks: 200}, 20, false, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBatch{}
+			err := CheckAndReserve(b, ref, tt.rec, DMNew, tt.limit)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || len(b.sets) != 0 {
+					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED and nothing written", err, len(b.sets))
+				}
+				return
+			}
+			got := b.sets[0].(Record)
+			if got.DMNew != tt.wantUsed {
+				t.Errorf("DMNew = %d, want %d", got.DMNew, tt.wantUsed)
+			}
+			if got.Posts != tt.rec.Posts || got.Follows != tt.rec.Follows || got.Bookmarks != tt.rec.Bookmarks || got.PrivacyToggles != tt.rec.PrivacyToggles {
+				t.Errorf("record = %+v, want the other kinds untouched", got)
+			}
+		})
+	}
+	if got := (Record{DMNew: 7}).valueFor(DMNew); got != 7 {
+		t.Errorf("valueFor(DMNew) = %d, want 7", got)
+	}
+	if got := (Record{DMNew: 7}).valueFor(Follows); got != 0 {
+		t.Errorf("valueFor(Follows) = %d, want 0: dmNew must not leak into other kinds", got)
+	}
+	var r Record
+	r.increment(DMNew, 2)
+	if r.DMNew != 2 || r.Follows != 0 || r.PrivacyToggles != 0 {
+		t.Errorf("increment(DMNew, 2) = %+v", r)
+	}
+}

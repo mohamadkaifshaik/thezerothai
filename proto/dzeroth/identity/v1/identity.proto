@@ -46,7 +46,10 @@ service IdentityService {
   // pending_follow_request_count (ADR-0025 D7): for a protected caller only, a count() aggregation on followRequests
   // where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
   // failed count leaves it 0 and GetMe still answers.
-  // Firestore: reads 2/1 (+1 for a protected caller, cached 30 s), writes 0.
+  // unread_conversation_count (ADR-0027 D10): only when FEATURE_MESSAGING is on for the caller, a count() aggregation
+  // on users/{uid}/dmInbox where unreadCount > 0, Limit 100 (1 read, min 1), cached 30 s; 0 reads otherwise.
+  // Firestore: reads 2/1 (+1 for a protected caller, cached 30 s; +1 count() of unread conversations with messaging
+  // on, cached 30 s), writes 0.
   rpc GetMe(GetMeRequest) returns (GetMeResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -242,6 +245,11 @@ message GetMeResponse {
   // Pending incoming follow requests (ADR-0025 D7): set for a protected caller only, else 0. A count cached 30 s, so
   // it may lag a new request or a response by up to 30 s. Drives the Follow requests entry and its badge.
   int64 pending_follow_request_count = 6;
+  // Inbox conversations with unread messages (ADR-0027 D10): set only when FEATURE_MESSAGING is on for the caller,
+  // else 0. Capped at 100 (show "99+"); message requests do not count (ListConversations.request_count shows them). A
+  // count cached 30 s, evicted on the serving instance by a send to or a mark-read by the caller, so it may lag by up
+  // to 30 s. Drives the Messages badge.
+  int64 unread_conversation_count = 7;
 }
 
 message GetProfileRequest {

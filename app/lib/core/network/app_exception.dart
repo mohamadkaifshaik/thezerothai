@@ -173,6 +173,16 @@ final class ProtectedAccountException extends AppException {
       "You can't repost or quote posts from a protected account.";
 }
 
+/// The recipient cannot be messaged (ADR-0027 D4, FAILED_PRECONDITION +
+/// CANNOT_MESSAGE): blocked either way, not active, outside the messaging
+/// rollout, or deleted. The text is fixed and generic; never show the server's.
+final class CannotMessageException extends AppException {
+  const CannotMessageException() : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage = "You can't message this account.";
+}
+
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
 final class NotFoundException extends AppException {
   const NotFoundException(super.message);
