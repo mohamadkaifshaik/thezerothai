@@ -341,7 +341,7 @@ type ProtectedAuthors interface {
 
 // PrivacyListener is told by identity, after the commit, that an account stopped being protected (ADR-0025 D8, AQ1).
 // graph owns the privacy_public job that accepts the pending requests; apiserver adapts this to its publish (the
-// ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing, which is the case until W3-28b. identity calls it
+// ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing (apiserver wires graph.PrivacyListener since W3-28b). identity calls it
 // with a detached, short-deadline context; an error is ERROR privacy_public_enqueue_failed and never fails the toggle.
 type PrivacyListener interface {
 	BecamePublic(ctx context.Context, uid string, at time.Time) error
