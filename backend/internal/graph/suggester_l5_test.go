@@ -64,7 +64,7 @@ func TestFriendsOfFriends_PerFolloweeCap(t *testing.T) {
 	}
 
 	t.Run("a flooder alone yields exactly its newest three", func(t *testing.T) {
-		flood := names("fl", 30) // fills the whole 30-edge window
+		flood := names("fl", 30) // more than fills the whole default 20-edge window
 		got := suggest(t, mkSnap(l5Followees...), edgesOf(pairsFrom("fe-04", flood)...))
 		if want := []string{"fl-00", "fl-01", "fl-02"}; !slices.Equal(sortedCopy(got), want) {
 			t.Errorf("candidates = %v, want its newest three %v", got, want)

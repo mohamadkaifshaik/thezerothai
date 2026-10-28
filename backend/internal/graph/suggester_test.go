@@ -23,9 +23,14 @@ import (
 // Unit tests of ListSuggestedUsers (ADR-0024 D8, ticket W3-12) over fakes. The reads the fakes charge to the budget
 // counter mirror the real repo and Directory (a snapshot read 1, an edge query one per document with a minimum of 1,
 // hydration one per uid), so the cold and warm read caps are asserted here too. The interceptor's read is not part of
-// the service: the documented 42 is 41 here plus that one.
+// the service: the documented 32 is 31 here plus that one (the config default EdgeLimit 20, ADR-0024 Amendment 2
+// B1(b); 42 and 41 when a test pins EdgeLimit to 30).
 
 const sugViewer = "uid-v"
+
+// defaultColdReads is the most the service itself reads on a cold call at the default limits: the caller's graph 1,
+// at most the default EdgeLimit 20 edges and at most the default HydrateMax 10 profiles.
+const defaultColdReads = 1 + 20 + 10
 
 // w312Server is w3Server with a repo, cache and directory behind it, for the flag matrix cases that pass the gate.
 func w312Server(repo Repo, specs ...flags.Spec) *Server {
@@ -393,7 +398,7 @@ func TestListSuggestedUsers_Sources(t *testing.T) {
 			if got := field(info, fieldSuggestSource); got != tt.wantSource {
 				t.Errorf("source log field = %v, want %s", got, tt.wantSource)
 			}
-			budgettest.Assert(t, "ListSuggestedUsers", counter, budgettest.Budget{Reads: 41})
+			budgettest.Assert(t, "ListSuggestedUsers", counter, budgettest.Budget{Reads: defaultColdReads})
 			if len(items) > 0 && items[0].Relationship.FollowState != FollowStateNone {
 				t.Errorf("relationship = %+v, want FollowStateNone", items[0].Relationship)
 			}
@@ -402,9 +407,23 @@ func TestListSuggestedUsers_Sources(t *testing.T) {
 }
 
 // TestListSuggestedUsers_CapsAndCache: with 40 followees and 60 candidates the sample is the newest 30 followees, the
-// query asks for EdgeLimit edges, hydration is ONE call of HydrateMax uids, the cold call reads at most 41 (the 42nd is
-// the interceptor) and the warm call reads nothing.
+// query asks for EdgeLimit edges, hydration is ONE call of HydrateMax uids, the cold call reads exactly 1 + EdgeLimit +
+// HydrateMax (31 at the config default 20, whose documented cap is 32 with the interceptor; 41 with EdgeLimit pinned to
+// 30, cap 42, ADR-0024 Amendment 2 B1(b)) and the warm call reads nothing.
 func TestListSuggestedUsers_CapsAndCache(t *testing.T) {
+	for _, tt := range []struct {
+		name                        string
+		edgeLimit, wantLimit, reads int // edgeLimit 0 is the default that normalized() fills in
+	}{
+		{"config default edge limit 20: cold cap 32", 0, 20, 31},
+		{"edge limit pinned to 30: cold cap 42", 30, 30, 41},
+	} {
+		t.Run(tt.name, func(t *testing.T) { checkCapsAndCache(t, tt.edgeLimit, tt.wantLimit, int64(tt.reads)) })
+	}
+}
+
+func checkCapsAndCache(t *testing.T, edgeLimit, wantLimit int, wantCold int64) {
+	t.Helper()
 	followees := names("fe", 40) // oldest first, the stored order
 	snap := mkSnap(followees...)
 	var pairs [][2]string
@@ -412,7 +431,7 @@ func TestListSuggestedUsers_CapsAndCache(t *testing.T) {
 	for i, c := range cands {
 		pairs = append(pairs, [2]string{followees[39-(i%30)], c}) // only the newest 30 followees follow candidates
 	}
-	env := newSugEnv(t, SuggestionLimits{SampleFollowees: 30, EdgeLimit: 30, HydrateMax: 10, MaxResults: 5}, snap, edgesOf(pairs...), cands)
+	env := newSugEnv(t, SuggestionLimits{SampleFollowees: 30, EdgeLimit: edgeLimit, HydrateMax: 10, MaxResults: 5}, snap, edgesOf(pairs...), cands)
 
 	ctx, info := obsCtx()
 	ctx, cold := budget.WithCounter(ctx)
@@ -427,14 +446,17 @@ func TestListSuggestedUsers_CapsAndCache(t *testing.T) {
 		t.Fatalf("edge queries = %d, want 1", len(env.repo.queries))
 	}
 	q := env.repo.queries[0]
-	if q.limit != 30 || len(q.followers) != 30 || q.followers[0] != "fe-39" || q.followers[29] != "fe-10" {
-		t.Errorf("query = {limit %d, %d followers from %s to %s}, want the newest 30 followees fe-39..fe-10 and limit 30", q.limit, len(q.followers), q.followers[0], q.followers[len(q.followers)-1])
+	if q.limit != wantLimit || len(q.followers) != 30 || q.followers[0] != "fe-39" || q.followers[29] != "fe-10" {
+		t.Errorf("query = {limit %d, %d followers from %s to %s}, want the newest 30 followees fe-39..fe-10 and limit %d", q.limit, len(q.followers), q.followers[0], q.followers[len(q.followers)-1], wantLimit)
 	}
 	if len(env.dir.calls) != 1 || len(env.dir.calls[0]) != 10 {
 		t.Fatalf("hydration calls = %v, want exactly one of 10 uids", env.dir.calls)
 	}
-	budgettest.Assert(t, "ListSuggestedUsers cold", cold, budgettest.Budget{Reads: 41})
-	t.Logf("BUDGET ListSuggestedUsers cold reads=%d (+1 interceptor = %d, cap 42)", cold.Reads(), cold.Reads()+1)
+	budgettest.Assert(t, "ListSuggestedUsers cold", cold, budgettest.Budget{Reads: wantCold})
+	if cold.Reads() != wantCold {
+		t.Errorf("cold reads = %d, want exactly %d (1 graph + %d edges + 10 profiles): the fixture must reach the cap", cold.Reads(), wantCold, wantLimit)
+	}
+	t.Logf("BUDGET ListSuggestedUsers cold reads=%d (+1 interceptor = %d, cap %d)", cold.Reads(), cold.Reads()+1, wantCold+1)
 	if got := field(info, fieldSuggestCacheHit); got != false {
 		t.Errorf("suggestions_cache_hit = %v on the cold call", got)
 	}
@@ -793,10 +815,10 @@ func TestSuggestionLimits_Normalized(t *testing.T) {
 		in   SuggestionLimits
 		want SuggestionLimits
 	}{
-		{"zero is the config default", SuggestionLimits{}, SuggestionLimits{SampleFollowees: 30, EdgeLimit: 30, HydrateMax: 10, MaxResults: 5, CacheTTL: time.Hour}},
+		{"zero is the config default", SuggestionLimits{}, SuggestionLimits{SampleFollowees: 30, EdgeLimit: 20, HydrateMax: 10, MaxResults: 5, CacheTTL: time.Hour}},
 		{"in range is kept", SuggestionLimits{SampleFollowees: 7, EdgeLimit: 12, HydrateMax: 20, MaxResults: 3, CacheTTL: time.Minute}, SuggestionLimits{SampleFollowees: 7, EdgeLimit: 12, HydrateMax: 20, MaxResults: 3, CacheTTL: time.Minute}},
 		{"above the bound is clamped", SuggestionLimits{SampleFollowees: 99, EdgeLimit: 99, HydrateMax: 99, MaxResults: 99}, SuggestionLimits{SampleFollowees: 30, EdgeLimit: 50, HydrateMax: 50, MaxResults: 5, CacheTTL: time.Hour}},
-		{"negative is the default", SuggestionLimits{SampleFollowees: -1, EdgeLimit: -1, HydrateMax: -1, MaxResults: -1, CacheTTL: -time.Second}, SuggestionLimits{SampleFollowees: 30, EdgeLimit: 30, HydrateMax: 10, MaxResults: 5, CacheTTL: time.Hour}},
+		{"negative is the default", SuggestionLimits{SampleFollowees: -1, EdgeLimit: -1, HydrateMax: -1, MaxResults: -1, CacheTTL: -time.Second}, SuggestionLimits{SampleFollowees: 30, EdgeLimit: 20, HydrateMax: 10, MaxResults: 5, CacheTTL: time.Hour}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

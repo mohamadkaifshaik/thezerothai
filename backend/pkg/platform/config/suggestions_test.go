@@ -44,8 +44,8 @@ func TestLoad_ProfileGraphDefaults(t *testing.T) {
 		t.Errorf("SuggestionsCallsPerDay = %d, want 50", rl.SuggestionsCallsPerDay)
 	}
 	s := cfg.Suggestions
-	if s.SampleFollowees != 30 || s.EdgeLimit != 30 || s.HydrateMax != 10 || s.MaxResults != 5 || s.CacheTTL != time.Hour || len(s.UserIDs) != 0 {
-		t.Errorf("Suggestions = %+v, want 30/30/10/5/1h and no curated uids", s)
+	if s.SampleFollowees != 30 || s.EdgeLimit != 20 || s.HydrateMax != 10 || s.MaxResults != 5 || s.CacheTTL != time.Hour || len(s.UserIDs) != 0 {
+		t.Errorf("Suggestions = %+v, want 30/20/10/5/1h and no curated uids (ADR-0024 Amendment 2 B1(b): edge limit 20, cold cap 32)", s)
 	}
 }
 

@@ -25,9 +25,10 @@ const (
 
 // maxCandidatesPerFollowee is how many candidates one sampled followee may contribute to a window (W3-22 L-5): its
 // newest three usable edges. Without it one very active account that many people follow (a follow-back bait account
-// that follows thirty promotion accounts in a minute) fills the whole 30-edge window and picks every row for all of
-// its followers. A constant, not config: it is part of the ranking, like minSuggestions. It does not free the window
-// (a flooder's edges are still the newest 30 the one query returns): it bounds the damage to three candidates, which
+// that follows thirty promotion accounts in a minute) fills the whole EdgeLimit-edge window (20 by default, ADR-0024
+// Amendment 2) and picks every row for all of its followers. A constant, not config: it is part of the ranking, like
+// minSuggestions. It does not free the window (a flooder's edges are still the newest EdgeLimit the one query
+// returns): it bounds the damage to three candidates, which
 // shows in the log as source=fof with candidates <= 3 (docs/runbooks/graph.md section 6).
 const maxCandidatesPerFollowee = 3
 
@@ -48,8 +49,9 @@ type Suggestion struct {
 // Suggester is the candidate source behind ListSuggestedUsers (ADR-0024 D8). The default is friends of friends with
 // the curated fallback (option a, c); option (b) or a precomputed list implements this interface and is passed as
 // Deps.Suggester, and the RPC, its cache and its read cap do not change. Suggest receives the viewer's cached
-// Snapshot (0 reads); the RPC's hard cap (42 reads cold) assumes it makes at most one query of at most
-// SuggestionLimits.EdgeLimit documents and returns at most SuggestionLimits.HydrateMax candidates.
+// Snapshot (0 reads); the RPC's hard cap (32 reads cold at the default EdgeLimit 20; 42 at 30) assumes it makes at
+// most one query of at most SuggestionLimits.EdgeLimit documents and returns at most SuggestionLimits.HydrateMax
+// candidates.
 type Suggester interface {
 	Suggest(ctx context.Context, viewerUID string, snap Snapshot) (Suggestion, error)
 }
@@ -122,7 +124,7 @@ func (f *friendsOfFriends) Suggest(ctx context.Context, viewer string, snap Snap
 // rankedFriendsOfFriends runs the one query (the newest follows made by the viewer's newest SampleFollowees
 // followees), drops what suggestable() refuses, counts how many sampled followees follow each candidate and orders
 // by that count, then by a hash of (viewer, candidate, IST day) so the order is stable within a day and shuffles
-// across days. A count of one is the common case with the default 30-edge window, so the hash is the real order.
+// across days. A count of one is the common case with the default 20-edge window, so the hash is the real order.
 //
 // W3-22 L-5, both at 0 reads: a sampled followee the Directory cache already knows is not ACTIVE is left out of the
 // query's follower list (a suspended spam account no longer steers, and its share of the window goes to the others),
@@ -219,7 +221,7 @@ func capLen(s []string, n int) []string {
 // unit tests, safe and the read cap hard even if a caller builds the struct by hand).
 func (l SuggestionLimits) normalized() SuggestionLimits {
 	l.SampleFollowees = boundedOr(l.SampleFollowees, 30, recentFollowingMax)
-	l.EdgeLimit = boundedOr(l.EdgeLimit, 30, maxEdgesLimit)
+	l.EdgeLimit = boundedOr(l.EdgeLimit, 20, maxEdgesLimit)
 	l.HydrateMax = boundedOr(l.HydrateMax, 10, 50)
 	l.MaxResults = boundedOr(l.MaxResults, 5, 5)
 	if l.CacheTTL <= 0 {

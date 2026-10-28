@@ -47,9 +47,10 @@ type RateLimitConfig struct {
 	// SuggestionsCallsPerDay is the in-memory daily cap on ListSuggestedUsers calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env SUGGESTIONS_CALLS_PER_DAY, logged as limit_name "suggestions_daily" (ADR-0024 D10).
 	//
-	// Default 50. Worst case per account per day: 50 calls x 42 cold reads x 3 instances (the cap is per instance) = 6,300
-	// reads, already bounded by the per-uid daily read budget (READ_BUDGET_PER_UID_PER_DAY, ADR-0010 D5). A warm call costs
-	// 1 read (the per-viewer cache, SUGGESTIONS_CACHE_TTL).
+	// Default 50. Worst case per account per day: 50 calls x 32 cold reads (SUGGESTIONS_EDGE_LIMIT 20, ADR-0024 Amendment 2
+	// B1(b); it was 42 at 30) x 3 instances (the cap is per instance) = 4,800 reads, under the 6,000 per-uid daily read
+	// budget (READ_BUDGET_PER_UID_PER_DAY 2,000 x 3 instances, ADR-0010 D5), so this call cap binds first. A warm call
+	// costs 1 read (the per-viewer cache, SUGGESTIONS_CACHE_TTL).
 	SuggestionsCallsPerDay int64
 
 	// ProfileUpdatesPerDay is the in-memory daily cap on UpdateProfile calls (one counter per uid per instance,
