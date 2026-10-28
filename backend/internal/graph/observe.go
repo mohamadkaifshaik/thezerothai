@@ -27,6 +27,12 @@ const (
 	fieldConfirmedMissing = "confirmed_missing"
 	fieldLazyGone         = "lazy_removed"
 	fieldTxnAttempt       = "txn_attempts"
+	// ADR-0025 W3-27: how a Follow ended (edge, requested or replay), whether an Unfollow withdrew a request (request or
+	// none), the pending requests a Block deleted, and the hash of the Follow target (the D6 contention signal).
+	fieldFollowOutcome = "follow_outcome"
+	fieldWithdraw      = "withdraw"
+	fieldRequestsGone  = "requests_removed"
+	fieldTargetHash    = "target_uid_hash"
 	// ListSuggestedUsers (ADR-0024 D8): which source built the rows (fof, curated or none), how many candidate uids went
 	// to hydration, and whether the rows came from the per-viewer cache. Counts and enums only, never uids.
 	fieldSuggestSource     = "source"

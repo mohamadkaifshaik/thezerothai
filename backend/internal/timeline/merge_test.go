@@ -236,30 +236,27 @@ func BenchmarkTimelineMerge(b *testing.B) {
 	}
 }
 
-func TestIsPublic_FailsClosed(t *testing.T) {
+func TestModerationVisible(t *testing.T) {
 	t.Parallel()
-	for v, want := range map[posts.Visibility]bool{
-		posts.VisibilityPublic:    true,
-		posts.VisibilityFollowers: false,
-		"":                        false,
-	} {
-		if got := isPublic(&posts.Post{Visibility: v}); got != want {
-			t.Errorf("isPublic(%q) = %v, want %v", v, got, want)
+	// ADR-0016: a post a moderator hid is dropped even though it is PUBLIC (takedown and suspension). The stored
+	// visibility is never consulted (ADR-0025 D2): a FOLLOWERS or empty value on a doc does not hide it.
+	for _, v := range []posts.Visibility{posts.VisibilityPublic, posts.VisibilityFollowers, ""} {
+		if !moderationVisible(&posts.Post{Visibility: v}) {
+			t.Errorf("moderationVisible dropped a post with stored visibility %q", v)
 		}
 	}
-	// ADR-0016: a post a moderator hid is dropped even though it is PUBLIC (takedown and suspension).
 	for _, hidden := range []*posts.Post{
 		{Visibility: posts.VisibilityPublic, Moderation: "TAKEN_DOWN"},
 		{Visibility: posts.VisibilityPublic, Moderation: "SUSPENDED_AUTHOR"},
 	} {
-		if isPublic(hidden) {
-			t.Errorf("isPublic kept a %s post", hidden.Moderation)
+		if moderationVisible(hidden) {
+			t.Errorf("moderationVisible kept a %s post", hidden.Moderation)
 		}
 	}
-	p := mk(9, 90)
-	p.Visibility = posts.VisibilityFollowers
-	if page := Merge([]Source{{Posts: []*posts.Post{p, mkPublic(8, 80)}}}, 10, isPublic); len(page.Items) != 1 {
-		t.Errorf("Merge kept %d posts, want only the public one", len(page.Items))
+	hid := mk(9, 90)
+	hid.Moderation = "TAKEN_DOWN"
+	if page := Merge([]Source{{Posts: []*posts.Post{hid, mkPublic(8, 80)}}}, 10, moderationVisible); len(page.Items) != 1 {
+		t.Errorf("Merge kept %d posts, want only the visible one", len(page.Items))
 	}
 }
 

@@ -71,7 +71,10 @@ type Deps struct {
 	// decides viewer-state hydration (posts.HydrateViewer), CursorKey seals the page tokens (config.CursorHMACKey) and
 	// ReadOnly (DEGRADED_MODE=readonly) skips the lazy prune. Without Graph or CursorKey the list answers an internal
 	// error; Flags nil hydrates nothing.
-	Graph     graph.Reader
+	Graph graph.Reader
+	// Audience decides the protected-account rows of both lists (ADR-0025 D4, W3-29b): apiserver passes
+	// posts.AudienceOf(postsSvc). Nil drops no row for a protected author (the pre-ADR-0025 state).
+	Audience  RowAudience
 	Flags     posts.FlagChecker
 	CursorKey []byte
 	ReadOnly  bool

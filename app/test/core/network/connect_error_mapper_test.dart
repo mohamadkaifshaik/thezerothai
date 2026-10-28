@@ -346,6 +346,27 @@ void main() {
       expect(mapped.message, 'Please sign in again');
     });
 
+    test(
+      'ERROR_REASON_PROTECTED_ACCOUNT maps to ProtectedAccountException',
+      () {
+        final mapped = mapConnectError(
+          _withDetail(
+            connect.Code.failedPrecondition,
+            'server text',
+            common.ErrorDetail(
+              reason: common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT,
+              message: 'protected',
+            ),
+          ),
+        );
+        expect(mapped, isA<ProtectedAccountException>());
+        expect(
+          mapped.message,
+          "You can't repost or quote posts from a protected account.",
+        );
+      },
+    );
+
     group('ERROR_REASON_REPLY_NOT_ALLOWED (ADR-0021)', () {
       connect.ConnectException replyNotAllowed([
         Map<String, String> metadata = const {},

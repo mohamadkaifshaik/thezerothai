@@ -102,6 +102,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
+	graphRepo.SetTxProfiles(identityRepo)
 	postsRepo := posts.NewFirestoreRepo(client)
 	// Takedown and the purge copy phase drive posts' clean-up (P5): counters and the reposts-doc delete.
 	postsRepo.SetWriters(posts.WriteDeps{Counters: identityRepo})

@@ -12,16 +12,22 @@ import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../onboarding/data/identity_repository.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
+import '../domain/private_accounts_feature_flag.dart';
+import 'bloc/protect_posts_cubit.dart';
 import 'widgets/appearance_sheet.dart';
+import 'widgets/protect_posts_row.dart';
 
 /// Phase 0 settings: account info + sign out. Notification, privacy and
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
 /// account-settings feature. "Blocked accounts"/"Muted accounts" (graph
 /// plan) only appear when the graph feature flag is on (ADR-0008 D6) —
-/// there is deliberately no "private account" toggle: private accounts are
-/// deferred (ADR-0008 D1).
+/// "Protect your posts" (W3-33b, ADR-0025) shows with `private_accounts` on,
+/// and for an already protected account whatever the flag (the undo rule).
 ///
 /// The rows are grouped into sections; a section whose rows are all gated
 /// off is not shown at all.
@@ -68,6 +74,33 @@ class SettingsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The protect switch's cubit exists only when the row can show, so a
+    // caller without the flag reads no IdentityRepository here.
+    final isPrivate = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile?.isPrivate ?? false,
+    );
+    final candidate =
+        isPrivate || isFeatureEnabled(context, kFeaturePrivateAccounts);
+    if (!candidate) return _buildList(context, showProtect: false);
+    return BlocProvider<ProtectPostsCubit>(
+      create: (context) => ProtectPostsCubit(
+        identityRepository: context.read<IdentityRepository>(),
+        onProfileUpdated: (profile) => context.read<OnboardingBloc>().add(
+          OnboardingProfileUpdated(profile),
+        ),
+      ),
+      child: Builder(
+        builder: (context) => _buildList(
+          context,
+          showProtect:
+              isPrivate ||
+              !context.select((ProtectPostsCubit c) => c.state.refused),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList(BuildContext context, {required bool showProtect}) {
     final masterDetail =
         MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
     void open(String path) =>
@@ -142,6 +175,7 @@ class SettingsList extends StatelessWidget {
       (
         'Privacy & safety',
         [
+          if (showProtect) const ProtectPostsRow(),
           if (graphEnabled) ...[
             SettingsRow(
               icon: Icons.block_outlined,

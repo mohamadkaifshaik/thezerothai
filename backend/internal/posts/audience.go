@@ -226,3 +226,32 @@ func ApplyWireVisibility(v *postsv1.PostView, protectedAuthor bool) {
 		v.Post.Visibility = postsv1.Visibility_VISIBILITY_FOLLOWERS
 	}
 }
+
+// Audience returns the service's Audience, for the owner-only lists of other modules that decide rows through the
+// same predicate (engagement ListBookmarks and ListLikedPosts, W3-29b).
+func (s *service) Audience() *Audience { return s.aud }
+
+// AudienceOf returns the Audience of a posts Service built by New, or nil for any other implementation (a test fake).
+func AudienceOf(svc Service) *Audience {
+	if h, ok := svc.(interface{ Audience() *Audience }); ok {
+		return h.Audience()
+	}
+	return nil
+}
+
+// NewSnapshotAudience builds an Audience for a read path that already holds the viewer's graph snapshot and must not
+// spend a read on a block check (the timelines, W3-30). The block test is the snapshot's blockedBy set alone: a caller
+// whose blockedBy set overflowed is handled by the caller's own fail-closed rule (timeline.embedAllowed), not here. A
+// nil loader means nobody is protected. The protected rule itself is still CanSee, written once on identity.ProtectedSet.
+func NewSnapshotAudience(a identity.ProtectedAuthors) *Audience {
+	return newAudience(a, func(_ context.Context, snap graph.Snapshot, _, other string) (bool, error) {
+		return snap.BlockedBy[other], nil
+	})
+}
+
+// VisibleAuthor reports whether viewer may see posts by author (CanSee), asking the loader only when the author is
+// neither the viewer nor followed. Reads: +0 (the loader is detached and instance-cached). A set error is UNAVAILABLE:
+// never read it as "visible".
+func (a *Audience) VisibleAuthor(ctx context.Context, viewer, author string, snap graph.Snapshot) (bool, error) {
+	return a.visibleAuthor(ctx, viewer, author, snap)
+}

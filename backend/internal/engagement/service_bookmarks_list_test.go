@@ -300,11 +300,6 @@ func TestListBookmarks_DropRules(t *testing.T) {
 		{"overflow keeps the caller's own post", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: caller}, "", ""},
 		{"overflow keeps the caller's own quote of a foreign author", graph.Snapshot{BlockedByOverflow: true}, quote("", caller, "e"), "", ""},
 		// W2-14 L-2: the same 0-read check Viewable applies. A non-public post needs the caller to follow its author.
-		{"followers-only, not followed", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", "hidden"},
-		{"followers-only, followed", graph.Snapshot{Following: map[string]bool{"a": true}}, &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", ""},
-		{"followers-only, followed someone else", graph.Snapshot{Following: map[string]bool{"x": true}}, &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", "hidden"},
-		{"followers-only, the caller's own", snapOf(nil, nil, nil), &posts.Post{AuthorID: caller, Visibility: posts.VisibilityFollowers}, "", ""},
-		{"no recorded visibility fails closed, like Viewable", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Visibility: "UNKNOWN"}, "", "hidden"},
 		{"own post", snapOf([]string{"viewer"}, nil, []string{"viewer"}), &posts.Post{AuthorID: caller}, "", ""},
 		{"own quote of a blocked author", snapOf([]string{"e"}, nil, nil), quote("", caller, "e"), "", ""},
 		{"quote of the caller's own post", snapOf(nil, nil, nil), quote("", "a", caller), "", ""},

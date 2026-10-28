@@ -301,8 +301,6 @@ func TestListLikedPosts_DropRules(t *testing.T) {
 		{"quote of an unrelated author", snapOf([]string{"x"}, nil, nil), quote("a", "e"), "", ""},
 		{"overflow fails a foreign author closed", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: "a"}, "", "blocked"},
 		{"overflow keeps the caller's own post", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: caller}, "", ""},
-		{"followers-only, not followed", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", "hidden"},
-		{"followers-only, followed", graph.Snapshot{Following: map[string]bool{"a": true}}, &posts.Post{AuthorID: "a", Visibility: posts.VisibilityFollowers}, "", ""},
 		{"own post", snapOf([]string{"viewer"}, nil, []string{"viewer"}), &posts.Post{AuthorID: caller}, "", ""},
 	}
 	for _, tt := range tests {

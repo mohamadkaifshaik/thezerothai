@@ -37,6 +37,7 @@ String engagementErrorMessage(
               : 'likes'}. "
           'It resets tomorrow.',
     final RateLimitedException e => rateLimitedMessage(e),
+    ProtectedAccountException() => ProtectedAccountException.userMessage,
     EmailNotVerifiedException() =>
       'Please verify your email address to continue.',
     DegradedModeException() =>

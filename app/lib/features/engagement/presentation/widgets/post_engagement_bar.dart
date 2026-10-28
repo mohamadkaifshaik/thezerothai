@@ -8,9 +8,13 @@ import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/share/share_links.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
+    as pbenum
+    show Visibility;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post_action_bar.dart';
 import '../../../../shared/widgets/post_share_menu.dart';
+import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';
 import '../../../posts/presentation/quote_gate.dart';
@@ -173,10 +177,19 @@ class PostEngagementBar extends StatelessWidget {
     // Quote needs `engagement` + `quotes` in GetMe.enabled_features and no
     // remembered server FEATURE_DISABLED for it (W2-11).
     final canQuote = quoteCreationAllowed(context);
+    // Another user's followers-only post (a protected account's, ADR-0025):
+    // the server refuses Repost and Quote with PROTECTED_ACCOUNT, so the sheet
+    // shows them disabled. Advisory; the server stays authoritative.
+    final viewerId = context.read<OnboardingBloc>().state.profile?.userId;
+    final restricted =
+        view.post.kind != PostKind.POST_KIND_REPOST &&
+        view.post.visibility == pbenum.Visibility.VISIBILITY_FOLLOWERS &&
+        view.post.author.userId != viewerId;
     final choice = await showRepostSheet(
       context,
       reposted: current.reposted,
       canQuote: canQuote,
+      restricted: restricted,
     );
     if (choice == null) return;
     switch (choice) {

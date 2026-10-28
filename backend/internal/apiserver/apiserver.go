@@ -130,6 +130,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// than service.go opening its own separate write.
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
+	graphRepo.SetTxProfiles(identityRepo)
 	identityCache := identity.NewCache(cfg.CacheTTL)
 	graphCache := graph.NewCache(cfg.CacheTTL)
 
@@ -324,6 +325,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// ListBookmarks (ADR-0023 D2, D6): the graph snapshot filters blocked and muted authors, the flags decide viewer-state
 		// hydration, the cursor key seals the page tokens, and readonly mode skips the lazy prune.
 		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
+		// W3-29b: both lists decide protected authors' rows through the one posts.Audience (ADR-0025 D4).
+		Audience: rowAudience(posts.AudienceOf(postsSvc)),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -343,7 +346,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals:  removals,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
-	})
+	}, timeline.WithProtectedAuthors(protectedAuthors)) // ADR-0025 D4 (W3-30)
 
 	// --- account lifecycle (ADR-0011, P8): DeleteAccount / RequestAccountExport / GetAccountExport and the job
 	// handlers. The Firebase Auth admin client (built above) is handed only to identity (IAM control C2); the
@@ -569,4 +572,13 @@ func (a accountStatusAdapter) AccountStatus(ctx context.Context, uid string) (bo
 	default:
 		return exists, authn.AccountStatusUnknown, nil
 	}
+}
+
+// rowAudience adapts the posts Audience to engagement.Deps.Audience. A nil Audience (a posts service that is not the
+// concrete one) must stay a nil interface, not a typed nil, so the lists skip the protected decision.
+func rowAudience(a *posts.Audience) engagement.RowAudience {
+	if a == nil {
+		return nil
+	}
+	return a
 }

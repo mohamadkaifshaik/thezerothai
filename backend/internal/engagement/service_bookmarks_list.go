@@ -92,10 +92,10 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 	}
 	res, err := s.dropRows(ctx, uid, postIDs, live)
 	if err != nil {
-		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: %w", err), uid)
+		return BookmarkPage{}, dropErr("list bookmarks", uid, err)
 	}
-	for _, i := range res.Kept {
-		page.Rows = append(page.Rows, BookmarkRow{Post: live[postIDs[i]], BookmarkedAt: rows[i].BookmarkedAt})
+	for k, i := range res.Kept {
+		page.Rows = append(page.Rows, BookmarkRow{Post: live[postIDs[i]], BookmarkedAt: rows[i].BookmarkedAt, Hint: res.Hints[k]})
 	}
 	if len(page.Rows) > 0 {
 		page.Viewer = posts.HydrateViewer(ctx, s.d.Flags, &Module{s: s}, uid)

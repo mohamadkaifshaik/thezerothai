@@ -124,6 +124,17 @@ is in the error metadata the client sees, not in the log line, so identify it by
 3. **Disable the account** (section 3). Leave its data in place for evidence; review it before any purge.
 4. Readonly mode (section 4) if writes are the problem across the board.
 
+**Request spam to protected accounts (ADR-0025 D13, W3-27).** A Follow of a protected account is a request: the same
+RPC, the same `follows` quota (200/day, 50 for new accounts), the same Follow bucket (`RATE_LIMIT_GRAPH_FOLLOW_PER_MIN`
+30/min per instance, so up to 90/min with 3 instances), plus a cap of 500 pending requests per requester
+(`limit=follow_requests`, `fs_reads`/`fs_writes` 4/3 per request). One push per requester per target per 90 days (the
+`follow_request_{requester}` notification id; a withdraw does not delete the row). A victim with a flood of requests is
+not a write storm: each requester is bounded by 500 and by the daily quota. Detect: `jsonPayload.follow_outcome="requested"`
+grouped by `uid_hash`; many different hashes against one `target_uid_hash` is a brigade (sign-up farm, then section 2).
+Levers are the same as below; a **Block** by the victim deletes that requester's request and removes the entry (no extra
+reads), and `FEATURE_PRIVATE_ACCOUNTS` does not gate requests, so lowering `QUOTA_FOLLOWS_PER_DAY` is the quickest brake.
+See `docs/runbooks/graph.md` section 7.
+
 **After:** a follow-farm account that is deleted needs the graph purge in `docs/runbooks/account-deletion.md`. Other
 graph failure modes are in `docs/runbooks/graph.md`.
 

@@ -44,11 +44,15 @@ type Repo interface {
 	// GetSnapshot reads graph/{uid} (Reader.Snapshot's cache-miss path). Missing doc -> empty Snapshot, no error.
 	GetSnapshot(ctx context.Context, uid string) (Snapshot, error)
 
-	// Follow runs the whole Follow transaction (ADR-0008 T7). dailyLimit is the caller's resolved
+	// Follow runs the whole Follow transaction (ADR-0008 T7, ADR-0025 D6: the target's users doc is read inside it, so the
+	// repo decides edge versus request; the returned FollowState says which). dailyLimit is the caller's resolved
 	// follows/day cap (service.go picks the new-account or standard limit before calling this).
-	Follow(ctx context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
+	Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
 	// Unfollow is a blind batch (ADR-0008 T7): changed=false, nil error means "wasn't following" (0 writes).
 	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
+	// WithdrawRequest is Unfollow's second blind batch (ADR-0025 D7), run only when Unfollow found no edge: it deletes the
+	// caller's pending follow request to targetUID and the `requested` entry. changed=false means nothing to withdraw (0 writes).
+	WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 
 	// Block runs the whole Block transaction (ADR-0008 T8). limits picks the new-account vs standard quota
 	// tier internally (from the graph doc's own Firestore creation time, 0 extra reads).

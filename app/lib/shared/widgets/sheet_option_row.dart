@@ -21,15 +21,18 @@ class SheetOptionRow extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Widget? trailing;
   final bool? selected;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final enabled = onTap != null;
+    final tint = enabled ? null : theme.disabledColor;
     return Semantics(
       button: true,
+      enabled: enabled,
       selected: selected,
       inMutuallyExclusiveGroup: selected == null ? null : true,
       label: label,
@@ -46,10 +49,13 @@ class SheetOptionRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(icon, size: AppIconSize.lg),
+                Icon(icon, size: AppIconSize.lg, color: tint),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
-                  child: Text(label, style: theme.textTheme.titleMedium),
+                  child: Text(
+                    label,
+                    style: theme.textTheme.titleMedium?.copyWith(color: tint),
+                  ),
                 ),
                 if (trailing != null) ...[
                   const SizedBox(width: AppSpacing.md),
