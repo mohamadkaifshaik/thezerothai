@@ -202,6 +202,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithExtrasFlags(featureFlags),
+		// W3-28b: an unprotect publishes the privacy_public job (graph accepts the pending requests).
+		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
 		identity.WithPrivacy(identity.PrivacyDeps{
 			Repo: identityRepo, Set: protectedAuthors,
 			Limits: identity.PrivacyLimits{TogglesPerDay: int64(cfg.Quota.PrivacyTogglesPerDay), SetMax: cfg.Privacy.ProtectedAuthorsMax},
@@ -414,6 +416,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// action, so a message published by a revision that had it on is never left in a retry loop.
 	if err := lifecycle.RegisterJobHandler(media.JobKindProfileMediaRetired, mediaMod.jobs.RetireHandler()); err != nil {
 		return nil, nil, fmt.Errorf("profile_media_retired job handler: %w", err)
+	}
+	// privacy_public (ADR-0025 D8, W3-28b): graph accepts the pending follow requests of an account that went public.
+	// Never gated: a message published before a flag change is still honoured.
+	if err := lifecycle.RegisterJobHandler(graph.JobKindPrivacyPublic, graphSvc.PrivacyPublicJob(graphRepo, log)); err != nil {
+		return nil, nil, fmt.Errorf("privacy_public job handler: %w", err)
 	}
 	identityServer := identity.NewServer(identitySvc,
 		identity.WithAllowAnonymous(cfg.AuthEmulator), identity.WithFlagChecker(featureFlags),

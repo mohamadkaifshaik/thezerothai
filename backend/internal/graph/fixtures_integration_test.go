@@ -69,6 +69,8 @@ type graphSvcHandle struct {
 	counter identity.FollowRequestCounter
 	// setDirectory re-wires the service's identity.Directory (e.g. with a test decorator).
 	setDirectory func(identity.Directory)
+	// privacyJob builds the privacy_public job (W3-28b) over the concrete service.
+	privacyJob func(graph.PendingAccepter) *graph.PrivacyPublicJob
 }
 
 // wiredOption tweaks the graph.Deps newWired builds (flags, quota tiers, new-account window).
@@ -143,7 +145,8 @@ func newInstance(client *firestore.Client, opts ...wiredOption) wired {
 	)
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
-	return wired{client: client, identity: identitySvc, graph: &graphSvcHandle{Service: graphSvc, repo: graphRepo, counter: graphSvc, setDirectory: graphSvc.SetDirectory}, sweep: &invariantSweep{}}
+	return wired{client: client, identity: identitySvc, graph: &graphSvcHandle{Service: graphSvc, repo: graphRepo, counter: graphSvc, setDirectory: graphSvc.SetDirectory,
+		privacyJob: func(p graph.PendingAccepter) *graph.PrivacyPublicJob { return graphSvc.PrivacyPublicJob(p, nil) }}, sweep: &invariantSweep{}}
 }
 
 func mustCreateProfile(t *testing.T, svc identity.Service, uid, handle string) {
