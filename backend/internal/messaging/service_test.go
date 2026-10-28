@@ -62,7 +62,7 @@ var rpcs = []struct {
 }
 
 // TestService_FlagModes: off / allowlist / percent / on x the two RPC classes x callers inside and outside the cohort.
-// Per-caller RPCs are FEATURE_DISABLED unless the flag is on for the caller; the others reach the skeleton's
+// Per-caller RPCs are FEATURE_DISABLED unless the flag is on for the caller; the others reach their own validation (ListConversations) or the skeleton's
 // ErrNotImplemented unless the flag is globally off. A disabled answer carries metadata feature=messaging.
 func TestService_FlagModes(t *testing.T) {
 	tests := []struct {
@@ -91,7 +91,7 @@ func TestService_FlagModes(t *testing.T) {
 					open = tt.wantOn
 				}
 				if open {
-					if rpc.name == "SendMessage" {
+					if rpc.name == "SendMessage" || rpc.name == "ListConversations" {
 						var ae *apierr.Error
 						if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
 							t.Fatalf("err = %v, want the request's VALIDATION (the gate is open)", err)

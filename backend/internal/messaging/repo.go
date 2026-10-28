@@ -3,6 +3,8 @@ package messaging
 import (
 	"context"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
 // Repo is the storage seam of messaging.Service: the three collections of ADR-0027 D1 behind one interface, so a group
@@ -12,6 +14,23 @@ type Repo interface {
 	GetConversation(ctx context.Context, id string) (conv ConvDoc, found bool, err error)
 	// Send runs the SendMessage transaction (ADR-0027 D4 step 5).
 	Send(ctx context.Context, p SendParams) (SendResult, error)
+	// ListEntries reads one page of the caller's entries in a folder (W7-7): reads max(len(rows), 1).
+	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
+	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
+	CountRequests(ctx context.Context, uid string) (int64, error)
+}
+
+// EntryRow is one inbox or requests entry with its conversation id (the document id).
+type EntryRow struct {
+	ID string
+	EntryDoc
+}
+
+// ListQuery is one page of ListEntries: `lastMessageAt DESC, __name__ DESC`, Limit rows. Before resumes below a position
+// (an older page: StartAfter); After keeps only entries strictly newer than a position (a `since` refresh: EndBefore).
+type ListQuery struct {
+	Limit         int
+	Before, After *cursor.Cursor
 }
 
 // SendParams is everything the send transaction needs; the service has already validated, checked blocks and flags.

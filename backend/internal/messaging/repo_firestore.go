@@ -276,3 +276,52 @@ func sortedPair(a, b string) []string {
 	}
 	return []string{a, b}
 }
+
+// requestCountCap bounds CountRequests (CLAUDE.md rule 5: every query has a Limit, aggregations included). Firestore bills
+// a count() as 1 read per 1,000 matches, so the cap keeps "Message requests (N)" at 1 read; the client shows "999+".
+const requestCountCap = 1000
+
+// ListEntries implements Repo: `users/{uid}/{folder}` ordered `lastMessageAt DESC, __name__ DESC` (automatic single-field
+// index, no composite), Limit q.Limit. Reads one per document returned, minimum 1 (an empty query bills 1). folder is
+// dmInboxCollection or dmRequestsCollection: the caller picks it from an enum, never from request text.
+func (r *FirestoreRepo) ListEntries(ctx context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {
+	col := r.client.Collection(usersCollection).Doc(uid).Collection(folder)
+	query := col.OrderBy("lastMessageAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	if q.Before != nil {
+		query = query.StartAfter(q.Before.CreatedAt, col.Doc(q.Before.DocID))
+	}
+	if q.After != nil {
+		query = query.EndBefore(q.After.CreatedAt, col.Doc(q.After.DocID))
+	}
+	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
+	budget.FromContext(ctx).AddQueryReads(len(docs))
+	if err != nil {
+		return nil, fmt.Errorf("messaging: list %s: %w", folder, err)
+	}
+	out := make([]EntryRow, 0, len(docs))
+	for _, d := range docs {
+		var e EntryDoc
+		if err := d.DataTo(&e); err != nil {
+			return nil, fmt.Errorf("messaging: decode entry: %w", err)
+		}
+		out = append(out, EntryRow{ID: d.Ref.ID, EntryDoc: e})
+	}
+	return out, nil
+}
+
+// CountRequests implements Repo: count() on users/{uid}/dmRequests, Limit requestCountCap. 1 read.
+func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, error) {
+	q := r.client.Collection(usersCollection).Doc(uid).Collection(dmRequestsCollection).Limit(requestCountCap)
+	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
+	budget.FromContext(ctx).AddReads(1)
+	if err != nil {
+		return 0, fmt.Errorf("messaging: count requests: %w", err)
+	}
+	var out struct {
+		Count int64 `firestore:"count"`
+	}
+	if err := res.DataTo(&out); err != nil {
+		return 0, fmt.Errorf("messaging: decode request count: %w", err)
+	}
+	return out.Count, nil
+}
