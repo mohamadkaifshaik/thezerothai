@@ -13,10 +13,13 @@ import '../../../shared/widgets/app_pill_button.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../shared/widgets/post_pin_control.dart';
 import '../../graph/data/graph_repository.dart';
+import '../../messages/domain/messaging_feature_flag.dart';
+import '../../messages/presentation/open_conversation.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -312,6 +315,13 @@ ProfileHeader _header(
     showPostsCount: showPostsCount,
     nameKey: nameKey,
     reportsEnabled: isFeatureEnabled(context, kFeatureReports),
+    // W7-17: the envelope button, only with `messaging` on for the caller.
+    onMessage:
+        !state.isOwnProfile && isFeatureEnabled(context, kFeatureMessaging)
+        ? () => unawaited(
+            openConversationWith(context, _messageRecipient(state.profile!)),
+          )
+        : null,
     onRelationshipChanged: (relationship) =>
         context.read<ProfileCubit>().relationshipChanged(relationship),
     onEditProfile:
@@ -320,6 +330,19 @@ ProfileHeader _header(
         : null,
   );
 }
+
+/// The person a Message button on [profile] writes to.
+common.AuthorSnapshot _messageRecipient(identity.Profile profile) =>
+    common.AuthorSnapshot(
+      userId: profile.userId,
+      handle: profile.handle,
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarThumbUrl.isNotEmpty
+          ? profile.avatarThumbUrl
+          : profile.avatarUrl,
+      verified: profile.verified,
+      isPrivate: profile.isPrivate,
+    );
 
 /// A column that is centered and capped to the mobile width on wide screens,
 /// so the header never stretches edge to edge on tablet/desktop

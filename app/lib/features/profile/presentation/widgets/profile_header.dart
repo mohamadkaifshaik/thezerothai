@@ -48,10 +48,18 @@ class ProfileHeader extends StatelessWidget {
     this.nameKey,
     this.followedBy = false,
     this.onOpenWebsite,
+    this.onMessage,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// Shows the round "Message" (envelope) button left of Follow on another
+  /// user's profile and calls this when it is tapped (W7-17). Only given when
+  /// `messaging` is on for the caller. The button is still left out while the
+  /// viewer blocks the profile (a profile that blocks the viewer is never
+  /// loaded: the server answers NOT_FOUND). Null hides it.
+  final VoidCallback? onMessage;
 
   /// The profile follows the viewer (`GetProfileRelationship.followed_by`,
   /// ADR-0024 D7): shows the "Follows you" chip next to the handle and turns
@@ -100,6 +108,7 @@ class ProfileHeader extends StatelessWidget {
         canReport: reportsEnabled && !isOwnProfile,
         nameKey: nameKey,
         onOpenWebsite: onOpenWebsite,
+        onMessage: isOwnProfile ? null : onMessage,
       );
     }
     return BlocProvider(
@@ -129,6 +138,7 @@ class ProfileHeader extends StatelessWidget {
           nameKey: nameKey,
           followedBy: followedBy,
           onOpenWebsite: onOpenWebsite,
+          onMessage: onMessage,
         ),
       ),
     );
@@ -145,8 +155,10 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.nameKey,
     this.followedBy = false,
     this.onOpenWebsite,
+    this.onMessage,
   });
 
+  final VoidCallback? onMessage;
   final Key? nameKey;
   final identity.Profile profile;
   final bool showActions;
@@ -380,6 +392,10 @@ class _ProfileHeaderBody extends StatelessWidget {
         children: [
           _OverflowMenu(profile: profile, canReport: canReport),
           const SizedBox(width: AppSpacing.xs),
+          if (onMessage != null) ...[
+            MessageButton(handle: profile.handle, onPressed: onMessage!),
+            const SizedBox(width: AppSpacing.xs),
+          ],
           Flexible(child: FollowButton(followedBy: followedBy)),
         ],
       );
@@ -387,7 +403,21 @@ class _ProfileHeaderBody extends StatelessWidget {
     if (showActions) {
       return _OverflowMenu(profile: profile, canReport: canReport);
     }
-    if (canReport) return _ReportOnlyMenu(profile: profile);
+    // Graph off: no Follow, no block data; the Message button (when given)
+    // sits after the Report menu.
+    final message = onMessage;
+    if (canReport || message != null) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (canReport) _ReportOnlyMenu(profile: profile),
+          if (canReport && message != null)
+            const SizedBox(width: AppSpacing.xs),
+          if (message != null)
+            MessageButton(handle: profile.handle, onPressed: message),
+        ],
+      );
+    }
     if (onEditProfile != null) {
       return OutlinedButton(
         style: OutlinedButton.styleFrom(
@@ -413,6 +443,49 @@ String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
   final thumb = profile.bannerThumbUrl;
   final wanted = fullSize ? full : thumb;
   return wanted.isNotEmpty ? wanted : (fullSize ? thumb : full);
+}
+
+/// The round "Message" (envelope) button of another user's profile (W7-17):
+/// a 36dp outlined circle in a 48dp target, left of Follow. Labelled for
+/// screen readers ("Message @handle").
+class MessageButton extends StatelessWidget {
+  const MessageButton({
+    super.key,
+    required this.handle,
+    required this.onPressed,
+  });
+
+  final String handle;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: 'Message @$handle',
+      onPressed: onPressed,
+      constraints: const BoxConstraints.tightFor(
+        width: AppSpacing.minTapTarget,
+        height: AppSpacing.minTapTarget,
+      ),
+      padding: EdgeInsets.zero,
+      icon: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: colors.outline),
+        ),
+        child: SizedBox(
+          width: AppSize.pillCompact,
+          height: AppSize.pillCompact,
+          child: Icon(
+            Icons.mail_outline,
+            size: AppIconSize.md,
+            color: colors.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// "Follows you", beside the handle: a small muted label on a raised surface

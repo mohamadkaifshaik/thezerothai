@@ -66,6 +66,7 @@ class MessageComposerState {
     this.outgoing = const [],
     this.error,
     this.degraded = false,
+    this.cannotMessage = false,
   });
 
   /// The D9 reading of what is typed (the same rules as posts, ADR-0027 F8).
@@ -82,6 +83,11 @@ class MessageComposerState {
   /// shows and Send stays off until the user taps a "Not sent" bubble.
   final bool degraded;
 
+  /// A send was refused with CANNOT_MESSAGE (also reported through
+  /// [MessageComposerCubit.onCannotMessage]); a draft thread (W7-17) turns
+  /// read-only on it.
+  final bool cannotMessage;
+
   bool get isSending => outgoing.any((m) => m.status == OutgoingStatus.sending);
 
   /// One send at a time keeps the order; the field itself stays editable.
@@ -92,12 +98,14 @@ class MessageComposerState {
     List<OutgoingMessage>? outgoing,
     AppException? error,
     bool? degraded,
+    bool? cannotMessage,
     bool clearError = false,
   }) => MessageComposerState(
     draft: draft ?? this.draft,
     outgoing: outgoing ?? this.outgoing,
     error: clearError ? null : (error ?? this.error),
     degraded: degraded ?? this.degraded,
+    cannotMessage: cannotMessage ?? this.cannotMessage,
   );
 }
 
@@ -122,22 +130,49 @@ class MessageComposerState {
 /// - [onActivity] (typing, sending) keeps the thread's poller hot; [onSent]
 ///   lets the thread read the cache back before the row is dropped.
 ///
+/// Draft mode (W7-17): with [recipientUserId] and no [conversationId] the
+/// first send names the recipient (`recipient_user_id`); the server opens (or
+/// continues) the 1:1 conversation and the cubit then sends to the id it
+/// returned and calls [onConversationCreated] once, so the screen can switch
+/// to `/messages/<id>`. A retry before that reuses the same key and the same
+/// recipient.
+///
 /// The text of a message is never logged or reported.
 class MessageComposerCubit extends Cubit<MessageComposerState> {
   MessageComposerCubit({
     required MessagingRepository repository,
-    required this.conversationId,
+    String? conversationId,
+    this.recipientUserId,
+    this.onConversationCreated,
     this.onActivity,
     this.onSent,
     this.onCannotMessage,
     this.onUnexpectedError,
     Uuid? uuid,
-  }) : _repository = repository,
+  }) : assert(
+         (conversationId == null) != (recipientUserId == null),
+         'Exactly one of conversationId and recipientUserId',
+       ),
+       _repository = repository,
+       _conversationId = conversationId,
        _uuid = uuid ?? const Uuid(),
        super(MessageComposerState(draft: analyzePostDraft('')));
 
   final MessagingRepository _repository;
-  final String conversationId;
+
+  /// The conversation sent to; null in draft mode until the first send
+  /// created it.
+  String? _conversationId;
+
+  /// The conversation sent to, null while this is still a draft.
+  String? get conversationId => _conversationId;
+
+  /// The person a draft thread writes to (draft mode only).
+  final String? recipientUserId;
+
+  /// Draft mode: called once with the id of the conversation the first send
+  /// created.
+  final void Function(String conversationId)? onConversationCreated;
   final VoidCallback? onActivity;
   final Future<void> Function()? onSent;
   final VoidCallback? onCannotMessage;
@@ -222,10 +257,12 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   Future<void> _deliver(String key, String text) async {
     final pb.SendMessageResponse response;
     try {
+      final id = _conversationId;
       response = await _repository.sendMessage(
         idempotencyKey: key,
         text: text,
-        conversationId: conversationId,
+        conversationId: id,
+        recipientUserId: id == null ? recipientUserId : null,
       );
     } on AppException catch (error, stack) {
       if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
@@ -248,6 +285,18 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
         ),
       ),
     );
+    if (_conversationId == null) {
+      // Draft mode: the server named the conversation. Later sends use it.
+      final created =
+          response.hasConversation() && response.conversation.id.isNotEmpty
+          ? response.conversation.id
+          : response.message.conversationId;
+      if (created.isNotEmpty) {
+        _conversationId = created;
+        onConversationCreated?.call(created);
+        if (isClosed) return;
+      }
+    }
     try {
       await onSent?.call();
     } on Object catch (error, stack) {
@@ -262,7 +311,13 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     if (error is CannotMessageException) {
       // Nothing to retry: the row goes and the thread turns read-only.
       _keys.remove(text);
-      emit(state.copyWith(outgoing: _replace(key, null), clearError: true));
+      emit(
+        state.copyWith(
+          outgoing: _replace(key, null),
+          cannotMessage: true,
+          clearError: true,
+        ),
+      );
       onCannotMessage?.call();
       return;
     }
