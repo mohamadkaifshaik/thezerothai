@@ -266,3 +266,53 @@ func TestBookmarksKind(t *testing.T) {
 		t.Errorf("valueFor(Likes) = %d, want 0: bookmarks must not leak into other kinds", got)
 	}
 }
+
+// TestPrivacyTogglesKind: the privacyToggles counter (ADR-0025 D8) reserves like the others, rejects with QUOTA_EXCEEDED
+// metadata quota=privacy_toggles, never touches another kind, and the Record field, valueFor and increment ship together
+// (ADR-0021 I-3: the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
+func TestPrivacyTogglesKind(t *testing.T) {
+	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
+	tests := []struct {
+		name     string
+		rec      Record
+		limit    int64
+		wantErr  bool
+		wantUsed int64
+	}{
+		{"first toggle of the day", Record{Day: Today()}, 4, false, 1},
+		{"fourth toggle fits", Record{Day: Today(), PrivacyToggles: 3}, 4, false, 4},
+		{"fifth toggle is refused", Record{Day: Today(), PrivacyToggles: 4}, 4, true, 4},
+		{"other kinds at their cap do not block", Record{Day: Today(), Follows: 200, Bookmarks: 200, Schedules: 50}, 4, false, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBatch{}
+			err := CheckAndReserve(b, ref, tt.rec, PrivacyToggles, tt.limit)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Metadata["quota"] != "privacy_toggles" || len(b.sets) != 0 {
+					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED quota=privacy_toggles and nothing written", err, len(b.sets))
+				}
+				return
+			}
+			got := b.sets[0].(Record)
+			if got.PrivacyToggles != tt.wantUsed || got.Follows != tt.rec.Follows || got.Bookmarks != tt.rec.Bookmarks || got.Schedules != tt.rec.Schedules {
+				t.Errorf("record = %+v, want PrivacyToggles %d and the other kinds untouched", got, tt.wantUsed)
+			}
+		})
+	}
+	if got := (Record{PrivacyToggles: 7}).valueFor(PrivacyToggles); got != 7 {
+		t.Errorf("valueFor(PrivacyToggles) = %d, want 7", got)
+	}
+	if got := (Record{PrivacyToggles: 7}).valueFor(Follows); got != 0 {
+		t.Errorf("valueFor(Follows) = %d, want 0: toggles must not leak into other kinds", got)
+	}
+	var r Record
+	r.increment(PrivacyToggles, 2)
+	if r.PrivacyToggles != 2 || r.Follows != 0 {
+		t.Errorf("increment(PrivacyToggles, 2) = %+v", r)
+	}
+}

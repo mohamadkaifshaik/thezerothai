@@ -86,6 +86,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlLikesList := ratelimit.NewLimiter(cfg.RateLimit.LikesListPerUserPerMinute, idleBucketTTL)
 	rlProfileRelationship := ratelimit.NewLimiter(cfg.RateLimit.ProfileRelationshipPerUserPerMinute, idleBucketTTL)
 	suggestionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SuggestionsCallsPerDay)
+	// ADR-0025 D13: RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
+	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap. Both are covered by the
+	// ADR-0010 D5 read budget; responses need no quota (the pending requests bound them).
+	rlFollowRequestsRespond := ratelimit.NewLimiter(cfg.RateLimit.FollowRequestsRespondPerUserPerMinute, idleBucketTTL)
 	// W3-22 L-4: UpdateProfile had only the 60/min default bucket and rewrote the whole users document on every call, so a
 	// save loop was bounded by the read budget alone (about 6,000 writes a day per account at 3 instances). Its own per-uid
 	// daily call cap, limit_name "profile_update_daily" (PROFILE_UPDATES_PER_DAY, default 100; see
@@ -133,14 +137,17 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceListFollowingProcedure:                 rlGraphList,
 			graphv1connect.GraphServiceListBlockedUsersProcedure:              rlGraphList,
 			graphv1connect.GraphServiceListMutedUsersProcedure:                rlGraphList,
+			graphv1connect.GraphServiceListFollowRequestsProcedure:            rlGraphList,
+			graphv1connect.GraphServiceRespondToFollowRequestProcedure:        rlFollowRequestsRespond,
 			graphv1connect.GraphServiceGetProfileRelationshipProcedure:        rlProfileRelationship,
 			graphv1connect.GraphServiceListSuggestedUsersProcedure:            rlSuggestions,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
-			graphv1connect.GraphServiceListFollowersProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListFollowingProcedure:    {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListBlockedUsersProcedure: {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListMutedUsersProcedure:   {Name: "graph_list_daily", Cap: graphListDailyCap},
+			graphv1connect.GraphServiceListFollowersProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
+			graphv1connect.GraphServiceListFollowingProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
+			graphv1connect.GraphServiceListBlockedUsersProcedure:   {Name: "graph_list_daily", Cap: graphListDailyCap},
+			graphv1connect.GraphServiceListMutedUsersProcedure:     {Name: "graph_list_daily", Cap: graphListDailyCap},
+			graphv1connect.GraphServiceListFollowRequestsProcedure: {Name: "graph_list_daily", Cap: graphListDailyCap},
 
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceUnfollowProcedure: {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},

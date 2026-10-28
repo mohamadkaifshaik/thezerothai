@@ -44,6 +44,11 @@ type RateLimitConfig struct {
 	LikesListPerUserPerMinute           int
 	ProfileRelationshipPerUserPerMinute int
 
+	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest (ADR-0025 D13), env
+	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph
+	// list bucket (GraphListPerMinute) and its graph_list_daily cap.
+	FollowRequestsRespondPerUserPerMinute int
+
 	// SuggestionsCallsPerDay is the in-memory daily cap on ListSuggestedUsers calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env SUGGESTIONS_CALLS_PER_DAY, logged as limit_name "suggestions_daily" (ADR-0024 D10).
 	//
@@ -177,4 +182,9 @@ type QuotaConfig struct {
 	BookmarksPerDay           int
 	NewAccountBookmarksPerDay int
 	BookmarksMaxPerUser       int
+
+	// PrivacyTogglesPerDay caps UpdateProfile is_private changes (both directions) per IST day (ADR-0025 D8,
+	// quota.PrivacyToggles), env QUOTA_PRIVACY_TOGGLES_PER_DAY, default 4. An is_private equal to the stored value is not
+	// charged. There is no new-account tier: the cap is already small.
+	PrivacyTogglesPerDay int
 }

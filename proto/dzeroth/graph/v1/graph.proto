@@ -169,7 +169,7 @@ service GraphService {
   // Rate limits: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances), and
   // SUGGESTIONS_CALLS_PER_DAY, 50 calls/uid/IST day per instance (150 with 3) => RATE_LIMITED,
   // metadata["limit"] = "suggestions_daily". Charged to the per-uid daily read budget (ADR-0010 D5).
-  // Firestore: hard cap 42 reads cold (interceptor 1, caller graph 1, follows edges <= 30, user hydration <= 10),
+  // Firestore: hard cap 32 reads cold (interceptor 1, caller graph 1, follows edges <= 20, user hydration <= 10),
   // 12 on the curated path (1 + 1 + 10); warm (per-viewer instance cache, 1 h) 1, the interceptor; planning 25.
   // Writes 0.
   rpc ListSuggestedUsers(ListSuggestedUsersRequest) returns (ListSuggestedUsersResponse) {

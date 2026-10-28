@@ -72,3 +72,8 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # feature_follow_suggestions           = "allowlist"
 # feature_follow_suggestions_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 # suggested_user_ids                   = "<uid-1>,<uid-2>,<uid-3>"
+
+# W3 Part B (ADR-0025, W3-25b): private accounts. OPT-IN, founder decision (question B4); the flag stays `off` until W3-38. Dev ceiling:
+# allowlist, at most 3 uids, percent 0; there is no prod entry. The four limits are literals in main.tf (config.go defaults).
+# feature_private_accounts           = "allowlist"
+# feature_private_accounts_allowlist = "<uid-1>,<uid-2>,<uid-3>"

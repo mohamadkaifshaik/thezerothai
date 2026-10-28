@@ -104,6 +104,12 @@ unchanged.
 ## 4. Lists show a deleted user, or a graph RPC says the feature is off
 - `FEATURE_DISABLED` (FAILED_PRECONDITION) on a graph RPC means `FEATURE_GRAPH` is off for that caller (mode `off`,
   `allowlist` without the uid, or outside the `percent` bucket). Check the env var on the serving revision.
+- `FEATURE_PRIVATE_ACCOUNTS[_ALLOWLIST|_PERCENT]` / `feature_private_accounts*` (wire name `private_accounts`, default off, ADR-0025 D12, W3-25b) gates
+  `UpdateProfile(is_private=true)` for the caller and, on top of `FEATURE_GRAPH`, `ListFollowRequests` / `RespondToFollowRequest`: those two need the
+  flag not globally off (mode `off`) OR the caller to be protected now, so a protected account keeps managing its requests when the flag is
+  switched off. Refusal is `FEATURE_DISABLED` with `metadata[feature]=private_accounts`, 0 writes. Both RPCs answer Unimplemented past the gate until
+  W3-28a. Limits (validated at startup): `RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN` 60 (per instance), `QUOTA_PRIVACY_TOGGLES_PER_DAY` 4,
+  `PROTECTED_AUTHORS_MAX` 20,000, `PROTECTED_SET_MAX_STALE` 10m; ListFollowRequests uses the graph list bucket and `graph_list_daily`.
 - `FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT]` / `feature_follow_suggestions*` (wire name `follow_suggestions`, default off, ADR-0024 D8-D9) gates
   only `ListSuggestedUsers`, on top of `FEATURE_GRAPH`: without it the answer is `FEATURE_DISABLED` with `metadata[feature]=follow_suggestions`
   and 0 reads. `GetProfileRelationship` needs `FEATURE_GRAPH` only. W3-4 registers the flag, the limits and the gate; `GetProfileRelationship` is live since W3-11 (section 5) and

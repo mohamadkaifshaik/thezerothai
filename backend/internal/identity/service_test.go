@@ -656,23 +656,6 @@ func TestUpdateProfile_Success(t *testing.T) {
 	}
 }
 
-// TestUpdateProfile_RejectsIsPrivateTrue closes L9 (ADR-0008 D1): private accounts are deferred, so
-// is_private=true is rejected with VALIDATION and 0 writes.
-func TestUpdateProfile_RejectsIsPrivateTrue(t *testing.T) {
-	repo := newFakeRepo()
-	svc := newTestService(repo)
-	if _, err := svc.CreateProfile(context.Background(), "uid-1", validKey, "Alice", "Alice A."); err != nil {
-		t.Fatalf("CreateProfile: %v", err)
-	}
-	before := repo.updateCalls
-	isPrivate := true
-	_, err := svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{IdempotencyKey: validKey, IsPrivate: &isPrivate})
-	wantValidationField(t, err, "is_private")
-	if repo.updateCalls != before {
-		t.Errorf("updateCalls = %d, want %d (0 writes)", repo.updateCalls, before)
-	}
-}
-
 func TestUpdateProfile_RemoveAvatar(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)

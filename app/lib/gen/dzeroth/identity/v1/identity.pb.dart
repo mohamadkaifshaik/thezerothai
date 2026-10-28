@@ -178,7 +178,9 @@ class Profile extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   void clearAvatarThumbUrl() => $_clearField(6);
 
-  /// Always false until private accounts ship (ADR-0008 D1).
+  /// True when the account is protected (ADR-0025): its posts, its followers and following lists and its pinned post
+  /// are shown only to the account and its approved followers. The profile itself (this message, counts included)
+  /// stays public. Set with UpdateProfile.is_private.
   @$pb.TagNumber(7)
   $core.bool get isPrivate => $_getBF(6);
   @$pb.TagNumber(7)
@@ -285,6 +287,8 @@ class Profile extends $pb.GeneratedMessage {
   /// The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
   /// globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
   /// Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
+  /// Also empty for a caller who may not see a protected account's posts (ADR-0025 D4): neither the account nor a
+  /// follower of it.
   @$pb.TagNumber(17)
   $core.String get pinnedPostId => $_getSZ(16);
   @$pb.TagNumber(17)
@@ -631,6 +635,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     $core.bool? emailVerified,
     $fixnum.Int64? unreadNotificationCount,
     $core.Iterable<$core.String>? enabledFeatures,
+    $fixnum.Int64? pendingFollowRequestCount,
   }) {
     final result = GetMeResponse._();
     if (profile != null) result.profile = profile;
@@ -639,6 +644,8 @@ class GetMeResponse extends $pb.GeneratedMessage {
     if (unreadNotificationCount != null)
       result.unreadNotificationCount = unreadNotificationCount;
     if (enabledFeatures != null) result.enabledFeatures.addAll(enabledFeatures);
+    if (pendingFollowRequestCount != null)
+      result.pendingFollowRequestCount = pendingFollowRequestCount;
     return result;
   }
 
@@ -663,6 +670,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     ..aOB(3, _omitFieldNames ? '' : 'emailVerified')
     ..aInt64(4, _omitFieldNames ? '' : 'unreadNotificationCount')
     ..pPS(5, _omitFieldNames ? '' : 'enabledFeatures')
+    ..aInt64(6, _omitFieldNames ? '' : 'pendingFollowRequestCount')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -731,6 +739,17 @@ class GetMeResponse extends $pb.GeneratedMessage {
   /// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
   @$pb.TagNumber(5)
   $pb.PbList<$core.String> get enabledFeatures => $_getList(4);
+
+  /// Pending incoming follow requests (ADR-0025 D7): set for a protected caller only, else 0. A count cached 30 s, so
+  /// it may lag a new request or a response by up to 30 s. Drives the Follow requests entry and its badge.
+  @$pb.TagNumber(6)
+  $fixnum.Int64 get pendingFollowRequestCount => $_getI64(5);
+  @$pb.TagNumber(6)
+  set pendingFollowRequestCount($fixnum.Int64 value) => $_setInt64(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasPendingFollowRequestCount() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearPendingFollowRequestCount() => $_clearField(6);
 }
 
 enum GetProfileRequest_Target { userId, handle, notSet }
@@ -994,6 +1013,8 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   void clearAvatarMediaId() => $_clearField(4);
 
+  /// true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
+  /// caller. Quota and cap: see UpdateProfile (ADR-0025 D8, D12).
   @$pb.TagNumber(5)
   $core.bool get isPrivate => $_getBF(4);
   @$pb.TagNumber(5)
@@ -1736,7 +1757,10 @@ class IdentityServiceApi {
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
   /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
   /// 1,000 matches, cached 30 s). enabled_features comes from server env config (ADR-0008 D6): 0 reads.
-  /// Firestore: reads 2/1, writes 0.
+  /// pending_follow_request_count (ADR-0025 D7): for a protected caller only, a count() aggregation on followRequests
+  /// where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
+  /// failed count leaves it 0 and GetMe still answers.
+  /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s), writes 0.
   $async.Future<GetMeResponse> getMe(
           $pb.ClientContext? ctx, GetMeRequest request) =>
       _client.invoke<GetMeResponse>(
@@ -1745,6 +1769,9 @@ class IdentityServiceApi {
   /// Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
   /// error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
   /// A caller who blocks the target still gets the profile (so they can unblock).
+  /// A protected account's profile (ADR-0025 D4) is returned to every caller with every field, is_private and the
+  /// counts included, except pinned_post_id, which is empty unless the caller is the account or follows it (0 extra
+  /// reads: the follow bit comes from the caller's cached graph).
   /// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
   /// negatively cached 10 s (ADR-0010 D5).
   /// Charged, like every RPC, to the per-uid daily Firestore read budget (2,000 reads/uid/IST day per instance,
@@ -1759,9 +1786,21 @@ class IdentityServiceApi {
   /// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
   /// A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
   /// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
-  /// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
-  /// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
-  /// (writes = author's post count; limited to 1 toggle/day).
+  /// Private accounts (ADR-0025 D1, D8, D12): is_private=true needs FEATURE_PRIVATE_ACCOUNTS (wire name
+  /// "private_accounts") on for the caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+  /// "private_accounts", 0 writes, checked before any read; a request that sets it with other fields is refused whole
+  /// while the flag is off for the caller. is_private=false is accepted from any caller whatever the flag, globally off
+  /// included. A changed is_private runs one transaction that reads users, the protected-author set and quotas fresh
+  /// and writes isPrivate, the set (add or remove the uid) and quotas.privacyToggles: reads 4 cold / 3 warm, writes 3.
+  /// A value equal to the stored one writes nothing and is not charged. QUOTA_PRIVACY_TOGGLES_PER_DAY, 4 per IST day,
+  /// both directions counted => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "privacy_toggles"; protecting
+  /// while PROTECTED_AUTHORS_MAX (20,000) accounts are protected => FAILED_PRECONDITION + LIMIT_REACHED,
+  /// metadata["limit"] = "private_accounts"; both 0 writes. No post is rewritten (there is no visibility job): every
+  /// read path applies the new setting at once on the instance that committed it and within 60 s on the others.
+  /// Existing followers stay. After an unprotect commit the server publishes one privacy_public job (the jobs topic)
+  /// that accepts every pending follow request (2 reads, 3 writes and 1 delete per request, + 1 write per page of 100),
+  /// so the request path adds 0 reads and 0 writes for it; a failed publish is logged at ERROR. A toggle enqueues no
+  /// author-snapshot job and spends no snapshot-affecting edit.
   /// Profile extras (ADR-0024 D1-D3, D9, Amendment 1 A2): setting banner_media_id, location, website or pinned_post_id
   /// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
   /// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes, checked

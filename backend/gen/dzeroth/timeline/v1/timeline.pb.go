@@ -361,9 +361,13 @@ type GetUserTimelineResponse struct {
 	GapPageToken  string                 `protobuf:"bytes,4,opt,name=gap_page_token,json=gapPageToken,proto3" json:"gap_page_token,omitempty"`
 	// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
 	// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
-	RemovedIds    []string `protobuf:"bytes,5,rep,name=removed_ids,json=removedIds,proto3" json:"removed_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	RemovedIds []string `protobuf:"bytes,5,rep,name=removed_ids,json=removedIds,proto3" json:"removed_ids,omitempty"`
+	// True when the author is protected and the caller is neither the author nor a follower (ADR-0025 D4): posts is
+	// empty and no token is set. Show the protected view and REPLACE any cached feed for this author (do not merge). A
+	// client that does not know this field sees an empty list, which fails closed.
+	AuthorProtected bool `protobuf:"varint,6,opt,name=author_protected,json=authorProtected,proto3" json:"author_protected,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetUserTimelineResponse) Reset() {
@@ -431,6 +435,13 @@ func (x *GetUserTimelineResponse) GetRemovedIds() []string {
 	return nil
 }
 
+func (x *GetUserTimelineResponse) GetAuthorProtected() bool {
+	if x != nil {
+		return x.AuthorProtected
+	}
+	return false
+}
+
 var File_dzeroth_timeline_v1_timeline_proto protoreflect.FileDescriptor
 
 const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
@@ -458,7 +469,7 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"page_token\x18\x04 \x01(\tR\tpageToken\x12\x1f\n" +
 	"\vsince_token\x18\x05 \x01(\tR\n" +
 	"sinceToken\x126\n" +
-	"\x03tab\x18\x06 \x01(\x0e2$.dzeroth.timeline.v1.UserTimelineTabR\x03tab\"\xdb\x01\n" +
+	"\x03tab\x18\x06 \x01(\x0e2$.dzeroth.timeline.v1.UserTimelineTabR\x03tab\"\x86\x02\n" +
 	"\x17GetUserTimelineResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x1f\n" +
@@ -466,7 +477,8 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"sinceToken\x12$\n" +
 	"\x0egap_page_token\x18\x04 \x01(\tR\fgapPageToken\x12\x1f\n" +
 	"\vremoved_ids\x18\x05 \x03(\tR\n" +
-	"removedIds*\xac\x01\n" +
+	"removedIds\x12)\n" +
+	"\x10author_protected\x18\x06 \x01(\bR\x0fauthorProtected*\xac\x01\n" +
 	"\x0fUserTimelineTab\x12!\n" +
 	"\x1dUSER_TIMELINE_TAB_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17USER_TIMELINE_TAB_POSTS\x10\x01\x12\x1d\n" +

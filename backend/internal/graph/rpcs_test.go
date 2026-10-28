@@ -257,3 +257,7 @@ func TestFollow_EventsHook(t *testing.T) {
 		fe.Followed(context.Background(), "uid-1", "uid-2", time.Now()) // the default hook must not panic
 	})
 }
+
+func (r *recordingFollowEvents) FollowRequested(context.Context, string, string, time.Time) {}
+
+func (r *recordingFollowEvents) FollowRequestAccepted(context.Context, string, string, time.Time) {}

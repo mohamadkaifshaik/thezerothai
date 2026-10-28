@@ -309,3 +309,40 @@ type PinChecker interface {
 type Pins interface {
 	ClearIfPinned(ctx context.Context, uid, postID string) (cleared bool, err error)
 }
+
+// ProtectedSet is one instance's copy of privacy/protectedAuthors: the uids whose accounts are protected (ADR-0025 D2,
+// D3). It is an immutable snapshot, so Has and CanSee are map lookups with no I/O. W3-26a implements it.
+type ProtectedSet interface {
+	// Has reports whether uid is a protected account.
+	Has(uid string) bool
+	// CanSee is the one expression of the D3 predicate (ADR-0025 AQ2): viewer == author || !Has(author) || following.
+	// following is the viewer's follow state toward author, decided by the caller from the viewer's own cached graph
+	// snapshot before it asks for the set. posts.Audience.CanSee delegates here, so the rule exists in one place;
+	// GetProfile (the pin, D4) is the only other caller.
+	CanSee(viewerUID, authorUID string, following bool) bool
+}
+
+// ProtectedAuthors is the loader of the protected set (ADR-0025 D3), declared here so every consumer depends on this
+// interface only (the Stage 2 sharded set or Memorystore changes no caller). W3-26a implements it: lazy, singleflight,
+// at most one read per instance per CACHE_TTL on a detached counter (protected_set_reads), never charged to a caller.
+type ProtectedAuthors interface {
+	// Current returns the instance's copy of the set. A missing doc is an empty set. When a refresh fails it keeps the
+	// last good copy for at most PROTECTED_SET_MAX_STALE; past that, or when the instance never loaded a set, it returns
+	// an error and the caller answers UNAVAILABLE. An unknown set is never read as "everyone public".
+	Current(ctx context.Context) (ProtectedSet, error)
+}
+
+// PrivacyListener is told by identity, after the commit, that an account stopped being protected (ADR-0025 D8, AQ1).
+// graph owns the privacy_public job that accepts the pending requests; apiserver adapts this to its publish (the
+// ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing, which is the case until W3-28b. identity calls it
+// with a detached, short-deadline context; an error is ERROR privacy_public_enqueue_failed and never fails the toggle.
+type PrivacyListener interface {
+	BecamePublic(ctx context.Context, uid string, at time.Time) error
+}
+
+// FollowRequestCounter is the consumer-side seam GetMe uses for pending_follow_request_count (ADR-0025 D7, AQ3; the
+// BlockChecker pattern: identity cannot query graph's collection). graph implements it with a count() on
+// followRequests where followeeId == uid (1 read per 1,000 matches, minimum 1). identity caches the answer 30 s per uid.
+type FollowRequestCounter interface {
+	PendingFollowRequests(ctx context.Context, uid string) (int64, error)
+}

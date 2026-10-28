@@ -76,8 +76,8 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_TARGET_BLOCKED =
       ErrorReason._(13, _omitEnumNames ? '' : 'ERROR_REASON_TARGET_BLOCKED');
 
-  /// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
-  /// follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+  /// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet). Hide the
+  /// feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
   /// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
   /// (ADR-0010 D2). When absent, the whole feature behind the called service is off.
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
@@ -95,6 +95,11 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// the policy label.
   static const ErrorReason ERROR_REASON_REPLY_NOT_ALLOWED =
       ErrorReason._(16, _omitEnumNames ? '' : 'ERROR_REASON_REPLY_NOT_ALLOWED');
+
+  /// FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
+  /// a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
+  static const ErrorReason ERROR_REASON_PROTECTED_ACCOUNT =
+      ErrorReason._(17, _omitEnumNames ? '' : 'ERROR_REASON_PROTECTED_ACCOUNT');
 
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
@@ -114,10 +119,11 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_FEATURE_DISABLED,
     ERROR_REASON_REAUTH_REQUIRED,
     ERROR_REASON_REPLY_NOT_ALLOWED,
+    ERROR_REASON_PROTECTED_ACCOUNT,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 16);
+      $pb.ProtobufEnum.$_initByValueList(values, 17);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

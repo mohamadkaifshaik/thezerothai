@@ -256,6 +256,15 @@ locals {
     { name = "FEATURE_FOLLOW_SUGGESTIONS", value = var.feature_follow_suggestions },
     { name = "FEATURE_FOLLOW_SUGGESTIONS_ALLOWLIST", value = var.feature_follow_suggestions_allowlist },
     { name = "FEATURE_FOLLOW_SUGGESTIONS_PERCENT", value = tostring(var.feature_follow_suggestions_percent) },
+    { name = "FEATURE_PRIVATE_ACCOUNTS", value = var.feature_private_accounts },
+    { name = "FEATURE_PRIVATE_ACCOUNTS_ALLOWLIST", value = var.feature_private_accounts_allowlist },
+    { name = "FEATURE_PRIVATE_ACCOUNTS_PERCENT", value = tostring(var.feature_private_accounts_percent) },
+    # W3-25b (ADR-0025 D2, D3, D8, D13): private-accounts limits. Must match the config.go defaults; config.Load rejects a toggle quota <= 0,
+    # a protected-set cap outside 1..20000 and a stale window outside 1s..1h.
+    { name = "QUOTA_PRIVACY_TOGGLES_PER_DAY", value = "4" },
+    { name = "PROTECTED_AUTHORS_MAX", value = "20000" },
+    { name = "PROTECTED_SET_MAX_STALE", value = "10m" },
+    { name = "RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", value = "60" },
     # W3-4 (ADR-0024 D8, D10): per-instance rate limits (effective x max-instances), the suggestions daily call cap and read caps, and the
     # curated fallback list. Must match the config.go defaults; config.Load rejects edge > 50, hydrate > 50, sample > 30 and max results > 5.
     { name = "RATE_LIMIT_SUGGESTIONS_PER_MIN", value = "10" },

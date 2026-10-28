@@ -59,6 +59,13 @@ const (
 	NotificationType_NOTIFICATION_TYPE_REPOST NotificationType = 5
 	// actor quoted your post; post_id is the quote post.
 	NotificationType_NOTIFICATION_TYPE_QUOTE NotificationType = 6
+	// actor asked to follow you, a protected account (ADR-0025 D10). post_id is empty; tapping opens the follow requests
+	// screen. One row per requester for 90 days: a withdrawn or declined request keeps its row, and asking again adds
+	// no row and no push. The requests screen (ListFollowRequests) is the truth.
+	NotificationType_NOTIFICATION_TYPE_FOLLOW_REQUEST NotificationType = 7
+	// actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
+	// sends nothing.
+	NotificationType_NOTIFICATION_TYPE_FOLLOW_ACCEPTED NotificationType = 8
 )
 
 // Enum value maps for NotificationType.
@@ -71,15 +78,19 @@ var (
 		4: "NOTIFICATION_TYPE_LIKE",
 		5: "NOTIFICATION_TYPE_REPOST",
 		6: "NOTIFICATION_TYPE_QUOTE",
+		7: "NOTIFICATION_TYPE_FOLLOW_REQUEST",
+		8: "NOTIFICATION_TYPE_FOLLOW_ACCEPTED",
 	}
 	NotificationType_value = map[string]int32{
-		"NOTIFICATION_TYPE_UNSPECIFIED": 0,
-		"NOTIFICATION_TYPE_FOLLOW":      1,
-		"NOTIFICATION_TYPE_MENTION":     2,
-		"NOTIFICATION_TYPE_REPLY":       3,
-		"NOTIFICATION_TYPE_LIKE":        4,
-		"NOTIFICATION_TYPE_REPOST":      5,
-		"NOTIFICATION_TYPE_QUOTE":       6,
+		"NOTIFICATION_TYPE_UNSPECIFIED":     0,
+		"NOTIFICATION_TYPE_FOLLOW":          1,
+		"NOTIFICATION_TYPE_MENTION":         2,
+		"NOTIFICATION_TYPE_REPLY":           3,
+		"NOTIFICATION_TYPE_LIKE":            4,
+		"NOTIFICATION_TYPE_REPOST":          5,
+		"NOTIFICATION_TYPE_QUOTE":           6,
+		"NOTIFICATION_TYPE_FOLLOW_REQUEST":  7,
+		"NOTIFICATION_TYPE_FOLLOW_ACCEPTED": 8,
 	}
 )
 
@@ -168,7 +179,8 @@ type Notification struct {
 	Actor *v1.AuthorSnapshot `protobuf:"bytes,3,opt,name=actor,proto3" json:"actor,omitempty"`
 	// Distinct actors folded into this row (>= 1; only LIKE is > 1). Render "@actor and N-1 others".
 	ActorCount int32 `protobuf:"varint,4,opt,name=actor_count,json=actorCount,proto3" json:"actor_count,omitempty"`
-	// Subject post (empty for FOLLOW). Tapping opens /post/:id, or the actor's profile for FOLLOW.
+	// Subject post (empty for FOLLOW, FOLLOW_REQUEST and FOLLOW_ACCEPTED). Tapping opens /post/:id, or the actor's
+	// profile for FOLLOW and FOLLOW_ACCEPTED.
 	PostId string `protobuf:"bytes,5,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	// Last activity; the sort key.
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -712,7 +724,7 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17UnregisterDeviceRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\x1a\n" +
-	"\x18UnregisterDeviceResponse*\xe6\x01\n" +
+	"\x18UnregisterDeviceResponse*\xb3\x02\n" +
 	"\x10NotificationType\x12!\n" +
 	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18NOTIFICATION_TYPE_FOLLOW\x10\x01\x12\x1d\n" +
@@ -720,7 +732,9 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17NOTIFICATION_TYPE_REPLY\x10\x03\x12\x1a\n" +
 	"\x16NOTIFICATION_TYPE_LIKE\x10\x04\x12\x1c\n" +
 	"\x18NOTIFICATION_TYPE_REPOST\x10\x05\x12\x1b\n" +
-	"\x17NOTIFICATION_TYPE_QUOTE\x10\x06*g\n" +
+	"\x17NOTIFICATION_TYPE_QUOTE\x10\x06\x12$\n" +
+	" NOTIFICATION_TYPE_FOLLOW_REQUEST\x10\a\x12%\n" +
+	"!NOTIFICATION_TYPE_FOLLOW_ACCEPTED\x10\b*g\n" +
 	"\x0eDevicePlatform\x12\x1f\n" +
 	"\x1bDEVICE_PLATFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13DEVICE_PLATFORM_IOS\x10\x01\x12\x1b\n" +

@@ -126,6 +126,7 @@ const GetUserTimelineResponse$json = {
     {'1': 'since_token', '3': 3, '4': 1, '5': 9, '10': 'sinceToken'},
     {'1': 'gap_page_token', '3': 4, '4': 1, '5': 9, '10': 'gapPageToken'},
     {'1': 'removed_ids', '3': 5, '4': 3, '5': 9, '10': 'removedIds'},
+    {'1': 'author_protected', '3': 6, '4': 1, '5': 8, '10': 'authorProtected'},
   ],
 };
 
@@ -134,7 +135,8 @@ final $typed_data.Uint8List getUserTimelineResponseDescriptor = $convert.base64D
     'ChdHZXRVc2VyVGltZWxpbmVSZXNwb25zZRIwCgVwb3N0cxgBIAMoCzIaLmR6ZXJvdGgucG9zdH'
     'MudjEuUG9zdFZpZXdSBXBvc3RzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4dFBhZ2VU'
     'b2tlbhIfCgtzaW5jZV90b2tlbhgDIAEoCVIKc2luY2VUb2tlbhIkCg5nYXBfcGFnZV90b2tlbh'
-    'gEIAEoCVIMZ2FwUGFnZVRva2VuEh8KC3JlbW92ZWRfaWRzGAUgAygJUgpyZW1vdmVkSWRz');
+    'gEIAEoCVIMZ2FwUGFnZVRva2VuEh8KC3JlbW92ZWRfaWRzGAUgAygJUgpyZW1vdmVkSWRzEikK'
+    'EGF1dGhvcl9wcm90ZWN0ZWQYBiABKAhSD2F1dGhvclByb3RlY3RlZA==');
 
 const $core.Map<$core.String, $core.dynamic> TimelineServiceBase$json = {
   '1': 'TimelineService',

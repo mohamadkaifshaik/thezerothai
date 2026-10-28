@@ -5,7 +5,8 @@
 // source: dzeroth/identity/v1/identity.proto
 
 // Identity: profiles, handles, account lifecycle. Owner module: backend/internal/identity.
-// Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}. See ADR-0003 and ADR-0006.
+// Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}, privacy/protectedAuthors (the set of
+// protected uids, ADR-0025 D2; never exported). See ADR-0003 and ADR-0006.
 // Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
 // Only Google, Apple and verified-email password sign-ins are accepted (ADR-0010 D5 A10; anonymous only against the
 // Auth emulator). Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
@@ -148,7 +149,9 @@ type Profile struct {
 	AvatarUrl string `protobuf:"bytes,5,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
 	// 96 px avatar for lists; empty if none.
 	AvatarThumbUrl string `protobuf:"bytes,6,opt,name=avatar_thumb_url,json=avatarThumbUrl,proto3" json:"avatar_thumb_url,omitempty"`
-	// Always false until private accounts ship (ADR-0008 D1).
+	// True when the account is protected (ADR-0025): its posts, its followers and following lists and its pinned post
+	// are shown only to the account and its approved followers. The profile itself (this message, counts included)
+	// stays public. Set with UpdateProfile.is_private.
 	IsPrivate      bool  `protobuf:"varint,7,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
 	Verified       bool  `protobuf:"varint,8,opt,name=verified,proto3" json:"verified,omitempty"`
 	FollowersCount int64 `protobuf:"varint,9,opt,name=followers_count,json=followersCount,proto3" json:"followers_count,omitempty"`
@@ -173,6 +176,8 @@ type Profile struct {
 	// The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
 	// globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
 	// Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
+	// Also empty for a caller who may not see a protected account's posts (ADR-0025 D4): neither the account nor a
+	// follower of it.
 	PinnedPostId  string `protobuf:"bytes,17,opt,name=pinned_post_id,json=pinnedPostId,proto3" json:"pinned_post_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -575,8 +580,11 @@ type GetMeResponse struct {
 	// off; clients ignore names they don't know. The server stays authoritative: a disabled feature's RPCs return
 	// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
 	EnabledFeatures []string `protobuf:"bytes,5,rep,name=enabled_features,json=enabledFeatures,proto3" json:"enabled_features,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Pending incoming follow requests (ADR-0025 D7): set for a protected caller only, else 0. A count cached 30 s, so
+	// it may lag a new request or a response by up to 30 s. Drives the Follow requests entry and its badge.
+	PendingFollowRequestCount int64 `protobuf:"varint,6,opt,name=pending_follow_request_count,json=pendingFollowRequestCount,proto3" json:"pending_follow_request_count,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GetMeResponse) Reset() {
@@ -642,6 +650,13 @@ func (x *GetMeResponse) GetEnabledFeatures() []string {
 		return x.EnabledFeatures
 	}
 	return nil
+}
+
+func (x *GetMeResponse) GetPendingFollowRequestCount() int64 {
+	if x != nil {
+		return x.PendingFollowRequestCount
+	}
+	return 0
 }
 
 type GetProfileRequest struct {
@@ -780,7 +795,9 @@ type UpdateProfileRequest struct {
 	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all (ADR-0024 Amendment 1 A4), otherwise kept until
 	// account deletion; a retired avatar answers MEDIA_NOT_READY if sent again.
 	AvatarMediaId *string `protobuf:"bytes,4,opt,name=avatar_media_id,json=avatarMediaId,proto3,oneof" json:"avatar_media_id,omitempty"`
-	IsPrivate     *bool   `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
+	// true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
+	// caller. Quota and cap: see UpdateProfile (ADR-0025 D8, D12).
+	IsPrivate *bool `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
 	// ADR-0024 profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
 	// exact value "" (a clear) never does (see UpdateProfile).
 	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
@@ -1385,13 +1402,14 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x1fCheckHandleAvailabilityResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x0e\n" +
-	"\fGetMeRequest\"\x91\x02\n" +
+	"\fGetMeRequest\"\xd2\x02\n" +
 	"\rGetMeResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".dzeroth.identity.v1.AccountStatusR\x06status\x12%\n" +
 	"\x0eemail_verified\x18\x03 \x01(\bR\remailVerified\x12:\n" +
 	"\x19unread_notification_count\x18\x04 \x01(\x03R\x17unreadNotificationCount\x12)\n" +
-	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\"R\n" +
+	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\x12?\n" +
+	"\x1cpending_follow_request_count\x18\x06 \x01(\x03R\x19pendingFollowRequestCount\"R\n" +
 	"\x11GetProfileRequest\x12\x19\n" +
 	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x12\x18\n" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +

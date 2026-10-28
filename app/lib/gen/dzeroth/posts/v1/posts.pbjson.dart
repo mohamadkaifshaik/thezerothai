@@ -97,6 +97,7 @@ const EmbedViewerState$json = {
     {'1': 'EMBED_VIEWER_STATE_UNSPECIFIED', '2': 0},
     {'1': 'EMBED_VIEWER_STATE_BLOCKED', '2': 1},
     {'1': 'EMBED_VIEWER_STATE_MUTED', '2': 2},
+    {'1': 'EMBED_VIEWER_STATE_PROTECTED', '2': 3},
   ],
 };
 
@@ -104,7 +105,7 @@ const EmbedViewerState$json = {
 final $typed_data.Uint8List embedViewerStateDescriptor = $convert.base64Decode(
     'ChBFbWJlZFZpZXdlclN0YXRlEiIKHkVNQkVEX1ZJRVdFUl9TVEFURV9VTlNQRUNJRklFRBAAEh'
     '4KGkVNQkVEX1ZJRVdFUl9TVEFURV9CTE9DS0VEEAESHAoYRU1CRURfVklFV0VSX1NUQVRFX01V'
-    'VEVEEAI=');
+    'VEVEEAISIAocRU1CRURfVklFV0VSX1NUQVRFX1BST1RFQ1RFRBAD');
 
 @$core.Deprecated('Use scheduledPostStatusDescriptor instead')
 const ScheduledPostStatus$json = {

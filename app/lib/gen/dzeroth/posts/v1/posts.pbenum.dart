@@ -52,7 +52,9 @@ class Visibility extends $pb.ProtobufEnum {
   static const Visibility VISIBILITY_PUBLIC =
       Visibility._(1, _omitEnumNames ? '' : 'VISIBILITY_PUBLIC');
 
-  /// Author is a private account: only approved followers and the author.
+  /// The author is protected (ADR-0025): only the author and approved followers see the post. Computed at read time
+  /// from the author's current setting (within 60 s); the stored post keeps PUBLIC, so the value follows the account
+  /// when it protects or unprotects.
   static const Visibility VISIBILITY_FOLLOWERS =
       Visibility._(2, _omitEnumNames ? '' : 'VISIBILITY_FOLLOWERS');
 
@@ -145,8 +147,9 @@ class ReplyPermission extends $pb.ProtobufEnum {
 }
 
 /// Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
-/// viewer's OWN block and mute lists only; an author who blocks the viewer is never reported here (GetPost answers
-/// NOT_FOUND for that, ADR-0008).
+/// viewer's OWN block and mute lists (BLOCKED, MUTED) and, since ADR-0025, from whether the viewer may see a protected
+/// embedded author (PROTECTED); an author who blocks the viewer is never reported here (GetPost answers NOT_FOUND for
+/// that, ADR-0008).
 class EmbedViewerState extends $pb.ProtobufEnum {
   /// The embed may be shown, or the server did not compute it (older server, or the row has no embed): fall back to
   /// the client's local relationship cache.
@@ -162,14 +165,23 @@ class EmbedViewerState extends $pb.ProtobufEnum {
   static const EmbedViewerState EMBED_VIEWER_STATE_MUTED =
       EmbedViewerState._(2, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_MUTED');
 
+  /// The embedded author is protected and the viewer is neither that author nor a follower (ADR-0025 D4). The server
+  /// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
+  /// render a protected-post placeholder. Only a QUOTE row carries it: a REPOST of such a post is dropped from feeds
+  /// and lists, and GetPost answers NOT_FOUND for it.
+  static const EmbedViewerState EMBED_VIEWER_STATE_PROTECTED =
+      EmbedViewerState._(
+          3, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_PROTECTED');
+
   static const $core.List<EmbedViewerState> values = <EmbedViewerState>[
     EMBED_VIEWER_STATE_UNSPECIFIED,
     EMBED_VIEWER_STATE_BLOCKED,
     EMBED_VIEWER_STATE_MUTED,
+    EMBED_VIEWER_STATE_PROTECTED,
   ];
 
   static final $core.List<EmbedViewerState?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 2);
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
   static EmbedViewerState? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
