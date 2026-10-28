@@ -44,3 +44,46 @@ func decideSend(conv *ConvDoc, uid string, mutual bool, maxUnanswered int64) (se
 	}
 	return sendDecision{State: stateRequest, IncRequest: true, RecipientInRequests: true}, nil
 }
+
+// decideAccept applies the AcceptMessageRequest rules to the conversation document the accept transaction read (ADR-0027
+// D4, D11; plan W7-9). conv is nil when the document is missing. Only the recipient of the request (requestTo) may accept:
+// an unknown id, a non-participant, the requester and a conversation that never was a request (mutual follows, no
+// requestTo) are all ErrNotFound, so they share one wire answer. A conversation that is already ACCEPTED is success
+// with nothing to write (Already), whatever its gone list says. A request whose peer deleted the account is
+// ErrCannotMessage: there is nobody to talk to.
+func decideAccept(conv *ConvDoc, uid string) (acceptDecision, error) {
+	if conv == nil || !conv.hasParticipant(uid) || conv.RequestTo != uid {
+		return acceptDecision{}, ErrNotFound
+	}
+	if conv.State != stateRequest {
+		return acceptDecision{Already: true}, nil
+	}
+	if len(conv.Gone) > 0 {
+		return acceptDecision{}, ErrCannotMessage
+	}
+	return acceptDecision{}, nil
+}
+
+// acceptDecision is what one AcceptMessageRequest does.
+type acceptDecision struct {
+	// Already: the conversation is ACCEPTED, so there is nothing to write.
+	Already bool
+}
+
+// decideDelete returns the folder of the caller's own entry for DeleteConversation, from the conversation document the
+// transaction read: dmRequests only for the recipient of a request that has not been accepted, dmInbox otherwise (the
+// same rule the eraser uses, entryFolder). A missing document and a non-participant are ErrNotFound. A conversation
+// whose peer is gone can still be deleted: clean-up must stay possible.
+func decideDelete(conv *ConvDoc, uid string) (folder string, err error) {
+	if conv == nil || !conv.hasParticipant(uid) {
+		return "", ErrNotFound
+	}
+	return entryFolder(*conv, uid), nil
+}
+
+// deleteIsReplay reports whether a DeleteConversation has nothing left to do: the caller's entry is gone and the
+// conversation was cleared for the caller before, which is what a retry of a delete that succeeded finds. A later message
+// of the peer recreates the entry, so a delete that finds an entry is a new delete and moves clearedAt forward.
+func deleteIsReplay(conv ConvDoc, uid string, entryExists bool) bool {
+	return !entryExists && !conv.ClearedAt[uid].IsZero()
+}

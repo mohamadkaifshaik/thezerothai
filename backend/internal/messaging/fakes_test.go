@@ -45,6 +45,101 @@ type fakeRepo struct {
 	marked      []string
 	markMissing bool
 	markErr     error
+
+	// accepts and deletes record the W7-9 calls; lifeErr is returned by both when set; writes and deletedDocs count the
+	// documents the fake wrote and deleted (the budget the real repo reports).
+	accepts     []AcceptParams
+	deletes     []DeleteParams
+	lifeErr     error
+	writes      int
+	deletedDocs int
+}
+
+func (f *fakeRepo) findEntry(uid, folder, convID string) (int, bool) {
+	for i, r := range f.entries[entryKey(uid, folder)] {
+		if r.ID == convID {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// Accept applies the same pure rules as the Firestore transaction (decideAccept) to the in-memory documents: the
+// request entry moves to dmInbox, the conversation becomes ACCEPTED.
+func (f *fakeRepo) Accept(_ context.Context, p AcceptParams) (AcceptResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.accepts = append(f.accepts, p)
+	if f.lifeErr != nil {
+		return AcceptResult{}, f.lifeErr
+	}
+	var conv *ConvDoc
+	if c, ok := f.convs[p.ConvID]; ok {
+		conv = &c
+	}
+	dec, err := decideAccept(conv, p.UID)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	if dec.Already {
+		return AcceptResult{Already: true, Conv: *conv}, nil
+	}
+	if p.PeerAllowed != nil && !p.PeerAllowed(peerOf(conv.Participants, p.UID)) {
+		return AcceptResult{}, errPeerFlagOff
+	}
+	i, ok := f.findEntry(p.UID, dmRequestsCollection, p.ConvID)
+	if !ok {
+		return AcceptResult{}, ErrNotFound
+	}
+	row := f.entries[entryKey(p.UID, dmRequestsCollection)][i]
+	f.entries[entryKey(p.UID, dmRequestsCollection)] = slices.Delete(slices.Clone(f.entries[entryKey(p.UID, dmRequestsCollection)]), i, i+1)
+	f.entries[entryKey(p.UID, dmInboxCollection)] = append(slices.Clone(f.entries[entryKey(p.UID, dmInboxCollection)]), row)
+	conv.State, conv.UpdatedAt = stateAccepted, wireTime(p.Now)
+	f.convs[p.ConvID] = *conv
+	f.writes += 2
+	f.deletedDocs++
+	return AcceptResult{Conv: *conv}, nil
+}
+
+// Delete applies decideDelete and deleteIsReplay to the in-memory documents: clearedAt[caller] is set, the caller's
+// entry removed, nothing else touched.
+func (f *fakeRepo) Delete(_ context.Context, p DeleteParams) (DeleteResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes = append(f.deletes, p)
+	if f.lifeErr != nil {
+		return DeleteResult{}, f.lifeErr
+	}
+	var conv *ConvDoc
+	if c, ok := f.convs[p.ConvID]; ok {
+		conv = &c
+	}
+	folder, err := decideDelete(conv, p.UID)
+	if err != nil {
+		return DeleteResult{}, err
+	}
+	collection := dmInboxCollection // the entry folder label is not the collection name
+	if folder == entryRequests {
+		collection = dmRequestsCollection
+	}
+	i, exists := f.findEntry(p.UID, collection, p.ConvID)
+	if deleteIsReplay(*conv, p.UID, exists) {
+		return DeleteResult{Replay: true, Folder: folder, Conv: *conv}, nil
+	}
+	now := wireTime(p.Now)
+	cleared := map[string]time.Time{}
+	for k, v := range conv.ClearedAt {
+		cleared[k] = v
+	}
+	cleared[p.UID] = now
+	conv.ClearedAt, conv.UpdatedAt = cleared, now
+	f.convs[p.ConvID] = *conv
+	f.writes++
+	if exists {
+		f.entries[entryKey(p.UID, collection)] = slices.Delete(slices.Clone(f.entries[entryKey(p.UID, collection)]), i, i+1)
+		f.deletedDocs++
+	}
+	return DeleteResult{Folder: folder, EntryDeleted: exists, Conv: *conv}, nil
 }
 
 // ListMessages answers like the Firestore query: `createdAt DESC, __name__ DESC`, createdAt > ClearedAt, StartAfter /

@@ -27,9 +27,8 @@ func registry(mode flags.Mode, percent int) *flags.Registry {
 	})
 }
 
-// rpcs lists the six service methods with the flag class each belongs to (ADR-0027 D6). With the flag open, the
-// skeleton RPCs reach ErrNotImplemented and SendMessage (an empty request) reaches its own validation: an open gate is
-// "an answer that is not FEATURE_DISABLED", and sendOpen / skeletonOpen say which one this RPC gives.
+// rpcs lists the six service methods with the flag class each belongs to (ADR-0027 D6). With the flag open, an empty
+// request reaches the RPC's own validation: an open gate is "an answer that is not FEATURE_DISABLED".
 var rpcs = []struct {
 	name      string
 	perCaller bool // needs the flag on for the caller; else only "not globally off"
@@ -62,8 +61,8 @@ var rpcs = []struct {
 }
 
 // TestService_FlagModes: off / allowlist / percent / on x the two RPC classes x callers inside and outside the cohort.
-// Per-caller RPCs are FEATURE_DISABLED unless the flag is on for the caller; the others reach their own validation (ListConversations) or the skeleton's
-// ErrNotImplemented unless the flag is globally off. A disabled answer carries metadata feature=messaging.
+// Per-caller RPCs are FEATURE_DISABLED unless the flag is on for the caller; the others reach their own validation unless
+// the flag is globally off. A disabled answer carries metadata feature=messaging.
 func TestService_FlagModes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -91,15 +90,10 @@ func TestService_FlagModes(t *testing.T) {
 					open = tt.wantOn
 				}
 				if open {
-					if rpc.name == "SendMessage" || rpc.name == "ListConversations" || rpc.name == "ListMessages" || rpc.name == "MarkConversationRead" {
-						var ae *apierr.Error
-						if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
-							t.Fatalf("err = %v, want the request's VALIDATION (the gate is open)", err)
-						}
-						return
-					}
-					if !errors.Is(err, messaging.ErrNotImplemented) {
-						t.Fatalf("err = %v, want ErrNotImplemented", err)
+					// With the gate open every RPC reaches its own validation of the empty request (W7-9 implemented the last two).
+					var ae *apierr.Error
+					if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
+						t.Fatalf("err = %v, want the request's VALIDATION (the gate is open)", err)
 					}
 					return
 				}

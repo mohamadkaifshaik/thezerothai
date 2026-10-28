@@ -5,7 +5,8 @@
 //
 // W7-4 shipped the skeleton: the flag gate (FEATURE_MESSAGING, D6) and the six Connect handlers. W7-5 adds SendMessage
 // (service_send.go, repo_firestore.go) and W7-6 the lifecycle (eraser.go, export.go), W7-7 ListConversations
-// (service_list.go); the other three RPCs still answer Unimplemented once the gate passes (W7-8 and W7-9).
+// (service_list.go), W7-8 ListMessages and MarkConversationRead (service_messages.go), W7-9 AcceptMessageRequest and
+// DeleteConversation (service_accept_delete.go, repo_accept_delete.go).
 package messaging
 
 import (
@@ -23,8 +24,8 @@ import (
 // string in GetMe.enabled_features.
 const FlagName = "messaging"
 
-// ErrNotImplemented is what the skeleton service answers once the flag gate passes. The server maps it to the Connect
-// code Unimplemented at the handler boundary.
+// ErrNotImplemented is what the W7-4 skeleton answered once the flag gate passed. Since W7-9 no method returns it; the
+// server still maps it to the Connect code Unimplemented at the handler boundary, for a method a later ticket adds.
 var ErrNotImplemented = errors.New("messaging: not implemented")
 
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
@@ -41,8 +42,8 @@ type FlagChecker interface {
 // Flag class per method (D6): Send and Accept need the flag on for the caller; ListConversations, ListMessages, MarkRead
 // and Delete only need it not globally off, so a caller dropped from an allowlist can still read and clean up.
 //
-// Worst-case Firestore reads and writes per method are in the RPC doc comments of proto/dzeroth/messaging/v1; the W7-4
-// skeleton costs 0 and 0.
+// Worst-case Firestore reads and writes per method are in the RPC doc comments of proto/dzeroth/messaging/v1 and on the
+// implementing methods.
 type Service interface {
 	Send(ctx context.Context, uid string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error)
 	ListConversations(ctx context.Context, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error)

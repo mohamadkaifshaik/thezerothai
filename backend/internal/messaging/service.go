@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -73,8 +72,8 @@ type service struct {
 	newSends *ratelimit.DailyCap
 }
 
-// New builds the Service: the flag gate, then the rules of the RPCs that exist (SendMessage, ListConversations, ListMessages,
-// MarkRead; Accept and Delete answer Unimplemented until W7-9).
+// New builds the Service: the flag gate, then the rules of the six RPCs (SendMessage, ListConversations, ListMessages,
+// MarkRead, Accept, Delete).
 func New(fc FlagChecker, d Deps) Service {
 	if d.Now == nil {
 		d.Now = time.Now
@@ -115,20 +114,4 @@ func (s *service) guard(ctx context.Context, uid string, class flagClass) error 
 		return ae.WithMeta("feature", FlagName)
 	}
 	return err
-}
-
-// Accept: per caller (and later per recipient). Skeleton: 0 reads, 0 writes.
-func (s *service) Accept(ctx context.Context, uid string, _ *messagingv1.AcceptMessageRequestRequest) (*messagingv1.AcceptMessageRequestResponse, error) {
-	if err := s.guard(ctx, uid, perCaller); err != nil {
-		return nil, err
-	}
-	return nil, ErrNotImplemented
-}
-
-// Delete: not globally off. Skeleton: 0 reads, 0 writes.
-func (s *service) Delete(ctx context.Context, uid string, _ *messagingv1.DeleteConversationRequest) (*messagingv1.DeleteConversationResponse, error) {
-	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
-		return nil, err
-	}
-	return nil, ErrNotImplemented
 }

@@ -23,6 +23,47 @@ type Repo interface {
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
 	// precondition (W7-8): 0 reads, 1 write; found is false (0 writes) when neither entry exists.
 	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
+	// Accept runs the AcceptMessageRequest transaction (W7-9): 2 reads (the conversation, the caller's dmRequests entry),
+	// 2 writes and 1 delete; an already accepted conversation 1 read and nothing written.
+	Accept(ctx context.Context, p AcceptParams) (AcceptResult, error)
+	// Delete runs the DeleteConversation transaction (W7-9): 2 reads (the conversation, the caller's entry), 1 write
+	// (clearedAt) and 1 delete (the entry); a repeat of a delete that already happened 2 reads and nothing written.
+	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
+}
+
+// AcceptParams is everything the accept transaction needs; the service has already validated the id and the caller's flag.
+type AcceptParams struct {
+	UID, ConvID string
+	Now         time.Time
+	// PeerAllowed reports whether the other participant has messaging on (the per-recipient half of ADR-0027 D6). It is
+	// pure (flags are env vars, 0 reads) and runs inside the transaction once the peer is known, only when something
+	// would be written. nil allows.
+	PeerAllowed func(peerUID string) bool
+}
+
+// AcceptResult is the outcome of Accept.
+type AcceptResult struct {
+	// Already: the conversation was ACCEPTED before this call; nothing was written.
+	Already bool
+	// Conv is the conversation after the call, from the transaction's own read (the cache is updated from it).
+	Conv ConvDoc
+}
+
+// DeleteParams is everything the delete transaction needs.
+type DeleteParams struct {
+	UID, ConvID string
+	Now         time.Time
+}
+
+// DeleteResult is the outcome of Delete.
+type DeleteResult struct {
+	// Replay: the entry was gone and the conversation already cleared for the caller; nothing was written.
+	Replay bool
+	// Folder is the folder the caller's entry lives in (entryInbox or entryRequests); EntryDeleted says one was deleted.
+	Folder       string
+	EntryDeleted bool
+	// Conv is the conversation after the call (clearedAt[caller] included), from the transaction's own read.
+	Conv ConvDoc
 }
 
 // MessageRow is one stored message with its id (the document id).
