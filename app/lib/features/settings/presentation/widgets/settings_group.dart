@@ -59,6 +59,7 @@ class SettingsRow extends StatelessWidget {
     this.showChevron = true,
     this.destructive = false,
     this.selected = false,
+    this.toggled,
   });
 
   final IconData icon;
@@ -76,6 +77,11 @@ class SettingsRow extends StatelessWidget {
 
   /// The row whose page is open in the detail pane (master-detail layout).
   final bool selected;
+
+  /// Makes the row a switch (W3-33b): non-null shows a [Switch] in place of
+  /// the chevron and announces on / off. [onTap] flips it (null = disabled,
+  /// e.g. while saving).
+  final bool? toggled;
 
   @override
   Widget build(BuildContext context) {
@@ -123,7 +129,13 @@ class SettingsRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (onTap != null && (trailing != null || showChevron)) ...[
+            if (toggled != null) ...[
+              const SizedBox(width: AppSpacing.sm),
+              Switch(
+                value: toggled!,
+                onChanged: onTap == null ? null : (_) => onTap!(),
+              ),
+            ] else if (onTap != null && (trailing != null || showChevron)) ...[
               const SizedBox(width: AppSpacing.sm),
               trailing ??
                   Icon(
@@ -143,6 +155,7 @@ class SettingsRow extends StatelessWidget {
     if (onTap == null) {
       return Semantics(
         container: true,
+        toggled: toggled,
         label: label,
         excludeSemantics: true,
         child: content,
@@ -151,7 +164,8 @@ class SettingsRow extends StatelessWidget {
     // One node per row: the label once, as a button.
     return Semantics(
       container: true,
-      button: true,
+      button: toggled == null,
+      toggled: toggled,
       selected: selected ? true : null,
       label: label,
       onTap: onTap,
