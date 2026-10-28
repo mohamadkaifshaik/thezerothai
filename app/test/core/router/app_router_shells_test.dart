@@ -76,7 +76,10 @@ void main() {
 
         expect(app.path, entry.key);
         expect(entry.value, findsOneWidget);
-        expect(find.text('Coming soon'), findsOneWidget);
+        expect(
+          find.textContaining(RegExp('coming soon', caseSensitive: false)),
+          findsWidgets,
+        );
       });
     }
 

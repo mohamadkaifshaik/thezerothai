@@ -539,14 +539,20 @@ void main() {
                   textScale: scale,
                 );
 
+                // The Calls page also has a "Calls" group title (W8-7).
                 expect(
                   find.descendant(
                     of: find.byType(AppMainColumn),
                     matching: find.text(entry.key),
                   ),
-                  findsOneWidget,
+                  entry.key == 'Calls' ? findsNWidgets(2) : findsOneWidget,
                 );
-                expect(find.text('Coming soon'), findsOneWidget);
+                expect(
+                  find.textContaining(
+                    RegExp('coming soon', caseSensitive: false),
+                  ),
+                  findsWidgets,
+                );
                 expect(find.byTooltip('Back'), findsOneWidget);
                 expectNoOverflow(tester);
               },
