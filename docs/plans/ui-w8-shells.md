@@ -180,14 +180,14 @@ The delta is **below** the 15–30 KB gzip estimate above and far under the 60 K
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3–W7? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W8-1 | `FEATURE_SHELLS` registration: `config.go` `LoadSpec` + test, `NewRegistry`, `flag-ceiling.json` (gate; dev allowlist 3; prod `on` recorded in ADR-0026, not the file), Terraform vars, runbook | backend-developer | S | — | **yes, start now**; shared files serialise with W3-4, W3-25, W4-3, W5-3, W5-22, W6-4, W7-4 | In review |
-| W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | In review |
-| W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | In review |
-| W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | In review |
-| W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | In review |
-| W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | In review |
-| W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | In review |
-| W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | In review |
+| W8-1 | `FEATURE_SHELLS` registration: `config.go` `LoadSpec` + test, `NewRegistry`, `flag-ceiling.json` (gate; dev allowlist 3; prod `on` recorded in ADR-0026, not the file), Terraform vars, runbook | backend-developer | S | — | **yes, start now**; shared files serialise with W3-4, W3-25, W4-3, W5-3, W5-22, W6-4, W7-4 | Done (#392) |
+| W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | Done (#392) |
+| W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | Done (#392) |
+| W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | Done (#392) |
+| W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | Done (#392) |
+| W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | Done (#392) |
+| W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | Done (#392) |
+| W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | Done (#392) |
 | W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | Done |
 | W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | Done (ADR-0026 Accepted 2026-10-28) |
 | W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Prepared |
@@ -218,7 +218,7 @@ Order:
 
 ## Tickets
 
-### W8-1 — `FEATURE_SHELLS` registration  [owner: backend-developer] [size: S] [depends: —]  Status: In review
+### W8-1 — `FEATURE_SHELLS` registration  [owner: backend-developer] [size: S] [depends: —]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** Follow `FEATURE_UI_SHELL` line for line (W0-10):
   - `config.go`: a `FeatureShells flags.Spec` field with a doc comment ("client-only UI flag … no RPC is gated by it"), and `flags.LoadSpec("SHELLS", "shells", flags.Off)` on **one line**, because `check-flag-registry.sh` parses it.
   - `shells_test.go`, a copy of `ui_shell_test.go`: off by default, `on` overrides, `bogus` fails startup. Add the env names to the test env list.
@@ -237,7 +237,7 @@ Order:
 - **Flag.** Adds `FEATURE_SHELLS` (default `off`; dev ceiling allowlist 3; prod `on` accepted by the founder, recorded in ADR-0026 and the runbook, not in the ceiling file).
 - **Seam.** The flag is only a client gate; when a real feature ships, it gets its own flag. `shells` is retired with `NewRetired` and never reused.
 
-### W8-2 — Client flag, entry points and routes  [owner: frontend-developer] [size: M] [depends: —]  Status: In review
+### W8-2 — Client flag, entry points and routes  [owner: frontend-developer] [size: M] [depends: —]  Status: Done (merged in #392, 2026-10-28)
 - **Description.**
   - `kFeatureShells = 'shells'` in `app/lib/features/shells/domain/shells_feature_flag.dart` (doc comment as `kFeatureUiShell`'s; never hardcode the string elsewhere).
   - `app/lib/features/shells/domain/shell_entries.dart`:
@@ -279,7 +279,7 @@ Order:
 - **Flag.** `shells` + `ui_shell` (entries), `shells` (routes).
 - **Seam.** `shellEntries` and the four path constants are the only places a shell is named; `AppMoreMenu` takes a list of entries, so later waves add rows without editing it. A real feature swaps the entry's gate and the route's builder and changes no caller (section "How each shell is replaced").
 
-### W8-3 — Shared grouped rows and status pill  [owner: frontend-developer] [size: S] [depends: —]  Status: In review
+### W8-3 — Shared grouped rows and status pill  [owner: frontend-developer] [size: S] [depends: —]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** `reuse-first` step 3, generalise and move:
   - `SettingsGroup` and `SettingsRow` move from `features/settings/presentation/widgets/settings_group.dart` to `app/lib/shared/widgets/settings_group.dart`, names unchanged. The Settings screen's imports are updated, and the old file is deleted (no re-export shim).
   - Two backward-compatible extensions:
@@ -297,7 +297,7 @@ Order:
 - **Flag.** None (shared widgets).
 - **Seam.** One grouped-row implementation for Settings and every shell, with no feature-local copy.
 
-### W8-4 — Creator tools screen  [owner: frontend-developer] [size: M] [depends: W8-2, W8-3]  Status: In review
+### W8-4 — Creator tools screen  [owner: frontend-developer] [size: M] [depends: W8-2, W8-3]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** `/creator-studio`, the grouped structure of inventory §11 in our own words:
   - `AppBackHeader` "Creator tools" (F3).
   - Intro line (muted): "Creator tools are coming soon. For now this shows your account at a glance."
@@ -319,7 +319,7 @@ Order:
 - **Flag.** `shells` (route); `shells` + `ui_shell` (entry).
 - **Seam.** `CreatorInsightsGroup` and `CreatorProgramsGroup` are separate widgets, so insights v1 and monetisation each replace one group without touching the page.
 
-### W8-5 — Premium pop-up  [owner: frontend-developer] [size: S] [depends: W8-2; merges after ADR-0026 is Accepted]  Status: In review
+### W8-5 — Premium pop-up  [owner: frontend-developer] [size: S] [depends: W8-2; merges after ADR-0026 is Accepted]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** `/premium`, a **modal pop-up over the current page** (F7), opened only from the Premium entry (drawer row or More menu item):
   - Below 600 dp a full-screen dialog; from 600 dp a centred `AppSurface` card at most 600 dp wide over a scrim. Header: title "Premium" and a Close (×) button, the only button.
   - Hero: icon disc (`workspace_premium_outlined`), title "Premium is coming soon", subtitle "Optional paid plans to help cover running costs. Nothing is for sale yet." (founder 2026-10-28, review L-1)
@@ -353,7 +353,7 @@ Order:
 - **Flag.** `shells` (route); `shells` + `ui_shell` (entry); prod up to `on` (F2).
 - **Seam.** `AppRouter.premiumPath`, `ShellKind.premium` and `kPremiumPlans`. The Payments ADR's flow replaces this pop-up behind its own flag, plan data then comes from the server, and no billing package is added before that ADR.
 
-### W8-6 — Advertise screen  [owner: frontend-developer] [size: S] [depends: W8-2; the button's switch-on waits on the mailbox]  Status: In review
+### W8-6 — Advertise screen  [owner: frontend-developer] [size: S] [depends: W8-2; the button's switch-on waits on the mailbox]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** `/advertise` (not `/ads`: content blockers' URL lists commonly match `/ads` paths, and a hard reload of `/ads` on web could be blocked):
   - `AppBackHeader` "Advertise" (F3).
   - Hero: icon disc (`campaign_outlined`), the title "Advertising is coming soon", and the subtitle "We don't sell ads or promoted posts yet, and there are no ads in your timeline."
@@ -374,7 +374,7 @@ Order:
 - **Flag.** `shells` (route); `shells` + `ui_shell` (entry).
 - **Seam.** `AppRouter.advertisePath` and `ShellKind.advertise`. The Ads ADR decides whether this becomes a link-out or a real page; feeds stay untouched until an ad slot goes behind the `timeline` interface.
 
-### W8-7 — Calls screen  [owner: frontend-developer] [size: S] [depends: W8-2, W8-3]  Status: In review
+### W8-7 — Calls screen  [owner: frontend-developer] [size: S] [depends: W8-2, W8-3]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** `/calls`, a settings-style page:
   - `AppBackHeader` "Calls".
   - Hero (`AppEmptyView`, icon disc `call_outlined`): the title "Calls are coming soon" and the subtitle "Voice and video calls aren't available yet. You can still reach people by replying to or mentioning them."
@@ -391,7 +391,7 @@ Order:
 - **Flag.** `shells` (route); `shells` + `ui_shell` (entry).
 - **Seam.** `AppRouter.callsPath` and `ShellKind.calls`. After the Calls ADR, `/calls` becomes call history, and calls start from W7's conversation header; this page is deleted.
 
-### W8-8 — Client tests  [owner: tester] [size: M] [depends: W8-4 to W8-7]  Status: In review
+### W8-8 — Client tests  [owner: tester] [size: M] [depends: W8-4 to W8-7]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** The cross-screen matrix:
   - **Responsive:** every shell page and every entry point at 360 / 600 / 1200, light and dark, 1.0 / 1.3 / 2.0, with no overflow (`expectNoOverflow`).
   - **Flag-off matrix:**
