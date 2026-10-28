@@ -1225,7 +1225,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 #### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK] Status: Open
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
-  2. 100% of dev traffic **and** the `last-good` tag are on a revision with W3-26a to W3-32 (lesson 10).
+  2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
   3. The W3-36 findings that gate the dev allowlist are fixed.
   4. A targeted dev Terraform plan (`-target` the `api` service only, so the `pending.md` 3.10 drift is excluded) for `feature_private_accounts*` and the four new limits is shown to the founder. It is applied only on OK, with the allowlist of 3 test uids (founder question B4).
 - **Smoke** (runbook `docs/runbooks/w3-part-b-rollout.md`):
