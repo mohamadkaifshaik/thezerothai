@@ -232,6 +232,13 @@ class MessagingRepository {
     return current;
   }
 
+  /// The cached conversation with [peerUserId] (W7-17), or null. Never
+  /// touches the network: a conversation that was never loaded here is not
+  /// found, and the first send then names the recipient, which the server
+  /// resolves to the same deterministic conversation (no duplicate).
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) =>
+      _store.conversationWithPeer(peerUserId);
+
   // --- threads -------------------------------------------------------------
 
   /// What is on disk for [conversationId]. Never touches the network.
