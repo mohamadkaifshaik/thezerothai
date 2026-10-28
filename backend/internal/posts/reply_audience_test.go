@@ -457,8 +457,8 @@ func TestEnforceReplyPolicy_MentionedOnly(t *testing.T) {
 			func(e *createEnv) { delete(e.repo.docs, rRoot) }, rReply1, "notfound", nil},
 		{"deep, root author suspended or deleting", ReplyPolicyMentionedOnly,
 			both(mention(testUID), func(e *createEnv) { delete(e.dir.profiles, uZed) }), rReply1, "notfound", nil},
-		{"deep, root not public", ReplyPolicyMentionedOnly,
-			both(mention(testUID), func(e *createEnv) { e.repo.docs[rRoot].Visibility = VisibilityFollowers }), rReply1, "notfound", nil},
+		{"deep, root author protected and not followed", ReplyPolicyMentionedOnly,
+			both(mention(testUID), func(e *createEnv) { e.protect(uZed) }), rReply1, "notfound", nil}, // ADR-0025: the root author is protected, the stored visibility is not read
 		{"deep, the root author replies to a deep reply", ReplyPolicyMentionedOnly, callerOwnsRoot, rReply1, "ok", nil},
 		{"deep, root is a quote whose embedded author blocks the caller", ReplyPolicyMentionedOnly,
 			both(mention(testUID), func(e *createEnv) {
@@ -753,7 +753,6 @@ func TestContextUsable(t *testing.T) {
 	}{
 		{"usable", pub(), true, caller, graph.Snapshot{}, true},
 		{"nil", nil, true, caller, graph.Snapshot{}, false},
-		{"not public", &Post{AuthorID: author, Visibility: VisibilityFollowers}, true, caller, graph.Snapshot{}, false},
 		{"hidden", &Post{AuthorID: author, Visibility: VisibilityPublic, Moderation: ModerationTakenDown}, true, caller, graph.Snapshot{}, false},
 		{"author not active", pub(), false, caller, graph.Snapshot{}, false},
 		{"author blocks the caller", pub(), true, caller, graph.Snapshot{BlockedBy: map[string]bool{author: true}}, false},

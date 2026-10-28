@@ -227,6 +227,18 @@ func ApplyWireVisibility(v *postsv1.PostView, protectedAuthor bool) {
 	}
 }
 
+// Audience returns the service's Audience, for the owner-only lists of other modules that decide rows through the
+// same predicate (engagement ListBookmarks and ListLikedPosts, W3-29b).
+func (s *service) Audience() *Audience { return s.aud }
+
+// AudienceOf returns the Audience of a posts Service built by New, or nil for any other implementation (a test fake).
+func AudienceOf(svc Service) *Audience {
+	if h, ok := svc.(interface{ Audience() *Audience }); ok {
+		return h.Audience()
+	}
+	return nil
+}
+
 // NewSnapshotAudience builds an Audience for a read path that already holds the viewer's graph snapshot and must not
 // spend a read on a block check (the timelines, W3-30). The block test is the snapshot's blockedBy set alone: a caller
 // whose blockedBy set overflowed is handled by the caller's own fail-closed rule (timeline.embedAllowed), not here. A
