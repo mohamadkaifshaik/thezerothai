@@ -99,7 +99,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Done (PR #384) |
 | W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Done (PR #380; depends: W3-25b; W3-26a and W3-29a merged) |
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Done (PR #381; depends: W3-25b; merges before W3-27) |
-| W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Open (depends: W3-26a, W3-27, W3-30 serving dev) |
+| W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | In review (PR #389) (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Open (depends: W3-26a, W3-29a serving dev) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
@@ -991,7 +991,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Cost.** Per deletion and per export only.
 - **Built (W3-32).** `graph/purge_requests.go` (`RequestEraser`, `RequestCheckpoint{Phase}`), `graph/export_requests.go` (`ExportRequests`), `apiserver/lifecycle_wiring.go` (`registerFollowRequestsLifecycle`). The incoming page is 250, not 500: each doc is a delete plus a requester update, and a batch holds at most 500 operations. The outgoing pass uses the automatic `followerId` index, and the export orders the sent side by document id and sorts in memory, so no new composite index is needed.
 
-#### W3-33a Client: protected profile, lock badge, Requested and withdraw [frontend-developer] [M] [depends: W3-26a, W3-27, W3-30 serving dev] Status: Open
+#### W3-33a Client: protected profile, lock badge, Requested and withdraw [frontend-developer] [M] [depends: W3-26a, W3-27, W3-30 serving dev] Status: In review (PR #389)
 - **Profile.**
   - `author_protected` replaces the cached feed for every tab's `FeedKey.user(uid, tab)` with the protected view: a lock, "These posts are protected", and "Only approved followers can see @handle's posts. To request access, tap Follow." (X-like default).
   - The tab bar is hidden, and the Pinned row is absent because the server omits the pin.
