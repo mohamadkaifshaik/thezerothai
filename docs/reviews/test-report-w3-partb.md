@@ -470,4 +470,6 @@ bash scripts/with-private-tmp.sh firebase --config <untracked copy of firebase.j
   --only firestore,auth,pubsub,storage 'cd backend && go test -tags=integration -count=1 -v -run "^TestW335a_PartBBudgetTable$" ./internal/apiserver/'
 ```
 
-VERDICT: FAIL — D-1 (low, production): Respond after an accept re-reads the caller's account status (3 against the documented warm 2); the W3-35d test fix itself passes
+Update 2026-10-29: the founder accepted D-1 as documented behaviour (option B: keep the eviction, record the read); ADR-0025's W3-28a implementation note now says a later Respond after an Accept on the same instance reads 3. The test-side cause (the inline fan-out's reads landing on the producer's request line) is also fixed at the source by #434 (`notifications.InlineEmitter` runs on its own budget counter); this test keeps its per-row fresh instances and the `noFanout` config on top of that.
+
+VERDICT: PASS (D-1 accepted by the founder 2026-10-29, recorded in ADR-0025; no ceiling changed)
