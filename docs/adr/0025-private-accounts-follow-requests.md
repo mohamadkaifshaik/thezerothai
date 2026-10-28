@@ -7,6 +7,8 @@ the status (W3-25) and adds dated pointer notes to ADR-0003 and ADR-0008 (D16). 
 below, each with a recommended default.
 Implementation notes 2026-10-28 (W3-25a): "Implementation notes (W3-25a, 2026-10-28)" at the end answers the plan's
 design points AQ1 to AQ6. Every default stands; no decision of this ADR changed.
+Implementation note 2026-10-28 (W3-25c): "Implementation note (W3-25c, 2026-10-28)" at the end adds the additive
+`AuthorSnapshot.is_private` field for the user-list lock badge (founder decision, Option A); +0 reads.
 
 Plan: `docs/plans/ui-w3-profile-graph-completion.md`, Part B, tickets W3-3 (this ADR) and W3-25 to W3-38; founder
 question 1. Related ADRs:
@@ -718,3 +720,33 @@ Founder decisions 2026-10-28: both accepted.
 - **Request-count cap.** `pending_follow_request_count` (AQ3) is one `count()` aggregation on `followRequests`
   capped at 1,000 matches: 1 read, and the badge shows at most 1,000. The cap applies CLAUDE.md rule 5 (every
   query has a limit) to the aggregation.
+
+## Implementation note (W3-25c, 2026-10-28): `AuthorSnapshot.is_private` for the lock badge on user-list rows
+
+Founder decision 2026-10-28: accepted ("Option A").
+
+- **Why:** W3-33a could not draw the lock badge on user-list rows (followers, following, follow requests, who to
+  follow). `graph.v1.UserListItem.user` is the shared `common.v1.AuthorSnapshot`, which had no privacy field, and
+  the plan's W3-33a text ("from `UserListItem.user.is_private`") named a field that did not exist.
+- **What:** `bool is_private = 6` on `common.v1.AuthorSnapshot`. Additive; `buf lint` and `buf breaking` clean, no
+  field reused or renumbered.
+- **Where it is filled:** only on live rows, that is `graph.v1.UserListItem.user` in every graph user list
+  (ListFollowers, ListFollowing, ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers). All of
+  them build the row through the one graph helper that converts the hydrated `identity.Profile`, so the value is
+  `Profile.IsPrivate`, which `users.isPrivate` (the source of truth, D2) already put in hand. The protected set
+  (D3) is not used here: it would add a graph dependency on the loader, and its fail-closed rule (D3, after
+  `PROTECTED_SET_MAX_STALE`) has no sensible meaning for a badge.
+- **Where it is not filled:** the frozen copies, `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
+  `notifications.v1.Notification.actor`, leave it unset (false). The stored `posts.author{}` and notification
+  `actor{}` maps are unchanged and no snapshot job copies it (rule 6 copies stay as they are).
+- **False is not public.** The proto comment says so: clients never infer "public" from false. The authoritative
+  signals stay `identity.v1.Profile.is_private` for an account and the post's wire `visibility` and
+  `EmbedViewerState` (D4) for a post. A post card's lock comes from `visibility`, never from the author snapshot.
+- **Staleness:** up to 60 s on the server (the `Directory` profile cache), plus however long the client keeps the
+  row: a who-to-follow row can stay on the device for 48 h (ADR-0024 Amendment 2). Acceptable because the field is
+  a display hint and never gates anything; every access decision stays on `posts.Audience` (D3, D4).
+- **Cost:** +0 reads, +0 writes, +0 deletes on every path. Wire size is at most 2 bytes per row when true, so the
+  egress change is negligible. No Firestore model, index or rules change; no flag (the badge renders whenever the
+  server sets the field, like the header badge from `Profile.is_private`); no stage-ladder change.
+- **Tickets:** W3-28c (backend: `make proto`, fill the field, a full-chain test and a +0-read budget check) and
+  W3-33c (client: the badge on `UserListRow`), in the plan.
