@@ -113,7 +113,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Open (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
-| W3-40a | W3-36 L-1, L-3, L-5: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion | backend-developer | M | Open (depends: W3-36 review) |
+| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Open (depends: W3-36 review) |
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
@@ -623,7 +623,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-37 | Cost report, Part B | sre-performance | S | W3-26a to W3-32 merged | 0 (emulators) |
 | W3-38 | Dev rollout, Part B | production-deployer | S | W3-35a to W3-35c, W3-36 M-1(c), W3-37, founder OK | a handful of reads and writes in dev |
 | W3-39 | M-2: unguessable public media names | backend-developer | M | W3-36 review | +0 reads, +0 writes, +0 deletes, +0 Class A and B on every path; media doc about +110 bytes, +66 bytes per stored image copy and per image on the wire |
-| W3-40a | L-1, L-3, L-5 | backend-developer | M | W3-36 review | Unlike and Undo repost of a post the caller may not see: +0 warm, +1 cold (the caller's graph snapshot), writes unchanged; loader and assertion 0 |
+| W3-40a | L-1, L-3, L-5, D-2 | backend-developer | M | W3-36 review | Unlike and Undo repost of a post the caller may not see: +0 warm, +1 cold (the caller's graph snapshot), writes unchanged; loader and assertion 0; D-2 documents the existing +1 write of the identity step (account deletion 4 on the reference chain, 301 on the reference account), no new cost |
 | W3-40b | L-4, O-1 | backend-developer | S | W3-40a, W3-35b (#405) | +0 on every path (fewer `Current` calls); a stuck `privacy_public` delivery: the same reads, 0 writes, acked instead of nacked (no redeliveries) |
 | W3-41a | L-2 backend: owner placeholders | architect (proto), backend-developer | M | W3-40b | +0 reads, +0 writes (rows already read are kept and stripped instead of skipped) |
 | W3-41b | L-2 client: placeholder rows | frontend-developer | S | W3-41a, W3-40a serving dev | 0 new RPCs; 1 Unlike, Undo repost or RemoveBookmark per tap |
@@ -1255,7 +1255,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Cost.** A handful of reads and writes in dev's free quota.
 
 #### Part B: W3-36 fix tickets (from `docs/reviews/security-review-w3b.md`, founder decisions 2026-10-28)
-The founder's decisions on the review: M-2 accepted (unguessable public names for new uploads); M-1 gets the runbook rule now (PR #404) and the `resolve-rollback.sh` floor before any prod ramp; the Lows are fixed in the next fix PRs. O-1 of the W3-35b test report (PR #405) rides with the Lows. Every ticket below follows "Part B: common to every ticket" (budget assertions through `apiserver.Build`, logs with hashes or counts only, `make ci` and `make test-int` green).
+The founder's decisions on the review: M-2 accepted (unguessable public names for new uploads); M-1 gets the runbook rule now (PR #404) and the `resolve-rollback.sh` floor before any prod ramp; the Lows are fixed in the next fix PRs. O-1 of the W3-35b test report (PR #405) and D-2 of the W3-35a test report (PR #410) ride with the Lows. W3-35a's D-1 (two further `ProtectedSet.CanSee` callers) is closed by the ADR-0025 "Implementation note (W3-35a D-1)", with no code change. Every ticket below follows "Part B: common to every ticket" (budget assertions through `apiserver.Build`, logs with hashes or counts only, `make ci` and `make test-int` green).
 
 #### W3-39 Media: unguessable public object names for new uploads (W3-36 M-2) [backend-developer] [M] [depends: W3-36 review] Status: Open
 - **Design.** ADR-0025 "Implementation note (W3-36 M-2, 2026-10-28)", with a pointer note on ADR-0005. New uploads publish as `m/<mediaId>-<suffix>.<ext>` and `m/<mediaId>-<suffix>_t.<ext>`. The suffix is 128 bits from `crypto/rand` as 32 lowercase hex characters, chosen at `CreateUpload` and stored as `nameSuffix` on the PENDING media doc in the existing create write. Old docs and objects keep the old shape (founder B1).
@@ -1265,22 +1265,22 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
   - `media/service.go`: `CreateUpload` generates the suffix per item; `publicObject` and `publicThumbObject` take it ("" = the old shape). `media/repo_firestore.go`: `Doc.NameSuffix` (`firestore:"nameSuffix,omitempty"`).
   - `media/finalize.go`: publish, resolve and the converge path use the doc's suffix.
   - `media/retire.go`: `imageObjectPattern` becomes `^m/([0-9]{19})(?:-([0-9a-f]{32}))?(_t)?\.(jpg|webp)$`; `ImageObject.Suffix`; `parseRetiredImage` also requires the thumbnail's suffix to equal the full image's.
-  - `media/purge.go`: `publicNames` returns the recorded paths plus the names derived for the doc's own shape. The eraser, the `post_delete` job (`jobs.go`) and the retire step all go through it, so each image still touches 2 public names. Update the `PurgeUser` comment.
-  - `cmd/opsctl/clear_profile.go` uses only `ObjectNameFromURL` and needs no change; a test proves it with a suffixed URL.
+  - `media/purge.go`: the name set depends on the caller. `deleteObjects` (the eraser and the `post_delete` job in `jobs.go`) deletes the recorded paths plus both derived pairs (old and suffixed) for a doc with `nameSuffix`, and the old pair otherwise; deletes are free. The retire step tags the recorded paths plus the doc's own-shape pair only, so it stays at 2 Class A per image. Update the `PurgeUser` comment.
+  - `cmd/opsctl/clear_profile.go` uses only `ObjectNameFromURL` and needs no change; a test proves it with a suffixed URL. No other code, Terraform (bucket lifecycle) or Firebase file parses the public names (checked by grep for `m/` and `/m/` on 2026-10-28).
 - **Acceptance criteria.**
   1. A new upload of each purpose (POST, AVATAR, BANNER) is published under the suffixed names, `MediaRef.url` and `thumb_url` carry them, and two uploads never share a suffix (a 1,000-upload test).
   2. A `CreateUpload` replay returns the same suffix; two concurrent finalizes of one doc (the W3-22 M-3 claim test) publish one pair of names, and the loser's converge path drops nothing it should keep.
   3. A doc without `nameSuffix` (written by the old code path in the test) finalizes, erases, retires and deletes under the old names; its posts keep the old URLs.
   4. `ParseObjectName` table test: old full and thumb, new full and thumb, upper-case hex, 31 or 33 hex characters, `_` or `-` inside the suffix, a suffix on a different id, and both extensions. `parseRetiredImage` refuses a full and thumb pair whose suffixes differ.
   5. The retire job retires a replaced avatar and banner of both shapes (emulator integration, `customTime` on both objects, 2 Class A each).
-  6. The account eraser and the `post_delete` job delete both shapes, including a suffixed doc whose finalize copied the objects and lost the record race (the orphaned-copy case of `publicNames`).
+  6. The account eraser and the `post_delete` job delete both shapes, including a suffixed doc whose finalize copied the objects and lost the record race (the orphaned-copy case of `publicNames`), and a suffixed doc finalized by the old code path (old names) that lost the record race: no object of either shape remains. The retire step still makes exactly 2 `customTime` calls per image.
   7. Budget: `CreateUpload`, `FinalizeUpload`, the retire step, the eraser and `post_delete` keep their ceilings exactly (+0 reads, +0 writes, +0 deletes); `budgettest` through `apiserver.Build`.
   8. No log line carries a suffix or a full object name of a new upload (hash or id only).
 - **Docs.** `docs/runbooks/media.md`: the two name shapes and the rollback residual (a revision older than W3-39 publishes new docs under the old names and does not retire suffixed avatars). Handoff to the founder: the `media/{mediaId}` row of the `firestore-data-model` skill gains `nameSuffix` (a `/.claude/` change, founder-gated, in a separate PR).
 - **Flag.** None: names change for every new upload; there is no user-visible behaviour to ramp.
 - **Cost.** +0 operations; bytes as in the budget row (ADR-0025 note).
 
-#### W3-40a Backend: W3-36 L-1, L-3 and L-5 [backend-developer] [M] [depends: W3-36 review] Status: Open
+#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: Open
 - **L-1, the undo oracle** (`engagement/service.go`, `resolveForCounts` and the Unlike and Undo repost paths).
   - The write stays ungated (rule 4): an undo always lands.
   - The answer is the missing-post shape (`post_id` only, zero counts, the same bytes as a deleted post) when `Audience.VisibleAuthor` is false for the caller, when the post is hidden (taken down, author suspended), or when the author blocks the caller.
@@ -1292,6 +1292,11 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - **L-5, fail-open wiring** (`apiserver/apiserver.go`, `Build`).
   - `Build` fails startup when any of the seven protected-set seams is nil outside `ENV=local` tests: the loader, graph `Protected`, `identity.WithProtectedAuthors`, the notifications `Audience`, `posts.WithProtectedAuthors`, the engagement `rowAudience(posts.AudienceOf(postsSvc))`, and `timeline.WithProtectedAuthors` (`apiserver.go`:137, :150, :198, :247, :308, :333, :353 at 15975e53).
   - AC: a test that wraps `postsSvc` so that `AudienceOf` returns nil makes `Build` fail with a named seam. The W3-35a guard asserts all seven are wired. `make test-int` still starts every suite.
+- **W3-35a D-2, the deletion budget flake** (W3-35a test report PR #410, Low; a W3-26a follow-up).
+  - Since W3-26a, the identity step of the account-delete job also does an `ArrayRemove` on `privacy/protectedAuthors`. Once that doc exists (always, in dev and prod), a real deletion costs one write more than documented: 4, not 3, on the reference chain, and 301, not 300, on the reference account.
+  - `TestAccountLifecycle_Chain` (`apiserver/account_lifecycle_integration_test.go`:431-433) and `TestAccountLifecycle_ReferenceAccountBudgets` (`account_lifecycle_reference_integration_test.go`:161-163) pass only on a fresh emulator, so they flake on test order.
+  - Fix: the tests create the set doc in their setup and assert the +1 write deterministically (a variant without the doc may assert the old number). Update the 300-write figure in `docs/runbooks/account-deletion.md` (about :88). Hand the `cost-model.md` DeleteAccount row (writes 1 + 300 = 301, so 302) to sre-performance, which owns that file.
+  - AC: both tests pass when run alone, after a test that created the set doc, and with `-shuffle=on`.
 - **Flag.** None (server-side correctness). **Cost.** As the budget row.
 
 #### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: Open
@@ -1335,6 +1340,8 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
   - Fail closed: a digest with no commit tag, or a commit not found, is refused while the flag is not `off`.
 - **Raise the floor for M-2.** After W3-39 merges and its image is on `last-good`, a one-line follow-up raises the floor to W3-39's merge commit before `private_accounts` leaves the dev allowlist. Do not raise it earlier, or every rollback is refused while the flag is on.
 - **Files.** `scripts/promotion/flag-ceiling.json`, `resolve-rollback.sh`, `scripts/promotion/test/*`, `scripts/promotion/README.md`, and `check-flag-registry.sh` if it validates the JSON's keys; `docs/runbooks/rollback.md` and `docs/runbooks/private-accounts.md` point to the guard.
+- **Automatic rollback.** `deploy-dev.yml` calls `resolve-rollback.sh` after a failed verification. When the floor refuses, the job fails with the named message and moves no traffic (the failed candidate keeps 0% and the serving revision keeps 100%), and the runbook says what to do: roll forward with a fix. Setting `private_accounts` to `off` lifts the script's floor, but the M-1(a) runbook rule still refuses the rollback while `privacy/protectedAuthors` lists anyone, because turning the flag off protects nobody's existing posts. No workflow change is needed if the script's exit code already stops the job; the deployer verifies that.
+- **Serialize with PR #404**, which edits the same two runbooks (`rollback.md`, `private-accounts.md`).
 - **Acceptance criteria.** Script tests (fixtures): flag `off` with a pre-floor image passes; flag `allowlist` with a pre-floor image fails with a named message; a post-floor image passes; a digest without a commit tag fails while the flag is not `off`; the existing `resolve-rollback.sh` cases still pass; `make ci` runs the promotion tests.
 - **Flag.** None. **Cost.** 0.
 
@@ -1382,6 +1389,7 @@ At most 5 agents run at once, each in its own worktree under `.claude/worktrees/
 | `app_router.dart`, the drawer, the notifications list | W3-34 | serialize with W4, W7 and W8 router tickets |
 | `media/service.go`, `finalize.go`, `retire.go`, `purge.go`, `jobs.go`, `repo_firestore.go` | W3-39 | alone in Part B; serialize with any later wave's media ticket |
 | `engagement/service.go` (undo paths) | W3-40a (L-1) | |
+| `apiserver/account_lifecycle_integration_test.go`, `account_lifecycle_reference_integration_test.go`, `docs/runbooks/account-deletion.md` | W3-40a (D-2) | |
 | `identity/protected_set.go` | W3-40a (L-3), then W3-40b (L-4 once-per-request reporting) | sequential |
 | `posts/audience.go`, `posts/server.go`, `timeline/service.go`, `engagement/list_common.go` | W3-40b (L-4), then W3-41a (owner surface) | sequential |
 | `engagement` Likes and Bookmarks list files (`service_likes_list.go`, the bookmarks list) | W3-41a | after W3-40b |

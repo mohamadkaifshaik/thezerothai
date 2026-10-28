@@ -12,7 +12,8 @@ Implementation note 2026-10-28 (W3-25c): "Implementation note (W3-25c, 2026-10-2
 Implementation notes 2026-10-28 (W3-36): "Implementation note (W3-36 M-2, 2026-10-28)" at the end gives new uploads
 unguessable public object names (founder decision on M-2), and "Implementation note (W3-36 L-2, 2026-10-28)" keeps the
 caller's own rows of a protected author as stripped placeholders on the owner's lists. Both are proposed for the
-founder's review on merge; no other decision of this ADR changed.
+founder's review on merge; no other decision of this ADR changed. "Implementation note (W3-35a D-1, 2026-10-28)"
+records the two further `ProtectedSet.CanSee` callers that W3-35a's audience guard allowlists.
 
 Plan: `docs/plans/ui-w3-profile-graph-completion.md`, Part B, tickets W3-3 (this ADR) and W3-25 to W3-38; founder
 question 1. Related ADRs:
@@ -796,10 +797,11 @@ W3-39. ADR-0005 carries a pointer to this note.
   A `CreateUpload` replay returns the existing docs, and their suffixes with them.
 - **Why random, not HMAC(key, mediaId).** The only advantage of an HMAC is a name derivable without storage. Every
   path that needs the name already reads the doc, so storing the suffix costs nothing. Random also avoids two costs:
-  - A new Secret Manager secret. Each project holds one active version today (`cursor-hmac-key`, Terraform
-    `module "secrets"`, `generated_secret_ids`), so a second one would fit inside the 6 free versions. But it would
-    add a startup access and a rotation story (rotating the key would rename every image), and a leaked key would
-    make every name guessable again.
+  - A new Secret Manager secret. Per Terraform (`module "secrets"`, `generated_secret_ids`), each project holds one
+    secret today, `cursor-hmac-key`: 1 active version per project, 2 on the billing account that dev and prod share
+    (live version counts not checked). A key per environment would make 4, still inside the 6 free active versions
+    even if the allowance is counted per billing account. It would still add a startup access and a rotation story
+    (rotating the key would rename every image), and a leaked key would make every name guessable again.
   - Reusing `cursor-hmac-key`. That would tie image names to cursor-key rotation and widen the key's blast radius.
   A random suffix has none of these problems and is independent for each image.
 - **Old objects keep their names (founder B1).** There is no backfill, rename or copy. A doc without `nameSuffix`
@@ -818,10 +820,13 @@ W3-39. ADR-0005 carries a pointer to this note.
   - The retire step's current-URL check (:168, `cur.ID == id`) is unchanged.
   - `ObjectNameFromURL` (used by `opsctl clear-profile-fields`, `cmd/opsctl/clear_profile.go`:215) does not validate
     the name and is unaffected.
-  - `publicNames` returns the recorded paths plus the names derived for the doc's own shape: the suffixed pair when
-    `nameSuffix` is set, otherwise the old pair. The eraser, the `post_delete` job (`media/jobs.go`:120) and the
-    retire step (`retire.go`:186) all use it, so each image still touches 2 public names. That is 2 Class A for the
-    retire step's `customTime`; deletes are free.
+  - The name set depends on the caller, because deletes are free and `customTime` is not:
+    - the eraser and the `post_delete` job (`media/jobs.go`:120, through `deleteObjects`) delete the recorded paths
+      plus **both** derived pairs (old and suffixed) for a doc with `nameSuffix`, and the old pair for a doc without
+      it. This covers the case in "Rollback" below: an older revision that finalized a suffixed doc and lost the race
+      to record its paths leaves an orphan under the old name, which no recorded path names (rule 10);
+    - the retire step (`retire.go`:186) tags the recorded paths plus the doc's own-shape pair only, so it stays at
+      2 Class A (`customTime`) per image.
 - **Cost.** +0 Firestore reads, +0 writes, +0 deletes, +0 Class A and +0 Class B on every path. Bytes:
   - each object name: +33 characters;
   - each media doc: about +110 bytes (`nameSuffix` about 44, `publicPath` and `thumbPath` +33 each);
@@ -836,8 +841,8 @@ W3-39. ADR-0005 carries a pointer to this note.
   single-field index entry: no query uses it, so it adds no query cost, and an entry this short is not worth a
   gate-file fieldOverride.
 - **Rollback.** A revision older than W3-39 ignores `nameSuffix` (the Go client drops unknown fields). It finalizes
-  new docs under the old, guessable names and records those paths, and the eraser still finds them through the
-  recorded paths. Its retire regex rejects suffixed URLs, so an avatar or banner replaced during such a rollback is
+  new docs under the old, guessable names and records those paths. The eraser finds them through the recorded
+  paths, or through the old derived pair when that revision lost the record race. Its retire regex rejects suffixed URLs, so an avatar or banner replaced during such a rollback is
   not retired: it stays public until the account is erased, as before ADR-0024 A4. Before `private_accounts` leaves
   the dev allowlist, W3-42 therefore raises the `PRIVATE_ACCOUNTS` rollback floor to W3-39's merge commit.
 - **What this does not fix.** URLs a viewer received while an image was public keep working (B1, W3-36 I-2), and an
@@ -900,3 +905,33 @@ the founder's review on merge. It changes the D4 list row **for the owner only**
   placeholder only appears while a protected-set loader is wired and P is in the set.
 - **Stage ladder.** No change. The owner rule is decided per row through `posts.Audience` with an owner-only surface
   value, so W4 search and W5 lists keep calling the same predicate and never see the owner surface.
+
+## Implementation note (W3-35a D-1, 2026-10-28): two more callers of `ProtectedSet.CanSee`
+
+This note records what the code already does, so that the ADR and the allowlist of W3-35a's guard
+(`audience_guard_test.go`) agree. No decision of this ADR changes, and there is no code change.
+
+- AQ2 named GetProfile (the pin) as the one caller of `identity.ProtectedSet.CanSee` outside `posts.Audience`, and
+  AQ5 said `apiserver` adapts the notifications checker from `posts.Audience.CanSee`. Two more callers exist. Both
+  call the one D3 expression and restate none of it:
+  - `graph/follow_requests.go` (`refuseProtectedList`, about :149): ListFollowers and ListFollowing of P for an
+    unapproved viewer. graph cannot use `posts.Audience`, because posts imports graph (that would be a cycle). It is
+    in the same position as identity's pin rule.
+  - `apiserver/notifications_wiring.go` (`protectedAudience`, about :150): the notifications `AudienceChecker` is
+    adapted from the loader directly, not from `posts.Audience`.
+- **Decision: keep both callers; do not route them through `posts.Audience`.**
+  - For graph there is no alternative.
+  - For the notifications adapter, `posts.Audience.CanSee` delegates to the same expression, so routing through it
+    would change no outcome. It would, however, make the fan-out depend on `posts.AudienceOf(postsSvc)`, which
+    returns nil for anything but the concrete posts service. That is the fail-open hazard of W3-36 L-5.
+  - The adapter decides own and followed authors before it asks the loader, as D3 requires.
+  - AQ5's intent holds: notifications never calls `ProtectedSet` itself.
+- **The rule from now on.** `ProtectedSet.CanSee` has exactly four callers:
+  - `posts.Audience`;
+  - identity's pin rule;
+  - graph's protected-list refusal;
+  - the apiserver notifications adapter.
+
+  A fifth caller needs a note here and an entry, with its reason, in the guard's allowlist. Every read path over
+  posts still calls only `posts.Audience`.
+- **Cost.** +0. **Stage ladder.** No change.
