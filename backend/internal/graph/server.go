@@ -5,7 +5,6 @@ package graph
 
 import (
 	"context"
-	"errors"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -224,26 +223,24 @@ func respond[M any](ctx context.Context, fn func(uid string) (*M, error)) (*conn
 	return connect.NewResponse(msg), nil
 }
 
-// ListFollowRequests and RespondToFollowRequest are behind the ADR-0025 D12 gate (FEATURE_GRAPH, then private_accounts not
-// globally off or the caller protected now; FEATURE_DISABLED feature=private_accounts otherwise) and answer Unimplemented
-// past it until W3-28a builds them. Contract budgets (ADR-0025 D7): ListFollowRequests 42 / 102 reads cold at page 20 / 50,
-// RespondToFollowRequest 3 cold / 2 warm and 4 writes + 1 delete on accept; this skeleton costs 0 reads beyond the interceptor
-// (1 cached Directory lookup only while the flag is globally off) and 0 writes.
-func (s *Server) ListFollowRequests(ctx context.Context, _ *connect.Request[graphv1.ListFollowRequestsRequest]) (*connect.Response[graphv1.ListFollowRequestsResponse], error) {
+// ListFollowRequests and RespondToFollowRequest sit behind the ADR-0025 D12 gate, applied in the service layer
+// (follow_requests.go): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now; a refusal is
+// FEATURE_DISABLED feature=private_accounts. Budgets (ADR-0025 D7): ListFollowRequests 42 / 102 reads cold at page 20 / 50
+// (21 / 51 warm), RespondToFollowRequest 3 cold / 2 warm and 4 writes + 1 delete on accept, 1 + 1 on decline, 0 on a replay.
+func (s *Server) ListFollowRequests(ctx context.Context, req *connect.Request[graphv1.ListFollowRequestsRequest]) (*connect.Response[graphv1.ListFollowRequestsResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.ListFollowRequestsResponse, error) {
-		if err := s.svc.FollowRequestsGate(ctx, uid); err != nil {
-			return nil, err
-		}
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ListFollowRequests is not built yet (W3-28a)"))
+		page, err := s.svc.ListFollowRequests(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
+		return &graphv1.ListFollowRequestsResponse{Requests: toProtoListItems(page.Items), NextPageToken: page.NextPageToken}, err
 	})
 }
 
-func (s *Server) RespondToFollowRequest(ctx context.Context, _ *connect.Request[graphv1.RespondToFollowRequestRequest]) (*connect.Response[graphv1.RespondToFollowRequestResponse], error) {
+func (s *Server) RespondToFollowRequest(ctx context.Context, req *connect.Request[graphv1.RespondToFollowRequestRequest]) (*connect.Response[graphv1.RespondToFollowRequestResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.RespondToFollowRequestResponse, error) {
-		if err := s.svc.FollowRequestsGate(ctx, uid); err != nil {
+		rel, err := s.svc.RespondToFollowRequest(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetRequesterUserId(), req.Msg.GetAccept())
+		if err != nil {
 			return nil, err
 		}
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RespondToFollowRequest is not built yet (W3-28a)"))
+		return &graphv1.RespondToFollowRequestResponse{Relationship: toProtoRelationship(rel)}, nil
 	})
 }
 

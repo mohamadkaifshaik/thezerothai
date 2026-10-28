@@ -1,5 +1,5 @@
 // follow_requests_gate.go is the ADR-0025 D12 gate of ListFollowRequests and RespondToFollowRequest (W3-25b). The two
-// RPCs stay Unimplemented until W3-28a; this file holds the gate they share so the later tickets only add behaviour.
+// RPCs are built in follow_requests.go (W3-28a); this file holds the gate they share.
 package graph
 
 import (
@@ -27,6 +27,11 @@ type globallyOffChecker interface {
 // cache-first: 0 reads warm (the account-status interceptor just loaded the profile), 1 cold. 0 writes.
 func (s *service) FollowRequestsGate(ctx context.Context, callerUID string) (err error) {
 	defer begin(ctx, "follow_requests_gate")(&err)
+	return s.followRequestsGate(ctx, callerUID)
+}
+
+// followRequestsGate is FollowRequestsGate without its own graph_op, for the two RPCs that name themselves.
+func (s *service) followRequestsGate(ctx context.Context, callerUID string) error {
 	if err := s.checkFlag(callerUID); err != nil {
 		return err
 	}

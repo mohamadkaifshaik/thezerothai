@@ -131,6 +131,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
 	graphRepo.SetTxProfiles(identityRepo)
+	// ADR-0025 (W3-26a): the one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). It is built
+	// before graph so ListFollowers and ListFollowing decide PROTECTED_ACCOUNT through it (W3-28a); posts, timeline and
+	// notifications take it below, and identity's toggle feeds it the committing instance's own change.
+	protectedAuthors := identity.NewProtectedSetLoader(identityRepo, cfg.CacheTTL, cfg.Privacy.ProtectedSetMaxStale, nil, log)
 	identityCache := identity.NewCache(cfg.CacheTTL)
 	graphCache := graph.NewCache(cfg.CacheTTL)
 
@@ -143,6 +147,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Cache:                   graphCache,
 		Flags:                   featureFlags,
 		CursorKey:               cfg.CursorHMACKey,
+		Protected:               protectedAuthors,
 		ReadOnly:                cfg.Degraded == config.DegradedReadonly,
 		FollowsPerDay:           int64(cfg.Quota.FollowsPerDay),
 		NewAccountFollowsPerDay: int64(cfg.Quota.NewAccountFollowsPerDay),
@@ -187,10 +192,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// ADR-0024 (W3-6): the pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
-	// ADR-0025 (W3-26a): the one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). The
-	// consumers (posts.Audience, timeline, notifications) take protectedAuthors in their own tickets; identity's toggle
-	// feeds it the committing instance's own change.
-	protectedAuthors := identity.NewProtectedSetLoader(identityRepo, cfg.CacheTTL, cfg.Privacy.ProtectedSetMaxStale, nil, log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
