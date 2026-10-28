@@ -725,6 +725,12 @@ Founder decisions 2026-10-28: both accepted.
 - **Request-count cap.** `pending_follow_request_count` (AQ3) is one `count()` aggregation on `followRequests`
   capped at 1,000 matches: 1 read, and the badge shows at most 1,000. The cap applies CLAUDE.md rule 5 (every
   query has a limit) to the aggregation.
+- **Later taps after an Accept (W3-35d D-1, founder decision 2026-10-29: accepted).** An Accept evicts both
+  the requester's and the caller's Directory profile (`Directory.Forget`, so the caller's follower count is fresh).
+  The next Respond on the same instance pays the account-status interceptor's read of the caller again, so a
+  later Accept or Decline in the same List-then-tap session reads 3, not 2. At most +1 read per tap after an
+  Accept; writes are unchanged and no free-tier line moves at Stage 0. The eviction is kept as is; the W3-35a
+  budget table measures each Respond row on a fresh instance (W3-35d).
 
 ## Implementation note (W3-25c, 2026-10-28): `AuthorSnapshot.is_private` for the lock badge on user-list rows
 

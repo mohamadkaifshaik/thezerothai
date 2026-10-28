@@ -7,6 +7,7 @@ package apiserver
 //   - TestW335a_BudgetTableWithPartBOn runs the whole W3-20 table again with FEATURE_PRIVATE_ACCOUNTS on and a protected
 //     account in the set: every existing read path keeps its W3-20 ceiling ("+0", the predicate costs no read);
 //   - TestW335a_PartBBudgetTable measures each Part B RPC and each modified read path against its own row.
+// Its rows run on noFanout chains (W3-35d), so no inline notification fan-out leaks reads into a measured line.
 // Every case logs a W320BUDGET line (rpc, case, reads, writes, deletes and the ceiling); the report's table is those lines.
 
 import (
@@ -21,9 +22,22 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 func TestW335a_BudgetTableWithPartBOn(t *testing.T) { w320BudgetTable(t, w335aOn) }
+
+// noFanout is w335aOn with FEATURE_NOTIFICATIONS off, for the rows of TestW335a_PartBBudgetTable (W3-35d). The test
+// chain delivers notifications with notifications.InlineEmitter, a goroutine that carries the request's budget counter
+// and runs after the response; the fan-out's reads (the actor's profile, the recipient's settings) land in the
+// measured request's line or not, depending on a race. In production the fan-out is a separate Pub/Sub push request
+// with its own line (budgeted by the notifications table), so a Part B RPC's own reads are the ones measured here.
+// Off drops every event before the goroutine starts (notifications.prepare), so the numbers are deterministic.
+func noFanout(c *config.Config) {
+	w335aOn(c)
+	c.FeatureNotifications = flags.Spec{Name: "notifications", Mode: flags.Off}
+}
 
 func TestW335a_PartBBudgetTable(t *testing.T) {
 	ctx := context.Background()
@@ -45,7 +59,7 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 	// meas runs call on a fresh chain (cold) and asserts the last request line of rpc against ceil.
 	meas := func(rpc, label string, ceil budgettest.Budget, call func(r *w320Chain)) *w320Chain {
 		t.Helper()
-		r := newW320Chain(t, w335aOn)
+		r := newW320Chain(t, noFanout)
 		call(r)
 		r.w320Measure(t, rpc, label, ceil)
 		return r
@@ -92,31 +106,43 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 		}
 	})
 
-	// Respond: after a List on the same instance (the client flow), then standalone cold. The decline is measured
-	// first, straight after the List: an accept forgets the caller's cached profile (its followersCount moved), so a
-	// Respond that follows an accept on the same instance pays the account-status read again (3, the cold row) unless
-	// the local inline notification fan-out of that accept happened to re-read the profile first. Measured after the
-	// accept, the decline was 2 or 3 depending on goroutine timing.
-	rc := newW320Chain(t, w335aOn)
-	if _, err := rc.w328List(w.p); err != nil {
-		t.Fatal(err)
-	}
+	// Respond. Each row states its own state and builds it on its own instance, so no row depends on an earlier row or on
+	// another test (W3-35d): a warm row is a fresh instance plus one ListFollowRequests (the client flow: open the requests
+	// screen, then tap); a cold row is a fresh instance and nothing else. One thing is worth knowing when reading the
+	// numbers: an accept calls Directory.Forget(requester, caller) (the follower counters moved), which evicts the CALLER's
+	// own profile too, so the next call on that instance pays the account-status interceptor's read again. That is why a
+	// decline measured after an accept on the same instance reads 3, not 2 (production behaviour, W3-35d D-1 in
+	// docs/reviews/test-report-w3-partb.md), and why every row below starts a new instance.
 	respond := func(r *w320Chain, who bmUser, accept bool) {
 		if _, err := r.w328Respond(w.p, who.uid, accept); err != nil {
 			t.Fatalf("Respond(%v): %v", accept, err)
 		}
 	}
-	respond(rc, reqs[1], false)
-	rc.w320Measure(t, rpcRespondToFollowReq, "Respond decline, after List", budgettest.Budget{Reads: 2, Writes: 1, Deletes: 1})
-	respond(rc, reqs[0], true)
-	rc.w320Measure(t, rpcRespondToFollowReq, "Respond accept, after List (3 / 4 writes / 1 delete)", budgettest.Budget{Reads: 3, Writes: 4, Deletes: 1})
-	// The replay follows the accept, so it is held to the cold replay row (2: the account-status read and the request).
-	respond(rc, reqs[0], true)
-	rc.w320Measure(t, rpcRespondToFollowReq, "Respond replay of an accept", budgettest.Budget{Reads: 2})
-	// A fully cold standalone Respond reads up to 5 (ADR-0025 W3-28a implementation note); writes unchanged. Its
-	// accept's notification fan-out runs on its own budget counter (notifications.InlineEmitter), never on this one.
+	// afterList is a warm instance: List has read the caller's profile (interceptor), the caller's snapshot and the
+	// requesters' profiles (Directory), which is what ADR-0025 D7 counts as "warm".
+	afterList := func() *w320Chain {
+		r := newW320Chain(t, noFanout)
+		if _, err := r.w328List(w.p); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	r := afterList()
+	respond(r, reqs[0], true)
+	r.w320Measure(t, rpcRespondToFollowReq, "Respond accept, warm (after List; 3 / 4 writes / 1 delete)", budgettest.Budget{Reads: 3, Writes: 4, Deletes: 1})
+	// Replay on the same instance as the accept: that accept evicted the caller's profile (see above), so the interceptor
+	// reads again: the documented "2 cold" replay, not the "1 warm" one.
+	respond(r, reqs[0], true)
+	r.w320Measure(t, rpcRespondToFollowReq, "Respond replay of an accept, right after the accept (interceptor re-read: 2)", budgettest.Budget{Reads: 2})
+	r = afterList()
+	respond(r, reqs[1], false)
+	r.w320Measure(t, rpcRespondToFollowReq, "Respond decline, warm (after List)", budgettest.Budget{Reads: 2, Writes: 1, Deletes: 1})
+	// A fully cold standalone Respond reads up to 5 (ADR-0025 W3-28a implementation note); writes unchanged.
 	meas(rpcRespondToFollowReq, "Respond accept, standalone cold (W3-28a note: up to 5)", budgettest.Budget{Reads: 5, Writes: 4, Deletes: 1}, func(r *w320Chain) {
 		respond(r, reqs[2], true)
+	})
+	meas(rpcRespondToFollowReq, "Respond decline, standalone cold (W3-28a note: up to 5)", budgettest.Budget{Reads: 5, Writes: 1, Deletes: 1}, func(r *w320Chain) {
+		respond(r, reqs[3], false)
 	})
 
 	// GetMe: +1 read (one count()) for a protected caller, nothing for a public one.
