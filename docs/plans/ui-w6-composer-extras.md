@@ -95,7 +95,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` and `docs/pending.md` sectio
 |---|---|---|
 | Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button, no poll or GIF button, and no "Save post?" prompt | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
 | `posts.proto` | Next free field numbers: `CreatePostRequest` 10, `Post` 21, `EmbeddedPost` 10, `PostView` 7. `SchedulePostRequest` has no poll field (ADR-0021 D4) | `poll` fields, `viewer_poll_choice` (W6-2) |
-| `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W3, W4 and W5 may take 17+ first: take the next free numbers when the PR opens |
+| `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
 | Media | `image/jpeg` and `image/webp` only (`media/service.go:131`); `sniffImage` knows those two; the thumbnail is published with the full image's content type (`finalize.go:184`); full ≤ 2 MiB, thumbnail ≤ 256 KiB; SafeSearch by `gs://` URI (`vision.go:60`), 2 units per image. The client re-encodes everything to JPEG (`image_processor.dart`), so a picked GIF loses its animation today | `image/gif` for post media, a thumbnail content type, frame sampling (W6-3, W6-9, W6-10, W6-16) |
 | Local storage | drift `AppDatabase` schema v6; `clearAll` wipes the cache tables on sign-out and keeps `AppSettingEntries`; `SessionEpoch` guards writes | a `ComposerDraftEntries` table, schema v7, outside `clearAll` (F7) (W6-14) |
@@ -433,7 +433,7 @@ Order:
     - `message PollDraft { repeated string choices = 1; int32 duration_minutes = 2; }`;
     - `CreatePostRequest.poll = 10` (PollDraft), `Post.poll = 21`, `EmbeddedPost.poll = 10` (no counts), `PostView.viewer_poll_choice = 7` (int32: 0 = not voted, 1–4 = choice + 1).
   - **`engagement.proto`:** `rpc VotePoll(VotePollRequest{idempotency_key, post_id, choice_index}) returns (VotePollResponse{dzeroth.posts.v1.PostView post})`, with a budget comment.
-  - **`common.proto`:** `ERROR_REASON_POLL_CLOSED` and `ERROR_REASON_ALREADY_VOTED` at the next free numbers (17 and 18 today), if A6 keeps them.
+  - **`common.proto`:** `ERROR_REASON_POLL_CLOSED` and `ERROR_REASON_ALREADY_VOTED` at the next free numbers when the PR opens (18 and 19 today: W3-25a took 17 for `PROTECTED_ACCOUNT`), if A6 keeps them.
   - **`firebase/firestore.indexes.json`:** a `posts.poll` fieldOverride `indexes: []`, plus the `field-overrides.ack` hash (**gate files**).
   - The `firestore-data-model` rows.
 - **Acceptance criteria.**

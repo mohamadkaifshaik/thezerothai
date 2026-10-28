@@ -150,6 +150,8 @@
     { "collectionGroup": "graph", "fieldPath": "requested", "indexes": [] },
     { "collectionGroup": "graph", "fieldPath": "blockedBy", "indexes": [] },
 
+    { "collectionGroup": "privacy", "fieldPath": "uids", "indexes": [] },
+
     { "collectionGroup": "userLikes", "fieldPath": "recent", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "bookmarks", "indexes": [] },
