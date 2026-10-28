@@ -91,7 +91,7 @@ func TestService_FlagModes(t *testing.T) {
 					open = tt.wantOn
 				}
 				if open {
-					if rpc.name == "SendMessage" || rpc.name == "ListConversations" {
+					if rpc.name == "SendMessage" || rpc.name == "ListConversations" || rpc.name == "ListMessages" || rpc.name == "MarkConversationRead" {
 						var ae *apierr.Error
 						if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
 							t.Fatalf("err = %v, want the request's VALIDATION (the gate is open)", err)
