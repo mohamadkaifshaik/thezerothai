@@ -50,6 +50,8 @@ void main() {
     onboarding = MockOnboardingBloc();
     visited = [];
     when(() => repo.rateLimitedFor()).thenReturn(null);
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
     when(() => repo.cachedConversations(any()))
         .thenAnswer((_) async => const ConversationsSnapshot());
     when(() => repo.refreshConversations(any())).thenAnswer(

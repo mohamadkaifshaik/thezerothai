@@ -14,6 +14,10 @@ import 'conversation_row.dart';
 const kMessageDeletedText = kConversationDeletedSnippet;
 const kMessageRemovedText = kConversationRemovedSnippet;
 
+/// The label of the report action on a peer's bubble (menu item and the
+/// assistive-technology action).
+const kReportMessageLabel = 'Report message';
+
 /// The bubble's share of the row width; the rest keeps the sides distinct.
 const double kBubbleMaxWidthFraction = 0.8;
 
@@ -42,6 +46,10 @@ bool _isTombstone(pb.Message message) =>
 /// - Semantics: one node, "You said ..." or "`name` said ..., `time`"; each
 ///   link is an "Open link" custom action, since the text children are
 ///   excluded.
+/// - [onReport] (W7-18, only on a peer's visible message, only with `reports`
+///   on) adds "Report message": a long press or a secondary click calls it
+///   with the press point, and assistive technology gets a "Report message"
+///   action (called with the bubble's rectangle). Null = no gesture, no action.
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
@@ -52,6 +60,7 @@ class MessageBubble extends StatelessWidget {
     required this.lastOfGroup,
     required this.onOpenLink,
     this.use24Hour = false,
+    this.onReport,
   });
 
   final pb.Message message;
@@ -65,6 +74,9 @@ class MessageBubble extends StatelessWidget {
   final bool lastOfGroup;
   final void Function(Uri uri) onOpenLink;
   final bool use24Hour;
+
+  /// Opens the "Report message" menu at [anchor] (null = not reportable).
+  final void Function(Rect anchor)? onReport;
 
   /// Key of the time text under the last bubble of a group.
   static const timeKey = ValueKey('message-time');
@@ -109,7 +121,7 @@ class MessageBubble extends StatelessWidget {
               if (s.kind == PostSpanKind.link && s.url != null) s,
           ];
 
-    final bubble = DecoratedBox(
+    Widget bubble = DecoratedBox(
       key: ValueKey('bubble-${message.id}'),
       decoration: BoxDecoration(
         color: background,
@@ -137,6 +149,14 @@ class MessageBubble extends StatelessWidget {
               ),
       ),
     );
+    final report = onReport;
+    if (report != null) {
+      bubble = GestureDetector(
+        onLongPressStart: (d) => report(d.globalPosition & Size.zero),
+        onSecondaryTapUp: (d) => report(d.globalPosition & Size.zero),
+        child: bubble,
+      );
+    }
 
     return Padding(
       padding: EdgeInsetsDirectional.only(
@@ -164,7 +184,7 @@ class MessageBubble extends StatelessWidget {
                     label: label,
                     container: true,
                     excludeSemantics: true,
-                    customSemanticsActions: links.isEmpty
+                    customSemanticsActions: links.isEmpty && report == null
                         ? null
                         : {
                             for (final link in links)
@@ -172,6 +192,11 @@ class MessageBubble extends StatelessWidget {
                                 label: 'Open link ${link.url!.host}',
                               ): () =>
                                   onOpenLink(link.url!),
+                            if (report != null)
+                              const CustomSemanticsAction(
+                                label: kReportMessageLabel,
+                              ): () =>
+                                  report(_globalRect(context)),
                           },
                     child: bubble,
                   ),
@@ -198,6 +223,12 @@ class MessageBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+Rect _globalRect(BuildContext context) {
+  final box = context.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) return Rect.zero;
+  return box.localToGlobal(Offset.zero) & box.size;
 }
 
 /// A message body: [parsePostText] spans where only links are tappable (the

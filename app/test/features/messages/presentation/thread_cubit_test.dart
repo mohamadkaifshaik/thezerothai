@@ -6,6 +6,7 @@ import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:uuid/uuid.dart';
@@ -596,6 +597,104 @@ void main() {
         expect(keys, ['key-1', 'key-1']);
       },
     );
+
+    group('acceptRequest (W7-18)', () {
+      pb.Conversation received() =>
+          threadConv(state: ConversationState.CONVERSATION_STATE_REQUEST)
+              .deepCopy()
+            ..folder = Folder.FOLDER_REQUESTS;
+
+      void stubAccept(Future<void> Function() answer) => when(
+        () => repo.acceptMessageRequest(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      ).thenAnswer((_) => answer());
+
+      test('moves the header to an accepted inbox conversation', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        stubAccept(() async {});
+        make();
+        await cubit.load();
+        expect(cubit.state.conversation!.folder, Folder.FOLDER_REQUESTS);
+
+        final error = await cubit.acceptRequest();
+
+        expect(error, isNull);
+        expect(
+          cubit.state.conversation!.state,
+          ConversationState.CONVERSATION_STATE_ACCEPTED,
+        );
+        expect(cubit.state.conversation!.folder, Folder.FOLDER_INBOX);
+        expect(cubit.state.accepting, isFalse);
+        verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: 'key-1',
+            conversationId: kThreadId,
+          ),
+        ).called(1);
+      });
+
+      test('a failure returns the error, keeps the request, retries with the '
+          'same key', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        var fail = true;
+        stubAccept(() async {
+          if (fail) throw const NetworkException('offline');
+        });
+        make();
+        await cubit.load();
+
+        expect(await cubit.acceptRequest(), isA<NetworkException>());
+        expect(cubit.state.accepting, isFalse);
+        expect(
+          cubit.state.conversation!.state,
+          ConversationState.CONVERSATION_STATE_REQUEST,
+        );
+
+        fail = false;
+        expect(await cubit.acceptRequest(), isNull);
+        final keys = verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).captured;
+        expect(keys, ['key-1', 'key-1']);
+      });
+
+      test('a second tap while it runs sends '
+          'nothing', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        final gate = Completer<void>();
+        stubAccept(() => gate.future);
+        make();
+        await cubit.load();
+
+        final first = cubit.acceptRequest();
+        await pumpEventQueue();
+        expect(cubit.state.accepting, isTrue);
+        expect(await cubit.acceptRequest(), isNull);
+        gate.complete();
+        await first;
+
+        verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).called(1);
+      });
+    });
 
     test('blocking the peer makes the thread read-only at once', () async {
       stubOpen(snap(thread(1)), snap(thread(1)));

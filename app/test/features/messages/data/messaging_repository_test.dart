@@ -609,6 +609,55 @@ void main() {
       });
     });
 
+    test(
+      'accept and delete announce a cache change; a failure does not',
+      () async {
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [
+              conv(
+                'q',
+                folder: Folder.FOLDER_REQUESTS,
+                state: ConversationState.CONVERSATION_STATE_REQUEST,
+              ),
+              conv(
+                'r',
+                folder: Folder.FOLDER_REQUESTS,
+                state: ConversationState.CONVERSATION_STATE_REQUEST,
+              ),
+            ],
+            sinceToken: 's',
+          ),
+        );
+        await repo.refreshConversations(Folder.FOLDER_REQUESTS);
+        var changes = 0;
+        final sub = repo.conversationsChanged.listen((_) => changes++);
+        addTearDown(sub.cancel);
+
+        await repo.acceptMessageRequest(
+          idempotencyKey: 'k',
+          conversationId: 'q',
+        );
+        await pumpEventQueue();
+        expect(changes, 1);
+
+        await repo.deleteConversation(
+          idempotencyKey: 'k2',
+          conversationId: 'r',
+        );
+        await pumpEventQueue();
+        expect(changes, 2);
+
+        readAnswer = const UnknownApiException('boom');
+        await expectLater(
+          repo.acceptMessageRequest(idempotencyKey: 'k3', conversationId: 'z'),
+          throwsA(isA<AppException>()),
+        );
+        await pumpEventQueue();
+        expect(changes, 2);
+      },
+    );
+
     test('mark read zeroes the cached unread count', () async {
       convAnswers.add(
         pb.ListConversationsResponse(conversations: [conv('a', unread: 4)]),

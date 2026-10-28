@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
 import '../../domain/thread_poller.dart';
@@ -46,6 +47,7 @@ class ThreadState {
     this.pendingNew = 0,
     this.peerBlocked = false,
     this.deleting = false,
+    this.accepting = false,
     this.cannotMessage = false,
     this.error,
     this.notice,
@@ -71,6 +73,9 @@ class ThreadState {
   /// The caller blocked the peer from this screen: read-only from now on.
   final bool peerBlocked;
   final bool deleting;
+
+  /// AcceptMessageRequest is in flight (W7-18): the request banner is busy.
+  final bool accepting;
 
   /// A send was refused with CANNOT_MESSAGE (W7-16): read-only from now on,
   /// without waiting for a header refresh.
@@ -103,6 +108,7 @@ class ThreadState {
     int? pendingNew,
     bool? peerBlocked,
     bool? deleting,
+    bool? accepting,
     bool? cannotMessage,
     Object? error = _keep,
     Object? notice = _keep,
@@ -118,6 +124,7 @@ class ThreadState {
       pendingNew: pendingNew ?? this.pendingNew,
       peerBlocked: peerBlocked ?? this.peerBlocked,
       deleting: deleting ?? this.deleting,
+      accepting: accepting ?? this.accepting,
       cannotMessage: cannotMessage ?? this.cannotMessage,
       error: identical(error, _keep) ? this.error : error as AppException?,
       notice: identical(notice, _keep) ? this.notice : notice as AppException?,
@@ -175,6 +182,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   bool _marking = false;
   String? _markKey;
   String? _deleteKey;
+  String? _acceptKey;
 
   /// Opens the screen: cache first, then one refresh.
   Future<void> load() async {
@@ -450,7 +458,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   /// null on success, else the failure to tell the user about; the same
   /// idempotency key is reused if the user retries.
   Future<AppException?> deleteConversation() async {
-    if (isClosed || state.deleting) return null;
+    if (isClosed || state.deleting || state.accepting) return null;
     emit(state.copyWith(deleting: true));
     try {
       await _repository.deleteConversation(
@@ -463,6 +471,40 @@ class ThreadCubit extends Cubit<ThreadState> {
     } on AppException catch (error, stack) {
       if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
       if (!isClosed) emit(state.copyWith(deleting: false));
+      return error;
+    }
+  }
+
+  /// Accepts the request this conversation is (W7-18). Returns null on
+  /// success, else the failure to tell the user about; the same idempotency
+  /// key is reused if the user retries. On success the header becomes an
+  /// ACCEPTED inbox conversation at once (what the repository just wrote to the
+  /// cache), so the banner goes and the composer appears with no refetch.
+  Future<AppException?> acceptRequest() async {
+    if (isClosed || state.accepting || state.deleting) return null;
+    emit(state.copyWith(accepting: true));
+    try {
+      await _repository.acceptMessageRequest(
+        idempotencyKey: _acceptKey ??= _uuid.v4(),
+        conversationId: conversationId,
+      );
+      _acceptKey = null;
+      if (isClosed) return null;
+      final header = state.conversation;
+      emit(
+        state.copyWith(
+          accepting: false,
+          conversation: header == null
+              ? null
+              : (header.deepCopy()
+                  ..state = ConversationState.CONVERSATION_STATE_ACCEPTED
+                  ..folder = Folder.FOLDER_INBOX),
+        ),
+      );
+      return null;
+    } on AppException catch (error, stack) {
+      if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
+      if (!isClosed) emit(state.copyWith(accepting: false));
       return error;
     }
   }

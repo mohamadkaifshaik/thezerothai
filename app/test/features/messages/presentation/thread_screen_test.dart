@@ -10,6 +10,10 @@ import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/data/timer_thread_poller.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
+import 'package:dzeroth/features/messages/presentation/report_conversation.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
+import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
+import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_bubble.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -19,6 +23,7 @@ import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -34,12 +39,15 @@ class MockMessagingRepository extends Mock implements MessagingRepository {}
 
 class MockGraphRepository extends Mock implements GraphRepository {}
 
+class MockModerationRepository extends Mock implements ModerationRepository {}
+
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
 void main() {
   late MockMessagingRepository repo;
   late MockGraphRepository graphRepo;
+  late MockModerationRepository moderation;
   late MockOnboardingBloc onboarding;
   late FakeThreadPoller poller;
   late Future<PollResult> Function() pull;
@@ -71,11 +79,14 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(const Duration());
+    registerFallbackValue(ReportTargetType.REPORT_TARGET_TYPE_POST);
+    registerFallbackValue(ReportReason.REPORT_REASON_SPAM);
   });
 
   setUp(() {
     repo = MockMessagingRepository();
     graphRepo = MockGraphRepository();
+    moderation = MockModerationRepository();
     onboarding = MockOnboardingBloc();
     poller = FakeThreadPoller();
     current = snap(run(1, 3));
@@ -99,12 +110,13 @@ void main() {
   Future<void> open(
     WidgetTester tester, {
     String? id,
-    Set<String> features = const {'messaging', 'graph'},
+    Set<String> features = const {'messaging', 'graph', 'reports'},
     Brightness brightness = Brightness.light,
     Size size = const Size(400, 800),
     double textScale = 1,
     ThreadPollerBuilder? pollerBuilder,
     Widget Function(BuildContext, pb.Conversation?)? composerBuilder,
+    ThreadBannerBuilder? bannerBuilder,
     void Function(BuildContext, pb.Conversation)? onReport,
     bool settle = true,
   }) async {
@@ -125,6 +137,7 @@ void main() {
             conversationId: id ?? kThreadId,
             now: kMsgBase.add(const Duration(minutes: 1)),
             composerBuilder: composerBuilder,
+            bannerBuilder: bannerBuilder,
             onReport: onReport,
             onOpenLink: (uri) => visited.add('link:$uri'),
             pollerBuilder:
@@ -153,6 +166,7 @@ void main() {
         providers: [
           RepositoryProvider<MessagingRepository>.value(value: repo),
           RepositoryProvider<GraphRepository>.value(value: graphRepo),
+          RepositoryProvider<ModerationRepository>.value(value: moderation),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
         child: BlocProvider<OnboardingBloc>.value(
@@ -869,5 +883,764 @@ void main() {
         handle.dispose();
       },
     );
+  });
+  group('request actions (W7-18)', () {
+    pb.Conversation received() =>
+        threadConv(state: ConversationState.CONVERSATION_STATE_REQUEST)
+            .deepCopy()
+          ..folder = Folder.FOLDER_REQUESTS;
+
+    Widget composerStub(BuildContext context, pb.Conversation? conversation) =>
+        const SizedBox(key: ValueKey('composer-stub'), height: 48);
+
+    Finder composer() => find.byKey(const ValueKey('composer-stub'));
+
+    Future<void> openRequest(
+      WidgetTester tester, {
+      pb.Conversation? conversation,
+      Set<String> features = const {'messaging', 'graph', 'reports'},
+      Brightness brightness = Brightness.light,
+      Size size = const Size(400, 800),
+      double textScale = 1,
+    }) async {
+      current = snap(run(1, 3), conversation: conversation ?? received());
+      await open(
+        tester,
+        features: features,
+        brightness: brightness,
+        size: size,
+        textScale: textScale,
+        composerBuilder: composerStub,
+        bannerBuilder: buildRequestBanner,
+      );
+    }
+
+    void stubAccept([Future<void> Function()? answer]) => when(
+      () => repo.acceptMessageRequest(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        conversationId: any(named: 'conversationId'),
+      ),
+    ).thenAnswer((_) => (answer ?? () async {})());
+
+    void stubDelete([Future<void> Function()? answer]) => when(
+      () => repo.deleteConversation(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        conversationId: any(named: 'conversationId'),
+      ),
+    ).thenAnswer((_) => (answer ?? () async {})());
+
+    forEachThemeAndWidth('the banner lays out without overflow', (
+      tester,
+      env,
+    ) async {
+      await openRequest(
+        tester,
+        brightness: env.brightness,
+        size: env.size,
+        textScale: env.textScale,
+      );
+
+      expect(tester.takeException(), isNull);
+      for (final key in [
+        RequestBanner.acceptKey,
+        RequestBanner.deleteKey,
+        RequestBanner.blockKey,
+      ]) {
+        final box = tester.getRect(find.byKey(key));
+        expect(box.height, greaterThanOrEqualTo(48));
+        expect(box.right, lessThanOrEqualTo(env.size.width));
+      }
+      expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+    }, textScales: kMatrixTextScalesLarge);
+
+    testWidgets('a received request shows the banner instead of the composer', (
+      tester,
+    ) async {
+      await openRequest(tester);
+
+      expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Accept'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Delete'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Block'), findsOneWidget);
+      expect(composer(), findsNothing);
+    });
+
+    testWidgets('the banner names a peer without a display name by handle', (
+      tester,
+    ) async {
+      final c = received()..peer.displayName = '';
+      await openRequest(tester, conversation: c);
+
+      expect(find.text('@sam wants to message you'), findsOneWidget);
+    });
+
+    testWidgets('an accepted conversation has no banner and its composer', (
+      tester,
+    ) async {
+      await openRequest(tester, conversation: threadConv());
+
+      expect(find.textContaining('wants to message you'), findsNothing);
+      expect(find.text(kSentRequestText), findsNothing);
+      expect(composer(), findsOneWidget);
+    });
+
+    testWidgets('the sender sees the waiting note above the composer', (
+      tester,
+    ) async {
+      await openRequest(
+        tester,
+        conversation: threadConv(
+          state: ConversationState.CONVERSATION_STATE_REQUEST,
+        ),
+      );
+
+      expect(
+        find.text('Waiting for them to accept. You can send up to 3 messages.'),
+        findsOneWidget,
+      );
+      expect(composer(), findsOneWidget);
+      expect(find.text('Accept'), findsNothing);
+      expect(
+        tester.getBottomLeft(find.text(kSentRequestText)).dy,
+        lessThan(tester.getTopLeft(composer()).dy),
+      );
+    });
+
+    testWidgets('a request thread that cannot be replied to is read-only', (
+      tester,
+    ) async {
+      final c = received()..canReply = false;
+      await openRequest(tester, conversation: c);
+
+      expect(find.text(kThreadReadOnlyText), findsOneWidget);
+      expect(find.textContaining('wants to message you'), findsNothing);
+    });
+
+    testWidgets('with messaging off for the caller there is no banner and '
+        'no call', (tester) async {
+      await openRequest(tester, features: const {});
+
+      expect(find.textContaining('wants to message you'), findsNothing);
+      expect(find.text("Messages aren't available yet"), findsOneWidget);
+      verifyNever(
+        () => repo.acceptMessageRequest(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      );
+    });
+
+    group('Accept', () {
+      testWidgets('calls AcceptMessageRequest; the composer appears', (
+        tester,
+      ) async {
+        stubAccept();
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).called(1);
+        expect(find.textContaining('wants to message you'), findsNothing);
+        expect(composer(), findsOneWidget);
+        expect(find.text(kRequestAcceptedText), findsOneWidget);
+        expect(find.byType(MessageBubble), findsWidgets);
+      });
+
+      testWidgets('buttons are off and Accept spins while it runs', (
+        tester,
+      ) async {
+        final gate = Completer<void>();
+        stubAccept(() => gate.future);
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+        await tester.pump();
+
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(
+          tester
+              .widget<OutlinedButton>(find.byKey(RequestBanner.deleteKey))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<OutlinedButton>(find.byKey(RequestBanner.blockKey))
+              .onPressed,
+          isNull,
+        );
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(composer(), findsOneWidget);
+      });
+
+      for (final (name, error, text) in <(String, AppException, String)>[
+        (
+          'offline',
+          const NetworkException('socket'),
+          'No connection. Check your network and try again.',
+        ),
+        (
+          'gone',
+          const NotFoundException('nf'),
+          "This conversation isn't available anymore.",
+        ),
+        (
+          'cannot message',
+          const CannotMessageException(),
+          CannotMessageException.userMessage,
+        ),
+        (
+          'flag off',
+          const FeatureDisabledException('off'),
+          "Messages aren't available right now.",
+        ),
+        (
+          'degraded',
+          const DegradedModeException('ro'),
+          'dZeroth is in a limited mode right now. You can read your '
+              'messages, but sending and changes are paused. Try again '
+              'shortly.',
+        ),
+        (
+          'unexpected',
+          const UnknownApiException('boom'),
+          "Couldn't complete that. Please try again.",
+        ),
+      ]) {
+        testWidgets('$name: a friendly snackbar, the banner stays', (
+          tester,
+        ) async {
+          stubAccept(() async => throw error);
+          await openRequest(tester);
+
+          await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+          await tester.pumpAndSettle();
+
+          expect(find.text(text), findsOneWidget);
+          expect(find.textContaining(error.message), findsNothing);
+          expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+          expect(composer(), findsNothing);
+          expect(
+            tester
+                .widget<FilledButton>(find.byKey(RequestBanner.acceptKey))
+                .onPressed,
+            isNotNull,
+          );
+        });
+      }
+
+      testWidgets('a retry after a failure reuses the idempotency key', (
+        tester,
+      ) async {
+        var fail = true;
+        stubAccept(() async {
+          if (fail) throw const NetworkException('socket');
+        });
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+        await tester.pumpAndSettle();
+        fail = false;
+        await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+        await tester.pumpAndSettle();
+
+        final keys = verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).captured;
+        expect(keys, hasLength(2));
+        expect(keys.first, keys.last);
+        expect(composer(), findsOneWidget);
+      });
+    });
+
+    group('Delete', () {
+      testWidgets('confirms, deletes, says so and returns to the list', (
+        tester,
+      ) async {
+        stubDelete();
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Delete'));
+        await tester.pumpAndSettle();
+        expect(find.text('Delete this request?'), findsOneWidget);
+        await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.deleteConversation(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).called(1);
+        expect(find.text(kRequestDeletedText), findsOneWidget);
+        expect(find.text('inbox page'), findsOneWidget);
+      });
+
+      testWidgets('Cancel sends nothing', (tester) async {
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Delete'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        verifyNever(
+          () => repo.deleteConversation(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        );
+        expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+      });
+
+      testWidgets('a failure says why and stays on the request', (
+        tester,
+      ) async {
+        stubDelete(() async => throw const NetworkException('socket'));
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Delete'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('No connection. Check your network and try again.'),
+          findsOneWidget,
+        );
+        expect(find.text('inbox page'), findsNothing);
+        expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+        expect(
+          tester
+              .widget<OutlinedButton>(find.byKey(RequestBanner.deleteKey))
+              .onPressed,
+          isNotNull,
+        );
+      });
+    });
+
+    group('Block', () {
+      void stubBlock([Future<graph.Relationship> Function()? answer]) =>
+          when(
+            () => graphRepo.block(
+              userId: any(named: 'userId'),
+              idempotencyKey: any(named: 'idempotencyKey'),
+            ),
+          ).thenAnswer(
+            (_) =>
+                (answer ??
+                () async =>
+                    graph.Relationship(userId: 'u-sam', blocking: true))(),
+          );
+
+      testWidgets('confirms, blocks through the graph flow, read-only', (
+        tester,
+      ) async {
+        stubBlock();
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        expect(find.text('Block this account?'), findsOneWidget);
+        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => graphRepo.block(
+            userId: 'u-sam',
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).called(1);
+        expect(find.text('Blocked @sam'), findsOneWidget);
+        expect(find.text(kThreadReadOnlyText), findsOneWidget);
+        expect(find.textContaining('wants to message you'), findsNothing);
+        verifyNever(
+          () => repo.deleteConversation(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        );
+      });
+
+      testWidgets('Cancel blocks nobody', (tester) async {
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        verifyNever(
+          () => graphRepo.block(
+            userId: any(named: 'userId'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        );
+        expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+      });
+
+      testWidgets('a failure says why; the banner stays', (tester) async {
+        stubBlock(() async => throw const NetworkException('socket'));
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('No connection. Check your network and try again.'),
+          findsOneWidget,
+        );
+        expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+        expect(find.text(kThreadReadOnlyText), findsNothing);
+      });
+
+      testWidgets('there is no Block with the graph flag off', (tester) async {
+        await openRequest(tester, features: const {'messaging', 'reports'});
+
+        expect(find.byKey(RequestBanner.blockKey), findsNothing);
+        expect(find.byKey(RequestBanner.acceptKey), findsOneWidget);
+        expect(find.byKey(RequestBanner.deleteKey), findsOneWidget);
+      });
+    });
+
+    testWidgets('semantics: the banner is a live region; buttons in order', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await openRequest(tester);
+
+      final accept = tester.getSemantics(find.byKey(RequestBanner.acceptKey));
+      final delete = tester.getSemantics(find.byKey(RequestBanner.deleteKey));
+      final block = tester.getSemantics(find.byKey(RequestBanner.blockKey));
+      expect(accept.label, 'Accept');
+      expect(delete.label, 'Delete');
+      expect(block.label, 'Block');
+      expect(
+        tester.getRect(find.byKey(RequestBanner.acceptKey)).left,
+        lessThan(tester.getRect(find.byKey(RequestBanner.deleteKey)).left),
+      );
+      expect(
+        find.bySemanticsLabel('Sam Rivera wants to message you'),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+  });
+
+  group('report a message (W7-18)', () {
+    final peerMessageId = hexId(2);
+
+    List<pb.Message> mixed() => [
+      msg(3, secondsAgo: 5, text: 'my own words', fromSelf: true),
+      msg(2, secondsAgo: 10, text: 'peer words'),
+      msg(1, secondsAgo: 20, text: 'removed one').deepCopy()
+        ..state = MessageState.MESSAGE_STATE_REMOVED
+        ..text = '',
+    ];
+
+    Finder bubble(String id) => find.byKey(ValueKey('bubble-$id'));
+
+    void stubReport([Future<ReportReceipt> Function()? answer]) =>
+        when(
+          () => moderation.report(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            targetType: any(named: 'targetType'),
+            targetId: any(named: 'targetId'),
+            reason: any(named: 'reason'),
+            note: any(named: 'note'),
+          ),
+        ).thenAnswer(
+          (_) =>
+              (answer ??
+              () async =>
+                  const ReportReceipt(reportId: 'r', alreadyReported: false))(),
+        );
+
+    Future<void> openMixed(
+      WidgetTester tester, {
+      Set<String> features = const {'messaging', 'graph', 'reports'},
+      Brightness brightness = Brightness.light,
+      Size size = const Size(400, 800),
+      double textScale = 1,
+    }) async {
+      current = snap(mixed());
+      await open(
+        tester,
+        features: features,
+        brightness: brightness,
+        size: size,
+        textScale: textScale,
+        onReport: reportConversationPeer,
+      );
+    }
+
+    Future<void> longPressPeer(WidgetTester tester) async {
+      await tester.longPress(bubble(peerMessageId));
+      await tester.pumpAndSettle();
+    }
+
+    Finder sendButton() => find.widgetWithText(FilledButton, 'Send report');
+
+    forEachThemeAndWidth('the menu and the sheet fit', (tester, env) async {
+      stubReport();
+      await openMixed(
+        tester,
+        brightness: env.brightness,
+        size: env.size,
+        textScale: env.textScale,
+      );
+
+      await longPressPeer(tester);
+      expect(find.text(kReportMessageLabel), findsOneWidget);
+      await tester.tap(find.text(kReportMessageLabel));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text("Report @sam's message"), findsOneWidget);
+      expect(
+        find.textContaining('Only this message is shared'),
+        findsOneWidget,
+      );
+      expect(find.text("It's spam"), findsOneWidget);
+    }, textScales: kMatrixTextScalesLarge);
+
+    testWidgets('a long press on the peer\'s message reports it: type '
+        'MESSAGE, id "<convId>:<msgId>", then a toast', (tester) async {
+      stubReport();
+      await openMixed(tester);
+      final before = cubitOf(tester).state.messages;
+
+      await longPressPeer(tester);
+      await tester.tap(find.text(kReportMessageLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text("It's spam"));
+      await tester.pump();
+      await tester.tap(sendButton());
+      await tester.pumpAndSettle();
+
+      final call = verify(
+        () => moderation.report(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          targetType: captureAny(named: 'targetType'),
+          targetId: captureAny(named: 'targetId'),
+          reason: ReportReason.REPORT_REASON_SPAM,
+          note: any(named: 'note'),
+        ),
+      )..called(1);
+      final type = call.captured[0] as ReportTargetType;
+      expect(type, ReportTargetType.REPORT_TARGET_TYPE_MESSAGE);
+      expect(type.value, 3);
+      expect(call.captured[1], '$kThreadId:$peerMessageId');
+
+      expect(find.text('Thanks for reporting'), findsOneWidget);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(find.text(kReportSentText), findsOneWidget);
+      // The thread is as it was: same messages, nothing removed or refetched.
+      expect(cubitOf(tester).state.messages, before);
+      verifyNever(
+        () => repo.deleteConversation(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      );
+    });
+
+    testWidgets('a secondary click opens the same menu', (tester) async {
+      await openMixed(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(bubble(peerMessageId)),
+        buttons: kSecondaryButton,
+      );
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(find.text(kReportMessageLabel), findsOneWidget);
+    });
+
+    testWidgets('your own message cannot be reported', (tester) async {
+      await openMixed(tester);
+
+      await tester.longPress(bubble(hexId(3)));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kReportMessageLabel), findsNothing);
+      verifyNever(
+        () => moderation.report(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          targetType: any(named: 'targetType'),
+          targetId: any(named: 'targetId'),
+          reason: any(named: 'reason'),
+          note: any(named: 'note'),
+        ),
+      );
+    });
+
+    testWidgets('a removed message cannot be reported', (tester) async {
+      await openMixed(tester);
+
+      await tester.longPress(bubble(hexId(1)));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kReportMessageLabel), findsNothing);
+    });
+
+    testWidgets('with reports off: no menu on a bubble and no Report item', (
+      tester,
+    ) async {
+      await openMixed(tester, features: const {'messaging', 'graph'});
+
+      await longPressPeer(tester);
+      expect(find.text(kReportMessageLabel), findsNothing);
+
+      await openMenu(tester);
+      expect(find.textContaining('Report'), findsNothing);
+      expect(find.text('Delete conversation'), findsOneWidget);
+    });
+
+    testWidgets('a conversation nobody can reply to can still be reported', (
+      tester,
+    ) async {
+      current = snap(mixed(), conversation: threadConv(canReply: false));
+      await open(tester);
+
+      await longPressPeer(tester);
+
+      expect(find.text(kReportMessageLabel), findsOneWidget);
+    });
+
+    testWidgets('dismissing the menu or the sheet sends nothing and says '
+        'nothing', (tester) async {
+      await openMixed(tester);
+
+      await longPressPeer(tester);
+      await tester.tapAt(const Offset(2, 2));
+      await tester.pumpAndSettle();
+      expect(find.text("Report @sam's message"), findsNothing);
+
+      await longPressPeer(tester);
+      await tester.tap(find.text(kReportMessageLabel));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(2, 2));
+      await tester.pumpAndSettle();
+
+      verifyNever(
+        () => moderation.report(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          targetType: any(named: 'targetType'),
+          targetId: any(named: 'targetId'),
+          reason: any(named: 'reason'),
+          note: any(named: 'note'),
+        ),
+      );
+      expect(find.text(kReportSentText), findsNothing);
+    });
+
+    testWidgets('a failed report keeps the sheet with a friendly line', (
+      tester,
+    ) async {
+      stubReport(() async => throw const NotFoundException('nf'));
+      await openMixed(tester);
+
+      await longPressPeer(tester);
+      await tester.tap(find.text(kReportMessageLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text("It's spam"));
+      await tester.pump();
+      await tester.tap(sendButton());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("This isn't available to report any more."),
+        findsOneWidget,
+      );
+      expect(sendButton(), findsOneWidget);
+      expect(find.text(kReportSentText), findsNothing);
+    });
+
+    testWidgets('assistive tech gets a Report message action on a peer\'s '
+        'bubble only', (tester) async {
+      final handle = tester.ensureSemantics();
+      await openMixed(tester);
+
+      Set<String> actionsOf(String id) {
+        final data = tester.getSemantics(bubble(id)).getSemanticsData();
+        return {
+          for (final id in data.customSemanticsActionIds ?? <int>[])
+            CustomSemanticsAction.getAction(id)!.label!,
+        };
+      }
+
+      expect(actionsOf(peerMessageId), contains(kReportMessageLabel));
+      expect(actionsOf(hexId(3)), isNot(contains(kReportMessageLabel)));
+      handle.dispose();
+    });
+
+    testWidgets('the info menu\'s Report reports the peer\'s account', (
+      tester,
+    ) async {
+      stubReport();
+      await openMixed(tester);
+
+      await openMenu(tester);
+      await tester.tap(find.text('Report @sam'));
+      await tester.pumpAndSettle();
+      expect(find.text('Report @sam'), findsOneWidget);
+      await tester.tap(find.text("It's spam"));
+      await tester.pump();
+      await tester.tap(sendButton());
+      await tester.pumpAndSettle();
+
+      final call = verify(
+        () => moderation.report(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          targetType: captureAny(named: 'targetType'),
+          targetId: captureAny(named: 'targetId'),
+          reason: any(named: 'reason'),
+          note: any(named: 'note'),
+        ),
+      )..called(1);
+      expect(call.captured[0], ReportTargetType.REPORT_TARGET_TYPE_ACCOUNT);
+      expect(call.captured[1], 'u-sam');
+    });
+  });
+
+  group('report message ids', () {
+    test('the target is "<convId>:<msgId>" (32 hex each)', () {
+      final m = msg(7);
+      expect(messageReportTargetId(kThreadId, m), '$kThreadId:${hexId(7)}');
+      expect(messageReportTargetId(kThreadId, m), hasLength(65));
+    });
+
+    test('your own, removed and badly-shaped ones are refused', () {
+      expect(
+        () => messageReportTargetId(kThreadId, msg(7, fromSelf: true)),
+        throwsArgumentError,
+      );
+      expect(canReportMessage(msg(7, fromSelf: true)), isFalse);
+      final removed = msg(7).deepCopy()
+        ..state = MessageState.MESSAGE_STATE_REMOVED;
+      expect(canReportMessage(removed), isFalse);
+      final deleted = msg(7).deepCopy()
+        ..state = MessageState.MESSAGE_STATE_DELETED_ACCOUNT;
+      expect(canReportMessage(deleted), isFalse);
+      expect(() => messageReportTargetId('c1', msg(7)), throwsArgumentError);
+      final odd = msg(7).deepCopy()..id = 'ABC';
+      expect(() => messageReportTargetId(kThreadId, odd), throwsArgumentError);
+      expect(canReportMessage(msg(7)), isTrue);
+    });
   });
 }

@@ -30,13 +30,15 @@ enum ReportOutcome {
 /// "@alice"). [offerBlock] adds a "Block" action after a successful report;
 /// the caller runs its own block flow when the result is
 /// [ReportOutcome.blockRequested] (reusing `RelationshipCubit` and the block
-/// confirmation, never a second implementation).
+/// confirmation, never a second implementation). [detail] is one extra
+/// sentence under the intro (what the reviewers will see), or null.
 Future<ReportOutcome> showReportSheet(
   BuildContext context, {
   required ReportTargetType targetType,
   required String targetId,
   required String subject,
   String? blockLabel,
+  String? detail,
 }) async {
   final repository = context.read<ModerationRepository>();
   final onError = context.read<UnexpectedErrorReporter>();
@@ -54,7 +56,11 @@ Future<ReportOutcome> showReportSheet(
       useSafeArea: true,
       builder: (sheetContext) => BlocProvider.value(
         value: cubit,
-        child: ReportSheet(subject: subject, blockLabel: blockLabel),
+        child: ReportSheet(
+          subject: subject,
+          blockLabel: blockLabel,
+          detail: detail,
+        ),
       ),
     );
     if (result != null) return result;
@@ -70,9 +76,17 @@ Future<ReportOutcome> showReportSheet(
 /// confirmation (with the optional follow-up "Block"). Drives a
 /// [ReportCubit] provided above it.
 class ReportSheet extends StatelessWidget {
-  const ReportSheet({super.key, required this.subject, this.blockLabel});
+  const ReportSheet({
+    super.key,
+    required this.subject,
+    this.blockLabel,
+    this.detail,
+  });
 
   final String subject;
+
+  /// One more sentence under the intro (W7-18: what a reported message shares).
+  final String? detail;
 
   /// Label of the block follow-up ("Block @alice"); null hides it.
   final String? blockLabel;
@@ -89,7 +103,7 @@ class ReportSheet extends StatelessWidget {
           builder: (context, state) {
             return state.sent
                 ? _Confirmation(blockLabel: blockLabel)
-                : _Form(subject: subject);
+                : _Form(subject: subject, detail: detail);
           },
         ),
       ),
@@ -98,9 +112,10 @@ class ReportSheet extends StatelessWidget {
 }
 
 class _Form extends StatelessWidget {
-  const _Form({required this.subject});
+  const _Form({required this.subject, this.detail});
 
   final String subject;
+  final String? detail;
 
   @override
   Widget build(BuildContext context) {
@@ -123,7 +138,8 @@ class _Form extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(
             'Why are you reporting this? Reports are private; the account '
-            "won't see who reported.",
+            "won't see who reported."
+            '${detail == null ? '' : ' $detail'}',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

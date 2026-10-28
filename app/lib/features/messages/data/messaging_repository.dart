@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import '../../../core/network/api_client.dart';
@@ -73,12 +74,24 @@ class MessagingRepository {
 
   Future<void> _tail = Future<void>.value();
   final Map<String, Future<Object?>> _inflight = {};
+  final StreamController<void> _conversationsChanged =
+      StreamController<void>.broadcast();
 
   /// The gate, so UI can follow the flag turning off mid-session.
   MessagingFeatureGate get gate => _gate;
 
   /// Whether the caller may send (the per-caller flag).
   bool get enabled => _gate.canSend;
+
+  /// Fires after the cached conversation lists changed by a local action (an
+  /// accepted or deleted request, W7-18), so an open inbox or requests list
+  /// re-reads the cache (no network) instead of showing a stale row or count.
+  /// Not a poll and not a server push: nothing here is live.
+  Stream<void> get conversationsChanged => _conversationsChanged.stream;
+
+  void _notifyConversationsChanged() {
+    if (!_conversationsChanged.isClosed) _conversationsChanged.add(null);
+  }
 
   /// Sign-out: forget in-flight work (the shared session epoch is ended by
   /// `wipeSessionData`, which drops their writes).
@@ -426,6 +439,7 @@ class MessagingRepository {
     );
     await _store.markConversationAccepted(conversationId, session: session);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+    _notifyConversationsChanged();
   }
 
   /// Deletes the conversation for the caller only (also "delete request").
@@ -446,6 +460,7 @@ class MessagingRepository {
     );
     await _store.removeConversation(conversationId);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+    _notifyConversationsChanged();
   }
 
   /// Whether [conversationId] is cached in the REQUESTS folder (so accepting

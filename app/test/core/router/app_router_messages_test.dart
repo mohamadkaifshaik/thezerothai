@@ -107,6 +107,8 @@ void main() {
   }) async {
     final repo = _MockMessagingRepository();
     when(() => repo.rateLimitedFor()).thenReturn(null);
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
     when(() => repo.cachedConversations(any())).thenAnswer(
       (_) async => ConversationsSnapshot(
         conversations: [conv(kThreadId, snippet: 'hello from a')],
