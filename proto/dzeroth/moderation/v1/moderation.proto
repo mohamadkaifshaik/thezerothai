@@ -38,6 +38,11 @@ enum ReportTargetType {
   REPORT_TARGET_TYPE_UNSPECIFIED = 0;
   REPORT_TARGET_TYPE_POST = 1;
   REPORT_TARGET_TYPE_ACCOUNT = 2;
+  // A direct message (ADR-0027 D12). target_id = "<convId>:<msgId>": the conversation id and the message id, 32
+  // lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
+  // "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
+  // conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
+  REPORT_TARGET_TYPE_MESSAGE = 3;
 }
 
 // Reasons shown in the client sheet. Values are never renumbered or reused (buf breaking).

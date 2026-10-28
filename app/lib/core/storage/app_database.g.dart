@@ -2856,6 +2856,1050 @@ class NotificationStateEntriesCompanion
   }
 }
 
+class $ConversationEntriesTable extends ConversationEntries
+    with TableInfo<$ConversationEntriesTable, CachedConversation> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ConversationEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _conversationIdMeta = const VerificationMeta(
+    'conversationId',
+  );
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+    'conversation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _folderMeta = const VerificationMeta('folder');
+  @override
+  late final GeneratedColumn<int> folder = GeneratedColumn<int>(
+    'folder',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortKeyMeta = const VerificationMeta(
+    'sortKey',
+  );
+  @override
+  late final GeneratedColumn<String> sortKey = GeneratedColumn<String>(
+    'sort_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> payload = GeneratedColumn<Uint8List>(
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    conversationId,
+    folder,
+    sortKey,
+    payload,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'conversation_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedConversation> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+        _conversationIdMeta,
+        conversationId.isAcceptableOrUnknown(
+          data['conversation_id']!,
+          _conversationIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_conversationIdMeta);
+    }
+    if (data.containsKey('folder')) {
+      context.handle(
+        _folderMeta,
+        folder.isAcceptableOrUnknown(data['folder']!, _folderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_folderMeta);
+    }
+    if (data.containsKey('sort_key')) {
+      context.handle(
+        _sortKeyMeta,
+        sortKey.isAcceptableOrUnknown(data['sort_key']!, _sortKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortKeyMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {conversationId};
+  @override
+  CachedConversation map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedConversation(
+      conversationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}conversation_id'],
+      )!,
+      folder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}folder'],
+      )!,
+      sortKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sort_key'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}payload'],
+      )!,
+    );
+  }
+
+  @override
+  $ConversationEntriesTable createAlias(String alias) {
+    return $ConversationEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedConversation extends DataClass
+    implements Insertable<CachedConversation> {
+  /// 32-character lower-case hex id (opaque, ADR-0027 D2).
+  final String conversationId;
+  final int folder;
+  final String sortKey;
+
+  /// Serialized `Conversation`.
+  final Uint8List payload;
+  const CachedConversation({
+    required this.conversationId,
+    required this.folder,
+    required this.sortKey,
+    required this.payload,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['conversation_id'] = Variable<String>(conversationId);
+    map['folder'] = Variable<int>(folder);
+    map['sort_key'] = Variable<String>(sortKey);
+    map['payload'] = Variable<Uint8List>(payload);
+    return map;
+  }
+
+  ConversationEntriesCompanion toCompanion(bool nullToAbsent) {
+    return ConversationEntriesCompanion(
+      conversationId: Value(conversationId),
+      folder: Value(folder),
+      sortKey: Value(sortKey),
+      payload: Value(payload),
+    );
+  }
+
+  factory CachedConversation.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedConversation(
+      conversationId: serializer.fromJson<String>(json['conversationId']),
+      folder: serializer.fromJson<int>(json['folder']),
+      sortKey: serializer.fromJson<String>(json['sortKey']),
+      payload: serializer.fromJson<Uint8List>(json['payload']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'conversationId': serializer.toJson<String>(conversationId),
+      'folder': serializer.toJson<int>(folder),
+      'sortKey': serializer.toJson<String>(sortKey),
+      'payload': serializer.toJson<Uint8List>(payload),
+    };
+  }
+
+  CachedConversation copyWith({
+    String? conversationId,
+    int? folder,
+    String? sortKey,
+    Uint8List? payload,
+  }) => CachedConversation(
+    conversationId: conversationId ?? this.conversationId,
+    folder: folder ?? this.folder,
+    sortKey: sortKey ?? this.sortKey,
+    payload: payload ?? this.payload,
+  );
+  CachedConversation copyWithCompanion(ConversationEntriesCompanion data) {
+    return CachedConversation(
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      folder: data.folder.present ? data.folder.value : this.folder,
+      sortKey: data.sortKey.present ? data.sortKey.value : this.sortKey,
+      payload: data.payload.present ? data.payload.value : this.payload,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedConversation(')
+          ..write('conversationId: $conversationId, ')
+          ..write('folder: $folder, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    conversationId,
+    folder,
+    sortKey,
+    $driftBlobEquality.hash(payload),
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedConversation &&
+          other.conversationId == this.conversationId &&
+          other.folder == this.folder &&
+          other.sortKey == this.sortKey &&
+          $driftBlobEquality.equals(other.payload, this.payload));
+}
+
+class ConversationEntriesCompanion extends UpdateCompanion<CachedConversation> {
+  final Value<String> conversationId;
+  final Value<int> folder;
+  final Value<String> sortKey;
+  final Value<Uint8List> payload;
+  final Value<int> rowid;
+  const ConversationEntriesCompanion({
+    this.conversationId = const Value.absent(),
+    this.folder = const Value.absent(),
+    this.sortKey = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ConversationEntriesCompanion.insert({
+    required String conversationId,
+    required int folder,
+    required String sortKey,
+    required Uint8List payload,
+    this.rowid = const Value.absent(),
+  }) : conversationId = Value(conversationId),
+       folder = Value(folder),
+       sortKey = Value(sortKey),
+       payload = Value(payload);
+  static Insertable<CachedConversation> custom({
+    Expression<String>? conversationId,
+    Expression<int>? folder,
+    Expression<String>? sortKey,
+    Expression<Uint8List>? payload,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (folder != null) 'folder': folder,
+      if (sortKey != null) 'sort_key': sortKey,
+      if (payload != null) 'payload': payload,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ConversationEntriesCompanion copyWith({
+    Value<String>? conversationId,
+    Value<int>? folder,
+    Value<String>? sortKey,
+    Value<Uint8List>? payload,
+    Value<int>? rowid,
+  }) {
+    return ConversationEntriesCompanion(
+      conversationId: conversationId ?? this.conversationId,
+      folder: folder ?? this.folder,
+      sortKey: sortKey ?? this.sortKey,
+      payload: payload ?? this.payload,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (folder.present) {
+      map['folder'] = Variable<int>(folder.value);
+    }
+    if (sortKey.present) {
+      map['sort_key'] = Variable<String>(sortKey.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<Uint8List>(payload.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ConversationEntriesCompanion(')
+          ..write('conversationId: $conversationId, ')
+          ..write('folder: $folder, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $MessageEntriesTable extends MessageEntries
+    with TableInfo<$MessageEntriesTable, CachedMessage> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MessageEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _conversationIdMeta = const VerificationMeta(
+    'conversationId',
+  );
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+    'conversation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _messageIdMeta = const VerificationMeta(
+    'messageId',
+  );
+  @override
+  late final GeneratedColumn<String> messageId = GeneratedColumn<String>(
+    'message_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortKeyMeta = const VerificationMeta(
+    'sortKey',
+  );
+  @override
+  late final GeneratedColumn<String> sortKey = GeneratedColumn<String>(
+    'sort_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<Uint8List> payload = GeneratedColumn<Uint8List>(
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pageTokenMeta = const VerificationMeta(
+    'pageToken',
+  );
+  @override
+  late final GeneratedColumn<String> pageToken = GeneratedColumn<String>(
+    'page_token',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    conversationId,
+    messageId,
+    sortKey,
+    payload,
+    pageToken,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'message_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedMessage> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+        _conversationIdMeta,
+        conversationId.isAcceptableOrUnknown(
+          data['conversation_id']!,
+          _conversationIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_conversationIdMeta);
+    }
+    if (data.containsKey('message_id')) {
+      context.handle(
+        _messageIdMeta,
+        messageId.isAcceptableOrUnknown(data['message_id']!, _messageIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_messageIdMeta);
+    }
+    if (data.containsKey('sort_key')) {
+      context.handle(
+        _sortKeyMeta,
+        sortKey.isAcceptableOrUnknown(data['sort_key']!, _sortKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortKeyMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    if (data.containsKey('page_token')) {
+      context.handle(
+        _pageTokenMeta,
+        pageToken.isAcceptableOrUnknown(data['page_token']!, _pageTokenMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {conversationId, messageId};
+  @override
+  CachedMessage map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedMessage(
+      conversationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}conversation_id'],
+      )!,
+      messageId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}message_id'],
+      )!,
+      sortKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sort_key'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}payload'],
+      )!,
+      pageToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_token'],
+      ),
+    );
+  }
+
+  @override
+  $MessageEntriesTable createAlias(String alias) {
+    return $MessageEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedMessage extends DataClass implements Insertable<CachedMessage> {
+  final String conversationId;
+  final String messageId;
+  final String sortKey;
+
+  /// Serialized `Message`.
+  final Uint8List payload;
+
+  /// For a row that ended a fetched page: that page's `next_page_token`
+  /// (lets the 200-row trim cut at a page boundary and resume scrolling).
+  final String? pageToken;
+  const CachedMessage({
+    required this.conversationId,
+    required this.messageId,
+    required this.sortKey,
+    required this.payload,
+    this.pageToken,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['conversation_id'] = Variable<String>(conversationId);
+    map['message_id'] = Variable<String>(messageId);
+    map['sort_key'] = Variable<String>(sortKey);
+    map['payload'] = Variable<Uint8List>(payload);
+    if (!nullToAbsent || pageToken != null) {
+      map['page_token'] = Variable<String>(pageToken);
+    }
+    return map;
+  }
+
+  MessageEntriesCompanion toCompanion(bool nullToAbsent) {
+    return MessageEntriesCompanion(
+      conversationId: Value(conversationId),
+      messageId: Value(messageId),
+      sortKey: Value(sortKey),
+      payload: Value(payload),
+      pageToken: pageToken == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pageToken),
+    );
+  }
+
+  factory CachedMessage.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedMessage(
+      conversationId: serializer.fromJson<String>(json['conversationId']),
+      messageId: serializer.fromJson<String>(json['messageId']),
+      sortKey: serializer.fromJson<String>(json['sortKey']),
+      payload: serializer.fromJson<Uint8List>(json['payload']),
+      pageToken: serializer.fromJson<String?>(json['pageToken']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'conversationId': serializer.toJson<String>(conversationId),
+      'messageId': serializer.toJson<String>(messageId),
+      'sortKey': serializer.toJson<String>(sortKey),
+      'payload': serializer.toJson<Uint8List>(payload),
+      'pageToken': serializer.toJson<String?>(pageToken),
+    };
+  }
+
+  CachedMessage copyWith({
+    String? conversationId,
+    String? messageId,
+    String? sortKey,
+    Uint8List? payload,
+    Value<String?> pageToken = const Value.absent(),
+  }) => CachedMessage(
+    conversationId: conversationId ?? this.conversationId,
+    messageId: messageId ?? this.messageId,
+    sortKey: sortKey ?? this.sortKey,
+    payload: payload ?? this.payload,
+    pageToken: pageToken.present ? pageToken.value : this.pageToken,
+  );
+  CachedMessage copyWithCompanion(MessageEntriesCompanion data) {
+    return CachedMessage(
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      messageId: data.messageId.present ? data.messageId.value : this.messageId,
+      sortKey: data.sortKey.present ? data.sortKey.value : this.sortKey,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      pageToken: data.pageToken.present ? data.pageToken.value : this.pageToken,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedMessage(')
+          ..write('conversationId: $conversationId, ')
+          ..write('messageId: $messageId, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('pageToken: $pageToken')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    conversationId,
+    messageId,
+    sortKey,
+    $driftBlobEquality.hash(payload),
+    pageToken,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedMessage &&
+          other.conversationId == this.conversationId &&
+          other.messageId == this.messageId &&
+          other.sortKey == this.sortKey &&
+          $driftBlobEquality.equals(other.payload, this.payload) &&
+          other.pageToken == this.pageToken);
+}
+
+class MessageEntriesCompanion extends UpdateCompanion<CachedMessage> {
+  final Value<String> conversationId;
+  final Value<String> messageId;
+  final Value<String> sortKey;
+  final Value<Uint8List> payload;
+  final Value<String?> pageToken;
+  final Value<int> rowid;
+  const MessageEntriesCompanion({
+    this.conversationId = const Value.absent(),
+    this.messageId = const Value.absent(),
+    this.sortKey = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.pageToken = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MessageEntriesCompanion.insert({
+    required String conversationId,
+    required String messageId,
+    required String sortKey,
+    required Uint8List payload,
+    this.pageToken = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : conversationId = Value(conversationId),
+       messageId = Value(messageId),
+       sortKey = Value(sortKey),
+       payload = Value(payload);
+  static Insertable<CachedMessage> custom({
+    Expression<String>? conversationId,
+    Expression<String>? messageId,
+    Expression<String>? sortKey,
+    Expression<Uint8List>? payload,
+    Expression<String>? pageToken,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (messageId != null) 'message_id': messageId,
+      if (sortKey != null) 'sort_key': sortKey,
+      if (payload != null) 'payload': payload,
+      if (pageToken != null) 'page_token': pageToken,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MessageEntriesCompanion copyWith({
+    Value<String>? conversationId,
+    Value<String>? messageId,
+    Value<String>? sortKey,
+    Value<Uint8List>? payload,
+    Value<String?>? pageToken,
+    Value<int>? rowid,
+  }) {
+    return MessageEntriesCompanion(
+      conversationId: conversationId ?? this.conversationId,
+      messageId: messageId ?? this.messageId,
+      sortKey: sortKey ?? this.sortKey,
+      payload: payload ?? this.payload,
+      pageToken: pageToken ?? this.pageToken,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (messageId.present) {
+      map['message_id'] = Variable<String>(messageId.value);
+    }
+    if (sortKey.present) {
+      map['sort_key'] = Variable<String>(sortKey.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<Uint8List>(payload.value);
+    }
+    if (pageToken.present) {
+      map['page_token'] = Variable<String>(pageToken.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MessageEntriesCompanion(')
+          ..write('conversationId: $conversationId, ')
+          ..write('messageId: $messageId, ')
+          ..write('sortKey: $sortKey, ')
+          ..write('payload: $payload, ')
+          ..write('pageToken: $pageToken, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $MessagingStateEntriesTable extends MessagingStateEntries
+    with TableInfo<$MessagingStateEntriesTable, CachedMessagingState> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MessagingStateEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _stateKeyMeta = const VerificationMeta(
+    'stateKey',
+  );
+  @override
+  late final GeneratedColumn<String> stateKey = GeneratedColumn<String>(
+    'state_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sinceTokenMeta = const VerificationMeta(
+    'sinceToken',
+  );
+  @override
+  late final GeneratedColumn<String> sinceToken = GeneratedColumn<String>(
+    'since_token',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _olderPageTokenMeta = const VerificationMeta(
+    'olderPageToken',
+  );
+  @override
+  late final GeneratedColumn<String> olderPageToken = GeneratedColumn<String>(
+    'older_page_token',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    stateKey,
+    sinceToken,
+    olderPageToken,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'messaging_state_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedMessagingState> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('state_key')) {
+      context.handle(
+        _stateKeyMeta,
+        stateKey.isAcceptableOrUnknown(data['state_key']!, _stateKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_stateKeyMeta);
+    }
+    if (data.containsKey('since_token')) {
+      context.handle(
+        _sinceTokenMeta,
+        sinceToken.isAcceptableOrUnknown(data['since_token']!, _sinceTokenMeta),
+      );
+    }
+    if (data.containsKey('older_page_token')) {
+      context.handle(
+        _olderPageTokenMeta,
+        olderPageToken.isAcceptableOrUnknown(
+          data['older_page_token']!,
+          _olderPageTokenMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {stateKey};
+  @override
+  CachedMessagingState map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedMessagingState(
+      stateKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state_key'],
+      )!,
+      sinceToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}since_token'],
+      )!,
+      olderPageToken: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}older_page_token'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $MessagingStateEntriesTable createAlias(String alias) {
+    return $MessagingStateEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class CachedMessagingState extends DataClass
+    implements Insertable<CachedMessagingState> {
+  final String stateKey;
+  final String sinceToken;
+
+  /// Token for scrolling older than the oldest cached row; '' = none/end.
+  final String olderPageToken;
+  final DateTime updatedAt;
+  const CachedMessagingState({
+    required this.stateKey,
+    required this.sinceToken,
+    required this.olderPageToken,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['state_key'] = Variable<String>(stateKey);
+    map['since_token'] = Variable<String>(sinceToken);
+    map['older_page_token'] = Variable<String>(olderPageToken);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  MessagingStateEntriesCompanion toCompanion(bool nullToAbsent) {
+    return MessagingStateEntriesCompanion(
+      stateKey: Value(stateKey),
+      sinceToken: Value(sinceToken),
+      olderPageToken: Value(olderPageToken),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CachedMessagingState.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedMessagingState(
+      stateKey: serializer.fromJson<String>(json['stateKey']),
+      sinceToken: serializer.fromJson<String>(json['sinceToken']),
+      olderPageToken: serializer.fromJson<String>(json['olderPageToken']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'stateKey': serializer.toJson<String>(stateKey),
+      'sinceToken': serializer.toJson<String>(sinceToken),
+      'olderPageToken': serializer.toJson<String>(olderPageToken),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  CachedMessagingState copyWith({
+    String? stateKey,
+    String? sinceToken,
+    String? olderPageToken,
+    DateTime? updatedAt,
+  }) => CachedMessagingState(
+    stateKey: stateKey ?? this.stateKey,
+    sinceToken: sinceToken ?? this.sinceToken,
+    olderPageToken: olderPageToken ?? this.olderPageToken,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CachedMessagingState copyWithCompanion(MessagingStateEntriesCompanion data) {
+    return CachedMessagingState(
+      stateKey: data.stateKey.present ? data.stateKey.value : this.stateKey,
+      sinceToken: data.sinceToken.present
+          ? data.sinceToken.value
+          : this.sinceToken,
+      olderPageToken: data.olderPageToken.present
+          ? data.olderPageToken.value
+          : this.olderPageToken,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedMessagingState(')
+          ..write('stateKey: $stateKey, ')
+          ..write('sinceToken: $sinceToken, ')
+          ..write('olderPageToken: $olderPageToken, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(stateKey, sinceToken, olderPageToken, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedMessagingState &&
+          other.stateKey == this.stateKey &&
+          other.sinceToken == this.sinceToken &&
+          other.olderPageToken == this.olderPageToken &&
+          other.updatedAt == this.updatedAt);
+}
+
+class MessagingStateEntriesCompanion
+    extends UpdateCompanion<CachedMessagingState> {
+  final Value<String> stateKey;
+  final Value<String> sinceToken;
+  final Value<String> olderPageToken;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const MessagingStateEntriesCompanion({
+    this.stateKey = const Value.absent(),
+    this.sinceToken = const Value.absent(),
+    this.olderPageToken = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MessagingStateEntriesCompanion.insert({
+    required String stateKey,
+    this.sinceToken = const Value.absent(),
+    this.olderPageToken = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : stateKey = Value(stateKey),
+       updatedAt = Value(updatedAt);
+  static Insertable<CachedMessagingState> custom({
+    Expression<String>? stateKey,
+    Expression<String>? sinceToken,
+    Expression<String>? olderPageToken,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (stateKey != null) 'state_key': stateKey,
+      if (sinceToken != null) 'since_token': sinceToken,
+      if (olderPageToken != null) 'older_page_token': olderPageToken,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MessagingStateEntriesCompanion copyWith({
+    Value<String>? stateKey,
+    Value<String>? sinceToken,
+    Value<String>? olderPageToken,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return MessagingStateEntriesCompanion(
+      stateKey: stateKey ?? this.stateKey,
+      sinceToken: sinceToken ?? this.sinceToken,
+      olderPageToken: olderPageToken ?? this.olderPageToken,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (stateKey.present) {
+      map['state_key'] = Variable<String>(stateKey.value);
+    }
+    if (sinceToken.present) {
+      map['since_token'] = Variable<String>(sinceToken.value);
+    }
+    if (olderPageToken.present) {
+      map['older_page_token'] = Variable<String>(olderPageToken.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MessagingStateEntriesCompanion(')
+          ..write('stateKey: $stateKey, ')
+          ..write('sinceToken: $sinceToken, ')
+          ..write('olderPageToken: $olderPageToken, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $AppSettingEntriesTable extends AppSettingEntries
     with TableInfo<$AppSettingEntriesTable, DeviceSetting> {
   @override
@@ -3098,6 +4142,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $NotificationEntriesTable(this);
   late final $NotificationStateEntriesTable notificationStateEntries =
       $NotificationStateEntriesTable(this);
+  late final $ConversationEntriesTable conversationEntries =
+      $ConversationEntriesTable(this);
+  late final $MessageEntriesTable messageEntries = $MessageEntriesTable(this);
+  late final $MessagingStateEntriesTable messagingStateEntries =
+      $MessagingStateEntriesTable(this);
   late final $AppSettingEntriesTable appSettingEntries =
       $AppSettingEntriesTable(this);
   @override
@@ -3112,6 +4161,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     accountExportEntries,
     notificationEntries,
     notificationStateEntries,
+    conversationEntries,
+    messageEntries,
+    messagingStateEntries,
     appSettingEntries,
   ];
 }
@@ -4804,6 +5856,645 @@ typedef $$NotificationStateEntriesTableProcessedTableManager =
       CachedNotificationState,
       PrefetchHooks Function()
     >;
+typedef $$ConversationEntriesTableCreateCompanionBuilder =
+    ConversationEntriesCompanion Function({
+      required String conversationId,
+      required int folder,
+      required String sortKey,
+      required Uint8List payload,
+      Value<int> rowid,
+    });
+typedef $$ConversationEntriesTableUpdateCompanionBuilder =
+    ConversationEntriesCompanion Function({
+      Value<String> conversationId,
+      Value<int> folder,
+      Value<String> sortKey,
+      Value<Uint8List> payload,
+      Value<int> rowid,
+    });
+
+class $$ConversationEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $ConversationEntriesTable> {
+  $$ConversationEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get folder => $composableBuilder(
+    column: $table.folder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ConversationEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $ConversationEntriesTable> {
+  $$ConversationEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get folder => $composableBuilder(
+    column: $table.folder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ConversationEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ConversationEntriesTable> {
+  $$ConversationEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get folder =>
+      $composableBuilder(column: $table.folder, builder: (column) => column);
+
+  GeneratedColumn<String> get sortKey =>
+      $composableBuilder(column: $table.sortKey, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+}
+
+class $$ConversationEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ConversationEntriesTable,
+          CachedConversation,
+          $$ConversationEntriesTableFilterComposer,
+          $$ConversationEntriesTableOrderingComposer,
+          $$ConversationEntriesTableAnnotationComposer,
+          $$ConversationEntriesTableCreateCompanionBuilder,
+          $$ConversationEntriesTableUpdateCompanionBuilder,
+          (
+            CachedConversation,
+            BaseReferences<
+              _$AppDatabase,
+              $ConversationEntriesTable,
+              CachedConversation
+            >,
+          ),
+          CachedConversation,
+          PrefetchHooks Function()
+        > {
+  $$ConversationEntriesTableTableManager(
+    _$AppDatabase db,
+    $ConversationEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ConversationEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ConversationEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ConversationEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> conversationId = const Value.absent(),
+                Value<int> folder = const Value.absent(),
+                Value<String> sortKey = const Value.absent(),
+                Value<Uint8List> payload = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ConversationEntriesCompanion(
+                conversationId: conversationId,
+                folder: folder,
+                sortKey: sortKey,
+                payload: payload,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String conversationId,
+                required int folder,
+                required String sortKey,
+                required Uint8List payload,
+                Value<int> rowid = const Value.absent(),
+              }) => ConversationEntriesCompanion.insert(
+                conversationId: conversationId,
+                folder: folder,
+                sortKey: sortKey,
+                payload: payload,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$ConversationEntriesTable, CachedConversation>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $ConversationEntriesTable,
+                    CachedConversation
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ConversationEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ConversationEntriesTable,
+      CachedConversation,
+      $$ConversationEntriesTableFilterComposer,
+      $$ConversationEntriesTableOrderingComposer,
+      $$ConversationEntriesTableAnnotationComposer,
+      $$ConversationEntriesTableCreateCompanionBuilder,
+      $$ConversationEntriesTableUpdateCompanionBuilder,
+      (
+        CachedConversation,
+        BaseReferences<
+          _$AppDatabase,
+          $ConversationEntriesTable,
+          CachedConversation
+        >,
+      ),
+      CachedConversation,
+      PrefetchHooks Function()
+    >;
+typedef $$MessageEntriesTableCreateCompanionBuilder =
+    MessageEntriesCompanion Function({
+      required String conversationId,
+      required String messageId,
+      required String sortKey,
+      required Uint8List payload,
+      Value<String?> pageToken,
+      Value<int> rowid,
+    });
+typedef $$MessageEntriesTableUpdateCompanionBuilder =
+    MessageEntriesCompanion Function({
+      Value<String> conversationId,
+      Value<String> messageId,
+      Value<String> sortKey,
+      Value<Uint8List> payload,
+      Value<String?> pageToken,
+      Value<int> rowid,
+    });
+
+class $$MessageEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $MessageEntriesTable> {
+  $$MessageEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get messageId => $composableBuilder(
+    column: $table.messageId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageToken => $composableBuilder(
+    column: $table.pageToken,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$MessageEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $MessageEntriesTable> {
+  $$MessageEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get messageId => $composableBuilder(
+    column: $table.messageId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sortKey => $composableBuilder(
+    column: $table.sortKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pageToken => $composableBuilder(
+    column: $table.pageToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MessageEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $MessageEntriesTable> {
+  $$MessageEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get messageId =>
+      $composableBuilder(column: $table.messageId, builder: (column) => column);
+
+  GeneratedColumn<String> get sortKey =>
+      $composableBuilder(column: $table.sortKey, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get pageToken =>
+      $composableBuilder(column: $table.pageToken, builder: (column) => column);
+}
+
+class $$MessageEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $MessageEntriesTable,
+          CachedMessage,
+          $$MessageEntriesTableFilterComposer,
+          $$MessageEntriesTableOrderingComposer,
+          $$MessageEntriesTableAnnotationComposer,
+          $$MessageEntriesTableCreateCompanionBuilder,
+          $$MessageEntriesTableUpdateCompanionBuilder,
+          (
+            CachedMessage,
+            BaseReferences<_$AppDatabase, $MessageEntriesTable, CachedMessage>,
+          ),
+          CachedMessage,
+          PrefetchHooks Function()
+        > {
+  $$MessageEntriesTableTableManager(
+    _$AppDatabase db,
+    $MessageEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MessageEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MessageEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MessageEntriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> conversationId = const Value.absent(),
+                Value<String> messageId = const Value.absent(),
+                Value<String> sortKey = const Value.absent(),
+                Value<Uint8List> payload = const Value.absent(),
+                Value<String?> pageToken = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MessageEntriesCompanion(
+                conversationId: conversationId,
+                messageId: messageId,
+                sortKey: sortKey,
+                payload: payload,
+                pageToken: pageToken,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String conversationId,
+                required String messageId,
+                required String sortKey,
+                required Uint8List payload,
+                Value<String?> pageToken = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MessageEntriesCompanion.insert(
+                conversationId: conversationId,
+                messageId: messageId,
+                sortKey: sortKey,
+                payload: payload,
+                pageToken: pageToken,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$MessageEntriesTable, CachedMessage>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $MessageEntriesTable,
+                    CachedMessage
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$MessageEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $MessageEntriesTable,
+      CachedMessage,
+      $$MessageEntriesTableFilterComposer,
+      $$MessageEntriesTableOrderingComposer,
+      $$MessageEntriesTableAnnotationComposer,
+      $$MessageEntriesTableCreateCompanionBuilder,
+      $$MessageEntriesTableUpdateCompanionBuilder,
+      (
+        CachedMessage,
+        BaseReferences<_$AppDatabase, $MessageEntriesTable, CachedMessage>,
+      ),
+      CachedMessage,
+      PrefetchHooks Function()
+    >;
+typedef $$MessagingStateEntriesTableCreateCompanionBuilder =
+    MessagingStateEntriesCompanion Function({
+      required String stateKey,
+      Value<String> sinceToken,
+      Value<String> olderPageToken,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$MessagingStateEntriesTableUpdateCompanionBuilder =
+    MessagingStateEntriesCompanion Function({
+      Value<String> stateKey,
+      Value<String> sinceToken,
+      Value<String> olderPageToken,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$MessagingStateEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $MessagingStateEntriesTable> {
+  $$MessagingStateEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get stateKey => $composableBuilder(
+    column: $table.stateKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$MessagingStateEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $MessagingStateEntriesTable> {
+  $$MessagingStateEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get stateKey => $composableBuilder(
+    column: $table.stateKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MessagingStateEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $MessagingStateEntriesTable> {
+  $$MessagingStateEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get stateKey =>
+      $composableBuilder(column: $table.stateKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sinceToken => $composableBuilder(
+    column: $table.sinceToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get olderPageToken => $composableBuilder(
+    column: $table.olderPageToken,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$MessagingStateEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $MessagingStateEntriesTable,
+          CachedMessagingState,
+          $$MessagingStateEntriesTableFilterComposer,
+          $$MessagingStateEntriesTableOrderingComposer,
+          $$MessagingStateEntriesTableAnnotationComposer,
+          $$MessagingStateEntriesTableCreateCompanionBuilder,
+          $$MessagingStateEntriesTableUpdateCompanionBuilder,
+          (
+            CachedMessagingState,
+            BaseReferences<
+              _$AppDatabase,
+              $MessagingStateEntriesTable,
+              CachedMessagingState
+            >,
+          ),
+          CachedMessagingState,
+          PrefetchHooks Function()
+        > {
+  $$MessagingStateEntriesTableTableManager(
+    _$AppDatabase db,
+    $MessagingStateEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MessagingStateEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$MessagingStateEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$MessagingStateEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> stateKey = const Value.absent(),
+                Value<String> sinceToken = const Value.absent(),
+                Value<String> olderPageToken = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MessagingStateEntriesCompanion(
+                stateKey: stateKey,
+                sinceToken: sinceToken,
+                olderPageToken: olderPageToken,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String stateKey,
+                Value<String> sinceToken = const Value.absent(),
+                Value<String> olderPageToken = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => MessagingStateEntriesCompanion.insert(
+                stateKey: stateKey,
+                sinceToken: sinceToken,
+                olderPageToken: olderPageToken,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $MessagingStateEntriesTable,
+                    CachedMessagingState
+                  >(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $MessagingStateEntriesTable,
+                    CachedMessagingState
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$MessagingStateEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $MessagingStateEntriesTable,
+      CachedMessagingState,
+      $$MessagingStateEntriesTableFilterComposer,
+      $$MessagingStateEntriesTableOrderingComposer,
+      $$MessagingStateEntriesTableAnnotationComposer,
+      $$MessagingStateEntriesTableCreateCompanionBuilder,
+      $$MessagingStateEntriesTableUpdateCompanionBuilder,
+      (
+        CachedMessagingState,
+        BaseReferences<
+          _$AppDatabase,
+          $MessagingStateEntriesTable,
+          CachedMessagingState
+        >,
+      ),
+      CachedMessagingState,
+      PrefetchHooks Function()
+    >;
 typedef $$AppSettingEntriesTableCreateCompanionBuilder =
     AppSettingEntriesCompanion Function({
       required String settingKey,
@@ -4990,6 +6681,12 @@ class $AppDatabaseManager {
         _db,
         _db.notificationStateEntries,
       );
+  $$ConversationEntriesTableTableManager get conversationEntries =>
+      $$ConversationEntriesTableTableManager(_db, _db.conversationEntries);
+  $$MessageEntriesTableTableManager get messageEntries =>
+      $$MessageEntriesTableTableManager(_db, _db.messageEntries);
+  $$MessagingStateEntriesTableTableManager get messagingStateEntries =>
+      $$MessagingStateEntriesTableTableManager(_db, _db.messagingStateEntries);
   $$AppSettingEntriesTableTableManager get appSettingEntries =>
       $$AppSettingEntriesTableTableManager(_db, _db.appSettingEntries);
 }

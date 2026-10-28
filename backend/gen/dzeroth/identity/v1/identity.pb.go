@@ -583,8 +583,13 @@ type GetMeResponse struct {
 	// Pending incoming follow requests (ADR-0025 D7): set for a protected caller only, else 0. A count cached 30 s, so
 	// it may lag a new request or a response by up to 30 s. Drives the Follow requests entry and its badge.
 	PendingFollowRequestCount int64 `protobuf:"varint,6,opt,name=pending_follow_request_count,json=pendingFollowRequestCount,proto3" json:"pending_follow_request_count,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Inbox conversations with unread messages (ADR-0027 D10): set only when FEATURE_MESSAGING is on for the caller,
+	// else 0. Capped at 100 (show "99+"); message requests do not count (ListConversations.request_count shows them). A
+	// count cached 30 s, evicted on the serving instance by a send to or a mark-read by the caller, so it may lag by up
+	// to 30 s. Drives the Messages badge.
+	UnreadConversationCount int64 `protobuf:"varint,7,opt,name=unread_conversation_count,json=unreadConversationCount,proto3" json:"unread_conversation_count,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *GetMeResponse) Reset() {
@@ -655,6 +660,13 @@ func (x *GetMeResponse) GetEnabledFeatures() []string {
 func (x *GetMeResponse) GetPendingFollowRequestCount() int64 {
 	if x != nil {
 		return x.PendingFollowRequestCount
+	}
+	return 0
+}
+
+func (x *GetMeResponse) GetUnreadConversationCount() int64 {
+	if x != nil {
+		return x.UnreadConversationCount
 	}
 	return 0
 }
@@ -1402,14 +1414,15 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x1fCheckHandleAvailabilityResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x0e\n" +
-	"\fGetMeRequest\"\xd2\x02\n" +
+	"\fGetMeRequest\"\x8e\x03\n" +
 	"\rGetMeResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".dzeroth.identity.v1.AccountStatusR\x06status\x12%\n" +
 	"\x0eemail_verified\x18\x03 \x01(\bR\remailVerified\x12:\n" +
 	"\x19unread_notification_count\x18\x04 \x01(\x03R\x17unreadNotificationCount\x12)\n" +
 	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\x12?\n" +
-	"\x1cpending_follow_request_count\x18\x06 \x01(\x03R\x19pendingFollowRequestCount\"R\n" +
+	"\x1cpending_follow_request_count\x18\x06 \x01(\x03R\x19pendingFollowRequestCount\x12:\n" +
+	"\x19unread_conversation_count\x18\a \x01(\x03R\x17unreadConversationCount\"R\n" +
 	"\x11GetProfileRequest\x12\x19\n" +
 	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x12\x18\n" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +

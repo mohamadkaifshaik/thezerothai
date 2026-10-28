@@ -92,6 +92,10 @@ AppException mapConnectError(Object error) {
       // reason (W3-33a).
       case common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT:
         return const ProtectedAccountException();
+      // ADR-0027 D4: one refusal for blocked either way, a recipient who is not ACTIVE or outside the messaging
+      // rollout, and a conversation with an erased participant. Fixed text, so it never reveals which.
+      case common.ErrorReason.ERROR_REASON_CANNOT_MESSAGE:
+        return const CannotMessageException();
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

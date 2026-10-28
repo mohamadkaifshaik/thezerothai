@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
@@ -35,6 +36,15 @@ class AppDrawer extends StatelessWidget {
     final profile = context.select((OnboardingBloc bloc) => bloc.state.profile);
     final handle = profile?.handle ?? '';
     final shellEntries = shellEntriesFor(context);
+    final pendingRequests = context.select(
+      (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
+    );
+    final protected = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile?.isPrivate ?? false,
+    );
+    final showFollowRequests =
+        isFeatureEnabled(context, kFeatureGraph) &&
+        (protected || pendingRequests > 0);
     return Drawer(
       // 277dp, never more than 85 % of the screen on a very narrow phone.
       width: math.min(
@@ -53,6 +63,24 @@ class AppDrawer extends StatelessWidget {
                 onTap: () => _go(
                   context,
                   () => context.go(AppRouter.profilePath(handle)),
+                ),
+              ),
+            // W3-34: a protected account's requests (or any pending count). Needs
+            // `graph`; never `private_accounts` for a protected caller (undo rule).
+            if (showFollowRequests)
+              _DrawerRow(
+                key: const ValueKey('drawer-follow-requests'),
+                icon: Icons.person_add_alt_outlined,
+                label: 'Follow requests',
+                badge: pendingRequests > 0
+                    ? followRequestBadgeText(pendingRequests)
+                    : null,
+                badgeSpoken: pendingRequests > 0
+                    ? followRequestBadgeSpoken(pendingRequests)
+                    : null,
+                onTap: () => _go(
+                  context,
+                  () => context.go(AppRouter.followRequestsPath),
                 ),
               ),
             // Needs `bookmarks` (the entry) and `posts` (the route).
@@ -232,10 +260,17 @@ class _DrawerRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.badge,
+    this.badgeSpoken,
   });
 
   final IconData icon;
   final String label;
+
+  /// A count pill after the label (the follow-requests badge), and what a
+  /// screen reader says for it.
+  final String? badge;
+  final String? badgeSpoken;
   final VoidCallback onTap;
 
   @override
@@ -243,7 +278,7 @@ class _DrawerRow extends StatelessWidget {
     final theme = Theme.of(context);
     return Semantics(
       button: true,
-      label: label,
+      label: badgeSpoken == null ? label : '$label, $badgeSpoken',
       excludeSemantics: true,
       onTap: onTap,
       child: InkWell(
@@ -264,9 +299,59 @@ class _DrawerRow extends StatelessWidget {
                     style: theme.textTheme.titleLarge,
                   ),
                 ),
+                if (badge != null) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  _CountBadge(text: badge!),
+                ],
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The follow requests count: "7", and "1000+" once the server's cap (1,000)
+/// is reached (the count stops there, it may be higher).
+String followRequestBadgeText(int count) =>
+    count >= kPendingRequestsCap ? '$kPendingRequestsCap+' : '$count';
+
+/// What a screen reader says for [followRequestBadgeText].
+String followRequestBadgeSpoken(int count) => count >= kPendingRequestsCap
+    ? '$kPendingRequestsCap or more pending'
+    : '$count pending';
+
+/// `GetMe.pending_follow_request_count` stops counting at this (W3-26b).
+const kPendingRequestsCap = 1000;
+
+/// A small strong pill (AA contrast, like the primary pill button) with a count; the number is also in the row's spoken
+/// label, so this is excluded from semantics with the rest of the row.
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      constraints: const BoxConstraints(minWidth: AppSpacing.lg),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: context.appColors.strongPillFill,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: context.appColors.strongPillLabel,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
