@@ -12,7 +12,7 @@ package apiserver
 // are seeded); the banner upload, finalize and resolve figures by the media package integration tests and
 // banner_matrix_integration_test.go (they cannot be reached through the chain: a signed PUT URL cannot be minted against the
 // emulators); the post_delete pin clean-up by identity.TestClearIfPinned_Integration; the backfill by W320BUDGET lines of
-// TestW320_LegacyPostIsOffTheMediaTabUntilBackfilled; the suggestions' 42 hard cap, the 12 of the curated path, the known-
+// TestW320_LegacyPostIsOffTheMediaTabUntilBackfilled; the suggestions' 32 hard cap (42 with EdgeLimit pinned to 30), the 12 of the curated path, the known-
 // inactive skip and the 2-read expired-snapshot warm hit by the W320BUDGET lines of the suggestions file; the UpdateProfile
 // no-op (1 read, 0 writes) by TestW320_UpdateProfileDailyCapAndNoOpWrites.
 
@@ -192,7 +192,8 @@ func TestW320_BudgetTable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// --- ListSuggestedUsers: 42 friends of friends, 12 curated, 1 warm (ADR); measured in the dedicated tests, repeated
+	// --- ListSuggestedUsers: 32 friends of friends (42 with EdgeLimit pinned to 30), 12 curated, 1 warm (ADR-0024 D8,
+	// Amendment 2 B1(b)); the ceiling below is derived from the configured limits. Measured in the dedicated tests, repeated
 	// here for the table with a small graph so the figure is the real shape, not the cap. ---
 	sv := w.user(t)
 	f, cand := w.w320Users(t, 3), w.w320Users(t, 4)
@@ -205,7 +206,7 @@ func TestW320_BudgetTable(t *testing.T) {
 	if _, err := rs.graph.ListSuggestedUsers(ctx, authed(sv.token, &graphv1.ListSuggestedUsersRequest{})); err != nil {
 		t.Fatal(err)
 	}
-	rs.w320Measure(t, w320RPCListSuggested, "friends of friends, 3 followees / 6 edges / 4 candidates, cold", budgettest.Budget{Reads: 42})
+	rs.w320Measure(t, w320RPCListSuggested, "friends of friends, 3 followees / 6 edges / 4 candidates, cold", budgettest.Budget{Reads: w320SugColdCap(t)})
 	if _, err := rs.graph.ListSuggestedUsers(ctx, authed(sv.token, &graphv1.ListSuggestedUsersRequest{})); err != nil {
 		t.Fatal(err)
 	}

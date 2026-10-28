@@ -6,12 +6,14 @@ package apiserver
 // real Follow / Block / Mute calls (the W3-12 chain test seeds edges directly). Covered here: the exclusion matrix (self,
 // already followed, blocked, blocks the caller, muted, SUSPENDED, DELETING, a user that does not exist), blockedBy
 // overflow suggesting nothing, the curated fallback (also with blocked, blocking, followed, muted, DELETING, ghost and
-// the viewer's own uid on the list), friends of friends first and the curated rows after them, the exact 42-read hard cap
-// with 30 followees (also on a dense graph), the W3-22 L-5 per-followee cap of 3 and the known-inactive followee skip, and
+// the viewer's own uid on the list), friends of friends first and the curated rows after them, the exact 32-read hard cap
+// at the config default (ADR-0024 Amendment 2 B1(b): EdgeLimit 20) and the exact 42-read cap with EdgeLimit pinned to 30,
+// each with 30 followees (also on a dense graph), the W3-22 L-5 per-followee cap of 3 and the known-inactive followee skip, and
 // the W3-22 L-1 re-filter: a user who blocks the viewer on ANOTHER instance leaves the viewer's warm rows once the
 // snapshot expires (2 reads), and a warm hit inside the snapshot's TTL is free.
 //
-// The candidate window of the friends-of-friends query is the newest 30 follow edges of the sampled followees and each
+// The candidate window of the friends-of-friends query is the newest EdgeLimit follow edges (20 at the default, 30 where a
+// test pins it) of the sampled followees and each
 // followee contributes at most its newest 3 usable edges (maxCandidatesPerFollowee), so the fixtures keep the number of
 // edges per followee at 3 or fewer unless the test is about that cap; assertions are on membership and exclusions, never
 // on which of several equally ranked candidates comes first.
@@ -35,6 +37,26 @@ import (
 
 func w320SugChain(c *config.Config) {
 	c.FeatureFollowSuggestions = flags.Spec{Name: "follow_suggestions", Mode: flags.On}
+}
+
+// w320SugEdge30 is w320SugChain with SUGGESTIONS_EDGE_LIMIT pinned to 30, the pre-Amendment 2 default and the top of the
+// supported 20 to 30 range (ADR-0024 Amendment 2 B1 walk-back): the cold cap is then 42.
+func w320SugEdge30(c *config.Config) {
+	w320SugChain(c)
+	c.Suggestions.EdgeLimit = 30
+}
+
+// w320SugColdCap is the cold friends-of-friends hard cap of the config the chains are built from (config.Load, as cfgCap
+// does for the bookmarks cap): interceptor 1 + caller graph 1 + EdgeLimit + HydrateMax, 32 at the defaults (ADR-0024
+// Amendment 2 B1(b)). It is for ceilings that are incidental to a case; the default itself is pinned by the literal 32 of
+// TestW320_SuggestionsHardCap32, so a default that moved back to 30 fails there.
+func w320SugColdCap(t *testing.T) int64 {
+	t.Helper()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int64(2 + cfg.Suggestions.EdgeLimit + cfg.Suggestions.HydrateMax)
 }
 
 func (e *bmChain) w320Suggest(u bmUser, max int32) (*graphv1.ListSuggestedUsersResponse, error) {
@@ -127,7 +149,7 @@ func TestW320_SuggestionsExclusionMatrix(t *testing.T) {
 		}
 	}
 	c := r.lineBudget(t, w320RPCListSuggested)
-	r.w320Measure(t, w320RPCListSuggested, "friends of friends, 16 edges, 7 hydrated, cold", budgettest.Budget{Reads: 42})
+	r.w320Measure(t, w320RPCListSuggested, "friends of friends, 16 edges, 7 hydrated, cold", budgettest.Budget{Reads: w320SugColdCap(t)})
 	if c.Writes() != 0 || c.Deletes() != 0 {
 		t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
 	}
@@ -238,33 +260,45 @@ func TestW320_SuggestionsCuratedFallback(t *testing.T) {
 		if l := r.line(t, w320RPCListSuggested); l["source"] != "curated" {
 			t.Errorf("source = %v, want curated (the curated list filled the rest)", l["source"])
 		}
-		r.w320Measure(t, w320RPCListSuggested, "friends of friends then curated, cold", budgettest.Budget{Reads: 42})
+		r.w320Measure(t, w320RPCListSuggested, "friends of friends then curated, cold", budgettest.Budget{Reads: w320SugColdCap(t)})
 	})
 }
 
-// TestW320_SuggestionsHardCap42: 30 followees (the sample), each following ONE of 12 candidates, so the friends-of-friends
-// query returns its full 30-edge window (Limit), the per-followee cap of 3 (W3-22 L-5) takes nothing away and 12 distinct
-// candidates reach hydration, which stops at the cap of 10. The whole request is interceptor 1 + graph 1 + 30 + 10 = 42,
-// exactly, and not one read more however large the graph around the viewer is. A denser graph (every followee following 4
-// of the candidates, 120 edges) still reads the same 30 edges and hydrates at most 10: the cap is a ceiling, never a target.
-func TestW320_SuggestionsHardCap42(t *testing.T) {
-	w := newW320Chain(t, w320SugChain)
-	v := w.user(t)
-	f, cand := w.w320Users(t, 30), w.w320Users(t, 12)
+// w320SugFullWindowWorld: 30 followees (the sample), each following ONE of 12 candidates, the edges one second apart in the
+// order of the followees, so the newest 20 edges (followees 10..29) and the newest 30 both hold all 12 distinct
+// candidates and the per-followee cap of 3 (W3-22 L-5) takes nothing away. It returns the chain that seeded the data, the
+// viewer, the followees, the candidates and the time the edges start at.
+func w320SugFullWindowWorld(t *testing.T) (w *w320Chain, v bmUser, f, cand []bmUser, base time.Time) {
+	t.Helper()
+	w = newW320Chain(t, w320SugChain)
+	v = w.user(t)
+	f, cand = w.w320Users(t, 30), w.w320Users(t, 12)
 	for _, fe := range f {
 		w.w320Follow(t, v, fe.uid)
 	}
-	base := time.Now().Add(-time.Hour)
+	base = time.Now().Add(-time.Hour)
 	for i, fe := range f {
 		seedFollowEdge(t, w.fs, fe.uid, cand[i%len(cand)].uid, base.Add(time.Duration(i)*time.Second))
 	}
-	r := newW320Chain(t, w320SugChain)
+	return w, v, f, cand, base
+}
+
+// TestW320_SuggestionsHardCap42: the 30-edge bound stays tested. SUGGESTIONS_EDGE_LIMIT is pinned to 30 (w320SugEdge30), the
+// pre-Amendment 2 default and the top of the supported 20 to 30 range, on the 30-followee world of
+// w320SugFullWindowWorld, so the friends-of-friends query returns its full 30-edge window (Limit) and 12 distinct
+// candidates reach hydration, which stops at the cap of 10. The whole request is interceptor 1 + graph 1 + 30 + 10 = 42,
+// exactly, and not one read more however large the graph around the viewer is. A denser graph (every followee following 4
+// of the candidates, 120 edges) still reads the same 30 edges and hydrates at most 10: the cap is a ceiling, never a target.
+// The config default is TestW320_SuggestionsHardCap32.
+func TestW320_SuggestionsHardCap42(t *testing.T) {
+	w, v, f, cand, base := w320SugFullWindowWorld(t)
+	r := newW320Chain(t, w320SugEdge30)
 	got, err := r.w320Suggest(v, 0)
 	if err != nil || len(got.GetUsers()) != 5 {
 		t.Fatalf("rows = %d, %v; want 5", len(got.GetUsers()), err)
 	}
 	c := r.lineBudget(t, w320RPCListSuggested)
-	r.w320Measure(t, w320RPCListSuggested, "hard cap: 30 followees, 30 edges, 10 hydrated, cold", budgettest.Budget{Reads: 42})
+	r.w320Measure(t, w320RPCListSuggested, "hard cap at edge limit 30: 30 followees, 30 edges, 10 hydrated, cold", budgettest.Budget{Reads: 42})
 	if c.Reads() != 42 {
 		t.Errorf("cold reads = %d, want exactly 42 (interceptor 1 + graph 1 + 30 edges + 10 hydrated): the fixture must exercise the full cap", c.Reads())
 	}
@@ -282,13 +316,58 @@ func TestW320_SuggestionsHardCap42(t *testing.T) {
 			seedFollowEdge(t, w.fs, fe.uid, cand[(i+j)%len(cand)].uid, base.Add(time.Hour+time.Duration(i*4+j)*time.Second))
 		}
 	}
+	r2 := newW320Chain(t, w320SugEdge30) // the pin on this chain too, or the dense half would silently run at 20
+	if got, err := r2.w320Suggest(v, 0); err != nil || len(got.GetUsers()) != 5 {
+		t.Fatalf("dense graph: rows = %d, %v; want 5", len(got.GetUsers()), err)
+	}
+	r2.w320Measure(t, w320RPCListSuggested, "hard cap at edge limit 30, dense graph (120 edges, window 30), cold", budgettest.Budget{Reads: 42})
+	if c2 := r2.lineBudget(t, w320RPCListSuggested); c2.Reads() > 42 {
+		t.Errorf("dense graph read %d, the cap is 42", c2.Reads())
+	}
+}
+
+// TestW320_SuggestionsHardCap32: the same 30-followee world at the CONFIG DEFAULT (ADR-0024 Amendment 2 B1(b):
+// SUGGESTIONS_EDGE_LIMIT 20, no mutate). The newest 20 edges come from followees 10..29 and hold all 12 distinct
+// candidates, the per-followee cap of 3 takes nothing away, and hydration stops at the cap of 10, so the whole request is
+// interceptor 1 + graph 1 + 20 + 10 = 32, exactly. The literals are on purpose: a default that moved back to 30 would
+// read 42 here and fail. A denser graph (120 edges) reads the same 20 edges and hydrates at most 10: at most 32.
+func TestW320_SuggestionsHardCap32(t *testing.T) {
+	w, v, f, cand, base := w320SugFullWindowWorld(t)
+	r := newW320Chain(t, w320SugChain)
+	got, err := r.w320Suggest(v, 0)
+	if err != nil || len(got.GetUsers()) != 5 {
+		t.Fatalf("rows = %d, %v; want 5", len(got.GetUsers()), err)
+	}
+	c := r.lineBudget(t, w320RPCListSuggested)
+	r.w320Measure(t, w320RPCListSuggested, "hard cap at the config default: 30 followees, 20 edges, 10 hydrated, cold", budgettest.Budget{Reads: 32})
+	if c.Reads() != 32 {
+		t.Errorf("cold reads = %d, want exactly 32 (interceptor 1 + graph 1 + 20 edges + 10 hydrated): the fixture must exercise the full cap", c.Reads())
+	}
+	if c.Writes() != 0 || c.Deletes() != 0 {
+		t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
+	}
+	l := r.line(t, w320RPCListSuggested)
+	if num(l, "candidates") != 10 || l["source"] != "fof" {
+		t.Errorf("source=%v candidates=%v, want fof and the hydration cap of 10", l["source"], l["candidates"])
+	}
+	if reads := num(l, "fs_reads"); reads != 32 {
+		t.Errorf("request line fs_reads = %v, want 32", reads)
+	}
+
+	// A denser graph: every followee now follows 3 more candidates (120 edges). The query still reads 20 edges, so the
+	// request is at most 32 (the 20 newest edges name fewer distinct candidates, so hydration may read fewer than 10).
+	for i, fe := range f {
+		for j := 1; j <= 3; j++ {
+			seedFollowEdge(t, w.fs, fe.uid, cand[(i+j)%len(cand)].uid, base.Add(time.Hour+time.Duration(i*4+j)*time.Second))
+		}
+	}
 	r2 := newW320Chain(t, w320SugChain)
 	if got, err := r2.w320Suggest(v, 0); err != nil || len(got.GetUsers()) != 5 {
 		t.Fatalf("dense graph: rows = %d, %v; want 5", len(got.GetUsers()), err)
 	}
-	r2.w320Measure(t, w320RPCListSuggested, "hard cap, dense graph (120 edges, window 30), cold", budgettest.Budget{Reads: 42})
-	if c2 := r2.lineBudget(t, w320RPCListSuggested); c2.Reads() > 42 {
-		t.Errorf("dense graph read %d, the cap is 42", c2.Reads())
+	r2.w320Measure(t, w320RPCListSuggested, "hard cap at the config default, dense graph (120 edges, window 20), cold", budgettest.Budget{Reads: 32})
+	if c2 := r2.lineBudget(t, w320RPCListSuggested); c2.Reads() > 32 {
+		t.Errorf("dense graph read %d, the cap is 32", c2.Reads())
 	}
 }
 
@@ -392,7 +471,7 @@ func TestW320_SuggestionsKnownInactiveFolloweeIsSkipped(t *testing.T) {
 	if cr.Reads() >= controlReads {
 		t.Errorf("primed instance read %d, control %d: skipping the suspended followee must cost less", cr.Reads(), controlReads)
 	}
-	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", w320RPCListSuggested, "known-suspended followee skipped (control read "+fmt.Sprint(controlReads)+")", cr.Reads(), cr.Writes(), cr.Deletes(), 42, 0)
+	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", w320RPCListSuggested, "known-suspended followee skipped (control read "+fmt.Sprint(controlReads)+")", cr.Reads(), cr.Writes(), cr.Deletes(), w320SugColdCap(t), 0)
 }
 
 // TestW320_SuggestionsBlockerOnAnotherInstance: W3-22 L-1 (fixed in #350). The viewer's rows are cached for an hour on

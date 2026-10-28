@@ -3,7 +3,7 @@
 package apiserver
 
 // ListSuggestedUsers (ADR-0024 D8, ticket W3-12) over the real Build chain on the emulators: the whole-request read cap
-// including the account-status interceptor (42 cold, <= 1 warm), the request-log fields, the wire shape and the Follow
+// including the account-status interceptor (32 cold at the default EdgeLimit 20, <= 1 warm), the request-log fields, the wire shape and the Follow
 // eviction. The measured calls go through a SECOND Build over the same emulator project, so its instance caches
 // (identity profiles, graph snapshots) start empty even though the first Build created every profile. Helpers come from
 // posts_restricted_test.go.
@@ -64,8 +64,10 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 	}
 
 	// The viewer follows the four followees. Followee fi follows 8 candidates, number (3*fi + k) mod 14 for k = 0..7, newer
-	// with k and with fi: 32 edges, so the newest 30 come from all four followees, and the newest 3 of each (the
-	// per-followee cap, W3-22 L-5) are 12 distinct candidates, more than the 10 that get hydrated.
+	// with k and, within one k, with fi (edge number k*4 + fi): 32 edges, so the newest 20 (the default EdgeLimit, ADR-0024
+	// Amendment 2 B1(b)) are k = 3..7 of ALL four followees (this order is what keeps all four in the window; followee-major
+	// order would leave followees 1 to 3 and 9 candidates), and the newest 3 of each (the per-followee cap, W3-22 L-5) are
+	// k = 5..7: 12 distinct candidates, more than the 10 that get hydrated.
 	base := time.Now().Add(-48 * time.Hour).UTC()
 	for i, f := range followees {
 		seedFollowEdge(t, setup.fs, viewerUID, f.uid, base.Add(time.Duration(i)*time.Second))
@@ -73,7 +75,7 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 	for fi, f := range followees {
 		for k := 0; k < 8; k++ {
 			c := candidates[(3*fi+k)%len(candidates)]
-			seedFollowEdge(t, setup.fs, f.uid, c.uid, base.Add(time.Hour+time.Duration(fi*8+k)*time.Minute))
+			seedFollowEdge(t, setup.fs, f.uid, c.uid, base.Add(time.Hour+time.Duration(k*len(followees)+fi)*time.Minute))
 		}
 	}
 
@@ -109,9 +111,10 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		t.Fatalf("request lines = %d, want 1", len(lines))
 	}
 	coldLine := lines[0]
-	t.Logf("BUDGET ListSuggestedUsers chain cold fs_reads=%v fs_writes=%v (documented hard cap 42)", coldLine["fs_reads"], coldLine["fs_writes"])
-	if reads := logNum(coldLine, "fs_reads"); reads > 42 || reads < 41 {
-		t.Errorf("cold fs_reads = %v, want 41 or 42 (interceptor 0-1 + graph 1 + 30 edges + 10 profiles)", reads)
+	coldCap := float64(w320SugColdCap(t)) // 32 at the default EdgeLimit 20; TestW320_SuggestionsHardCap32 pins the literal
+	t.Logf("BUDGET ListSuggestedUsers chain cold fs_reads=%v fs_writes=%v (documented hard cap %v)", coldLine["fs_reads"], coldLine["fs_writes"], coldCap)
+	if reads := logNum(coldLine, "fs_reads"); reads > coldCap || reads < coldCap-1 {
+		t.Errorf("cold fs_reads = %v, want %v or %v (interceptor 0-1 + graph 1 + EdgeLimit edges + HydrateMax profiles)", reads, coldCap-1, coldCap)
 	}
 	if logNum(coldLine, "fs_writes") != 0 || logNum(coldLine, "fs_deletes") != 0 {
 		t.Errorf("cold writes/deletes = %v/%v, want 0/0", coldLine["fs_writes"], coldLine["fs_deletes"])

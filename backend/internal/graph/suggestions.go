@@ -23,9 +23,11 @@ const FollowSuggestionsFlagName = "follow_suggestions"
 type SuggestionLimits struct {
 	// SampleFollowees is how many of the caller's newest followees seed the friends-of-friends query (<= 30).
 	SampleFollowees int
-	// EdgeLimit is the Limit of that query (<= 50).
+	// EdgeLimit is the Limit of that query (<= 50; 0 means the config default 20). It sets the cold cap: 2 + EdgeLimit +
+	// HydrateMax = 32 reads at the defaults, 42 at 30 (ADR-0024 Amendment 2 B1(b)).
 	EdgeLimit int
-	// HydrateMax is the most candidates hydrated through identity.Directory (<= 50).
+	// HydrateMax is the most candidates hydrated through identity.Directory (<= 50). The curated path costs 2 + HydrateMax =
+	// 12 at the default 10; a warm call costs 1 to 2.
 	HydrateMax int
 	// MaxResults is the most users one call returns (<= 5, the proto clamp).
 	MaxResults int
@@ -45,12 +47,14 @@ type SuggestionLimits struct {
 // candidates (non-ACTIVE and deleted users drop out), then the cache. The "fewer than 3" decision between friends of
 // friends and the curated list is made inside the Suggester, after the exclusion matrix.
 //
-// Firestore: hard cap 42 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 30, hydration <= HydrateMax 10),
-// 12 on the curated path (1 + 1 + 10; the edge query is skipped when the caller follows fewer than 3 accounts), 1
-// warm (the interceptor; the cache holds the hydrated rows) or 2 warm when the viewer's 60 s snapshot has expired
-// (the re-filter loads graph/{viewer} once, W3-22 L-1), planning 25; 0 writes. This method itself accounts for the
-// reads past the interceptor: 41 cold worst, 0 warm with a cached snapshot, 1 warm without. Request log: source (fof | curated | none), candidates
-// (uids sent to hydration), suggestions_cache_hit, graph_cache_hit.
+// Firestore: hard cap 32 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 20, hydration <= HydrateMax 10;
+// 2 + EdgeLimit + HydrateMax, so 42 only if a project sets EdgeLimit 30, ADR-0024 Amendment 2 B1(b)), 12 on the curated
+// path (1 + 1 + 10; the edge query is skipped when the caller follows fewer than 3 accounts), 1 warm (the interceptor;
+// the cache holds the hydrated rows) or 2 warm when the viewer's 60 s snapshot has expired (the re-filter loads
+// graph/{viewer} once, W3-22 L-1), planning 27.6 per call (0.95 x (0.85 x 32 + 0.15 x 12) + 0.05 x 1.5); 0 writes. This
+// method itself accounts for the reads past the interceptor: 31 cold worst, 0 warm with a cached snapshot, 1 warm
+// without. Request log: source (fof | curated | none), candidates (uids sent to hydration), suggestions_cache_hit,
+// graph_cache_hit.
 //
 // Staleness: a viewer's rows may be up to SUGGESTIONS_CACHE_TTL (1 h) old as to who is ACTIVE or still exists, but
 // never older than the 60 s snapshot cache as to the viewer's follows, blocks, mutes and blockedBy: every warm hit is
