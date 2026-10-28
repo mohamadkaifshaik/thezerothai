@@ -103,23 +103,8 @@ void main() {
             textScale: scale,
           ),
         );
-        // The outlined Requested / Following buttons are already 12dp wider
-        // than the row at x2.0 without any badge (follow_button.dart, not part
-        // of W3-33c), so overflow is asserted for every other cell.
-        final knownButtonOverflow =
-            scale == 2.0 && state != graph.FollowState.FOLLOW_STATE_NONE;
-        if (knownButtonOverflow) {
-          tester.takeException();
-        } else {
-          expectNoOverflow(tester);
-        }
-        if (knownButtonOverflow) {
-          // The name column is too narrow for a lock there; if one is drawn
-          // it must still not touch the button.
-          if (find.byType(ProtectedBadge).evaluate().isEmpty) return;
-        } else {
-          expect(find.byType(ProtectedBadge), findsOneWidget);
-        }
+        expectNoOverflow(tester);
+        expect(find.byType(ProtectedBadge), findsOneWidget);
         final button = find.byWidgetPredicate(
           (w) => w is FilledButton || w is OutlinedButton,
         );
@@ -130,6 +115,41 @@ void main() {
           lessThanOrEqualTo(tester.getRect(button).left + 0.5),
         );
       });
+    }
+  }
+
+  // W3-33d: every FollowButton state fits the row across the whole matrix
+  // (the outlined Requested / Following used to overflow at 360dp x2.0).
+  for (final state in [
+    graph.FollowState.FOLLOW_STATE_NONE,
+    graph.FollowState.FOLLOW_STATE_REQUESTED,
+    graph.FollowState.FOLLOW_STATE_FOLLOWING,
+  ]) {
+    for (final private in [true, false]) {
+      forEachThemeAndWidth(
+        '${state.name} private=$private fits, 48dp, badge when private',
+        (tester, env) async {
+          await open(
+            tester,
+            item(isPrivate: private, name: long, follow: state),
+            env: env,
+          );
+          expectNoOverflow(tester);
+          expect(
+            find.byType(ProtectedBadge),
+            private ? findsOneWidget : findsNothing,
+          );
+          final button = find.byWidgetPredicate(
+            (w) => w is FilledButton || w is OutlinedButton,
+          );
+          expectMinTarget(tester, button);
+          expect(
+            tester.getRect(button).right,
+            lessThanOrEqualTo(env.size.width),
+          );
+        },
+        textScales: kMatrixTextScalesLarge,
+      );
     }
   }
 

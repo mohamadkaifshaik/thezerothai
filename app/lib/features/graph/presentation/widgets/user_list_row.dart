@@ -94,73 +94,87 @@ class UserListRow extends StatelessWidget {
             top: AppSpacing.sm,
             bottom: AppSpacing.sm,
           ),
-          child: Row(
-            children: [
-              ExcludeSemantics(child: AppAvatar(url: user.avatarUrl)),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // A hint from the server (W3-25c): false draws nothing
-                    // and never means "public". The name gives way first (it
-                    // ellipsizes) so the lock stays; only when the column is
-                    // too narrow for both, at the largest text scale beside a
-                    // wide control, the lock is dropped rather than drawn
-                    // over the control.
-                    LayoutBuilder(
-                      builder: (context, box) {
-                        final badge =
-                            user.isPrivate &&
-                            box.maxWidth >= _badgeMinColumnWidth;
-                        return Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                user.displayName.isEmpty
-                                    ? '@${user.handle}'
-                                    : user.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
+          child: LayoutBuilder(
+            builder: (context, rowBox) => Row(
+              children: [
+                ExcludeSemantics(child: AppAvatar(url: user.avatarUrl)),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // A hint from the server (W3-25c): false draws nothing
+                      // and never means "public". The name gives way first (it
+                      // ellipsizes) so the lock stays; only when the column is
+                      // too narrow for both, at the largest text scale beside a
+                      // wide control, the lock is dropped rather than drawn
+                      // over the control.
+                      LayoutBuilder(
+                        builder: (context, box) {
+                          final badge =
+                              user.isPrivate &&
+                              box.maxWidth >= _badgeMinColumnWidth;
+                          return Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  user.displayName.isEmpty
+                                      ? '@${user.handle}'
+                                      : user.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleSmall,
+                                ),
                               ),
-                            ),
-                            if (badge) ...[
-                              const SizedBox(width: AppSpacing.xs),
-                              const ProtectedBadge(),
+                              if (badge) ...[
+                                const SizedBox(width: AppSpacing.xs),
+                                const ProtectedBadge(),
+                              ],
                             ],
-                          ],
-                        );
-                      },
-                    ),
-                    Text(
-                      '@${user.handle}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                          );
+                        },
                       ),
+                      Text(
+                        '@${user.handle}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                // W3-33d: the default control never takes more than half the
+                // row, so at a large text scale the name column keeps room (and
+                // the lock) and the button's label scales down instead of
+                // overflowing. A caller's own [trailing] is left as it is.
+                if (trailing != null)
+                  control
+                else
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: rowBox.maxWidth * _controlMaxShare,
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              control,
-              if (onDismiss != null)
-                IconButton(
-                  tooltip: 'Dismiss @${user.handle}',
-                  constraints: const BoxConstraints.tightFor(
-                    width: AppSpacing.minTapTarget,
-                    height: AppSpacing.minTapTarget,
+                    child: control,
                   ),
-                  icon: Icon(
-                    Icons.close,
-                    size: AppIconSize.md,
-                    color: theme.colorScheme.onSurfaceVariant,
+                if (onDismiss != null)
+                  IconButton(
+                    tooltip: 'Dismiss @${user.handle}',
+                    constraints: const BoxConstraints.tightFor(
+                      width: AppSpacing.minTapTarget,
+                      height: AppSpacing.minTapTarget,
+                    ),
+                    icon: Icon(
+                      Icons.close,
+                      size: AppIconSize.md,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    onPressed: onDismiss,
                   ),
-                  onPressed: onDismiss,
-                ),
-            ],
+              ],
+            ),
           ),
         ),
         if (showDivider) const Divider(height: 1),
@@ -172,6 +186,9 @@ class UserListRow extends StatelessWidget {
 /// The narrowest name column (dp) that still gets the lock: the 16dp badge,
 /// its 4dp gap and a little of the name.
 const double _badgeMinColumnWidth = 48;
+
+/// The most of the row (a share of it) the default follow control may take.
+const double _controlMaxShare = 0.5;
 
 bool _isConfirmedFollow(RelationshipState state) =>
     !state.isUpdating &&
