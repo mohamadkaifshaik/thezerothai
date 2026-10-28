@@ -27,6 +27,7 @@ import '../features/graph/presentation/bloc/suggestions_cubit.dart';
 import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
+import '../features/messages/data/messaging_repository.dart';
 import '../features/moderation/data/moderation_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/notifications/data/push_opt_in_store.dart';
@@ -63,6 +64,7 @@ class AppWidget extends StatefulWidget {
     this.imagePicker,
     this.imageProcessor = const IsolateImageProcessor(),
     required this.notificationsRepository,
+    required this.messagingRepository,
     required this.moderationRepository,
     required this.engagementRepository,
     required this.bookmarksRepository,
@@ -88,6 +90,9 @@ class AppWidget extends StatefulWidget {
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
   final NotificationsRepository notificationsRepository;
+
+  /// Direct messages (ADR-0027): the inbox (W7-14) and the screens after it.
+  final MessagingRepository messagingRepository;
   final ModerationRepository moderationRepository;
 
   /// Likes, reposts and quotes (P5, `FEATURE_ENGAGEMENT`).
@@ -275,6 +280,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
         RepositoryProvider.value(value: widget.notificationsRepository),
+        RepositoryProvider.value(value: widget.messagingRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
         RepositoryProvider.value(value: widget.engagementRepository),
         RepositoryProvider.value(value: widget.bookmarksRepository),

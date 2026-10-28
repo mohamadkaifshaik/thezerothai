@@ -30,3 +30,21 @@ String messagingErrorMessage(AppException error) {
     _ => "Couldn't complete that. Please try again.",
   };
 }
+
+/// Text of the non-blocking banner the inbox shows over cached conversations
+/// when a refresh or page failed (W7-14). Branches on the exception type,
+/// never on its text; never auto-retried by the UI.
+String conversationsNoticeMessage(AppException error) {
+  return switch (error) {
+    final RateLimitedException e when e.isDaily =>
+      "You've reached today's refresh limit. Showing saved messages; it "
+          'resets later today.',
+    RateLimitedException() =>
+      "You're refreshing too fast. Showing saved messages for a moment.",
+    DegradedModeException() =>
+      'dZeroth is in a limited mode right now. Showing saved messages.',
+    NetworkException() => "You're offline. Showing saved messages.",
+    FeatureDisabledException() => "Messages aren't available right now.",
+    _ => "Couldn't refresh. Showing saved messages.",
+  };
+}
