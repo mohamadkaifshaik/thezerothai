@@ -333,19 +333,19 @@ Prices (§7):
 | W7-1 | ADR-0027 "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | Done: ADR-0027 accepted by the founder's merge of #400 (2026-10-28) |
 | W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | Done (#402): `GetMeResponse.unread_conversation_count = 7`, `NOTIFICATION_TYPE_MESSAGE = 9`, `REPORT_TARGET_TYPE_MESSAGE = 3`, `ERROR_REASON_CANNOT_MESSAGE = 18` |
 | W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Done (#401): six exemptions, ack updated (42 overrides); the `firestore-data-model` rows came with ADR-0027 (#400) |
-| W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | In review (PR pending) |
-| W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | In review (PR pending) |
-| W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | In review (PR pending) |
-| W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | In review (PR pending) |
+| W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | Done (#412) |
+| W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | Done (#416) |
+| W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Done (#416) |
+| W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Done (#431) |
 | W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Open |
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
-| W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | In review (PR pending) |
+| W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Open |
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
-| W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Part 1 done (#406); part 2 (repository, drift tables, gate) in review (PR pending) |
-| W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | In review (PR pending) |
-| W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | In review (PR pending) |
-| W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | In review (PR pending) |
+| W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Done (#406, #413) |
+| W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Done (#414) |
+| W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
+| W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | In review (PR pending) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Open |
@@ -472,7 +472,7 @@ Order:
 - **Flag.** None (deployed with `firebase deploy --only firestore:indexes` by the dev deploy; prod with the held release, before `messaging` leaves `off` there).
 - **Seam.** No query depends on an exempted field.
 
-### W7-4 — Generate, flag, config, module skeleton  [owner: backend-developer] [size: M] [depends: W7-2]  Status: In review (PR pending)
+### W7-4 — Generate, flag, config, module skeleton  [owner: backend-developer] [size: M] [depends: W7-2]  Status: Done (#412)
 - **Description.**
   - `make proto` (generated Go and Dart committed).
   - Register `FEATURE_MESSAGING` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
@@ -493,7 +493,7 @@ Order:
 - **Flag.** Adds `FEATURE_MESSAGING` (default `off`; dev ceiling allowlist 3).
 - **Seam.** Handlers call only `messaging.Service`; the flag check lives in the service layer (`flags.Guard`), so a later split keeps it.
 
-### W7-5 — SendMessage  [owner: backend-developer] [size: M] [depends: W7-4]  Status: In review (PR pending)
+### W7-5 — SendMessage  [owner: backend-developer] [size: M] [depends: W7-4]  Status: Done (#416)
 - **Description.** `messaging.Service.Send`, step by step:
   1. Validate the key (≤ 64), the target, and the text (`text.Normalize`, A6; 0 reads on rejection). Apply the per-minute limit and `messages_daily`.
   2. Resolve the conversation. For `recipient_user_id`: self → VALIDATION; compute `convId`. For `conversation_id`: the participant check against the cached conversation doc.
@@ -531,7 +531,7 @@ Order:
 - **Flag.** `messaging`, per caller and per recipient (F6).
 - **Seam.** `messaging.Service.Send`; the push leaves only through `notifications.Emitter` (`stage-ladder` Real-time seam); inbox entries sit behind a repo interface, so a group fan-out or a listener-backed store changes no caller.
 
-### W7-6 — Messaging lifecycle: eraser, export, guard rows, runbook  [owner: backend-developer] [size: M] [depends: W7-4]  Status: In review (PR pending)
+### W7-6 — Messaging lifecycle: eraser, export, guard rows, runbook  [owner: backend-developer] [size: M] [depends: W7-4]  Status: Done (#416)
 - **Description.**
   - **`messaging.Eraser` step `messaging`.** It is resumable, registered before `identity` (the order relative to `notifications` per A7), with pages ≤ 500 and a checkpoint (conversation cursor, phase).
     1. Page `conversations where participants array-contains uid`. For each conversation: set `gone += uid` (1 write).
@@ -558,7 +558,7 @@ Order:
 - **Flag.** Never flag-gated (right to delete, ADR-0011).
 - **Seam.** `messaging.Eraser` / `messaging.Exporter` behind identity's `StepEraser` and exporter interfaces.
 
-### W7-7 — ListConversations  [owner: backend-developer] [size: M] [depends: W7-5]  Status: In review (PR pending)
+### W7-7 — ListConversations  [owner: backend-developer] [size: M] [depends: W7-5]  Status: Done (#431)
 - **Description.**
   - The folder INBOX or REQUESTS from the caller's own subcollection (the path comes from the token uid; no user id parameter).
   - `lastMessageAt DESC, __name__ DESC`, Limit; a `since` refresh with a 5 s settle; sealed tokens bound to `(uid, folder)`.
@@ -615,7 +615,7 @@ Order:
 - **Flag.** Accept per caller; Delete not globally off.
 - **Seam.** `messaging.Service`.
 
-### W7-10 — Notifications hook: push-only `message` type  [owner: backend-developer] [size: M] [depends: W7-4, W7-5]  Status: In review (PR pending)
+### W7-10 — Notifications hook: push-only `message` type  [owner: backend-developer] [size: M] [depends: W7-4, W7-5]  Status: Done (#429)
 - **Description.**
   - `notifications.TypeMessage` (`"message"`). `Event.ConversationID` and `wireEvent.conversationId` are additive, and `v` stays 1. `validateEvent` requires a 32-hex conversation id and no post for this type.
   - `Fanout.Deliver` for `message`:
@@ -675,7 +675,7 @@ Order:
 - **Flag.** `reports` (existing) + `messaging` not globally off.
 - **Seam.** `moderation.MessageLookup`: moderation never reads `conversations` directly.
 
-### W7-13 — Client data layer  [owner: frontend-developer] [size: M] [depends: — (poller); W7-4 (repository)]  Status: Part 1 done (#406); part 2 (repository, drift tables, gate) in review (PR pending)
+### W7-13 — Client data layer  [owner: frontend-developer] [size: M] [depends: — (poller); W7-4 (repository)]  Status: Done (#406, #413)
 - **Description.**
   - **`ThreadPoller`** (pure Dart, injectable clock):
     - 15 s while hot (input or a new message within 2 min), 45 s while warm, stop after 5 min idle;
@@ -699,7 +699,7 @@ Order:
 - **Flag.** `messaging` (client gate).
 - **Seam.** `ThreadPoller` behind an interface, so a listener or SSE client later replaces it without touching screens; `MessagingRepository` is the only RPC caller.
 
-### W7-14 — Inbox screen  [owner: frontend-developer] [size: M] [depends: W7-13]  Status: In review (PR pending)
+### W7-14 — Inbox screen  [owner: frontend-developer] [size: M] [depends: W7-13]  Status: Done (#414)
 - **Description.**
   - `/messages`: `AppTopBar` "Messages" with a "New message" action (envelope-plus icon).
   - A "Message requests" row with its count when > 0, opening the Requests folder (`/messages/requests`).
@@ -719,7 +719,7 @@ Order:
 - **Flag.** `messaging` (route); `ui_shell` for the shell placement.
 - **Seam.** `ConversationsCubit` over `MessagingRepository`; `ConversationRow` is presentational (added to `docs/ui-catalog.md`).
 
-### W7-15 — Conversation screen  [owner: frontend-developer] [size: M] [depends: W7-13]  Status: In review (PR pending)
+### W7-15 — Conversation screen  [owner: frontend-developer] [size: M] [depends: W7-13]  Status: Done (#421)
 - **Description.**
   - `/messages/:id`: an `AppBackHeader` with the peer avatar, name and handle (tap → profile) and an info action (Block, Report conversation peer, Delete conversation).
   - The messages list is reversed (newest at the bottom), with bubbles: own on the accent `#1d9bf0` with white text, the peer's on the raised surface; grouped by sender with a time under the last of a group; day separators. Links use `parsePostText` link spans only.
@@ -739,7 +739,7 @@ Order:
 - **Flag.** `messaging` (reads need only not-globally-off).
 - **Seam.** `ThreadCubit` depends on `MessagingRepository` and `ThreadPoller` only.
 
-### W7-16 — Conversation composer  [owner: frontend-developer] [size: S] [depends: W7-15]  Status: In review (PR pending)
+### W7-16 — Conversation composer  [owner: frontend-developer] [size: S] [depends: W7-15]  Status: Done (#426)
 - **Description.**
   - A bottom composer (multi-line field, `CharacterCounter` near the limit, `DraftProblemHint`, Send icon button) reusing `analyzePostDraft` (the same D9 rules as posts, F8).
   - One idempotency key per intent, reused on retry; an optimistic dimmed bubble ("Sending…"), replaced by the server message (deduped by id); a "Not sent. Tap to retry" bubble on failure.
