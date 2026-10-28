@@ -18,7 +18,12 @@ import "google/protobuf/duration.proto";
 
 option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1";
 
-// Denormalized author data stored inside every post (ADR-0003). May be up to one refresh cycle stale.
+// A user's display data. Two kinds of copy share this message:
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
+//   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//   (snapshotted when the row was written);
+// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//   cache, up to 60 s stale).
 message AuthorSnapshot {
   string user_id = 1;
   string handle = 2;
@@ -26,6 +31,16 @@ message AuthorSnapshot {
   // Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
   string avatar_url = 4;
   bool verified = 5;
+  // True when the account protects its posts (ADR-0025; the W3-25c implementation note). A display hint for the lock
+  // badge, never an access decision.
+  // Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
+  // ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers), copied from the hydrated profile at
+  // 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+  // ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
+  // `notifications.v1.Notification.actor`.
+  // Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
+  // for an account, and `posts.v1.Post.visibility` / `posts.v1.EmbedViewerState` for a post.
+  bool is_private = 6;
 }
 
 // A moderated, publicly readable image (ADR-0005). URLs are immutable and cacheable forever.
