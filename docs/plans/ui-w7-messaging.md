@@ -330,9 +330,9 @@ Prices (§7):
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3–W6? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W7-1 | ADR-0027 "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | In review: `docs/adr/0027-messaging-v1-pull-and-push-no-realtime-no-e2e.md` (Proposed, 2026-10-28); accepted by the founder's merge |
-| W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | Open |
-| W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | In review (PR pending): six exemptions, ack updated (42 overrides); the `firestore-data-model` rows are in the ADR-0027 PR (#400) |
+| W7-1 | ADR-0027 "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | Done: ADR-0027 accepted by the founder's merge of #400 (2026-10-28) |
+| W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | In review (PR pending): numbers taken `GetMeResponse.unread_conversation_count = 7`, `NOTIFICATION_TYPE_MESSAGE = 9`, `REPORT_TARGET_TYPE_MESSAGE = 3`, `ERROR_REASON_CANNOT_MESSAGE = 18` (`LIMIT_REACHED` already 9), `Message` field 7 reserved for media |
+| W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Done (#401): six exemptions, ack updated (42 overrides); the `firestore-data-model` rows came with ADR-0027 (#400) |
 | W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | Open |
 | W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | Open |
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Open |
@@ -392,7 +392,7 @@ Order:
 
 ## Tickets
 
-### W7-1 — ADR "Messaging v1"  [owner: architect] [size: M] [depends: —]  Status: In review (ADR-0027, Proposed 2026-10-28)
+### W7-1 — ADR "Messaging v1"  [owner: architect] [size: M] [depends: —]  Status: Done (ADR-0027, accepted 2026-10-28, #400)
 - **Description.** ADR-0027: the highest existing was 0026 (the W8 shells took it, not W4), so W7 takes 0027 and W5 and W6 take the next free numbers when theirs open. It decides:
   - the data model (A1, the table above), message and conversation ids (A2, A3);
   - the delivery model: pull, the poll intervals, the `since` codec (A9), the push-only type (A4);
@@ -418,7 +418,7 @@ Order:
 - **Seam.** It defines `messaging.Service` (Send, ListConversations, ListMessages, MarkRead, Accept, Delete), `messaging.Eraser`, `messaging.Exporter`, `identity.MessageBadge`, `moderation.MessageLookup` and `notifications.Event.ConversationID`.
 - **Done in the ADR PR (2026-10-28).** ADR-0027 records F1–F11 (all defaults) and decides A1–A11 at this plan's defaults, with this plan's cost figures unchanged (about INR 12 / 58 / 480 a month at 300 / 1,000 / 3,000 DAU; writes free to about 509 DAU). Same PR: the `stage-ladder` "Direct messages" rows, the `firestore-data-model` rows, and the dated notes on ADR-0016 and ADR-0017 (so W7-12 needs no ADR-0016 note).
 
-### W7-2 — Proto `dzeroth.messaging.v1` and additive fields  [owner: architect] [size: M] [depends: W7-1 drafted]  Status: Open
+### W7-2 — Proto `dzeroth.messaging.v1` and additive fields  [owner: architect] [size: M] [depends: W7-1 drafted]  Status: In review (PR pending): numbers taken `GetMeResponse.unread_conversation_count = 7`, `NOTIFICATION_TYPE_MESSAGE = 9`, `REPORT_TARGET_TYPE_MESSAGE = 3`, `ERROR_REASON_CANNOT_MESSAGE = 18` (`LIMIT_REACHED` already 9), `Message` field 7 reserved for media
 - **Description.**
   - **New `proto/dzeroth/messaging/v1/messaging.proto`**, with `MessagingService`:
     - `SendMessage(idempotency_key, oneof {conversation_id, recipient_user_id}, text)` → `Message`, `Conversation`;
@@ -456,7 +456,7 @@ Order:
 - **Flag.** None (contract); the comments name `messaging`.
 - **Seam.** Opaque tokens and ids; `ConversationKind` and `MessageState` are enums (additive); `from_self` keeps uids off the wire.
 
-### W7-3 — Index exemptions (founder-gated)  [owner: architect] [size: S] [depends: W7-1 drafted]  Status: In review (PR pending)
+### W7-3 — Index exemptions (founder-gated)  [owner: architect] [size: S] [depends: W7-1 drafted]  Status: Done (#401)
 - **Description.**
   - fieldOverrides `indexes: []` at COLLECTION scope for `messages.text`, `messages.requestHash`, `dmInbox.peer`, `dmInbox.last`, `dmRequests.peer`, `dmRequests.last`.
   - The `firebase/field-overrides.ack` hash is regenerated by the repo's ack step.

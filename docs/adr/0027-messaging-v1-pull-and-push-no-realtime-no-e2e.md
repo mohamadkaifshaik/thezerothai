@@ -1,5 +1,5 @@
 # 0027. Messaging v1: 1:1 direct messages, pull + push, no realtime, no E2E (W7)
-Status: Proposed
+Status: Accepted (founder, 2026-10-28, by merging PR #400)
 Date: 2026-10-28
 Deciders: architect (proposal); founder. The founder's answers to F1–F11 are recorded below (2026-10-28: every
 default accepted). Merging this ADR is the founder's acceptance of the remaining architect decisions D1–D16.
