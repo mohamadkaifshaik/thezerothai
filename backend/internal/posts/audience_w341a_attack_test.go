@@ -63,7 +63,7 @@ func TestW341aAttack_OwnSurfacesFailClosedOnSetError(t *testing.T) {
 	}
 }
 
-// A REPOST by R of P in the caller's own list: Withheld whichever of R and P is protected, never Show, and a P who
+// A REPOST by R of P in the caller's own list: Withheld only when R itself is protected (a post by a protected author); a REPOST of P is a Drop (m1), never Show, and a P who
 // blocks the caller is a Drop (block first) when the block is in the snapshot. (A mute of P is blockCause's job in
 // engagement, covered by the emulator tests, not Decide's.)
 func TestW341aAttack_OwnListRepostByOtherShapes(t *testing.T) {
@@ -77,7 +77,7 @@ func TestW341aAttack_OwnListRepostByOtherShapes(t *testing.T) {
 		snap graph.Snapshot
 		want Verdict
 	}{
-		{"P protected, caller unapproved", fakeSet{prot: true}, graph.Snapshot{}, Withheld},
+		{"P protected, caller unapproved (ADR: a post by P only)", fakeSet{prot: true}, graph.Snapshot{}, Drop},
 		{"R protected, P public, caller does not follow R", fakeSet{r: true}, graph.Snapshot{}, Withheld},
 		{"both protected", fakeSet{r: true, prot: true}, graph.Snapshot{}, Withheld},
 		{"P protected, caller follows P only", fakeSet{prot: true}, following(prot), Show},

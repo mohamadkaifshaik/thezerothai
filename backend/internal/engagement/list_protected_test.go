@@ -34,7 +34,7 @@ func (f fakeAudience) Decide(_ context.Context, viewer string, snap graph.Snapsh
 	}
 	if ea := p.EmbeddedAuthor(); ea != "" && ea != viewer && !f.see(viewer, ea, snap) {
 		if p.Kind == posts.KindRepost {
-			return f.refuse(surface), nil
+			return posts.Decision{Verdict: posts.Drop}, nil // a REPOST of P is a post by P only (m1): dropped on every surface
 		}
 		return posts.Decision{Verdict: posts.Show, Embed: postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED}, nil
 	}
@@ -67,7 +67,7 @@ func TestLists_ProtectedRows(t *testing.T) {
 		{"protected author, not followed: withheld placeholder", snapOf(nil, nil, nil), &posts.Post{AuthorID: "p"}, true, 0, false, true},
 		{"protected author, followed: kept, marked protected", following, &posts.Post{AuthorID: "p"}, true, 0, true, false},
 		{"protected author, followed someone else: withheld placeholder", graph.Snapshot{Following: map[string]bool{"x": true}}, &posts.Post{AuthorID: "p"}, true, 0, false, true},
-		{"repost of a protected author's post: withheld placeholder", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Kind: posts.KindRepost, EmbeddedAuthorID: "p"}, true, 0, false, true},
+		{"repost of a protected author's post: dropped (a post by P only)", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Kind: posts.KindRepost, EmbeddedAuthorID: "p"}, false, 0, false, false},
 		{"quote of a protected author's post: kept, PROTECTED embed", snapOf(nil, nil, nil), &posts.Post{AuthorID: "a", Kind: posts.KindQuote, EmbeddedAuthorID: "p"}, true, postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED, false, false},
 		{"quote of a protected author's post, followed: kept, no strip", following, &posts.Post{AuthorID: "a", Kind: posts.KindQuote, EmbeddedAuthorID: "p"}, true, 0, false, false},
 		{"own quote of a protected author, followed: kept, no strip", following, &posts.Post{AuthorID: caller, Kind: posts.KindQuote, EmbeddedAuthorID: "p"}, true, 0, false, false},
@@ -111,9 +111,13 @@ func TestLists_ProtectedRows(t *testing.T) {
 				if (kept == 1) != tt.wantKept {
 					t.Fatalf("kept = %d, want kept=%v", kept, tt.wantKept)
 				}
-				// No protected row is dropped any more: the unapproved ones are kept as placeholders (rows_withheld).
-				if got := e.field(fieldRowsDroppedProtected); got != 0 {
-					t.Errorf("rows_dropped_protected = %v, want 0", got)
+				// A post by P is a placeholder (rows_withheld); a REPOST of P's post is still dropped (rows_dropped_protected).
+				wantDropped := 0
+				if !tt.wantKept {
+					wantDropped = 1
+				}
+				if got := e.field(fieldRowsDroppedProtected); got != wantDropped {
+					t.Errorf("rows_dropped_protected = %v, want %d", got, wantDropped)
 				}
 				wantWith := 0
 				if tt.wantWith {
@@ -192,7 +196,7 @@ func TestLists_OwnerPlaceholderMatrix(t *testing.T) {
 		{"P blocks A", true, snapOf(nil, []string{author}, nil), "", "dropped"},
 		{"A blocks P", true, snapOf([]string{author}, nil, nil), "", "dropped"},
 		{"A mutes P", true, snapOf(nil, nil, []string{author}), "", "dropped"},
-		{"repost by R of P's post, unapproved", true, snapOf(nil, nil, nil), "r", "withheld"},
+		{"repost by R of P's post, unapproved (a post by P only: dropped)", true, snapOf(nil, nil, nil), "r", "dropped"},
 		{"repost by R of P's post, P blocks A", true, snapOf(nil, []string{author}, nil), "r", "dropped"},
 		{"repost by R of P's post, approved", true, graph.Snapshot{Following: map[string]bool{author: true}}, "r", "full"},
 	}

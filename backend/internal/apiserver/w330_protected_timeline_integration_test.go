@@ -229,7 +229,7 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 			} else if own {
 				rv := got[repostID]
 				e := rv.GetPost().GetEmbedded()
-				if rv.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !rv.GetRepostedByViewer() || e.GetPostId() != pid || e.GetText() != "" || len(e.GetMedia()) != 0 {
+				if rv.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !rv.GetRepostedByViewer() || rv.GetViewerReplyPermission() != postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN || e.GetPostId() != pid || e.GetText() != "" || len(e.GetMedia()) != 0 {
 					t.Errorf("%s: own repost = %v, want PROTECTED, reposted_by_viewer, embedded post_id only", tc.name, rv)
 				}
 			}

@@ -9,7 +9,7 @@ package apiserver
 //     (parent_unavailable / root_unavailable) and the focal reply's text stays; replies by the protected author are
 //     dropped for a stranger and kept for a follower; the reads stay inside GetThread's 38 cold ceiling;
 //   - ListBookmarks and ListLikedPosts (owner-only): rows by the protected author stay for an unapproved caller as
-//     stripped withheld placeholders (W3-41a), as does a REPOST of the author's post, a QUOTE of it is kept with the
+//     stripped withheld placeholders (W3-41a); a REPOST of the author's post is dropped; a QUOTE of it is kept with the
 //     stripped PROTECTED embed, nothing is pruned, the placeholders are counted under rows_withheld (rows_dropped_protected
 //     is 0), and the cold budgets stay 43 and 23 at page 20;
 //   - a follower keeps the rows (wire visibility FOLLOWERS); unfollowing turns them into placeholders and the author unprotecting brings them back (a Follow of a
@@ -181,11 +181,11 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		return lk.GetPosts()
 	}
 
-	t.Run("lists: a stranger keeps P's rows and the repost as withheld placeholders, and the stripped quote", func(t *testing.T) {
+	t.Run("lists: a stranger keeps P's rows as withheld placeholders, drops the repost, and the stripped quote", func(t *testing.T) {
 		r := newW320Chain(t, w329bOn)
 		bm := marks(r, stranger)
 		got := w329bIDs(bm)
-		if !slices.Contains(got, root) || !slices.Contains(got, pReply) || !slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
+		if !slices.Contains(got, root) || !slices.Contains(got, pReply) || slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
 			t.Fatalf("bookmarks = %v", got)
 		}
 		for _, v := range bm {
@@ -197,8 +197,8 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 				t.Errorf("quote embed = %v state %v, want post_id and handle only, PROTECTED", v.GetPost().GetEmbedded(), v.GetEmbedViewerState())
 			}
 		}
-		if line := r.line(t, rpcListBookmarks); num(line, "rows_withheld") != 3 || num(line, "rows_dropped_protected") != 0 {
-			t.Errorf("bookmarks rows_withheld = %v rows_dropped_protected = %v, want 3 and 0", line["rows_withheld"], line["rows_dropped_protected"])
+		if line := r.line(t, rpcListBookmarks); num(line, "rows_withheld") != 2 || num(line, "rows_dropped_protected") != 1 {
+			t.Errorf("bookmarks rows_withheld = %v rows_dropped_protected = %v, want 2 and 1", line["rows_withheld"], line["rows_dropped_protected"])
 		}
 		for _, id := range []string{root, pReply, repostID} {
 			if !w.bookmarkDocExists(t, stranger.uid, id) {
@@ -208,11 +208,11 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 
 		r = newW320Chain(t, w329bOn)
 		got = w329bIDs(likes(r, stranger))
-		if !slices.Contains(got, root) || !slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
+		if !slices.Contains(got, root) || slices.Contains(got, repostID) || !slices.Contains(got, public) || !slices.Contains(got, quoteID) {
 			t.Fatalf("liked = %v", got)
 		}
-		if line := r.line(t, rpcListLiked); num(line, "rows_withheld") != 3 || num(line, "rows_dropped_protected") != 0 {
-			t.Errorf("likes rows_withheld = %v rows_dropped_protected = %v, want 3 and 0", line["rows_withheld"], line["rows_dropped_protected"])
+		if line := r.line(t, rpcListLiked); num(line, "rows_withheld") != 2 || num(line, "rows_dropped_protected") != 1 {
+			t.Errorf("likes rows_withheld = %v rows_dropped_protected = %v, want 2 and 1", line["rows_withheld"], line["rows_dropped_protected"])
 		}
 	})
 

@@ -116,7 +116,7 @@ func TestAudienceDecide(t *testing.T) {
 		{"own list, post by P, unapproved: withheld", root(prot), graph.Snapshot{}, SurfaceOwnList, nil, Withheld, none, false},
 		{"own list, post by P, follower: full row", root(prot), following(prot), SurfaceOwnList, nil, Show, none, false},
 		{"own list, public author: full row", root(other), graph.Snapshot{}, SurfaceOwnList, nil, Show, none, false},
-		{"own list, repost of P by other, unapproved: withheld", repostOf(other, prot), graph.Snapshot{}, SurfaceOwnList, nil, Withheld, none, false},
+		{"own list, repost of P by other, unapproved: dropped (a post by P only)", repostOf(other, prot), graph.Snapshot{}, SurfaceOwnList, nil, Drop, none, false},
 		{"own list, repost of P, approved: full row", repostOf(other, prot), following(prot), SurfaceOwnList, nil, Show, none, false},
 		{"own list, quote of P: shown PROTECTED, not withheld", quoteOf(other, prot), graph.Snapshot{}, SurfaceOwnList, nil, Show, prt, false},
 		{"own list, P blocks viewer: dropped", root(prot), graph.Snapshot{BlockedBy: map[string]bool{prot: true}}, SurfaceOwnList, nil, Drop, none, false},
@@ -399,4 +399,27 @@ func TestApplyWithheldStripsEverythingButIDKindAuthor(t *testing.T) {
 		t.Fatalf("author snapshot lost: %v", v.Post.Author)
 	}
 	ApplyWithheld(&postsv1.PostView{}) // nil post: no panic
+}
+
+// The owner's kept PROTECTED REPOST carries no bit of the protected original (W3-41a M1): the reply hint is UNKNOWN
+// whatever the original's policy, and reposted_by_viewer is true; a QUOTE keeps its own hint.
+func TestApplyEmbedStateProtectedRepost(t *testing.T) {
+	for _, pol := range []ReplyPolicy{ReplyPolicyEveryone, ReplyPolicyFollowing, ReplyPolicyMentionedOnly} {
+		p := post("2", "uid-viewer")
+		p.Kind, p.EmbeddedAuthorID = KindRepost, "uid-prot"
+		p.Embedded = &Embedded{PostID: "1", Author: AuthorSnapshot{UserID: "uid-prot"}, Text: "secret", ReplyPolicy: pol}
+		v := ToView(p, ViewerSet{}, "uid-viewer")
+		ApplyEmbedState(v, postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED)
+		if v.ViewerReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN || !v.RepostedByViewer || v.Post.Embedded.Text != "" {
+			t.Errorf("policy %v: %+v", pol, v)
+		}
+	}
+	q := post("3", "uid-viewer")
+	q.Kind, q.EmbeddedAuthorID = KindQuote, "uid-prot"
+	q.Embedded = &Embedded{PostID: "1", Author: AuthorSnapshot{UserID: "uid-prot"}}
+	v := ToView(q, ViewerSet{}, "uid-viewer")
+	ApplyEmbedState(v, postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED)
+	if v.RepostedByViewer || v.ViewerReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED {
+		t.Errorf("quote changed: %+v", v)
+	}
 }

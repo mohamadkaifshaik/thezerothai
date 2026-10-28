@@ -291,9 +291,6 @@ func (s *Server) toViews(ctx context.Context, uid string, following map[string]b
 		v := posts.ToView(p, vs, uid)
 		if st, ok := embed[p.ID]; ok {
 			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens (W3-29a)
-			if st == postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED && p.Kind == posts.KindRepost && p.AuthorID == uid {
-				v.RepostedByViewer = true // the owner's own kept REPOST: Undo repost acts on it (the userLikes list is capped and trimmed)
-			}
 		}
 		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, uid, p.AuthorID, following[p.AuthorID])) // FOLLOWERS while the author is protected (D2)
 		out = append(out, v)

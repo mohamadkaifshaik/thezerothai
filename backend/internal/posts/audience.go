@@ -43,7 +43,7 @@ const (
 	// undone, instead of being refused. Owner-only: no other surface ever passes it.
 	SurfaceOwnProfile
 	// SurfaceOwnList is a row in the caller's own Likes or Bookmarks list: like SurfaceList (block and mute drop), except a
-	// post, or a REPOST of a post, whose author the caller may no longer see is Withheld instead of Dropped, so the row
+	// post whose author the caller may no longer see is Withheld instead of Dropped, so the row
 	// can be unliked or unbookmarked. Owner-only: W4 search and W5 lists never see it.
 	SurfaceOwnList
 )
@@ -162,17 +162,15 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 		if p.Kind == KindRepost {
 			logger.SetRequestField(ctx, "audience", "protected")
 			switch {
-			case surface == SurfaceOwnList:
-				return Decision{Verdict: Withheld}, nil
 			case surface == SurfaceOwnProfile && p.AuthorID == viewer:
 				// The caller's own REPOST on their own profile: kept, stripped like a PROTECTED embed, so Undo repost
-				// has a row to act on (W3-36 L-2). Block and mute come first and keep today's outcome (dropped), and
+				// has a row to act on (W3-36 L-2). Block and mute come first and keep today's outcome (dropped); an overflowed blockedBy set cannot prove the author does not block the caller, so it fails closed (embedAllowed is skipped on the own profile), and
 				// another viewer, Home and GetPost keep the D4 refusal.
 				blocked, err := a.blockedBy(ctx, snap, viewer, ea)
 				if err != nil {
 					return Decision{}, err
 				}
-				if blocked || snap.Blocked[ea] || snap.Muted[ea] {
+				if blocked || snap.BlockedByOverflow || snap.Blocked[ea] || snap.Muted[ea] {
 					return refuse, nil
 				}
 				return Decision{Verdict: Show, Embed: postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED}, nil
@@ -258,6 +256,14 @@ func setUnavailable(ctx context.Context, err error) error {
 // timestamp (EmbeddedPost carries no hashtags or mentions), keeping only post_id and the author snapshot. Every surface that calls it inherits the strip.
 func ApplyEmbedState(v *postsv1.PostView, st postsv1.EmbedViewerState) {
 	v.EmbedViewerState = st
+	if st == postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED && v.GetPost().GetKind() == postsv1.PostKind_POST_KIND_REPOST {
+		// The only PROTECTED REPOST that reaches a view is the caller's own on their own profile (W3-36 L-2; every other
+		// surface drops it). The reply hint is computed from the protected original's policy, so it must not leave the
+		// server (one bit of P's post): UNKNOWN. The caller did repost it, so Undo repost acts on it even when the capped
+		// userLikes list no longer holds the id.
+		v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN
+		v.RepostedByViewer = true
+	}
 	if st != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || v.GetPost().GetEmbedded() == nil {
 		return
 	}

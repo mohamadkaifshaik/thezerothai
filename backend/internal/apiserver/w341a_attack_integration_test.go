@@ -133,36 +133,31 @@ func (w *w335aWorld) rawBody(t *testing.T, u bmUser, proc string, req proto.Mess
 
 // ---- case 1 ---------------------------------------------------------------------------------------------------------
 
-// A REPOST by another user R (X) of protected P's post in the caller's Likes and Bookmarks lists. LikePost resolves a
-// REPOST id to the original (engagement/service.go resolveViewable), so the Likes row is seeded into userLikes.recent;
-// AddBookmark is the real path. Withheld rows reveal R's snapshot (R is visible) and nothing of P.
+// A REPOST by another user R (X) of protected P's post in the caller's Likes list (m1: the ADR and the proto say "a post
+// by P", so this row is dropped as before, never a placeholder). LikePost and AddBookmark of a REPOST id store the
+// original's id, so a REPOST row reaches the list only through a seeded legacy array; the Bookmarks list holds the
+// placeholder of P's post itself.
 func TestW341aAttack_RepostByOtherInOwnerLists(t *testing.T) {
-	ctx := context.Background()
 	w := newW335aWorld(t)
 	s := w.w.user(t)
 	if _, err := w.w.add(s, contractKey("w341a-bmrp"), w.repostID); err != nil {
 		t.Fatalf("AddBookmark(X's REPOST): %v", err)
 	}
 	w.w.like(t, s, w.repostID) // resolves to the original
-	snap, err := w.e.fs.Doc("userLikes/" + s.uid).Get(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("userLikes after LikePost(REPOST id) and AddBookmark(REPOST id): %v (repost id %s, original %s)", snap.Data(), w.repostID, w.pid)
-	// Seed the REPOST id into recent: a legacy or hand-edited array is the only way a REPOST row reaches the Likes list.
 	w341aSetFS(t, w, "userLikes/"+s.uid, map[string]any{"recent": firestore.ArrayUnion(w.repostID)})
 	w.protect(t, true)
 
-	t.Run("withheld, kind REPOST, author R, no embedded", func(t *testing.T) {
+	t.Run("the REPOST row is dropped, P's own row is the placeholder", func(t *testing.T) {
 		r := newW320Chain(t, w335aOn)
 		lk, err := r.listLiked(s, 20, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		w341aCheckPlaceholder(t, "likes", w341aRow(lk.GetPosts(), w.repostID), w.repostID, postsv1.PostKind_POST_KIND_REPOST, w.x.uid, "liked_by_viewer")
+		if w341aRow(lk.GetPosts(), w.repostID) != nil {
+			t.Errorf("likes: the REPOST row by R is listed: %v", w341aRow(lk.GetPosts(), w.repostID))
+		}
+		w341aCheckPlaceholder(t, "likes", w341aRow(lk.GetPosts(), w.pid), w.pid, postsv1.PostKind_POST_KIND_POST, w.p.uid, "liked_by_viewer")
 		budgettest.Assert(t, "ListLikedPosts cold page 20 (REPOST row)", r.lineBudget(t, rpcListLiked), budgettest.Budget{Reads: 23})
-		// AddBookmark(REPOST id) stored the original's id (see the log line above), so the Bookmarks list holds the
-		// placeholder of P's post and never a REPOST row: assert that, and the cold budget.
 		r = newW320Chain(t, w335aOn)
 		bm, err := r.list(s, 20, "")
 		if err != nil {
@@ -186,84 +181,12 @@ func TestW341aAttack_RepostByOtherInOwnerLists(t *testing.T) {
 			}
 		}
 	})
-
-	key := func(op string) string { return contractKey("w341a-" + op) }
-	dropped := func(t *testing.T, what string) {
-		t.Helper()
-		bms, likes := w341aLists(t, s)
-		if w341aRow(likes, w.repostID) != nil || w341aRow(bms, w.repostID) != nil {
-			t.Errorf("%s: the REPOST row is still listed (placeholder or full), want it dropped", what)
-		}
-	}
-	t.Run("S mutes P: dropped; unmute brings the placeholder back", func(t *testing.T) {
-		if _, err := w.w.graph.Mute(ctx, authed(s.token, &graphv1.MuteRequest{IdempotencyKey: key("mu"), UserId: w.p.uid})); err != nil {
-			t.Fatal(err)
-		}
-		dropped(t, "S mutes P")
-		if _, err := w.w.graph.Unmute(ctx, authed(s.token, &graphv1.UnmuteRequest{IdempotencyKey: key("um"), UserId: w.p.uid})); err != nil {
-			t.Fatal(err)
-		}
-		if _, likes := w341aLists(t, s); w341aRow(likes, w.repostID) == nil || !w341aRow(likes, w.repostID).GetWithheld() {
-			t.Error("after unmute: the placeholder did not come back")
-		}
-	})
-	t.Run("S mutes R: dropped", func(t *testing.T) {
-		if _, err := w.w.graph.Mute(ctx, authed(s.token, &graphv1.MuteRequest{IdempotencyKey: key("mu2"), UserId: w.x.uid})); err != nil {
-			t.Fatal(err)
-		}
-		dropped(t, "S mutes R")
-		if _, err := w.w.graph.Unmute(ctx, authed(s.token, &graphv1.UnmuteRequest{IdempotencyKey: key("um2"), UserId: w.x.uid})); err != nil {
-			t.Fatal(err)
-		}
-	})
-	t.Run("S blocks R: dropped", func(t *testing.T) {
-		w.w.w320Block(t, s, w.x.uid)
-		dropped(t, "S blocks R")
-		if _, err := w.w.graph.Unblock(ctx, authed(s.token, &graphv1.UnblockRequest{IdempotencyKey: key("ub"), UserId: w.x.uid})); err != nil {
-			t.Fatal(err)
-		}
-	})
-	t.Run("P blocks S: dropped, never a placeholder", func(t *testing.T) {
-		if _, err := w.w.graph.Block(ctx, authed(w.p.token, &graphv1.BlockRequest{IdempotencyKey: key("pb"), UserId: s.uid})); err != nil {
-			t.Fatal(err)
-		}
-		dropped(t, "P blocks S")
-		if _, err := w.w.graph.Unblock(ctx, authed(w.p.token, &graphv1.UnblockRequest{IdempotencyKey: key("pub"), UserId: s.uid})); err != nil {
-			t.Fatal(err)
-		}
-	})
-	t.Run("R blocks S: dropped", func(t *testing.T) {
-		if _, err := w.w.graph.Block(ctx, authed(w.x.token, &graphv1.BlockRequest{IdempotencyKey: key("xb"), UserId: s.uid})); err != nil {
-			t.Fatal(err)
-		}
-		dropped(t, "R blocks S")
-		if _, err := w.w.graph.Unblock(ctx, authed(w.x.token, &graphv1.UnblockRequest{IdempotencyKey: key("xub"), UserId: s.uid})); err != nil {
-			t.Fatal(err)
-		}
-	})
 	t.Run("S approved for P: the full REPOST row, embed intact", func(t *testing.T) {
 		w341aApprove(t, w, s)
 		_, likes := w341aLists(t, s)
 		if row := w341aRow(likes, w.repostID); row == nil || row.GetWithheld() || row.GetPost().GetEmbedded().GetText() == "" {
 			t.Errorf("likes: row = %v, want the full REPOST with its embed", row)
 		}
-	})
-	t.Run("undo from the placeholder id", func(t *testing.T) {
-		// Bookmark: RemoveBookmark of the REPOST id lands. Like: UnlikePost resolves to the original, so a seeded REPOST id
-		// stays in userLikes.recent (logged; not reachable through the API without seeding).
-		w.w.w320Unfollow(t, s, w.p.uid)
-		if _, likes := w341aLists(t, s); w341aRow(likes, w.repostID) == nil || !w341aRow(likes, w.repostID).GetWithheld() {
-			t.Fatal("after unfollow the row is not a placeholder again")
-		}
-		if _, err := w.w.remove(s, contractKey("w341a-rmrp"), w.pid); err != nil {
-			t.Fatalf("RemoveBookmark: %v", err)
-		}
-		if bms, _ := w341aLists(t, s); w341aRow(bms, w.pid) != nil {
-			t.Error("the bookmark placeholder survived RemoveBookmark")
-		}
-		w.w.unlike(t, s, w.repostID)
-		_, likes := w341aLists(t, s)
-		t.Logf("Likes row of the seeded REPOST id after UnlikePost(REPOST id): still present = %v", w341aRow(likes, w.repostID) != nil)
 	})
 }
 
@@ -418,7 +341,8 @@ func TestW341aAttack_BlockedByOverflow(t *testing.T) {
 	}
 	budgettest.Assert(t, "GetUserTimeline own Reposts, overflowed caller", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 4 + 20})
 
-	// The same overflow with no block by P: the tab keeps the undoable row; the lists drop the foreign row (fail closed).
+	// The same overflow with no block by P: an overflowed blockedBy set cannot prove P does not block S, so the tab fails
+	// closed like the lists (D-1 fix; the owner loses the undoable row only while the overflow lasts, a rare residual).
 	w2 := newW335aWorld(t)
 	s2, repost2 := w341aSeed(t, w2)
 	if _, err := w2.e.fs.Doc("graph/"+s2.uid).Update(ctx, []firestore.Update{{Path: "blockedByOverflow", Value: true}}); err != nil {
@@ -428,8 +352,8 @@ func TestW341aAttack_BlockedByOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row := w341aRow(resp.GetPosts(), repost2); row == nil || row.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED {
-		t.Errorf("overflowed caller, no block: own REPOST = %v, want the PROTECTED row", row)
+	if row := w341aRow(resp.GetPosts(), repost2); row != nil {
+		t.Errorf("overflowed caller, no block: own REPOST = %v, want it dropped (fail closed)", row)
 	}
 	bms, likes = w341aLists(t, s2)
 	t.Logf("overflowed caller, no block (lists fail closed, no way to undo from a list): bookmarks row present=%v, likes row present=%v", w341aRow(bms, w2.pid) != nil, w341aRow(likes, w2.pid) != nil)

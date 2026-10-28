@@ -120,7 +120,7 @@ func TestW341a_OwnerPlaceholdersAndUndo(t *testing.T) {
 			t.Fatalf("the own REPOST is missing from the Reposts tab: %v", w329bIDs(resp.GetPosts()))
 		}
 		e := row.GetPost().GetEmbedded()
-		if row.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !row.GetRepostedByViewer() ||
+		if row.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !row.GetRepostedByViewer() || row.GetViewerReplyPermission() != postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN ||
 			e.GetPostId() != w.pid || e.GetAuthor().GetHandle() == "" || e.GetText() != "" || len(e.GetMedia()) != 0 || e.GetCreatedAt() != nil {
 			t.Errorf("own REPOST = %v, want PROTECTED, reposted_by_viewer, embedded post_id and author only", row)
 		}

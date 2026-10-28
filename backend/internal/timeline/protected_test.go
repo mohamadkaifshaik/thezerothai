@@ -304,7 +304,7 @@ func TestProtected_ProfileFeedsDropCopiesOfProtectedAuthors(t *testing.T) {
 		}
 		if rv := got[s.rep.ID]; own {
 			emb := rv.GetPost().GetEmbedded()
-			if rv.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !rv.GetRepostedByViewer() ||
+			if rv.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !rv.GetRepostedByViewer() || rv.GetViewerReplyPermission() != postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN ||
 				emb.GetPostId() == "" || emb.GetText() != "" || len(emb.GetMedia()) != 0 || emb.GetCreatedAt() != nil {
 				t.Fatalf("own repost placeholder: %v", rv)
 			}
