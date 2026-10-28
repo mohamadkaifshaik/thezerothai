@@ -76,6 +76,10 @@ func toProtoAuthorSnapshot(p identity.Profile) *commonv1.AuthorSnapshot {
 		// AuthorSnapshot.avatar_url is documented as the 96px thumbnail (common.proto).
 		AvatarUrl: p.AvatarThumbURL,
 		Verified:  p.Verified,
+		// W3-28c (ADR-0025 implementation note, W3-25c): the lock badge, from the profile this list already hydrated (0 extra
+		// reads). Display only, never an access decision; at most as stale as the Directory cache (CACHE_TTL, 60 s). Set ONLY here:
+		// the frozen copies (posts.v1.Post.author, EmbeddedPost.author, Notification.actor) leave it false.
+		IsPrivate: p.IsPrivate,
 	}
 }
 

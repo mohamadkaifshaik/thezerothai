@@ -161,15 +161,30 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{0}
 }
 
-// Denormalized author data stored inside every post (ADR-0003). May be up to one refresh cycle stale.
+// A user's display data. Two kinds of copy share this message:
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
+//   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//   (snapshotted when the row was written);
+// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//   cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Handle      string                 `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
 	DisplayName string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	// Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
-	AvatarUrl     string `protobuf:"bytes,4,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
-	Verified      bool   `protobuf:"varint,5,opt,name=verified,proto3" json:"verified,omitempty"`
+	AvatarUrl string `protobuf:"bytes,4,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
+	Verified  bool   `protobuf:"varint,5,opt,name=verified,proto3" json:"verified,omitempty"`
+	// True when the account protects its posts (ADR-0025; the W3-25c implementation note). A display hint for the lock
+	// badge, never an access decision.
+	// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
+	// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers), copied from the hydrated profile at
+	// 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+	// ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
+	// `notifications.v1.Notification.actor`.
+	// Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
+	// for an account, and `posts.v1.Post.visibility` / `posts.v1.EmbedViewerState` for a post.
+	IsPrivate     bool `protobuf:"varint,6,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,6 +250,13 @@ func (x *AuthorSnapshot) GetAvatarUrl() string {
 func (x *AuthorSnapshot) GetVerified() bool {
 	if x != nil {
 		return x.Verified
+	}
+	return false
+}
+
+func (x *AuthorSnapshot) GetIsPrivate() bool {
+	if x != nil {
+		return x.IsPrivate
 	}
 	return false
 }
@@ -412,14 +434,16 @@ var File_dzeroth_common_v1_common_proto protoreflect.FileDescriptor
 
 const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x1edzeroth/common/v1/common.proto\x12\x11dzeroth.common.v1\x1a\x1egoogle/protobuf/duration.proto\"\x9f\x01\n" +
+	"\x1edzeroth/common/v1/common.proto\x12\x11dzeroth.common.v1\x1a\x1egoogle/protobuf/duration.proto\"\xbe\x01\n" +
 	"\x0eAuthorSnapshot\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x1d\n" +
 	"\n" +
 	"avatar_url\x18\x04 \x01(\tR\tavatarUrl\x12\x1a\n" +
-	"\bverified\x18\x05 \x01(\bR\bverified\"\xb9\x01\n" +
+	"\bverified\x18\x05 \x01(\bR\bverified\x12\x1d\n" +
+	"\n" +
+	"is_private\x18\x06 \x01(\bR\tisPrivate\"\xb9\x01\n" +
 	"\bMediaRef\x12\x19\n" +
 	"\bmedia_id\x18\x01 \x01(\tR\amediaId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1b\n" +
