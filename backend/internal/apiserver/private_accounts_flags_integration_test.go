@@ -7,8 +7,7 @@ package apiserver
 // the allowlisted caller; UpdateProfile(is_private=true) is FEATURE_DISABLED feature=private_accounts with 0 reads past the
 // interceptor and 0 writes for everyone else; is_private=false is accepted whatever the flag; ListFollowRequests and
 // RespondToFollowRequest are FEATURE_DISABLED for a public caller while the flag is globally off and Unimplemented past the
-// gate otherwise (W3-28a builds them). The toggle itself is W3-26a, so an allowlisted is_private=true still gets the old
-// "coming soon" VALIDATION and writes nothing.
+// gate otherwise (W3-28a builds them). The toggle itself (W3-26a) is in privacy_toggle_integration_test.go.
 
 import (
 	"context"
@@ -100,14 +99,14 @@ func TestPrivateAccountsContract_AllowlistCohort(t *testing.T) {
 	name := "Renamed"
 	_, err := env.identity.UpdateProfile(context.Background(), authed(outsideToken, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-out-key-00000001", IsPrivate: &yes, DisplayName: &name}))
 	paAssertDisabled(t, "outside UpdateProfile(is_private=true)", err)
-	// Inside: past the gate, the toggle is not built yet (W3-26a), so the old VALIDATION answer and no write.
-	_, err = env.identity.UpdateProfile(context.Background(), authed(insideToken, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-in-key-000000001", IsPrivate: &yes}))
-	d := wireError(t, err, connect.CodeInvalidArgument)
-	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	for _, l := range env.logs.requestLines("/dzeroth.identity.v1.IdentityService/UpdateProfile") {
-		if w, _ := l["fs_writes"].(float64); w != 0 {
-			t.Errorf("UpdateProfile request line logged fs_writes=%v, want 0", w)
-		}
+	// Inside: past the gate the toggle commits (W3-26a; its budget is TestPrivacyToggle_Chain). Undo it so the shared emulator
+	// set does not keep this uid.
+	if _, err = env.identity.UpdateProfile(context.Background(), authed(insideToken, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-in-key-000000001", IsPrivate: &yes})); err != nil {
+		t.Fatalf("inside UpdateProfile(is_private=true): %v", err)
+	}
+	no := false
+	if _, err = env.identity.UpdateProfile(context.Background(), authed(insideToken, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-in-key-000000002", IsPrivate: &no})); err != nil {
+		t.Fatalf("inside UpdateProfile(is_private=false): %v", err)
 	}
 
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)

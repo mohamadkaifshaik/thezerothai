@@ -186,6 +186,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// ADR-0024 (W3-6): the pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
+	// ADR-0025 (W3-26a): the one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). The
+	// consumers (posts.Audience, timeline, notifications) take protectedAuthors in their own tickets; identity's toggle
+	// feeds it the committing instance's own change.
+	protectedAuthors := identity.NewProtectedSetLoader(identityRepo, cfg.CacheTTL, cfg.Privacy.ProtectedSetMaxStale, nil, log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -196,6 +200,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithExtrasFlags(featureFlags),
+		identity.WithPrivacy(identity.PrivacyDeps{
+			Repo: identityRepo, Set: protectedAuthors,
+			Limits: identity.PrivacyLimits{TogglesPerDay: int64(cfg.Quota.PrivacyTogglesPerDay), SetMax: cfg.Privacy.ProtectedAuthorsMax},
+		}),
 		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
 			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
 			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
