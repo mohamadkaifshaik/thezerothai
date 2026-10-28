@@ -60,7 +60,7 @@ void main() {
 
     test('PROTECTED_ACCOUNT never shows the server text', () {
       expect(
-        relationshipErrorMessage(const ProtectedAccountException('raw')),
+        relationshipErrorMessage(const ProtectedAccountException()),
         isNot(contains('raw')),
       );
     });

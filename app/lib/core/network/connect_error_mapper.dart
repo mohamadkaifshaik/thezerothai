@@ -88,8 +88,8 @@ AppException mapConnectError(Object error) {
         return ReplyNotAllowedException(
           policy: (policy == null || policy.isEmpty) ? null : policy,
         );
-      // ADR-0025 D14 (W3-33a): FAILED_PRECONDITION + PROTECTED_ACCOUNT (a protected account's lists, a repost or
-      // quote of its post). A state to explain; the UI picks the words.
+      // ADR-0025 D14: a Repost or Quote of a protected account's post (W3-33b); the follower lists use the same
+      // reason (W3-33a).
       case common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT:
         return const ProtectedAccountException();
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
