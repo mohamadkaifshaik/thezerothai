@@ -19,6 +19,7 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/messaging_feature_flag.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/thread_screen.dart';
+import '../../features/messages/presentation/widgets/message_composer.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
@@ -348,7 +349,12 @@ class AppRouter {
       GoRoute(
         path: '$messagesPath/:id',
         builder: (context, state) => AuthGate(
-          child: ThreadScreen(conversationId: state.pathParameters['id']!),
+          child: ThreadScreen(
+            conversationId: state.pathParameters['id']!,
+            // W7-16: the composer under the list (read-only threads and a
+            // caller without `messaging` get none).
+            composerBuilder: (context, conversation) => const MessageComposer(),
+          ),
         ),
       ),
     ],

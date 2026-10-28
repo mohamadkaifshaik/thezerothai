@@ -40,7 +40,7 @@ void main() {
     expect((daily as LimitReachedException).quota, 'dm_new_daily');
     final a = messagingErrorMessage(unanswered);
     final b = messagingErrorMessage(daily);
-    expect(a, contains('accept your request'));
+    expect(a, 'You can send more once they accept your request');
     expect(b, contains('new conversations'));
     expect(a, isNot(b));
     expect(
