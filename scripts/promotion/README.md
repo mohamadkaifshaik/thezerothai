@@ -28,7 +28,7 @@ scripts print flag names and entry counts, and `test/run.sh` fails if any fixtur
   `PRIVATE_ACCOUNTS`, at e94014c6 (#418; first set to 061395a0, #395). `resolve-rollback.sh` takes the image's commit from its
   40-hex Artifact Registry tag (`IMAGE_TAG` = `github.sha` in `deploy-dev.yml`) and runs
   `git merge-base --is-ancestor <floor> <commit>` in `ROLLBACK_REPO` (default: this repo). Fails closed on no commit tag, a malformed floor, a floor
-  or commit missing from the checkout. **The checkout needs full history** (`fetch-depth: 0`): in a shallow clone the floor is
+  or commit missing from the checkout. **The checkout needs full history**: `deploy-dev.yml` sets `fetch-depth: 0` on its checkout (the only job that runs these scripts; the prod workflows do not call `resolve-rollback.sh`). In a shallow clone the floor is
   absent and the script refuses. `promote-dev.sh` runs the same check in its step 5/8 preflight, before any tag or traffic
   change. Raise a floor only to a commit already on `last-good` wherever the flag is not `off`.
 - jq output is passed through `tr -d '\r'` (the Windows jq build can emit CRLF); `.gitattributes` forces LF here.

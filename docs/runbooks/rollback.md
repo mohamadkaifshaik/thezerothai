@@ -163,8 +163,9 @@ account's posts, so a revision without it shows them to everyone, and no flag ca
   - **What it does not cover:** the check looks at the rollback target's own flag value. Rolling back to a pre-floor image
     whose flag is `off` passes the script, yet turning the flag off protects nobody's existing posts, so the manual
     `privacy/protectedAuthors` check above still applies, and still refuses while it lists anyone.
-  - The full-history requirement: the job that runs the script must have the floor and image commits in its checkout
-    (`actions/checkout` `fetch-depth: 0`). With the default shallow checkout the script refuses (fail closed).
+  - The full-history requirement: the job that runs the script must have the floor and image commits in its checkout.
+    `deploy-dev.yml` sets `fetch-depth: 0` for this (W3-42); a shallow clone would make the script refuse. The prod workflows do not call
+    `resolve-rollback.sh`, so nothing changes there.
 
 ## After any rollback
 - Confirm `/health` (not `/healthz`: `*.run.app` reserves paths ending in `z`) and the uptime check are green, and Error Reporting is quiet for the restored revision.
