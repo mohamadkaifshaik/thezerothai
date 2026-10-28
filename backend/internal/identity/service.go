@@ -350,6 +350,14 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
+	// ADR-0025 D12 (W3-25b): is_private=true needs private_accounts on for the caller, checked first so a caller outside the
+	// cohort learns nothing about the other fields and costs nothing (0 reads, 0 writes). A request that sets is_private=true
+	// together with other fields is refused whole (the W3-22 M-1 mixed rule). is_private=false is never gated (the undo rule).
+	if params.IsPrivate != nil && *params.IsPrivate {
+		if err := s.privateAccountsDisabled(ctx, uid); err != nil {
+			return Profile{}, err
+		}
+	}
 	if params.DisplayName != nil && displayNameIssue(*params.DisplayName) {
 		return Profile{}, apierr.Validation("display_name", "display name must be 1-50 characters")
 	}
@@ -427,8 +435,8 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		logger.SetRequestField(ctx, "pin_check", "ok")
 	}
-	// ADR-0008 D1 (L9): private accounts are deferred. is_private=false stays accepted (already the only
-	// value profiles can hold); is_private=true is rejected before any read, 0 writes.
+	// W3-25b: the flag gate above is the only change so far. Protecting an account is built in W3-26a; until then an allowlisted
+	// caller who passes the gate still gets this refusal before any read, 0 writes. is_private=false stays accepted.
 	if params.IsPrivate != nil && *params.IsPrivate {
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
@@ -721,4 +729,23 @@ func (s *service) AccountStatus(ctx context.Context, uid string) (bool, AccountS
 		return false, AccountStatusUnspecified, err
 	}
 	return true, p.Status, nil
+}
+
+// PrivateAccountsFlag is the wire name of FEATURE_PRIVATE_ACCOUNTS (ADR-0025 D12): it gates setting is_private=true
+// through UpdateProfile (and, in later tickets, nothing that enforces an existing protection). is_private=false is
+// accepted from any caller whatever the flag (the undo rule).
+const PrivateAccountsFlag = "private_accounts"
+
+// privateAccountsDisabled is the private_accounts gate for UpdateProfile: nil when the flag is on for uid, otherwise
+// FEATURE_DISABLED with metadata feature=private_accounts. No flags wired = off. It never reads Firestore. It shares the
+// ExtrasFlags seam (WithExtrasFlags), which *flags.Registry satisfies for every flag name.
+func (s *service) privateAccountsDisabled(ctx context.Context, uid string) error {
+	var enabled func(uid, name string) bool
+	if s.extras != nil {
+		enabled = s.extras.Enabled
+	}
+	if flags.Guard(ctx, enabled, uid, PrivateAccountsFlag) != nil {
+		return flags.DisabledError().WithMeta("feature", PrivateAccountsFlag)
+	}
+	return nil
 }

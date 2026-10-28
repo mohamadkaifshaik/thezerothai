@@ -131,7 +131,8 @@ class Notification extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   void clearActorCount() => $_clearField(4);
 
-  /// Subject post (empty for FOLLOW). Tapping opens /post/:id, or the actor's profile for FOLLOW.
+  /// Subject post (empty for FOLLOW, FOLLOW_REQUEST and FOLLOW_ACCEPTED). Tapping opens /post/:id, or the actor's
+  /// profile for FOLLOW and FOLLOW_ACCEPTED.
   @$pb.TagNumber(5)
   $core.String get postId => $_getSZ(4);
   @$pb.TagNumber(5)

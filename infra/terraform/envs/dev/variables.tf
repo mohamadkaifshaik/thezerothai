@@ -499,6 +499,34 @@ variable "feature_follow_suggestions_percent" {
   }
 }
 
+variable "feature_private_accounts" {
+  description = "FEATURE_PRIVATE_ACCOUNTS rollout mode for private_accounts (ADR-0025 D12; gates UpdateProfile(is_private=true) for the caller, and ListFollowRequests / RespondToFollowRequest unless the caller is protected): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 3, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_private_accounts)
+    error_message = "feature_private_accounts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_private_accounts_allowlist" {
+  description = "FEATURE_PRIVATE_ACCOUNTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_private_accounts_percent" {
+  description = "FEATURE_PRIVATE_ACCOUNTS_PERCENT: 0-100, only meaningful when feature_private_accounts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_private_accounts_percent >= 0 && var.feature_private_accounts_percent <= 100 && floor(var.feature_private_accounts_percent) == var.feature_private_accounts_percent
+    error_message = "feature_private_accounts_percent must be an integer 0-100."
+  }
+}
+
 variable "suggested_user_ids" {
   description = "SUGGESTED_USER_IDS: comma-separated Firebase uids of the curated 'who to follow' fallback (ADR-0024 D8), at most 20, not a secret. Empty = no curated fallback."
   type        = string

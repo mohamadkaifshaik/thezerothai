@@ -92,7 +92,9 @@ type Visibility int32
 const (
 	Visibility_VISIBILITY_UNSPECIFIED Visibility = 0
 	Visibility_VISIBILITY_PUBLIC      Visibility = 1
-	// Author is a private account: only approved followers and the author.
+	// The author is protected (ADR-0025): only the author and approved followers see the post. Computed at read time
+	// from the author's current setting (within 60 s); the stored post keeps PUBLIC, so the value follows the account
+	// when it protects or unprotects.
 	Visibility_VISIBILITY_FOLLOWERS Visibility = 2
 )
 
@@ -261,8 +263,9 @@ func (ReplyPermission) EnumDescriptor() ([]byte, []int) {
 }
 
 // Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
-// viewer's OWN block and mute lists only; an author who blocks the viewer is never reported here (GetPost answers
-// NOT_FOUND for that, ADR-0008).
+// viewer's OWN block and mute lists (BLOCKED, MUTED) and, since ADR-0025, from whether the viewer may see a protected
+// embedded author (PROTECTED); an author who blocks the viewer is never reported here (GetPost answers NOT_FOUND for
+// that, ADR-0008).
 type EmbedViewerState int32
 
 const (
@@ -273,6 +276,11 @@ const (
 	EmbedViewerState_EMBED_VIEWER_STATE_BLOCKED EmbedViewerState = 1
 	// The viewer mutes the embedded author.
 	EmbedViewerState_EMBED_VIEWER_STATE_MUTED EmbedViewerState = 2
+	// The embedded author is protected and the viewer is neither that author nor a follower (ADR-0025 D4). The server
+	// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
+	// render a protected-post placeholder. Only a QUOTE row carries it: a REPOST of such a post is dropped from feeds
+	// and lists, and GetPost answers NOT_FOUND for it.
+	EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED EmbedViewerState = 3
 )
 
 // Enum value maps for EmbedViewerState.
@@ -281,11 +289,13 @@ var (
 		0: "EMBED_VIEWER_STATE_UNSPECIFIED",
 		1: "EMBED_VIEWER_STATE_BLOCKED",
 		2: "EMBED_VIEWER_STATE_MUTED",
+		3: "EMBED_VIEWER_STATE_PROTECTED",
 	}
 	EmbedViewerState_value = map[string]int32{
 		"EMBED_VIEWER_STATE_UNSPECIFIED": 0,
 		"EMBED_VIEWER_STATE_BLOCKED":     1,
 		"EMBED_VIEWER_STATE_MUTED":       2,
+		"EMBED_VIEWER_STATE_PROTECTED":   3,
 	}
 )
 
@@ -833,8 +843,9 @@ type PostView struct {
 	// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
 	ViewerReplyPermission ReplyPermission `protobuf:"varint,4,opt,name=viewer_reply_permission,json=viewerReplyPermission,proto3,enum=dzeroth.posts.v1.ReplyPermission" json:"viewer_reply_permission,omitempty"`
 	// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
-	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set it:
-	// they drop such rows (ADR-0018 D13).
+	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
+	// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
+	// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped.
 	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
 	// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
 	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
@@ -2045,11 +2056,12 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\x1cREPLY_PERMISSION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18REPLY_PERMISSION_ALLOWED\x10\x01\x12 \n" +
 	"\x1cREPLY_PERMISSION_NOT_ALLOWED\x10\x02\x12\x1c\n" +
-	"\x18REPLY_PERMISSION_UNKNOWN\x10\x03*t\n" +
+	"\x18REPLY_PERMISSION_UNKNOWN\x10\x03*\x96\x01\n" +
 	"\x10EmbedViewerState\x12\"\n" +
 	"\x1eEMBED_VIEWER_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aEMBED_VIEWER_STATE_BLOCKED\x10\x01\x12\x1c\n" +
-	"\x18EMBED_VIEWER_STATE_MUTED\x10\x02*\xcb\x01\n" +
+	"\x18EMBED_VIEWER_STATE_MUTED\x10\x02\x12 \n" +
+	"\x1cEMBED_VIEWER_STATE_PROTECTED\x10\x03*\xcb\x01\n" +
 	"\x13ScheduledPostStatus\x12%\n" +
 	"!SCHEDULED_POST_STATUS_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dSCHEDULED_POST_STATUS_PENDING\x10\x01\x12#\n" +

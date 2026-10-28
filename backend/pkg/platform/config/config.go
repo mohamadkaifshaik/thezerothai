@@ -80,6 +80,8 @@ type Config struct {
 	Scheduled ScheduledConfig
 	// Suggestions holds the SUGGESTIONS_* limits and the SUGGESTED_USER_IDS curated list of ListSuggestedUsers (ADR-0024 D8).
 	Suggestions SuggestionsConfig
+	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts (ADR-0025 D2, D3).
+	Privacy PrivacyConfig
 
 	// HandleChangeCooldown is the minimum time between successful ChangeHandle calls.
 	HandleChangeCooldown time.Duration
@@ -190,6 +192,11 @@ type Config struct {
 	// (on for the caller; it also needs FEATURE_GRAPH). FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every
 	// environment.
 	FeatureFollowSuggestions flags.Spec
+	// FeaturePrivateAccounts is the ADR-0025 D12 flag (wire name `private_accounts`) gating UpdateProfile(is_private=true)
+	// for the caller, plus ListFollowRequests / RespondToFollowRequest in later tickets. Enforcement of an existing
+	// protection is never behind it: only mode off stops new protections, and is_private=false is always accepted.
+	// FEATURE_PRIVATE_ACCOUNTS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeaturePrivateAccounts flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -443,6 +450,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", 60, &rl.ProfileRelationshipPerUserPerMinute},
+		// ADR-0025 D13: RespondToFollowRequest 60/min per instance (180 with 3). ListFollowRequests uses the graph list bucket.
+		{"RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", 60, &rl.FollowRequestsRespondPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -657,7 +666,18 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
+	// ADR-0025 D8: 4 is_private changes per IST day, both directions (quota.PrivacyToggles). A request counts under follows.
+	if q.PrivacyTogglesPerDay, err = getInt("QUOTA_PRIVACY_TOGGLES_PER_DAY", 4); err != nil {
+		return Config{}, err
+	}
+	if q.PrivacyTogglesPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: QUOTA_PRIVACY_TOGGLES_PER_DAY must be > 0 (got %d)", q.PrivacyTogglesPerDay)
+	}
 	scheduled, err := loadScheduled()
+	if err != nil {
+		return Config{}, err
+	}
+	privacy, err := loadPrivacy()
 	if err != nil {
 		return Config{}, err
 	}
@@ -811,6 +831,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featurePrivateAccounts, err := flags.LoadSpec("PRIVATE_ACCOUNTS", "private_accounts", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -871,6 +895,7 @@ func Load() (Config, error) {
 		Quota:                     q,
 		Scheduled:                 scheduled,
 		Suggestions:               suggestions,
+		Privacy:                   privacy,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
@@ -897,6 +922,7 @@ func Load() (Config, error) {
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,
 		FeatureFollowSuggestions:  featureFollowSuggestions,
+		FeaturePrivateAccounts:    featurePrivateAccounts,
 		FeatureUIShell:            featureUIShell,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,

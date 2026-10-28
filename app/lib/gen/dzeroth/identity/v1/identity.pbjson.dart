@@ -200,6 +200,13 @@ const GetMeResponse$json = {
       '10': 'unreadNotificationCount'
     },
     {'1': 'enabled_features', '3': 5, '4': 3, '5': 9, '10': 'enabledFeatures'},
+    {
+      '1': 'pending_follow_request_count',
+      '3': 6,
+      '4': 1,
+      '5': 3,
+      '10': 'pendingFollowRequestCount'
+    },
   ],
 };
 
@@ -209,7 +216,9 @@ final $typed_data.Uint8List getMeResponseDescriptor = $convert.base64Decode(
     'Byb2ZpbGVSB3Byb2ZpbGUSOgoGc3RhdHVzGAIgASgOMiIuZHplcm90aC5pZGVudGl0eS52MS5B'
     'Y2NvdW50U3RhdHVzUgZzdGF0dXMSJQoOZW1haWxfdmVyaWZpZWQYAyABKAhSDWVtYWlsVmVyaW'
     'ZpZWQSOgoZdW5yZWFkX25vdGlmaWNhdGlvbl9jb3VudBgEIAEoA1IXdW5yZWFkTm90aWZpY2F0'
-    'aW9uQ291bnQSKQoQZW5hYmxlZF9mZWF0dXJlcxgFIAMoCVIPZW5hYmxlZEZlYXR1cmVz');
+    'aW9uQ291bnQSKQoQZW5hYmxlZF9mZWF0dXJlcxgFIAMoCVIPZW5hYmxlZEZlYXR1cmVzEj8KHH'
+    'BlbmRpbmdfZm9sbG93X3JlcXVlc3RfY291bnQYBiABKANSGXBlbmRpbmdGb2xsb3dSZXF1ZXN0'
+    'Q291bnQ=');
 
 @$core.Deprecated('Use getProfileRequestDescriptor instead')
 const GetProfileRequest$json = {

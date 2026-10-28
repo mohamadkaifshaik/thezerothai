@@ -511,7 +511,8 @@ func TestBlockedBy_Integration_NeverSerialized(t *testing.T) {
 }
 
 // TestUpdateProfile_Integration_PrivateRejected closes L9 (ADR-0008 D1): is_private=true is rejected with 0
-// writes; is_private=false is accepted; the follow-request RPCs are FEATURE_DISABLED with 0 reads; Follow on
+// writes (W3-25b: FEATURE_DISABLED while private_accounts is off); is_private=false is accepted; the follow-request RPCs
+// answer Unimplemented past the gate with 0 reads; Follow on
 // a legacy private target is FEATURE_DISABLED while lists treat it as public.
 func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 	w := newWired(t)
@@ -528,14 +529,11 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 	yes := true
 	_, err = a.id.UpdateProfile(ctx, connect.NewRequest(&identityv1.UpdateProfileRequest{IdempotencyKey: t16bKey(1), IsPrivate: &yes}))
 	info := decodeErr(t, err)
-	if info.Code != connect.CodeInvalidArgument || info.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION ||
-		info.Meta["field"] != "is_private" || !strings.EqualFold(info.Msg, "Private accounts are coming soon") {
+	// W3-25b (ADR-0025 D12): no private_accounts flag wired in this fixture, so is_private=true is FEATURE_DISABLED
+	// feature=private_accounts before any read; the old "coming soon" VALIDATION is only reachable past the flag.
+	if info.Code != connect.CodeFailedPrecondition || info.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
+		info.Meta["feature"] != "private_accounts" {
 		t.Errorf("UpdateProfile(is_private=true) = %+v", info)
-	}
-	if info.Msg != "Private accounts are coming soon" {
-		// ADR-0008 D1 gives the message as "Private accounts are coming soon" (capital P); identity emits
-		// the lower-case variant. Cosmetic, filed as defect D-3 in the T16b report; asserted case-insensitively.
-		t.Logf("DEFECT D-3: message = %q, ADR-0008 D1 says %q", info.Msg, "Private accounts are coming soon")
 	}
 	if ops := r.lastOps(); ops.Writes() != 0 || ops.Deletes() != 0 {
 		t.Errorf("rejected UpdateProfile wrote: writes=%d deletes=%d", ops.Writes(), ops.Deletes())
@@ -556,16 +554,17 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 		t.Error("profile is private after is_private=false")
 	}
 
-	// Follow-request RPCs: FEATURE_DISABLED, 0 reads, whatever the flag state.
+	// Follow-request RPCs (W3-25b, ADR-0025 D12): this fixture's checker enables every flag, so they pass the gate and answer
+	// Unimplemented until W3-28a, with 0 reads.
 	_, err = a.graph.ListFollowRequests(ctx, connect.NewRequest(&graphv1.ListFollowRequestsRequest{}))
-	if info := decodeErr(t, err); info.Code != connect.CodeFailedPrecondition || info.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+	if info := decodeErr(t, err); info.Code != connect.CodeUnimplemented {
 		t.Errorf("ListFollowRequests = %+v", info)
 	}
 	if ops := r.lastOps(); ops.Reads() != 0 {
 		t.Errorf("ListFollowRequests reads = %d, want 0", ops.Reads())
 	}
 	_, err = a.graph.RespondToFollowRequest(ctx, connect.NewRequest(&graphv1.RespondToFollowRequestRequest{IdempotencyKey: t16bKey(3), RequesterUserId: uidB, Accept: true}))
-	if info := decodeErr(t, err); info.Code != connect.CodeFailedPrecondition || info.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+	if info := decodeErr(t, err); info.Code != connect.CodeUnimplemented {
 		t.Errorf("RespondToFollowRequest = %+v", info)
 	}
 	if ops := r.lastOps(); ops.Reads() != 0 {

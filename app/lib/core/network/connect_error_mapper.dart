@@ -88,6 +88,9 @@ AppException mapConnectError(Object error) {
         return ReplyNotAllowedException(
           policy: (policy == null || policy.isEmpty) ? null : policy,
         );
+      // ADR-0025 D14 (W3-25b): the protected-account reason is handled by the client ticket W3-33a; until then it falls back to
+      // the code-based mapping below, like an unspecified reason.
+      case common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT:
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

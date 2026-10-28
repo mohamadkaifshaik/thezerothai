@@ -71,8 +71,8 @@ const (
 	ErrorReason_ERROR_REASON_ACCOUNT_RESTRICTED ErrorReason = 12
 	// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
 	ErrorReason_ERROR_REASON_TARGET_BLOCKED ErrorReason = 13
-	// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
-	// follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+	// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet). Hide the
+	// feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
 	// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
 	// (ADR-0010 D2). When absent, the whole feature behind the called service is off.
 	ErrorReason_ERROR_REASON_FEATURE_DISABLED ErrorReason = 14
@@ -85,6 +85,9 @@ const (
 	// an unusable root (deleted, hidden, a block in either direction) answers NOT_FOUND instead. Do not retry; show
 	// the policy label.
 	ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED ErrorReason = 16
+	// FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
+	// a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
+	ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT ErrorReason = 17
 )
 
 // Enum value maps for ErrorReason.
@@ -107,6 +110,7 @@ var (
 		14: "ERROR_REASON_FEATURE_DISABLED",
 		15: "ERROR_REASON_REAUTH_REQUIRED",
 		16: "ERROR_REASON_REPLY_NOT_ALLOWED",
+		17: "ERROR_REASON_PROTECTED_ACCOUNT",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -126,6 +130,7 @@ var (
 		"ERROR_REASON_FEATURE_DISABLED":       14,
 		"ERROR_REASON_REAUTH_REQUIRED":        15,
 		"ERROR_REASON_REPLY_NOT_ALLOWED":      16,
+		"ERROR_REASON_PROTECTED_ACCOUNT":      17,
 	}
 )
 
@@ -431,7 +436,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xce\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xf2\x04\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -450,7 +455,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1bERROR_REASON_TARGET_BLOCKED\x10\r\x12!\n" +
 	"\x1dERROR_REASON_FEATURE_DISABLED\x10\x0e\x12 \n" +
 	"\x1cERROR_REASON_REAUTH_REQUIRED\x10\x0f\x12\"\n" +
-	"\x1eERROR_REASON_REPLY_NOT_ALLOWED\x10\x10BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1eERROR_REASON_REPLY_NOT_ALLOWED\x10\x10\x12\"\n" +
+	"\x1eERROR_REASON_PROTECTED_ACCOUNT\x10\x11BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

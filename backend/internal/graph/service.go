@@ -228,6 +228,11 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 // Followed implements FollowEvents as the default no-op; Deps.Events replaces it (ADR-0008 D11, ADR-0017 D2).
 func (s *service) Followed(context.Context, string, string, time.Time) {}
 
+// FollowRequested and FollowRequestAccepted implement FollowEvents as default no-ops (ADR-0025 D10); Deps.Events
+// replaces them and W3-27 / W3-28a call them.
+func (s *service) FollowRequested(context.Context, string, string, time.Time)       {}
+func (s *service) FollowRequestAccepted(context.Context, string, string, time.Time) {}
+
 // isNewAccount reports whether p was created within s.newAccountWindow of now (ADR-0008 D7 new-account quotas).
 func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 	if p.CreatedAt.IsZero() {

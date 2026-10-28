@@ -115,3 +115,9 @@ func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
 // Deleted implements posts.PostEvents: notifications about a deleted post are not retracted (ADR-0017 D11); the TTL
 // clears them.
 func (postNotifier) Deleted(context.Context, string, string) {}
+
+// FollowRequested and FollowRequestAccepted are no-ops until W3-31 maps them to the follow_request and follow_accepted
+// notification types (ADR-0025 D10); declared now so graph.FollowEvents compiles with its two new methods.
+func (f followNotifier) FollowRequested(context.Context, string, string, time.Time) {}
+
+func (f followNotifier) FollowRequestAccepted(context.Context, string, string, time.Time) {}

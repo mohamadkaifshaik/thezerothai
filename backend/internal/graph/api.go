@@ -23,7 +23,7 @@ const (
 	FollowStateUnspecified FollowState = iota
 	FollowStateNone
 	FollowStateFollowing
-	// FollowStateRequested is unreachable until private accounts ship (ADR-0008 D1).
+	// FollowStateRequested is returned for a pending follow request to a protected account (ADR-0025); unreachable until W3-27.
 	FollowStateRequested
 )
 
@@ -115,6 +115,9 @@ type Service interface {
 	GetProfileRelationship(ctx context.Context, callerUID, targetUID string) (ProfileRelationship, error)
 	// ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC: at most maxResults rows (0 => 5, clamped to 1..5), no cursor.
 	ListSuggestedUsers(ctx context.Context, callerUID string, maxResults int32) ([]ListItem, error)
+	// FollowRequestsGate is the ADR-0025 D12 gate shared by ListFollowRequests and RespondToFollowRequest (both
+	// Unimplemented until W3-28a): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now.
+	FollowRequestsGate(ctx context.Context, callerUID string) error
 }
 
 // Reader is graph's read-only seam other modules use for filtering (ADR-0008: "the timeline, posts and
@@ -129,6 +132,12 @@ type Reader interface {
 // no-ops don't call it." Never called synchronously inside the mutation's own transaction/budget.
 type FollowEvents interface {
 	Followed(ctx context.Context, followerUID, followeeUID string, at time.Time)
+	// FollowRequested is called after the commit that created a follow request to a protected account (ADR-0025 D10).
+	// A replay of the request never calls it. Followed is not called for a request. Declared in W3-25b, called from W3-27.
+	FollowRequested(ctx context.Context, requesterUID, targetUID string, at time.Time)
+	// FollowRequestAccepted is called after the commit that accepted a request (RespondToFollowRequest or the
+	// privacy_public job; ADR-0025 D10). Followed is not called for it. Declared in W3-25b, called from W3-28a.
+	FollowRequestAccepted(ctx context.Context, targetUID, requesterUID string, at time.Time)
 }
 
 // Eraser is the delete-cascade building block (ADR-0008 D10), used by opsctl purge-graph now and later the

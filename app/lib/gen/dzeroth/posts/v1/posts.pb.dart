@@ -655,8 +655,9 @@ class PostView extends $pb.GeneratedMessage {
   void clearViewerReplyPermission() => $_clearField(4);
 
   /// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
-  /// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set it:
-  /// they drop such rows (ADR-0018 D13).
+  /// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
+  /// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
+  /// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped.
   @$pb.TagNumber(5)
   EmbedViewerState get embedViewerState => $_getN(4);
   @$pb.TagNumber(5)
@@ -2058,6 +2059,10 @@ class PostServiceApi {
   /// frozen at write time, and increments the quoted post's quote_count in the same transaction. Reads +3 cold /
   /// +0 warm for the visibility check and writes +1 (quoteCount) over a root post: 17 cold / 2 warm reads, 5 writes.
   /// Deleting the quoted post replaces the embed with an unavailable tombstone (async job).
+  /// Protected authors (ADR-0025 D5): quoting a protected account's post is refused for everyone but that account:
+  /// a caller who may not see the post gets NOT_FOUND "post not found" (the visibility check above), and an approved
+  /// follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. A reply to such a post by an approved
+  /// follower is allowed and is public: it shows its own text, never the parent's.
   /// Replies (P3, plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
   /// FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
   /// rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
@@ -2130,6 +2135,10 @@ class PostServiceApi {
   /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
   /// with either on they come from userLikes/{caller} (cache-first, 60 s): liked / reposted only with engagement, bookmarked_by_viewer with either. A REPOST or QUOTE whose embedded author
   /// blocks the caller is NOT_FOUND like a post by that author.
+  /// Protected authors (ADR-0025 D4): a post by a protected account is NOT_FOUND (the same bytes) for a caller who is
+  /// neither that account nor a follower of it, and so is a REPOST of such a post; a QUOTE of one is returned with
+  /// embed_viewer_state = PROTECTED and its embed stripped of text and media. Post.visibility is FOLLOWERS while the
+  /// author is protected. Decided from the instance-cached protected-author set: 0 extra reads.
   /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
   /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
   /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
@@ -2148,6 +2157,9 @@ class PostServiceApi {
   /// it is returned unset with parent_unavailable / root_unavailable = true so the client renders a tombstone.
   /// Replies by authors the caller blocks or mutes (and by authors who block the caller) are dropped after the
   /// read, so a page may be short; follow next_page_token while it is non-empty.
+  /// Protected authors (ADR-0025 D4), for a caller who is neither the author nor a follower of it: a focal post by a
+  /// protected account is NOT_FOUND; such a parent or root is unset with parent_unavailable / root_unavailable; reply
+  /// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost. 0 extra reads.
   /// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
   /// the caller and the focal post.
   /// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles

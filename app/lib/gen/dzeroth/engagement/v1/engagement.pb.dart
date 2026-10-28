@@ -1411,6 +1411,9 @@ class EngagementServiceApi {
   /// users/{uid}.postsCount, userLikes/{uid}.recentReposts and quotas/{uid}. Firestore: reads 1 in the transaction
   /// (+ visibility check 3 cold / 0 warm, + interceptor; +2 when post_id is a REPOST), writes 6. Replay: +1 read
   /// (reposts/{id}), 0 writes.
+  /// Protected authors (ADR-0025 D5): reposting a protected account's post is refused for everyone but that account. A
+  /// caller who may not see the post gets NOT_FOUND "post not found" (the visibility check); an approved follower gets
+  /// FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. The account may repost its own post.
   $async.Future<RepostPostResponse> repostPost(
           $pb.ClientContext? ctx, RepostPostRequest request) =>
       _client.invoke<RepostPostResponse>(ctx, 'EngagementService', 'RepostPost',
@@ -1477,6 +1480,9 @@ class EngagementServiceApi {
   /// A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
   /// userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
   /// brings them back. No pruning under DEGRADED_MODE=readonly.
+  /// Protected authors (ADR-0025 D4): a post by a protected account the caller does not follow, or a REPOST of one, is
+  /// dropped too, and kept, not pruned: it comes back when the caller follows the account or the account unprotects.
+  /// A QUOTE of such a post is shown with embed_viewer_state = PROTECTED and its embed stripped. 0 extra reads.
   /// Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
   /// caller graph, userLikes for viewer flags; graph and userLikes cached 60 s): 43 at page 20, 103 at page 50; an
   /// empty list 2. Warm (posts in the instance cache) 1 + page. Writes 0, plus, on a page that prunes, 1 write
@@ -1498,7 +1504,8 @@ class EngagementServiceApi {
   /// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
   /// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
   /// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
-  /// following it while it is non-empty.
+  /// following it while it is non-empty. Protected authors (ADR-0025 D4): the ListBookmarks rule (dropped, never
+  /// pruned; a QUOTE kept with embed_viewer_state = PROTECTED), 0 extra reads.
   /// page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
   /// resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
   /// or trim between pages skips or repeats nothing beyond the rows changed at the page boundary. Expired, foreign or

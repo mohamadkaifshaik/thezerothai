@@ -44,6 +44,19 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType NOTIFICATION_TYPE_QUOTE =
       NotificationType._(6, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_QUOTE');
 
+  /// actor asked to follow you, a protected account (ADR-0025 D10). post_id is empty; tapping opens the follow requests
+  /// screen. One row per requester for 90 days: a withdrawn or declined request keeps its row, and asking again adds
+  /// no row and no push. The requests screen (ListFollowRequests) is the truth.
+  static const NotificationType NOTIFICATION_TYPE_FOLLOW_REQUEST =
+      NotificationType._(
+          7, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_FOLLOW_REQUEST');
+
+  /// actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
+  /// sends nothing.
+  static const NotificationType NOTIFICATION_TYPE_FOLLOW_ACCEPTED =
+      NotificationType._(
+          8, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_FOLLOW_ACCEPTED');
+
   static const $core.List<NotificationType> values = <NotificationType>[
     NOTIFICATION_TYPE_UNSPECIFIED,
     NOTIFICATION_TYPE_FOLLOW,
@@ -52,10 +65,12 @@ class NotificationType extends $pb.ProtobufEnum {
     NOTIFICATION_TYPE_LIKE,
     NOTIFICATION_TYPE_REPOST,
     NOTIFICATION_TYPE_QUOTE,
+    NOTIFICATION_TYPE_FOLLOW_REQUEST,
+    NOTIFICATION_TYPE_FOLLOW_ACCEPTED,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 6);
+      $pb.ProtobufEnum.$_initByValueList(values, 8);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

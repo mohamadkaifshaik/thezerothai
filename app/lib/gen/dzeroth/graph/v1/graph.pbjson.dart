@@ -225,11 +225,23 @@ final $typed_data.Uint8List respondToFollowRequestRequestDescriptor =
 @$core.Deprecated('Use respondToFollowRequestResponseDescriptor instead')
 const RespondToFollowRequestResponse$json = {
   '1': 'RespondToFollowRequestResponse',
+  '2': [
+    {
+      '1': 'relationship',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.graph.v1.Relationship',
+      '10': 'relationship'
+    },
+  ],
 };
 
 /// Descriptor for `RespondToFollowRequestResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List respondToFollowRequestResponseDescriptor =
-    $convert.base64Decode('Ch5SZXNwb25kVG9Gb2xsb3dSZXF1ZXN0UmVzcG9uc2U=');
+    $convert.base64Decode(
+        'Ch5SZXNwb25kVG9Gb2xsb3dSZXF1ZXN0UmVzcG9uc2USQgoMcmVsYXRpb25zaGlwGAEgASgLMh'
+        '4uZHplcm90aC5ncmFwaC52MS5SZWxhdGlvbnNoaXBSDHJlbGF0aW9uc2hpcA==');
 
 @$core.Deprecated('Use blockRequestDescriptor instead')
 const BlockRequest$json = {

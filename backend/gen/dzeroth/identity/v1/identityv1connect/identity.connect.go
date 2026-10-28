@@ -3,7 +3,8 @@
 // Source: dzeroth/identity/v1/identity.proto
 
 // Identity: profiles, handles, account lifecycle. Owner module: backend/internal/identity.
-// Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}. See ADR-0003 and ADR-0006.
+// Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}, privacy/protectedAuthors (the set of
+// protected uids, ADR-0025 D2; never exported). See ADR-0003 and ADR-0006.
 // Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
 // Only Google, Apple and verified-email password sign-ins are accepted (ADR-0010 D5 A10; anonymous only against the
 // Auth emulator). Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
@@ -94,11 +95,17 @@ type IdentityServiceClient interface {
 	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
 	// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
 	// 1,000 matches, cached 30 s). enabled_features comes from server env config (ADR-0008 D6): 0 reads.
-	// Firestore: reads 2/1, writes 0.
+	// pending_follow_request_count (ADR-0025 D7): for a protected caller only, a count() aggregation on followRequests
+	// where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
+	// failed count leaves it 0 and GetMe still answers.
+	// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s), writes 0.
 	GetMe(context.Context, *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error)
 	// Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
 	// error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
 	// A caller who blocks the target still gets the profile (so they can unblock).
+	// A protected account's profile (ADR-0025 D4) is returned to every caller with every field, is_private and the
+	// counts included, except pinned_post_id, which is empty unless the caller is the account or follows it (0 extra
+	// reads: the follow bit comes from the caller's cached graph).
 	// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
 	// negatively cached 10 s (ADR-0010 D5).
 	// Charged, like every RPC, to the per-uid daily Firestore read budget (2,000 reads/uid/IST day per instance,
@@ -109,9 +116,21 @@ type IdentityServiceClient interface {
 	// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
 	// A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
 	// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
-	// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
-	// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
-	// (writes = author's post count; limited to 1 toggle/day).
+	// Private accounts (ADR-0025 D1, D8, D12): is_private=true needs FEATURE_PRIVATE_ACCOUNTS (wire name
+	// "private_accounts") on for the caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+	// "private_accounts", 0 writes, checked before any read; a request that sets it with other fields is refused whole
+	// while the flag is off for the caller. is_private=false is accepted from any caller whatever the flag, globally off
+	// included. A changed is_private runs one transaction that reads users, the protected-author set and quotas fresh
+	// and writes isPrivate, the set (add or remove the uid) and quotas.privacyToggles: reads 4 cold / 3 warm, writes 3.
+	// A value equal to the stored one writes nothing and is not charged. QUOTA_PRIVACY_TOGGLES_PER_DAY, 4 per IST day,
+	// both directions counted => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "privacy_toggles"; protecting
+	// while PROTECTED_AUTHORS_MAX (20,000) accounts are protected => FAILED_PRECONDITION + LIMIT_REACHED,
+	// metadata["limit"] = "private_accounts"; both 0 writes. No post is rewritten (there is no visibility job): every
+	// read path applies the new setting at once on the instance that committed it and within 60 s on the others.
+	// Existing followers stay. After an unprotect commit the server publishes one privacy_public job (the jobs topic)
+	// that accepts every pending follow request (2 reads, 3 writes and 1 delete per request, + 1 write per page of 100),
+	// so the request path adds 0 reads and 0 writes for it; a failed publish is logged at ERROR. A toggle enqueues no
+	// author-snapshot job and spends no snapshot-affecting edit.
 	// Profile extras (ADR-0024 D1-D3, D9, Amendment 1 A2): setting banner_media_id, location, website or pinned_post_id
 	// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
 	// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes, checked
@@ -332,11 +351,17 @@ type IdentityServiceHandler interface {
 	// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
 	// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
 	// 1,000 matches, cached 30 s). enabled_features comes from server env config (ADR-0008 D6): 0 reads.
-	// Firestore: reads 2/1, writes 0.
+	// pending_follow_request_count (ADR-0025 D7): for a protected caller only, a count() aggregation on followRequests
+	// where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
+	// failed count leaves it 0 and GetMe still answers.
+	// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s), writes 0.
 	GetMe(context.Context, *connect.Request[v1.GetMeRequest]) (*connect.Response[v1.GetMeResponse], error)
 	// Public profile by id or handle. Returns NOT_FOUND if the target blocked the caller, byte-identical to the
 	// error for a missing user (no existence leak). The check uses the caller's own graph (blockedBy, ADR-0008 D2).
 	// A caller who blocks the target still gets the profile (so they can unblock).
+	// A protected account's profile (ADR-0025 D4) is returned to every caller with every field, is_private and the
+	// counts included, except pinned_post_id, which is empty unless the caller is the account or follows it (0 extra
+	// reads: the follow bit comes from the caller's cached graph).
 	// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
 	// negatively cached 10 s (ADR-0010 D5).
 	// Charged, like every RPC, to the per-uid daily Firestore read budget (2,000 reads/uid/IST day per instance,
@@ -347,9 +372,21 @@ type IdentityServiceHandler interface {
 	// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
 	// A change to display_name or avatar enqueues the author-snapshot refresh job (ADR-0003):
 	// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
-	// is_private=true is rejected with INVALID_ARGUMENT + VALIDATION (field "is_private") until private accounts ship
-	// (ADR-0008 D1); is_private=false is accepted. Once enabled, a change to is_private enqueues the visibility job
-	// (writes = author's post count; limited to 1 toggle/day).
+	// Private accounts (ADR-0025 D1, D8, D12): is_private=true needs FEATURE_PRIVATE_ACCOUNTS (wire name
+	// "private_accounts") on for the caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+	// "private_accounts", 0 writes, checked before any read; a request that sets it with other fields is refused whole
+	// while the flag is off for the caller. is_private=false is accepted from any caller whatever the flag, globally off
+	// included. A changed is_private runs one transaction that reads users, the protected-author set and quotas fresh
+	// and writes isPrivate, the set (add or remove the uid) and quotas.privacyToggles: reads 4 cold / 3 warm, writes 3.
+	// A value equal to the stored one writes nothing and is not charged. QUOTA_PRIVACY_TOGGLES_PER_DAY, 4 per IST day,
+	// both directions counted => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "privacy_toggles"; protecting
+	// while PROTECTED_AUTHORS_MAX (20,000) accounts are protected => FAILED_PRECONDITION + LIMIT_REACHED,
+	// metadata["limit"] = "private_accounts"; both 0 writes. No post is rewritten (there is no visibility job): every
+	// read path applies the new setting at once on the instance that committed it and within 60 s on the others.
+	// Existing followers stay. After an unprotect commit the server publishes one privacy_public job (the jobs topic)
+	// that accepts every pending follow request (2 reads, 3 writes and 1 delete per request, + 1 write per page of 100),
+	// so the request path adds 0 reads and 0 writes for it; a failed publish is logged at ERROR. A toggle enqueues no
+	// author-snapshot job and spends no snapshot-affecting edit.
 	// Profile extras (ADR-0024 D1-D3, D9, Amendment 1 A2): setting banner_media_id, location, website or pinned_post_id
 	// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
 	// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes, checked

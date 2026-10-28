@@ -5,6 +5,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -15,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // Server adapts Service to graphv1connect.GraphServiceHandler.
@@ -224,20 +224,27 @@ func respond[M any](ctx context.Context, fn func(uid string) (*M, error)) (*conn
 	return connect.NewResponse(msg), nil
 }
 
-// ListFollowRequests and RespondToFollowRequest stay Unimplemented-shaped-as-FEATURE_DISABLED regardless of
-// the flag (ADR-0008 D1): private accounts and follow requests are deferred. 0 reads.
+// ListFollowRequests and RespondToFollowRequest are behind the ADR-0025 D12 gate (FEATURE_GRAPH, then private_accounts not
+// globally off or the caller protected now; FEATURE_DISABLED feature=private_accounts otherwise) and answer Unimplemented
+// past it until W3-28a builds them. Contract budgets (ADR-0025 D7): ListFollowRequests 42 / 102 reads cold at page 20 / 50,
+// RespondToFollowRequest 3 cold / 2 warm and 4 writes + 1 delete on accept; this skeleton costs 0 reads beyond the interceptor
+// (1 cached Directory lookup only while the flag is globally off) and 0 writes.
 func (s *Server) ListFollowRequests(ctx context.Context, _ *connect.Request[graphv1.ListFollowRequestsRequest]) (*connect.Response[graphv1.ListFollowRequestsResponse], error) {
-	if _, err := callerUID(ctx); err != nil {
-		return nil, err
-	}
-	return nil, apierr.ToConnect(flags.DisabledError())
+	return respond(ctx, func(uid string) (*graphv1.ListFollowRequestsResponse, error) {
+		if err := s.svc.FollowRequestsGate(ctx, uid); err != nil {
+			return nil, err
+		}
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("ListFollowRequests is not built yet (W3-28a)"))
+	})
 }
 
 func (s *Server) RespondToFollowRequest(ctx context.Context, _ *connect.Request[graphv1.RespondToFollowRequestRequest]) (*connect.Response[graphv1.RespondToFollowRequestResponse], error) {
-	if _, err := callerUID(ctx); err != nil {
-		return nil, err
-	}
-	return nil, apierr.ToConnect(flags.DisabledError())
+	return respond(ctx, func(uid string) (*graphv1.RespondToFollowRequestResponse, error) {
+		if err := s.svc.FollowRequestsGate(ctx, uid); err != nil {
+			return nil, err
+		}
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RespondToFollowRequest is not built yet (W3-28a)"))
+	})
 }
 
 // GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC (ADR-0024 D7); the logic is in

@@ -93,7 +93,10 @@ type TimelineServiceClient interface {
 	// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
 	// with either on, one cached userLikes read hydrates the page (P5; liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
 	// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
-	// describe its original.
+	// describe its original. Protected authors (ADR-0025 D4): Home rows are by the caller and followed accounts only,
+	// so none is hidden; a REPOST whose original is by a protected author the caller does not follow is dropped, and a
+	// QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped of text and media. 0 extra
+	// reads.
 	// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
 	// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
 	// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
@@ -114,8 +117,12 @@ type TimelineServiceClient interface {
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
 	// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-	// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-	// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
+	// Protected accounts (ADR-0025 D4): for a caller who is neither the account nor a follower of it, every tab answers
+	// author_protected = true with no posts and no tokens. It is decided before the author-recent cache or any page is
+	// read (3 cold reads: interceptor, target users, caller graph), after the NOT_FOUND rules below. The client shows
+	// the protected view (the profile itself comes from identity) and REPLACES any cached feed for this author. In
+	// every tab, a REPOST whose original is by a protected author the caller does not follow is dropped, and a QUOTE of
+	// such a post is kept with embed_viewer_state = PROTECTED and its embed stripped of text and media.
 	// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
 	// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
 	// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache
@@ -201,7 +208,10 @@ type TimelineServiceHandler interface {
 	// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
 	// with either on, one cached userLikes read hydrates the page (P5; liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
 	// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
-	// describe its original.
+	// describe its original. Protected authors (ADR-0025 D4): Home rows are by the caller and followed accounts only,
+	// so none is hidden; a REPOST whose original is by a protected author the caller does not follow is dropped, and a
+	// QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped of text and media. 0 extra
+	// reads.
 	// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
 	// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
 	// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
@@ -222,8 +232,12 @@ type TimelineServiceHandler interface {
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
 	// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-	// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-	// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
+	// Protected accounts (ADR-0025 D4): for a caller who is neither the account nor a follower of it, every tab answers
+	// author_protected = true with no posts and no tokens. It is decided before the author-recent cache or any page is
+	// read (3 cold reads: interceptor, target users, caller graph), after the NOT_FOUND rules below. The client shows
+	// the protected view (the profile itself comes from identity) and REPLACES any cached feed for this author. In
+	// every tab, a REPOST whose original is by a protected author the caller does not follow is dropped, and a QUOTE of
+	// such a post is kept with embed_viewer_state = PROTECTED and its embed stripped of text and media.
 	// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
 	// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
 	// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache

@@ -343,6 +343,7 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     $core.String? sinceToken,
     $core.String? gapPageToken,
     $core.Iterable<$core.String>? removedIds,
+    $core.bool? authorProtected,
   }) {
     final result = GetUserTimelineResponse._();
     if (posts != null) result.posts.addAll(posts);
@@ -350,6 +351,7 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     if (sinceToken != null) result.sinceToken = sinceToken;
     if (gapPageToken != null) result.gapPageToken = gapPageToken;
     if (removedIds != null) result.removedIds.addAll(removedIds);
+    if (authorProtected != null) result.authorProtected = authorProtected;
     return result;
   }
 
@@ -373,6 +375,7 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'sinceToken')
     ..aOS(4, _omitFieldNames ? '' : 'gapPageToken')
     ..pPS(5, _omitFieldNames ? '' : 'removedIds')
+    ..aOB(6, _omitFieldNames ? '' : 'authorProtected')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -433,6 +436,18 @@ class GetUserTimelineResponse extends $pb.GeneratedMessage {
   /// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
   @$pb.TagNumber(5)
   $pb.PbList<$core.String> get removedIds => $_getList(4);
+
+  /// True when the author is protected and the caller is neither the author nor a follower (ADR-0025 D4): posts is
+  /// empty and no token is set. Show the protected view and REPLACE any cached feed for this author (do not merge). A
+  /// client that does not know this field sees an empty list, which fails closed.
+  @$pb.TagNumber(6)
+  $core.bool get authorProtected => $_getBF(5);
+  @$pb.TagNumber(6)
+  set authorProtected($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasAuthorProtected() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearAuthorProtected() => $_clearField(6);
 }
 
 class TimelineServiceApi {
@@ -453,7 +468,10 @@ class TimelineServiceApi {
   /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
   /// with either on, one cached userLikes read hydrates the page (P5; liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
   /// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
-  /// describe its original.
+  /// describe its original. Protected authors (ADR-0025 D4): Home rows are by the caller and followed accounts only,
+  /// so none is hidden; a REPOST whose original is by a protected author the caller does not follow is dropped, and a
+  /// QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped of text and media. 0 extra
+  /// reads.
   /// Every query that returns 0 docs still costs 1 read. C = ceil((following + 1) / 30), following <= 5,000.
   /// Rate limit: 6 calls/min/uid (in memory). Deadline 10 s.
   /// Firestore: reads worst 2 + C + 2 * page_size (= 269 at 5,000 following, page 50; 2 = caller users via the
@@ -476,8 +494,12 @@ class TimelineServiceApi {
 
   /// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
   /// (all of the user's posts incl. replies; identical to Posts until replies ship, ADR-0010 D11).
-  /// Private accounts: only the owner and approved followers (others get an empty list + profile via identity).
-  /// Deferred with private accounts (ADR-0008 D1): every post is PUBLIC today.
+  /// Protected accounts (ADR-0025 D4): for a caller who is neither the account nor a follower of it, every tab answers
+  /// author_protected = true with no posts and no tokens. It is decided before the author-recent cache or any page is
+  /// read (3 cold reads: interceptor, target users, caller graph), after the NOT_FOUND rules below. The client shows
+  /// the protected view (the profile itself comes from identity) and REPLACES any cached feed for this author. In
+  /// every tab, a REPOST whose original is by a protected author the caller does not follow is dropped, and a QUOTE of
+  /// such a post is kept with embed_viewer_state = PROTECTED and its embed stripped of text and media.
   /// NOT_FOUND (byte-identical to GetProfile's missing-user error) if the user is missing, SUSPENDED or DELETING,
   /// or blocks the caller. A caller who blocks or mutes the user still gets the posts; the client shows a banner
   /// for a block (ADR-0010 D6). The Posts-tab first page (<= 20) comes from the author-recent instance cache

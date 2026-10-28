@@ -48,6 +48,9 @@ const (
 	// Bookmarks counts AddBookmark calls that wrote a bookmark (ADR-0023 D4). A replay and an already bookmarked post
 	// are not charged; RemoveBookmark and ListBookmarks never are.
 	Bookmarks Kind = "bookmarks"
+	// PrivacyToggles counts UpdateProfile is_private changes in both directions (ADR-0025 D8). An is_private equal to the
+	// stored value is not charged. A follow request counts under Follows, not here.
+	PrivacyToggles Kind = "privacyToggles"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -91,6 +94,9 @@ type Record struct {
 	// Bookmarks counts AddBookmark writes (ADR-0023 D4). Absent in older docs, so it decodes as 0. Like Schedules it lives
 	// in the Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
 	Bookmarks int64 `firestore:"bookmarks"`
+	// PrivacyToggles counts is_private changes (ADR-0025 D8). Absent in older docs, so it decodes as 0. It lives in the
+	// Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	PrivacyToggles int64 `firestore:"privacyToggles"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -115,6 +121,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Schedules
 	case Bookmarks:
 		return r.Bookmarks
+	case PrivacyToggles:
+		return r.PrivacyToggles
 	default:
 		return 0
 	}
@@ -142,6 +150,8 @@ func (r *Record) increment(k Kind, n int64) {
 		r.Schedules += n
 	case Bookmarks:
 		r.Bookmarks += n
+	case PrivacyToggles:
+		r.PrivacyToggles += n
 	}
 }
 
@@ -207,5 +217,14 @@ func ExceededError(kind Kind, now time.Time) *apierr.Error {
 		connect.CodeResourceExhausted,
 		commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
 		"daily limit reached, please try again tomorrow",
-	).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(now))
+	).WithMeta("quota", metaName(kind)).WithRetryAfter(UntilNextDay(now))
+}
+
+// metaName is the QUOTA_EXCEEDED metadata["quota"] value for kind: the Firestore field name, except where the ADR names
+// a snake_case wire value (ADR-0025 D8: privacy_toggles). Existing kinds keep their field name.
+func metaName(kind Kind) string {
+	if kind == PrivacyToggles {
+		return "privacy_toggles"
+	}
+	return string(kind)
 }
