@@ -1,6 +1,6 @@
 {
   "_comment": "Per-env ceiling for server feature flags and Cloud Run shape. A revision may be promoted only if every flag's EFFECTIVE mode is <= the ceiling. Raising a ceiling is a reviewed PR. Allowlist uids are never stored here, only counts. Order: off < allowlist < percent < on.",
-  "flags": ["ACCOUNT_LIFECYCLE", "BOOKMARKS", "CONTENT_DISCLOSURE", "ENGAGEMENT", "FOLLOW_SUGGESTIONS", "GRAPH", "LIKES_LIST", "MEDIA", "NOTIFICATIONS", "POSTS", "PRIVATE_ACCOUNTS", "PROFILE_EXTRAS", "PROFILE_SNAPSHOT", "PROFILE_TABS", "QUOTES", "REMOVED_IDS", "REPLIES", "REPLY_AUDIENCE", "REPORTS", "SCHEDULED_POSTS", "UI_SHELL"],
+  "flags": ["ACCOUNT_LIFECYCLE", "BOOKMARKS", "CONTENT_DISCLOSURE", "ENGAGEMENT", "FOLLOW_SUGGESTIONS", "GRAPH", "LIKES_LIST", "MEDIA", "NOTIFICATIONS", "POSTS", "PRIVATE_ACCOUNTS", "PROFILE_EXTRAS", "PROFILE_SNAPSHOT", "PROFILE_TABS", "QUOTES", "REMOVED_IDS", "REPLIES", "REPLY_AUDIENCE", "REPORTS", "SCHEDULED_POSTS", "SHELLS", "UI_SHELL"],
   "unset_default": {
     "_comment": "Mode when FEATURE_<N> is unset, from backend/pkg/platform/config/config.go (graph/posts: on in dev, off in prod; all others off). check-flag-registry.sh re-derives this from config.go.",
     "dev": {"GRAPH": "on", "POSTS": "on"},
@@ -32,6 +32,7 @@
         "REPLY_AUDIENCE": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
         "REPORTS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
         "SCHEDULED_POSTS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
+        "SHELLS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
         "UI_SHELL": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}
       }
     }
