@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dzeroth/features/graph/data/suggestions_repository.dart'
+    show kSuggestionsTtl;
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:flutter_test/flutter_test.dart';
@@ -278,5 +280,131 @@ void main() {
     await cubit.close();
 
     expect(cubit.reset, returnsNormally);
+  });
+
+  group('expiry timer (security L-1: a mounted card is bounded too)', () {
+    late FakeTimers timers;
+    late SuggestionsCubit timed;
+
+    setUp(() {
+      timers = FakeTimers();
+      timed = SuggestionsCubit(repository: rig.repository, timer: timers.make);
+    });
+
+    tearDown(() => timed.close());
+
+    List<String> ids() => [
+      for (final item in timed.state.items) item.user.userId,
+    ];
+
+    test('one timer for the expiry; no call before it', () async {
+      await timed.ensureLoaded('me');
+
+      expect(timers.live, hasLength(1));
+      expect(timers.live.single.delay, kSuggestionsTtl);
+      expect(rig.suggestionCalls, 1);
+      expect(ids(), hasLength(5));
+    });
+
+    test('the delay is what is left, by the repository clock', () async {
+      await timed.ensureLoaded('me');
+      rig.clock = const Duration(hours: 10);
+      await timed.ensureLoaded('me');
+
+      expect(
+        timers.live.single.delay,
+        kSuggestionsTtl - const Duration(hours: 10),
+      );
+    });
+
+    test('at expiry it asks exactly once and shows the new rows', () async {
+      await timed.ensureLoaded('me');
+      rig.users = [suggestedUser(9)];
+      rig.clock = kSuggestionsTtl + const Duration(minutes: 1);
+
+      timers.fire();
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(rig.suggestionCalls, 2);
+      expect(ids(), ['u9']);
+      // Re-armed for the new entry: one live timer, not a poll.
+      expect(timers.live, hasLength(1));
+      timers.fire();
+      await Future<void>.delayed(Duration.zero);
+      expect(rig.suggestionCalls, 2);
+    });
+
+    test(
+      'two surfaces mounting keep one timer and make one call at expiry',
+      () async {
+        await Future.wait([timed.ensureLoaded('me'), timed.ensureLoaded('me')]);
+        expect(timers.live, hasLength(1));
+
+        rig.clock = kSuggestionsTtl + const Duration(minutes: 1);
+        timers.fire();
+        await Future.wait([timed.ensureLoaded('me'), timed.ensureLoaded('me')]);
+
+        expect(rig.suggestionCalls, 2);
+        expect(timers.live, hasLength(1));
+      },
+    );
+
+    test('sign-out and close cancel it', () async {
+      await timed.ensureLoaded('me');
+      timed.reset();
+      expect(timers.live, isEmpty);
+
+      await timed.ensureLoaded('me');
+      expect(timers.live, hasLength(1));
+      await timed.close();
+      expect(timers.live, isEmpty);
+    });
+
+    test('a failing call at expiry clears the rows, arms nothing and is not '
+        'retried by the timer', () async {
+      await timed.ensureLoaded('me');
+      rig.onSuggestions = () async => throw StateError('boom');
+      rig.clock = kSuggestionsTtl + const Duration(minutes: 1);
+
+      timers.fire();
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(timed.state.items, isEmpty);
+      expect(timers.live, isEmpty);
+      expect(rig.suggestionCalls, 2);
+
+      // Backed off: asking again (a resume, a mount) sends nothing either.
+      await timed.ensureLoaded('me');
+      expect(timers.live, isEmpty);
+      expect(rig.suggestionCalls, 2);
+    });
+
+    test('stale rows are cleared at once on a resume while the call is held '
+        'back', () async {
+      await timed.ensureLoaded('me');
+      final gate = Completer<graph.ListSuggestedUsersResponse>();
+      rig.onSuggestions = () => gate.future;
+      rig.clock = kSuggestionsTtl + const Duration(minutes: 1);
+
+      final pending = timed.ensureLoaded('me');
+      await Future<void>.delayed(Duration.zero);
+      expect(timed.state.items, isEmpty);
+      gate.complete(
+        graph.ListSuggestedUsersResponse(users: [suggestedUser(7)]),
+      );
+      await pending;
+
+      expect(ids(), ['u7']);
+    });
+
+    test('nothing held, nothing armed', () async {
+      rig.onSuggestions = () async => throw StateError('boom');
+
+      await timed.ensureLoaded('me');
+
+      expect(timers.made, isEmpty);
+    });
   });
 }

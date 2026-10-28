@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -120,6 +122,51 @@ class SuggestionsRig {
   }
 }
 
+/// The expiry timers a [SuggestionsCubit] asks for, driven by hand: [fire]
+/// runs the live ones (a cancelled timer never fires).
+class FakeTimers {
+  final List<FakeTimer> made = [];
+
+  /// The `timer` argument of the cubit.
+  Timer make(Duration delay, void Function() callback) {
+    final timer = FakeTimer(delay, callback);
+    made.add(timer);
+    return timer;
+  }
+
+  Iterable<FakeTimer> get live => made.where((t) => t.isActive);
+
+  /// Fires every live timer once.
+  void fire() {
+    for (final timer in live.toList()) {
+      timer.fire();
+    }
+  }
+}
+
+class FakeTimer implements Timer {
+  FakeTimer(this.delay, this._callback);
+
+  final Duration delay;
+  final void Function() _callback;
+  bool _active = true;
+
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _callback();
+  }
+
+  @override
+  void cancel() => _active = false;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => 0;
+}
+
 /// An in-memory stand-in for widget tests that need no database: serves
 /// [rows] (minus [hide]n ones) and counts [calls] of [suggestionsFor].
 ///
@@ -171,4 +218,11 @@ class FakeSuggestionsRepository implements SuggestionsRepository {
 
   @override
   void clearSession() => clears++;
+
+  /// The fake never expires: no timer is armed for it.
+  @override
+  Duration? untilExpiry(String uid) => null;
+
+  @override
+  bool hasExpired(String uid) => false;
 }

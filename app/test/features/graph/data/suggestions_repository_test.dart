@@ -156,6 +156,23 @@ void main() {
       },
     );
 
+    test('untilExpiry and hasExpired follow the entry lifetime', () async {
+      expect(rig.repository.untilExpiry('me'), isNull);
+      expect(rig.repository.hasExpired('me'), isFalse);
+
+      await rig.repository.suggestionsFor('me');
+      rig.clock = const Duration(hours: 10);
+      expect(
+        rig.repository.untilExpiry('me'),
+        kSuggestionsTtl - const Duration(hours: 10),
+      );
+      expect(rig.repository.hasExpired('me'), isFalse);
+
+      rig.clock = kSuggestionsTtl + _oneMinute;
+      expect(rig.repository.untilExpiry('me'), isNull);
+      expect(rig.repository.hasExpired('me'), isTrue);
+    });
+
     test('a restart past the TTL is a call too', () async {
       await rig.repository.suggestionsFor('me');
       rig.users = [suggestedUser(9)];

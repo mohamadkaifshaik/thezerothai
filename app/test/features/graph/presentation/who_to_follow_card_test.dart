@@ -326,7 +326,10 @@ void main() {
       final rig = SuggestionsRig();
       addTearDown(rig.database.close);
       await cubit.close();
-      cubit = SuggestionsCubit(repository: rig.repository);
+      cubit = SuggestionsCubit(
+        repository: rig.repository,
+        timer: FakeTimers().make,
+      );
       await tester.runAsync(() async {
         await open(tester);
         await Future<void>.delayed(const Duration(milliseconds: 50));

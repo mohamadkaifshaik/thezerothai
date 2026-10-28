@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/suggestions_repository.dart';
@@ -12,24 +14,53 @@ import 'suggestions_state.dart';
 /// empty, 24 h after a limit), the dismissals, the once-per-session refill and
 /// the failure rules, so [ensureLoaded] is free to call from every surface
 /// that mounts (a warm call is memory only, 0 RPCs).
+///
+/// **Expiry (security L-1).** A card that stays mounted must not show an answer
+/// past its lifetime. While the repository holds an entry, the cubit keeps ONE
+/// timer for its expiry that calls [ensureLoaded] once: a call if the entry is
+/// stale (under the usual backoffs), and the stale rows are cleared at once.
+/// It is re-armed by every [ensureLoaded] (cancelling the previous one) and
+/// cancelled by [reset] and [close]. An expired or missing entry arms nothing,
+/// so a failing call is never retried by the timer: no polling, no loop.
 class SuggestionsCubit extends Cubit<SuggestionsState> {
-  SuggestionsCubit({required SuggestionsRepository repository})
-    : _repository = repository,
-      super(const SuggestionsState());
+  SuggestionsCubit({
+    required SuggestionsRepository repository,
+    Timer Function(Duration, void Function())? timer,
+  }) : _repository = repository,
+       _timer = timer ?? Timer.new,
+       super(const SuggestionsState());
 
   final SuggestionsRepository _repository;
+  final Timer Function(Duration, void Function()) _timer;
+  Timer? _expiry;
   String? _uid;
 
   /// Loads (or re-reads from the cache) the suggestions of [uid]. Never
-  /// throws; a failure leaves the list empty.
+  /// throws; a failure leaves the list empty. Rows past their lifetime are
+  /// cleared before the call, not kept until it answers.
   Future<void> ensureLoaded(String uid) async {
     if (_uid != uid) {
       _uid = uid;
       emit(const SuggestionsState());
     }
+    if (_repository.hasExpired(uid) && state.items.isNotEmpty) {
+      emit(const SuggestionsState());
+    }
     final items = await _repository.suggestionsFor(uid);
     if (isClosed || _uid != uid) return;
     emit(SuggestionsState(items: items));
+    _armExpiry(uid);
+  }
+
+  void _armExpiry(String uid) {
+    _expiry?.cancel();
+    _expiry = null;
+    final left = _repository.untilExpiry(uid);
+    if (left == null) return;
+    _expiry = _timer(left, () {
+      _expiry = null;
+      if (!isClosed && _uid == uid) unawaited(ensureLoaded(uid));
+    });
   }
 
   /// Hides [userId] for the session (the row's x). Never asks for a new list.
@@ -73,8 +104,17 @@ class SuggestionsCubit extends Cubit<SuggestionsState> {
   /// Sign-out: forget the account's list and everything the repository holds
   /// in memory.
   void reset() {
+    _expiry?.cancel();
+    _expiry = null;
     _uid = null;
     _repository.clearSession();
     if (!isClosed) emit(const SuggestionsState());
+  }
+
+  @override
+  Future<void> close() {
+    _expiry?.cancel();
+    _expiry = null;
+    return super.close();
   }
 }
