@@ -329,3 +329,17 @@ page, `audience=protected|set_unavailable` on a refused follower or following li
 | ListFollowers or ListFollowing of a protected account answers UNAVAILABLE "temporarily busy" | The protected set could not be loaded for longer than `PROTECTED_SET_MAX_STALE` on this instance (ERROR `protected_set_unavailable` from identity). The lists fail closed; see `private-accounts.md` for the set doc and the refresh |
 | An approved follower still gets PROTECTED_ACCOUNT right after an accept | Another instance holds the requester's 60 s graph snapshot from before the accept; it clears within `CACHE_TTL`. The instance that served the accept drops it at once |
 | `fs_reads` of a Respond above 3 after a List, or a List above 42 / 102 | Regression: check `RespondToRequest` (one request read, one requester graph read) and `edgePage` (one hydration `GetAll`) |
+
+## 9. The lock badge on user-list rows (`AuthorSnapshot.is_private`; ADR-0025 implementation note W3-25c, ticket W3-28c)
+Every `graph.v1.UserListItem.user` (ListFollowers, ListFollowing, ListFollowRequests, ListSuggestedUsers,
+ListBlockedUsers, ListMutedUsers) is built by `toProtoAuthorSnapshot`, which copies `is_private` from the `identity.Profile`
+the list already hydrated through `identity.Directory`. It adds 0 reads and 0 writes, needs no flag (it is filled whatever
+`FEATURE_PRIVATE_ACCOUNTS` says, as `Profile.is_private` is) and never reads the protected set. It is display only: the
+access decision stays on `posts.Audience`. `Post.author`, `EmbeddedPost.author` and `Notification.actor` are frozen copies
+and always leave it false, so a client must never infer "public" from false.
+
+| Symptom | Cause and action |
+|---|---|
+| A row shows no lock right after the user protected their account | The `Directory` cache holds the profile for up to `CACHE_TTL` (60 s) per instance, plus however long the client keeps the row. It clears by itself; nothing to fix |
+| `is_private` is true on a row in `ListFollowRequests`, `ListBlockedUsers` or `ListMutedUsers` for a user who says they are public | Same staleness, the other way round (unprotected within the last 60 s). If it persists, read `users/{uid}.isPrivate` and `GetProfile`: the row can only be as wrong as the profile |
+| `author.is_private` or `actor.is_private` is true in a post or notification | A bug: a converter outside `graph` set the field. `TestToProto_FrozenAuthorCopiesLeaveIsPrivateUnset` and `TestToProto_ActorLeavesIsPrivateUnset` guard it |

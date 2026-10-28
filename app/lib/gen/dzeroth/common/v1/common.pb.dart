@@ -22,7 +22,12 @@ export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
 export 'common.pbenum.dart';
 
-/// Denormalized author data stored inside every post (ADR-0003). May be up to one refresh cycle stale.
+/// A user's display data. Two kinds of copy share this message:
+/// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
+///   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+///   (snapshotted when the row was written);
+/// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+///   cache, up to 60 s stale).
 class AuthorSnapshot extends $pb.GeneratedMessage {
   factory AuthorSnapshot({
     $core.String? userId,
@@ -30,6 +35,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
     $core.String? displayName,
     $core.String? avatarUrl,
     $core.bool? verified,
+    $core.bool? isPrivate,
   }) {
     final result = AuthorSnapshot._();
     if (userId != null) result.userId = userId;
@@ -37,6 +43,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
     if (displayName != null) result.displayName = displayName;
     if (avatarUrl != null) result.avatarUrl = avatarUrl;
     if (verified != null) result.verified = verified;
+    if (isPrivate != null) result.isPrivate = isPrivate;
     return result;
   }
 
@@ -59,6 +66,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'displayName')
     ..aOS(4, _omitFieldNames ? '' : 'avatarUrl')
     ..aOB(5, _omitFieldNames ? '' : 'verified')
+    ..aOB(6, _omitFieldNames ? '' : 'isPrivate')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -128,6 +136,24 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
   $core.bool hasVerified() => $_has(4);
   @$pb.TagNumber(5)
   void clearVerified() => $_clearField(5);
+
+  /// True when the account protects its posts (ADR-0025; the W3-25c implementation note). A display hint for the lock
+  /// badge, never an access decision.
+  /// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
+  /// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers), copied from the hydrated profile at
+  /// 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+  /// ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
+  /// `notifications.v1.Notification.actor`.
+  /// Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
+  /// for an account, and `posts.v1.Post.visibility` / `posts.v1.EmbedViewerState` for a post.
+  @$pb.TagNumber(6)
+  $core.bool get isPrivate => $_getBF(5);
+  @$pb.TagNumber(6)
+  set isPrivate($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasIsPrivate() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearIsPrivate() => $_clearField(6);
 }
 
 /// A moderated, publicly readable image (ADR-0005). URLs are immutable and cacheable forever.

@@ -64,6 +64,7 @@ const AuthorSnapshot$json = {
     {'1': 'display_name', '3': 3, '4': 1, '5': 9, '10': 'displayName'},
     {'1': 'avatar_url', '3': 4, '4': 1, '5': 9, '10': 'avatarUrl'},
     {'1': 'verified', '3': 5, '4': 1, '5': 8, '10': 'verified'},
+    {'1': 'is_private', '3': 6, '4': 1, '5': 8, '10': 'isPrivate'},
   ],
 };
 
@@ -71,7 +72,8 @@ const AuthorSnapshot$json = {
 final $typed_data.Uint8List authorSnapshotDescriptor = $convert.base64Decode(
     'Cg5BdXRob3JTbmFwc2hvdBIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySWQSFgoGaGFuZGxlGAIgAS'
     'gJUgZoYW5kbGUSIQoMZGlzcGxheV9uYW1lGAMgASgJUgtkaXNwbGF5TmFtZRIdCgphdmF0YXJf'
-    'dXJsGAQgASgJUglhdmF0YXJVcmwSGgoIdmVyaWZpZWQYBSABKAhSCHZlcmlmaWVk');
+    'dXJsGAQgASgJUglhdmF0YXJVcmwSGgoIdmVyaWZpZWQYBSABKAhSCHZlcmlmaWVkEh0KCmlzX3'
+    'ByaXZhdGUYBiABKAhSCWlzUHJpdmF0ZQ==');
 
 @$core.Deprecated('Use mediaRefDescriptor instead')
 const MediaRef$json = {

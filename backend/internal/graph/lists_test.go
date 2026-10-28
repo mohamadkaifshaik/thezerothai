@@ -305,3 +305,34 @@ func TestListOwnArray_HidesBlockedByUsers(t *testing.T) {
 		t.Fatalf("p2 = %v, %v", uidsOf(p2), err)
 	}
 }
+
+// W3-28c: every UserListItem is built by toProtoAuthorSnapshot, so one mapping carries the lock badge on all six lists.
+func TestToProtoAuthorSnapshot_IsPrivateFromTheHydratedProfile(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   identity.Profile
+		want bool
+	}{
+		{"protected", identity.Profile{UserID: "p", Handle: "p", IsPrivate: true}, true},
+		{"public", identity.Profile{UserID: "a", Handle: "a"}, false},
+		{"explicitly public", identity.Profile{UserID: "a", Handle: "a", IsPrivate: false}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := toProtoAuthorSnapshot(tt.in)
+			if got.GetIsPrivate() != tt.want || got.GetUserId() != tt.in.UserID || got.GetHandle() != tt.in.Handle {
+				t.Errorf("snapshot = %v, want is_private=%v and the identity fields carried", got, tt.want)
+			}
+			item := toProtoListItem(ListItem{User: tt.in})
+			if item.GetUser().GetIsPrivate() != tt.want {
+				t.Errorf("list item user.is_private = %v, want %v", item.GetUser().GetIsPrivate(), tt.want)
+			}
+		})
+	}
+	rows := toProtoListItems([]ListItem{{User: identity.Profile{UserID: "p", IsPrivate: true}}, {User: identity.Profile{UserID: "a"}}})
+	if !rows[0].GetUser().GetIsPrivate() || rows[1].GetUser().GetIsPrivate() {
+		t.Errorf("rows = %v, want [true false]", rows)
+	}
+}

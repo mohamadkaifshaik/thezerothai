@@ -30,3 +30,19 @@ func TestToProto_KindAndVisibility(t *testing.T) {
 		}
 	}
 }
+
+// W3-28c: the frozen author copies never carry AuthorSnapshot.is_private (clients never infer "public" from false, and the
+// field is filled only on live user-list rows).
+func TestToProto_FrozenAuthorCopiesLeaveIsPrivateUnset(t *testing.T) {
+	t.Parallel()
+	author := AuthorSnapshot{UserID: "u1", Handle: "h", DisplayName: "D", AvatarURL: "a", Verified: true}
+	p := &Post{ID: "1", Kind: KindQuote, Author: author, CreatedAt: time.UnixMilli(5),
+		Embedded: &Embedded{PostID: "2", Author: author, Text: "t", CreatedAt: time.UnixMilli(4)}}
+	got := ToProto(p)
+	if got.GetAuthor().GetIsPrivate() || got.GetEmbedded().GetAuthor().GetIsPrivate() {
+		t.Errorf("author=%v embedded author=%v, want is_private unset on both", got.GetAuthor(), got.GetEmbedded().GetAuthor())
+	}
+	if got.GetAuthor().GetUserId() != "u1" || got.GetEmbedded().GetAuthor().GetUserId() != "u1" {
+		t.Errorf("authors not carried: %v / %v", got.GetAuthor(), got.GetEmbedded().GetAuthor())
+	}
+}
