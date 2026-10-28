@@ -441,8 +441,10 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	// reads = 25.
 	// W3-26a (ADR-0025 D11): the identity step also ArrayRemoves the uid from privacy/protectedAuthors, a real write whenever
 	// that doc exists (always, in dev and prod; the setup creates it), so writes = 4 exactly (W3-35a D-2).
-	if work["fs_reads"].(float64) > 25 || work["fs_writes"].(float64) != 4 || work["fs_deletes"].(float64) > 9 {
-		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 25, writes exactly 4, deletes 9)", work)
+	// The messaging step (W7-6, ADR-0027 D8: one conversation cursor query, an empty query bills 1 read) adds 1 read:
+	// reads = 26.
+	if work["fs_reads"].(float64) > 26 || work["fs_writes"].(float64) != 4 || work["fs_deletes"].(float64) > 9 {
+		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 26, writes exactly 4, deletes 9)", work)
 	}
 	for _, l := range e.jobLines() {
 		if l["uid_hash"] == a.uid || strings.Contains(fmt.Sprint(l), a.uid) {

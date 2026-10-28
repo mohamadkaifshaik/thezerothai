@@ -60,6 +60,44 @@
   "media": {
     "media": []
   },
+  "messages": {
+    "conversations": [
+      {
+        "createdAt": "<time>",
+        "messages": [
+          {
+            "at": "<time>",
+            "direction": "received"
+          }
+        ],
+        "peerHandle": "<handle:g>",
+        "state": "REQUEST"
+      },
+      {
+        "createdAt": "<time>",
+        "messages": [
+          {
+            "at": "<time>",
+            "direction": "sent",
+            "state": "VISIBLE",
+            "text": "second message from A"
+          },
+          {
+            "at": "<time>",
+            "direction": "received"
+          },
+          {
+            "at": "<time>",
+            "direction": "sent",
+            "state": "VISIBLE",
+            "text": "hello f, from A"
+          }
+        ],
+        "peerHandle": "<handle:f>",
+        "state": "ACCEPTED"
+      }
+    ]
+  },
   "notifications": {
     "devices": [],
     "notifications": [],

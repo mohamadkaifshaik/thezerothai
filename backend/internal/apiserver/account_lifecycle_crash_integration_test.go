@@ -41,6 +41,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
@@ -273,7 +274,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo))} {
+	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo)), messagingEraserStep(messaging.NewFirestoreRepo(e.fs, nil), nil)} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, crashStep{s, plan}); err != nil {
 			t.Fatal(err)
 		}
@@ -323,6 +324,7 @@ type richAccount struct {
 	blockedByA, blocksA, mutedByA testUser
 	handle                        string
 	exportID                      string
+	dmConv                        string // a conversation tree with a gone peer: A's erasure deletes all of it (ADR-0027 D8)
 	roles                         map[string]string
 	cohort                        []string
 }
@@ -370,6 +372,9 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	e.seedScheduled(t, r.a.uid, "rich-sched-cancelled-01", "CANCELLED")
 	// Bookmarks live under users/{uid}/bookmarks (ADR-0023), also not removed with users/{uid}.
 	e.seedBookmarks(t, r.a.uid, 3)
+	// Conversations live in their own root collection and under users/{uid}/dmInbox, which deleting users/{uid} does not
+	// remove (ADR-0027 D8). This one has a peer that deleted its account already, so A's erasure deletes the whole tree.
+	r.dmConv = e.seedGoneConversation(t, r.a.uid)
 
 	exp, err := e.identity.RequestAccountExport(ctx, authed(r.a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "rich-export-" + r.a.uid[:12]}))
 	e.call(t, "RequestAccountExport", err)
@@ -520,6 +525,12 @@ func (e *lifecycleEnv) requireRichErased(t *testing.T, r richAccount) {
 	for _, other := range []testUser{r.blockedByA, r.blocksA, r.mutedByA} {
 		if !fsDocExists(t, e.fs, "users/"+other.uid) {
 			t.Errorf("counterpart %s was deleted with A", other.uid)
+		}
+	}
+	if r.dmConv != "" {
+		e.requireMessagingGone(t, r.dmConv)
+		if fsDocExists(t, e.fs, "users/"+r.a.uid+"/dmInbox/"+r.dmConv) {
+			t.Error("users/{uid}/dmInbox survived the messaging step")
 		}
 	}
 	e.requireNoResidue(t, r.a.uid)

@@ -334,8 +334,8 @@ Prices (§7):
 | W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | Done (#402): `GetMeResponse.unread_conversation_count = 7`, `NOTIFICATION_TYPE_MESSAGE = 9`, `REPORT_TARGET_TYPE_MESSAGE = 3`, `ERROR_REASON_CANNOT_MESSAGE = 18` |
 | W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Done (#401): six exemptions, ack updated (42 overrides); the `firestore-data-model` rows came with ADR-0027 (#400) |
 | W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | In review (PR pending) |
-| W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | Open |
-| W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Open |
+| W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | In review (PR pending) |
+| W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | In review (PR pending) |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Open |
 | W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Open |
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
@@ -493,7 +493,7 @@ Order:
 - **Flag.** Adds `FEATURE_MESSAGING` (default `off`; dev ceiling allowlist 3).
 - **Seam.** Handlers call only `messaging.Service`; the flag check lives in the service layer (`flags.Guard`), so a later split keeps it.
 
-### W7-5 — SendMessage  [owner: backend-developer] [size: M] [depends: W7-4]  Status: Open (ships in one PR with W7-6)
+### W7-5 — SendMessage  [owner: backend-developer] [size: M] [depends: W7-4]  Status: In review (PR pending)
 - **Description.** `messaging.Service.Send`, step by step:
   1. Validate the key (≤ 64), the target, and the text (`text.Normalize`, A6; 0 reads on rejection). Apply the per-minute limit and `messages_daily`.
   2. Resolve the conversation. For `recipient_user_id`: self → VALIDATION; compute `convId`. For `conversation_id`: the participant check against the cached conversation doc.
@@ -531,7 +531,7 @@ Order:
 - **Flag.** `messaging`, per caller and per recipient (F6).
 - **Seam.** `messaging.Service.Send`; the push leaves only through `notifications.Emitter` (`stage-ladder` Real-time seam); inbox entries sit behind a repo interface, so a group fan-out or a listener-backed store changes no caller.
 
-### W7-6 — Messaging lifecycle: eraser, export, guard rows, runbook  [owner: backend-developer] [size: M] [depends: W7-4]  Status: Open (ships in one PR with W7-5, T11 guard)
+### W7-6 — Messaging lifecycle: eraser, export, guard rows, runbook  [owner: backend-developer] [size: M] [depends: W7-4]  Status: In review (PR pending)
 - **Description.**
   - **`messaging.Eraser` step `messaging`.** It is resumable, registered before `identity` (the order relative to `notifications` per A7), with pages ≤ 500 and a checkpoint (conversation cursor, phase).
     1. Page `conversations where participants array-contains uid`. For each conversation: set `gone += uid` (1 write).
