@@ -42,6 +42,10 @@ type service struct {
 	// retire hands a replaced or removed avatar or banner to the media module after the commit (media_retire.go, ADR-0024
 	// Amendment 1 A4); nil = never, the pre-A4 behaviour.
 	retire *mediaRetire
+	// privacy is the is_private toggle (privacy.go, ADR-0025 D8); nil = the W3-25b behaviour (protect refused as coming soon).
+	privacy *privacyDeps
+	// listener is told after a committed unprotect (WithPrivacyListener); nil publishes nothing.
+	listener *privacyListener
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -340,6 +344,17 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
 // (never the cause).
 //
+// ADR-0025 D8 (W3-26a): an is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
+// protect 3 reads (users, quotas, the privacy/protectedAuthors doc for the cap) and 3 writes (isPrivate, the set doc with
+// ArrayUnion, quotas.privacyToggles), 4 reads with the interceptor cold; unprotect 2 reads and 3 writes (ArrayRemove, no cap
+// check), 3 with the interceptor cold. An is_private equal to the stored value is the plain update's 1 read and 0 writes and
+// is not charged to the quota. The 5th change of an IST day is QUOTA_EXCEEDED quota=privacy_toggles and a full set is
+// LIMIT_REACHED limit=private_accounts, both with 0 writes. After the commit the committing instance updates its own copy of
+// the set at once (Install on a protect, Apply on an unprotect; other instances within CACHE_TTL), and an unprotect calls
+// PrivacyListener.BecamePublic (detached, short deadline; a failure is ERROR privacy_public_enqueue_failed and never fails the
+// call). The cached profile is written from the committed data (SetProfile), so no Directory.Forget is needed. A toggle bumps
+// no snapshotVersion and enqueues no snapshot job. is_private=true is gated by private_accounts; is_private=false never is.
+//
 // A4 (ADR-0024 Amendment 1): a commit that replaced or removed the avatar or the banner hands the old image to the media
 // module's retire step (WithMediaRetirer, after the commit, best effort): 0 extra Firestore reads, since the old URLs are
 // in the document the transaction read, and at most 2 Pub/Sub publishes (one per image, each under a 2 s deadline). The
@@ -435,9 +450,8 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		logger.SetRequestField(ctx, "pin_check", "ok")
 	}
-	// W3-25b: the flag gate above is the only change so far. Protecting an account is built in W3-26a; until then an allowlisted
-	// caller who passes the gate still gets this refusal before any read, 0 writes. is_private=false stays accepted.
-	if params.IsPrivate != nil && *params.IsPrivate {
+	// Without the privacy wiring (unit tests) protecting stays refused before any read, 0 writes (W3-25b behaviour).
+	if s.privacy == nil && params.IsPrivate != nil && *params.IsPrivate {
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
@@ -462,7 +476,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	snapshotChanged := false
 	var changed []string
 	var retired []retiredImage // the old avatar and banner this commit replaced or removed (A4); 0 extra reads
-	profile, err := s.repo.UpdateProfile(ctx, uid, func(p *Profile) {
+	mutate := func(p *Profile) {
 		changed, snapshotChanged, retired = changed[:0], false, retired[:0] // the transaction may run more than once
 		// W3-22 L-4: a request that changes nothing must leave the profile (UpdatedAt included) as it was, so the repo
 		// skips the write; UpdatedAt moves only below, when something really changed.
@@ -526,14 +540,37 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			// request that changed nothing (no write) retires nothing.
 			retired = retiredImages(orig, *p)
 		}
-	})
+	}
+	var (
+		profile Profile
+		err     error
+		toggle  PrivacyUpdate
+	)
+	if s.privacy != nil && params.IsPrivate != nil {
+		// ADR-0025 D8: an is_private request runs the toggle transaction. Equal to the stored value it costs the plain
+		// update's 1 read and charges no quota.
+		toggle, err = s.privacy.repo.UpdateProfileWithPrivacy(ctx, uid, mutate, s.privacy.limits)
+		profile = toggle.Profile
+		logger.SetRequestField(ctx, fieldPrivacyToggleAttempts, toggle.Attempts)
+		if err != nil {
+			if refusal := privacyRefusal(ctx, err); refusal != nil {
+				return Profile{}, refusal
+			}
+		}
+	} else {
+		profile, err = s.repo.UpdateProfile(ctx, uid, mutate)
+	}
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return Profile{}, notFoundErr()
 		}
 		return Profile{}, logger.RedactErr(fmt.Errorf("identity: update profile: %w", err), uid)
 	}
+	// The written profile is the cache entry (read-your-writes, 0 reads); Directory.Forget would only evict it.
 	s.cache.SetProfile(profile)
+	if s.privacy != nil && params.IsPrivate != nil {
+		s.afterPrivacyCommit(ctx, uid, toggle, now)
+	}
 	if refresh && snapshotChanged {
 		s.enqueueSnapshotRefresh(ctx, uid, profile.SnapshotVersion)
 	}
@@ -541,7 +578,6 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		logger.SetRequestField(ctx, "profile_fields_changed", strings.Join(changed, ",")) // names only, never values
 	}
 	s.retireImages(ctx, uid, retired, now)
-	// TODO(Phase 2): if IsPrivate changed, publish the visibility job (ADR-0003); private accounts are deferred.
 	return s.present(profile), nil
 }
 

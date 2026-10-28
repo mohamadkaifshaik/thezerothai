@@ -147,6 +147,8 @@ type fakeLCRepo struct {
 	writes  int
 	deletes int
 	calls   map[string]int
+	// protectedRemoved lists the uids RemoveFromProtectedSet was called for.
+	protectedRemoved []string
 }
 
 type fakeUser struct {
@@ -408,6 +410,18 @@ func (f *fakeLCRepo) DeleteHandleIfOwned(_ context.Context, handleLower, uid str
 	f.deletes++
 	f.log.add("repo.DeleteHandle")
 	return HandleDeleted, nil
+}
+
+// RemoveFromProtectedSet records the uid in protectedRemoved (not in the op log, so the step-order tests keep their
+// expected sequences).
+func (f *fakeLCRepo) RemoveFromProtectedSet(_ context.Context, uid string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("RemoveFromProtectedSet"); err != nil {
+		return err
+	}
+	f.protectedRemoved = append(f.protectedRemoved, uid)
+	return nil
 }
 
 func (f *fakeLCRepo) DeleteQuotas(_ context.Context, uid string) error {
