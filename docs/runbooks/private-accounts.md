@@ -36,7 +36,19 @@ that account meanwhile becomes an edge (ADR-0025 AQ4).
 
 The loader reads the set doc lazily: only when a request needs it and its copy is older than 60 s, one read per instance, shared by
 concurrent requests, on a detached counter (log field `protected_set_reads`, never in a caller's `fs_reads`). The instance that
-committed a toggle applies it at once; the others within 60 s.
+committed a toggle applies it at once; the others within 60 s. A toggle that lands on the same instance while a refresh read is
+in flight no longer discards that read: the fetched copy is installed with the toggle re-applied, so an instance idle for more than
+10 minutes never serves the old copy (W3-40a, W3-36 L-3).
+
+**Startup refusal (W3-36 L-5).** `apiserver.Build` refuses to start, with `protected-author seams not wired (would fail open): <names>`,
+when any of the seven protected-set seams is nil (the loader, graph `Protected`, `identity.WithProtectedAuthors`, the notifications
+`Audience`, `posts.WithProtectedAuthors`, the engagement `Audience` from `posts.AudienceOf`, `timeline.WithProtectedAuthors`). Every
+module reads a nil seam as "nobody is protected", so the deploy fails instead. A revision that crash-loops with this message has a
+wiring regression: roll back (never forward-fix by passing a nil).
+
+**Undo of a post the caller cannot see (W3-36 L-1).** UnlikePost and UndoRepost still always remove the caller's like or repost, but
+answer the missing-post shape (the post id only, zero counts: the bytes of a deleted post) when the caller may not see the post or
+its author (protected and not followed, blocks the caller, taken down). Cost: +0 warm, +1 cold (the caller's graph snapshot).
 
 | Log line | Meaning | What to do |
 |---|---|---|

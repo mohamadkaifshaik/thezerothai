@@ -338,7 +338,7 @@ Notation as in the plan: P posts, O following, I followers, B blocked, Bb blocke
 | DeleteAccount (sync) | 2 cold / 1 warm (interceptor + fresh `users` in the txn) | **1** (`status`, `updatedAt`, `deletionRequestedAt`, `deletionJob{seq:0}` in one update; no job doc) | 0 | 1 / < 0.2 | 0.001 |
 | ↳ replay (already DELETING) | 2 / 1 | 0 (+1 publish) | 0 | 1 | — |
 | `account-delete` job | P + O + I + 2·⌈(max(B,Bb)+1)/500⌉ + 2 + ≤ 3 + 2 (identity: `handles`, `private/*`) + max(E, 1) (`exports` query; the identity step's `users` read is the job-state read) + **D** (job-state) | O + 2I + B + Bb + **(W − 1)** checkpoints | P + O + I + 1 + 3 + E | D / ≤ 20 per work invocation | 0.001 |
-| ↳ reference (P 300, O = I = 100, E 1) | **≈ 510** (A: D = 3) / ≈ 508 (B: D = 1) | **300** (W = 1) | **505** | 3 / ≈ 10 | 0.001 |
+| ↳ reference (P 300, O = I = 100, E 1) | **≈ 510** (A: D = 3) / ≈ 508 (B: D = 1) | **300** (W = 1); **301** since W3-26a (the identity step's `ArrayRemove` on `privacy/protectedAuthors`, ADR-0025 D11) | **505** | 3 / ≈ 10 | 0.001 |
 | RequestAccountExport | 2 / 1 | 2 (`exports` + `quotas`) | 0 (+1 TTL delete after 7 days) | 1 | 0.001 |
 | `account-export` job (1 invocation) | 1 (`users`) + 1 (`exports`, = job state) + (P or 1) + (O or 1) + (I or 1) + 1 + distinct handles | 2 (lease claim, `status`; L-4 amendment) | 0 | 1 / ≤ 20 | 0.001 |
 | ↳ reference | **≈ 703** | 1 | 0 | 1 | 0.001 |

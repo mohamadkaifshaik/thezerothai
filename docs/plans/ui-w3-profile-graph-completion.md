@@ -113,8 +113,8 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
-| W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
-| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Open (depends: W3-36 review) |
+| W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Done (PR #418) (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
+| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Done (PR #417) |
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
@@ -1276,7 +1276,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 #### Part B: W3-36 fix tickets (from `docs/reviews/security-review-w3b.md`, founder decisions 2026-10-28)
 The founder's decisions on the review: M-2 accepted (unguessable public names for new uploads); M-1 gets the runbook rule now (PR #404) and the `resolve-rollback.sh` floor before any prod ramp; the Lows are fixed in the next fix PRs. O-1 of the W3-35b test report (PR #405) and D-2 of the W3-35a test report (PR #410) ride with the Lows. W3-35a's D-1 (two further `ProtectedSet.CanSee` callers) is closed by the ADR-0025 "Implementation note (W3-35a D-1)", with no code change. Every ticket below follows "Part B: common to every ticket" (budget assertions through `apiserver.Build`, logs with hashes or counts only, `make ci` and `make test-int` green).
 
-#### W3-39 Media: unguessable public object names for new uploads (W3-36 M-2) [backend-developer] [M] [depends: W3-36 review] Status: Open
+#### W3-39 Media: unguessable public object names for new uploads (W3-36 M-2) [backend-developer] [M] [depends: W3-36 review] Status: Done (PR #418)
 - **Design.** ADR-0025 "Implementation note (W3-36 M-2, 2026-10-28)", with a pointer note on ADR-0005. New uploads publish as `m/<mediaId>-<suffix>.<ext>` and `m/<mediaId>-<suffix>_t.<ext>`. The suffix is 128 bits from `crypto/rand` as 32 lowercase hex characters, chosen at `CreateUpload` and stored as `nameSuffix` on the PENDING media doc in the existing create write. Old docs and objects keep the old shape (founder B1).
 - **Seam.** `MediaRef.url` and `thumb_url` stay opaque full URLs built only by `media` (`publicBaseURL + "/" + PublicPath`); no proto change, and no caller or client builds a name.
 - **Gate.** It must be serving 100% of a project's traffic and be on its `last-good` before `private_accounts` leaves the dev allowlist (more uids, a percent, or on) in that project. It does not gate W3-38.
@@ -1299,7 +1299,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - **Flag.** None: names change for every new upload; there is no user-visible behaviour to ramp.
 - **Cost.** +0 operations; bytes as in the budget row (ADR-0025 note).
 
-#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: Open
+#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: Done (PR #417)
 - **L-1, the undo oracle** (`engagement/service.go`, `resolveForCounts` and the Unlike and Undo repost paths).
   - The write stays ungated (rule 4): an undo always lands.
   - The answer is the missing-post shape (`post_id` only, zero counts, the same bytes as a deleted post) when `Audience.VisibleAuthor` is false for the caller, when the post is hidden (taken down, author suspended), or when the author blocks the caller.

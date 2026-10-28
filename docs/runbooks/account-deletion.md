@@ -86,7 +86,11 @@ dry run shows `posts=0`. Other instances may serve a purged post from their 60 s
 **Step 1. Purge the graph.** Dry run first (prints counts, writes nothing), then the real run. It is resumable and safe
 to re-run: it deletes the follow edges both ways, fixes the other users' `followersCount` / `followingCount` and their
 `following` / `blockedBy` / `blocked` arrays, then deletes `graph/{uid}`. A cost of about 200 reads, 300 writes and
-200 deletes for a user with 100 followers and 100 following.
+200 deletes for a user with 100 followers and 100 following. The whole job on the reference account (300 posts, 100/100) is
+301 writes, not 300: since W3-26a the identity step also does an `ArrayRemove` on `privacy/protectedAuthors`, a real write
+whenever that doc exists (always, in dev and prod); the reference chain (1 post, 1 following, 1 follower) is 4 writes, not 3.
+`TestAccountLifecycle_Chain` and `TestAccountLifecycle_ReferenceAccountBudgets` create the set doc in their setup and assert
+these exact numbers (W3-40a, W3-35a D-2).
 ```bash
 cd backend
 go run ./cmd/opsctl purge-graph --project $P --uid "$UID_" --dry-run
