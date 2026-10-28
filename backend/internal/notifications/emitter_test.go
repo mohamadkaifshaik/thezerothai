@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func TestPrepare(t *testing.T) {
@@ -96,6 +98,20 @@ func TestInlineEmitter(t *testing.T) {
 			t.Fatalf("rows = %+v", r.repo.rows)
 		}
 	})
+	t.Run("the delivery's reads never land on the producer's budget counter", func(t *testing.T) {
+		r := newRig(t, nil)
+		r.dir.cold = map[string]bool{"alice": true, "bob": true} // the fan-out reads both profiles
+		ctx, producer := budget.WithCounter(context.Background())
+		em := NewInlineEmitter(r.f, allFlags{}, nil)
+		mustNoErr(t, em.Emit(ctx, Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}))
+		em.Wait()
+		if len(r.dir.cold) == 2 {
+			t.Fatal("control: the fan-out read no profile")
+		}
+		if got := producer.Reads(); got != 0 {
+			t.Errorf("producer reads = %d, want 0 (the inline delivery is its own unit of work)", got)
+		}
+	})
 	t.Run("work is bounded: a full emitter drops instead of spawning", func(t *testing.T) {
 		r := newRig(t, nil)
 		var buf bytes.Buffer
@@ -118,11 +134,11 @@ func TestNopEmitter(t *testing.T) {
 }
 
 func TestType(t *testing.T) {
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage} {
 		if !ty.Valid() {
 			t.Errorf("%s not valid", ty)
 		}
-		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted; got != want {
+		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted && ty != TypeMessage; got != want {
 			t.Errorf("%s needsPost = %v", ty, got)
 		}
 	}

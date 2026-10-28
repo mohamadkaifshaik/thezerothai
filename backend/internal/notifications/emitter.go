@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -25,7 +26,7 @@ func prepare(e Event, fl FlagChecker, now time.Time) (Event, bool) {
 			continue
 		}
 		seen[r] = true
-		if fl != nil && !fl.Enabled(r, FlagName) {
+		if !recipientFlagsOn(fl, r, e.Type) {
 			continue
 		}
 		out.RecipientIDs = append(out.RecipientIDs, r)
@@ -37,6 +38,18 @@ func prepare(e Event, fl FlagChecker, now time.Time) (Event, bool) {
 		out.At = now
 	}
 	return out, len(out.RecipientIDs) > 0 && validateEvent(out) == ""
+}
+
+// recipientFlagsOn reports whether uid may receive an event of type t: `notifications` for every type, and also
+// `messaging` for the push-only message type (ADR-0027 D9). A nil checker allows everything (tests).
+func recipientFlagsOn(fl FlagChecker, uid string, t Type) bool {
+	if fl == nil {
+		return true
+	}
+	if !fl.Enabled(uid, FlagName) {
+		return false
+	}
+	return t != TypeMessage || fl.Enabled(uid, MessagingFlagName)
 }
 
 // RecipientCap is the per-actor daily cap on notification recipients (security audit N-1, CLAUDE.md rule 11). Every
@@ -181,7 +194,10 @@ func (e *InlineEmitter) Emit(ctx context.Context, ev Event) error {
 		e.log.WarnContext(ctx, "notification_inline_dropped", "type", string(ev.Type), "reason", "busy")
 		return nil
 	}
-	bg := context.WithoutCancel(ctx)
+	// The delivery is its own unit of work (a push request in production), so it gets its own budget counter:
+	// WithoutCancel keeps ctx's values, and the fan-out's reads would otherwise land on the producer's counter
+	// whenever they beat its request log line, making the producer's fs_reads depend on goroutine timing.
+	bg, _ := budget.WithCounter(context.WithoutCancel(ctx))
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()

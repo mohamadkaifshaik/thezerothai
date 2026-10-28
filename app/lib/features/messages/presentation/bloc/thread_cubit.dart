@@ -46,6 +46,7 @@ class ThreadState {
     this.pendingNew = 0,
     this.peerBlocked = false,
     this.deleting = false,
+    this.cannotMessage = false,
     this.error,
     this.notice,
   });
@@ -71,6 +72,10 @@ class ThreadState {
   final bool peerBlocked;
   final bool deleting;
 
+  /// A send was refused with CANNOT_MESSAGE (W7-16): read-only from now on,
+  /// without waiting for a header refresh.
+  final bool cannotMessage;
+
   /// Blocking error (nothing cached).
   final AppException? error;
 
@@ -83,7 +88,9 @@ class ThreadState {
   /// other, or the peer's account is gone) or the caller just blocked. With
   /// no header yet it is false: nothing is announced before it is known.
   bool get readOnly =>
-      peerBlocked || (conversation != null && !conversation!.canReply);
+      peerBlocked ||
+      cannotMessage ||
+      (conversation != null && !conversation!.canReply);
 
   ThreadState copyWith({
     ThreadStatus? status,
@@ -96,6 +103,7 @@ class ThreadState {
     int? pendingNew,
     bool? peerBlocked,
     bool? deleting,
+    bool? cannotMessage,
     Object? error = _keep,
     Object? notice = _keep,
   }) {
@@ -110,6 +118,7 @@ class ThreadState {
       pendingNew: pendingNew ?? this.pendingNew,
       peerBlocked: peerBlocked ?? this.peerBlocked,
       deleting: deleting ?? this.deleting,
+      cannotMessage: cannotMessage ?? this.cannotMessage,
       error: identical(error, _keep) ? this.error : error as AppException?,
       notice: identical(notice, _keep) ? this.notice : notice as AppException?,
     );
@@ -413,6 +422,28 @@ class ThreadCubit extends Cubit<ThreadState> {
   void markPeerBlocked() {
     if (isClosed || state.peerBlocked) return;
     emit(state.copyWith(peerBlocked: true));
+  }
+
+  /// A send was refused with CANNOT_MESSAGE (W7-16, ADR-0027 D4): the thread
+  /// is read-only from now on (one answer for every cause, so none shows).
+  void markCannotMessage() {
+    if (isClosed || state.cannotMessage) return;
+    emit(state.copyWith(cannotMessage: true));
+  }
+
+  /// A send succeeded (W7-16): the repository cached the message, so read it
+  /// back and show it at once, deduped by id with what is on screen. The
+  /// screen scrolls to the newest on send, so nothing is held back.
+  Future<void> noteSent() async {
+    if (isClosed) return;
+    try {
+      final snapshot = await _repository.cachedThread(conversationId);
+      if (isClosed) return;
+      setAtBottom(true);
+      _apply(snapshot, open: false);
+    } on Object catch (error, stack) {
+      onUnexpectedError?.call(error, stack);
+    }
   }
 
   /// Deletes the conversation for the caller (also "delete request"). Returns

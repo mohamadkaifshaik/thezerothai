@@ -76,7 +76,7 @@ func (e *itEnv) tick(d time.Duration) time.Time {
 // newService builds another service instance over the same storage (a second Cloud Run instance).
 func (e *itEnv) newService() *service {
 	return New(e.reg, Deps{
-		Repo: e.repo, Social: e.social, Profiles: e.profs, Events: e.events, Badge: e.badge, Limits: e.limits, Now: e.now,
+		Repo: e.repo, Social: e.social, Profiles: e.profs, Events: e.events, Badge: e.badge, Limits: e.limits, CursorKey: testCursorKey, Now: e.now,
 	}).(*service)
 }
 

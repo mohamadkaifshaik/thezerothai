@@ -37,6 +37,8 @@ func pushText(t Type) (title, body string) {
 		return "New follow request", "Someone asked to follow you"
 	case TypeFollowAccepted:
 		return "Follow request accepted", "Your follow request was accepted"
+	case TypeMessage:
+		return "New message", "You have a new message" // generic by design (ADR-0027 D9): no sender, no text
 	}
 	return "Notification", "You have a new notification"
 }
@@ -120,12 +122,15 @@ func buildMessage(token string, p Push) *messaging.Message {
 	title, body := pushText(p.Type)
 	ttl := fcmTTL
 	collapse := string(p.Type)
+	data := map[string]string{"type": string(p.Type), "notificationId": p.NotificationID, "postId": p.PostID, "actorId": p.ActorID}
+	if p.Type.pushOnly() {
+		// A direct-message push names the conversation only: no actor id, no post, no notification id (ADR-0027 D9).
+		data = map[string]string{"type": string(p.Type), "conversationId": p.ConversationID}
+	}
 	return &messaging.Message{
 		Token:        token, //nolint:staticcheck // SA1019: the client stores the FCM registration token (getToken()), which Token addresses; Fid is the installation id, a different identifier
 		Notification: &messaging.Notification{Title: title, Body: body},
-		Data: map[string]string{
-			"type": string(p.Type), "notificationId": p.NotificationID, "postId": p.PostID, "actorId": p.ActorID,
-		},
+		Data:         data,
 		Android: &messaging.AndroidConfig{
 			Priority: "normal", TTL: &ttl, CollapseKey: collapse,
 			Notification: &messaging.AndroidNotification{ChannelID: "social", Tag: collapse},

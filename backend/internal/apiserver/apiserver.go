@@ -253,6 +253,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		Audience:  notifAudience,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
+		// ADR-0027 D9: the push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
+		MessagePushLimit: notifications.NewPushLimiter(cfg.Messaging.PushesPerRecipientPerHour),
 	})
 	switch cfg.NotificationsDelivery {
 	case "inline":
@@ -531,8 +533,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
-	// Messaging (ADR-0027): SendMessage (W7-5) behind FEATURE_MESSAGING, per caller and per recipient; the other four RPCs
-	// check the flag (not globally off) and answer Unimplemented until W7-7 to W7-9. Badge is nil until W7-11 builds the
+	// Messaging (ADR-0027): SendMessage (W7-5) behind FEATURE_MESSAGING, per caller and per recipient; ListConversations (W7-7)
+	// is not globally off; the other three RPCs check the flag and answer Unimplemented until W7-8 and W7-9. Badge is nil until W7-11 builds the
 	// unread-conversation cache; the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
 		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
@@ -542,7 +544,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			NewAccountSendsPerDay: int64(cfg.Messaging.NewAccountSendsPerDay), NewAccountWindow: cfg.Quota.NewAccountWindow,
 			ConversationCacheEntries: cfg.Messaging.ConversationCacheEntries,
 		},
-		Log: log,
+		CursorKey: cfg.CursorHMACKey,
+		Log:       log,
 	})
 	messagingServer := messaging.NewServer(messagingSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

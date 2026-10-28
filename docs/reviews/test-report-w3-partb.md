@@ -398,8 +398,7 @@ VERDICT: PASS
 
 ## W3-41a: owner placeholders for protected authors (PR #430, head `70732b66`, tested after the origin/main merge)
 
-**VERDICT: FAIL for W3-41a: one Low defect, D-1 (block is not decided first on the owner's profile when the caller's
-`blockedBy` overflowed).** Everything else holds. Two new tests are red by design until D-1 is fixed.
+**VERDICT: PASS for W3-41a after the fix commit 01f967b7 (was FAIL on one Low defect, D-1: block was not decided first on the owner's profile when the caller's `blockedBy` overflowed).** Everything else holds.
 
 ### 1. Cases the author asked to attack
 
@@ -457,4 +456,82 @@ bash scripts/with-private-tmp.sh firebase --config <copy>.json emulators:exec --
 cd backend && go test ./internal/posts/ -run TestW341aAttack
 ```
 
-VERDICT: FAIL — D-1 (Low): own-profile REPOST of an author who blocked the caller is kept when the caller's blockedBy overflowed (posts/audience.go:167-178, timeline/service.go:331).
+VERDICT: PASS after 01f967b7 (was FAIL, D-1 Low): own-profile REPOST of an author who blocked the caller is kept when the caller's blockedBy overflowed (posts/audience.go:167-178, timeline/service.go:331).
+
+---
+
+## W3-35d: `TestW335a_PartBBudgetTable` independent of test order (2026-10-29)
+
+W3-40b found that the table failed when run alone, on clean main: `Respond decline` 3 reads against the asserted 2, and
+`Respond accept, standalone cold` 7 against 5. It passed in the full package run. The test is fixed (no production file
+changed in this ticket); the investigation also surfaced one low production observation, D-1 below.
+
+**Cause (two effects).**
+1. **A decline after an accept on the same instance reads 3 (production behaviour, D-1).** An accept calls
+   `Directory.Forget(requester, caller)` (`backend/internal/graph/follow_requests.go:110`, because the follower counters
+   moved), and `identity.Forget` (`backend/internal/identity/service.go:790`) evicts the *caller's* profile too. The next call
+   on that instance pays the account-status interceptor's read again. The old test ran accept, decline and replay on one
+   instance; whether the decline read 2 or 3 depended on effect 2.
+2. **Test-side: the test chain delivers notifications with `notifications.InlineEmitter`**
+   (`backend/internal/notifications/emitter.go:173`), a goroutine carrying the request's budget counter that runs after the
+   response. Its fan-out reads (the actor's profile, which also re-warms the evicted caller entry, and the recipient's settings)
+   land in the measured request line or not, by a race. That is why the cold accept read 7 in some runs and 5 in others (four
+   repeats in one process: 7, 7, 5, 5) and why the order of earlier tests changed the outcome. In production the fan-out is a
+   separate Pub/Sub push request with its own line.
+
+**Fix.** Every Respond row builds its own instance and says what it is: warm = fresh instance plus one `ListFollowRequests`;
+cold = fresh instance and nothing else. The Part B table runs on `noFanout` chains (`w335aOn` with `FEATURE_NOTIFICATIONS` off, so
+`prepare` drops the event before the goroutine starts). A cold standalone decline row was added. No ceiling was raised or
+lowered; every figure is inside ADR-0025 D7 and the W3-28a implementation note.
+
+| Respond row | State | Reads (measured, 6 of 6 runs) | Ceiling |
+| --- | --- | --- | --- |
+| accept | warm (after List) | 2 | 3 |
+| decline | warm (after List) | 2 | 2 |
+| replay, right after an accept | interceptor re-read after `Forget` (D-1) | 2 | 2 |
+| accept | standalone cold | 5 | 5 |
+| decline | standalone cold | 4 | 5 |
+
+Writes and deletes are unchanged (accept 4 + 1 delete, decline 1 + 1 delete, replay 0).
+
+**Other rows unchanged.** Every non-Respond `W320BUDGET` line of the fixed run was compared with the pre-fix repro and is
+identical (Home 7 / 7, Follow 4 / 5 and 4 / 3, UpdateProfile 4 / 3 and 3 / 3, Withdraw 1, ListFollowRequests 42, GetMe 2 and 3,
+GetUserTimeline 3, ListFollowers and ListFollowing 3, GetPost 4 and 5, GetThread 6, ListBookmarks 4, ListLikedPosts 4), so
+turning the fan-out off moved no other row and the GetMe "+1 count" row still pins its label.
+`TestW335a_BudgetTableWithPartBOn` (the W3-20 table) is untouched and still runs with notifications on.
+
+**Order independence (emulators on 38xxx ports, `GOWORK=off`).**
+- Alone, `-run '^TestW335a_PartBBudgetTable$' -count=6` in one process (the first iteration is a cold process): 6 of 6 pass with
+  identical figures. Before the fix the same command failed (decline 3 against 2 on the first run).
+- After the other W3-35a tests, in one process: `go test -shuffle=on -count=3 -timeout 40m ./internal/apiserver/` (whole package,
+  seed 1793219025365663600, 776 s): `ok`, the table passed 3 of 3. Go applies one shuffled order to every `-count` repeat; in
+  that order the table ran after nine other `TestW335a_*` tests (visibility matrix, `BudgetTableWithPartBOn`, stale protected
+  set, ...) and, in repeats 2 and 3, after its own earlier run. A first attempt with default flags hit the 10-minute `go test`
+  timeout (the package takes about 4 minutes per pass); that was the timeout, not a failure.
+- Separate processes (`-run '^TestW335a_[^P]'`, then the table alone): both pass (no cache carries across processes, so this
+  only shows the other tests do not break the table's data).
+
+### Defects and observations
+
+- **D-1 (low, production, owner backend-developer; architect for the ADR wording): a Respond after an accept on the same
+  instance reads 3, not the ADR's warm 2.** Repro: one instance, `ListFollowRequests`, accept requester A, then decline (or
+  accept) requester B. B's call reads 3 (interceptor, request, requester graph) because the accept's
+  `s.directory.Forget(requesterUID, callerUID)` (`backend/internal/graph/follow_requests.go:110`) evicted the caller's
+  profile. Production does not hide it (the fan-out is a separate request), so a user working through the requests screen pays
+  1 extra read from the second tap on. ADR-0025 D7 and the W3-28a note say the List-then-tap flow "stays at 3 / 2". Impact is
+  tiny (1 read per tap, 20 taps = 20 reads). Options for the owner: evict only the requester (the caller's own profile does not
+  change, only its follower count, which `Forget` drops with it), or amend the ADR note to "3 / 2 for the first tap, 3 for
+  the taps after an accept". Not decided here; no ceiling was changed.
+- **Leftover emulators.** Every Pub/Sub emulator run of this ticket left its JVM listening after `emulators:exec` ended (one per
+  run, 38085 to 38785). I did not kill them; PIDs are in the hand-off message.
+
+**Reproduce.**
+```sh
+export GOWORK=off
+bash scripts/with-private-tmp.sh firebase --config <untracked copy of firebase.json, ports in 38xxx> emulators:exec --project demo-dzeroth \
+  --only firestore,auth,pubsub,storage 'cd backend && go test -tags=integration -count=1 -v -run "^TestW335a_PartBBudgetTable$" ./internal/apiserver/'
+```
+
+Update 2026-10-29: the founder accepted D-1 as documented behaviour (option B: keep the eviction, record the read); ADR-0025's W3-28a implementation note now says a later Respond after an Accept on the same instance reads 3. The test-side cause (the inline fan-out's reads landing on the producer's request line) is also fixed at the source by #434 (`notifications.InlineEmitter` runs on its own budget counter); this test keeps its per-row fresh instances and the `noFanout` config on top of that.
+
+VERDICT: PASS (D-1 accepted by the founder 2026-10-29, recorded in ADR-0025; no ceiling changed)

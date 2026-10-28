@@ -4,9 +4,9 @@ Owner module: `backend/internal/messaging`. Plan: `docs/plans/ui-w7-messaging.md
 W7-7 to W7-9 lists, read, accept and delete; W7-10 push; W7-11 badge; W7-12 report). Flag: `FEATURE_MESSAGING` (wire name `messaging`, default
 `off`; dev ceiling allowlist 3, no prod raise before W7-22 and W7-23 pass in dev).
 
-What exists on `main` after W7-5 and W7-6: SendMessage, the `messaging` account-deletion step and the `messages` export section. The other
-four RPCs (ListConversations, ListMessages, MarkConversationRead, AcceptMessageRequest, DeleteConversation) answer `Unimplemented` after the
-flag gate until W7-7 to W7-9; the push is emitted by the send but dropped by notifications until W7-10 adds the `message` type. Sections that
+What exists on `main` after W7-5, W7-6, W7-7 and W7-10: SendMessage, ListConversations, the `messaging` account-deletion step and the `messages` export section. The other
+four RPCs (ListMessages, MarkConversationRead, AcceptMessageRequest, DeleteConversation) answer `Unimplemented` after the
+flag gate until W7-8 and W7-9; the push is emitted by the send and delivered by the push-only `message` type of notifications (W7-10). Sections that
 describe those later pieces say so.
 
 Data (all index-free, no composite index; fieldOverrides `indexes: []` for `messages.text`, `messages.requestHash`, `dmInbox.peer`,
@@ -118,8 +118,7 @@ Prerequisites: `FEATURE_MESSAGING` and `FEATURE_NOTIFICATIONS` both `allowlist` 
    (`jsonPayload.event="notification_delivery"`). The handset shows the generic "New message" with the conversation id as its only data: no sender, no text.
 3. Negative checks: a request (non-mutual) pushes nothing; a recipient who muted the sender gets the message with no push and no unread; `FEATURE_NOTIFICATIONS=off` for the recipient drops it; 21 messages inside an hour show `push_throttled` once
    `MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR` (20) is reached while every message is still stored.
-4. **Until W7-10 ships**, step 2 cannot happen: the send emits its event, but `notifications` has no `message` type, so the producer drops it before publishing (0 cost) and a fan-out that received one would count it as `dropped` and acknowledge it
-   (`unknown_type`, ADR-0027 D9). A send still succeeds and stores everything; only the push is missing. Check the send path alone with the request line (`kind=send`, `state`, `silent`, `fs_reads`, `fs_writes`).
+4. **Mixed rollout:** an older revision that receives a `message` event drops it as `unknown_type` and acknowledges it, so a rollout can lose at most a push, never a message (ADR-0027 D9). The event carries `conversationId` additively (`v` stays 1). The push is **push-only**: no `users/{uid}/notifications` row, no badge move, never in ListNotifications. A send that stored its message but pushed nothing: check the recipient's two flags, the `suppressed` and `push_throttled` counters on the `notification_delivery` line, and the request line (`kind=send`, `state`, `silent`).
 5. On the emulators (`make dev`), `NOTIFICATIONS_DELIVERY=inline` delivers in-process; the push goes to `LogSender`, so look for the `notification_push_local` log line instead of a handset.
 
 ## 6. Other failure modes
@@ -128,5 +127,8 @@ Prerequisites: `FEATURE_MESSAGING` and `FEATURE_NOTIFICATIONS` both `allowlist` 
 | Users see `CANNOT_MESSAGE` for someone they should reach | A block either way, the recipient outside the flag cohort, the recipient not ACTIVE, or a `gone` conversation. The wire answer is the same on purpose; the log's `refused_reason` says which | Check the two accounts' graph docs and the flag cohort; a block applies at once on the instance that handled it and within 60 s elsewhere (graph snapshot cache, ADR-0027 A8) |
 | `LIMIT_REACHED request_unanswered` for a user whose first messages were delivered | The requester sent 3 messages and the recipient has not replied or accepted (W7-9) | Expected. The recipient's reply accepts it. A retry of the 3rd message (a lost response) replays, it is never refused |
 | `messaging_txn_contention` WARN (`txn_attempts` above 3) or `UNAVAILABLE busy, please retry` | Lock contention on one conversation document while it is a REQUEST (each request message updates it), or two people opening a conversation at the same moment | Expected to be rare; the client retries with the same idempotency key (a replay). A sustained rate means one pair is exchanging many request messages: the cap of 3 bounds it |
+| The Inbox or Requests list is short or empty but has a `next_page_token` | Expected: ListConversations filters after the page query (REQUESTS hides entries whose peer the caller blocks or mutes or who blocks the caller), so the client keeps following the token (ADR-0027 D4). A hidden request still counts in `request_count` | Nothing to fix. The request line (`kind=list_conversations`, `folder`, `results`, `dropped_blocked`, `dropped_muted`, `dropped_blocked_by`, `fs_reads`) shows how many were dropped per cause; a first INBOX page reads at most 23 (1 + 20 + graph 1 + count() 1), a `since` refresh 2 + the entries returned |
+| `VALIDATION since_token` / `page_token` on the list | The token is older than 30 days, belongs to another user, folder or token kind, or was edited; the secret `CURSOR_HMAC_KEY` changed (every sealed token fails to open) | The client drops it and lists with no token. Nothing is read for a rejected token. A burst of these after a deploy means the cursor key was rotated |
+| A conversation shows "Deleted account" in the list | The other person's account was erased: the eraser wrote `peerId = deleted` and a placeholder snapshot into this user's entry (D8). The list never looks the placeholder up and sets `can_reply = false` | Expected. The entry stays until its owner deletes it |
 | A message was sent twice | It was not: the message id derives from sender and key, so a retry replays. Two ids means two keys | Check the client generates one key per composed message |
 | `VALIDATION idempotency_key` on a retry | The same key was reused with other text or another conversation | A client bug: a new message needs a new key |
