@@ -4,6 +4,8 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/graph/data/suggestions_repository.dart'
+    show kSuggestionsTtl;
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
@@ -315,6 +317,48 @@ void main() {
       expect(repo.calls, 1);
       expect(find.text('User 7'), findsNothing);
       expect(find.byType(UserListRow), findsNWidgets(3));
+    });
+
+    testWidgets('resume: free while the entry is fresh, one call past the '
+        'lifetime (a card left mounted never shows stale rows)', (
+      tester,
+    ) async {
+      final rig = SuggestionsRig();
+      addTearDown(rig.database.close);
+      await cubit.close();
+      cubit = SuggestionsCubit(repository: rig.repository);
+      await tester.runAsync(() async {
+        await open(tester);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      expect(rig.suggestionCalls, 1);
+      expect(find.text('User 1'), findsOneWidget);
+
+      Future<void> resume() async {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      rig.clock = kSuggestionsTtl - const Duration(minutes: 1);
+      await resume();
+      expect(rig.suggestionCalls, 1);
+      expect(find.text('User 1'), findsOneWidget);
+
+      rig.clock = kSuggestionsTtl + const Duration(minutes: 1);
+      rig.users = [suggestedUser(9)];
+      await resume();
+      expect(rig.suggestionCalls, 2);
+      expect(find.text('User 9'), findsOneWidget);
+      expect(find.text('User 1'), findsNothing);
+
+      await resume();
+      expect(rig.suggestionCalls, 2);
     });
 
     testWidgets('a rejected follow keeps the row and says why', (tester) async {

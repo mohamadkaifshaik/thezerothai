@@ -70,16 +70,35 @@ class _Loader extends StatefulWidget {
   State<_Loader> createState() => _LoaderState();
 }
 
-class _LoaderState extends State<_Loader> {
+class _LoaderState extends State<_Loader> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // After the first frame: an emit while the tree is building would mark
     // the other surface dirty mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<SuggestionsCubit>().ensureLoaded(widget.viewerUserId);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// A card that stays mounted for days (a desktop tab, a resumed phone) asks
+  /// again on resume. Free while the entry is fresh (memory only, 0 RPCs); past
+  /// its lifetime it is one call, shared by every surface in flight, and the
+  /// stale rows go (ADR-0024 Amendment 2: up to 48 h). No timer, no polling.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    unawaited(
+      context.read<SuggestionsCubit>().ensureLoaded(widget.viewerUserId),
+    );
   }
 
   @override

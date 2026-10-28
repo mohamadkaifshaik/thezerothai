@@ -114,7 +114,7 @@ void main() {
       },
     );
 
-    test('the row is gone at once, before the new list arrives', () async {
+    test('the card keeps its state until the new list arrives', () async {
       rig.users = [suggestedUser(1)];
       await cubit.ensureLoaded('me');
       final gate = Completer<graph.ListSuggestedUsersResponse>();
@@ -122,8 +122,8 @@ void main() {
       await rig.graphRepository.follow(userId: 'u1', idempotencyKey: 'k');
 
       final pending = cubit.followed('u1');
-      expect(cubit.state.items, isEmpty);
       await Future<void>.delayed(Duration.zero);
+      expect(_ids(cubit), ['u1']);
       gate.complete(
         graph.ListSuggestedUsersResponse(users: [suggestedUser(7)]),
       );

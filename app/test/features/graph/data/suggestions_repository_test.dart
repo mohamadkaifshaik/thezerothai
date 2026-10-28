@@ -29,15 +29,20 @@ connect.ConnectException _featureDisabled([
 
 const _oneMinute = Duration(minutes: 1);
 
-/// Holds every delete back, so a read issued meanwhile can overtake it.
+/// Holds every delete back until [gate] completes, so a read issued meanwhile
+/// can overtake it.
 class _SlowDeletes extends QueryInterceptor {
+  _SlowDeletes(this.gate);
+
+  final Completer<void> gate;
+
   @override
   Future<int> runDelete(
     QueryExecutor executor,
     String statement,
     List<Object?> args,
   ) async {
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await gate.future;
     return super.runDelete(executor, statement, args);
   }
 }
@@ -131,6 +136,25 @@ void main() {
       expect(_ids(await rig.repository.suggestionsFor('me')), ['u9']);
       expect(rig.suggestionCalls, 2);
     });
+
+    test(
+      'current() does not return a stale entry (a card left mounted)',
+      () async {
+        await rig.repository.suggestionsFor('me');
+
+        rig.clock = kSuggestionsTtl - _oneMinute;
+        expect(rig.repository.current('me'), hasLength(5));
+        rig.clock = kSuggestionsTtl + _oneMinute;
+        expect(rig.repository.current('me'), isEmpty);
+        expect(rig.suggestionCalls, 1);
+
+        // The next suggestionsFor is the one call that replaces it.
+        rig.users = [suggestedUser(9)];
+        expect(_ids(await rig.repository.suggestionsFor('me')), ['u9']);
+        expect(_ids(rig.repository.current('me')), ['u9']);
+        expect(rig.suggestionCalls, 2);
+      },
+    );
 
     test('a restart past the TTL is a call too', () async {
       await rig.repository.suggestionsFor('me');
@@ -712,9 +736,10 @@ void main() {
       addTearDown(
         () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = warn,
       );
+      final deleteGate = Completer<void>();
       final slow = SuggestionsRig(
         database: AppDatabase.forTesting(
-          NativeDatabase.memory().interceptWith(_SlowDeletes()),
+          NativeDatabase.memory().interceptWith(_SlowDeletes(deleteGate)),
         ),
       );
       addTearDown(slow.database.close);
@@ -725,7 +750,13 @@ void main() {
 
       expect(slow.repository.followed('me', 'u1'), isTrue);
 
-      expect(_ids(await slow.repository.suggestionsFor('me')), ['u7']);
+      // The fetch starts while the delete is still held back; it may only
+      // read the disk once the delete has gone through.
+      final fetch = slow.repository.suggestionsFor('me');
+      await Future<void>.delayed(Duration.zero);
+      deleteGate.complete();
+
+      expect(_ids(await fetch), ['u7']);
       expect(slow.suggestionCalls, 2);
     });
 

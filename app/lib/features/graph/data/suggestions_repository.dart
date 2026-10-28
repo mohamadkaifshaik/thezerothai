@@ -106,7 +106,10 @@ class SuggestionsRepository {
   final Map<String, Set<String>> _hidden = {};
 
   /// The accounts whose list was already refilled this session (rule 4: once).
-  /// In memory only, so [_reset] (sign-out) clears it.
+  /// In memory only, so [_reset] (sign-out) clears it. "Session" is the app
+  /// process plus the sign-in, like the dismissals: it re-arms on a restart or
+  /// a web reload. It cannot loop, because each refill needs the user to
+  /// follow every visible row again.
   final Set<String> _refilled = {};
 
   /// The disk deletes of discarded entries still running, so a fetch never
@@ -132,11 +135,13 @@ class SuggestionsRepository {
     return _visible(uid, entry?.users ?? const []);
   }
 
-  /// What [suggestionsFor] would return from memory: no I/O. For the rows
-  /// still to show after a dismissal or a follow.
+  /// What [suggestionsFor] would return from memory: no I/O, no RPC. For the
+  /// rows still to show after a dismissal or a follow. An entry past its
+  /// lifetime is not returned, so the "up to 48 h" bound also holds for a card
+  /// that stays mounted.
   List<graph.UserListItem> current(String uid) {
     _syncEpoch();
-    return _visible(uid, _memory[uid]?.users ?? const []);
+    return _visible(uid, _fresh(_memory[uid])?.users ?? const []);
   }
 
   /// Hides [userId] for the rest of the session (the row's x, or a follow that

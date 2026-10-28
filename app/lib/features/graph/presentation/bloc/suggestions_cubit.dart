@@ -50,8 +50,14 @@ class SuggestionsCubit extends Cubit<SuggestionsState> {
     if (uid == null) return;
     final refill = _repository.followed(uid, userId);
     if (isClosed) return;
-    emit(SuggestionsState(items: _repository.current(uid)));
-    if (refill) await ensureLoaded(uid);
+    // On a refill the old state stays until the answer lands, so the card does
+    // not collapse and come back; ensureLoaded then emits the new rows (or
+    // nothing, on a failure).
+    if (refill) {
+      await ensureLoaded(uid);
+    } else {
+      emit(SuggestionsState(items: _repository.current(uid)));
+    }
   }
 
   /// Removes [userId] for good (W3-22 L-1): the server answered NOT_FOUND for
