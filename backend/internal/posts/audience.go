@@ -226,3 +226,15 @@ func ApplyWireVisibility(v *postsv1.PostView, protectedAuthor bool) {
 		v.Post.Visibility = postsv1.Visibility_VISIBILITY_FOLLOWERS
 	}
 }
+
+// Audience returns the service's Audience, for the owner-only lists of other modules that decide rows through the
+// same predicate (engagement ListBookmarks and ListLikedPosts, W3-29b).
+func (s *service) Audience() *Audience { return s.aud }
+
+// AudienceOf returns the Audience of a posts Service built by New, or nil for any other implementation (a test fake).
+func AudienceOf(svc Service) *Audience {
+	if h, ok := svc.(interface{ Audience() *Audience }); ok {
+		return h.Audience()
+	}
+	return nil
+}

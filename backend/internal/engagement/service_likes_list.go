@@ -159,10 +159,11 @@ func (s *service) listLikedPosts(ctx context.Context, uid string, pageSize int32
 	}
 	res, err := s.dropRows(ctx, uid, postIDs, live)
 	if err != nil {
-		return LikesPage{}, logger.RedactErr(fmt.Errorf("engagement: list liked posts: %w", err), uid)
+		return LikesPage{}, dropErr("list liked posts", uid, err)
 	}
-	for _, i := range res.Kept {
+	for k, i := range res.Kept {
 		page.Posts = append(page.Posts, live[postIDs[i]])
+		page.Hints = append(page.Hints, res.Hints[k])
 	}
 	if len(page.Posts) > 0 {
 		page.Viewer = posts.HydrateViewer(ctx, s.d.Flags, &Module{s: s}, uid)

@@ -200,6 +200,8 @@ type Bookmarks interface {
 type BookmarkRow struct {
 	Post         *posts.Post
 	BookmarkedAt time.Time
+	// Hint is the embed state and protected-author mark the handler applies (ADR-0025 D4).
+	Hint RowHint
 }
 
 // BookmarkPage is one page of ListBookmarks. Rows may be shorter than the page size: rows whose post is missing,
@@ -293,6 +295,8 @@ type LikesList interface {
 type LikesPage struct {
 	// Posts are the live posts, most recently liked first.
 	Posts []*posts.Post
+	// Hints are the render hints of Posts, same length and order.
+	Hints []RowHint
 	// Viewer is the caller's viewer state for Posts (posts.HydrateViewer): the zero set when no row is left.
 	Viewer posts.ViewerSet
 	// NextPageToken is "" when this was the last page.

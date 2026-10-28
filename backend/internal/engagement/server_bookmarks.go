@@ -128,9 +128,9 @@ func (s *Server) ListBookmarks(ctx context.Context, req *connect.Request[engagem
 	}
 	out := &engagementv1.ListBookmarksResponse{NextPageToken: page.NextPageToken, Bookmarks: make([]*engagementv1.Bookmark, 0, len(page.Rows))}
 	for _, r := range page.Rows {
-		out.Bookmarks = append(out.Bookmarks, &engagementv1.Bookmark{
-			Post: posts.ToView(r.Post, page.Viewer, uid), BookmarkedAt: timestamppb.New(r.BookmarkedAt),
-		})
+		v := posts.ToView(r.Post, page.Viewer, uid)
+		r.Hint.Apply(v) // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author (ADR-0025 D2, D4)
+		out.Bookmarks = append(out.Bookmarks, &engagementv1.Bookmark{Post: v, BookmarkedAt: timestamppb.New(r.BookmarkedAt)})
 	}
 	return connect.NewResponse(out), nil
 }

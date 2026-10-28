@@ -167,16 +167,33 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	}
 	s.fill(docs, readAt)
 	skip := map[string]bool{focal.ID: true, root: true, focal.ReplyToID: true}
-	dropped := 0
+	var tally audienceTally
 	for _, p := range docs {
+		if skip[p.ID] {
+			continue
+		}
+		// ADR-0016: hidden replies are dropped; then the block and mute sets the timelines use; then the one
+		// visibility predicate (ADR-0025 D4: a reply by a protected author the caller may not see is dropped, never the
+		// stored visibility). A reply carries no embed, so the author is the whole decision. The set is read at most
+		// once per instance per CACHE_TTL by its loader (0 reads for the caller).
 		switch {
-		case skip[p.ID]:
-		case p.Visibility != VisibilityPublic || p.Hidden() || !replyAllowed(snap, callerUID, p.AuthorID): // ADR-0016: hidden replies are dropped
-			dropped++
+		case p.Hidden():
+			tally.hidden++
+		case !replyAllowed(snap, callerUID, p.AuthorID):
+			tally.noteBlockMute(snap, p.AuthorID)
 		default:
+			ok, err := s.aud.visibleAuthor(ctx, callerUID, p.AuthorID, snap)
+			if err != nil {
+				return nil, s.audienceErr(err, callerUID)
+			}
+			if !ok {
+				tally.protected++
+				continue
+			}
 			out.Replies = append(out.Replies, p)
 		}
 	}
+	dropped := tally.total()
 	if len(docs) >= limit { // a full page always gets a next token, even when everything on it was dropped
 		last := docs[len(docs)-1]
 		out.NextPageToken = cursor.EncodeAt(s.cursorKey, threadBinding(callerUID, in.PostID),
@@ -184,8 +201,48 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	}
 	logger.SetRequestField(ctx, fieldThreadReturned, len(out.Replies))
 	logger.SetRequestField(ctx, fieldThreadDropped, dropped)
+	tally.note(ctx)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeThread)
 	return out, nil
+}
+
+// audienceTally counts the thread rows GetThread dropped, by cause (ADR-0025 W3-29b observability): counts only.
+type audienceTally struct{ protected, blocked, muted, hidden int }
+
+func (t audienceTally) total() int { return t.protected + t.blocked + t.muted + t.hidden }
+
+// noteBlockMute files a reply replyAllowed refused: a mute (the caller's own list) only when no block applies.
+func (t *audienceTally) noteBlockMute(snap graph.Snapshot, author string) {
+	if snap.Blocked[author] || snap.BlockedBy[author] {
+		t.blocked++
+		return
+	}
+	t.muted++
+}
+
+// note writes the audience_dropped_* fields on the GetThread request line (reply rows only; a context post that is
+// unavailable is flagged by thread_context_unavailable, never by cause).
+func (t audienceTally) note(ctx context.Context) {
+	logger.SetRequestField(ctx, "audience_dropped_protected", t.protected)
+	logger.SetRequestField(ctx, "audience_dropped_blocked", t.blocked)
+	logger.SetRequestField(ctx, "audience_dropped_muted", t.muted)
+	logger.SetRequestField(ctx, "audience_dropped_hidden", t.hidden)
+}
+
+// contextAllowed is the context-post predicate (parent, root) with the audience applied: contextUsable (the pure
+// block, hidden and ACTIVE rules, fail closed on overflow, so Decide below never spends a block read) and then
+// Audience.Decide on the direct surface, which refuses a post by a protected author the caller may not see and a
+// REPOST of one (ADR-0025 D4). A QUOTE of one stays usable and renders stripped (the hint adds PROTECTED). A set
+// error is UNAVAILABLE and is returned, never read as usable.
+func (s *service) contextAllowed(ctx context.Context, p *Post, authorActive bool, caller string, snap graph.Snapshot) (bool, error) {
+	if !contextUsable(p, authorActive, caller, snap) {
+		return false, nil
+	}
+	d, err := s.aud.Decide(ctx, caller, snap, p, SurfaceDirect)
+	if err != nil {
+		return false, err
+	}
+	return d.Verdict == Show, nil
 }
 
 // threadContext resolves the parent and the conversation root of a reply in one GetAll plus one profile batch.
@@ -212,23 +269,29 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: thread: load context authors: %w", err), caller)
 	}
-	usable := func(id string) *Post {
+	usable := func(id string) (*Post, error) {
 		p, ok := found[id]
 		if !ok {
-			return nil
+			return nil, nil
 		}
 		_, active := profiles[p.AuthorID]
-		if !contextUsable(p, active, caller, snap) {
-			return nil
+		ok, err := s.contextAllowed(ctx, p, active, caller, snap)
+		if err != nil || !ok {
+			return nil, err
 		}
-		return p
+		return p, nil
 	}
-	out.Parent = usable(focal.ReplyToID)
+	var err2 error
+	if out.Parent, err2 = usable(focal.ReplyToID); err2 != nil {
+		return s.audienceErr(err2, caller)
+	}
 	out.ParentUnavailable = out.Parent == nil
 	if root == focal.ReplyToID {
 		out.Root, out.RootUnavailable = out.Parent, out.ParentUnavailable
 	} else {
-		out.Root = usable(root)
+		if out.Root, err2 = usable(root); err2 != nil {
+			return s.audienceErr(err2, caller)
+		}
 		out.RootUnavailable = out.Root == nil
 	}
 	if out.ParentUnavailable || out.RootUnavailable {
@@ -239,14 +302,14 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 
 // contextUsable is the one "context post is usable" predicate (ADR-0021 D2, security review M-1), shared by
 // GetThread's parent/root rows and by reply enforcement, so both give the same answer and neither can become a
-// block oracle. It reads nothing. p is usable when it is public and not hidden by a moderator (ADR-0016), its
+// block oracle. It reads nothing. p is usable when it is not hidden by a moderator (ADR-0016; never the stored visibility, ADR-0025 D2), its
 // author has an ACTIVE profile (authorActive: GetProfiles omits SUSPENDED, DELETING and missing authors), and,
 // unless the caller is its author, no block either way (snap.BlockedBy / snap.Blocked), the caller's blockedBy
 // set has not overflowed (fail closed rather than spend an author-graph read per row) and, for a QUOTE or
 // REPOST, the embedded author does not block the caller (ADR-0018 D13). The caller's own posts are exempt, same
 // as a direct post, and then snap is not consulted.
 func contextUsable(p *Post, authorActive bool, caller string, snap graph.Snapshot) bool {
-	if p == nil || p.Visibility != VisibilityPublic || p.Hidden() || !authorActive {
+	if p == nil || p.Hidden() || !authorActive {
 		return false
 	}
 	if p.AuthorID == caller {
@@ -311,7 +374,11 @@ func (s *service) enforceReplyPolicy(ctx context.Context, uid string, parent *Po
 			return logger.RedactErr(fmt.Errorf("posts: reply policy: caller graph: %w", err), uid)
 		}
 	}
-	if !contextUsable(root, active, uid, snap) {
+	ok, err := s.contextAllowed(ctx, root, active, uid, snap)
+	if err != nil {
+		return s.audienceErr(err, uid)
+	}
+	if !ok {
 		return s.notFound(ctx)
 	}
 	if root.AuthorID == uid {
@@ -352,8 +419,12 @@ func (s *service) rootReplyPermission(ctx context.Context, viewer string, root *
 	switch {
 	case !root.ReplyPolicy.Restricted(), root.AuthorID == viewer:
 		return postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED
-	case !contextUsable(root, true, viewer, snap):
+	}
+	// An unusable root, or an unknown protected set, is UNKNOWN: a hint never tells a viewer anything (M-1, ADR-0025).
+	if ok, err := s.contextAllowed(ctx, root, true, viewer, snap); err != nil || !ok {
 		return postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN
+	}
+	switch {
 	case root.ReplyPolicy == ReplyPolicyMentionedOnly:
 		for _, m := range root.Mentions {
 			if m.UserID == viewer {

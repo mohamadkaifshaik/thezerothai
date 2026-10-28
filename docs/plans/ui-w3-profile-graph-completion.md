@@ -95,7 +95,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Open (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | In review (PR #382) (depends: W3-25b; merges after W3-26a) |
-| W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | Open (depends: W3-29a) |
+| W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | In review (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Open (depends: W3-29a, W3-26a) |
 | W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | In review (PR #380; depends: W3-25b; W3-26a and W3-29a merged) |
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | In review (PR #381; depends: W3-25b; merges before W3-27) |
@@ -896,7 +896,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `posts.Audience`. In Stage 2 the same predicate is pushed into the query layer with the timeline ADR.
 - **Cost.** +0 reads per DAU; the refusals write nothing.
 
-#### W3-29b Posts + engagement: GetThread and the owner-only lists [backend-developer] [M] [depends: W3-29a] Status: Open
+#### W3-29b Posts + engagement: GetThread and the owner-only lists [backend-developer] [M] [depends: W3-29a] Status: In review
 - **GetThread** (D4).
   - Focal post by P: NOT_FOUND, byte-identical to a deleted focal post.
   - Parent or root by P: unset, with `parent_unavailable` or `root_unavailable` (a tombstone).
