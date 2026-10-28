@@ -49,7 +49,10 @@ abstract final class IdentityService {
   /// pending_follow_request_count (ADR-0025 D7): for a protected caller only, a count() aggregation on followRequests
   /// where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
   /// failed count leaves it 0 and GetMe still answers.
-  /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s), writes 0.
+  /// unread_conversation_count (ADR-0027 D10): only when FEATURE_MESSAGING is on for the caller, a count() aggregation
+  /// on users/{uid}/dmInbox where unreadCount > 0, Limit 100 (1 read, min 1), cached 30 s; 0 reads otherwise.
+  /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s; +1 count() of unread conversations with messaging
+  /// on, cached 30 s), writes 0.
   static const getMe = connect.Spec(
     '/$name/GetMe',
     connect.StreamType.unary,

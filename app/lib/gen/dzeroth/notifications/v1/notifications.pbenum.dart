@@ -57,6 +57,14 @@ class NotificationType extends $pb.ProtobufEnum {
       NotificationType._(
           8, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_FOLLOW_ACCEPTED');
 
+  /// PUSH DATA ONLY (ADR-0027 D9): a direct message arrived. It writes no row in users/{uid}/notifications, does not
+  /// move unread_notification_count, and is NEVER returned by ListNotifications. It appears only as the FCM data field
+  /// type = "message", next to conversationId (no sender, no text, no uid); the push text is generic ("New message").
+  /// Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side
+  /// and they did not mute the sender. Tapping opens the conversation (MessagingService.ListMessages).
+  static const NotificationType NOTIFICATION_TYPE_MESSAGE =
+      NotificationType._(9, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_MESSAGE');
+
   static const $core.List<NotificationType> values = <NotificationType>[
     NOTIFICATION_TYPE_UNSPECIFIED,
     NOTIFICATION_TYPE_FOLLOW,
@@ -67,10 +75,11 @@ class NotificationType extends $pb.ProtobufEnum {
     NOTIFICATION_TYPE_QUOTE,
     NOTIFICATION_TYPE_FOLLOW_REQUEST,
     NOTIFICATION_TYPE_FOLLOW_ACCEPTED,
+    NOTIFICATION_TYPE_MESSAGE,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 8);
+      $pb.ProtobufEnum.$_initByValueList(values, 9);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
