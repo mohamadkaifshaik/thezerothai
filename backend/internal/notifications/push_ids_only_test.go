@@ -16,7 +16,7 @@ func TestPush_CarriesIdsOnlyForEveryType(t *testing.T) {
 	for i := 0; i < rt.NumField(); i++ {
 		fields = append(fields, rt.Field(i).Name)
 	}
-	if got, want := strings.Join(fields, ","), "Type,NotificationID,PostID,ActorID"; got != want {
+	if got, want := strings.Join(fields, ","), "Type,NotificationID,PostID,ActorID,ConversationID"; got != want {
 		t.Fatalf("Push fields = %s, want %s: a new field needs a review against 'a push carries no post text'", got, want)
 	}
 	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted} {
