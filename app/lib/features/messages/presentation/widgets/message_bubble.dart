@@ -1,0 +1,280 @@
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+
+import '../../../../core/theme/app_theme.dart';
+import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import '../../../../shared/format/relative_time.dart';
+import '../../../../shared/format/scheduled_time.dart';
+import '../../../posts/domain/post_text_parser.dart';
+import 'conversation_row.dart';
+
+/// The words of a tombstone bubble (ADR-0027 D5), shared with the inbox row.
+const kMessageDeletedText = kConversationDeletedSnippet;
+const kMessageRemovedText = kConversationRemovedSnippet;
+
+/// The bubble's share of the row width; the rest keeps the sides distinct.
+const double kBubbleMaxWidthFraction = 0.8;
+
+/// The text a message shows: its text, or the tombstone words for a message
+/// whose text is gone.
+String messageDisplayText(pb.Message message) => switch (message.state) {
+  MessageState.MESSAGE_STATE_DELETED_ACCOUNT => kMessageDeletedText,
+  MessageState.MESSAGE_STATE_REMOVED => kMessageRemovedText,
+  _ => message.text,
+};
+
+bool _isTombstone(pb.Message message) =>
+    message.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT ||
+    message.state == MessageState.MESSAGE_STATE_REMOVED;
+
+/// One message of a conversation (W7-15), presentational.
+///
+/// - The caller's own messages sit at the end on the accent with white text;
+///   the peer's at the start on the raised surface. Tombstones are italic and
+///   muted on the raised surface with a 1dp border (never white on accent).
+/// - [lastOfGroup] puts the time under the bubble and gives the bubble its
+///   small "tail" corner; [firstOfGroup] adds the gap above the group.
+/// - Links come from [parsePostText] link spans only. Mentions and hashtags
+///   stay plain text: a conversation has no mention list, and a `#tag` is not
+///   a navigation target here.
+/// - Semantics: one node, "You said ..." or "`name` said ..., `time`"; each
+///   link is an "Open link" custom action, since the text children are
+///   excluded.
+class MessageBubble extends StatelessWidget {
+  const MessageBubble({
+    super.key,
+    required this.message,
+    required this.peerName,
+    required this.now,
+    required this.firstOfGroup,
+    required this.lastOfGroup,
+    required this.onOpenLink,
+    this.use24Hour = false,
+  });
+
+  final pb.Message message;
+
+  /// The peer's display name (or `@handle`): the "name said" of the label.
+  final String peerName;
+
+  /// The clock the spoken relative time is drawn against (injected).
+  final DateTime now;
+  final bool firstOfGroup;
+  final bool lastOfGroup;
+  final void Function(Uri uri) onOpenLink;
+  final bool use24Hour;
+
+  /// Key of the time text under the last bubble of a group.
+  static const timeKey = ValueKey('message-time');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final own = message.fromSelf;
+    final tombstone = _isTombstone(message);
+    final text = messageDisplayText(message);
+    final at = message.hasCreatedAt() ? message.createdAt.toDateTime() : null;
+    final spoken = at == null ? '' : formatRelativeTimeSpoken(at, now);
+    final clock = at == null
+        ? ''
+        : formatScheduledClock(at, use24Hour: use24Hour);
+    final label = own
+        ? (tombstone ? text : 'You said $text')
+        : [
+            if (tombstone) text else '$peerName said $text',
+            if (spoken.isNotEmpty) spoken,
+          ].join(', ');
+
+    final onAccent = own && !tombstone;
+    final background = onAccent ? colors.primary : colors.surfaceContainerHigh;
+    final foreground = onAccent ? colors.onPrimary : colors.onSurface;
+    final linkColor = onAccent
+        ? colors.onPrimary
+        : context.appColors.accentText;
+    const radius = Radius.circular(AppRadius.lg);
+    const tail = Radius.circular(AppSpacing.xs);
+    final shape = BorderRadiusDirectional.only(
+      topStart: radius,
+      topEnd: radius,
+      bottomStart: own || !lastOfGroup ? radius : tail,
+      bottomEnd: !own || !lastOfGroup ? radius : tail,
+    );
+    final links = tombstone
+        ? const <PostSpan>[]
+        : [
+            for (final s in parsePostText(text, const []))
+              if (s.kind == PostSpanKind.link && s.url != null) s,
+          ];
+
+    final bubble = DecoratedBox(
+      key: ValueKey('bubble-${message.id}'),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: shape,
+        border: tombstone ? Border.all(color: colors.outlineVariant) : null,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.smd,
+          vertical: AppSpacing.sm,
+        ),
+        child: tombstone
+            ? Text(
+                text,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontStyle: FontStyle.italic,
+                  color: colors.onSurfaceVariant,
+                ),
+              )
+            : MessageText(
+                text: text,
+                style: theme.textTheme.bodyLarge?.copyWith(color: foreground),
+                linkColor: linkColor,
+                onOpenLink: onOpenLink,
+              ),
+      ),
+    );
+
+    return Padding(
+      padding: EdgeInsetsDirectional.only(
+        start: AppSpacing.md,
+        end: AppSpacing.md,
+        top: firstOfGroup ? AppSpacing.sm : AppSpacing.xs,
+      ),
+      child: Align(
+        alignment: own
+            ? AlignmentDirectional.centerEnd
+            : AlignmentDirectional.centerStart,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: constraints.maxWidth * kBubbleMaxWidthFraction,
+              ),
+              child: Column(
+                crossAxisAlignment: own
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Semantics(
+                    label: label,
+                    container: true,
+                    excludeSemantics: true,
+                    customSemanticsActions: links.isEmpty
+                        ? null
+                        : {
+                            for (final link in links)
+                              CustomSemanticsAction(
+                                label: 'Open link ${link.url!.host}',
+                              ): () =>
+                                  onOpenLink(link.url!),
+                          },
+                    child: bubble,
+                  ),
+                  if (lastOfGroup && clock.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.xs),
+                      // The peer's time is already in the bubble's label.
+                      child: ExcludeSemantics(
+                        excluding: !own,
+                        child: Text(
+                          clock,
+                          key: timeKey,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// A message body: [parsePostText] spans where only links are tappable (the
+/// recognizers are owned and disposed here); mentions and hashtags are
+/// plain text.
+class MessageText extends StatefulWidget {
+  const MessageText({
+    super.key,
+    required this.text,
+    required this.style,
+    required this.linkColor,
+    required this.onOpenLink,
+  });
+
+  final String text;
+  final TextStyle? style;
+  final Color linkColor;
+  final void Function(Uri uri) onOpenLink;
+
+  @override
+  State<MessageText> createState() => _MessageTextState();
+}
+
+class _MessageTextState extends State<MessageText> {
+  late List<PostSpan> _spans;
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _spans = parsePostText(widget.text, const []);
+  }
+
+  @override
+  void didUpdateWidget(MessageText old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) _spans = parsePostText(widget.text, const []);
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _disposeRecognizers();
+    final children = <InlineSpan>[
+      for (final span in _spans)
+        if (span.kind == PostSpanKind.link && span.url != null)
+          TextSpan(
+            text: span.text,
+            style: TextStyle(
+              color: widget.linkColor,
+              decoration: TextDecoration.underline,
+              decorationColor: widget.linkColor,
+            ),
+            recognizer: _tap(span.url!),
+          )
+        else
+          TextSpan(text: span.text),
+    ];
+    return Text.rich(TextSpan(style: widget.style, children: children));
+  }
+
+  TapGestureRecognizer _tap(Uri url) {
+    final recognizer = TapGestureRecognizer()
+      ..onTap = () => widget.onOpenLink(url);
+    _recognizers.add(recognizer);
+    return recognizer;
+  }
+}

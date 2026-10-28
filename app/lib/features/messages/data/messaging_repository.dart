@@ -91,6 +91,10 @@ class MessagingRepository {
   /// left; null when nothing is held.
   RateLimitedException? rateLimitedFor() => _hold.check();
 
+  /// The shared read hold, for building a [ThreadPoller] that pauses on it
+  /// (`TimerThreadPoller(pull: ..., rateLimitHold: repo.rateLimitHold)`).
+  RateLimitHold get rateLimitHold => _hold;
+
   // --- conversations -------------------------------------------------------
 
   /// What is on disk for [folder]. Never touches the network.
