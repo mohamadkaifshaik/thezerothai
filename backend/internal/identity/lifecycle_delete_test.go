@@ -196,6 +196,10 @@ func TestJobs_ReferenceChain(t *testing.T) {
 	if len(h.repo.exports) != 0 || len(h.objs.objects) != 0 || len(h.repo.handles) != 0 || len(h.repo.quotas) != 0 || h.repo.private["u1"] != 0 {
 		t.Errorf("leftovers: exports=%v objects=%v handles=%v quotas=%v private=%d", h.repo.exports, h.objs.objects, h.repo.handles, h.repo.quotas, h.repo.private["u1"])
 	}
+	// ADR-0025 D11: the identity step removed the uid from the protected set (before users/{uid} went), unconditionally.
+	if len(h.repo.protectedRemoved) == 0 || h.repo.protectedRemoved[0] != "u1" {
+		t.Errorf("RemoveFromProtectedSet calls = %v, want [u1]", h.repo.protectedRemoved)
+	}
 	if posts.calls != 7 || graph.calls != 2 {
 		t.Errorf("step calls posts=%d graph=%d, want 7 and 2", posts.calls, graph.calls)
 	}

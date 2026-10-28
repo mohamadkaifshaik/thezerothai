@@ -69,6 +69,7 @@ var lifecycleCollections = []collectionRow{
 	{Name: "handles", Disposition: erasedByStep, Step: "identity", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (only when owned by the uid)"},
 	{Name: "exports", Disposition: erasedByStep, Step: "identity", ExportNote: "the export file itself", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (objects first, then docs)"},
 	{Name: "quotas", Disposition: erasedByStep, Step: "identity", ExportNote: "operational counters, not user content", Owner: "platform", Cite: "ADR-0011 Q1 step 5"},
+	{Name: "privacy", Disposition: erasedByStep, Step: "identity", ExportNote: "protectedAuthors lists other users, so the uid entry is removed (ArrayRemove) and the doc is never exported", Owner: "identity", Cite: "ADR-0025 D2, D11"},
 	{Name: "idempotency", Disposition: notPersonal, ExportNote: "24 h TTL key records", Owner: "platform", Cite: "ADR-0011 Q10 (a): uid until the 24 h TTL"},
 	{Name: "graph", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
 	{Name: "follows", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
