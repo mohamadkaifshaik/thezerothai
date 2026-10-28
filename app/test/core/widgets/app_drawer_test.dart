@@ -59,6 +59,7 @@ void main() {
     identity.Profile? profile,
     Set<String> flags = const {},
     Size size = const Size(360, 800),
+    int pending = 0,
     Brightness brightness = Brightness.light,
     double textScale = 1,
   }) async {
@@ -69,6 +70,7 @@ void main() {
         status: OnboardingStatus.ready,
         profile: profile,
         enabledFeatures: flags,
+        pendingFollowRequestCount: pending,
       ),
     );
     router = GoRouter(
@@ -97,6 +99,10 @@ void main() {
                   },
                 ),
               ],
+            ),
+            GoRoute(
+              path: 'follow-requests',
+              builder: (context, state) => const Text('requests page'),
             ),
             GoRoute(
               path: 'bookmarks',
@@ -172,6 +178,102 @@ void main() {
             .reduce((a, b) => a > b ? a : b);
         expect(height, greaterThanOrEqualTo(AppSize.drawerRow), reason: label);
       }
+    });
+
+    group('Follow requests row (W3-34)', () {
+      final protectedAlice = _alice.deepCopy()..isPrivate = true;
+
+      testWidgets('absent for a public account with nothing pending', (
+        tester,
+      ) async {
+        await pump(tester, profile: _alice, flags: {'graph'});
+        await openDrawer(tester);
+        expect(find.text('Follow requests'), findsNothing);
+      });
+
+      testWidgets('shown to a protected caller even with every flag off '
+          'but graph, with no badge at 0', (tester) async {
+        await pump(tester, profile: protectedAlice, flags: {'graph'});
+        await openDrawer(tester);
+        expect(find.text('Follow requests'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('drawer-follow-requests')),
+          findsOneWidget,
+        );
+        expect(find.text('0'), findsNothing);
+      });
+
+      testWidgets('absent while graph is off', (tester) async {
+        await pump(tester, profile: protectedAlice, pending: 3);
+        await openDrawer(tester);
+        expect(find.text('Follow requests'), findsNothing);
+      });
+
+      testWidgets('shows the pending count, says it, opens the screen', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        await pump(
+          tester,
+          profile: protectedAlice,
+          flags: {'graph'},
+          pending: 7,
+        );
+        await openDrawer(tester);
+        expect(find.text('7'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel('Follow requests, 7 pending'),
+          findsOneWidget,
+        );
+        final y = [
+          for (final l in ['Profile', 'Follow requests', 'Settings'])
+            tester.getTopLeft(find.text(l)).dy,
+        ];
+        expect(y[0], lessThan(y[1]));
+        expect(y[1], lessThan(y[2]));
+
+        await tester.tap(find.text('Follow requests'));
+        await tester.pumpAndSettle();
+        expect(find.text('requests page'), findsOneWidget);
+        expect(find.byType(AppDrawer), findsNothing);
+        semantics.dispose();
+      });
+
+      testWidgets('the cap shows 1000+ and is spoken as 1000 or more', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        await pump(
+          tester,
+          profile: protectedAlice,
+          flags: {'graph'},
+          pending: 1000,
+        );
+        await openDrawer(tester);
+        expect(find.text('1000+'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel('Follow requests, 1000 or more pending'),
+          findsOneWidget,
+        );
+        expect(followRequestBadgeText(999), '999');
+        semantics.dispose();
+      });
+
+      testWidgets('fits and keeps a 56dp row at 360dp x2.0 in dark', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          profile: protectedAlice,
+          flags: {'graph'},
+          pending: 1000,
+          brightness: Brightness.dark,
+          textScale: 2,
+        );
+        await openDrawer(tester);
+        expect(tester.takeException(), isNull);
+        expect(find.text('1000+'), findsOneWidget);
+      });
     });
 
     group('Bookmarks row (W2-7)', () {

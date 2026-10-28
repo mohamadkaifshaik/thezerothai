@@ -11,6 +11,7 @@ import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
+import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
@@ -25,6 +26,7 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
+import '../../features/settings/domain/private_accounts_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
 import '../../features/shells/domain/shells_feature_flag.dart';
 import '../../features/shells/presentation/advertise_screen.dart';
@@ -86,6 +88,9 @@ class AppRouter {
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
+  // W3-34: the Follow requests list of a protected account, a ShellRoute child.
+  // Needs `graph`, and `private_accounts` or a protected caller (the undo rule).
+  static const followRequestsPath = '/follow-requests';
   // W8-2: the read-only shells, behind the `shells` flag (every path redirects
   // Home without it). The first three are ShellRoute children, built only when
   // their kind is in `kVisibleShells`. `/premium` is a dialog on the root
@@ -189,6 +194,11 @@ class AppRouter {
           GoRoute(
             path: homePath,
             builder: (context, state) => const AuthGate(child: HomeScreen()),
+          ),
+          GoRoute(
+            path: followRequestsPath,
+            builder: (context, state) =>
+                const AuthGate(child: FollowRequestsScreen()),
           ),
           GoRoute(
             path: notificationsPath,
@@ -420,6 +430,7 @@ class AppRouter {
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
             _bookmarksFlagRedirect(loc) ??
+            _followRequestsRedirect(loc) ??
             _notificationsFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
@@ -472,6 +483,21 @@ class AppRouter {
   bool _premiumPushAllowed(Object? extra) =>
       extra is ShellPush &&
       _onboardingBloc.state.enabledFeatures.contains(kFeatureShells);
+
+  /// `/follow-requests` redirects Home unless `graph` is on and the caller is
+  /// protected or has `private_accounts` (W3-34). A protected caller keeps the
+  /// screen with `private_accounts` off everywhere: requests are never lost
+  /// to a flag (the undo rule, ADR-0025 D12).
+  String? _followRequestsRedirect(String loc) {
+    if (loc != followRequestsPath) return null;
+    final state = _onboardingBloc.state;
+    final features = state.enabledFeatures;
+    final allowed =
+        features.contains(kFeatureGraph) &&
+        (features.contains(kFeaturePrivateAccounts) ||
+            (state.profile?.isPrivate ?? false));
+    return allowed ? null : homePath;
+  }
 
   /// `/notifications` redirects Home when the flag is off for this caller.
   String? _notificationsFlagRedirect(String loc) {

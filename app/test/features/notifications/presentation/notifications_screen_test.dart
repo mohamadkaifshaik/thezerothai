@@ -105,6 +105,13 @@ void main() {
           },
         ),
         GoRoute(
+          path: '/follow-requests',
+          builder: (context, state) {
+            visited.add('/follow-requests');
+            return const Scaffold(body: Text('requests page'));
+          },
+        ),
+        GoRoute(
           path: '/u/:userId',
           builder: (context, state) {
             visited.add('/u/${state.pathParameters['userId']}');
@@ -379,6 +386,50 @@ void main() {
     await tester.tap(find.textContaining('replied').first);
     await tester.pumpAndSettle();
     expect(visited, ['/u/u2', '/post/55']);
+  });
+
+  testWidgets('follow_request opens the requests screen, follow_accepted the '
+      'actor profile (W3-34)', (tester) async {
+    stubList(
+      snapshotOfNotifs([
+        notif(
+          'q',
+          minutesAgo: 1,
+          type: NotificationType.NOTIFICATION_TYPE_FOLLOW_REQUEST,
+          actorId: 'u3',
+          handle: 'bob',
+          displayName: 'Bob',
+        ),
+        notif(
+          'a',
+          minutesAgo: 2,
+          type: NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED,
+          actorId: 'u4',
+          handle: 'cy',
+          displayName: 'Cy',
+        ),
+      ], seenAt: kNotifBase),
+    );
+    final semantics = tester.ensureSemantics();
+    await open(tester);
+
+    expect(find.text('Bob requested to follow you'), findsOneWidget);
+    expect(find.text('Cy accepted your follow request'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp('Bob requested to follow you, .* ago')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.textContaining('requested to follow'));
+    await tester.pumpAndSettle();
+    expect(visited, ['/follow-requests']);
+
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('accepted your'));
+    await tester.pumpAndSettle();
+    expect(visited, ['/follow-requests', '/u/u4']);
+    semantics.dispose();
   });
 
   testWidgets('error with nothing cached shows a friendly retry', (

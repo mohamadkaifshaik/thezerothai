@@ -39,6 +39,12 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       if (event.profile.userId != state.profile?.userId) return;
       emit(state.copyWith(profile: event.profile));
     });
+    // A follow request was answered (W3-34): lower the drawer badge now; the
+    // next GetMe (cached 30 s on the server) reconciles it.
+    on<OnboardingFollowRequestAnswered>((event, emit) {
+      final next = state.pendingFollowRequestCount - 1;
+      emit(state.copyWith(pendingFollowRequestCount: next < 0 ? 0 : next));
+    });
     on<OnboardingEmailVerificationDismissed>((event, emit) {
       emit(
         state.copyWith(status: OnboardingStatus.profileRequired, error: null),
@@ -102,6 +108,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           profile: response.profile,
           enabledFeatures: response.enabledFeatures.toSet(),
           unreadNotificationCount: response.unreadNotificationCount.toInt(),
+          pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
           accountRestricted: false,
         ),
       );

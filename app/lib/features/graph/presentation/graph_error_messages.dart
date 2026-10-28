@@ -29,3 +29,18 @@ String relationshipErrorMessage(AppException error) {
     _ => error.message,
   };
 }
+
+/// The snackbar text of a failed Accept or Decline (W3-34), in the order the
+/// failures can be told apart; everything else is the generic graph message.
+String followRequestErrorMessage(AppException error, {required String handle}) {
+  return switch (error) {
+    // The requester already follows 5,000 accounts: Accept is refused, a
+    // Decline still works.
+    LimitReachedException(quota: 'requester_following') =>
+      '@$handle follows as many accounts as is allowed, so you cannot accept '
+          'right now. You can still decline.',
+    FeatureDisabledException() =>
+      "Follow requests aren't available right now. Please try again shortly.",
+    _ => relationshipErrorMessage(error),
+  };
+}

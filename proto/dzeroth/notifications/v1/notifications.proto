@@ -86,6 +86,12 @@ enum NotificationType {
   // actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
   // sends nothing.
   NOTIFICATION_TYPE_FOLLOW_ACCEPTED = 8;
+  // PUSH DATA ONLY (ADR-0027 D9): a direct message arrived. It writes no row in users/{uid}/notifications, does not
+  // move unread_notification_count, and is NEVER returned by ListNotifications. It appears only as the FCM data field
+  // type = "message", next to conversationId (no sender, no text, no uid); the push text is generic ("New message").
+  // Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side
+  // and they did not mute the sender. Tapping opens the conversation (MessagingService.ListMessages).
+  NOTIFICATION_TYPE_MESSAGE = 9;
 }
 
 enum DevicePlatform {

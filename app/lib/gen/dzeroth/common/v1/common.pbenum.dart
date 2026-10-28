@@ -101,6 +101,13 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_PROTECTED_ACCOUNT =
       ErrorReason._(17, _omitEnumNames ? '' : 'ERROR_REASON_PROTECTED_ACCOUNT');
 
+  /// FAILED_PRECONDITION: this account cannot be messaged (ADR-0027 D4). One reason with identical bytes for a block in
+  /// either direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose
+  /// peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
+  /// message this account".
+  static const ErrorReason ERROR_REASON_CANNOT_MESSAGE =
+      ErrorReason._(18, _omitEnumNames ? '' : 'ERROR_REASON_CANNOT_MESSAGE');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -120,10 +127,11 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_REAUTH_REQUIRED,
     ERROR_REASON_REPLY_NOT_ALLOWED,
     ERROR_REASON_PROTECTED_ACCOUNT,
+    ERROR_REASON_CANNOT_MESSAGE,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 17);
+      $pb.ProtobufEnum.$_initByValueList(values, 18);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
