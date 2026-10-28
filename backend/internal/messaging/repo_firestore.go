@@ -325,3 +325,26 @@ func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, e
 	}
 	return out.Count, nil
 }
+
+// unreadConversationsCap bounds CountUnreadConversations (ADR-0027 D10): the count is never above 100 and the client shows
+// "99+". Firestore bills the aggregation 1 read per 1,000 matches, so the cap keeps the GetMe badge at 1 read.
+const unreadConversationsCap = 100
+
+// CountUnreadConversations implements Repo: count() of users/{uid}/dmInbox where unreadCount > 0, Limit
+// unreadConversationsCap, on the automatic single-field index. 1 read. Requests (dmRequests) never count.
+func (r *FirestoreRepo) CountUnreadConversations(ctx context.Context, uid string) (int64, error) {
+	q := r.client.Collection(usersCollection).Doc(uid).Collection(dmInboxCollection).
+		Where("unreadCount", ">", 0).Limit(unreadConversationsCap)
+	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
+	budget.FromContext(ctx).AddReads(1)
+	if err != nil {
+		return 0, fmt.Errorf("messaging: count unread conversations: %w", err)
+	}
+	var out struct {
+		Count int64 `firestore:"count"`
+	}
+	if err := res.DataTo(&out); err != nil {
+		return 0, fmt.Errorf("messaging: decode unread conversation count: %w", err)
+	}
+	return out.Count, nil
+}

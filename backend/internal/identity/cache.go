@@ -14,6 +14,9 @@ const (
 	// pendingTTL bounds GetMe's pending_follow_request_count (ADR-0025 D7, AQ3): at most 30 s stale on this instance, and
 	// evicted with the unread count by any Forget or ForgetUnread on this instance (an accept, a notification row, a counter change).
 	pendingTTL = 30 * time.Second
+	// convBadgeTTL bounds GetMe's unread_conversation_count (ADR-0027 D10, D14, W7-11): at most 30 s stale on this
+	// instance, evicted earlier by MessageBadgeCache.Forget (a send to or a mark-read by that user on this instance).
+	convBadgeTTL = 30 * time.Second
 	// notFoundTTL (M1) is deliberately short: a signed-up-but-profile-less caller hitting any non-exempt
 	// RPC would otherwise re-read users/{uid} on every single call (authn.AccountStatusInterceptor ->
 	// AccountStatus -> getProfileCached), burning the daily Firestore read quota for free before rate
@@ -26,11 +29,12 @@ const (
 // Cache is identity's instance cache (ADR-0003: users/{uid} cached 60s; CLAUDE.md: "update the instance
 // cache from written data instead of re-reading"). One per process; safe for concurrent use.
 type Cache struct {
-	profiles *cache.LRU[string, Profile]
-	handles  *cache.LRU[string, handleEntry] // handleLower -> uid and when it was learned (ADR-0010 D21 G5)
-	unread   *cache.LRU[string, int64]
-	pending  *cache.LRU[string, int64]    // uid -> pending follow request count (protected callers only)
-	notFound *cache.LRU[string, struct{}] // uid -> "no profile yet" (M1 negative cache)
+	profiles  *cache.LRU[string, Profile]
+	handles   *cache.LRU[string, handleEntry] // handleLower -> uid and when it was learned (ADR-0010 D21 G5)
+	unread    *cache.LRU[string, int64]
+	convBadge *cache.LRU[string, int64]    // uid -> unread conversation count (callers with messaging on only)
+	pending   *cache.LRU[string, int64]    // uid -> pending follow request count (protected callers only)
+	notFound  *cache.LRU[string, struct{}] // uid -> "no profile yet" (M1 negative cache)
 	// handleFree is the ADR-0010 D5 negative handle cache: handleLower -> "ResolveHandle said NotFound" for
 	// notFoundTTL. Only a hint: CreateProfile/ChangeHandle stay transactional (handles Create), so a stale
 	// "free" answer can never produce a duplicate handle.
@@ -52,6 +56,7 @@ func NewCache(ttl time.Duration) *Cache {
 		handles:    cache.New[string, handleEntry](cacheCapacity, ttl),
 		unread:     cache.New[string, int64](cacheCapacity, unreadTTL),
 		pending:    cache.New[string, int64](cacheCapacity, pendingTTL),
+		convBadge:  cache.New[string, int64](cacheCapacity, convBadgeTTL),
 		notFound:   cache.New[string, struct{}](cacheCapacity, notFoundTTL),
 		handleFree: cache.New[string, struct{}](cacheCapacity, notFoundTTL),
 		now:        time.Now,
@@ -151,3 +156,12 @@ func (c *Cache) GetPendingCount(uid string) (int64, bool) { return c.pending.Get
 
 // SetPendingCount caches the count for pendingTTL.
 func (c *Cache) SetPendingCount(uid string, n int64) { c.pending.Set(uid, n) }
+
+// GetConversationBadge returns the cached unread conversation count (30 s, ADR-0027 D14).
+func (c *Cache) GetConversationBadge(uid string) (int64, bool) { return c.convBadge.Get(uid) }
+
+// SetConversationBadge caches the count for convBadgeTTL.
+func (c *Cache) SetConversationBadge(uid string, n int64) { c.convBadge.Set(uid, n) }
+
+// InvalidateConversationBadge drops uid's cached unread conversation count only.
+func (c *Cache) InvalidateConversationBadge(uid string) { c.convBadge.Delete(uid) }

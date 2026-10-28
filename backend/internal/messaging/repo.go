@@ -18,6 +18,9 @@ type Repo interface {
 	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
 	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
 	CountRequests(ctx context.Context, uid string) (int64, error)
+	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap
+	// (ADR-0027 D10, W7-11): 1 read.
+	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
 }
 
 // EntryRow is one inbox or requests entry with its conversation id (the document id).
