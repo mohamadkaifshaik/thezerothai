@@ -34,6 +34,11 @@ all reads, against its own 10% review line (`docs/reviews/cost-model.md` section
 (6.3%) or `SUGGESTIONS_EDGE_LIMIT` 20 (9.4%; a change of a cap in `envs/*/main.tf`, reviewed like logic, with its cost note). Choose before
 `follow_suggestions` ramps past the dev allowlist. This plan keeps the shipped value (30).
 
+**Update 2026-10-28: decided.** ADR-0024 Amendment 2 was accepted by the merge of #367 and takes both levers (48 h client cache with guards, and
+`SUGGESTIONS_EDGE_LIMIT` 20, cold cap 32). The backend PR (#373) moves the code default and both `main.tf` literals to 20. Dev keeps the explicit 30
+of section 2.1 until a targeted dev apply of the `api` service, so the "equal to the code defaults" note in that table holds only until #373 merges.
+`follow_suggestions` stays on the dev allowlist until the Amendment 2 handoff is complete.
+
 ## 1. Preconditions, with evidence (dev project `dzeroth-dev`, captured 2026-10-27, 14:37 to 15:33 UTC)
 
 The raw output of every command below was kept outside the repository (the preparing session's scratchpad, files `1a-*`, `1b-*`, `1c-*`; some raw files hold uids, so none is
