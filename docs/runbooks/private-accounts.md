@@ -125,3 +125,9 @@ any of those; a decline, a withdraw by the requester and other instances show th
 | WARN `pin_omitted` with `pin_omitted=follow_check_failed` | The viewer's graph snapshot could not be read; the pin was omitted. The block check ran just before and would normally have failed first. | Look for the Firestore error on the same trace. |
 | WARN `pending_count_failed` | The `count()` failed; the badge shows 0 for that call. GetMe still succeeds. | Firestore status or quota (`docs/runbooks/cost-spike.md`). |
 | request field `follow_requests_count_cache_hit` | `true` when the 30 s count was served from the instance cache (0 reads). | Nothing. |
+
+## 8. Rollback and traffic splits (W3-36 M-1)
+A revision older than the Part B enforcement floor (`main` 061395a0, #395) shows protected posts to everyone, because
+stored posts stay `PUBLIC`. While `privacy/protectedAuthors.uids` is non-empty, never route traffic to such a revision. The
+check, the floor and the prod rule are in `docs/runbooks/rollback.md`, "Private accounts: never roll back past
+enforcement". W3-38 records the revision names of 100% of dev traffic and of `last-good` before the allowlist apply.
