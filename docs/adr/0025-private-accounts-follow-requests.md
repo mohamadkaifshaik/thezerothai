@@ -682,3 +682,20 @@ the tickets need (AQ4, AQ5, AQ6). Cost: +0 reads and +0 writes on every row of t
   - D3's rule stands: no path reads an unknown set as "everyone public", and every path that needs the set for content
     answers UNAVAILABLE.
   - Why: failing the whole profile would turn a set outage into a profile outage and protect nothing more.
+
+## Implementation note (W3-29a, 2026-10-28): the caller's own copy of someone else's post
+
+Founder decision 2026-10-28: accepted.
+
+- **What:** a caller opening their own REPOST or QUOTE of another user's post (`GetForViewer`: GetPost, and the
+  `Viewable` paths Like, AddBookmark, Report, reply parent and quote target) now reads the caller's graph once:
+  +1 read cold, 0 warm (the graph snapshot is cached 60 s per instance).
+- **Why:** D4 makes the copy depend on the caller's follow state toward the copied author. Before ADR-0025 the
+  caller's own copies were exempt from the embed check (ADR-0018 D13) and needed no graph read. A caller who
+  unfollows a protected author must lose that author's content in their own reposts too.
+- **When:** only while a protected-set loader is wired (`posts.WithProtectedAuthors`). Writes stay 0, and creating
+  a repost or quote costs nothing extra.
+- **Cost:** this is the one exception to "+0 reads on every path" in the Cost impact table. GetPost of one's own
+  copy goes from 3 to 4 reads cold per request (with the interceptor read), the same as GetPost of another user's
+  post. Opening one's own reposts is a small share of GetPost calls, and the read is cached 60 s, so the daily
+  total stays inside the Part B planning margin. No free-tier line moves.
