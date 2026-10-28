@@ -235,7 +235,7 @@ changes handle, name or avatar after the entry was built (the status check happe
 answer. The client caches on top (W3-19, Amendment 2 B2): 48 h for a non-empty answer, 6 h for an empty one, 24 h after
 a limit (24 h in every case on a build without B2). **On a device, then, a blocker is bounded by the client TTL (48 h, or
 until a tap gets NOT_FOUND, which drops the row for good), not by the server's minute; "more than a minute" applies to
-the server's answer only.** The cache is cleared by a restart or scale-in; nothing else clears it.
+the server's answer only.** The bound also holds while the card stays mounted (security L-1): the cubit sets one timer for the entry's expiry that asks once more, and a resume re-checks, so a desktop tab foregrounded for days drops the rows at expiry (a failing call falls under the usual backoffs, no retry loop). The cache is cleared by a restart or scale-in; nothing else clears it.
 
 | Symptom | Cause and action |
 |---|---|
