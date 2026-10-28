@@ -18,6 +18,9 @@ type Repo interface {
 	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
 	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
 	CountRequests(ctx context.Context, uid string) (int64, error)
+	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap
+	// (ADR-0027 D10, W7-11): 1 read.
+	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
 	// ListMessages reads one page of a conversation's messages (W7-8): reads max(len(rows), 1).
 	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists

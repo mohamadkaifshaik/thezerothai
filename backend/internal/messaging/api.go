@@ -94,9 +94,27 @@ type Events interface {
 	MessageSent(ctx context.Context, e MessageEvent)
 }
 
-// BadgeCache is the seam to the unread-conversation badge cache (ADR-0027 D10, built by W7-11): Forget evicts the cached
-// unread_conversation_count of these users on this instance. Nothing implements it before W7-11, so the Service skips
+// BadgeCache is the seam to the unread-conversation badge cache (ADR-0027 D10, W7-11): Forget evicts the cached
+// unread_conversation_count of these users on this instance. identity.MessageBadgeCache implements it; the Service skips
 // the call while Deps.Badge is nil.
 type BadgeCache interface {
 	Forget(uids ...string)
+}
+
+// UnreadCounter is the storage half of UnreadBadge (*FirestoreRepo and every Repo implement it).
+type UnreadCounter interface {
+	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
+}
+
+// UnreadBadge implements identity.MessageBadge (ADR-0027 D10, W7-11) without importing identity: the method has exactly the
+// interface's shape, so apiserver passes it to identity.WithMessageBadge. It is the count() of dmInbox entries with
+// unreadCount > 0, Limit 100 (1 read). It does not check the flag: identity calls it only for a caller with messaging on.
+type UnreadBadge struct{ counter UnreadCounter }
+
+// NewUnreadBadge builds the badge on the repo.
+func NewUnreadBadge(c UnreadCounter) *UnreadBadge { return &UnreadBadge{counter: c} }
+
+// UnreadConversations: 1 read, 0 writes. The result is at most 100.
+func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int64, error) {
+	return b.counter.CountUnreadConversations(ctx, uid)
 }
