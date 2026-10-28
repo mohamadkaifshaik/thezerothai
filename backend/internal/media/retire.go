@@ -198,17 +198,19 @@ func (j *Jobs) Retire(ctx context.Context, m RetireMessage) (string, error) {
 
 // ImageObject is a public profile-image object name taken apart.
 type ImageObject struct {
-	// Name is the object name, "m/{id}.{ext}" or "m/{id}_t.{ext}".
+	// Name is the object name, "m/{id}.{ext}", "m/{id}_t.{ext}" or, for uploads from W3-39 on, "m/{id}-{suffix}.{ext}" / "m/{id}-{suffix}_t.{ext}".
 	Name string
 	// ID is the media id (19 digits).
 	ID string
+	// Suffix is the 32-hex-character random part of a W3-39 name, "" for an older name.
+	Suffix string
 	// Ext is "jpg" or "webp" (what extension() returns).
 	Ext string
 	// Thumb is true for the "_t" thumbnail object.
 	Thumb bool
 }
 
-var imageObjectPattern = regexp.MustCompile(`^m/([0-9]{19})(_t)?\.(jpg|webp)$`)
+var imageObjectPattern = regexp.MustCompile(`^m/([0-9]{19})(?:-([0-9a-f]{32}))?(_t)?\.(jpg|webp)$`)
 
 // ParseObjectName parses an object name of the public bucket. It is the one place that knows the names media writes
 // (publicObject and publicThumbObject); any other name is not an image this module owns.
@@ -217,7 +219,7 @@ func ParseObjectName(name string) (ImageObject, bool) {
 	if m == nil {
 		return ImageObject{}, false
 	}
-	return ImageObject{Name: name, ID: m[1], Ext: m[3], Thumb: m[2] != ""}, true
+	return ImageObject{Name: name, ID: m[1], Suffix: m[2], Ext: m[4], Thumb: m[3] != ""}, true
 }
 
 // ObjectNameFromURL returns the public-bucket object name ("m/<tail>") a profile image URL points at, or "" when the URL
@@ -254,7 +256,7 @@ func parseRetiredImage(oldURL, oldThumbURL string) (string, bool) {
 	}
 	if oldThumbURL != "" {
 		th, ok := ParseImageURL(oldThumbURL)
-		if !ok || !th.Thumb || th.ID != full.ID || th.Ext != full.Ext {
+		if !ok || !th.Thumb || th.ID != full.ID || th.Suffix != full.Suffix || th.Ext != full.Ext {
 			return "", false
 		}
 	}

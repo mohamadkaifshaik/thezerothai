@@ -2,6 +2,8 @@ package media
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -60,6 +62,9 @@ type Deps struct {
 	Moderator Moderator
 	Directory Directory
 	IDs       IDGenerator
+	// NameSuffix returns the random suffix of a new upload's public object names; nil means newNameSuffix (crypto/rand).
+	// Overridable for tests only.
+	NameSuffix func() (string, error)
 	// PublicBaseURL is the URL prefix public objects are served from, no trailing slash.
 	PublicBaseURL string
 	// Daily upload quotas (units are images) and the new-account window (config.QuotaConfig).
@@ -94,6 +99,9 @@ func New(d Deps) (Service, error) {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.NameSuffix == nil {
+		d.NameSuffix = newNameSuffix
+	}
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
@@ -113,8 +121,37 @@ func extension(contentType string) string {
 
 func uploadObject(uid, id, ext string) string      { return "u/" + uid + "/" + id + "." + ext }
 func uploadThumbObject(uid, id, ext string) string { return "u/" + uid + "/" + id + "_t." + ext }
-func publicObject(id, ext string) string           { return "m/" + id + "." + ext }
-func publicThumbObject(id, ext string) string      { return "m/" + id + "_t." + ext }
+
+// nameSuffixLen is the number of random bytes behind a public object name suffix (128 bits, W3-39).
+const nameSuffixLen = 16
+
+// newNameSuffix returns 128 bits from crypto/rand as 32 lowercase hex characters. The public bucket is public-read,
+// so a name that can be derived from the media id would let anyone who learns an id fetch an image whose post they
+// may not see (ADR-0025 note W3-36 M-2); the suffix makes new names unguessable. The alphabet has no "_" and no "-",
+// so the suffix can never be confused with the id separator or the thumbnail marker.
+func newNameSuffix() (string, error) {
+	var b [nameSuffixLen]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("media: name suffix: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// publicObject is the public full-size object name: "m/{id}-{suffix}.{ext}", or the pre-W3-39 "m/{id}.{ext}" when
+// the document has no nameSuffix (old objects keep their names, founder B1).
+func publicObject(id, suffix, ext string) string { return "m/" + id + suffixPart(suffix) + "." + ext }
+
+// publicThumbObject is the thumbnail name: "m/{id}-{suffix}_t.{ext}" or "m/{id}_t.{ext}".
+func publicThumbObject(id, suffix, ext string) string {
+	return "m/" + id + suffixPart(suffix) + "_t." + ext
+}
+
+func suffixPart(suffix string) string {
+	if suffix == "" {
+		return ""
+	}
+	return "-" + suffix
+}
 
 func joinIDs(ids []string) string { return strings.Join(ids, ",") }
 
@@ -239,12 +276,17 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	for i, it := range in.Items {
 		id := s.IDs.Generate()
 		ext := extension(it.ContentType)
+		suffix, err := s.NameSuffix()
+		if err != nil {
+			return nil, logger.RedactErr(err, uid)
+		}
 		docs[i] = Doc{
 			ID: id, OwnerID: uid, Purpose: string(in.Purpose), Status: string(StatusPending),
 			ContentType: it.ContentType, Bytes: it.FullBytes, ThumbBytes: it.ThumbBytes, Width: it.Width, Height: it.Height,
 			FullMD5: it.FullMD5, ThumbMD5: it.ThumbMD5,
 			UploadPath: uploadObject(uid, id, ext), ThumbUploadPath: uploadThumbObject(uid, id, ext),
-			CreatedAt: now, ExpireAt: &expire,
+			NameSuffix: suffix,
+			CreatedAt:  now, ExpireAt: &expire,
 		}
 	}
 	res, err := s.Repo.CreateUploads(ctx, CreateUploadsParams{
