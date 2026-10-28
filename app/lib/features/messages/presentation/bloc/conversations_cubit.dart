@@ -50,8 +50,8 @@ class ConversationsState {
   final bool loadMoreFailed;
 
   /// Pending message requests ("Message requests (N)"): the server sends it on
-  /// a first INBOX page only and the repository does not persist it, so it is
-  /// null until such a page answered in this session.
+  /// a first INBOX page only; the repository persists the last one, so it is
+  /// shown on a warm start and is null only before any was ever received.
   final int? requestCount;
 
   /// Blocking error (nothing cached).
@@ -224,6 +224,10 @@ class ConversationsCubit extends Cubit<ConversationsState> {
       state.copyWith(
         conversations: snapshot.conversations,
         hasMore: snapshot.hasMore,
+        // The persisted last known count (INBOX only).
+        requestCount: _isInbox && snapshot.requestCount != null
+            ? snapshot.requestCount
+            : state.requestCount,
       ),
     );
   }
