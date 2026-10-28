@@ -106,7 +106,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
-| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
+| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | In review (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
@@ -1111,7 +1111,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
-#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Open
+#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: In review (PR #410)
 - **The matrix.** Every D4 row on the emulators through `apiserver.Build`.
   - Viewer classes: self, approved follower, non-follower, P blocks A, A blocks P, A mutes P, P suspended, post taken down, `blockedBy` overflow.
   - Paths:
@@ -1138,7 +1138,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 
   It catches W4 search, W5 lists and W7 the day they land. It replaces the ADR's "W4 placeholder test that fails until search calls Decide", which cannot compile before the package exists.
 - **Budget table.** Every Part B RPC and every modified read path, at the ADR-0025 ceilings and +0 against the W3-20 table.
-- **Report.** `docs/reviews/test-report-w3b.md`.
+- **Report.** `docs/reviews/test-report-w3-partb.md` (the read-path half; the W3-35b lifecycle half adds its own section or file). Two Low defects: D-1 (two extra `ProtectedSet.CanSee` callers, allowlisted in the guard) and D-2 (the two account-lifecycle write budgets are one short once the protected-set document exists).
 - **Cost.** 0.
 
 #### W3-35b Tests: lifecycle, races, invariants, job, eraser [tester] [M] [depends: W3-27, W3-28a, W3-28b, W3-32] Status: Open
