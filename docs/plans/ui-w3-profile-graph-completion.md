@@ -91,7 +91,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-25b | Part B plumbing: `make proto`, `FEATURE_PRIVATE_ACCOUNTS`, config and limits, `quota.PrivacyToggles`, ceiling, Terraform vars, seam declarations | backend-developer | S | Done (PR #379) (depends: W3-25a) |
 | W3-25c | Part B contract: `AuthorSnapshot.is_private` (field 6) for the lock badge on user-list rows, ADR-0025 implementation note | architect | S | In review (PR #391): proto only, `buf lint` / `buf breaking` clean, no generated code (W3-28c runs `make proto`); founder decision 2026-10-28, Option A |
 | W3-26a | Part B identity: the protected set, the `ProtectedAuthors` loader, the `is_private` toggle (quota, cap), `PrivacyListener`, identity-step clean-up and T11 `privacy` row | backend-developer | M | Done (PR #383; depends: W3-25b) |
-| W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Open (depends: W3-26a, W3-28a) |
+| W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | In review (PR #395) (depends: W3-26a, W3-28a) |
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Done (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Done (PR #388) (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
@@ -739,7 +739,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - Set refresh: ≤ 1,440 reads per instance per day, about 960 / 2,400 / 4,320 a day at 300 / 1,000 / 3,000 DAU. That is +3.2 / 2.4 / 1.4 reads per DAU.
   - 0 when idle: the refresh happens only when a request needs the set.
 
-#### W3-26b Identity: GetProfile and GetMe for protected accounts [backend-developer] [S] [depends: W3-26a, W3-28a] Status: Open
+#### W3-26b Identity: GetProfile and GetMe for protected accounts [backend-developer] [S] [depends: W3-26a, W3-28a] Status: In review (PR #395)
 - **GetProfile(P) for an unapproved viewer** (D4):
   - It returns the header: name, handle, bio, avatar, banner, location, website, counts and `is_private = true`. It omits `pinned_post_id`.
   - "Approved" is the AQ2 expression over the set and `BlockChecker.IsFollowing(ctx, viewer, target)`. That method extends the interface, and graph implements it from the viewer's cached snapshot (0 reads warm).
