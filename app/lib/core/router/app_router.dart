@@ -172,8 +172,15 @@ class AppRouter {
       if (kVisibleShells.contains(ShellKind.premium))
         GoRoute(
           path: premiumPath,
-          pageBuilder: (context, state) =>
-              PremiumDialogPage(key: state.pageKey),
+          // A push restored from web history skips the redirects (go_router
+          // re-applies it as is) and loses its extra, so the builder checks
+          // again and shows nothing then (security review W8-9 M-1).
+          pageBuilder: (context, state) => _premiumPushAllowed(state.extra)
+              ? PremiumDialogPage(key: state.pageKey)
+              : NoTransitionPage<void>(
+                  key: state.pageKey,
+                  child: const _PopOnFirstFrame(),
+                ),
         ),
       ShellRoute(
         builder: (context, state, child) =>
@@ -456,9 +463,15 @@ class AppRouter {
     if (!_onboardingBloc.state.enabledFeatures.contains(kFeatureShells)) {
       return homePath;
     }
-    if (loc == premiumPath && extra != kShellPushExtra) return homePath;
+    if (loc == premiumPath && !_premiumPushAllowed(extra)) return homePath;
     return null;
   }
+
+  /// The Premium dialog shows only for an in-app push ([kShellPushExtra]) and
+  /// with `shells` on for the caller.
+  bool _premiumPushAllowed(Object? extra) =>
+      extra is ShellPush &&
+      _onboardingBloc.state.enabledFeatures.contains(kFeatureShells);
 
   /// `/notifications` redirects Home when the flag is off for this caller.
   String? _notificationsFlagRedirect(String loc) {
@@ -522,4 +535,27 @@ class AppRouter {
     if (match != null) return profilePath(match.group(1)!);
     return null;
   }
+}
+
+/// Pops itself after its first frame: what a `/premium` entry restored from
+/// web history renders instead of the dialog, so Back / Forward never reopens
+/// it without a tap.
+class _PopOnFirstFrame extends StatefulWidget {
+  const _PopOnFirstFrame();
+
+  @override
+  State<_PopOnFirstFrame> createState() => _PopOnFirstFrameState();
+}
+
+class _PopOnFirstFrameState extends State<_PopOnFirstFrame> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) GoRouter.of(context).pop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

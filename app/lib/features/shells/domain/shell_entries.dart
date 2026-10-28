@@ -16,10 +16,18 @@ enum ShellKind { creatorStudio, premium, advertise, calls }
 /// a `tearDown`); production code never assigns it.
 Set<ShellKind> kVisibleShells = Set.unmodifiable(ShellKind.values);
 
+/// The type of [kShellPushExtra]. Deliberately not JSON-encodable: go_router
+/// stores an `extra` it cannot encode as `null` in the browser history entry,
+/// so a push restored by web Back / Forward arrives without it (security
+/// review W8-9 M-1).
+final class ShellPush {
+  const ShellPush._();
+}
+
 /// What [AppRouter.premiumPath] must be pushed with: it is a dialog reachable
-/// only by `push` from inside the app. A typed URL, a reload or a cold start
-/// carries no such extra and lands on Home.
-const kShellPushExtra = 'shell-push';
+/// only by `push` from inside the app. A typed URL, a reload, a cold start or
+/// a browser history restore carries no such extra and never shows it.
+const kShellPushExtra = ShellPush._();
 
 /// One entry point to a shell: a drawer row (under 600 dp) and an item of the
 /// rail's More menu (600 dp and up).

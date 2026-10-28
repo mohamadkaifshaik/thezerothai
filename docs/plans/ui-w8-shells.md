@@ -178,7 +178,7 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 | W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | | In review |
 | W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | | In review |
 | W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | Open |
-| W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | Open |
+| W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | | Done |
 | W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | Done (ADR-0026 Accepted 2026-10-28) |
 | W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Open |
 
@@ -400,7 +400,7 @@ Order:
 - **Flag.** Under test: `shells` × `ui_shell` × `kVisibleShells`.
 - **Seam.** The structural no-repository test keeps the 0-cost claim true as the shells change.
 
-### W8-9 — Privacy and claims check  [owner: security-auditor] [size: S] [depends: W8-4 to W8-7]  Status: Open
+### W8-9 — Privacy and claims check  [owner: security-auditor] [size: S] [depends: W8-4 to W8-7]  Status: Done (`docs/reviews/security-review-w8.md`; M-1 fixed, L-1 open for the founder)
 - **Description.** A short review, not a threat model (no new surface), covering:
   - no data collection (no field, form, consent, analytics event or Crashlytics key);
   - no RPC and no repository import;

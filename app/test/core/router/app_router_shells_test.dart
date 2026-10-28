@@ -9,6 +9,7 @@ import 'package:dzeroth/features/shells/presentation/premium_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../support/shells_harness.dart';
 
@@ -175,6 +176,40 @@ void main() {
       expect(find.byType(PremiumDialog), findsNothing);
       expect(app.path, AppRouter.homePath);
     });
+
+    // Security review W8-9 M-1: on web, Back / Forward restores a history
+    // entry that still holds the /premium push; it must not reopen the dialog.
+    for (final dropShells in [false, true]) {
+      testWidgets('a /premium push restored from history never reopens the '
+          'dialog${dropShells ? ' (shells turned off since)' : ''}', (
+        tester,
+      ) async {
+        final app = await pumpShellsApp(tester);
+        final router = app.router.router;
+        router.push(AppRouter.premiumPath, extra: kShellPushExtra);
+        await tester.pumpAndSettle();
+        expect(find.byType(PremiumDialog), findsOneWidget);
+        final entry = router.routeInformationParser.restoreRouteInformation(
+          router.routerDelegate.currentConfiguration,
+        )!;
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        expect(find.byType(PremiumDialog), findsNothing);
+        if (dropShells) {
+          final off = app.onboarding.state.copyWith(
+            enabledFeatures: const {kFeatureUiShell},
+          );
+          when(() => app.onboarding.state).thenReturn(off);
+        }
+
+        router.routeInformationProvider.didPushRouteInformation(entry);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PremiumDialog), findsNothing);
+        expect(app.path, AppRouter.homePath);
+      });
+    }
 
     testWidgets('the dialog opens over a shell page and leaves it there', (
       tester,
