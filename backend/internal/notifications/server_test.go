@@ -91,7 +91,7 @@ func TestServer_ListMapsRowsAndTokens(t *testing.T) {
 }
 
 func TestToProto(t *testing.T) {
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted} {
 		got := ToProto(Notification{ID: "i", Type: ty, CreatedAt: t0})
 		if got.Type == notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED {
 			t.Errorf("%s maps to UNSPECIFIED", ty)

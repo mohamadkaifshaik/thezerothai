@@ -44,8 +44,8 @@ func TestPostNotifier(t *testing.T) {
 	}{
 		{"no mentions", &posts.Post{ID: "1000000000000000001", AuthorID: "alice"}, nil},
 		{"nil post", nil, nil},
-		{"not public", &posts.Post{ID: "1000000000000000001", AuthorID: "alice", Visibility: posts.VisibilityFollowers,
-			Mentions: []posts.Mention{{UserID: "bob", Handle: "bob"}}}, nil},
+		{"stored visibility is ignored (ADR-0025 D2)", &posts.Post{ID: "1000000000000000001", AuthorID: "alice", Visibility: posts.VisibilityFollowers, CreatedAt: at,
+			Mentions: []posts.Mention{{UserID: "bob", Handle: "bob"}}}, []string{"bob"}},
 		{"two mentions", &posts.Post{ID: "1000000000000000001", AuthorID: "alice", CreatedAt: at,
 			Mentions: []posts.Mention{{UserID: "bob", Handle: "bob"}, {UserID: "carol", Handle: "carol"}}}, []string{"bob", "carol"}},
 	}
@@ -97,7 +97,7 @@ func TestPostNotifierReplies(t *testing.T) {
 		{"reply notifies the parent author", reply(nil), []ev{{notifications.TypeReply, []string{"bob"}}}},
 		{"reply to own post emits nothing", reply(func(p *posts.Post) { p.ReplyToAuthorID = "alice" }), nil},
 		{"unknown parent author emits nothing", reply(func(p *posts.Post) { p.ReplyToAuthorID = "" }), nil},
-		{"not public emits nothing", reply(func(p *posts.Post) { p.Visibility = posts.VisibilityFollowers }), nil},
+		{"stored visibility is ignored", reply(func(p *posts.Post) { p.Visibility = posts.VisibilityFollowers }), []ev{{notifications.TypeReply, []string{"bob"}}}},
 		{"mention of the parent author collapses into the reply", reply(func(p *posts.Post) {
 			p.Mentions = []posts.Mention{{UserID: "bob", Handle: "bob"}}
 		}), []ev{{notifications.TypeReply, []string{"bob"}}}},
@@ -189,4 +189,27 @@ func TestAccountAges(t *testing.T) {
 	if gotNew, _ := a.IsNew("young"); gotNew {
 		t.Error("young account must age out")
 	}
+}
+
+// TestFollowNotifierRequestTypes (ADR-0025 D10): a request notifies the target with the requester as actor; an accept
+// notifies the requester with the target as actor.
+func TestFollowNotifierRequestTypes(t *testing.T) {
+	at := time.Date(2026, 10, 28, 1, 2, 3, 0, time.UTC)
+	em := &recordingEmitter{}
+	n := followNotifier{slot: &emitterSlot{em: em}}
+	n.FollowRequested(context.Background(), "alice", "pat", at)
+	n.FollowRequestAccepted(context.Background(), "pat", "alice", at)
+	if len(em.events) != 2 {
+		t.Fatalf("events = %+v", em.events)
+	}
+	req, acc := em.events[0], em.events[1]
+	if req.Type != notifications.TypeFollowRequest || req.ActorID != "alice" || len(req.RecipientIDs) != 1 || req.RecipientIDs[0] != "pat" || !req.At.Equal(at) || req.PostID != "" {
+		t.Errorf("request event = %+v", req)
+	}
+	if acc.Type != notifications.TypeFollowAccepted || acc.ActorID != "pat" || len(acc.RecipientIDs) != 1 || acc.RecipientIDs[0] != "alice" || !acc.At.Equal(at) {
+		t.Errorf("accept event = %+v", acc)
+	}
+	n2 := followNotifier{slot: &emitterSlot{}} // an unbound slot drops, never panics
+	n2.FollowRequested(context.Background(), "alice", "pat", at)
+	n2.FollowRequestAccepted(context.Background(), "pat", "alice", at)
 }

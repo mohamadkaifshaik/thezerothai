@@ -33,6 +33,10 @@ func pushText(t Type) (title, body string) {
 		return "New repost", "Someone reposted your post"
 	case TypeQuote:
 		return "New quote", "Someone quoted your post"
+	case TypeFollowRequest:
+		return "New follow request", "Someone asked to follow you"
+	case TypeFollowAccepted:
+		return "Follow request accepted", "Your follow request was accepted"
 	}
 	return "Notification", "You have a new notification"
 }

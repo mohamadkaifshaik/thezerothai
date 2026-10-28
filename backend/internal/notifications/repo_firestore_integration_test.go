@@ -622,3 +622,62 @@ func TestIntegration_PurgeStep2PersistentRaceEndsInAnError(t *testing.T) {
 		t.Errorf("failed batches counted writes=%d deletes=%d, want 0/0", counter.Writes(), counter.Deletes())
 	}
 }
+
+// TestIntegration_FollowRequestTypesBudgetsAndErasure (W3-31, ADR-0025 D10): a request and an accept cost about 2
+// reads per recipient and 1 write, a re-request is write-free, a suppressed protected-actor row costs 0 writes, and
+// the actorIds query of the ADR-0017 D10 eraser finds the request row when the requester is deleted.
+func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client).WithDirectory(newDirectory("dave"))
+	rig := newRig(t, nil)
+	rig.f.d.Repo = repo
+	rig.f.d.Audience = AudienceFunc(func(context.Context, string, string, bool) (bool, error) { return false, nil })
+	register(t, repo, "bob", "device-bbbbbbbbbbbb", "tok-b1", t0)
+
+	req := Event{Type: TypeFollowRequest, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}
+	ctx, c := counted()
+	out, err := rig.f.Deliver(ctx, req)
+	mustNoErr(t, err)
+	if out.Created != 1 || out.Pushed != 1 {
+		t.Fatalf("outcome = %+v", out)
+	}
+	// 2 fresh profile reads (actor, recipient) + 1 device row; 1 write.
+	budgettest.Assert(t, "fan-out follow_request", c, budgettest.Budget{Reads: 3, Writes: 1})
+
+	// A withdraw and a new request inside the TTL: the row is still there, so 0 writes and no second push.
+	ctx, c = counted()
+	out, err = rig.f.Deliver(ctx, req)
+	mustNoErr(t, err)
+	if out.Duplicate != 1 || out.Pushed != 0 || c.Writes() != 0 {
+		t.Fatalf("re-request outcome = %+v writes = %d", out, c.Writes())
+	}
+	budgettest.Assert(t, "fan-out re-request", c, budgettest.Budget{Reads: 3})
+
+	ctx, c = counted()
+	_, err = rig.f.Deliver(ctx, Event{Type: TypeFollowAccepted, ActorID: "bob", RecipientIDs: []string{"alice"}, At: t0})
+	mustNoErr(t, err)
+	// 2 profile reads + the requester's device query (an empty query bills 1); 1 write.
+	budgettest.Assert(t, "fan-out follow_accepted", c, budgettest.Budget{Reads: 3, Writes: 1})
+
+	// Suppression: a post-bearing event from an actor the recipient may not see writes nothing.
+	ctx, c = counted()
+	out, err = rig.f.Deliver(ctx, Event{Type: TypeMention, ActorID: "alice", RecipientIDs: []string{"bob"}, PostID: postA, At: t0})
+	mustNoErr(t, err)
+	if out.SuppressedProtected != 1 || c.Writes() != 0 {
+		t.Fatalf("suppressed outcome = %+v writes = %d", out, c.Writes())
+	}
+	budgettest.Assert(t, "fan-out suppressed protected", c, budgettest.Budget{Reads: 2})
+
+	// The eraser finds the request row through actorIds when the requester is deleted.
+	var cp Checkpoint
+	for done := false; !done; {
+		cp, done, err = repo.PurgeUser(context.Background(), "alice", cp)
+		mustNoErr(t, err)
+	}
+	if docExists(t, client, "users/bob/notifications/follow_request_alice") {
+		t.Error("the follow_request row survived the requester's purge")
+	}
+	if docExists(t, client, "users/alice/notifications/follow_accepted_bob") {
+		t.Error("alice's own follow_accepted row survived her purge")
+	}
+}

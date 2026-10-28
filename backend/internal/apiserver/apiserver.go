@@ -239,6 +239,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
+		Audience:  protectedAudience(protectedAuthors),
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
 	})
 	switch cfg.NotificationsDelivery {

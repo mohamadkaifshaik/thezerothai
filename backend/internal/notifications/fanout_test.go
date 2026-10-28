@@ -214,6 +214,8 @@ func TestNotificationID(t *testing.T) {
 		unique bool
 	}{
 		{TypeFollow, "u1", "", t0, "follow_u1", true},
+		{TypeFollowRequest, "u1", "", t0, "follow_request_u1", true},
+		{TypeFollowAccepted, "u1", "", t0, "follow_accepted_u1", true},
 		{TypeMention, "u1", postA, t0, "mention_" + postA, true},
 		{TypeReply, "u1", postA, t0, "reply_" + postA, true},
 		{TypeQuote, "u1", postA, t0, "quote_" + postA, true},
@@ -499,4 +501,123 @@ func TestFoldActor(t *testing.T) {
 			t.Error("the input slice must not be modified")
 		}
 	})
+}
+
+// protectedAudience is a fake AudienceChecker: protected actors are visible only to viewers who follow them.
+type protectedAudience struct {
+	protected map[string]bool
+	err       error
+	calls     int
+}
+
+func (p *protectedAudience) CanSee(_ context.Context, viewer, author string, following bool) (bool, error) {
+	p.calls++
+	if p.err != nil {
+		return false, p.err
+	}
+	return viewer == author || !p.protected[author] || following, nil
+}
+
+func TestDeliver_FollowRequestTypes(t *testing.T) {
+	r := newRig(t, nil)
+	aud := &protectedAudience{protected: map[string]bool{"alice": true, "bob": true}}
+	r.f.d.Audience = aud
+	r.addDevice("bob", "dev-1", "tok-1")
+	r.addDevice("alice", "dev-2", "tok-2")
+
+	// alice (the requester) asks protected bob: bob gets one follow_request row and one push, with no post.
+	ev := Event{Type: TypeFollowRequest, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}
+	out, err := r.f.Deliver(context.Background(), ev)
+	mustNoErr(t, err)
+	row, ok := r.repo.rows["bob"]["follow_request_alice"]
+	if !ok || out.Created != 1 || out.Pushed != 1 || row.PostID != "" || len(row.ActorIDs) != 1 || row.ActorIDs[0] != "alice" {
+		t.Fatalf("row = %+v ok=%v out = %+v", row, ok, out)
+	}
+	if p := r.sender.sent[0].Push; p.Type != TypeFollowRequest || p.NotificationID != "follow_request_alice" || p.ActorID != "alice" || p.PostID != "" {
+		t.Errorf("push = %+v", p)
+	}
+	// Withdraw and request again within the TTL, or a Pub/Sub redelivery: the row exists, so no second row or push.
+	out, err = r.f.Deliver(context.Background(), ev)
+	mustNoErr(t, err)
+	if out.Duplicate != 1 || out.Created != 0 || out.Pushed != 0 || len(r.sender.sent) != 1 {
+		t.Errorf("re-request outcome = %+v pushes=%d", out, len(r.sender.sent))
+	}
+
+	// bob accepts: the actor is bob, the recipient alice; the id is keyed by the target.
+	acc := Event{Type: TypeFollowAccepted, ActorID: "bob", RecipientIDs: []string{"alice"}, At: t0}
+	out, err = r.f.Deliver(context.Background(), acc)
+	mustNoErr(t, err)
+	if _, ok := r.repo.rows["alice"]["follow_accepted_bob"]; !ok || out.Created != 1 || out.Pushed != 1 {
+		t.Fatalf("rows = %+v out = %+v", r.repo.rows["alice"], out)
+	}
+	if _, ok := r.repo.rows["alice"]["follow_bob"]; ok {
+		t.Error("an accept must not write a follow row")
+	}
+	if aud.calls != 0 {
+		t.Errorf("request types must not consult the protected set (%d calls)", aud.calls)
+	}
+}
+
+func TestDeliver_ProtectedActorSuppression(t *testing.T) {
+	tests := []struct {
+		name         string
+		typ          Type
+		following    bool
+		protected    bool
+		setErr       error
+		wantRows     int
+		wantProt     int
+		wantCalls    int
+		wantRetryErr bool
+	}{
+		{"mention from protected, not approved", TypeMention, false, true, nil, 0, 1, 1, false},
+		{"reply from protected, not approved", TypeReply, false, true, nil, 0, 1, 1, false},
+		{"quote from protected, not approved", TypeQuote, false, true, nil, 0, 1, 1, false},
+		{"repost from protected, not approved", TypeRepost, false, true, nil, 0, 1, 1, false},
+		{"mention from protected, approved follower", TypeMention, true, true, nil, 1, 0, 1, false},
+		{"mention from public actor", TypeMention, false, false, nil, 1, 0, 1, false},
+		{"like from protected is unaffected", TypeLike, false, true, nil, 1, 0, 0, false},
+		{"follow from protected is unaffected", TypeFollow, false, true, nil, 1, 0, 0, false},
+		{"set unavailable fails closed with a retry", TypeMention, false, true, errBoom, 0, 0, 1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRig(t, nil)
+			aud := &protectedAudience{protected: map[string]bool{"alice": tt.protected}, err: tt.setErr}
+			r.f.d.Audience = aud
+			r.social.snaps["bob"] = graphSnap{Following: map[string]bool{"alice": tt.following}}
+			ev := Event{Type: tt.typ, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}
+			if tt.typ.needsPost() {
+				ev.PostID = postA
+			}
+			out, err := r.f.Deliver(context.Background(), ev)
+			if (err != nil) != tt.wantRetryErr {
+				t.Fatalf("err = %v, wantRetry %v", err, tt.wantRetryErr)
+			}
+			if rows := len(r.repo.rows["bob"]); rows != tt.wantRows || out.SuppressedProtected != tt.wantProt || aud.calls != tt.wantCalls {
+				t.Errorf("rows=%d (want %d) suppressedProtected=%d (want %d) calls=%d (want %d)", rows, tt.wantRows, out.SuppressedProtected, tt.wantProt, aud.calls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+// A block or mute is decided before the audience check, so an unavailable set never turns a suppressed row into a retry.
+func TestDeliver_BlockedRecipientSkipsAudienceCheck(t *testing.T) {
+	r := newRig(t, nil)
+	aud := &protectedAudience{err: errBoom}
+	r.f.d.Audience = aud
+	r.social.snaps["bob"] = graphSnap{Muted: map[string]bool{"alice": true}}
+	out, err := r.f.Deliver(context.Background(), Event{Type: TypeMention, ActorID: "alice", RecipientIDs: []string{"bob"}, PostID: postA, At: t0})
+	mustNoErr(t, err)
+	if out.Suppressed != 1 || aud.calls != 0 {
+		t.Errorf("out = %+v calls = %d", out, aud.calls)
+	}
+}
+
+func TestPushTextRequestTypes(t *testing.T) {
+	for ty, want := range map[Type]string{TypeFollowRequest: "New follow request", TypeFollowAccepted: "Follow request accepted"} {
+		if title, body := pushText(ty); title != want || body == "" {
+			t.Errorf("pushText(%s) = %q, %q", ty, title, body)
+		}
+	}
 }

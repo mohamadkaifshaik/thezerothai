@@ -145,6 +145,10 @@ func typeToProto(t Type) notificationsv1.NotificationType {
 		return notificationsv1.NotificationType_NOTIFICATION_TYPE_REPOST
 	case TypeQuote:
 		return notificationsv1.NotificationType_NOTIFICATION_TYPE_QUOTE
+	case TypeFollowRequest:
+		return notificationsv1.NotificationType_NOTIFICATION_TYPE_FOLLOW_REQUEST
+	case TypeFollowAccepted:
+		return notificationsv1.NotificationType_NOTIFICATION_TYPE_FOLLOW_ACCEPTED
 	}
 	return notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED
 }

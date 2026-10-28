@@ -52,19 +52,36 @@ const (
 	TypeLike    Type = "like"
 	TypeRepost  Type = "repost"
 	TypeQuote   Type = "quote"
+	// TypeFollowRequest goes to a protected account when someone asks to follow it; TypeFollowAccepted goes to the
+	// requester when the request is approved (ADR-0025 D10). Neither carries a post or needs the protected set.
+	TypeFollowRequest  Type = "follow_request"
+	TypeFollowAccepted Type = "follow_accepted"
 )
 
 // Valid reports whether t is a known type.
 func (t Type) Valid() bool {
 	switch t {
-	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote:
+	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted:
 		return true
 	}
 	return false
 }
 
 // needsPost reports whether events of type t must name a post.
-func (t Type) needsPost() bool { return t != TypeFollow }
+func (t Type) needsPost() bool {
+	return t != TypeFollow && t != TypeFollowRequest && t != TypeFollowAccepted
+}
+
+// postBearing reports whether a row of type t exposes a post of the actor to the recipient, so an actor the recipient
+// may not see must not produce it (ADR-0025 D10). Like is excluded by design (the actor liked the recipient's own
+// post); follow, follow_request and follow_accepted name no post.
+func (t Type) postBearing() bool {
+	switch t {
+	case TypeMention, TypeReply, TypeQuote, TypeRepost:
+		return true
+	}
+	return false
+}
 
 // Platform is a device platform. Web push is out of scope (ADR-0017 D11).
 type Platform string
@@ -189,4 +206,21 @@ type Eraser interface {
 // Implemented by FirestoreRepo.SweepActorRows (sweep.go).
 type ActorSweeper interface {
 	SweepActorRows(ctx context.Context, uid string, cp Checkpoint) (next Checkpoint, done bool, err error)
+}
+
+// AudienceChecker is the consumer-side audience seam (ADR-0025 AQ5): may viewer see author's posts, given whether
+// viewer follows author (read from the viewer's graph snapshot, which the fan-out already holds, so a check costs 0
+// reads). apiserver adapts it from posts.Audience.CanSee, so the one rule stays in one place and this package never
+// reads the protected set itself. A non-nil error means the set is unavailable (the loader failed closed): the
+// caller must not treat it as "visible".
+type AudienceChecker interface {
+	CanSee(ctx context.Context, viewerUID, authorUID string, following bool) (bool, error)
+}
+
+// AudienceFunc adapts a function to AudienceChecker.
+type AudienceFunc func(ctx context.Context, viewerUID, authorUID string, following bool) (bool, error)
+
+// CanSee implements AudienceChecker.
+func (f AudienceFunc) CanSee(ctx context.Context, viewerUID, authorUID string, following bool) (bool, error) {
+	return f(ctx, viewerUID, authorUID, following)
 }
