@@ -114,7 +114,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | In review (PR #418) (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
 | W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Done (PR #417) |
-| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | In review (PR #PRNUM) |
+| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | In review (PR #424) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
 | W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | Open (depends: none; founder review of the gate file; gates any prod ramp) |
@@ -1299,7 +1299,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
   - AC: both tests pass when run alone, after a test that created the set doc, and with `-shuffle=on`.
 - **Flag.** None (server-side correctness). **Cost.** As the budget row.
 
-#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: In review (PR #PRNUM)
+#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: In review (PR #424)
 - **L-4, the wire-visibility hint** (`posts/audience.go` `ProtectedAuthor`, `timeline/service.go`, `posts/server.go`, `engagement/list_common.go`, `identity/protected_set.go`).
   - `ProtectedAuthor` answers without the loader for the caller's own and followed authors, from the snapshot the path already holds (D3's "only when needed").
   - A set outage is reported once per request (`protected_set_unavailable` at ERROR), then WARN, so Error Reporting does not count one error per row (up to 50 per page) and does not prompt an M-1-hazard rollback.
