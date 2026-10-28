@@ -424,8 +424,7 @@ func (s *service) rootReplyPermission(ctx context.Context, viewer string, root *
 	if ok, err := s.contextAllowed(ctx, root, true, viewer, snap); err != nil || !ok {
 		return postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN
 	}
-	switch {
-	case root.ReplyPolicy == ReplyPolicyMentionedOnly:
+	if root.ReplyPolicy == ReplyPolicyMentionedOnly {
 		for _, m := range root.Mentions {
 			if m.UserID == viewer {
 				return postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED

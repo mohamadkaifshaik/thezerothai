@@ -238,3 +238,20 @@ func AudienceOf(svc Service) *Audience {
 	}
 	return nil
 }
+
+// NewSnapshotAudience builds an Audience for a read path that already holds the viewer's graph snapshot and must not
+// spend a read on a block check (the timelines, W3-30). The block test is the snapshot's blockedBy set alone: a caller
+// whose blockedBy set overflowed is handled by the caller's own fail-closed rule (timeline.embedAllowed), not here. A
+// nil loader means nobody is protected. The protected rule itself is still CanSee, written once on identity.ProtectedSet.
+func NewSnapshotAudience(a identity.ProtectedAuthors) *Audience {
+	return newAudience(a, func(_ context.Context, snap graph.Snapshot, _, other string) (bool, error) {
+		return snap.BlockedBy[other], nil
+	})
+}
+
+// VisibleAuthor reports whether viewer may see posts by author (CanSee), asking the loader only when the author is
+// neither the viewer nor followed. Reads: +0 (the loader is detached and instance-cached). A set error is UNAVAILABLE:
+// never read it as "visible".
+func (a *Audience) VisibleAuthor(ctx context.Context, viewer, author string, snap graph.Snapshot) (bool, error) {
+	return a.visibleAuthor(ctx, viewer, author, snap)
+}

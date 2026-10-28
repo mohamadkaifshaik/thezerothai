@@ -152,8 +152,16 @@ account is a bug: count with `opsctl purge-posts --dry-run` (read-only, `dry-run
 
 Owner module: `backend/internal/timeline` (ADR-0004, ADR-0010 D13-D16). It stores nothing; request lines carry
 `timeline_op`, `timeline_mode` (`cold|refresh|older|gap`), `timeline_chunks`, `authors_from_cache`,
-`timeline_cache_hit`, `items_returned`, `items_filtered`, `gap`, `since_clamped`, `page_size`, `tab` (GetUserTimeline only: the effective tab
+`timeline_cache_hit`, `items_returned`, `items_filtered`, `author_protected`, `audience_dropped`, `gap`, `since_clamped`, `page_size`, `tab` (GetUserTimeline only: the effective tab
 `posts|replies|media|reposts`, or `unknown` for a tab number this build does not know; ADR-0024 D5) and `fs_reads`.
+
+### Protected accounts on the timelines (ADR-0025 D4; W3-30)
+`GetUserTimeline` and the feeds decide visibility through `posts.Audience` (`timeline.WithProtectedAuthors`, the one loader built in `apiserver.go`); `timeline/service.go` no longer reads the stored `visibility` (`isPublic` is gone, `moderationVisible` keeps only the ADR-0016 hide).
+- **A protected profile for an unapproved viewer.** `GetUserTimeline(P)` on any tab answers `author_protected = true` with no posts and no tokens, decided in `checkVisible` after the NOT_FOUND rules (missing, non-ACTIVE, blocking) and before the author-recent cache or any page query: 3 cold reads (interceptor, target `users`, caller graph), 0 page reads. A token issued while P was public gets the same answer. Request line: `author_protected=true`. The client replaces its cached feed for that author.
+- **Feeds.** Home, other users' tabs and the caller's own tabs: a REPOST of a protected author the viewer does not follow is dropped, a QUOTE of one is kept with `embed_viewer_state = PROTECTED` and the copy emptied (`posts.ApplyEmbedState`, the only strip). Request line: `audience_dropped` (rows dropped by the rule). Posts by a protected author the viewer follows carry the wire visibility FOLLOWERS (`ApplyWireVisibility`).
+- **Cache safety.** The instance caches (author-recent, graph) hold raw posts shared by all viewers; the decision runs per viewer after them, so nothing filled for a follower can answer a stranger. Staleness: a follow, unfollow or toggle is seen within 60 s.
+- **Cost.** Home and the tabs are unchanged (24 / 54 cold on Media and Reposts for an approved viewer). One corner: a caller's own profile page holding a copy of another user's post reads the caller's graph once (+1 cold, cached 60 s), because the copier's follow state toward the original's author decides whether the copy stays. Founder-accepted 2026-10-28 (ADR-0025, "Implementation note (W3-29a)"). The set refresh is detached (`protected_set_reads`), at most 1 per instance per minute, and now also happens on Home calls (the wire-visibility check asks the set for every author).
+- **Failure modes.** Set unknown (never loaded, or older than `PROTECTED_SET_MAX_STALE`): a read that needs it answers UNAVAILABLE (retryable, `audience=set_unavailable`), never a public page. `timeline.WithProtectedAuthors` missing from the `timeline.NewServer` call in `apiserver.go`: nobody is protected on the timelines (check the line after editing `apiserver.go`). A stranger seeing a protected profile's posts means one of those two.
 
 ## 9. Home timeline reads are high (`fs_reads` per `timeline_op=home`)
 Expected ceiling is `2 + C + 2*page` (269 at 5,000 followed, page 50). Find outliers with
