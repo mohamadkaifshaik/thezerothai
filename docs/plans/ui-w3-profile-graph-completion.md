@@ -110,7 +110,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Open (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Open (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
-| W3-37 | Part B cost report and load smoke | sre-performance | S | Open (depends: W3-26a to W3-32 merged) |
+| W3-37 | Part B cost report and load smoke | sre-performance | S | In review (PR #407) (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK) |
 
 ## Milestones
@@ -1207,7 +1207,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Output.** `docs/reviews/security-review-w3b.md`. Findings are fixed or ticketed before W3-38.
 - **Cost.** 0.
 
-#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: Open
+#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: In review (PR #407)
 - **`docs/reviews/cost-model.md`.** The ADR-0025 rows go into §1 to §6 and §9, plus a new §13 of measurements:
   - +1.25 request-path reads, the set-refresh line (detached), +0.16 writes and +0.05 deletes per DAU, restated on the 300.2 base ("Part B: cost" below);
   - the who-to-follow share after Part B;
