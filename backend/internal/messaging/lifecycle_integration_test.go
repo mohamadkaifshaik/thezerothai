@@ -27,6 +27,35 @@ import (
 // base is the fixed instant the seeded conversations are built on. It is never compared with the real clock.
 var base = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
+// uidHits lists every document in the project (the three collections and both entry folders of every user) that holds
+// uid in a path, id, field value or nested value.
+func (e *itEnv) uidHits(uid string) []string {
+	e.t.Helper()
+	ctx := context.Background()
+	var hits []string
+	check := func(snap *firestore.DocumentSnapshot) {
+		if strings.Contains(snap.Ref.Path, uid) {
+			hits = append(hits, shortPath(snap.Ref.Path)+"#path")
+		}
+		for k, v := range snap.Data() {
+			if strings.Contains(fmt.Sprint(v), uid) {
+				hits = append(hits, shortPath(snap.Ref.Path)+"#"+k)
+			}
+		}
+	}
+	for _, cg := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
+		docs, err := e.fs.CollectionGroup(cg).Documents(ctx).GetAll()
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		for _, d := range docs {
+			// Skip the messages of a path that merely contains the conversation id: only the uid matters.
+			check(d)
+		}
+	}
+	return hits
+}
+
 func discardLog() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
 
 // runEraserFor drives the step for uid to completion on the real repo, summing the cost of every call.
@@ -131,18 +160,22 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 					e.must(bob, toUser(skey(100+i), alice, fmt.Sprint("bob says ", i)))
 				}
 			}
+			// alice cleared the conversation for herself once: that entry (keyed by her uid) must go too.
+			if _, err := e.fs.Collection("conversations").Doc(convID).Update(context.Background(), []firestore.Update{{FieldPath: firestore.FieldPath{"clearedAt", alice}, Value: base}}); err != nil {
+				t.Fatal(err)
+			}
 			calls, total := e.runEraserFor(alice)
 			t.Logf("eraser: %d calls, reads %d, writes %d, deletes %d", calls, total.Reads(), total.Writes(), total.Deletes())
-			// next+mark 3 reads (cursor, conversation, peer entry) + 5 messages + the closing cursor read 1.
-			budgettest.Assert(t, "eraser, 1 conversation of 5 own messages", total, budgettest.Budget{Reads: 9, Writes: 7, Deletes: 1})
-			if total.Writes() != 7 || total.Deletes() != 1 {
-				t.Errorf("writes/deletes = %d/%d, want 7/1 (gone, peer entry, 5 tombstones / own entry)", total.Writes(), total.Deletes())
+			// next+mark 3 reads (cursor, conversation, peer entry) + 5 messages + the conversation rewrite 1 + the closing cursor read 1.
+			budgettest.Assert(t, "eraser, 1 conversation of 5 own messages", total, budgettest.Budget{Reads: 10, Writes: 8, Deletes: 1})
+			if total.Writes() != 8 || total.Deletes() != 1 {
+				t.Errorf("writes/deletes = %d/%d, want 8/1 (gone, peer entry, 5 tombstones, rewrite / own entry)", total.Writes(), total.Deletes())
 			}
 
 			var tombstones, intact int
 			for _, m := range e.msgs(convID) {
 				switch {
-				case m.SenderID == alice && m.State == msgDeletedAccount && m.Text == "" && m.RequestHash == "":
+				case m.SenderID == DeletedUID && m.State == msgDeletedAccount && m.Text == "" && m.RequestHash == "":
 					tombstones++
 				case m.SenderID == bob && m.State == msgVisible && strings.HasPrefix(m.Text, "bob says"):
 					intact++
@@ -169,21 +202,38 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 				}
 			}
 			conv, _ := e.conv(convID)
-			if !slices.Equal(conv.Gone, []string{alice}) {
-				t.Errorf("gone = %v, want [alice]", conv.Gone)
+			if !slices.Equal(conv.Gone, []string{DeletedUID}) || !slices.Contains(conv.Participants, DeletedUID) || slices.Contains(conv.Participants, alice) {
+				t.Errorf("gone = %v participants = %v, want the uid replaced by %q", conv.Gone, conv.Participants, DeletedUID)
 			}
+			if peer.PeerID != DeletedUID {
+				t.Errorf("bob's entry peerId = %q, want %q", peer.PeerID, DeletedUID)
+			}
+			// No document of the conversation, its entries or anything of bob's holds alice's uid any more.
+			if hits := e.uidHits(alice); len(hits) > 0 {
+				t.Errorf("alice's uid survives in %v", hits)
+			}
+			// Bob's export names the peer as deleted and carries no uid.
+			var exp bytes.Buffer
+			if err := NewExporter(e.repo, e.profs).ExportUser(context.Background(), bob, &exp); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(exp.String(), `"peerDeleted":true`) || strings.Contains(exp.String(), alice) {
+				t.Errorf("bob's export after alice's erasure: %s", exp.String())
+			}
+			// A fresh instance (cold cache) still refuses bob, by both addresses of the conversation.
+			_, _, cerr := e.sendOn(e.newService(), bob, toConv(skey(501), convID, "by id"))
+			wantAPI(t, cerr, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 			_, wc, err := e.send(bob, toUser(skey(500), alice, "are you there?"))
 			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 			if wc.Writes() != 0 {
 				t.Errorf("the send to a deleted user wrote %d", wc.Writes())
 			}
 
-			// A repeat of the whole step writes nothing: the cursor, the conversation (already marked, so no peer-entry
-			// read), the 5 tombstoned messages are read again and skipped, and the entry delete is a no-op.
+			// A repeat of the whole step is one empty cursor query: the rewritten conversation is no longer listed.
 			_, again := e.runEraserFor(alice)
-			budgettest.Assert(t, "eraser repeat", again, budgettest.Budget{Reads: 8, Writes: 0, Deletes: 1})
-			if again.Writes() != 0 {
-				t.Errorf("a repeated erasure wrote %d (the peer entry and the tombstones are done)", again.Writes())
+			budgettest.Assert(t, "eraser repeat", again, budgettest.Budget{Reads: 1})
+			if again.Writes() != 0 || again.Deletes() != 0 {
+				t.Errorf("a repeated erasure wrote %d and deleted %d", again.Writes(), again.Deletes())
 			}
 		})
 	}
@@ -325,7 +375,7 @@ func TestEraser_TombstonesInPagesOf500(t *testing.T) {
 	var tomb, visible int
 	for _, m := range e.msgs(convID) {
 		switch {
-		case m.SenderID == alice && m.State == msgDeletedAccount && m.Text == "":
+		case m.SenderID == DeletedUID && m.State == msgDeletedAccount && m.Text == "":
 			tomb++
 		case m.SenderID == bob && m.State == msgVisible && m.Text == "t":
 			visible++

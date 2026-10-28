@@ -39,13 +39,16 @@ Each call is one bounded unit of work (at most 500 documents) and the checkpoint
 `both`, `entry`, `conversations`, `tombstoned`, `entriesDeleted`). For each conversation of the user, in `__name__` order:
 1. `phase ""`: pick the next conversation (`participants array-contains uid ORDER BY __name__ LIMIT 1`) and, in **one transaction**, add the uid to
    `gone` (so a send can no longer rewrite the deleted user's entries: the send transaction reads that document) and rewrite the peer's entry to the
-   "Deleted account" placeholder, with the snippet "Message deleted" when the user's message was the last (peer already gone: no entry read).
-2. `phase tombstone`: 500 per call, the user's messages (`senderId == uid`): text and `requestHash` emptied, `state = DELETED_ACCOUNT`. The peer's messages are never touched.
+   "Deleted account" placeholder (`peerId` = `deleted`), with the snippet "Message deleted" when the user's message was the last (peer already gone: no entry read).
+2. `phase tombstone`: 500 per call, the user's messages (`senderId == uid`): `senderId` = `deleted`, and for a VISIBLE one text and `requestHash` emptied, `state = DELETED_ACCOUNT`. The peer's messages are never touched.
 3. `phase finish`: delete the user's own `dmInbox` or `dmRequests` entry.
-4. `phase tree`, only when the peer is gone too: the messages 500 per call, then the conversation document last.
+4. `phase rewrite`, when the peer lives: one transaction replaces the uid by `deleted` in `participants`, `gone`, `requestFrom`, `requestTo` and drops `clearedAt.<uid>`.
+   **It is last on purpose**: the cursor query finds the conversation through `participants`, so every earlier step keeps it findable and is idempotent, and after the rewrite there is nothing left to do.
+   `gone` is never empty in between, so sends stay refused; the peer's own eraser finds the conversation by the peer's uid and sees `deleted` in `gone`.
+   `phase tree`, instead, only when the peer is gone too: the messages 500 per call, then the conversation document last.
 
-Cost for the reference account (20 conversations, 300 own messages, peers alive): about 360 reads (21 cursor queries, 20 conversation and 20
-peer-entry reads, 300 messages), 340 writes, 20 deletes. A step repeated after a crash re-does at most one unit and never leaves a half-erased
+Cost for the reference account (20 conversations, 300 own messages, peers alive): about 380 reads (21 cursor queries, 20 conversation and 20
+peer-entry reads, 20 conversation reads in the rewrites, 300 messages), 360 writes (20 gone marks, 20 peer entries, 300 tombstones, 20 rewrites), 20 deletes. A repeat after completion is one empty query. A step repeated after a crash re-does at most one unit and never leaves a half-erased
 conversation (the crash matrix `TestAccountLifecycle_MessagingCrashAtEverySideEffect` kills the job after each of its side effects).
 
 | Symptom | Likely cause | What to do |
@@ -53,7 +56,7 @@ conversation (the crash matrix `TestAccountLifecycle_MessagingCrashAtEverySideEf
 | The job sits at `step=messaging`, `account_job` retries | A failed batch, or `NotFound` on a tombstone batch because the peer's eraser deleted the tree at the same moment | Both are retried by the lifecycle (`maxStepErrors`) and the redelivery sees the finished state. Look at the `messaging: ...` error in the job's log line (uids and conversation ids are redacted to hashes). If it persists, check Firestore status, then the checkpoint in `users/{uid}.deletionJob.checkpoint` |
 | A conversation is still listed for a deleted user's peer, with their messages as "Message deleted" | By design (F3): the peer keeps the conversation read-only (`gone` is non-empty); it is deleted when the peer's account is deleted too | Nothing |
 | `conversations/*` or `messages` documents remain after **both** accounts are deleted | The second eraser crashed after its `gone` mark and was never resumed (the lifecycle backstop re-runs the step) | Re-run the account's deletion; or delete the tree by hand: the messages (500 per batch), then `conversations/{convId}` last |
-| The deleted user's uid is found in a surviving peer's conversation | By design today: `participants`, `gone`, `requestFrom` / `requestTo`, `clearedAt` and the messages' `senderId` of a conversation the peer still holds name the deleted uid, and so does the peer's entry `peerId`. The T11 sweep allowlist (ADR-0011 Q10) has no entry for them; it is listed in the W7-6 report and needs an ADR amendment and a privacy-policy line if the founder keeps it | Founder decision before `messaging` leaves the dev allowlist |
+| The deleted user's uid is found in a surviving peer's conversation | Should not happen: the step ends each conversation by replacing the uid with the fixed placeholder `deleted` (`messaging.DeletedUID`) in `participants`, `gone`, `requestFrom` / `requestTo`, drops the `clearedAt` entry, and sets the tombstones' `senderId` and the peer entry's `peerId` to it (ADR-0027 D11). The T11 residue sweep runs on this case with no allowlist entry. A hit is a code defect or a step that never finished: re-run the account's deletion | Treat `deleted` as "Deleted account" in any reader; it resolves to no profile |
 
 The `messaging_purge_done` line carries `conversations`, `messages_tombstoned`, `entries_deleted` and `uid_hash` (never a peer uid) when the step finishes.
 

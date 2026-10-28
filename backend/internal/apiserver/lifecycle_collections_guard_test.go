@@ -113,8 +113,9 @@ var lifecycleCollections = []collectionRow{
 	// removes. The `messaging` step (messaging.Eraser, BeforeIdentity after follow_requests) marks the conversation gone,
 	// tombstones the user's messages, rewrites the peer's entry, deletes the user's own entries and, when both
 	// participants are gone, the whole tree; the `messages` section exports own messages in full and received ones as time
-	// and "received". quotas.dmNew is covered by the `quotas` row. The shipped table has no residue allowlist entry for a
-	// surviving peer's conversation (its participants, gone and senderId name the deleted uid): see the W7-6 report.
+	// and "received". quotas.dmNew is covered by the `quotas` row. The step also replaces the deleted uid by messaging.DeletedUID in a
+	// surviving peer's copy (participants, gone, requestFrom/To, the tombstones' senderId, the peer entry's peerId; ADR-0027 D11), so
+	// the sweep needs and has no residue allowlist entry for these collections.
 	{Name: "conversations", Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "messages", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},

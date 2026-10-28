@@ -13,6 +13,7 @@ import (
 const (
 	phaseTombstone = "tombstone"
 	phaseFinish    = "finish"
+	phaseRewrite   = "rewrite"
 	phaseTree      = "tree"
 )
 
@@ -42,6 +43,7 @@ type Purger interface {
 	MarkGone(ctx context.Context, uid, convID string) (goneResult, error)
 	TombstonePage(ctx context.Context, uid, convID, after string) (last string, tombstoned int, full bool, err error)
 	DeleteEntry(ctx context.Context, uid, convID, folder string) error
+	RewriteConversation(ctx context.Context, uid, convID string) error
 	DeleteTreePage(ctx context.Context, convID string) (deleted int, done bool, err error)
 }
 
@@ -68,13 +70,21 @@ func NewEraser(repo Purger, log *slog.Logger) Eraser {
 //  1. mark it gone (the user's uid joins `gone`, in the transaction that also rewrites the peer's entry to the
 //     "Deleted account" placeholder, snippet "Message deleted" when the user's message was the last), so no send can
 //     rewrite the deleted user's entries afterwards;
-//  2. tombstone the user's messages, 500 per call (text cleared, state DELETED_ACCOUNT; the peer's own messages stay);
+//  2. tombstone the user's messages, 500 per call (text cleared, state DELETED_ACCOUNT, senderId = DeletedUID; the
+//     peer's own messages stay);
 //  3. delete the user's own dmInbox or dmRequests entry;
-//  4. when the peer is gone too, delete the whole tree: the messages 500 per call, then the conversation document.
+//  4. when the peer is gone too, delete the whole tree: the messages 500 per call, then the conversation document;
+//     otherwise rewrite the conversation LAST, replacing the uid by DeletedUID in participants, gone, requestFrom and
+//     requestTo and dropping its clearedAt entry (the peer's entry got peerId = DeletedUID in step 1).
 //
-// Cost for the reference account (20 conversations, 300 own messages, peers alive): about 360 reads (21 cursor queries,
-// 20 conversation and 20 peer-entry reads in the transactions, 300 messages), 340 writes (20 gone marks, 20 peer
-// entries, 300 tombstones), 20 deletes. Every step is idempotent: a call repeated after a crash re-does at most one
+// The order is what makes it resumable: the cursor query finds a conversation through `participants array-contains uid`,
+// so that field is the last thing changed. Every earlier step keeps the uid findable and is idempotent; once the
+// rewrite commits there is nothing left to do. `gone` keeps blocking sends throughout (the uid first, DeletedUID after),
+// and the peer's own eraser still finds the conversation by the peer's uid and sees DeletedUID in `gone`.
+//
+// Cost for the reference account (20 conversations, 300 own messages, peers alive): about 380 reads (21 cursor queries,
+// 20 conversation and 20 peer-entry reads in the gone transactions, 20 conversation reads in the rewrites, 300
+// messages), 360 writes (20 gone marks, 20 peer entries, 300 tombstones, 20 rewrites), 20 deletes. Every step is idempotent: a call repeated after a crash re-does at most one
 // unit of work and never a half-erased conversation.
 func (e *eraser) PurgeUser(ctx context.Context, uid string, raw []byte) ([]byte, bool, error) {
 	var cp Checkpoint
@@ -111,11 +121,18 @@ func (e *eraser) step(ctx context.Context, uid string, cp Checkpoint) (Checkpoin
 			return cp, false, err
 		}
 		cp.EntriesDeleted++
+		cp.Phase = phaseRewrite
 		if cp.Both {
 			cp.Phase = phaseTree
-		} else {
-			cp = finishConversation(cp)
 		}
+	case phaseRewrite:
+		// Last on purpose: the conversation is found through participants array-contains uid, so replacing the uid there
+		// ends the work on it. A crash before this commit finds the conversation again and repeats idempotent steps; a
+		// crash after it has nothing left to repeat.
+		if err := e.repo.RewriteConversation(ctx, uid, cp.Conv); err != nil {
+			return cp, false, err
+		}
+		cp = finishConversation(cp)
 	case phaseTree:
 		_, done, err := e.repo.DeleteTreePage(ctx, cp.Conv)
 		if err != nil {

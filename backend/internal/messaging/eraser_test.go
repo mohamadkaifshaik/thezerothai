@@ -29,6 +29,7 @@ type memConv struct {
 	entryGone  bool
 	peerEntry  string // "" | "rewritten"
 	deleted    bool   // the whole tree is gone
+	rewritten  bool   // the uid is replaced in the conversation document (it is no longer listed)
 }
 
 const memPage = 2
@@ -46,7 +47,7 @@ func (m *memPurger) tick(name string) error {
 func (m *memPurger) ids() []string {
 	var out []string
 	for id, c := range m.convs {
-		if !c.deleted {
+		if !c.deleted && !c.rewritten {
 			out = append(out, id)
 		}
 	}
@@ -121,6 +122,18 @@ func (m *memPurger) DeleteTreePage(_ context.Context, id string) (int, bool, err
 	return 0, true, nil
 }
 
+func (m *memPurger) RewriteConversation(_ context.Context, _ string, id string) error {
+	if err := m.tick("rewrite"); err != nil {
+		return err
+	}
+	c := m.convs[id]
+	if !c.deleted && c.gone["me"] {
+		// The rewrite is only ever the last step: everything before it is done.
+		c.rewritten = true
+	}
+	return nil
+}
+
 func newMem() *memPurger {
 	mk := func(peerGone bool, msgs ...string) *memConv {
 		return &memConv{gone: map[string]bool{}, peerGone: peerGone, msgs: msgs, tombstoned: map[string]bool{}}
@@ -168,7 +181,7 @@ func (m *memPurger) endState() string {
 			tomb = append(tomb, msg)
 		}
 		slices.Sort(tomb)
-		lines = append(lines, fmt.Sprintf("%s gone=%v entryGone=%v peerEntry=%q tree=%v tomb=%v", id, c.gone["me"], c.entryGone, c.peerEntry, c.deleted, tomb))
+		lines = append(lines, fmt.Sprintf("%s gone=%v entryGone=%v peerEntry=%q tree=%v rewritten=%v tomb=%v", id, c.gone["me"], c.entryGone, c.peerEntry, c.deleted, c.rewritten, tomb))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -177,9 +190,9 @@ func TestEraser_StateMachine(t *testing.T) {
 	p := newMem()
 	calls, cp := runEraser(t, p, 0)
 	want := strings.Join([]string{
-		`c1 gone=true entryGone=true peerEntry="rewritten" tree=false tomb=[m1 m2 m3 m4 m5]`,
-		`c2 gone=true entryGone=true peerEntry="" tree=true tomb=[]`,
-		`c3 gone=true entryGone=true peerEntry="rewritten" tree=false tomb=[]`,
+		`c1 gone=true entryGone=true peerEntry="rewritten" tree=false rewritten=true tomb=[m1 m2 m3 m4 m5]`,
+		`c2 gone=true entryGone=true peerEntry="" tree=true rewritten=false tomb=[]`,
+		`c3 gone=true entryGone=true peerEntry="rewritten" tree=false rewritten=true tomb=[]`,
 	}, "\n")
 	if got := p.endState(); got != want {
 		t.Errorf("end state:\n%s\nwant:\n%s", got, want)
@@ -188,7 +201,7 @@ func TestEraser_StateMachine(t *testing.T) {
 		t.Errorf("counters = %+v, want 3 conversations, 5 tombstones, 3 entries", cp)
 	}
 	// c1: next, mark, 3 tombstone pages, entry; c2 (peer gone): next, mark, entry, tree; c3: next, mark, tombstone(empty), entry; the end: next.
-	wantCalls := []string{"next", "mark", "tombstone", "tombstone", "tombstone", "entry", "next", "mark", "entry", "tree", "next", "mark", "tombstone", "entry", "next"}
+	wantCalls := []string{"next", "mark", "tombstone", "tombstone", "tombstone", "entry", "rewrite", "next", "mark", "entry", "tree", "next", "mark", "tombstone", "entry", "rewrite", "next"}
 	if !slices.Equal(p.calls, wantCalls) {
 		t.Errorf("calls = %v\nwant    %v", p.calls, wantCalls)
 	}

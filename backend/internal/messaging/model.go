@@ -39,6 +39,12 @@ const (
 	limitMessagesDaily     = "messages_daily"
 )
 
+// DeletedUID is the one fixed value the `messaging` eraser writes in place of a deleted user's uid everywhere it remains in
+// a surviving peer's copy of a conversation (ADR-0027 D8, D11): the conversation's participants, gone, requestFrom and
+// requestTo, the senderId of the user's tombstoned messages and the peer entry's peerId. It is not a real uid (Firebase
+// uids are 28 random characters), and nothing resolves it: readers treat it as "Deleted account".
+const DeletedUID = "deleted"
+
 // Deleted-account placeholders (ADR-0027 D8): what the eraser writes into the peer's entry.
 const (
 	DeletedAccountName = "Deleted account"

@@ -131,6 +131,9 @@ func (e *lifecycleEnv) dmDigest(t *testing.T, w dmWorld) string {
 		if r, ok := w.roles[uid]; ok {
 			return r
 		}
+		if uid == messaging.DeletedUID {
+			return "deleted"
+		}
 		return "ghost"
 	}
 	var lines []string
@@ -171,10 +174,12 @@ func (e *lifecycleEnv) dmDigest(t *testing.T, w dmWorld) string {
 	return strings.Join(lines, "\n")
 }
 
-// requireDMErased checks what the step must have done for A, independent of any other run.
+// requireDMErased checks what the step must have done for A, independent of any other run. The global T11 residue sweep
+// runs too, with no allowlist entry: the surviving peers' copies hold no uid of A (ADR-0027 D11).
 func (e *lifecycleEnv) requireDMErased(t *testing.T, w dmWorld) {
 	t.Helper()
 	ctx := context.Background()
+	e.requireNoResidue(t, w.a.uid)
 	for _, id := range []string{w.acc, w.req, w.gone} {
 		for _, folder := range []string{"dmInbox", "dmRequests"} {
 			if fsDocExists(t, e.fs, "users/"+w.a.uid+"/"+folder+"/"+id) {
@@ -190,7 +195,7 @@ func (e *lifecycleEnv) requireDMErased(t *testing.T, w dmWorld) {
 	for _, m := range msgs {
 		d := m.Data()
 		switch {
-		case d["senderId"] == w.a.uid && d["state"] == "DELETED_ACCOUNT" && d["text"] == "":
+		case d["senderId"] == messaging.DeletedUID && d["state"] == "DELETED_ACCOUNT" && d["text"] == "":
 			tombs++
 		case d["senderId"] == w.b.uid && d["state"] == "VISIBLE" && strings.HasPrefix(fmt.Sprint(d["text"]), "b"):
 			intact++
@@ -319,7 +324,7 @@ func TestAccountLifecycle_MessagingBothDeleted(t *testing.T) {
 			t.Errorf("%s's inbox entry survived", uid[:6])
 		}
 	}
-	// B's uid appears nowhere any more. A's still does, in the conversation with the live C (its participants, gone and
-	// requestTo, and C's entry peerId): the surviving peer's copy of a conversation names the deleted uid (ADR-0027 D8).
+	// Neither uid appears anywhere: A's conversation with the live C was scrubbed by A's own erasure (ADR-0027 D11).
+	e.requireNoResidue(t, w.a.uid)
 	e.requireNoResidue(t, w.b.uid)
 }
