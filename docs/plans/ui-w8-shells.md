@@ -101,6 +101,16 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 
 **W8 total: about INR 0 / 0 / 2 a month at 300 / 1,000 / 3,000 DAU** (all of it the web bundle line). No quota crossover moves. The Stage 0 bill stays as `cost-model.md` §5 states it (about INR 441 at 300 DAU with W2). **No `sre-performance` ticket:** there is no new RPC and no hot read path. `code-reviewer` checks the cost line in W8-1 and W8-2: no repository import in `features/shells/`, no `GetMe` call added.
 
+**Bundle delta (W8-8).** Measured 2026-10-28 with the `cost-model.md` §11 build (`flutter build web --release --dart-define=USE_EMULATORS=false --dart-define=FIREBASE_ENV=dev --dart-define=API_BASE_URL=/api`, Flutter 3.47.5), once at the merge base with `origin/main` (`main` 8c43279, before W8, in a temporary worktree) and once at the W8 tip (W8-1 to W8-7; `pubspec.yaml` and `pubspec.lock` unchanged). Sizes by Node `zlib` (gzip level 6, brotli quality 11), `main.dart.js` only:
+
+| `main.dart.js` | raw | gzip | brotli |
+|---|---|---|---|
+| before W8 (8c43279) | 4,926,092 | 1,398,507 | 1,059,585 |
+| with W8 | 4,943,761 | 1,404,053 | 1,063,554 |
+| **delta** | **+17,669** | **+5,546 (5.4 KB)** | **+3,969 (3.9 KB)** |
+
+The delta is **below** the 15–30 KB gzip estimate above and far under the 60 KB flag line, so the estimate was conservative. At 3,000 DAU the web-bundle line scales to about 900 web DAU × 5.5 KB × 4.3 releases ≈ 0.02 GB a month, under INR 0.5; the INR 1.6 figure stands as an upper bound. Other build files (fonts, wasm, `canvaskit/`) were not compared.
+
 ## Flags
 - **`FEATURE_SHELLS`** (wire name `shells`, Go `config.FeatureShells`, Dart `kFeatureShells` in `app/lib/features/shells/domain/shells_feature_flag.dart`).
   - **Client-only:** no RPC is gated by it, because there is none. Registered with `flags.LoadSpec("SHELLS", "shells", flags.Off)` in `config.go` and in `flags.NewRegistry` in `apiserver.go`, so `GetMe.enabled_features` reports it (exactly like `ui_shell` and the planned `drafts`).
@@ -173,12 +183,12 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 | W8-1 | `FEATURE_SHELLS` registration: `config.go` `LoadSpec` + test, `NewRegistry`, `flag-ceiling.json` (gate; dev allowlist 3; prod `on` recorded in ADR-0026, not the file), Terraform vars, runbook | backend-developer | S | — | **yes, start now**; shared files serialise with W3-4, W3-25, W4-3, W5-3, W5-22, W6-4, W7-4 | In review |
 | W8-2 | Client flag, `shellEntries` + `kVisibleShells`, drawer rows, rail-only "More" item + `AppMoreMenu`, `_selectedTab` More, three page routes + the Premium dialog route + `_shellsFlagRedirect`, stub pages | frontend-developer | M | — (client tests inject `enabled_features`) | **yes, start now**; nav files serialise with W3-18, W4-17, W5-11, W5-31, W7-19 | In review |
 | W8-3 | Move `SettingsGroup` / `SettingsRow` to `shared/widgets/`, value and pill on static rows, new `AppStatusPill`, catalog lines | frontend-developer | S | — | **yes, start now**; `settings_screen.dart` serialises with any wave adding a Settings row | In review |
-| W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | | In review |
-| W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | | In review |
-| W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | | In review |
-| W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | | In review |
-| W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | Open |
-| W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | | Done |
+| W8-4 | Creator tools screen | frontend-developer | M | W8-2, W8-3 | yes (own files) | In review |
+| W8-5 | Premium pop-up with the two plan prices | frontend-developer | S | W8-2; merges after ADR-0026 is Accepted | yes (own files) | In review |
+| W8-6 | Advertise screen (+ `mailto:comingsoon@dzeroth.com`, off until the mailbox exists) | frontend-developer | S | W8-2 (the button's switch-on waits on the mailbox) | yes (own files) | In review |
+| W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | In review |
+| W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | In review |
+| W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | Done |
 | W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | Done (ADR-0026 Accepted 2026-10-28) |
 | W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Open |
 
@@ -381,7 +391,7 @@ Order:
 - **Flag.** `shells` (route); `shells` + `ui_shell` (entry).
 - **Seam.** `AppRouter.callsPath` and `ShellKind.calls`. After the Calls ADR, `/calls` becomes call history, and calls start from W7's conversation header; this page is deleted.
 
-### W8-8 — Client tests  [owner: tester] [size: M] [depends: W8-4 to W8-7]  Status: Open
+### W8-8 — Client tests  [owner: tester] [size: M] [depends: W8-4 to W8-7]  Status: In review
 - **Description.** The cross-screen matrix:
   - **Responsive:** every shell page and every entry point at 360 / 600 / 1200, light and dark, 1.0 / 1.3 / 2.0, with no overflow (`expectNoOverflow`).
   - **Flag-off matrix:**

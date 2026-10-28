@@ -59,6 +59,9 @@ const Map<String, String> _allowlist = {
       'compares it with the real clock',
   'guards/fixed_date_guard_test.dart':
       'the dates are sample strings for the scanner tests, never evaluated',
+  'features/shells/shells_copy_guard_test.dart':
+      'the date is a sample string the copy guard must reject, matched by a '
+      'regex and never parsed or compared with the clock',
   'shared/format/joined_date_test.dart':
       'the dates are only formatted to a month name; the real clock is not '
       'read',
