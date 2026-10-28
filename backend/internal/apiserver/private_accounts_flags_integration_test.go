@@ -6,8 +6,8 @@ package apiserver
 // FEATURE_PRIVATE_ACCOUNTS (private_accounts) is listed in startup feature_flags and in GetMe.enabled_features only for
 // the allowlisted caller; UpdateProfile(is_private=true) is FEATURE_DISABLED feature=private_accounts with 0 reads past the
 // interceptor and 0 writes for everyone else; is_private=false is accepted whatever the flag; ListFollowRequests and
-// RespondToFollowRequest are FEATURE_DISABLED for a public caller while the flag is globally off and Unimplemented past the
-// gate otherwise (W3-28a builds them). The toggle itself (W3-26a) is in privacy_toggle_integration_test.go.
+// RespondToFollowRequest are FEATURE_DISABLED for a public caller while the flag is globally off and past the
+// gate otherwise they run (W3-28a: an empty page, and INVALID_ARGUMENT for an empty respond request). The toggle itself (W3-26a) is in privacy_toggle_integration_test.go.
 
 import (
 	"context"
@@ -110,15 +110,14 @@ func TestPrivateAccountsContract_AllowlistCohort(t *testing.T) {
 	}
 
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)
-	// Allowlist is a rollout, not the kill switch: both callers pass the gate and reach the Unimplemented skeleton.
+	// Allowlist is a rollout, not the kill switch: both callers pass the gate and reach the handlers.
 	for who, token := range map[string]string{"inside": insideToken, "outside": outsideToken} {
-		_, err := g.ListFollowRequests(context.Background(), authed(token, &graphv1.ListFollowRequestsRequest{}))
-		if connect.CodeOf(err) != connect.CodeUnimplemented {
-			t.Errorf("%s ListFollowRequests: err = %v, want Unimplemented past the gate", who, err)
+		if _, err := g.ListFollowRequests(context.Background(), authed(token, &graphv1.ListFollowRequestsRequest{})); err != nil {
+			t.Errorf("%s ListFollowRequests: err = %v, want an empty page past the gate", who, err)
 		}
-		_, err = g.RespondToFollowRequest(context.Background(), authed(token, &graphv1.RespondToFollowRequestRequest{}))
-		if connect.CodeOf(err) != connect.CodeUnimplemented {
-			t.Errorf("%s RespondToFollowRequest: err = %v, want Unimplemented past the gate", who, err)
+		_, err := g.RespondToFollowRequest(context.Background(), authed(token, &graphv1.RespondToFollowRequestRequest{}))
+		if connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s RespondToFollowRequest: err = %v, want INVALID_ARGUMENT (past the gate, empty idempotency key)", who, err)
 		}
 	}
 }

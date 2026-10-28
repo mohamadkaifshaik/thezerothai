@@ -15,7 +15,7 @@ import (
 )
 
 // W3-25b (ADR-0025 D12): ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
-// private_accounts not globally off or the caller protected now; past the gate they are Unimplemented until W3-28a.
+// private_accounts not globally off or the caller protected now; past the gate they run (W3-28a); this test pins the gate only.
 
 func TestFollowRequestsGate_FlagModes(t *testing.T) {
 	const uid = "uid-a"
@@ -31,7 +31,7 @@ func TestFollowRequestsGate_FlagModes(t *testing.T) {
 		name        string
 		specs       []flags.Spec
 		protected   bool
-		wantPass    bool   // the gate passes, so the RPC answers Unimplemented
+		wantPass    bool   // the gate passes: the RPC is not FEATURE_DISABLED (it answers a page or a validation error)
 		wantFeature string // metadata feature on a refusal ("" = FEATURE_GRAPH is off, the whole service)
 		wantDirGets int    // identity.Directory lookups: only while private_accounts is globally off
 	}{
@@ -66,15 +66,19 @@ func TestFollowRequestsGate_FlagModes(t *testing.T) {
 				ctx, counter := budget.WithCounter(w3Ctx(uid))
 
 				err := call(ctx, NewServer(svc))
+				wantSnapshotReads := 0
 				if tt.wantPass {
-					if connect.CodeOf(err) != connect.CodeUnimplemented {
-						t.Errorf("err = %v, want Unimplemented past the gate", err)
+					if featureDisabled(err) != nil {
+						t.Errorf("err = %v, want the gate to pass", err)
+					}
+					if name == "ListFollowRequests" {
+						wantSnapshotReads = 1 // past the gate the list reads the caller graph
 					}
 				} else if ae := featureDisabled(err); ae == nil || ae.Metadata["feature"] != tt.wantFeature {
 					t.Errorf("err = %#v, want FEATURE_DISABLED feature=%q", err, tt.wantFeature)
 				}
-				if dir.gets != tt.wantDirGets || repo.calls != 0 {
-					t.Errorf("directory gets = %d (want %d), graph snapshot reads = %d (want 0)", dir.gets, tt.wantDirGets, repo.calls)
+				if dir.gets != tt.wantDirGets || repo.calls != wantSnapshotReads {
+					t.Errorf("directory gets = %d (want %d), graph snapshot reads = %d (want %d)", dir.gets, tt.wantDirGets, repo.calls, wantSnapshotReads)
 				}
 				budgettest.Assert(t, "follow requests gate", counter, budgettest.Budget{})
 			})

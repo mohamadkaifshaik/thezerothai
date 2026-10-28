@@ -554,21 +554,14 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 		t.Error("profile is private after is_private=false")
 	}
 
-	// Follow-request RPCs (W3-25b, ADR-0025 D12): this fixture's checker enables every flag, so they pass the gate and answer
-	// Unimplemented until W3-28a, with 0 reads.
-	_, err = a.graph.ListFollowRequests(ctx, connect.NewRequest(&graphv1.ListFollowRequestsRequest{}))
-	if info := decodeErr(t, err); info.Code != connect.CodeUnimplemented {
-		t.Errorf("ListFollowRequests = %+v", info)
+	// Follow-request RPCs (W3-25b gate, built by W3-28a): this fixture's checker enables every flag, so they pass the gate.
+	// An empty inbox is an empty page; responding to a request that does not exist is a replay (the full matrix is
+	// follow_requests_respond_integration_test.go).
+	if resp, err := a.graph.ListFollowRequests(ctx, connect.NewRequest(&graphv1.ListFollowRequestsRequest{})); err != nil || len(resp.Msg.GetRequests()) != 0 {
+		t.Errorf("ListFollowRequests = %v, %v, want an empty page", resp, err)
 	}
-	if ops := r.lastOps(); ops.Reads() != 0 {
-		t.Errorf("ListFollowRequests reads = %d, want 0", ops.Reads())
-	}
-	_, err = a.graph.RespondToFollowRequest(ctx, connect.NewRequest(&graphv1.RespondToFollowRequestRequest{IdempotencyKey: t16bKey(3), RequesterUserId: uidB, Accept: true}))
-	if info := decodeErr(t, err); info.Code != connect.CodeUnimplemented {
-		t.Errorf("RespondToFollowRequest = %+v", info)
-	}
-	if ops := r.lastOps(); ops.Reads() != 0 {
-		t.Errorf("RespondToFollowRequest reads = %d, want 0", ops.Reads())
+	if _, err := a.graph.RespondToFollowRequest(ctx, connect.NewRequest(&graphv1.RespondToFollowRequestRequest{IdempotencyKey: t16bKey(3), RequesterUserId: uidB, Accept: true})); err != nil {
+		t.Errorf("RespondToFollowRequest (no request) = %v, want a replay", err)
 	}
 
 	// A stored isPrivate=true target: ADR-0025 D6 turns the Follow into a request (it used to be FEATURE_DISABLED).

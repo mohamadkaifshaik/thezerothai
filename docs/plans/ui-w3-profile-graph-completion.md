@@ -93,7 +93,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-26a | Part B identity: the protected set, the `ProtectedAuthors` loader, the `is_private` toggle (quota, cap), `PrivacyListener`, identity-step clean-up and T11 `privacy` row | backend-developer | M | Done (PR #383; depends: W3-25b) |
 | W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Open (depends: W3-26a, W3-28a) |
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Done (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
-| W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Open (depends: W3-27, W3-26a) |
+| W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Done (PR #388) (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
 | W3-28c | Part B graph: `make proto` and `is_private` on every graph user-list row from the hydrated profile | backend-developer | S | Open (depends: W3-25c, W3-28a) |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Done (PR #382) (depends: W3-25b; merges after W3-26a) |
@@ -596,7 +596,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-26a | Identity: set, loader, toggle, `PrivacyListener`, identity-step clean-up | backend-developer | M | W3-25b | toggle 4 cold / 3 warm reads, 3 writes; equal value 0 writes; refresh ≤ 1 read per instance per 60 s, detached |
 | W3-26b | Identity: GetProfile pin omission, GetMe request count | backend-developer | S | W3-26a, W3-28a | GetProfile +0; GetMe +1 read per 1,000 matches for protected callers (cached 30 s), 0 otherwise |
 | W3-27 | Graph: Follow request path, withdraw, Block clean-up, REQUESTED | backend-developer | M | W3-25b; merges after W3-32 | Follow 4 cold / 3 warm (planning 4), 5 writes (edge) or 3 (request), replay 0; withdraw 0 reads in the batches + 1 interceptor, 1 write, 1 delete; Block +0 reads, +0 writes, ≤ +2 deletes |
-| W3-28a | Graph: ListFollowRequests, RespondToFollowRequest, protected follower lists, request count | backend-developer | M | W3-27, W3-26a | List 42 / 102 cold at page 20 / 50, 21 / 51 warm; Respond 3 cold / 2 warm, accept 4 writes + 1 delete, decline 1 + 1, replay 2 / 1 and 0 writes; ListFollowers / ListFollowing of P unapproved 3 cold, 0 page reads |
+| W3-28a | Graph: ListFollowRequests, RespondToFollowRequest, protected follower lists, request count | backend-developer | M | W3-27, W3-26a | List 42 / 102 cold at page 20 / 50, 21 / 51 warm; Respond 3 cold / 2 warm after a List (up to 5 cold standalone; founder-accepted 2026-10-28, ADR-0025 "Implementation note (W3-28a)"), accept 4 writes + 1 delete, decline 1 + 1, replay 2 / 1 and 0 writes; ListFollowers / ListFollowing of P unapproved 3 cold, 0 page reads; request count 1 read, capped at 1,000 |
 | W3-28b | Graph: `privacy_public` job | backend-developer | S | W3-28a, W3-26a | per pending request 2 reads, 3 writes (+1 per page), 1 delete; 500 pending: 1,000 / 1,505 / 500 |
 | W3-28c | Graph: `make proto`, `is_private` on graph user-list rows | backend-developer | S | W3-25c, W3-28a | +0 on every list (ListFollowers, ListFollowing, ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers keep their ceilings) |
 | W3-29a | Posts: `Audience`, GetPost, `Viewable`, D5 refusals, computed visibility, PROTECTED embed | backend-developer | M | W3-25b; merges after W3-26a | +0 reads on every path (GetPost 4 cold / 0 warm unchanged), except +1 cold / 0 warm when a caller opens their own REPOST or QUOTE of another user's post (founder-accepted 2026-10-28, ADR-0025 "Implementation note (W3-29a)"); refusals 0 writes |
@@ -802,7 +802,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - 0.05 follows per DAU go to protected targets, at 3 writes instead of 5: -0.1 writes per DAU.
   - Withdraw: 0.005 calls per DAU.
 
-#### W3-28a Graph: request lists and responses, protected follower lists [backend-developer] [M] [depends: W3-27, W3-26a] Status: Open
+#### W3-28a Graph: request lists and responses, protected follower lists [backend-developer] [M] [depends: W3-27, W3-26a] Status: Done (PR #388)
 - **`ListFollowRequests`** (D7). Incoming requests, newest first.
   - Query: `followRequests where followeeId == caller ORDER BY createdAt DESC, __name__ DESC Limit(page)`, on the existing composite index.
   - Hydrate through `Directory` (non-ACTIVE rows dropped), and drop users in the caller's `blocked` or `blockedBy`.
