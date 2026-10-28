@@ -106,6 +106,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
+| W3-34b | Part B client fix: Follow requests entry points (wide layouts, one visibility rule, backoff) | frontend-developer | S | In review (PR #PRN; depends: W3-34, W3-35c) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
@@ -616,6 +617,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-33c | Client: lock badge on `UserListRow` | frontend-developer | S | W3-28c serving dev, W3-33a | 0 new RPCs, 0 reads |
 | W3-33d | Client: outlined Requested/Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | W3-33c | 0 new RPCs, 0 reads |
 | W3-34 | Client: Follow requests screen, badge, notification rows | frontend-developer | M | W3-28a, W3-26b, W3-31 serving dev | 1 ListFollowRequests per open (42 cold), 1 Respond per tap |
+| W3-34b | Client fix: entry points, shared rule, backoff | frontend-developer | S | W3-34, W3-35c | 0 |
 | W3-35a | Tests: D4 matrix, byte identity, leaks, guard, budget table | tester | M | W3-26b, W3-28a, W3-29b, W3-30, W3-31 | 0 (emulators) |
 | W3-35b | Tests: lifecycle, races, invariants, job, flags, eraser and export | tester | M | W3-27, W3-28a, W3-28b, W3-32 | 0 (emulators) |
 | W3-35c | Tests: client matrix, flag-off routing | tester | S | W3-33a, W3-33b, W3-34 | 0 |
@@ -1122,6 +1124,23 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Flag.** `private_accounts`, or the caller being protected.
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
+
+#### W3-34b Client fix: Follow requests entry points [frontend-developer] [S] [depends: W3-34, W3-35c] Status: In review (PR #PRN)
+- **Why.** The W3-35c report (`docs/reviews/test-report-w3b-client.md`) found D-2 (medium), D-1 and D-3 (low). Founder decision 2026-10-28 on the design.
+- **D-2: entry points at 600 dp and wider.**
+  - "Follow requests" with the count badge in the account chip menu (`AppAccountChip`), the same pattern as the other menu entries.
+  - A "Follow requests · N" row at the top of the Notifications screen (under the tabs), at every width, when the rule holds and the count is above 0. It opens `/follow-requests`.
+  - No NavigationRail destination: the rail is for high-frequency destinations only.
+- **D-1: one rule.** `followRequestsAllowed` (`features/graph/domain/follow_requests_entry.dart`): `graph` on and (`private_accounts` on or the caller is protected). The router guard, the drawer row, the account menu entry and the Notifications row all call it. The pending count only drives the badge number, never visibility.
+- **D-3: the backoff.** While `GraphRepository.followRequestsUnavailable` is set (the 10-minute `ListFollowRequests` backoff), the entry and badge are hidden on all three surfaces, with no error report and no extra GetMe. They return after the backoff or on the next sign-in. The router guard does not read the backoff: the screen explains itself.
+- **Respond** stays never-gated for a protected caller. The badge comes only from `pending_follow_request_count`.
+- **Acceptance.**
+  - Given a protected caller at 600 dp or wider, then the account menu shows Follow requests with the badge.
+  - Given a public caller with `private_accounts` off and a stale count, then no surface shows the entry and the router sends Home.
+  - Given the backoff, then no surface shows the entry.
+- **Tests.** The six W3-35c repros turned on; the W3-21 matrix for the menu entry and the Notifications row; a table test (`test/core/follow_requests_entry_agreement_test.dart`) that the drawer, the account menu, the Notifications row and the router agree across flag on and off, protected, public and the backoff.
+- **Docs.** `docs/ui-catalog.md`.
+- **Cost.** 0 new RPCs.
 
 #### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Done (PR #410)
 - **The matrix.** Every D4 row on the emulators through `apiserver.Build`.

@@ -4,6 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/notifications_store.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
@@ -33,12 +34,15 @@ import '../../../support/notifications_fixtures.dart';
 class MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
 
+class MockGraphRepository extends Mock implements GraphRepository {}
+
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
 void main() {
   late MockNotificationsRepository repo;
   late MockOnboardingBloc onboarding;
+  late MockGraphRepository graphRepo;
   late UnreadBadgeCubit badge;
   late FakePushMessaging messaging;
   late PushCubit push;
@@ -53,6 +57,8 @@ void main() {
   setUp(() {
     repo = MockNotificationsRepository();
     onboarding = MockOnboardingBloc();
+    graphRepo = MockGraphRepository();
+    when(() => graphRepo.followRequestsUnavailable).thenReturn(false);
     badge = UnreadBadgeCubit();
     messaging = FakePushMessaging(supported: false);
     push = PushCubit(messaging: messaging, repository: repo);
@@ -125,6 +131,7 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<NotificationsRepository>.value(value: repo),
+          RepositoryProvider<GraphRepository>.value(value: graphRepo),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
         child: MultiBlocProvider(

@@ -124,74 +124,172 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
   }, textScales: kMatrixTextScalesLarge);
 
-  group('wide layouts: the account menu', () {
-    // D-2 (medium): below 600 dp the drawer carries "Follow requests"; from
-    // 600 dp the rail and `AppAccountChip` replace it, and the chip's menu
-    // is Profile / Settings / Sign out only (app_account_chip.dart:51-61).
-    // A protected account on a tablet, desktop or the web has no entry to
-    // its requests except a notification row. Flip to false when fixed.
-    const d2Open = true;
-
-    for (final env in [
-      for (final brightness in Brightness.values)
-        for (final width in const [600.0, 1200.0])
-          MatrixEnv(
-            brightness: brightness,
-            size: Size(width, 800),
-            textScale: 1,
+  group('wide layouts: the account menu (W3-34b, was D-2)', () {
+    // From 600 dp the drawer is not drawn; the rail's account chip menu
+    // carries "Follow requests" under the drawer's rule
+    // (`followRequestsEntryVisible`).
+    Future<void> pumpChip(
+      WidgetTester tester,
+      MatrixEnv env, {
+      Set<String> flags = const {'graph'},
+      bool isProtected = true,
+      int pending = 2,
+      bool backedOff = false,
+    }) async {
+      final onboarding = _MockOnboarding();
+      whenListen(
+        onboarding,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          status: OnboardingStatus.ready,
+          pendingFollowRequestCount: pending,
+          enabledFeatures: flags,
+          profile: identity.Profile(
+            userId: 'me',
+            handle: 'me',
+            displayName: 'Me',
+            isPrivate: isProtected,
           ),
-    ]) {
-      testWidgets(
-        'D-2: a protected account finds Follow requests in the chip menu '
-        '[$env]',
-        (tester) async {
-          final onboarding = _MockOnboarding();
-          whenListen(
-            onboarding,
-            const Stream<OnboardingState>.empty(),
-            initialState: OnboardingState(
-              status: OnboardingStatus.ready,
-              pendingFollowRequestCount: 2,
-              enabledFeatures: const {'graph'},
-              profile: identity.Profile(
-                userId: 'me',
-                handle: 'me',
-                displayName: 'Me',
-                isPrivate: true,
-              ),
-            ),
-          );
-          final auth = _MockAuth();
-          whenListen(
-            auth,
-            const Stream<AuthState>.empty(),
-            initialState: const AuthState(status: AuthStatus.authenticated),
-          );
-          await pumpThemed(
-            tester,
-            MultiBlocProvider(
-              providers: [
-                BlocProvider<OnboardingBloc>.value(value: onboarding),
-                BlocProvider<AuthBloc>.value(value: auth),
-                BlocProvider<ThemeModeCubit>(
-                  create: (_) => ThemeModeCubit(_NoThemeStore()),
-                ),
-              ],
-              child: Align(
-                alignment: Alignment.bottomLeft,
-                child: AppAccountChip(extended: env.size.width >= 1200),
-              ),
-            ),
-            brightness: env.brightness,
-            size: env.size,
-            textScale: env.textScale,
-          );
-          await tester.tap(find.byType(AppAccountChip));
-          await tester.pumpAndSettle();
-          expect(find.text('Follow requests'), findsOneWidget);
-        },
-        skip: d2Open,
+        ),
       );
+      final auth = _MockAuth();
+      whenListen(
+        auth,
+        const Stream<AuthState>.empty(),
+        initialState: const AuthState(status: AuthStatus.authenticated),
+      );
+      when(() => graphRepo.followRequestsUnavailable).thenReturn(backedOff);
+      await pumpThemed(
+        tester,
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OnboardingBloc>.value(value: onboarding),
+            BlocProvider<AuthBloc>.value(value: auth),
+            BlocProvider<ThemeModeCubit>(
+              create: (_) => ThemeModeCubit(_NoThemeStore()),
+            ),
+          ],
+          child: RepositoryProvider<GraphRepository>.value(
+            value: graphRepo,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: AppAccountChip(extended: env.size.width >= 1200),
+            ),
+          ),
+        ),
+        brightness: env.brightness,
+        size: env.size,
+        textScale: env.textScale,
+      );
+      await tester.tap(find.byType(AppAccountChip));
+      await tester.pumpAndSettle();
     }
+
+    forEachThemeAndWidth(
+      'a protected account finds Follow requests with its badge, 48dp and '
+      'inside the screen',
+      (tester, env) async {
+        await pumpChip(tester, env, pending: 2);
+        expect(find.text('Follow requests'), findsOneWidget);
+        expect(find.text('2'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel('Follow requests, 2 pending'),
+          findsOneWidget,
+        );
+        final item = find.ancestor(
+          of: find.text('Follow requests'),
+          matching: find.byType(InkWell),
+        );
+        expectMinTarget(tester, item.first);
+        expectInsideHorizontally(tester, find.text('2'), env.size.width);
+        expect(tester.takeException(), isNull);
+      },
+      textScales: kMatrixTextScalesLarge,
+    );
+
+    testWidgets('1000+ at the cap and no badge at zero', (tester) async {
+      const env = MatrixEnv(
+        brightness: Brightness.light,
+        size: Size(600, 800),
+        textScale: 1,
+      );
+      await pumpChip(tester, env, pending: 1000);
+      expect(find.text('1000+'), findsOneWidget);
+    });
+
+    testWidgets('no badge with nothing pending', (tester) async {
+      const env = MatrixEnv(
+        brightness: Brightness.light,
+        size: Size(600, 800),
+        textScale: 1,
+      );
+      await pumpChip(tester, env, pending: 0);
+      expect(find.text('Follow requests'), findsOneWidget);
+      expect(find.text('0'), findsNothing);
+    });
+
+    // The visibility rule is the drawer's and the router's: `graph` and
+    // (`private_accounts` or protected), and not while backed off.
+    final rules =
+        <String, ({Set<String> flags, bool prot, bool off, bool shown})>{
+          'graph on, protected': (
+            flags: {'graph'},
+            prot: true,
+            off: false,
+            shown: true,
+          ),
+          'graph + private_accounts on, public': (
+            flags: {'graph', 'private_accounts'},
+            prot: false,
+            off: false,
+            shown: true,
+          ),
+          'graph on, public, private_accounts off (stale count)': (
+            flags: {'graph'},
+            prot: false,
+            off: false,
+            shown: false,
+          ),
+          'graph off, protected': (
+            flags: <String>{},
+            prot: true,
+            off: false,
+            shown: false,
+          ),
+          'graph off, private_accounts on, protected': (
+            flags: {'private_accounts'},
+            prot: true,
+            off: false,
+            shown: false,
+          ),
+          'backed off, protected': (
+            flags: {'graph'},
+            prot: true,
+            off: true,
+            shown: false,
+          ),
+        };
+    rules.forEach((name, rule) {
+      testWidgets('visibility: $name', (tester) async {
+        const env = MatrixEnv(
+          brightness: Brightness.dark,
+          size: Size(1200, 800),
+          textScale: 1,
+        );
+        await pumpChip(
+          tester,
+          env,
+          flags: rule.flags,
+          isProtected: rule.prot,
+          backedOff: rule.off,
+          pending: 3,
+        );
+        expect(find.text('Settings'), findsOneWidget);
+        expect(
+          find.text('Follow requests'),
+          rule.shown ? findsOneWidget : findsNothing,
+        );
+      });
+    });
   });
 }

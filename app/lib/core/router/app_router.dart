@@ -10,6 +10,7 @@ import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
+import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
@@ -26,7 +27,6 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
-import '../../features/settings/domain/private_accounts_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
 import '../../features/shells/domain/shells_feature_flag.dart';
 import '../../features/shells/presentation/advertise_screen.dart';
@@ -491,11 +491,10 @@ class AppRouter {
   String? _followRequestsRedirect(String loc) {
     if (loc != followRequestsPath) return null;
     final state = _onboardingBloc.state;
-    final features = state.enabledFeatures;
-    final allowed =
-        features.contains(kFeatureGraph) &&
-        (features.contains(kFeaturePrivateAccounts) ||
-            (state.profile?.isPrivate ?? false));
+    final allowed = followRequestsAllowed(
+      enabledFeatures: state.enabledFeatures,
+      isProtected: state.profile?.isPrivate ?? false,
+    );
     return allowed ? null : homePath;
   }
 
