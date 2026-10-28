@@ -242,6 +242,16 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 	return targetSnap.isBlocked(viewerUID), nil
 }
 
+// IsFollowing implements identity.BlockChecker: whether viewerUID follows targetUID, from the viewer's cached snapshot
+// (0 reads warm, 1 cold; GetProfile has just loaded it for IsBlockedBy, so a hit). ADR-0025 AQ2.
+func (s *service) IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error) {
+	snap, err := s.Snapshot(ctx, viewerUID)
+	if err != nil {
+		return false, err
+	}
+	return snap.isFollowing(targetUID), nil
+}
+
 // Followed implements FollowEvents as the default no-op; Deps.Events replaces it (ADR-0008 D11, ADR-0017 D2).
 func (s *service) Followed(context.Context, string, string, time.Time) {}
 

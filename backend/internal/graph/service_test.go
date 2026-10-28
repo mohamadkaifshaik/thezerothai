@@ -516,3 +516,24 @@ func (f *fakeRepo) FollowEdgeExists(_ context.Context, followerUID, followeeUID 
 	}
 	return f.followEdges[edgeKey{followerUID, followeeUID}], nil
 }
+
+// TestIsFollowing (W3-26b, ADR-0025 AQ2): answered from the viewer's own snapshot, one read cold and none after.
+func TestIsFollowing(t *testing.T) {
+	repo := newFakeRepo()
+	repo.snapshots["uid-a"] = Snapshot{Following: map[string]bool{"uid-b": true}}
+	svc := newTestServiceWithRepo(repo, true)
+	ctx := context.Background()
+	for target, want := range map[string]bool{"uid-b": true, "uid-c": false} {
+		got, err := svc.IsFollowing(ctx, "uid-a", target)
+		if err != nil || got != want {
+			t.Errorf("IsFollowing(%s) = %v, %v, want %v", target, got, err, want)
+		}
+	}
+	if repo.calls != 1 {
+		t.Errorf("calls = %d, want 1 (the second answer is a cache hit)", repo.calls)
+	}
+	repo.err = errors.New("boom")
+	if _, err := svc.IsFollowing(ctx, "uid-z", "uid-b"); err == nil {
+		t.Error("a snapshot failure must surface")
+	}
+}
