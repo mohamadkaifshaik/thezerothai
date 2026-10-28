@@ -582,6 +582,34 @@ variable "feature_ui_shell_percent" {
   }
 }
 
+variable "feature_shells" {
+  description = "FEATURE_SHELLS rollout mode for the W8 coming-soon pages (client-only; Creator tools, Premium, Advertise, Calls and their entries; docs/plans/ui-w8-shells.md): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_shells)
+    error_message = "feature_shells must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_shells_allowlist" {
+  description = "FEATURE_SHELLS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_shells_percent" {
+  description = "FEATURE_SHELLS_PERCENT: 0-100, only meaningful when feature_shells = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_shells_percent >= 0 && var.feature_shells_percent <= 100 && floor(var.feature_shells_percent) == var.feature_shells_percent
+    error_message = "feature_shells_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_content_disclosure" {
   description = "FEATURE_CONTENT_DISCLOSURE rollout mode for setting paid_partnership / made_with_ai on CreatePost (ADR-0021 D3): off | allowlist | percent | on. Default off; leaves off only after 100% of traffic is on a revision that stores the labels (ADR-0021 L-1)."
   type        = string
