@@ -556,6 +556,7 @@ class PostView extends $pb.GeneratedMessage {
     ReplyPermission? viewerReplyPermission,
     EmbedViewerState? embedViewerState,
     $core.bool? bookmarkedByViewer,
+    $core.bool? withheld,
   }) {
     final result = PostView._();
     if (post != null) result.post = post;
@@ -566,6 +567,7 @@ class PostView extends $pb.GeneratedMessage {
     if (embedViewerState != null) result.embedViewerState = embedViewerState;
     if (bookmarkedByViewer != null)
       result.bookmarkedByViewer = bookmarkedByViewer;
+    if (withheld != null) result.withheld = withheld;
     return result;
   }
 
@@ -592,6 +594,7 @@ class PostView extends $pb.GeneratedMessage {
     ..aE<EmbedViewerState>(5, _omitFieldNames ? '' : 'embedViewerState',
         enumValues: EmbedViewerState.values)
     ..aOB(6, _omitFieldNames ? '' : 'bookmarkedByViewer')
+    ..aOB(7, _omitFieldNames ? '' : 'withheld')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -657,7 +660,8 @@ class PostView extends $pb.GeneratedMessage {
   /// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
   /// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
   /// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
-  /// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped.
+  /// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped; so does the caller's
+  /// own REPOST on the caller's own profile (ADR-0025 note W3-36 L-2).
   @$pb.TagNumber(5)
   EmbedViewerState get embedViewerState => $_getN(4);
   @$pb.TagNumber(5)
@@ -681,6 +685,21 @@ class PostView extends $pb.GeneratedMessage {
   $core.bool hasBookmarkedByViewer() => $_has(5);
   @$pb.TagNumber(6)
   void clearBookmarkedByViewer() => $_clearField(6);
+
+  /// The server stripped this row's post to post_id, kind and the author snapshot because the caller may no longer see
+  /// its protected author (ADR-0025 note W3-36 L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
+  /// embed or timestamp. Set only on the caller's own Likes and Bookmarks lists (ListLikedPosts, ListBookmarks), where
+  /// liked_by_viewer or bookmarked_by_viewer stays true; render the protected placeholder with the undo action (Unlike
+  /// or Remove bookmark). The caller's own REPOST on their own profile uses embed_viewer_state = PROTECTED instead.
+  /// False everywhere else.
+  @$pb.TagNumber(7)
+  $core.bool get withheld => $_getBF(6);
+  @$pb.TagNumber(7)
+  set withheld($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasWithheld() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearWithheld() => $_clearField(7);
 }
 
 class CreatePostRequest extends $pb.GeneratedMessage {

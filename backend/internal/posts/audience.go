@@ -38,6 +38,14 @@ const (
 	SurfaceDirect Surface = iota
 	// SurfaceList is a row in a feed or list: a refusal is Drop, and rows by authors the viewer blocked or muted drop too.
 	SurfaceList
+	// SurfaceOwnProfile is a row on the caller's OWN profile (ADR-0025 note W3-36 L-2): like SurfaceDirect, except the
+	// caller's own REPOST of a post whose author they may no longer see is shown with Embed = PROTECTED so it can be
+	// undone, instead of being refused. Owner-only: no other surface ever passes it.
+	SurfaceOwnProfile
+	// SurfaceOwnList is a row in the caller's own Likes or Bookmarks list: like SurfaceList (block and mute drop), except a
+	// post, or a REPOST of a post, whose author the caller may no longer see is Withheld instead of Dropped, so the row
+	// can be unliked or unbookmarked. Owner-only: W4 search and W5 lists never see it.
+	SurfaceOwnList
 )
 
 // Verdict is the outcome class of Decide.
@@ -50,6 +58,9 @@ const (
 	Drop
 	// NotFound: answer the one "post not found" error.
 	NotFound
+	// Withheld: SurfaceOwnList only. Keep the row as a stripped placeholder (ApplyWithheld) because the caller may no
+	// longer see its protected author.
+	Withheld
 )
 
 // Decision is Decide's answer. Embed is UNSPECIFIED unless the post copies another post whose author the viewer
@@ -101,9 +112,10 @@ func (a *Audience) visibleAuthor(ctx context.Context, viewer, author string, sna
 // deleting) is the caller's directory check, not this function's.
 func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapshot, p *Post, surface Surface) (Decision, error) {
 	refuse := Decision{Verdict: NotFound}
-	if surface == SurfaceList {
+	if surface == SurfaceList || surface == SurfaceOwnList {
 		refuse.Verdict = Drop
 	}
+	listLike := surface == SurfaceList || surface == SurfaceOwnList
 	if !p.Visible() {
 		return refuse, nil
 	}
@@ -112,7 +124,7 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 		if err != nil {
 			return Decision{}, err
 		}
-		if blocked || (surface == SurfaceList && (snap.Blocked[p.AuthorID] || snap.Muted[p.AuthorID])) {
+		if blocked || (listLike && (snap.Blocked[p.AuthorID] || snap.Muted[p.AuthorID])) {
 			return refuse, nil
 		}
 	}
@@ -122,6 +134,9 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 	}
 	if !ok {
 		logger.SetRequestField(ctx, "audience", "protected")
+		if surface == SurfaceOwnList {
+			return Decision{Verdict: Withheld}, nil
+		}
 		return refuse, nil
 	}
 
@@ -146,6 +161,22 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 	if !ok {
 		if p.Kind == KindRepost {
 			logger.SetRequestField(ctx, "audience", "protected")
+			switch {
+			case surface == SurfaceOwnList:
+				return Decision{Verdict: Withheld}, nil
+			case surface == SurfaceOwnProfile && p.AuthorID == viewer:
+				// The caller's own REPOST on their own profile: kept, stripped like a PROTECTED embed, so Undo repost
+				// has a row to act on (W3-36 L-2). Block and mute come first and keep today's outcome (dropped), and
+				// another viewer, Home and GetPost keep the D4 refusal.
+				blocked, err := a.blockedBy(ctx, snap, viewer, ea)
+				if err != nil {
+					return Decision{}, err
+				}
+				if blocked || snap.Blocked[ea] || snap.Muted[ea] {
+					return refuse, nil
+				}
+				return Decision{Verdict: Show, Embed: postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED}, nil
+			}
 			return refuse, nil
 		}
 		return Decision{Verdict: Show, Embed: postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED}, nil
@@ -232,6 +263,20 @@ func ApplyEmbedState(v *postsv1.PostView, st postsv1.EmbedViewerState) {
 	}
 	e := v.Post.Embedded
 	v.Post.Embedded = &postsv1.EmbeddedPost{PostId: e.PostId, Unavailable: e.Unavailable, Author: e.Author}
+}
+
+// ApplyWithheld turns v into the owner's placeholder row (ADR-0025 note W3-36 L-2): the post keeps only its id, kind
+// and author snapshot, and every other field of the view is cleared (text, media, labels, hashtags, mentions, counts,
+// reply fields, visibility, embed, timestamp, embed state, reply permission). The viewer's liked, reposted and
+// bookmarked flags are left to the caller, which knows which list the row is in. The only place this strip happens.
+func ApplyWithheld(v *postsv1.PostView) {
+	if v.GetPost() == nil {
+		return
+	}
+	v.Post = &postsv1.Post{PostId: v.Post.PostId, Kind: v.Post.Kind, Author: v.Post.Author}
+	v.EmbedViewerState = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+	v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_UNSPECIFIED
+	v.Withheld = true
 }
 
 // ApplyWireVisibility sets the computed Post.visibility: FOLLOWERS while the author is protected (D2). Stored docs

@@ -291,6 +291,9 @@ func (s *Server) toViews(ctx context.Context, uid string, following map[string]b
 		v := posts.ToView(p, vs, uid)
 		if st, ok := embed[p.ID]; ok {
 			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens (W3-29a)
+			if st == postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED && p.Kind == posts.KindRepost && p.AuthorID == uid {
+				v.RepostedByViewer = true // the owner's own kept REPOST: Undo repost acts on it (the userLikes list is capped and trimmed)
+			}
 		}
 		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, uid, p.AuthorID, following[p.AuthorID])) // FOLLOWERS while the author is protected (D2)
 		out = append(out, v)
@@ -320,6 +323,9 @@ func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*
 		return nil, nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller)
 	}
 	af := s.newAudienceFilter(ctx, caller, snap)
+	if caller == target {
+		af.surface = posts.SurfaceOwnProfile // the owner's own REPOSTs of a protected post stay as undoable PROTECTED rows (W3-36 L-2)
+	}
 	out := make([]*posts.Post, 0, len(ps))
 	for _, p := range ps {
 		if caller != target && !embedAllowed(snap, caller, p) {

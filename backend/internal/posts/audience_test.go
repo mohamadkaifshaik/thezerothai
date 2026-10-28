@@ -11,6 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"google.golang.org/protobuf/proto"
 )
 
 // fakeSet is the protected set of a test (the W3-26a loader is built in parallel).
@@ -111,6 +112,24 @@ func TestAudienceDecide(t *testing.T) {
 		{"P quotes own post", quoteOf(prot, prot), following(prot), SurfaceDirect, nil, Show, none, false},
 		{"quote of P, set unavailable", quoteOf(other, prot), graph.Snapshot{}, SurfaceDirect, errBoom, 0, none, true},
 		{"embedded author blocks viewer", quoteOf(other, "uid-b"), graph.Snapshot{BlockedBy: map[string]bool{"uid-b": true}}, SurfaceDirect, nil, NotFound, none, false},
+		// W3-36 L-2: the owner surfaces (Withheld on the caller's own lists, a kept PROTECTED REPOST on their own profile).
+		{"own list, post by P, unapproved: withheld", root(prot), graph.Snapshot{}, SurfaceOwnList, nil, Withheld, none, false},
+		{"own list, post by P, follower: full row", root(prot), following(prot), SurfaceOwnList, nil, Show, none, false},
+		{"own list, public author: full row", root(other), graph.Snapshot{}, SurfaceOwnList, nil, Show, none, false},
+		{"own list, repost of P by other, unapproved: withheld", repostOf(other, prot), graph.Snapshot{}, SurfaceOwnList, nil, Withheld, none, false},
+		{"own list, repost of P, approved: full row", repostOf(other, prot), following(prot), SurfaceOwnList, nil, Show, none, false},
+		{"own list, quote of P: shown PROTECTED, not withheld", quoteOf(other, prot), graph.Snapshot{}, SurfaceOwnList, nil, Show, prt, false},
+		{"own list, P blocks viewer: dropped", root(prot), graph.Snapshot{BlockedBy: map[string]bool{prot: true}}, SurfaceOwnList, nil, Drop, none, false},
+		{"own list, viewer blocks P: dropped", root(prot), graph.Snapshot{Blocked: map[string]bool{prot: true}}, SurfaceOwnList, nil, Drop, none, false},
+		{"own list, viewer mutes P: dropped", root(prot), graph.Snapshot{Muted: map[string]bool{prot: true}}, SurfaceOwnList, nil, Drop, none, false},
+		{"own list, taken down post by P: dropped", func() *Post { p := root(prot); p.Moderation = ModerationTakenDown; return p }(), graph.Snapshot{}, SurfaceOwnList, nil, Drop, none, false},
+		{"own list, set unavailable", root(prot), graph.Snapshot{}, SurfaceOwnList, errBoom, 0, none, true},
+		{"own profile, own repost of P, unapproved: kept PROTECTED", repostOf(viewer, prot), graph.Snapshot{}, SurfaceOwnProfile, nil, Show, prt, false},
+		{"own profile, own repost of P, approved: full row", repostOf(viewer, prot), following(prot), SurfaceOwnProfile, nil, Show, none, false},
+		{"own profile, own repost of P, viewer blocks P: dropped", repostOf(viewer, prot), graph.Snapshot{Blocked: map[string]bool{prot: true}}, SurfaceOwnProfile, nil, NotFound, none, false},
+		{"own profile, own repost of P, viewer mutes P: dropped", repostOf(viewer, prot), graph.Snapshot{Muted: map[string]bool{prot: true}}, SurfaceOwnProfile, nil, NotFound, none, false},
+		{"own profile, own repost of P, P blocks viewer: dropped", repostOf(viewer, prot), graph.Snapshot{BlockedBy: map[string]bool{prot: true}}, SurfaceOwnProfile, nil, NotFound, none, false},
+		{"own profile surface never keeps someone else's repost", repostOf(other, prot), graph.Snapshot{}, SurfaceOwnProfile, nil, NotFound, none, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -354,4 +373,30 @@ func TestAudienceProtectedAuthorOutageIsFalse(t *testing.T) {
 	if newAudience(f, noBlockOverflow).ProtectedAuthor(context.Background(), "v", "p", false) {
 		t.Fatal("an unknown set reports false for the informational hint")
 	}
+}
+
+// ApplyWithheld leaves post_id, kind and the author snapshot and nothing else (W3-36 L-2).
+func TestApplyWithheldStripsEverythingButIDKindAuthor(t *testing.T) {
+	p := post("42", "uid-prot")
+	p.Author = AuthorSnapshot{UserID: "uid-prot", Handle: "prot"}
+	p.Text = "secret text"
+	p.Hashtags = []string{"tag"}
+	p.LikeCount = 7
+	v := ToView(p, ViewerSet{}, "uid-viewer")
+	v.LikedByViewer, v.BookmarkedByViewer = true, true
+	v.EmbedViewerState = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_BLOCKED
+	ApplyWithheld(v)
+	want := &postsv1.PostView{
+		Post:               &postsv1.Post{PostId: "42", Kind: v.Post.Kind, Author: v.Post.Author},
+		LikedByViewer:      true,
+		BookmarkedByViewer: true,
+		Withheld:           true,
+	}
+	if !proto.Equal(v, want) {
+		t.Fatalf("got %v, want %v", v, want)
+	}
+	if v.Post.Author == nil || v.Post.Author.UserId != "uid-prot" {
+		t.Fatalf("author snapshot lost: %v", v.Post.Author)
+	}
+	ApplyWithheld(&postsv1.PostView{}) // nil post: no panic
 }

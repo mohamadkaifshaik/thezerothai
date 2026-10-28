@@ -296,9 +296,18 @@ func TestProtected_ProfileFeedsDropCopiesOfProtectedAuthors(t *testing.T) {
 		for _, v := range resp.GetPosts() {
 			got[v.GetPost().GetPostId()] = v
 		}
-		if got[s.rep.ID] != nil || got[s.ctl.ID] == nil || got[s.qt.ID] == nil ||
+		// W3-36 L-2: the owner's own REPOST stays as an undoable PROTECTED row; another user's profile still drops it.
+		own := who == "me"
+		if (got[s.rep.ID] != nil) != own || got[s.ctl.ID] == nil || got[s.qt.ID] == nil ||
 			got[s.qt.ID].GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED {
 			t.Fatalf("%s: repost kept=%v control=%v quote=%v", who, got[s.rep.ID] != nil, got[s.ctl.ID] != nil, got[s.qt.ID])
+		}
+		if rv := got[s.rep.ID]; own {
+			emb := rv.GetPost().GetEmbedded()
+			if rv.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !rv.GetRepostedByViewer() ||
+				emb.GetPostId() == "" || emb.GetText() != "" || len(emb.GetMedia()) != 0 || emb.GetCreatedAt() != nil {
+				t.Fatalf("own repost placeholder: %v", rv)
+			}
 		}
 	}
 	// A viewer who follows P keeps all three of bob's rows.

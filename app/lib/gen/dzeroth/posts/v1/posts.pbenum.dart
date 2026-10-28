@@ -167,8 +167,9 @@ class EmbedViewerState extends $pb.ProtobufEnum {
 
   /// The embedded author is protected and the viewer is neither that author nor a follower (ADR-0025 D4). The server
   /// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
-  /// render a protected-post placeholder. Only a QUOTE row carries it: a REPOST of such a post is dropped from feeds
-  /// and lists, and GetPost answers NOT_FOUND for it.
+  /// render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
+  /// lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
+  /// reposted_by_viewer = true) so it can be undone (ADR-0025 note W3-36 L-2); GetPost answers NOT_FOUND for it.
   static const EmbedViewerState EMBED_VIEWER_STATE_PROTECTED =
       EmbedViewerState._(
           3, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_PROTECTED');

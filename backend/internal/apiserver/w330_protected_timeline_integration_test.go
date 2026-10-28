@@ -223,8 +223,15 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
 			got := w330Views(resp.GetPosts())
-			if got[repostID] != nil {
-				t.Errorf("%s: the repost of P was kept", tc.name)
+			// W3-41a (W3-36 L-2): the copier's own profile keeps the REPOST as an undoable PROTECTED row; others drop it.
+			if own := tc.viewer.uid == x.uid; (got[repostID] != nil) != own {
+				t.Errorf("%s: repost of P kept = %v, want %v", tc.name, got[repostID] != nil, own)
+			} else if own {
+				rv := got[repostID]
+				e := rv.GetPost().GetEmbedded()
+				if rv.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || !rv.GetRepostedByViewer() || e.GetPostId() != pid || e.GetText() != "" || len(e.GetMedia()) != 0 {
+					t.Errorf("%s: own repost = %v, want PROTECTED, reposted_by_viewer, embedded post_id only", tc.name, rv)
+				}
 			}
 			if q := got[quoteID]; tc.tab == tabRepliesPB30 && (q == nil || q.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || q.GetPost().GetEmbedded().GetText() != "") {
 				t.Errorf("%s: quote = %v, want a stripped PROTECTED copy", tc.name, q)
