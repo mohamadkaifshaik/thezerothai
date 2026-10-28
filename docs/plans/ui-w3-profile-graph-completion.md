@@ -265,7 +265,7 @@ Stacked on W2 (`cost-model.md` section 5) the Stage 0 bill with every flag on is
 | `RATE_LIMIT_SUGGESTIONS_PER_MIN` | 10 | |
 | `SUGGESTIONS_CALLS_PER_DAY` | 50 | in-memory, per uid per instance |
 | `SUGGESTIONS_SAMPLE_FOLLOWEES` | 30 | |
-| `SUGGESTIONS_EDGE_LIMIT` | 30 | |
+| `SUGGESTIONS_EDGE_LIMIT` | 20 | ADR-0024 Amendment 2 (#373); was 30 |
 | `SUGGESTIONS_HYDRATE_MAX` | 10 | |
 | `SUGGESTIONS_MAX_RESULTS` | 5 | |
 | `SUGGESTIONS_CACHE_TTL` | 1h | |
@@ -637,6 +637,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 #### W3-25b Part B plumbing [backend-developer] [S] [depends: W3-25a] Status: Open
 - **Description.**
   - `make proto`, with the generated Go and Dart committed.
+  - Before `make proto`, fix the `ListSuggestedUsers` comment in `graph.proto`: "hard cap 42 reads cold (… follows edges <= 30 …)" becomes cap 32 with edges <= 20, per ADR-0024 Amendment 2 (comment only; `buf breaking` stays clean). Found in the code review of #373 (2026-10-28).
   - Register `FEATURE_PRIVATE_ACCOUNTS` like W3-4: `config.Config`, `flags.NewRegistry`, `config_test.go`, the flag fixture.
   - `scripts/promotion/flag-ceiling.json` (founder-gated): add `PRIVATE_ACCOUNTS` to `flags`, with dev `{"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}` and no prod entry.
   - Terraform vars `feature_private_accounts`, `_allowlist` and `_percent` in `envs/dev` and `envs/prod`, default `off`, wired into `cloud-run-api`. Nothing is applied.
@@ -1272,7 +1273,7 @@ Assumptions (ADR-0025): 5% of DAU protected; 0.05 follows per DAU to a protected
   - Follow `txn_attempts > 3` or `ABORTED` for one target, sustained: go back to the cached target read (a documented 60 s window), then sharded follower counters;
   - one protected account receiving more than 1 request/s, sustained: a requests counter on the target;
   - the §6 Firestore trigger (more than 1.5M reads a day, or a bill above $30 a month): at about 4,960 DAU (was 4,996) and about 2,100 DAU (unchanged to the nearest 10). This also moves the follow-requests edge table to SQL with the timeline's Stage 2 ADR.
-- **Before any ramp past dev.** The who-to-follow trigger amendment (ADR-0024 Amendment 2, in progress, not on `main` on 2026-10-27) must be accepted before any W3 flag, `private_accounts` included, ramps past the dev allowlist. Who to follow is still 11.7% of reads after Part B.
+- **Before any ramp past dev.** The who-to-follow trigger amendment (ADR-0024 Amendment 2, accepted on 2026-10-28 by the merge of #367) must be built and applied in a project, as its Handoff says, before any W3 flag, `private_accounts` included, ramps past the dev allowlist there. Without it, who to follow would be 11.7% of reads after Part B; the amendment models it at about 6% (17.2 reads per DAU).
 
 #### Part B: rollout, kill switch, risks
 - **Ramp.**
