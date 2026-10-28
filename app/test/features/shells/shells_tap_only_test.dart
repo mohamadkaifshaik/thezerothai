@@ -103,11 +103,16 @@ void main() {
     });
 
     test('the push extra is held only by the router and shell_entries', () {
-      final users = {
+      // shell_entries defines and pushes kShellPushExtra; the router checks
+      // its type (`extra is ShellPush`, review W8-9 M-1), not the constant.
+      Set<String> usersOf(String symbol) => {
         for (final f in lib)
-          if (_code(f).contains('kShellPushExtra')) _name(f),
+          if (RegExp('\\b$symbol\\b').hasMatch(_code(f))) _name(f),
       };
-      expect(users, {
+      expect(usersOf('kShellPushExtra'), {
+        'features/shells/domain/shell_entries.dart',
+      });
+      expect(usersOf('ShellPush'), {
         'core/router/app_router.dart',
         'features/shells/domain/shell_entries.dart',
       });
