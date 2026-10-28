@@ -56,15 +56,21 @@ type Server struct {
 	codec  codec
 	settle time.Duration
 	now    func() time.Time
+	// aud is the ADR-0025 visibility predicate (posts.Audience); WithProtectedAuthors gives it the protected set.
+	aud *posts.Audience
 }
 
 // NewServer builds the Connect handler. Use with timelinev1connect.NewTimelineServiceHandler.
-func NewServer(d Deps) *Server {
+func NewServer(d Deps, opts ...Option) *Server {
 	now := d.Now
 	if now == nil {
 		now = time.Now
 	}
-	return &Server{deps: d, now: now, settle: d.SettleWindow, codec: codec{key: d.CursorKey, ttl: d.TokenTTL, now: now}}
+	s := &Server{deps: d, now: now, settle: d.SettleWindow, codec: codec{key: d.CursorKey, ttl: d.TokenTTL, now: now}, aud: posts.NewSnapshotAudience(nil)}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 var _ timelinev1connect.TimelineServiceHandler = (*Server)(nil)
@@ -122,6 +128,13 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 //
 // A since_token refresh also reads the removal log (removed_ids, ADR-0016 D10), same cost as GetHomeTimeline: 0 warm,
 // +1 to +50 once per instance per CACHE_TTL, +100 worst.
+//
+// Protected accounts (ADR-0025 D4): for a caller who is neither the target nor a follower of a protected target, every tab
+// answers author_protected = true with no posts and no tokens at 3 cold reads (interceptor, target users, caller graph)
+// and 0 page reads, decided before the author-recent cache. In every tab a REPOST of a protected author the caller does
+// not follow is dropped and a QUOTE of one gets embed_viewer_state PROTECTED (stripped). A caller's own profile page
+// holding a copy of another user's post reads the caller's graph once (+1 cold, cached 60 s). The set is a detached
+// instance cache (protected_set_reads); an unknown set is UNAVAILABLE.
 //
 //nolint:dupl // mirrors GetHomeTimeline over distinct generated proto types
 func (s *Server) GetUserTimeline(ctx context.Context, req *connect.Request[timelinev1.GetUserTimelineRequest]) (*connect.Response[timelinev1.GetUserTimelineResponse], error) {

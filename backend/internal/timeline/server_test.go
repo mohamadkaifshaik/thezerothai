@@ -88,11 +88,11 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
 			"VisibilityPublic": true, "VisibilityFollowers": true,
 			// P5 (ADR-0018 D5, D13): viewer flags are posts' ViewerFlags seam; ToView renders them.
-			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true,
+			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
 		// identity: the Directory seam, its Profile value type, the one missing-user error and the uid predicate.
-		"identity": {"Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true},
+		"identity": {"ProtectedAuthors": true, "ProtectedSet": true, "Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true},
 	}
 	sawAny := false
 	for _, f := range files {

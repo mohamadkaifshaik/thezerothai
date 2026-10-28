@@ -836,8 +836,8 @@ func TestTabs_DropRules(t *testing.T) {
 	})
 }
 
-// TestTabs_HiddenRowsAreDropped: a post a moderator hid (takedown or suspended author) and a non-public post never
-// appear on the Media or Reposts tab, whatever the query returned.
+// TestTabs_HiddenRowsAreDropped: a post a moderator hid (takedown or suspended author) never
+// appear on the Media or Reposts tab, whatever the query returned. The stored visibility is never consulted (ADR-0025 D2).
 func TestTabs_HiddenRowsAreDropped(t *testing.T) {
 	t.Parallel()
 	for _, tab := range []timelinev1.UserTimelineTab{pbMedia, pbReposts} {
@@ -855,8 +855,8 @@ func TestTabs_HiddenRowsAreDropped(t *testing.T) {
 		live, taken, followersOnly := mk(30), mk(20), mk(10)
 		taken.Moderation = "TAKEN_DOWN"
 		followersOnly.Visibility = posts.VisibilityFollowers
-		if got := userIDs(r.mustTab("me", "bob", tab, 20, "", "")); !reflect.DeepEqual(got, []string{live.ID}) {
-			t.Fatalf("%v rows = %v, want only the live post %s", tab, got, live.ID)
+		if got := userIDs(r.mustTab("me", "bob", tab, 20, "", "")); !reflect.DeepEqual(got, []string{followersOnly.ID, live.ID}) {
+			t.Fatalf("%v rows = %v, want the live post and the FOLLOWERS-stored one (stored visibility is ignored) %s", tab, got, live.ID)
 		}
 	}
 }

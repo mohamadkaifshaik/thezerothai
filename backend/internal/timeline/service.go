@@ -89,13 +89,18 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	}
 	// Defence in depth: authors were removed before querying, but a stale cached entry or a replayed own write
 	// must never surface a blocked or muted author's post. The caller's own posts are always kept.
+	// ADR-0025 D4: a REPOST of a protected author the caller does not follow is dropped, a QUOTE of one is stripped
+	// (audienceFilter), per viewer and after the author-recent entries, so a shared cache never leaks.
+	af := s.newAudienceFilter(ctx, uid, snap)
 	keep := func(p *posts.Post) bool {
-		return isPublic(p) && (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID)) &&
-			embedAllowed(snap, uid, p)
+		return (p.AuthorID == uid || allowedAuthor(snap, p.AuthorID)) && embedAllowed(snap, uid, p) && af.keep(p)
 	}
 	page := Merge(res.sources, limit, keep)
+	if err := af.finish(); err != nil {
+		return nil, err
+	}
 
-	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, page.Items), RemovedIds: removed}
+	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, page.Items, af.embed), RemovedIds: removed}
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -276,46 +281,58 @@ func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.
 // toViews renders a page with the viewer's state: one cached userLikes read per request when FEATURE_ENGAGEMENT or
 // FEATURE_BOOKMARKS is on for uid (0 when the page is empty; posts.HydrateViewer), else every flag false. Without
 // engagement only the bookmarks are hydrated, so no like or repost flag leaks (ADR-0023 D5).
-func (s *Server) toViews(ctx context.Context, uid string, ps []*posts.Post) []*postsv1.PostView {
+func (s *Server) toViews(ctx context.Context, uid string, ps []*posts.Post, embed map[string]postsv1.EmbedViewerState) []*postsv1.PostView {
 	var vs posts.ViewerSet
 	if len(ps) > 0 {
 		vs = posts.HydrateViewer(ctx, s.deps.Flags, s.deps.Viewer, uid)
 	}
 	out := make([]*postsv1.PostView, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, posts.ToView(p, vs, uid))
+		v := posts.ToView(p, vs, uid)
+		if st, ok := embed[p.ID]; ok {
+			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens (W3-29a)
+		}
+		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, p.AuthorID)) // FOLLOWERS while the author is protected (D2)
+		out = append(out, v)
 	}
 	return out
 }
 
-// filterEmbeds applies embedAllowed to a profile page. The caller's graph snapshot is the one checkVisible just
-// read (cached), so the filter costs 0 reads. A caller viewing their own profile skips it: embedAllowed keeps the
-// viewer's own copies anyway (D13, same as a direct post), which restores 0 reads for the own Posts tab.
-func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*posts.Post) ([]*posts.Post, error) {
-	if caller == target {
-		return ps, nil
-	}
+// filterEmbeds applies embedAllowed (ADR-0018 D13) and the ADR-0025 D4 audience rules to a profile page: a REPOST of a
+// protected author's post the caller may not see is dropped, a QUOTE of one is kept with a PROTECTED embed state. The
+// caller's graph snapshot is the one checkVisible just read (cached), so the filter costs 0 reads. A page with no
+// REPOST or QUOTE skips it. A caller viewing their own profile skips embedAllowed (their own copies are kept, D13) but
+// not the audience rule: a copy of a post whose author protected since stays hidden from its copier. That case reads
+// the caller's graph (+1 cold, cached 60 s) only when the page holds a copy of someone else's post.
+func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*posts.Post) ([]*posts.Post, map[string]postsv1.EmbedViewerState, error) {
 	need := false
 	for _, p := range ps {
-		if p.Kind == posts.KindRepost || p.Kind == posts.KindQuote {
+		if (p.Kind == posts.KindRepost || p.Kind == posts.KindQuote) && (caller != target || (s.aud.Enabled() && p.EmbeddedAuthor() != "" && p.EmbeddedAuthor() != caller)) {
 			need = true
 			break
 		}
 	}
 	if !need {
-		return ps, nil
+		return ps, nil, nil
 	}
 	snap, err := s.deps.Graph.Snapshot(ctx, caller)
 	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller)
+		return nil, nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller)
 	}
+	af := s.newAudienceFilter(ctx, caller, snap)
 	out := make([]*posts.Post, 0, len(ps))
 	for _, p := range ps {
-		if embedAllowed(snap, caller, p) {
+		if caller != target && !embedAllowed(snap, caller, p) {
+			continue
+		}
+		if af.keep(p) {
 			out = append(out, p)
 		}
 	}
-	return out, nil
+	if err := af.finish(); err != nil {
+		return nil, nil, err
+	}
+	return out, af.embed, nil
 }
 
 // embedAllowed is the ADR-0018 D13 feed filter: a REPOST or QUOTE is dropped when the author of the post it
@@ -359,8 +376,15 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	logger.SetRequestField(ctx, fieldMode, string(md))
 	logger.SetRequestField(ctx, fieldPageSize, limit)
 
-	if err := s.checkVisible(ctx, caller, target); err != nil {
+	protected, err := s.checkVisible(ctx, caller, target)
+	if err != nil {
 		return nil, err
+	}
+	if protected {
+		// ADR-0025 D4: decided before the author-recent cache or any page is read, whatever the tab or token. No posts,
+		// no tokens, no removed_ids: the client shows the protected view and replaces its cached feed for this author.
+		logger.SetRequestField(ctx, fieldAuthorProtected, true)
+		return &timelinev1.GetUserTimelineResponse{AuthorProtected: true}, nil
 	}
 	if tok.Reached {
 		return &timelinev1.GetUserTimelineResponse{}, nil
@@ -377,11 +401,11 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	}
 	// The embed filter is a privacy rule, not a viewer feature: it applies whatever the caller's
 	// FEATURE_ENGAGEMENT state is (the flags only gate viewer-flag hydration).
-	items, err := s.filterEmbeds(ctx, caller, target, res.page.Items)
+	items, embed, err := s.filterEmbeds(ctx, caller, target, res.page.Items)
 	if err != nil {
 		return nil, err
 	}
-	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, items), RemovedIds: removed}
+	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, items, embed), RemovedIds: removed}
 	it := s.tokens(f, md, tok, res.page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
@@ -422,36 +446,43 @@ func (s *Server) resolveTab(ctx context.Context, caller string, req *timelinev1.
 
 // checkVisible answers NOT_FOUND, byte-identical to GetProfile's missing-user error, for a missing,
 // non-ACTIVE or caller-blocking target (D6). A caller who blocks or mutes the target still sees the posts.
-// Both timelines fail closed on Post.Visibility != PUBLIC (isPublic) even though P1 writes only PUBLIC.
-// TODO(private accounts, ADR-0008 D1): add a follower check here and in the home keep when private accounts arrive.
-func (s *Server) checkVisible(ctx context.Context, caller, target string) error {
+// After those rules it applies ADR-0025 D4: protected is true when the target is a protected account and the caller is
+// neither that account nor a follower of it, so every tab answers author_protected. The decision uses the caller's
+// graph snapshot checkVisible already read (3 cold reads: interceptor, target users, caller graph) and the detached
+// protected-set loader, and runs before any page or author-recent entry is touched. A set error is UNAVAILABLE.
+// Staleness bound: a follow, unfollow or toggle is seen within CACHE_TTL (60 s, the graph and set caches).
+func (s *Server) checkVisible(ctx context.Context, caller, target string) (protected bool, err error) {
 	profs, err := s.deps.Directory.GetProfiles(ctx, []string{target})
 	if err != nil {
-		return logger.RedactErr(fmt.Errorf("timeline: target profile: %w", err), caller, target)
+		return false, logger.RedactErr(fmt.Errorf("timeline: target profile: %w", err), caller, target)
 	}
 	if _, ok := profs[target]; !ok {
-		return identity.ProfileNotFoundError()
+		return false, identity.ProfileNotFoundError()
 	}
 	if target == caller {
-		return nil
+		return false, nil
 	}
 	snap, err := s.deps.Graph.Snapshot(ctx, caller)
 	if err != nil {
-		return logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller, target)
+		return false, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller, target)
 	}
 	if snap.BlockedBy[target] {
-		return identity.ProfileNotFoundError()
+		return false, identity.ProfileNotFoundError()
 	}
 	if snap.BlockedByOverflow {
 		ts, err := s.deps.Graph.Snapshot(ctx, target)
 		if err != nil {
-			return logger.RedactErr(fmt.Errorf("timeline: target graph: %w", err), caller, target)
+			return false, logger.RedactErr(fmt.Errorf("timeline: target graph: %w", err), caller, target)
 		}
 		if ts.Blocked[caller] {
-			return identity.ProfileNotFoundError()
+			return false, identity.ProfileNotFoundError()
 		}
 	}
-	return nil
+	ok, err := s.aud.VisibleAuthor(ctx, caller, target, snap)
+	if err != nil {
+		return false, err
+	}
+	return !ok, nil
 }
 
 type userResult struct {
@@ -472,7 +503,7 @@ func (s *Server) userPage(ctx context.Context, target string, tab userTab, tok r
 			if ok && (!rec.Truncated || len(rec.Posts) >= limit) {
 				res.cacheHit = true
 				res.entries = []time.Time{rec.LoadedAt}
-				res.page = Merge([]Source{{Posts: rec.Posts, Filled: rec.Truncated}}, limit, isPublic)
+				res.page = Merge([]Source{{Posts: rec.Posts, Filled: rec.Truncated}}, limit, moderationVisible)
 				return res, nil
 			}
 			// Miss: fill the entry with a Limit(20) query and serve the first page from it.
@@ -482,13 +513,13 @@ func (s *Server) userPage(ctx context.Context, target string, tab userTab, tok r
 			}
 			truncated := len(ps) >= userFirstPageMax
 			s.deps.Posts.StoreAuthorRecent(target, ps, truncated, start)
-			res.page = Merge([]Source{{Posts: ps, Filled: truncated}}, limit, isPublic)
+			res.page = Merge([]Source{{Posts: ps, Filled: truncated}}, limit, moderationVisible)
 			return res, nil
 		case md == modeRefresh:
 			if rec, ok := s.deps.Posts.AuthorRecent(target); ok && covers(rec, tok.Since) {
 				res.cacheHit = true
 				res.entries = []time.Time{rec.LoadedAt}
-				res.page = Merge([]Source{{Posts: inWindow(rec.Posts, nil, tok.Since)}}, limit, isPublic)
+				res.page = Merge([]Source{{Posts: inWindow(rec.Posts, nil, tok.Since)}}, limit, moderationVisible)
 				return res, nil
 			}
 		}
@@ -497,7 +528,7 @@ func (s *Server) userPage(ctx context.Context, target string, tab userTab, tok r
 	if err != nil {
 		return res, logger.RedactErr(fmt.Errorf("timeline: user %s: %w", tab, err), target)
 	}
-	res.page = Merge([]Source{{Posts: ps, Filled: len(ps) >= limit}}, limit, isPublic)
+	res.page = Merge([]Source{{Posts: ps, Filled: len(ps) >= limit}}, limit, moderationVisible)
 	return res, nil
 }
 
@@ -515,7 +546,7 @@ func (s *Server) tabQuery(ctx context.Context, target string, tab userTab, w pos
 	}
 }
 
-// isPublic keeps only public posts a moderator has not hidden (ADR-0016 D3: takedown and suspension are a
-// moderation field on the doc, so this filter costs no read). Timelines fail closed so a future non-public
-// visibility cannot leak by omission.
-func isPublic(p *posts.Post) bool { return p.Visibility == posts.VisibilityPublic && p.Visible() }
+// moderationVisible keeps the posts a moderator has not hidden (ADR-0016 D3: takedown and suspension are a moderation field on
+// the doc, so this filter costs no read). It deliberately does not read the stored `visibility` (always PUBLIC, ADR-0025
+// D2): who may see an author is decided per viewer by posts.Audience (audienceFilter, checkVisible), never by the doc.
+func moderationVisible(p *posts.Post) bool { return p.Visible() }
