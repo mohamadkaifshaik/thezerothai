@@ -91,7 +91,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-25b | Part B plumbing: `make proto`, `FEATURE_PRIVATE_ACCOUNTS`, config and limits, `quota.PrivacyToggles`, ceiling, Terraform vars, seam declarations | backend-developer | S | In review (PR #379) (depends: W3-25a) |
 | W3-26a | Part B identity: the protected set, the `ProtectedAuthors` loader, the `is_private` toggle (quota, cap), `PrivacyListener`, identity-step clean-up and T11 `privacy` row | backend-developer | M | In review (PR #383; depends: W3-25b) |
 | W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Open (depends: W3-26a, W3-28a) |
-| W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | In review (PR #PRNUM; depends: W3-25b; merges only after W3-32, T11 guard) |
+| W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | In review (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Open (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | In review (PR #382) (depends: W3-25b; merges after W3-26a) |
@@ -744,7 +744,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `identity.BlockChecker.IsFollowing` and `identity.FollowRequestCounter`. The Stage 2 version is a counter on the target, when one protected account gets more than 1 request/s.
 - **Cost.** About 0.2 calls per DAU (4 GetMe x 5% protected), 0.10 reads per DAU.
 
-#### W3-27 Graph: Follow to a protected account, withdraw, Block [backend-developer] [M] [depends: W3-25b; merges only after W3-32] Status: In review (PR #PRNUM)
+#### W3-27 Graph: Follow to a protected account, withdraw, Block [backend-developer] [M] [depends: W3-25b; merges only after W3-32] Status: In review (PR #385)
 - **Follow** (D6). It reads the target's `users` doc inside the transaction through `identity.TxProfiles.ProfileInTx` instead of the 60 s cache: 4 cold / 3 warm reads (planning value 4, ADR-0008 A2). Checks run in this order:
   1. The existing NOT_FOUND, TARGET_BLOCKED and VALIDATION rules.
   2. Already following: a replay, before any request logic (I-X).
