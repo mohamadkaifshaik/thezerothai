@@ -51,11 +51,17 @@ type w320Gates struct {
 // the setup chain (every flag on) so each has a profile.
 func w320DrawGates(t *testing.T, setup *w320Chain) w320Gates {
 	t.Helper()
+	return w320DrawGatesFor(t, setup, w320FlagNames)
+}
+
+// w320DrawGatesFor is w320DrawGates for any list of flag names (W3-35b draws the private_accounts cohort per rollout state).
+func w320DrawGatesFor(t *testing.T, setup *w320Chain, names []string) w320Gates {
+	t.Helper()
 	g := w320Gates{in: map[string]bmUser{}, out: map[string]bmUser{}}
-	complete := func() bool { return len(g.in) == len(w320FlagNames) && len(g.out) == len(w320FlagNames) }
+	complete := func() bool { return len(g.in) == len(names) && len(g.out) == len(names) }
 	for i := 0; i < 200 && !complete(); i++ {
 		u := setup.user(t)
-		for _, f := range w320FlagNames {
+		for _, f := range names {
 			if w320Bucket(f, u.uid) < 50 {
 				if _, ok := g.in[f]; !ok {
 					g.in[f] = u

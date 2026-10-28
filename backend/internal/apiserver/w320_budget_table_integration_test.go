@@ -41,10 +41,27 @@ func (e *bmChain) w320Measure(t *testing.T, rpc, label string, ceil budgettest.B
 	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", rpc, label, c.Reads(), c.Writes(), c.Deletes(), ceil.Reads, ceil.Writes)
 }
 
-func TestW320_BudgetTable(t *testing.T) {
+func TestW320_BudgetTable(t *testing.T) { w320BudgetTable(t, nil) }
+
+// w320BudgetTable is the W3-20 table. partB (W3-35a) is an extra config applied to every chain it builds: with Part B on
+// and a protected account in the set, every existing read path keeps its W3-20 ceiling (ADR-0025: the predicate adds 0).
+func w320BudgetTable(t *testing.T, partB func(*config.Config)) {
 	ctx := context.Background()
-	e, w := newW320Life(t, nil)
+	allOn := func(c *config.Config) {
+		w320AllW3On(c)
+		if partB != nil {
+			partB(c)
+		}
+	}
+	e, w := newW320Life(t, partB)
 	author, viewer, other := w.user(t), w.user(t), w.user(t)
+	if partB != nil {
+		// A non-empty protected set that none of the measured data belongs to.
+		prot := true
+		if _, err := w.w320Update(w.user(t), &identityv1.UpdateProfileRequest{IsPrivate: &prot}); err != nil {
+			t.Fatalf("protect an unrelated account: %v", err)
+		}
+	}
 
 	// --- data: 50 media posts, 50 reposts of other's posts, 50 likes by the viewer (the first media post gets pinned) ---
 	var mediaIDs []string
@@ -62,12 +79,12 @@ func TestW320_BudgetTable(t *testing.T) {
 	pinID := mediaIDs[0]
 
 	// --- UpdateProfile: ADR "2 / 1 + 1 banner resolve + 1 pin check (4 worst cold)", 1 write ---
-	r := newW320Chain(t, w320AllW3On)
+	r := newW320Chain(t, allOn)
 	if _, err := r.w320Update(author, &identityv1.UpdateProfileRequest{BannerMediaId: &banner, Location: w320Str("Pune"), Website: w320Str("https://example.com"), PinnedPostId: &pinID}); err != nil {
 		t.Fatalf("UpdateProfile all fields: %v", err)
 	}
 	r.w320Measure(t, rpcUpdateProfile, "banner+location+website+pin, cold interceptor", budgettest.Budget{Reads: 4, Writes: 1})
-	r2 := newW320Chain(t, w320AllW3On)
+	r2 := newW320Chain(t, allOn)
 	if _, err := r2.w320Update(viewer, &identityv1.UpdateProfileRequest{Location: w320Str("Mumbai")}); err != nil {
 		t.Fatal(err)
 	}
@@ -81,14 +98,16 @@ func TestW320_BudgetTable(t *testing.T) {
 	// ADR-0024: "4 / 0". The GetPost doc comment adds +1 (userLikes) cold when engagement or bookmarks is on, so the table measures
 	// both: engagement off is the ADR figure, engagement on is 5.
 	r3off := newW320Chain(t, func(c *config.Config) {
-		w320AllW3On(c)
+		allOn(c)
 		c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.Off}
+		// GetPost reads userLikes (+1) when engagement OR bookmarks is on; Part B turns bookmarks on, so the ADR figure of 4 needs both off.
+		c.FeatureBookmarks = flags.Spec{Name: "bookmarks", Mode: flags.Off}
 	})
 	if _, err := r3off.posts.GetPost(ctx, authed(viewer.token, &postsv1.GetPostRequest{PostId: pinID})); err != nil {
 		t.Fatal(err)
 	}
 	r3off.w320Measure(t, "/dzeroth.posts.v1.PostService/GetPost", "the pinned post, cold, engagement off (ADR figure)", budgettest.Budget{Reads: 4})
-	r3 := newW320Chain(t, w320AllW3On)
+	r3 := newW320Chain(t, allOn)
 	if _, err := r3.posts.GetPost(ctx, authed(viewer.token, &postsv1.GetPostRequest{PostId: pinID})); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +131,7 @@ func TestW320_BudgetTable(t *testing.T) {
 			return err
 		}},
 	} {
-		rr := newW320Chain(t, w320AllW3On)
+		rr := newW320Chain(t, allOn)
 		if err := tc.tab(rr); err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -127,7 +146,7 @@ func TestW320_BudgetTable(t *testing.T) {
 		name string
 		tab  timelinev1.UserTimelineTab
 	}{{"MEDIA", tabMediaPB}, {"REPOSTS", tabRepostsPB}} {
-		rr := newW320Chain(t, w320AllW3On)
+		rr := newW320Chain(t, allOn)
 		if resp, err := rr.w320TabCall(viewer, author.uid, tc.tab, false, 50, "", ""); err != nil || len(resp.GetPosts()) != 50 {
 			t.Fatalf("%s page 50: %v", tc.name, err)
 		}
@@ -139,7 +158,7 @@ func TestW320_BudgetTable(t *testing.T) {
 	}
 
 	// --- ListLikedPosts: ADR 23 cold / 20 warm at page 20, 2 for an empty array ---
-	rl := newW320Chain(t, w320AllW3On)
+	rl := newW320Chain(t, allOn)
 	if _, err := rl.listLiked(viewer, 20, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +167,7 @@ func TestW320_BudgetTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	rl.w320Measure(t, rpcListLikedPosts, "page 20, warm (every cache hit)", budgettest.Budget{Reads: 20})
-	rl50 := newW320Chain(t, w320AllW3On)
+	rl50 := newW320Chain(t, allOn)
 	if p, err := rl50.listLiked(viewer, 50, ""); err != nil || len(p.GetPosts()) != 50 {
 		t.Fatalf("ListLikedPosts page 50: %v", err)
 	}
@@ -157,7 +176,7 @@ func TestW320_BudgetTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	rl50.w320Measure(t, rpcListLikedPosts, "page 50, warm (every cache hit)", budgettest.Budget{Reads: 50})
-	re := newW320Chain(t, w320AllW3On)
+	re := newW320Chain(t, allOn)
 	if _, err := re.listLiked(author, 20, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +184,7 @@ func TestW320_BudgetTable(t *testing.T) {
 
 	// --- GetProfileRelationship: ADR 3 cold (interceptor, caller graph, edge) with the header's GetProfile first, 0 warm ---
 	w.w320Follow(t, other, viewer.uid)
-	rr := newW320Chain(t, w320AllW3On)
+	rr := newW320Chain(t, allOn)
 	rr.w320Profile(t, viewer, other.uid)
 	if _, err := rr.w320Rel(viewer, other.uid); err != nil {
 		t.Fatal(err)
@@ -175,7 +194,7 @@ func TestW320_BudgetTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	rr.w320Measure(t, w320RPCGetProfileRel, "warm", budgettest.Budget{})
-	rn := newW320Chain(t, w320AllW3On)
+	rn := newW320Chain(t, allOn)
 	if _, err := rn.w320Rel(viewer, other.uid); err != nil { // no GetProfile first: the Directory read is the 4th
 		t.Fatal(err)
 	}
@@ -183,7 +202,7 @@ func TestW320_BudgetTable(t *testing.T) {
 	if _, err := e.fs.Doc("graph/"+viewer.uid).Update(ctx, []firestore.Update{{Path: "blockedByOverflow", Value: true}}); err != nil {
 		t.Fatal(err)
 	}
-	ro := newW320Chain(t, w320AllW3On)
+	ro := newW320Chain(t, allOn)
 	if _, err := ro.w320Rel(viewer, other.uid); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +221,7 @@ func TestW320_BudgetTable(t *testing.T) {
 		w.w320Follow(t, fe, cand[i].uid)
 		w.w320Follow(t, fe, cand[i+1].uid)
 	}
-	rs := newW320Chain(t, w320AllW3On)
+	rs := newW320Chain(t, allOn)
 	if _, err := rs.graph.ListSuggestedUsers(ctx, authed(sv.token, &graphv1.ListSuggestedUsersRequest{})); err != nil {
 		t.Fatal(err)
 	}
