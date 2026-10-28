@@ -125,3 +125,44 @@ func TestUndoAndUnlike_InvisiblePostAnswersMissingShape(t *testing.T) {
 		}
 	})
 }
+
+// W3-40b (W3-40a residual): a stranger undoing a REPOST id gets the same Result, PostID included, whether the original
+// behind it is gone or hidden (protected, not followed). The id is the original's in both.
+func TestUndoAndUnlike_RepostIDHiddenEqualsGone(t *testing.T) {
+	for _, op := range []string{"unlike", "undo"} {
+		t.Run(op, func(t *testing.T) {
+			ask := func(hide bool) Result {
+				e := newEnv(t)
+				e.posts.docs[pidRep].AuthorID = "pub"
+				if !hide {
+					delete(e.posts.docs, pidA)
+				}
+				m, err := New(Deps{
+					Repo: e.repo, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)},
+					Events: e.events, CacheTTL: time.Minute, AllowAnonymous: true, Graph: &fakeGraph{},
+					Audience: undoAudience{fakeAudience{protected: map[string]bool{"author": true}}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				ctx := authn.WithClaims(context.Background(), authn.Claims{UID: "viewer", SignInProvider: authn.SignInProviderGoogle})
+				e.repo.unlikeResult = true
+				e.repo.undoRes = UndoResult{Removed: true, RepostPostID: pidRep}
+				var r Result
+				if op == "unlike" {
+					r, err = m.Unlike(ctx, "viewer", keyOK, pidRep)
+				} else {
+					r, err = m.UndoRepost(ctx, "viewer", keyOK, pidRep)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				return r
+			}
+			hidden, gone := ask(true), ask(false)
+			if hidden != gone || hidden.PostID != pidA {
+				t.Fatalf("hidden = %+v, gone = %+v; want identical, PostID %s", hidden, gone, pidA)
+			}
+		})
+	}
+}

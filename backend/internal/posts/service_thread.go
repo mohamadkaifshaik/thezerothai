@@ -527,9 +527,18 @@ func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) 
 }
 
 // ProtectedAuthor implements VisibilityHinter: whether p's author is in the protected set (the computed wire
-// visibility, ADR-0025 D2). 0 reads for the caller (the loader is detached).
-func (s *service) ProtectedAuthor(ctx context.Context, p *Post) bool {
-	return s.aud.ProtectedAuthor(ctx, p.AuthorID)
+// visibility, ADR-0025 D2). 0 reads for the caller (the loader is detached). The viewer's own posts need no graph
+// read; for another author the viewer's snapshot is the one GetPost or GetThread just cached (0 reads on the hit, never
+// a new read for an anonymous viewer), and a followed author is then answered from the loader's cached copy
+// (W3-36 L-4). An unknown follow state is treated as not following: the set is asked through Current.
+func (s *service) ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool {
+	following := false
+	if viewer != "" && p.AuthorID != viewer && s.aud.Enabled() {
+		if snap, err := s.graph.Snapshot(ctx, viewer); err == nil {
+			following = snap.Following[p.AuthorID]
+		}
+	}
+	return s.aud.ProtectedAuthor(ctx, viewer, p.AuthorID, following)
 }
 
 // embedStateFor is the pure decision: blocked wins over muted.

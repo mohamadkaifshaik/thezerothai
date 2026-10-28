@@ -40,6 +40,13 @@ committed a toggle applies it at once; the others within 60 s. A toggle that lan
 in flight no longer discards that read: the fetched copy is installed with the toggle re-applied, so an instance idle for more than
 10 minutes never serves the old copy (W3-40a, W3-36 L-3).
 
+**The wire-visibility hint (W3-40b, W3-36 L-4).** `Audience.ProtectedAuthor` (the computed `visibility` of a row) asks the loader for the
+viewer's own and followed authors through `Cached()`, which never refreshes and never logs, and falls back to `Current` when no copy is
+fresh (younger than 60 s). A Home page of followed authors therefore makes no `Current` call on a warm instance; the wire value is the same.
+During a set outage a request raises one ERROR `protected_set_unavailable` and WARN (`repeat=true`) for every further ask in the same
+request, so Error Reporting counts one error per affected request, not one per row. Undo path: `UnlikePost` and `UndoRepost` of a REPOST id
+whose original is hidden echo the original's id, exactly like a deleted original.
+
 **Startup refusal (W3-36 L-5).** `apiserver.Build` refuses to start, with `protected-author seams not wired (would fail open): <names>`,
 when any of the seven protected-set seams is nil (the loader, graph `Protected`, `identity.WithProtectedAuthors`, the notifications
 `Audience`, `posts.WithProtectedAuthors`, the engagement `Audience` from `posts.AudienceOf`, `timeline.WithProtectedAuthors`). Every
@@ -53,7 +60,7 @@ its author (protected and not followed, blocks the caller, taken down). Cost: +0
 | Log line | Meaning | What to do |
 |---|---|---|
 | WARN `protected_set_stale` (`age_s`) | The refresh is failing; the last good copy is served, at most 10 minutes old (`PROTECTED_SET_MAX_STALE`). A user who just went public or protected may be seen with the old state for that long. | Find the Firestore error behind it (Firestore status, quota exhausted: `docs/runbooks/cost-spike.md`). It ends by itself when reads work again. |
-| ERROR `protected_set_unavailable` | The copy is older than 10 minutes, or the instance never loaded one. Every path that needs the set answers UNAVAILABLE (retryable); the profile header is still served and omits the pin (`pin_omitted=set_unavailable`); post-bearing notifications are redelivered by Pub/Sub. An unknown set is never read as "everyone is public". | Same as above. If the daily read quota is exhausted, restoring service needs the quota, not a code change. Do not "fix" it by emptying the set doc. |
+| ERROR `protected_set_unavailable` (once per request, then WARN with `repeat=true`; W3-40b L-4) | The copy is older than 10 minutes, or the instance never loaded one. Every path that needs the set answers UNAVAILABLE (retryable); the profile header is still served and omits the pin (`pin_omitted=set_unavailable`); post-bearing notifications are redelivered by Pub/Sub. An unknown set is never read as "everyone is public". | Same as above. If the daily read quota is exhausted, restoring service needs the quota, not a code change. Do not "fix" it by emptying the set doc. |
 
 ## 3. The 20,000 cap
 
@@ -96,7 +103,7 @@ request 3 writes + 1 delete, + 1 write per page. 500 pending: about 1,005 reads,
 completion: 2 reads, 0 writes.
 
 Log line, one per page (`msg=privacy_public`): `page`, `scanned`, `accepted`, `skipped_inactive`, `skipped_cap`, `drift`, `outcome`
-(`page` = more follow, `done`, `stopped:protected`, `stopped:target_gone`, `stopped:target_inactive`, `error`); the delivery line
+(`page` = more follow, `done`, `stuck`, `stopped:protected`, `stopped:target_gone`, `stopped:target_inactive`, `error`); the delivery line
 (`account_job=privacy_public`) carries `fs_reads`/`fs_writes`/`fs_deletes` and the final outcome.
 
 Failure modes:
@@ -106,8 +113,14 @@ Failure modes:
 - **Stuck or partial** (the message was lost, the enqueue failed, or the job nacked until the DLQ): the account is public and some
   requests are still pending. Republish by hand (any publisher of the `jobs` topic): `{"kind":"privacy_public","uid":"<uid>"}`. The job is
   idempotent; a Follow of that account meanwhile already creates an edge and removes its own leftover request (ADR-0025 AQ4).
-- **`ErrPrivacyPublicMore`** (error `more pending requests than one delivery handles`): more than 5,000 pending in one delivery. The
-  delivery nacks and the redelivery continues. Seen only for an account with thousands of pending requests.
+- **`ErrPrivacyPublicMore`** (error `more pending requests than one delivery handles`): more than 5,000 pending in one delivery, and the
+  delivery accepted or dropped at least one. The delivery nacks and the redelivery continues. Seen only for an account with thousands of
+  pending requests.
+- **`outcome=stuck`** (WARN `privacy_public`; `pages`, `scanned`, `skipped_cap`, `skipped_inactive`, counts only; W3-40b O-1): every page of
+  the delivery (50) was skipped, so nothing was accepted or dropped and a redelivery would only repeat the scan. The message is acked,
+  not nacked, so it never loops to the DLQ. The requests stay pending. To clear them: the owner declines them (`RespondToFollowRequest`,
+  or ListFollowRequests then decline), or the requesters unfollow someone (below 5,000 following) and the job is republished by hand
+  (see Stuck or partial). Seen only past 5,000 requesters at the following cap.
 - **A requester at the 5,000 following cap** is `skipped_cap`: its request is left in place (D7), so every rerun counts it again. A
   requester that is not ACTIVE or has no `graph` doc is `skipped_inactive`: the request is dropped without an edge.
 - **Large accepts and notifications.** The accept notifications are emitted with the accepting account as actor, so they pass
