@@ -1,6 +1,6 @@
 # UI W7: Messaging v1 (direct messages)
 Plan owner: planner · Date: 2026-10-27 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **New backend surface:**
-- a `messaging` module and a new `dzeroth.messaging.v1.MessagingService` (seven RPCs);
+- a `messaging` module and a new `dzeroth.messaging.v1.MessagingService` (six RPCs; ADR-0027 D5);
 - three new collections: `conversations/{id}` with a `messages` subcollection, and two per-user subcollections, `users/{uid}/dmInbox` and `users/{uid}/dmRequests`;
 - one push-only notification type (`message`);
 - one additive `GetMe` field;
@@ -18,6 +18,7 @@ Source:
 Branches: `feat/ui-w7-N-<slug>` off `main` (not stacked); one ticket per PR; merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR or proto tickets)
+**Decided 2026-10-28: the founder accepted every default, F1 to F11.** They are recorded with options and INR lines in ADR-0027 ("Founder decisions F1–F11"). The text below is kept as the question record.
 - **F1. Images in messages?** **Default: text only in v1.** Images would reuse the media pipeline (signed upload, SafeSearch at 2 Vision units per image) with a new `MEDIA_PURPOSE_MESSAGE`. They need private-read objects, because media objects are public-read today (`CLAUDE.md`), and a public URL for a private photo is a leak. They also add Vision spend inside the shared cap. That is its own ADR (Out of scope, with its trigger).
 - **F2. Who can message whom.** **Default:**
   - Mutual follows land directly in the Inbox.
@@ -329,7 +330,7 @@ Prices (§7):
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3–W6? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W7-1 | ADR-0029 (or the next free number) "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | Open |
+| W7-1 | ADR-0027 "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | In review: `docs/adr/0027-messaging-v1-pull-and-push-no-realtime-no-e2e.md` (Proposed, 2026-10-28); accepted by the founder's merge |
 | W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | Open |
 | W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Open |
 | W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | Open |
@@ -340,7 +341,7 @@ Prices (§7):
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Open |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Open |
-| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
+| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown (the ADR-0016 dated note landed with ADR-0027) | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Open |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Open |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Open |
@@ -391,8 +392,8 @@ Order:
 
 ## Tickets
 
-### W7-1 — ADR "Messaging v1"  [owner: architect] [size: M] [depends: —]  Status: Open
-- **Description.** ADR-0029, or the next free number when the PR opens (W3 holds 0024/0025, W4 0026, W5 0027, W6 0028 as planned numbers; take the highest existing plus one). It decides:
+### W7-1 — ADR "Messaging v1"  [owner: architect] [size: M] [depends: —]  Status: In review (ADR-0027, Proposed 2026-10-28)
+- **Description.** ADR-0027: the highest existing was 0026 (the W8 shells took it, not W4), so W7 takes 0027 and W5 and W6 take the next free numbers when theirs open. It decides:
   - the data model (A1, the table above), message and conversation ids (A2, A3);
   - the delivery model: pull, the poll intervals, the `since` codec (A9), the push-only type (A4);
   - the who-can-message rules and caps (F2), block, mute and read rules (F9, A8);
@@ -415,6 +416,11 @@ Order:
 - **Budget.** Its table is the source for W7-5 to W7-12.
 - **Flag.** None (docs); it names `FEATURE_MESSAGING` and its dev ceiling.
 - **Seam.** It defines `messaging.Service` (Send, ListConversations, ListMessages, MarkRead, Accept, Delete), `messaging.Eraser`, `messaging.Exporter`, `identity.MessageBadge`, `moderation.MessageLookup` and `notifications.Event.ConversationID`.
+- **Done in the ADR PR (2026-10-28).** ADR-0027 records F1–F11 (all defaults) and decides A1–A11 at the plan's defaults, with two changes:
+  - **A4:** the push-only `message` type skips the fresh actor and recipient profile reads, so push delivery is 1.5 reads per message (was 3.5). W7 totals become **≈ 34.0 reads, 5.8 writes, 12.6 requests per DAU per day** and **about INR 11 / 55 / 471 a month** at 300 / 1,000 / 3,000 DAU (was 12 / 58 / 480).
+  - **Baseline:** restated on the current `cost-model.md` (W2 + W3 Part A: 281.7 reads, 33.6 writes, 39.6 requests). Free writes now run out at about **508 DAU** with W7 (was 596); the Stage 0 bill becomes about INR 482 / 1,766 / 4,244.
+  - **A8** stays the cached 60 s snapshot; W7-22 may flip it to a fresh read (+1 read per send).
+  - Same PR: the `stage-ladder` "Direct messages" rows, the `firestore-data-model` rows, and dated notes on ADR-0016 (message evidence, so W7-12 no longer adds it) and ADR-0017 (push-only type).
 
 ### W7-2 — Proto `dzeroth.messaging.v1` and additive fields  [owner: architect] [size: M] [depends: W7-1 drafted]  Status: Open
 - **Description.**
@@ -930,5 +936,5 @@ Order:
 | Purge race recreates a deleted user's entry | `gone` mark serialised with sends, a fresh status read on new conversations, the backstop re-run (A7) |
 | Uncaptured visuals (conversation view, new-message flow) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
 | Merge conflicts with W3–W6 in shared files | the shared-file table; one PR at a time (`pending.md` rules) |
-| ADR number clash | "ADR-0029 or the next free number" |
+| ADR number clash | resolved: W7 is ADR-0027 (2026-10-28) |
 | 5-item bar is full once Explore and Messages land | F10 fixes the order; Lists (W5) go in the drawer |

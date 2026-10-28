@@ -249,3 +249,18 @@ can now hit the 10/day devices cap (the runbook already asks for once per app st
   are mutually exclusive on one post.
 - Tests: `TestPostNotifierReplies` (unit), `TestReplyNotifications` (emulator: reply row, replay, self, muted
   recipient, reply+mention collapse, CreatePost request line unchanged at 5 writes and <= 15 reads).
+
+## Note (2026-10-28): a push-only `message` type (ADR-0027 D9, W7)
+ADR-0027 (Messaging v1, Proposed) adds `TypeMessage` and an additive `Event.ConversationID`; the wire event's `v` stays 1.
+It takes effect when ADR-0027 is accepted and W7-10 merges. D2 is unchanged (the event still goes through `Emitter`
+after the commit). What differs for this one type:
+- **Push-only:** no row in `users/{uid}/notifications`, no badge move, never returned by ListNotifications;
+  `validateEvent` requires no post id for it.
+- **D6 unchanged in spirit:** generic title and body ("New message"), `data` holds `type=message` and
+  `conversationId` only (no sender, no text, no uid). Collapse key and Android tag `message` (type-level, as N-2).
+- **Own limiter bucket** (`MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR`, 20), outside the shared 10/h.
+- The fresh actor and recipient profile reads are skipped for this type (they guard row writes from the purge race;
+  it writes no row). D5 suppression still reads the recipient's graph.
+- Sent only when `messaging` and `notifications` are both on for the recipient.
+- **D11 unchanged:** no web push; iOS waits for the Apple launch.
+No decision of this ADR changes.
