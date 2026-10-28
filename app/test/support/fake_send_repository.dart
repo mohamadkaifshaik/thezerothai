@@ -39,6 +39,16 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   /// Thrown by the next sends AFTER the server stored the message.
   final List<Object> lostResponses = [];
 
+  /// Every `recipient_user_id` a send carried (null for a send to a
+  /// conversation), in order (W7-17).
+  final List<String?> sendRecipients = [];
+
+  /// The conversation the "server" opens for a send that names a recipient.
+  String createdConversationId = hexId(0xd1);
+
+  /// Conversations the cache holds, by peer user id (W7-17).
+  final Map<String, pb.Conversation> cachedByPeer = {};
+
   /// When set, a send waits for it (the "Sending…" state).
   Completer<void>? sendGate;
 
@@ -47,6 +57,10 @@ class FakeSendRepository extends Fake implements MessagingRepository {
 
   @override
   RateLimitedException? rateLimitedFor() => null;
+
+  @override
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async =>
+      cachedByPeer[peerUserId];
 
   @override
   Future<ThreadSnapshot> cachedThread(String conversationId) async => thread;
@@ -73,6 +87,7 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   }) async {
     sendKeys.add(idempotencyKey);
     sendTexts.add(text);
+    sendRecipients.add(recipientUserId);
     final wait = sendGate;
     if (wait != null) await wait.future;
     if (failures.isNotEmpty) throw failures.removeAt(0);
@@ -82,7 +97,7 @@ class FakeSendRepository extends Fake implements MessagingRepository {
         1000 + stored.length,
         fromSelf: true,
         text: text,
-        conversationId: conversationId ?? '',
+        conversationId: conversationId ?? createdConversationId,
       ),
     );
     if (lostResponses.isNotEmpty) throw lostResponses.removeAt(0);
@@ -95,6 +110,11 @@ class FakeSendRepository extends Fake implements MessagingRepository {
         olderPageToken: thread.olderPageToken,
       );
     }
-    return pb.SendMessageResponse(message: message);
+    return pb.SendMessageResponse(
+      message: message,
+      conversation: recipientUserId == null
+          ? null
+          : threadConv(id: createdConversationId),
+    );
   }
 }

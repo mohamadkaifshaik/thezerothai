@@ -27,6 +27,7 @@ class PagedUserList extends StatefulWidget {
     this.emptyIcon = Icons.people_outline,
     this.rowBuilder,
     this.protectedMessage,
+    this.itemFilter,
   });
 
   final UserListCubit cubit;
@@ -45,6 +46,12 @@ class PagedUserList extends StatefulWidget {
   /// [FollowButton]).
   final Widget Function(BuildContext context, graph.UserListItem item)?
   rowBuilder;
+
+  /// Shows only the loaded rows this accepts (W7-17: the new-message picker
+  /// filters the Following rows by what is typed; no request is made). A
+  /// parent that changes it rebuilds the list. When it hides every loaded
+  /// row, [emptyMessage] is the answer.
+  final bool Function(graph.UserListItem item)? itemFilter;
 
   @override
   State<PagedUserList> createState() => _PagedUserListState();
@@ -107,7 +114,14 @@ class _PagedUserListState extends State<PagedUserList> {
               onRetry: widget.cubit.loadFirstPage,
             );
           }
-          if (state.items.isEmpty) {
+          final filter = widget.itemFilter;
+          final items = filter == null
+              ? state.items
+              : [
+                  for (final item in state.items)
+                    if (filter(item)) item,
+                ];
+          if (items.isEmpty) {
             return Center(
               child: SingleChildScrollView(
                 child: AppEmptyView(
@@ -122,9 +136,9 @@ class _PagedUserListState extends State<PagedUserList> {
             onRefresh: widget.cubit.loadFirstPage,
             child: ListView.builder(
               controller: _scrollController,
-              itemCount: state.items.length + (showLoadingFooter ? 1 : 0),
+              itemCount: items.length + (showLoadingFooter ? 1 : 0),
               itemBuilder: (context, index) {
-                if (index >= state.items.length) {
+                if (index >= items.length) {
                   return const Padding(
                     padding: EdgeInsets.all(AppSpacing.md),
                     child: Center(
@@ -136,7 +150,7 @@ class _PagedUserListState extends State<PagedUserList> {
                     ),
                   );
                 }
-                final item = state.items[index];
+                final item = items[index];
                 return widget.rowBuilder?.call(context, item) ??
                     UserListRow(key: ValueKey(item.user.userId), item: item);
               },

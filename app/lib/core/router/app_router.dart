@@ -18,10 +18,13 @@ import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/messaging_feature_flag.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
+import '../../features/messages/presentation/draft_thread_screen.dart';
+import '../../features/messages/presentation/recipient_picker_screen.dart';
 import '../../features/messages/presentation/thread_screen.dart';
 import '../../features/messages/presentation/widgets/message_composer.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -70,15 +73,19 @@ class AppRouter {
   // P6: the Notifications tab, behind the `notifications` flag.
   static const notificationsPath = '/notifications';
   // W7-14: the inbox and its Requests folder, behind the `messaging` flag
-  // (both redirect Home without it). ShellRoute children. `/messages/new`
-  // (W7-17) is added by that ticket. W7-15: `/messages/:id` is one
-  // conversation, full-screen outside the shell (like `/compose`) and declared
-  // AFTER the ShellRoute, so `/messages/requests` (and W7-17's
-  // `/messages/new`, which must sit in the ShellRoute or before `:id`) match
-  // first. Any `:id` that is not 32 lower-case hex shows "This conversation
-  // isn't available".
+  // (both redirect Home without it). ShellRoute children. W7-15:
+  // `/messages/:id` is one conversation, full-screen outside the shell (like
+  // `/compose`) and declared AFTER the ShellRoute, so `/messages/requests`
+  // match first. W7-17: `/messages/new` (the people picker, a dialog on the
+  // root navigator) is declared BEFORE `:id`, so "new" is never read as a
+  // conversation id; `/messages/new/draft` is the first-message thread with
+  // someone the cache has no conversation with (it needs the person as the
+  // route `extra`, so a reload goes back to the picker). Any `:id` that is not
+  // 32 lower-case hex shows "This conversation isn't available".
   static const messagesPath = '/messages';
   static const messageRequestsPath = '/messages/requests';
+  static const messageNewPath = '/messages/new';
+  static const messageDraftPath = '/messages/new/draft';
   static String messagePath(String conversationId) =>
       '/messages/$conversationId';
   // The Settings routes land with T15; the constants live here so
@@ -225,9 +232,9 @@ class AppRouter {
           GoRoute(
             path: messagesPath,
             builder: (context, state) => AuthGate(
-              // TODO(W7-17): onNewMessage opens `/messages/new`.
               child: ConversationsScreen(
                 onOpenConversation: (id) => context.push(messagePath(id)),
+                onNewMessage: () => context.push(messageNewPath),
               ),
             ),
           ),
@@ -343,6 +350,22 @@ class AppRouter {
                 const AuthGate(child: DeleteAccountScreen()),
           ),
         ],
+      ),
+      // W7-17: the people picker (a dialog on the root navigator) and the
+      // draft thread. Before `:id` on purpose, see `messagesPath`.
+      GoRoute(
+        path: messageNewPath,
+        pageBuilder: (context, state) =>
+            RecipientPickerPage(key: state.pageKey),
+      ),
+      GoRoute(
+        path: messageDraftPath,
+        // A reload or a typed URL has no person: back to the picker.
+        redirect: (context, state) =>
+            state.extra is common.AuthorSnapshot ? null : messageNewPath,
+        builder: (context, state) => AuthGate(
+          child: DraftThreadScreen(peer: state.extra! as common.AuthorSnapshot),
+        ),
       ),
       // W7-15: one conversation, full-screen (no nav chrome under a composer).
       // After the ShellRoute on purpose, see `messagesPath`.
@@ -534,12 +557,14 @@ class AppRouter {
       extra is ShellPush &&
       _onboardingBloc.state.enabledFeatures.contains(kFeatureShells);
 
-  /// `/messages`, `/messages/requests` and `/messages/<id>` redirect Home
+  /// `/messages`, `/messages/requests`, `/messages/new` (it matches the
+  /// thread pattern), `/messages/new/draft` and `/messages/<id>` redirect Home
   /// unless `messaging` is on for this caller (W7-14, W7-15). `GetMe` lists
   /// the flag per caller, so a flag that is off for everyone is the same case.
   String? _messagesFlagRedirect(String loc) {
     if (loc != messagesPath &&
         loc != messageRequestsPath &&
+        loc != messageDraftPath &&
         !_messageThreadPath.hasMatch(loc)) {
       return null;
     }
