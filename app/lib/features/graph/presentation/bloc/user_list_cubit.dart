@@ -47,6 +47,14 @@ class UserListCubit extends Cubit<UserListState> {
           error: null,
         ),
       );
+    } on ValidationException catch (e) {
+      // An expired or foreign cursor (24 h TTL): start again from page 1
+      // instead of showing an error (W3-34).
+      if (append && e.field == 'page_token') {
+        await _load(pageToken: '', append: false);
+      } else {
+        emit(state.copyWith(status: UserListStatus.error, error: e));
+      }
     } on RateLimitedException catch (e) {
       emit(state.copyWith(status: UserListStatus.rateLimited, error: e));
     } on AppException catch (e) {
