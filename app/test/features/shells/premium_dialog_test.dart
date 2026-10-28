@@ -89,8 +89,7 @@ void main() {
             expect(
               find.text(
                 'Optional paid plans to help cover running costs. Nothing '
-                'is for sale yet, and your account works the same either '
-                'way.',
+                'is for sale yet.',
               ),
               findsOneWidget,
             );

@@ -105,7 +105,7 @@ class _PremiumBody extends StatelessWidget {
   static const heroTitle = 'Premium is coming soon';
   static const heroSubtitle =
       'Optional paid plans to help cover running costs. Nothing is for sale '
-      'yet, and your account works the same either way.';
+      'yet.';
   static const footer = 'No payment details are asked for anywhere in the app.';
 
   @override

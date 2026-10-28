@@ -312,7 +312,7 @@ Order:
 ### W8-5 — Premium pop-up  [owner: frontend-developer] [size: S] [depends: W8-2; merges after ADR-0026 is Accepted]  Status: In review
 - **Description.** `/premium`, a **modal pop-up over the current page** (F7), opened only from the Premium entry (drawer row or More menu item):
   - Below 600 dp a full-screen dialog; from 600 dp a centred `AppSurface` card at most 600 dp wide over a scrim. Header: title "Premium" and a Close (×) button, the only button.
-  - Hero: icon disc (`workspace_premium_outlined`), title "Premium is coming soon", subtitle "Optional paid plans to help cover running costs. Nothing is for sale yet, and your account works the same either way."
+  - Hero: icon disc (`workspace_premium_outlined`), title "Premium is coming soon", subtitle "Optional paid plans to help cover running costs. Nothing is for sale yet." (founder 2026-10-28, review L-1)
   - **Two plan cards** from one constant, `kPremiumPlans` in `app/lib/features/shells/domain/premium_plans.dart` (name, price in paise, period), rendered side by side from 600 dp and stacked below:
     - **Plus**: "₹235/month", "incl. GST", pill "Coming soon";
     - **Premium**: "₹850/month", "incl. GST", pill "Coming soon".
