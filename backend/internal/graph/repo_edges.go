@@ -50,24 +50,31 @@ func (e Edge) otherUID(followers bool) string {
 type EdgeQuery struct {
 	UID       string
 	Followers bool // true: edges where followeeId == UID; false: where followerId == UID
-	Limit     int
-	After     *cursor.Cursor // nil = first page
+	// Requests selects followRequests instead of follows (ADR-0025 D7, ListFollowRequests): the incoming requests of UID,
+	// followeeId == UID, so it implies Followers. The two collections share the doc shape and the composite index.
+	Requests bool
+	Limit    int
+	After    *cursor.Cursor // nil = first page
 }
 
 // ListEdges implements Repo: `follows where <field> == uid order by createdAt desc, __name__ desc limit N`
 // (existing composite indexes). Reads: len(result), minimum 1 (Firestore bills an empty query as one read).
 func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error) {
 	field := "followerId"
-	if q.Followers {
+	if q.Followers || q.Requests {
 		field = "followeeId"
 	}
-	query := r.client.Collection(followsCollection).
+	coll := followsCollection
+	if q.Requests {
+		coll = followRequestsCollection
+	}
+	query := r.client.Collection(coll).
 		Where(field, "==", q.UID).
 		OrderBy("createdAt", firestore.Desc).
 		OrderBy(firestore.DocumentID, firestore.Desc).
 		Limit(q.Limit)
 	if q.After != nil {
-		query = query.StartAfter(q.After.CreatedAt, r.client.Collection(followsCollection).Doc(q.After.DocID))
+		query = query.StartAfter(q.After.CreatedAt, r.client.Collection(coll).Doc(q.After.DocID))
 	}
 	return runEdgeQuery(ctx, query, "list edges "+q.UID)
 }

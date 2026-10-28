@@ -33,6 +33,10 @@ const (
 	fieldWithdraw      = "withdraw"
 	fieldRequestsGone  = "requests_removed"
 	fieldTargetHash    = "target_uid_hash"
+	// ADR-0025 W3-28a: how a RespondToFollowRequest ended (accept, decline, replay, requester_inactive, drift or
+	// requester_cap) and how many rows a follower, following or request page dropped after hydration. Enum and count only.
+	fieldRespond     = "respond"
+	fieldRowsDropped = "rows_dropped"
 	// ListSuggestedUsers (ADR-0024 D8): which source built the rows (fof, curated or none), how many candidate uids went
 	// to hydration, and whether the rows came from the per-viewer cache. Counts and enums only, never uids.
 	fieldSuggestSource     = "source"

@@ -92,7 +92,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-26a | Part B identity: the protected set, the `ProtectedAuthors` loader, the `is_private` toggle (quota, cap), `PrivacyListener`, identity-step clean-up and T11 `privacy` row | backend-developer | M | Done (PR #383; depends: W3-25b) |
 | W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Open (depends: W3-26a, W3-28a) |
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Done (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
-| W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Open (depends: W3-27, W3-26a) |
+| W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | In review (PR #N) (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Done (PR #382) (depends: W3-25b; merges after W3-26a) |
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | In review (PR #386) (depends: W3-29a) |
@@ -787,7 +787,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - 0.05 follows per DAU go to protected targets, at 3 writes instead of 5: -0.1 writes per DAU.
   - Withdraw: 0.005 calls per DAU.
 
-#### W3-28a Graph: request lists and responses, protected follower lists [backend-developer] [M] [depends: W3-27, W3-26a] Status: Open
+#### W3-28a Graph: request lists and responses, protected follower lists [backend-developer] [M] [depends: W3-27, W3-26a] Status: In review (PR #N)
 - **`ListFollowRequests`** (D7). Incoming requests, newest first.
   - Query: `followRequests where followeeId == caller ORDER BY createdAt DESC, __name__ DESC Limit(page)`, on the existing composite index.
   - Hydrate through `Directory` (non-ACTIVE rows dropped), and drop users in the caller's `blocked` or `blockedBy`.

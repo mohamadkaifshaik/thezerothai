@@ -288,3 +288,43 @@ when the edge batch found nothing); `requests_removed` (0 to 2) on Block; `txn_a
 | A request doc exists and `requested` lacks the entry | Opposite drift. A repeat Follow answers REQUESTED (AlreadyExists = replay) and writes nothing, so the entry stays missing until the doc is deleted (withdraw works: the batch deletes the doc) |
 | Follow to a protected account returned FEATURE_DISABLED | Pre-W3-27 behaviour (ADR-0008 D1 legacy rule). Only an older revision does this: check the serving revision |
 | A Block left a request behind | The Block transaction deletes `followRequests` in both directions when the other side is in `requested`; a request the arrays do not show (drift) survives. The account purge (`follow_requests` step) removes it later |
+
+## 8. Follow request lists and responses, protected follower lists (ADR-0025 D5, D7, D9, D12, AQ3; ticket W3-28a)
+`ListFollowRequests` and `RespondToFollowRequest` pass the D12 gate first (`FEATURE_GRAPH`, then `private_accounts` not
+globally off or the caller protected now), so a protected account can still list, accept and decline after the flag is
+ramped down (undo is never gated). Only a public caller is refused, with FEATURE_DISABLED `feature=private_accounts`.
+
+**What they do.** List: `followRequests where followeeId == caller ORDER BY createdAt DESC, __name__ DESC Limit(page)` on
+the existing composite index, hydrated through `identity.Directory`; requesters who are not ACTIVE, whom the caller blocks
+or who block the caller are dropped (`rows_dropped` on the request line, a short page keeps its token). The cursor is
+graph's list cursor bound to `caller|follow-requests` (24 h); a foreign, expired or tampered token is VALIDATION
+`page_token` at 0 reads. Respond: one transaction reads the request fresh (absent = replay, 0 writes) and the requester's
+`graph` fresh; accept `Create`s the edge, updates the requester's graph (`following +=`, `requested -=`), moves
+`followingCount` (requester) and `followersCount` (caller) and deletes the request; decline updates `requested` and deletes
+the request. The requester's status comes from `identity.Directory`, cache-first, and only for an accept of a request
+that exists. After an accept the service reports `FollowEvents.FollowRequestAccepted` (a `follow_accepted_{caller}` row
+for the requester; the caller gets no FOLLOW row). A decline reports nothing. The accept pieces (`classifyAccept`,
+`queueAccept`, `queueDecline` in `repo_requests.go`) take already-read inputs and only queue writes; the `privacy_public`
+job (W3-28b) reuses them for a page of requests and adds the target's `followersCount += n` itself.
+
+**Reads and writes.** List 42 / 102 reads cold at page 20 / 50, 21 / 51 warm. Respond 3 cold / 2 warm after a List (the
+interceptor, the request, the requester's graph; the requester's profile and the caller's snapshot are warm from the List).
+A truly cold standalone accept pays up to 2 more (the requester's `users` doc and the caller's `graph`), and a truly cold
+replay 1 more (the caller's `graph`). Writes: accept 4 + 1 delete, decline 1 + 1 delete, requester not ACTIVE or an I-X
+drift 1 + 1 delete, requester at the 5,000 following cap or a replay 0. `ListFollowers` and `ListFollowing` of a protected
+account for an unapproved viewer: PROTECTED_ACCOUNT after 3 cold reads (interceptor, target profile, caller graph), no page
+read; it needs no flag and no extra read (the set is the detached instance cache of ADR-0025 D3). The pending-request count
+(`graph.service.PendingFollowRequests`, the `identity.FollowRequestCounter` implementation, AQ3) is one `count()` capped at
+1,000 matches (1 read); GetMe wires it in W3-26b.
+
+**Request-line fields.** `respond=accept|decline|replay|requester_inactive|drift|requester_cap`, `rows_dropped` on a list
+page, `audience=protected|set_unavailable` on a refused follower or following list, `graph_op`, `fs_reads`, `fs_writes`.
+
+| Symptom | Cause and action |
+|---|---|
+| `LIMIT_REACHED` with metadata `limit=requester_following` on an accept | The requester already follows 5,000 accounts. Nothing was written; the owner can decline, or leave it pending. Not a fault |
+| `respond=drift` | The requester already followed the target while a request existed (an I-X violation the code never produces: a restored backup, a manual edit). The request was dropped and `requested` cleaned; no second edge. Find the cause; the invariant checks in the integration suites catch it in CI |
+| `respond=requester_inactive` often | Requesters suspend or delete accounts between asking and being answered. The request is deleted and `requested` cleaned, no edge. Normal at low volume |
+| ListFollowers or ListFollowing of a protected account answers UNAVAILABLE "temporarily busy" | The protected set could not be loaded for longer than `PROTECTED_SET_MAX_STALE` on this instance (ERROR `protected_set_unavailable` from identity). The lists fail closed; see `private-accounts.md` for the set doc and the refresh |
+| An approved follower still gets PROTECTED_ACCOUNT right after an accept | Another instance holds the requester's 60 s graph snapshot from before the accept; it clears within `CACHE_TTL`. The instance that served the accept drops it at once |
+| `fs_reads` of a Respond above 3 after a List, or a List above 42 / 102 | Regression: check `RespondToRequest` (one request read, one requester graph read) and `edgePage` (one hydration `GetAll`) |
