@@ -1,5 +1,6 @@
 # 0026. W8 coming-soon pages, Premium prices and pop-up
-Status: Proposed
+Status: Accepted (founder, 2026-10-28, in the session that implements W8; Q1 taken at its default: the prod
+ceiling is recorded in this ADR and `docs/runbooks/shells.md`, not in `flag-ceiling.json`)
 Date: 2026-10-28
 Deciders: architect (proposal); founder (decisions F1–F8 of 2026-10-28; merging this ADR's PR is the acceptance). No fixed
 monthly cost is added, so no cost approval is recorded here.

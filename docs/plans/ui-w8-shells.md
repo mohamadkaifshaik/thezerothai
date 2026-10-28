@@ -1,5 +1,5 @@
 # UI W8: Creator, Premium, Ads and Calls as read-only shells
-Plan owner: planner · Date: 2026-10-27 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** four informational screens, 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no Firebase or index change, no new package, no new GCP service, no fixed cost · Flags: new `FEATURE_SHELLS` (wire name `shells`, client-only, registered on the server like `ui_shell` so `GetMe.enabled_features` reports it; dev ceiling allowlist 3; prod `on` accepted by the founder 2026-10-28, recorded in ADR-0026 because `flag-ceiling.json` has no prod block); existing `ui_shell` (navigation chrome) · Founder decisions F1–F8 recorded 2026-10-28 (section below); the Premium prices and pop-up are recorded in ADR-0026 (W8-10, Proposed)
+Plan owner: planner · Date: 2026-10-27 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** four informational screens, 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no Firebase or index change, no new package, no new GCP service, no fixed cost · Flags: new `FEATURE_SHELLS` (wire name `shells`, client-only, registered on the server like `ui_shell` so `GetMe.enabled_features` reports it; dev ceiling allowlist 3; prod `on` accepted by the founder 2026-10-28, recorded in ADR-0026 because `flag-ceiling.json` has no prod block); existing `ui_shell` (navigation chrome) · Founder decisions F1–F8 recorded 2026-10-28 (section below); the Premium prices and pop-up are recorded in ADR-0026 (W8-10, Accepted 2026-10-28)
 
 Source:
 - `docs/plans/roadmap.md`: the W8 row ("Creator, Premium, Ads, Calls | none (shells) | payments, ads, video and live audio each need a future approved ADR"), founder decisions 2026-10-22 ("W8 = UI shells only, payments / ads / video each need a future approved ADR"), Q1 2026-10-23 (Spaces dropped: no shell, no research, no ticket), the risk row "only colours and structure follow X; own icons, copy, names; no Grok / Premium / ads upsell surfaces";
@@ -179,7 +179,7 @@ Method: `free-tier-budget` §2 (one row per RPC: reads, writes, Cloud Run ms, ca
 | W8-7 | Calls screen | frontend-developer | S | W8-2, W8-3 | yes (own files) | Open |
 | W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | Open |
 | W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | Open |
-| W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | In review (ADR-0026 Proposed) |
+| W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | Done (ADR-0026 Accepted 2026-10-28) |
 | W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Open |
 
 Order:
@@ -417,7 +417,7 @@ Order:
 - **Flag.** Confirms the `shells` prod ceiling matches the founder decision (F2) and that entries still require `ui_shell`.
 - **Seam.** Confirms the shells name their routes only through `shellEntries` and `AppRouter`.
 
-### W8-10 — ADR and stage-ladder rows  [owner: architect] [size: S] [depends: —]  Status: In review (ADR-0026 Proposed)
+### W8-10 — ADR and stage-ladder rows  [owner: architect] [size: S] [depends: —]  Status: Done (ADR-0026 Accepted 2026-10-28)
 - **Description.**
   - Answer A1–A3 in the PR description.
   - **ADR (Proposed)**, the next free number: "W8 coming-soon pages, Premium prices and pop-up". It records the founder decisions of 2026-10-28 (F1–F8), the reversal of the roadmap rules "own names" and "no Premium / ads upsell surfaces" for W8 only, what the Premium pop-up may and may not show (W8-5), the prod decision `on` (outside the ceiling file), the accepted store-review risk, and that payments still need their own ADR. Cost section: INR 0 / 0 / 2 a month (this plan). The founder accepts it; W8-5 merges after that. The roadmap risk row is updated in the same PR to point at it.
