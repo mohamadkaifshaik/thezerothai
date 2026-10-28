@@ -164,13 +164,19 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 			switch {
 			case surface == SurfaceOwnProfile && p.AuthorID == viewer:
 				// The caller's own REPOST on their own profile: kept, stripped like a PROTECTED embed, so Undo repost
-				// has a row to act on (W3-36 L-2). Block and mute come first and keep today's outcome (dropped); an overflowed blockedBy set cannot prove the author does not block the caller, so it fails closed (embedAllowed is skipped on the own profile), and
-				// another viewer, Home and GetPost keep the D4 refusal.
+				// has a row to act on (W3-36 L-2). Block and mute come first and keep today's outcome (dropped). An
+				// overflowed blockedBy set cannot prove the author does not block the caller, so it fails closed
+				// (embedAllowed is skipped on the own profile); it is checked before blockedBy so no Audience pays a
+				// read to drop the row anyway. Only timeline.filterEmbeds passes SurfaceOwnProfile. Another viewer,
+				// Home and GetPost keep the D4 refusal.
+				if snap.BlockedByOverflow || snap.Blocked[ea] || snap.Muted[ea] {
+					return refuse, nil
+				}
 				blocked, err := a.blockedBy(ctx, snap, viewer, ea)
 				if err != nil {
 					return Decision{}, err
 				}
-				if blocked || snap.BlockedByOverflow || snap.Blocked[ea] || snap.Muted[ea] {
+				if blocked {
 					return refuse, nil
 				}
 				return Decision{Verdict: Show, Embed: postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED}, nil
