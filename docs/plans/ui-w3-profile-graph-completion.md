@@ -106,12 +106,18 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
-| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | In review (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
+| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
-| W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
+| W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
-| W3-37 | Part B cost report and load smoke | sre-performance | S | Open (depends: W3-26a to W3-32 merged) |
-| W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK) |
+| W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
+| W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
+| W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Open (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
+| W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Open (depends: W3-36 review) |
+| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Open (depends: W3-40a, W3-35b merged (PR #405)) |
+| W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Open (depends: W3-40b) |
+| W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
+| W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | Open (depends: none; founder review of the gate file; gates any prod ramp) |
 
 ## Milestones
 | # | Milestone | Tickets | Exit |
@@ -615,7 +621,13 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-35c | Tests: client matrix, flag-off routing | tester | S | W3-33a, W3-33b, W3-34 | 0 |
 | W3-36 | Security review, Part B | security-auditor | M | W3-26a to W3-32 merged; client at branch heads | 0 |
 | W3-37 | Cost report, Part B | sre-performance | S | W3-26a to W3-32 merged | 0 (emulators) |
-| W3-38 | Dev rollout, Part B | production-deployer | S | W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK | a handful of reads and writes in dev |
+| W3-38 | Dev rollout, Part B | production-deployer | S | W3-35a to W3-35c, W3-36 M-1(c), W3-37, founder OK | a handful of reads and writes in dev |
+| W3-39 | M-2: unguessable public media names | backend-developer | M | W3-36 review | +0 reads, +0 writes, +0 deletes, +0 Class A and B on every path; media doc about +110 bytes, +66 bytes per stored image copy and per image on the wire |
+| W3-40a | L-1, L-3, L-5, D-2 | backend-developer | M | W3-36 review | Unlike and Undo repost of a post the caller may not see: +0 warm, +1 cold (the caller's graph snapshot), writes unchanged; loader and assertion 0; D-2 documents the existing +1 write of the identity step (account deletion 4 on the reference chain, 301 on the reference account), no new cost |
+| W3-40b | L-4, O-1 | backend-developer | S | W3-40a, W3-35b (#405) | +0 on every path (fewer `Current` calls); a stuck `privacy_public` delivery: the same reads, 0 writes, acked instead of nacked (no redeliveries) |
+| W3-41a | L-2 backend: owner placeholders | architect (proto), backend-developer | M | W3-40b | +0 reads, +0 writes (rows already read are kept and stripped instead of skipped) |
+| W3-41b | L-2 client: placeholder rows | frontend-developer | S | W3-41a, W3-40a serving dev | 0 new RPCs; 1 Unlike, Undo repost or RemoveBookmark per tap |
+| W3-42 | M-1(b): rollback floor | production-deployer | S | none (founder review of `flag-ceiling.json`) | 0 (CI and the rollback path only) |
 
 #### W3-25a Part B contract [architect] [S] [depends: ADR-0025 Accepted, #325] Status: Done (PR #372)
 - **Description.** The ADR-0025 D14 proto changes, the D15 gate-file change and the D16 records, as W3-2 did for Part A. No generated code (W3-25b runs `make proto`).
@@ -1111,7 +1123,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
-#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: In review (PR #410)
+#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Done (PR #410)
 - **The matrix.** Every D4 row on the emulators through `apiserver.Build`.
   - Viewer classes: self, approved follower, non-follower, P blocks A, A blocks P, A mutes P, P suspended, post taken down, `blockedBy` overflow.
   - Paths:
@@ -1170,7 +1182,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Docs.** `docs/ui-catalog.md`: `FollowButton` and `UserListRow` rows.
 - **Flag.** None. **Cost.** 0 new RPCs, 0 reads.
 
-#### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: Open
+#### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: In review (PR #415): FAIL on D-2 (medium), D-1 and D-3 (low), `docs/reviews/test-report-w3b-client.md`
 - **The responsive matrix** (360 / 600 / 1200 dp x light / dark x 1.0 / 1.3 / 2.0, 48 dp targets, inside the screen) for:
   - the protected profile view, the lock badge (header and `UserListRow`, W3-33c) and Requested;
   - the protect switch and its two confirms;
@@ -1207,7 +1219,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Output.** `docs/reviews/security-review-w3b.md`. Findings are fixed or ticketed before W3-38.
 - **Cost.** 0.
 
-#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: Open
+#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: Done (PR #407)
 - **`docs/reviews/cost-model.md`.** The ADR-0025 rows go into §1 to §6 and §9, plus a new §13 of measurements:
   - +1.25 request-path reads, the set-refresh line (detached), +0.16 writes and +0.05 deletes per DAU, restated on the 300.2 base ("Part B: cost" below);
   - the who-to-follow share after Part B;
@@ -1222,11 +1234,14 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Verdict.** BUDGET: HOLDS, or not.
 - **Cost.** 0.
 
-#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK] Status: Open
+#### W3-38 Dev rollout, Part B [production-deployer] [S] [depends: W3-35a to W3-35c, W3-36 M-1(c) (precondition 2), W3-37, founder OK] Status: Open
 - **Preconditions, in order:**
   1. The `privacy.uids` fieldOverride is deployed in dev and shows READY. The deploy-dev workflow runs `firebase deploy --only firestore:indexes` after the ack check.
   2. 100% of dev traffic **and** the `last-good` tag are on a revision whose image is at or after the enforcement floor, `main` 061395a0 (#395), which has every Part B read path (lesson 10; W3-36 M-1(c)). Record both revision names and image digests in the rollout record. See `docs/runbooks/rollback.md`, "Private accounts: never roll back past enforcement".
-  3. The W3-36 findings that gate the dev allowlist are fixed.
+  3. The W3-36 findings that gate the dev allowlist are fixed. Only M-1(c), precondition 2 above, gates the allowlist of 3 (the runbook rule of M-1(a) is PR #404). The other findings gate later steps, not this ticket:
+     - M-2 (W3-39) must be serving 100% of a project's traffic **and** be on its `last-good` before `private_accounts` leaves the dev allowlist (more uids, a percent, or on) in any project;
+     - M-1(b) (W3-42, the rollback floor) and M-1(d) gate any prod ramp of `private_accounts`;
+     - the Lows (W3-40a, W3-40b, W3-41a, W3-41b) gate nothing; they land in the next fix PRs (founder 2026-10-28).
   4. A targeted dev Terraform plan (`-target` the `api` service only, so the `pending.md` 3.10 drift is excluded) for `feature_private_accounts*` and the four new limits is shown to the founder. It is applied only on OK, with the allowlist of 3 test uids (founder question B4).
 - **Smoke** (runbook `docs/runbooks/w3-part-b-rollout.md`):
   1. A protects.
@@ -1239,6 +1254,97 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Prod.** No change (on hold, `pending.md` 1.2).
 - **Cost.** A handful of reads and writes in dev's free quota.
 
+#### Part B: W3-36 fix tickets (from `docs/reviews/security-review-w3b.md`, founder decisions 2026-10-28)
+The founder's decisions on the review: M-2 accepted (unguessable public names for new uploads); M-1 gets the runbook rule now (PR #404) and the `resolve-rollback.sh` floor before any prod ramp; the Lows are fixed in the next fix PRs. O-1 of the W3-35b test report (PR #405) and D-2 of the W3-35a test report (PR #410) ride with the Lows. W3-35a's D-1 (two further `ProtectedSet.CanSee` callers) is closed by the ADR-0025 "Implementation note (W3-35a D-1)", with no code change. Every ticket below follows "Part B: common to every ticket" (budget assertions through `apiserver.Build`, logs with hashes or counts only, `make ci` and `make test-int` green).
+
+#### W3-39 Media: unguessable public object names for new uploads (W3-36 M-2) [backend-developer] [M] [depends: W3-36 review] Status: Open
+- **Design.** ADR-0025 "Implementation note (W3-36 M-2, 2026-10-28)", with a pointer note on ADR-0005. New uploads publish as `m/<mediaId>-<suffix>.<ext>` and `m/<mediaId>-<suffix>_t.<ext>`. The suffix is 128 bits from `crypto/rand` as 32 lowercase hex characters, chosen at `CreateUpload` and stored as `nameSuffix` on the PENDING media doc in the existing create write. Old docs and objects keep the old shape (founder B1).
+- **Seam.** `MediaRef.url` and `thumb_url` stay opaque full URLs built only by `media` (`publicBaseURL + "/" + PublicPath`); no proto change, and no caller or client builds a name.
+- **Gate.** It must be serving 100% of a project's traffic and be on its `last-good` before `private_accounts` leaves the dev allowlist (more uids, a percent, or on) in that project. It does not gate W3-38.
+- **Work.**
+  - `media/service.go`: `CreateUpload` generates the suffix per item; `publicObject` and `publicThumbObject` take it ("" = the old shape). `media/repo_firestore.go`: `Doc.NameSuffix` (`firestore:"nameSuffix,omitempty"`).
+  - `media/finalize.go`: publish, resolve and the converge path use the doc's suffix.
+  - `media/retire.go`: `imageObjectPattern` becomes `^m/([0-9]{19})(?:-([0-9a-f]{32}))?(_t)?\.(jpg|webp)$`; `ImageObject.Suffix`; `parseRetiredImage` also requires the thumbnail's suffix to equal the full image's.
+  - `media/purge.go`: the name set depends on the caller. `deleteObjects` (the eraser and the `post_delete` job in `jobs.go`) deletes the recorded paths plus both derived pairs (old and suffixed) for a doc with `nameSuffix`, and the old pair otherwise; deletes are free. The retire step tags the recorded paths plus the doc's own-shape pair only, so it stays at 2 Class A per image. Update the `PurgeUser` comment.
+  - `cmd/opsctl/clear_profile.go` uses only `ObjectNameFromURL` and needs no change; a test proves it with a suffixed URL. No other code, Terraform (bucket lifecycle) or Firebase file parses the public names (checked by grep for `m/` and `/m/` on 2026-10-28).
+- **Acceptance criteria.**
+  1. A new upload of each purpose (POST, AVATAR, BANNER) is published under the suffixed names, `MediaRef.url` and `thumb_url` carry them, and two uploads never share a suffix (a 1,000-upload test).
+  2. A `CreateUpload` replay returns the same suffix; two concurrent finalizes of one doc (the W3-22 M-3 claim test) publish one pair of names, and the loser's converge path drops nothing it should keep.
+  3. A doc without `nameSuffix` (written by the old code path in the test) finalizes, erases, retires and deletes under the old names; its posts keep the old URLs.
+  4. `ParseObjectName` table test: old full and thumb, new full and thumb, upper-case hex, 31 or 33 hex characters, `_` or `-` inside the suffix, a suffix on a different id, and both extensions. `parseRetiredImage` refuses a full and thumb pair whose suffixes differ.
+  5. The retire job retires a replaced avatar and banner of both shapes (emulator integration, `customTime` on both objects, 2 Class A each).
+  6. The account eraser and the `post_delete` job delete both shapes, including a suffixed doc whose finalize copied the objects and lost the record race (the orphaned-copy case of `publicNames`), and a suffixed doc finalized by the old code path (old names) that lost the record race: no object of either shape remains. The retire step still makes exactly 2 `customTime` calls per image.
+  7. Budget: `CreateUpload`, `FinalizeUpload`, the retire step, the eraser and `post_delete` keep their ceilings exactly (+0 reads, +0 writes, +0 deletes); `budgettest` through `apiserver.Build`.
+  8. No log line carries a suffix or a full object name of a new upload (hash or id only).
+- **Docs.** `docs/runbooks/media.md`: the two name shapes and the rollback residual (a revision older than W3-39 publishes new docs under the old names and does not retire suffixed avatars). Handoff to the founder: the `media/{mediaId}` row of the `firestore-data-model` skill gains `nameSuffix` (a `/.claude/` change, founder-gated, in a separate PR).
+- **Flag.** None: names change for every new upload; there is no user-visible behaviour to ramp.
+- **Cost.** +0 operations; bytes as in the budget row (ADR-0025 note).
+
+#### W3-40a Backend: W3-36 L-1, L-3, L-5 and W3-35a D-2 [backend-developer] [M] [depends: W3-36 review] Status: Open
+- **L-1, the undo oracle** (`engagement/service.go`, `resolveForCounts` and the Unlike and Undo repost paths).
+  - The write stays ungated (rule 4): an undo always lands.
+  - The answer is the missing-post shape (`post_id` only, zero counts, the same bytes as a deleted post) when `Audience.VisibleAuthor` is false for the caller, when the post is hidden (taken down, author suspended), or when the author blocks the caller.
+  - A REPOST id is no longer resolved to its original for a caller who may not see the original's author.
+  - AC: a matrix test (unapproved, approved, blocked-by, taken down, missing, REPOST id) over UnlikePost and UndoRepost asserts byte identity with the deleted-post answer, and that the like or repost is still removed. Budget: +0 warm, +1 cold (the caller's graph snapshot), writes unchanged.
+- **L-3, the stale copy** (`identity/protected_set.go`, `refresh` and `Current`).
+  - On a `gen` mismatch after a successful read, install the fetched copy with the local deltas re-applied (preferred), or re-check age after the flight and fail closed past `PROTECTED_SET_MAX_STALE`.
+  - AC: a unit test with a fake clock and repo: idle for more than 10 minutes, then a same-instance `Apply` during the refresh read. `Current` never returns a copy older than `PROTECTED_SET_MAX_STALE`, and the local unprotect is still reflected.
+- **L-5, fail-open wiring** (`apiserver/apiserver.go`, `Build`).
+  - `Build` fails startup when any of the seven protected-set seams is nil outside `ENV=local` tests: the loader, graph `Protected`, `identity.WithProtectedAuthors`, the notifications `Audience`, `posts.WithProtectedAuthors`, the engagement `rowAudience(posts.AudienceOf(postsSvc))`, and `timeline.WithProtectedAuthors` (`apiserver.go`:137, :150, :198, :247, :308, :333, :353 at 15975e53).
+  - AC: a test that wraps `postsSvc` so that `AudienceOf` returns nil makes `Build` fail with a named seam. The W3-35a guard asserts all seven are wired. `make test-int` still starts every suite.
+- **W3-35a D-2, the deletion budget flake** (W3-35a test report PR #410, Low; a W3-26a follow-up).
+  - Since W3-26a, the identity step of the account-delete job also does an `ArrayRemove` on `privacy/protectedAuthors`. Once that doc exists (always, in dev and prod), a real deletion costs one write more than documented: 4, not 3, on the reference chain, and 301, not 300, on the reference account.
+  - `TestAccountLifecycle_Chain` (`apiserver/account_lifecycle_integration_test.go`:431-433) and `TestAccountLifecycle_ReferenceAccountBudgets` (`account_lifecycle_reference_integration_test.go`:161-163) pass only on a fresh emulator, so they flake on test order.
+  - Fix: the tests create the set doc in their setup and assert the +1 write deterministically (a variant without the doc may assert the old number). Update the 300-write figure in `docs/runbooks/account-deletion.md` (about :88). Hand the `cost-model.md` DeleteAccount row (writes 1 + 300 = 301, so 302) to sre-performance, which owns that file.
+  - AC: both tests pass when run alone, after a test that created the set doc, and with `-shuffle=on`.
+- **Flag.** None (server-side correctness). **Cost.** As the budget row.
+
+#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: Open
+- **L-4, the wire-visibility hint** (`posts/audience.go` `ProtectedAuthor`, `timeline/service.go`, `posts/server.go`, `engagement/list_common.go`, `identity/protected_set.go`).
+  - `ProtectedAuthor` answers without the loader for the caller's own and followed authors, from the snapshot the path already holds (D3's "only when needed").
+  - A set outage is reported once per request (`protected_set_unavailable` at ERROR), then WARN, so Error Reporting does not count one error per row (up to 50 per page) and does not prompt an M-1-hazard rollback.
+  - AC: a Home page of followed authors makes 0 `Current` calls; an outage page of 50 rows logs exactly one ERROR; the wire `visibility` of every row is unchanged against the W3-30 and W3-29b tests.
+- **O-1, the stuck `privacy_public` delivery** (`graph/privacy_public.go`; W3-35b test report, Low).
+  - A request whose requester is at the 5,000 following cap never leaves the job's query, so with more than 5,000 such requests every redelivery ends `ErrPrivacyPublicMore` (a nack) and Pub/Sub retries to the DLQ until the owner declines them.
+  - Fix: when a whole delivery (every page up to `privacyPublicMaxPages`) accepted nothing, ack with one log line, `privacy_public` outcome `stuck` (counts only: pages, scanned, `skipped_cap`, `skipped_inactive`), instead of returning `ErrPrivacyPublicMore`. A delivery that accepted at least one request still nacks, so the next delivery continues.
+  - AC: a test using the W3-35b page-size setter (`graph/export_w335b_test.go`) fills more than `privacyPublicMaxPages` pages with requesters at the cap and asserts outcome `stuck`, an ack, 0 writes and no `ErrPrivacyPublicMore`; a mixed fixture (some acceptable) still nacks after accepting. Update `docs/runbooks/private-accounts.md` section 6 (the `stuck` outcome: the owner declines, or the requesters unfollow someone).
+- **Flag.** None. **Cost.** As the budget row; a stuck delivery stops costing redeliveries.
+
+#### W3-41a Backend: the owner's placeholder rows (W3-36 L-2) [architect (proto) then backend-developer] [M] [depends: W3-40b (same files)] Status: Open
+- **Design.** ADR-0025 "Implementation note (W3-36 L-2, 2026-10-28)": it changes the D4 list row for the owner only.
+- **Contract first (architect).** `bool withheld = 7` on `posts.v1.PostView` (verify the next free number), and the `EMBED_VIEWER_STATE_PROTECTED` comment change. Additive, `buf lint` and `buf breaking` clean, `make proto` (one proto PR at a time).
+- **Work (backend-developer).**
+  - `GetUserTimeline` with target == caller: on every tab that returns the caller's REPOST rows, the caller's REPOST of a protected author they may not see is kept with the embed stripped (`ApplyEmbedState`), `embed_viewer_state = PROTECTED` and `reposted_by_viewer = true`.
+  - `ListLikedPosts` and `ListBookmarks`: such a row is kept with `withheld = true` and the post stripped to `post_id`, `kind` and the author snapshot; the viewer flags stay true. Still not pruned.
+  - Through `posts.Audience` with an owner-only surface value; no module decides visibility on its own.
+- **Acceptance criteria.**
+  1. A matrix (A unfollows P; P protects; P unprotects; P blocks A; P muted by A) over the owner's profile tabs, Likes and Bookmarks: the placeholder appears exactly in the unapproved, not-blocked, not-muted cells, and the full row returns when A is approved again.
+  2. Byte check: a placeholder carries no text, media, alt text, labels, hashtags, mentions, counts, reply fields, timestamp or embed body.
+  3. Another viewer of A's profile and every other surface (Home, GetPost, GetThread) keep the D4 outcome (REPOST dropped, NOT_FOUND), byte-identical to before.
+  4. Unlike, Undo repost and RemoveBookmark from the placeholder ids remove the row on the next page.
+  5. Budget: every list and tab keeps its ceiling (+0 reads, +0 writes).
+- **Flag.** None (undo paths are never gated). **Cost.** +0.
+
+#### W3-41b Client: the owner's placeholder rows (W3-36 L-2) [frontend-developer] [S] [depends: W3-41a and W3-40a serving dev] Status: Open
+- Render the protected placeholder (the W3-33b embed placeholder, reused) on the caller's own profile tabs for a REPOST row with `embed_viewer_state = PROTECTED`, and on the Likes and Bookmarks lists for a row with `withheld = true`, with one action each: Undo repost, Unlike, Remove.
+- After W3-40a, an undo of such a post answers the missing-post shape: treat it as success and remove the row.
+- AC: widget tests for the three rows, light and dark, 360 dp x2.0, a 48 dp target for the action; the action removes the row optimistically and restores it on a real error; `docs/ui-catalog.md` updated if the placeholder widget gains a variant.
+- **Flag.** None. **Cost.** 0 new RPCs; 1 undo RPC per tap.
+
+#### W3-42 Promotion: the `PRIVATE_ACCOUNTS` rollback floor (W3-36 M-1(b)) [production-deployer] [S] [depends: none; founder review of the gate file] Status: Open
+- **Gate.** Before any prod ramp of `private_accounts` (with M-1(d): the flag stays `off` in prod until the first Part B release is at 100% and its `last-good` is post-Part-B). Not a W3-38 precondition.
+- **Where the floor lives.** In `scripts/promotion/flag-ceiling.json` (a founder-gated file), next to `PRIVATE_ACCOUNTS`, once for every environment: for example `"rollback_floors": {"PRIVATE_ACCOUNTS": {"commit": "061395a0a2ef3202482ffcd34273c032069865bf", "pr": 395, "reason": "W3-36 M-1"}}`. The floor is the image built from `main` at 061395a0 (#395, the last enforcement ticket) or later.
+- **Enforcement.** `resolve-rollback.sh` refuses a `last-good` image older than the floor whenever `PRIVATE_ACCOUNTS`' effective mode in that environment is not `off`.
+  - The revision JSON pins only `@sha256:`, so the commit comes from `images.json` (`gcloud artifacts docker images list`): the digest's tags include the `github.sha` image tag (`IMAGE_TAG` in `deploy-dev.yml`).
+  - Preferred check: `git merge-base --is-ancestor <floor> <image commit>` (the job needs enough fetch depth). The alternative is a `createTime` comparison against the floor image. The deployer picks one and documents it.
+  - Fail closed: a digest with no commit tag, or a commit not found, is refused while the flag is not `off`.
+- **Raise the floor for M-2.** After W3-39 merges and its image is on `last-good`, a one-line follow-up raises the floor to W3-39's merge commit before `private_accounts` leaves the dev allowlist. Do not raise it earlier, or every rollback is refused while the flag is on.
+- **Files.** `scripts/promotion/flag-ceiling.json`, `resolve-rollback.sh`, `scripts/promotion/test/*`, `scripts/promotion/README.md`, and `check-flag-registry.sh` if it validates the JSON's keys; `docs/runbooks/rollback.md` and `docs/runbooks/private-accounts.md` point to the guard.
+- **Automatic rollback.** `deploy-dev.yml` calls `resolve-rollback.sh` after a failed verification. When the floor refuses, the job fails with the named message and moves no traffic (the failed candidate keeps 0% and the serving revision keeps 100%), and the runbook says what to do: roll forward with a fix. Setting `private_accounts` to `off` lifts the script's floor, but the M-1(a) runbook rule still refuses the rollback while `privacy/protectedAuthors` lists anyone, because turning the flag off protects nobody's existing posts. No workflow change is needed if the script's exit code already stops the job; the deployer verifies that.
+- **Serialize with PR #404**, which edits the same two runbooks (`rollback.md`, `private-accounts.md`).
+- **Acceptance criteria.** Script tests (fixtures): flag `off` with a pre-floor image passes; flag `allowlist` with a pre-floor image fails with a named message; a post-floor image passes; a digest without a commit tag fails while the flag is not `off`; the existing `resolve-rollback.sh` cases still pass; `make ci` runs the promotion tests.
+- **Flag.** None. **Cost.** 0.
+
 #### Part B: order, parallelism and gate files
 At most 5 agents run at once, each in its own worktree under `.claude/worktrees/`. A ticket starts when its dependencies have merged, and merges in the order the constraints below say.
 
@@ -1250,9 +1356,10 @@ At most 5 agents run at once, each in its own worktree under `.claude/worktrees/
 | B3 | W3-27, W3-29b, W3-30 (+ W3-31 if still open) | W3-27: W3-32 merged; W3-29b and W3-30: W3-29a merged | W3-30 after W3-26a |
 | B4 | W3-28a, W3-33a, W3-33b | W3-28a: W3-27 merged; W3-33a: W3-27 and W3-30 serving dev; W3-33b: W3-26a and W3-29a serving dev | |
 | B5 | W3-28b, W3-26b, W3-28c, W3-33c | W3-28b, W3-26b: W3-28a merged; W3-28c: W3-25c and W3-28a merged; W3-33c: W3-28c serving dev and W3-33a merged | W3-28b and W3-26b both edit `apiserver.go` wiring: one at a time; W3-28c edits `graph/server.go` (no `apiserver.go` line): after W3-28a, one at a time with W3-28b |
-| B6 | W3-34, W3-35a, W3-35b, W3-36, W3-37 (5); W3-33d rides along (after W3-33c, one at a time with W3-34 on `user_list_row.dart`) | W3-34: W3-26b and W3-31 serving dev; tests, review and cost: their backend tickets merged | |
-| B7 | W3-35c | W3-33a, W3-33b, W3-34 merged | |
-| B8 | W3-38 | all of the above, founder OK | |
+| B6 | W3-34, W3-35a, W3-35b, W3-36, W3-37 (5); W3-33d rides along (after W3-33c, one at a time with W3-34 on `user_list_row.dart`); W3-39 and W3-40a (W3-36 fixes) as slots free up | W3-34: W3-26b and W3-31 serving dev; tests, review and cost: their backend tickets merged; W3-39 and W3-40a: the W3-36 review (PR #403) | W3-39 owns the media files alone; W3-40a merges before W3-40b (`identity/protected_set.go`) |
+| B7 | W3-35c; W3-40b, W3-42 | W3-35c: W3-33a, W3-33b, W3-34 merged; W3-40b: W3-40a and W3-35b (PR #405) merged; W3-42: any time (founder review of `flag-ceiling.json`) | W3-40b merges before W3-41a (`posts/audience.go`, `timeline/service.go`, `engagement/list_common.go`) |
+| B8 | W3-38; W3-41a | W3-38: W3-35a to W3-35c, W3-37, M-1(c) (its precondition 2), founder OK; it does **not** wait for W3-39 to W3-42; W3-41a: W3-40b merged | W3-41a's proto PR is one `make proto` PR at a time with any other wave |
+| B9 | W3-41b; the W3-42 floor raise | W3-41b: W3-41a and W3-40a serving dev; floor raise: W3-39 on 100% of dev traffic and on `last-good` | widening `private_accounts` past the dev allowlist waits for W3-39 (and the raised floor); any prod ramp waits for W3-42 and M-1(d) |
 
 "Serving dev" means merged to `main` and served by the deploy-dev revision. The client tickets start once their RPCs serve in dev, and are built and widget-tested against the generated code and fakes. Their end-to-end dev check waits for W3-38, because nobody can protect in dev until W3-38 puts the 3 test uids on the allowlist.
 
@@ -1280,12 +1387,24 @@ At most 5 agents run at once, each in its own worktree under `.claude/worktrees/
 | `user_list_row.dart` (graph widgets) | W3-33c (after W3-33a; W3-34 renders it) | W3-33c and W3-34 one at a time |
 | settings screens, the post-card embed widget | W3-33b | |
 | `app_router.dart`, the drawer, the notifications list | W3-34 | serialize with W4, W7 and W8 router tickets |
+| `media/service.go`, `finalize.go`, `retire.go`, `purge.go`, `jobs.go`, `repo_firestore.go` | W3-39 | alone in Part B; serialize with any later wave's media ticket |
+| `engagement/service.go` (undo paths) | W3-40a (L-1) | |
+| `apiserver/account_lifecycle_integration_test.go`, `account_lifecycle_reference_integration_test.go`, `docs/runbooks/account-deletion.md` | W3-40a (D-2) | |
+| `identity/protected_set.go` | W3-40a (L-3), then W3-40b (L-4 once-per-request reporting) | sequential |
+| `posts/audience.go`, `posts/server.go`, `timeline/service.go`, `engagement/list_common.go` | W3-40b (L-4), then W3-41a (owner surface) | sequential |
+| `engagement` Likes and Bookmarks list files (`service_likes_list.go`, the bookmarks list) | W3-41a | after W3-40b |
+| `apiserver/apiserver.go` (`Build`) | W3-40a (L-5 assertion) | one PR at a time with any other wiring change |
+| `graph/privacy_public.go` | W3-40b (O-1) | after W3-35b (#405) |
+| `proto/dzeroth/posts/v1/posts.proto` and generated code | W3-41a (`PostView.withheld`, comment change) | one `make proto` PR at a time |
+| app profile tabs, Likes and Bookmarks lists, the protected placeholder widget | W3-41b | |
+| `scripts/promotion/flag-ceiling.json`, `resolve-rollback.sh`, `scripts/promotion/test/*` | W3-42, then its floor raise | founder-gated; serialize with any other ceiling PR |
 | `docs/pending.md` row 3.12 and this plan's table | every Part B PR | keep both sides' text |
 
 **Gate files needing the founder's review (CODEOWNERS):**
 - `firebase/firestore.indexes.json` and `firebase/field-overrides.ack` (W3-25a): one fieldOverride, `privacy.uids`, and no new composite index.
 - `scripts/promotion/flag-ceiling.json` (W3-25b): `PRIVATE_ACCOUNTS`, dev allowlist 3, `max_percent` 0, no prod entry.
-- `/.claude/` (W3-25a): the `firestore-data-model` skill rows of D16.
+- `/.claude/` (W3-25a): the `firestore-data-model` skill rows of D16; later, the `media/{mediaId}` `nameSuffix` row (W3-39 follow-up).
+- `scripts/promotion/flag-ceiling.json` (W3-42): the `PRIVATE_ACCOUNTS` rollback floor, and its raise to W3-39's merge commit.
 
 No workflow change is planned. The W3-38 smoke is a runbook. Wiring a smoke script into `deploy-dev.yml` would add a gated `.github/workflows/` change. The dev Terraform apply (W3-38) is the founder's OK, not a file.
 
@@ -1346,12 +1465,13 @@ Assumptions (ADR-0025): 5% of DAU protected; 0.05 follows per DAU to a protected
 
 #### Part B: rollout, kill switch, risks
 - **Ramp.**
-  1. Dev allowlist of 3 (W3-38).
-  2. Then the founder's MVP decision for prod: allowlist, then percent 5, 25, 100, then on. Each step is a Terraform change plus a tagged revision (ADR-0019), and `private_accounts` ramps with `graph`.
+  1. Dev allowlist of 3 (W3-38; gated by W3-36 M-1(c) only).
+  2. Widening past the allowlist in any project waits for W3-39 (W3-36 M-2) on 100% of that project's traffic and on `last-good`, and for the W3-42 floor raised to W3-39.
+  3. Then the founder's MVP decision for prod: allowlist, then percent 5, 25, 100, then on. Each step is a Terraform change plus a tagged revision (ADR-0019), and `private_accounts` ramps with `graph`.
 - **Prerequisites before prod leaves `off`:**
   - the `privacy.uids` fieldOverride is in the prod release;
   - the enforcement revision is at 100% and on `last-good` (lesson 10);
-  - W3-36 findings are closed;
+  - W3-36 findings are closed: W3-39 and W3-42 (the rollback floor) are merged, M-1(d) holds (the first Part B release is at 100% and its `last-good` is post-Part-B), and the Lows (W3-40a to W3-41b) are merged or explicitly deferred by the founder;
   - ADR-0024 Amendment 2 is accepted;
   - the prod apply hold (`pending.md` 1.2) is lifted.
 - **Rollback trigger.** Any one of these:
