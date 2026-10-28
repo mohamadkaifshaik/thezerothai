@@ -190,7 +190,7 @@ The delta is **below** the 15–30 KB gzip estimate above and far under the 60 K
 | W8-8 | Client tests: matrix, flag-off and visibility matrix, 0-RPC test, copy guard, tap-only pop-up test, bundle delta | tester | M | W8-4 to W8-7 | yes | In review |
 | W8-9 | Privacy and claims check (no data collection, no permission, no dependency, copy) | security-auditor | S | W8-4 to W8-7 | yes | Done |
 | W8-10 | ADR (Proposed) for the F2/F7 reversal; stage-ladder rows "Locked features (shell only)"; A1–A3 answered | architect | S | — | **yes, start now** (ADR and skill file only) | Done (ADR-0026 Accepted 2026-10-28) |
-| W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Open |
+| W8-11 | Dev rollout (targeted Terraform plan, allowlist, smoke at 3 widths); prod raise prepared for the release flow | production-deployer | S | W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod | serialise dev applies with W3–W7 rollouts | Prepared |
 
 Order:
 1. W8-1 ‖ W8-2 ‖ W8-3 ‖ W8-10, all at once.
@@ -440,7 +440,7 @@ Order:
 - **Flag.** —
 - **Seam.** Defines the seams that W8-2 to W8-7 build.
 
-### W8-11 — Dev rollout, prod raise prepared  [owner: production-deployer] [size: S] [depends: W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod]  Status: Open
+### W8-11 — Dev rollout, prod raise prepared  [owner: production-deployer] [size: S] [depends: W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod]  Status: Prepared (commands in `docs/runbooks/shells.md`; the founder runs them after #392 merges)
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan (`pending.md` 3.10: a full dev apply is unsafe; a targeted apply must also name `-target=module.budget.google_pubsub_topic.billing_alerts`) for `feature_shells*` only.
   - Apply on OK, with the allowlist set to the 3 test uids that already have `ui_shell`.

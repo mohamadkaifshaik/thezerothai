@@ -77,3 +77,9 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # allowlist, at most 3 uids, percent 0; there is no prod entry. The four limits are literals in main.tf (config.go defaults).
 # feature_private_accounts           = "allowlist"
 # feature_private_accounts_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+
+# W8 coming-soon pages (ADR-0026, W8-11; runbook docs/runbooks/shells.md "Dev rollout"). OPT-IN: leave commented out and `shells`
+# stays `off`. The cohort is the same 3 testers as feature_ui_shell_allowlist (entries need shells AND ui_shell). Dev ceiling:
+# allowlist, at most 3 uids, percent 0.
+# feature_shells           = "allowlist"
+# feature_shells_allowlist = "<uid-1>,<uid-2>,<uid-3>"
