@@ -27,7 +27,9 @@ func registry(mode flags.Mode, percent int) *flags.Registry {
 	})
 }
 
-// rpcs lists the six service methods with the flag class each belongs to (ADR-0027 D6).
+// rpcs lists the six service methods with the flag class each belongs to (ADR-0027 D6). With the flag open, the
+// skeleton RPCs reach ErrNotImplemented and SendMessage (an empty request) reaches its own validation: an open gate is
+// "an answer that is not FEATURE_DISABLED", and sendOpen / skeletonOpen say which one this RPC gives.
 var rpcs = []struct {
 	name      string
 	perCaller bool // needs the flag on for the caller; else only "not globally off"
@@ -83,12 +85,19 @@ func TestService_FlagModes(t *testing.T) {
 		for _, rpc := range rpcs {
 			t.Run(tt.name+"/"+rpc.name, func(t *testing.T) {
 				t.Parallel()
-				err := rpc.call(context.Background(), messaging.New(tt.reg), tt.uid)
+				err := rpc.call(context.Background(), messaging.New(tt.reg, messaging.Deps{}), tt.uid)
 				open := tt.wantNotOff
 				if rpc.perCaller {
 					open = tt.wantOn
 				}
 				if open {
+					if rpc.name == "SendMessage" {
+						var ae *apierr.Error
+						if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
+							t.Fatalf("err = %v, want the request's VALIDATION (the gate is open)", err)
+						}
+						return
+					}
 					if !errors.Is(err, messaging.ErrNotImplemented) {
 						t.Fatalf("err = %v, want ErrNotImplemented", err)
 					}
@@ -111,7 +120,7 @@ func TestService_NilFlagsIsOff(t *testing.T) {
 	for _, rpc := range rpcs {
 		t.Run(rpc.name, func(t *testing.T) {
 			var ae *apierr.Error
-			if err := rpc.call(context.Background(), messaging.New(nil), inList); !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
+			if err := rpc.call(context.Background(), messaging.New(nil, messaging.Deps{}), inList); !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
 				t.Fatalf("err = %v, want FEATURE_DISABLED", err)
 			}
 		})
