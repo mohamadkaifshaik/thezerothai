@@ -31,6 +31,10 @@ type fakeRepo struct {
 	unfollowErr     error
 	unfollowCalls   int
 
+	withdrawChanged bool
+	withdrawErr     error
+	withdrawCalls   int
+
 	blockResult BlockResult
 	blockErr    error
 	blockCalls  int
@@ -180,13 +184,21 @@ func (f *fakeRepo) GetSnapshot(_ context.Context, uid string) (Snapshot, error) 
 	return Snapshot{Following: map[string]bool{}, Blocked: map[string]bool{}, Muted: map[string]bool{}, BlockedBy: map[string]bool{}, Requested: map[string]bool{}}, nil
 }
 
-func (f *fakeRepo) Follow(_ context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+func (f *fakeRepo) Follow(_ context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
 	f.followCalls++
-	f.lastFollowArgs = []interface{}{callerUID, targetUID, targetIsPrivate, dailyLimit, now}
+	f.lastFollowArgs = []interface{}{callerUID, targetUID, dailyLimit, now}
 	if f.followErr != nil {
 		return Relationship{}, "", f.followErr
 	}
 	return f.followResult, f.followOutcome, nil
+}
+
+func (f *fakeRepo) WithdrawRequest(_ context.Context, _, _ string, _ time.Time) (bool, error) {
+	f.withdrawCalls++
+	if f.withdrawErr != nil {
+		return false, f.withdrawErr
+	}
+	return f.withdrawChanged, nil
 }
 
 func (f *fakeRepo) Unfollow(_ context.Context, _, _ string, _ time.Time) (bool, error) {

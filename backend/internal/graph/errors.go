@@ -10,8 +10,6 @@ var (
 	ErrNotFoundOrBlocked = errors.New("graph: not found or blocked")
 	// ErrCallerBlocksTarget: the caller blocks the target (ADR-0008 D9: TARGET_BLOCKED, no auto-unblock).
 	ErrCallerBlocksTarget = errors.New("graph: caller blocks target")
-	// ErrTargetPrivate: the target's stored isPrivate is true (legacy data only, ADR-0008 D1).
-	ErrTargetPrivate = errors.New("graph: target is private")
 	// ErrContention: a non-transactional write kept losing lock races with concurrent transactions and its
 	// bounded retries are exhausted (Unfollow, D1). Mapped to a retryable UNAVAILABLE, never INTERNAL.
 	ErrContention = errors.New("graph: write contention")

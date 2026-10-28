@@ -100,6 +100,7 @@ func (d doc) hasFollowing(uid string) bool { return containsStr(d.Following, uid
 func (d doc) hasBlocked(uid string) bool   { return containsStr(d.Blocked, uid) }
 func (d doc) hasMuted(uid string) bool     { return containsStr(d.Muted, uid) }
 func (d doc) hasBlockedBy(uid string) bool { return containsStr(d.BlockedBy, uid) }
+func (d doc) hasRequested(uid string) bool { return containsStr(d.Requested, uid) }
 
 func containsStr(vals []string, target string) bool {
 	for _, v := range vals {
@@ -123,6 +124,9 @@ type FirestoreRepo struct {
 	quota    *quota.Store
 	counters identity.Counters
 	profiles ProfileReader
+	// txProfiles reads the Follow target's users doc inside the Follow transaction (ADR-0025 D6).
+	txProfiles identity.TxProfiles
+	hooks      followHooks
 
 	// Test seams for Unfollow's retry loop; nil means production behaviour (real commit, jittered timer).
 	commitBatch func(ctx context.Context, b *store.FirestoreBatch) error
@@ -141,6 +145,23 @@ func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
 // lives on the repo rather than being called by service.go with its own separate batch.
 func (r *FirestoreRepo) SetCounters(c identity.Counters) {
 	r.counters = c
+	// identity's FirestoreRepo is both the Counters and the TxProfiles implementation; take the second role from the
+	// same object unless SetTxProfiles names another, so every existing wiring keeps working.
+	if tp, ok := c.(identity.TxProfiles); ok && r.txProfiles == nil {
+		r.txProfiles = tp
+	}
+}
+
+// SetTxProfiles wires the transaction-scoped target read Follow needs (ADR-0025 D6). apiserver and opsctl call it
+// explicitly; SetCounters also picks it up when its argument implements it.
+func (r *FirestoreRepo) SetTxProfiles(p identity.TxProfiles) { r.txProfiles = p }
+
+// txProfilesReader returns the wired TxProfiles or an error (never a panic on a request path).
+func (r *FirestoreRepo) txProfilesReader() (identity.TxProfiles, error) {
+	if r.txProfiles == nil {
+		return nil, errors.New("graph: TxProfiles not wired (SetTxProfiles)")
+	}
+	return r.txProfiles, nil
 }
 
 func (r *FirestoreRepo) graphRef(uid string) *firestore.DocumentRef {
@@ -255,6 +276,9 @@ func followStateOf(d doc, uid string) FollowState {
 	if d.hasFollowing(uid) {
 		return FollowStateFollowing
 	}
+	if d.hasRequested(uid) {
+		return FollowStateRequested
+	}
 	return FollowStateNone
 }
 
@@ -267,16 +291,56 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 	return d.toSnapshot(), nil
 }
 
-// Follow runs the whole Follow transaction (ADR-0008 T7/D2/D9). Precedence, matching the proto/ADR order:
-// blocked-by (incl. the D2 overflow fallback) -> caller-blocks-target -> target-private -> replay ->
-// following-cap -> quota. Reads: caller graph + quotas always (2), +1 target graph only for an overflowed
-// caller. Writes on success: follows doc, caller graph update, 2 counter increments, quota reservation (5);
-// 0 on replay.
-func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, targetIsPrivate bool, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+// maxRequested is the cap of graph/{uid}.requested, the caller's outgoing pending follow requests (ADR-0025 D2, D6).
+const maxRequested = 500
+
+// followHooks are the test seams of Follow's transaction. Production leaves them nil.
+type followHooks struct {
+	// afterTargetRead runs inside the transaction body right after the target's users doc was read, once per attempt
+	// (the follow-vs-protect race test commits a separate write here on the first attempt).
+	afterTargetRead func(ctx context.Context, attempt int)
+}
+
+// Follow runs the whole Follow transaction (ADR-0008 T7/D2/D9, ADR-0025 D6). The target's users doc is read INSIDE the
+// transaction (identity.TxProfiles.ProfileInTx, never the 60 s cache) so a protect that commits while a Follow is in
+// flight conflicts with it and the retry sees isPrivate: no Follow can slip past a just-committed protect. Precedence:
+// target missing or not ACTIVE / blocked-by (incl. the D2 overflow fallback) -> caller-blocks-target -> already
+// following (replay, before any request logic: I-X) -> protected target: request replay -> requested cap -> quota ->
+// request; public target: following-cap -> quota -> edge. A public target that is still in the caller's `requested`
+// (the privacy_public job has not run yet; ADR-0025 AQ4) takes the edge path and also deletes the request.
+//
+// Reads: target users 1 + caller graph 1 + quotas 1 (3 warm, the interceptor's caller read makes it 4 cold), +1 target
+// graph only for an overflowed caller. Writes: the edge 5 (follows doc, caller graph, 2 counters, quota) or a request 3
+// (followRequests Create, caller graph `requested` ArrayUnion, quota); 0 on any replay. Deletes: +1 only on the AQ4
+// path. The outcome tells the caller which of the three it was (Relationship.FollowState: FOLLOWING vs REQUESTED).
+func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+	profiles, err := r.txProfilesReader()
+	if err != nil {
+		return Relationship{}, "", err
+	}
 	var rel Relationship
 	outcome := OutcomeCreated
-	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+	attempt := 0
+	requestPath := false
+	err = r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		counter := budget.FromContext(ctx)
+		attempt++
+		requestPath = false
+
+		// The target first: a missing or non-ACTIVE account is NOT_FOUND before anything else is read, exactly as the
+		// cached Directory lookup it replaces answered (identity.Directory drops non-ACTIVE accounts).
+		target, err := profiles.ProfileInTx(ctx, tx, targetUID)
+		switch {
+		case errors.Is(err, identity.ErrNotFound):
+			return ErrNotFoundOrBlocked
+		case err != nil:
+			return err
+		case target.Status != identity.AccountStatusActive:
+			return ErrNotFoundOrBlocked
+		}
+		if r.hooks.afterTargetRead != nil {
+			r.hooks.afterTargetRead(ctx, attempt)
+		}
 
 		callerDoc, _, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {
@@ -303,20 +367,49 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 			return err
 		}
 
-		if targetIsPrivate {
-			return ErrTargetPrivate
-		}
-
-		if callerDoc.hasFollowing(targetUID) {
+		muting := callerDoc.hasMuted(targetUID)
+		if callerDoc.hasFollowing(targetUID) { // I-X: an edge wins over any request, protected target or not
 			outcome = OutcomeReplay
-			rel = Relationship{UserID: targetUID, FollowState: FollowStateFollowing, Muting: callerDoc.hasMuted(targetUID)}
+			rel = Relationship{UserID: targetUID, FollowState: FollowStateFollowing, Muting: muting}
 			return nil
-		}
-		if len(callerDoc.Following) >= maxFollowing {
-			return &LimitReachedError{Limit: "following"}
 		}
 
 		b := store.NewFirestoreTxBatch(tx, counter)
+		requestRef, err := r.requestRef(callerUID, targetUID)
+		if err != nil {
+			return err
+		}
+		inRequested := callerDoc.hasRequested(targetUID)
+
+		if target.IsPrivate {
+			if inRequested {
+				outcome = OutcomeReplay
+				rel = Relationship{UserID: targetUID, FollowState: FollowStateRequested, Muting: muting}
+				return nil
+			}
+			if len(callerDoc.Requested) >= maxRequested {
+				return &LimitReachedError{Limit: "follow_requests"}
+			}
+			if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Follows, dailyLimit); err != nil {
+				return err
+			}
+			requestPath = true
+			b.Create(requestRef, requestDoc{FollowerID: callerUID, FolloweeID: targetUID, CreatedAt: now})
+			b.Update(r.graphRef(callerUID), []firestore.Update{
+				{Path: "requested", Value: firestore.ArrayUnion(targetUID)},
+				{Path: "updatedAt", Value: now},
+			})
+			if b.Err() != nil {
+				return b.Err()
+			}
+			outcome = OutcomeCreated
+			rel = Relationship{UserID: targetUID, FollowState: FollowStateRequested, Muting: muting}
+			return nil
+		}
+
+		if len(callerDoc.Following) >= maxFollowing {
+			return &LimitReachedError{Limit: "following"}
+		}
 		if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Follows, dailyLimit); err != nil {
 			return err
 		}
@@ -325,10 +418,17 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 			return err
 		}
 		b.Create(edgeRef, followDoc{FollowerID: callerUID, FolloweeID: targetUID, CreatedAt: now})
-		b.Update(r.graphRef(callerUID), []firestore.Update{
+		callerUpdates := []firestore.Update{
 			{Path: "following", Value: firestore.ArrayUnion(targetUID)},
 			{Path: "updatedAt", Value: now},
-		})
+		}
+		if inRequested {
+			// ADR-0025 AQ4: the target went public and its request is still pending. Plain Delete (no Exists), so a
+			// drifted entry cannot fail the Follow; the entry leaves `requested` in the write already made. I-R, I-X.
+			callerUpdates = append(callerUpdates, firestore.Update{Path: "requested", Value: firestore.ArrayRemove(targetUID)})
+			b.Delete(requestRef)
+		}
+		b.Update(r.graphRef(callerUID), callerUpdates)
 		r.counters.AddFollowingCount(b, callerUID, 1)
 		r.counters.AddFollowersCount(b, targetUID, 1)
 		if b.Err() != nil {
@@ -336,9 +436,14 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 		}
 
 		outcome = OutcomeCreated
-		rel = Relationship{UserID: targetUID, FollowState: FollowStateFollowing, Muting: callerDoc.hasMuted(targetUID)}
+		rel = Relationship{UserID: targetUID, FollowState: FollowStateFollowing, Muting: muting}
 		return nil
 	})
+	if requestPath && status.Code(err) == codes.AlreadyExists {
+		// The request doc is there although the caller's `requested` lacked the entry (a concurrent Follow, or drift
+		// from a failed hand-over): the commit wrote nothing, and the answer is the replay's.
+		return rel, OutcomeReplay, nil
+	}
 	if err != nil {
 		return Relationship{}, "", err
 	}
@@ -384,6 +489,38 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 	// !Committed with nil error: a failed Exists precondition is a no-op that performs (and bills) no writes.
 	// ADR-0009: for an ACTIVE caller, edge <=> following entry <=> both users docs exist, so this is a
 	// correct no-op; (false, nil) deliberately does not reveal which case it was.
+	return res.Committed, nil
+}
+
+// WithdrawRequest is the second blind batch of Unfollow (ADR-0025 D7): the edge batch failed its precondition, so the
+// caller either had no edge or had a pending request. It deletes followRequests/{caller}_{target} with an Exists
+// precondition and removes the target from graph/{caller}.requested in the same batch (I-R). A failed precondition is
+// (false, nil): nothing to withdraw, 0 writes. 0 reads, 1 write, 1 delete; the same bounded contention retry as Unfollow.
+//
+// ADR-0009's reasoning carries over: with I-R, the request doc exists exactly when the target is in `requested`, so a
+// missing doc means there is nothing to remove from the array either. Undo is never gated (no private_accounts check).
+func (r *FirestoreRepo) WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
+	reqRef, err := r.requestRef(callerUID, targetUID)
+	if err != nil {
+		return false, err
+	}
+	res, err := store.CommitWithRetry(ctx,
+		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		store.RetryConfig{MaxAttempts: unfollowMaxAttempts, Backoff: unfollowRetryBackoff, Commit: r.commitBatch, Sleep: r.backoff},
+		func(b store.Batch) {
+			b.Delete(reqRef, firestore.Exists)
+			b.Update(r.graphRef(callerUID), []firestore.Update{
+				{Path: "requested", Value: firestore.ArrayRemove(targetUID)},
+				{Path: "updatedAt", Value: now},
+			})
+		})
+	noteTxnAttempts(ctx, res.Attempts)
+	switch {
+	case errors.Is(err, store.ErrContended):
+		return false, fmt.Errorf("%w: %v", ErrContention, err)
+	case err != nil:
+		return false, fmt.Errorf("graph: withdraw follow request: %w", err)
+	}
 	return res.Committed, nil
 }
 

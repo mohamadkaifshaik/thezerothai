@@ -34,12 +34,14 @@ import (
 
 // Budgets straight from the ADR-0008 table (reads / writes / deletes).
 var (
-	budFollowWorstCold = budgettest.Budget{Reads: 4, Writes: 5} // cold identity cache: 2 directory + graph + quota
-	budFollowTypical   = budgettest.Budget{Reads: 2, Writes: 5} // warm identity cache
+	budFollowWorstCold = budgettest.Budget{Reads: 4, Writes: 5} // cold identity cache: caller profile + target users (in the txn) + graph + quota
+	budFollowTypical   = budgettest.Budget{Reads: 3, Writes: 5} // warm identity cache: ADR-0025 D6 reads the target users doc in the txn
 	budFollowOverflow  = budgettest.Budget{Reads: 5, Writes: 5} // +1 read for an overflowed caller
-	budFollowReplay    = budgettest.Budget{Reads: 2, Writes: 0} // warm replay
+	budFollowReplay    = budgettest.Budget{Reads: 3, Writes: 0} // warm replay
 	budFollowReplayCld = budgettest.Budget{Reads: 4, Writes: 0} // cold replay
 	budUnfollow        = budgettest.Budget{Reads: 0, Writes: 3, Deletes: 1}
+	budFollowRequest   = budgettest.Budget{Reads: 4, Writes: 3}             // ADR-0025 D6, cold: followRequests Create + requested ArrayUnion + quota
+	budWithdraw        = budgettest.Budget{Reads: 0, Writes: 1, Deletes: 1} // ADR-0025 D7: the second blind batch (the interceptor read is logged separately)
 	budUnfollowNoop    = budgettest.Budget{Reads: 0, Writes: 0, Deletes: 0}
 	budBlockWorst      = budgettest.Budget{Reads: 3, Writes: 5, Deletes: 2} // mutual follow
 	budBlockTypical    = budgettest.Budget{Reads: 3, Writes: 3}
@@ -450,14 +452,19 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy private target is FEATURE_DISABLED", func(t *testing.T) {
+	// ADR-0025 D6 replaced the ADR-0008 D1 rule (a stored isPrivate target is FEATURE_DISABLED): the Follow becomes a
+	// request. The full request suite is follow_requests_integration_test.go.
+	t.Run("protected target is a request, not FEATURE_DISABLED", func(t *testing.T) {
 		w := newWired(t)
 		mustCreateProfile(t, w.identity, "uid-a", "usera")
 		mustCreateProfile(t, w.identity, "uid-b", "userb")
 		seedUserField(t, w, "uid-b", "isPrivate", true)
-		measured(t, "Follow (private target)", budgettest.Budget{Reads: 4, Writes: 0}, func(ctx context.Context) {
-			_, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b")
-			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "", "")
+		measured(t, "Follow (protected target)", budFollowRequest, func(ctx context.Context) {
+			rel, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b")
+			must(t, "Follow", err)
+			if rel.FollowState != graph.FollowStateRequested {
+				t.Errorf("FollowState = %v, want REQUESTED", rel.FollowState)
+			}
 		})
 	})
 

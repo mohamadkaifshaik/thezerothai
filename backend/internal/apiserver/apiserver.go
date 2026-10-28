@@ -130,6 +130,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// than service.go opening its own separate write.
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
+	graphRepo.SetTxProfiles(identityRepo)
 	identityCache := identity.NewCache(cfg.CacheTTL)
 	graphCache := graph.NewCache(cfg.CacheTTL)
 
