@@ -51,6 +51,9 @@ const (
 	// PrivacyToggles counts UpdateProfile is_private changes in both directions (ADR-0025 D8). An is_private equal to the
 	// stored value is not charged. A follow request counts under Follows, not here.
 	PrivacyToggles Kind = "privacyToggles"
+	// DMNew counts new direct-message conversations the caller opened (ADR-0027 D13): charged in the SendMessage
+	// transaction that creates the conversation. Messages in an existing conversation are not charged here.
+	DMNew Kind = "dmNew"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -97,6 +100,9 @@ type Record struct {
 	// PrivacyToggles counts is_private changes (ADR-0025 D8). Absent in older docs, so it decodes as 0. It lives in the
 	// Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
 	PrivacyToggles int64 `firestore:"privacyToggles"`
+	// DMNew counts new conversations opened (ADR-0027 D13). Absent in older docs, so it decodes as 0. It lives in the
+	// Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	DMNew int64 `firestore:"dmNew"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -123,6 +129,8 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.Bookmarks
 	case PrivacyToggles:
 		return r.PrivacyToggles
+	case DMNew:
+		return r.DMNew
 	default:
 		return 0
 	}
@@ -152,6 +160,8 @@ func (r *Record) increment(k Kind, n int64) {
 		r.Bookmarks += n
 	case PrivacyToggles:
 		r.PrivacyToggles += n
+	case DMNew:
+		r.DMNew += n
 	}
 }
 

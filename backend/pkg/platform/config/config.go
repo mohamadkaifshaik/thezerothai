@@ -80,6 +80,9 @@ type Config struct {
 	Scheduled ScheduledConfig
 	// Suggestions holds the SUGGESTIONS_* limits and the SUGGESTED_USER_IDS curated list of ListSuggestedUsers (ADR-0024 D8).
 	Suggestions SuggestionsConfig
+	// Messaging holds the MESSAGES_* and CACHE_MESSAGING_* values of direct messages that are neither a rate limit nor a daily
+	// quota (ADR-0027 D13). The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
+	Messaging MessagingConfig
 	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts (ADR-0025 D2, D3).
 	Privacy PrivacyConfig
 
@@ -176,6 +179,12 @@ type Config struct {
 	// remove what they saved). FEATURE_DISABLED feature=bookmarks otherwise. FEATURE_BOOKMARKS[_ALLOWLIST|_PERCENT],
 	// default off in every environment; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT.
 	FeatureBookmarks flags.Spec
+	// FeatureMessaging is the ADR-0027 D6 flag (wire name `messaging`) gating MessagingService. SendMessage and
+	// AcceptMessageRequest need it on for the caller; ListConversations, ListMessages, MarkConversationRead and
+	// DeleteConversation only need it not globally off, so a caller dropped from the allowlist can still read and clean
+	// up. FEATURE_DISABLED feature=messaging otherwise. FEATURE_MESSAGING[_ALLOWLIST|_PERCENT], default off in every
+	// environment (dev ceiling: allowlist of 3, no prod raise).
+	FeatureMessaging flags.Spec
 	// FeatureProfileExtras is the ADR-0024 D9 flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment. W3-4 registers it; W3-5 and W3-6 add the gates.
@@ -458,6 +467,9 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", 60, &rl.ProfileRelationshipPerUserPerMinute},
 		// ADR-0025 D13: RespondToFollowRequest 60/min per instance (180 with 3). ListFollowRequests uses the graph list bucket.
 		{"RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", 60, &rl.FollowRequestsRespondPerUserPerMinute},
+		// ADR-0027 D13: SendMessage 20/min (per instance, 60 with 3); the read RPCs (lists, polls, mark-read) 30/min.
+		{"RATE_LIMIT_MESSAGES_SEND_PER_MIN", 20, &rl.MessagesSendPerUserPerMinute},
+		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -502,6 +514,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: BOOKMARK_MUTATIONS_PER_DAY must be > 0 (got %d)", bookmarkMutationsPerDay)
 	}
 	rl.BookmarkMutationsPerDay = int64(bookmarkMutationsPerDay)
+	// ADR-0027 D13: SendMessage daily cap (limit_name "messages_daily"); see RateLimitConfig.MessagesSendsPerDay. A cap
+	// of 0 would lock every user out of the RPC.
+	messagesSendsPerDay, err := getInt("MESSAGES_SENDS_PER_DAY", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	if messagesSendsPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: MESSAGES_SENDS_PER_DAY must be > 0 (got %d)", messagesSendsPerDay)
+	}
+	rl.MessagesSendsPerDay = int64(messagesSendsPerDay)
 	// ADR-0024 D10: ListSuggestedUsers daily call cap (limit_name "suggestions_daily"); see
 	// RateLimitConfig.SuggestionsCallsPerDay for the default's math. A cap of 0 would lock every user out of the RPC.
 	suggestionsCallsPerDay, err := getInt("SUGGESTIONS_CALLS_PER_DAY", 50)
@@ -672,6 +694,21 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
+	// ADR-0027 D13: 20 new conversations per IST day, 5 for accounts younger than the new-account window (quota.DMNew).
+	if q.DMNewConversationsPerDay, err = getInt("QUOTA_DM_NEW_CONVERSATIONS_PER_DAY", 20); err != nil {
+		return Config{}, err
+	}
+	if q.NewAccountDMNewConversationsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY", 5); err != nil {
+		return Config{}, err
+	}
+	for name, v := range map[string]int{
+		"QUOTA_DM_NEW_CONVERSATIONS_PER_DAY":             q.DMNewConversationsPerDay,
+		"QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY": q.NewAccountDMNewConversationsPerDay,
+	} {
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
+		}
+	}
 	// ADR-0025 D8: 4 is_private changes per IST day, both directions (quota.PrivacyToggles). A request counts under follows.
 	if q.PrivacyTogglesPerDay, err = getInt("QUOTA_PRIVACY_TOGGLES_PER_DAY", 4); err != nil {
 		return Config{}, err
@@ -680,6 +717,10 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: QUOTA_PRIVACY_TOGGLES_PER_DAY must be > 0 (got %d)", q.PrivacyTogglesPerDay)
 	}
 	scheduled, err := loadScheduled()
+	if err != nil {
+		return Config{}, err
+	}
+	messaging, err := loadMessaging()
 	if err != nil {
 		return Config{}, err
 	}
@@ -821,6 +862,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureMessaging, err := flags.LoadSpec("MESSAGING", "messaging", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -906,6 +951,7 @@ func Load() (Config, error) {
 		Scheduled:                 scheduled,
 		Suggestions:               suggestions,
 		Privacy:                   privacy,
+		Messaging:                 messaging,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
@@ -928,6 +974,7 @@ func Load() (Config, error) {
 		FeatureReplyAudience:      featureReplyAudience,
 		FeatureScheduledPosts:     featureScheduledPosts,
 		FeatureBookmarks:          featureBookmarks,
+		FeatureMessaging:          featureMessaging,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,

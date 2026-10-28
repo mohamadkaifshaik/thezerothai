@@ -24,6 +24,7 @@ import (
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
+	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
@@ -32,6 +33,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -109,7 +111,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureRemovedIDs)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureRemovedIDs)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 	// ADR-0025 (W3-25b): the private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "toggles_per_day", cfg.Quota.PrivacyTogglesPerDay, "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
@@ -497,6 +499,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
+	})
+
+	// Messaging (ADR-0027, W7-4 skeleton): the service layer checks FEATURE_MESSAGING (per caller for SendMessage and
+	// AcceptMessageRequest, not globally off for the rest) and then answers Unimplemented; 0 reads and writes.
+	messagingServer := messaging.NewServer(messaging.New(featureFlags))
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

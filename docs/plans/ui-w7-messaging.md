@@ -332,7 +332,7 @@ Prices (§7):
 | W7-1 | ADR-0029 (or the next free number) "Messaging v1: pull + push, no realtime, no E2E" | architect | M | — | **yes, start now** (new file) | Open |
 | W7-2 | `proto/dzeroth/messaging/v1/messaging.proto` + additive fields (`GetMeResponse.unread_conversation_count`, `NotificationType` MESSAGE for push data, `REPORT_TARGET_TYPE_MESSAGE`) with per-RPC cost comments | architect | M | W7-1 drafted | new proto yes; the three additive edits serialise with W3-2 / W3-3 (identity, notifications) and any W5 report target | In review (PR pending): numbers taken `GetMeResponse.unread_conversation_count = 7`, `NOTIFICATION_TYPE_MESSAGE = 9`, `REPORT_TARGET_TYPE_MESSAGE = 3`, `ERROR_REASON_CANNOT_MESSAGE = 18` (`LIMIT_REACHED` already 9), `Message` field 7 reserved for media |
 | W7-3 | Index exemptions: six fieldOverrides in `firebase/firestore.indexes.json` + `firebase/field-overrides.ack`; `firestore-data-model` rows | architect | S | W7-1 drafted | **founder-gated files**; merge one wave's index PR at a time (W3-2, W4-9) | Open |
-| W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | Open |
+| W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | In review (PR pending) |
 | W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | Open |
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Open |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Open |
@@ -470,7 +470,7 @@ Order:
 - **Flag.** None (deployed with `firebase deploy --only firestore:indexes` by the dev deploy; prod with the held release, before `messaging` leaves `off` there).
 - **Seam.** No query depends on an exempted field.
 
-### W7-4 — Generate, flag, config, module skeleton  [owner: backend-developer] [size: M] [depends: W7-2]  Status: Open
+### W7-4 — Generate, flag, config, module skeleton  [owner: backend-developer] [size: M] [depends: W7-2]  Status: In review (PR pending)
 - **Description.**
   - `make proto` (generated Go and Dart committed).
   - Register `FEATURE_MESSAGING` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
