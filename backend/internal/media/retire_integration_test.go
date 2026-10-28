@@ -373,3 +373,55 @@ func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 		t.Error("another user's object was deleted")
 	}
 }
+
+// seedSuffixed writes a READY profile image the way FinalizeUpload leaves it since W3-39: a nameSuffix and the
+// suffixed public paths.
+func (e *retireIntEnv) seedSuffixed(t *testing.T, owner string, purpose Purpose) (id, suffix string) {
+	t.Helper()
+	id = fmt.Sprintf("%019d", 5_000_000_000_000_000_000+rand.Int64N(1_000_000_000))
+	suffix = fmt.Sprintf("%016x%016x", rand.Uint64(), rand.Uint64())
+	d := Doc{
+		OwnerID: owner, Purpose: string(purpose), Status: string(StatusReady), ContentType: "image/webp", Bytes: 1000, ThumbBytes: 100,
+		Width: 1500, Height: 500, NameSuffix: suffix, CreatedAt: retireNow.Add(-24 * time.Hour),
+		PublicPath: publicObject(id, suffix, "webp"), ThumbPath: publicThumbObject(id, suffix, "webp"),
+	}
+	if _, err := e.client.Collection("media").Doc(id).Set(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	return id, suffix
+}
+
+// TestIntegration_RetireSuffixedAvatarAndBanner (W3-39): the retire step retires a replaced avatar and banner whose
+// objects carry the suffix: the message's URLs parse, the document's own names are tagged (2 customTime patches),
+// 1 read and 1 write, exactly like the old shape.
+func TestIntegration_RetireSuffixedAvatarAndBanner(t *testing.T) {
+	for _, purpose := range []Purpose{PurposeAvatar, PurposeBanner} {
+		t.Run(string(purpose), func(t *testing.T) {
+			e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
+			id, sfx := e.seedSuffixed(t, uidA, purpose)
+			at := retireNow.Add(-30 * time.Minute)
+			m := RetireMessage{
+				Kind: JobKindProfileMediaRetired, UID: uidA, Purpose: string(purpose), ChangedAt: at,
+				OldURL: "https://cdn.test/media/" + publicObject(id, sfx, "webp"), OldThumbURL: "https://cdn.test/media/" + publicThumbObject(id, sfx, "webp"),
+			}
+			ctx, c := counted()
+			out, err := e.jobs.Retire(ctx, m)
+			if err != nil || out != "retired" {
+				t.Fatalf("Retire = %q, %v", out, err)
+			}
+			budgettest.Assert(t, "retire suffixed", c, budgettest.Budget{Reads: 1, Writes: 1})
+			if c.Reads() != 1 || c.Writes() != 1 {
+				t.Errorf("reads=%d writes=%d, want exactly 1 and 1", c.Reads(), c.Writes())
+			}
+			if len(e.tagger.calls) != 2 || e.tagger.calls[0].object != publicObject(id, sfx, "webp") || e.tagger.calls[1].object != publicThumbObject(id, sfx, "webp") {
+				t.Errorf("customTime patches = %v, want the suffixed pair only", e.tagger.calls)
+			}
+			if _, has := e.raw(t, id)["retiredAt"]; !has {
+				t.Error("the document was not marked retired")
+			}
+			if _, has := e.raw(t, id)["nameSuffix"]; !has {
+				t.Error("nameSuffix must stay on the document")
+			}
+		})
+	}
+}

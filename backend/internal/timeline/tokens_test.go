@@ -9,6 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 )
 
 var testKey = []byte("0123456789abcdef0123456789abcdef")
@@ -73,7 +74,7 @@ func TestCodec_BindingMatrix(t *testing.T) {
 	_, err = cd.parse(userFeed("alice", "carol", tabReplies), "", pt)
 	wantField(t, err, fieldPage)
 	// tampered.
-	_, err = cd.parse(home, since[:len(since)-2]+"AA", "")
+	_, err = cd.parse(home, cursortest.Tamper(since), "")
 	wantField(t, err, fieldSince)
 	_, err = cd.parse(home, "", "garbage")
 	wantField(t, err, fieldPage)

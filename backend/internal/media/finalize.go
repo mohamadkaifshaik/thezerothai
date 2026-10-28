@@ -260,7 +260,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 
 	// 3. Publish: copy into the public bucket, then flip the document, then drop the private copies.
 	ext := extension(d.ContentType)
-	pub, pubThumb := publicObject(d.ID, ext), publicThumbObject(d.ID, ext)
+	pub, pubThumb := publicObject(d.ID, d.NameSuffix, ext), publicThumbObject(d.ID, d.NameSuffix, ext)
 	if err := s.Objects.Publish(ctx, d.UploadPath, pub, d.ContentType); err != nil {
 		if errors.Is(err, objstore.ErrObjectNotFound) {
 			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)

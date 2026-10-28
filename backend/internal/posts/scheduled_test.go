@@ -14,6 +14,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
@@ -151,7 +152,7 @@ func TestScheduledPageToken(t *testing.T) {
 		if _, err := DecodeScheduledPageToken([]byte("another-key-another-key-another!"), "alice", tok, schedNow); !errors.Is(err, ErrInvalidScheduledToken) {
 			t.Errorf("wrong key: %v", err)
 		}
-		if _, err := DecodeScheduledPageToken(schedKey, "alice", tok[:len(tok)-2]+"AA", schedNow); !errors.Is(err, ErrInvalidScheduledToken) {
+		if _, err := DecodeScheduledPageToken(schedKey, "alice", cursortest.Tamper(tok), schedNow); !errors.Is(err, ErrInvalidScheduledToken) {
 			t.Errorf("tampered: %v", err)
 		}
 		if _, err := DecodeScheduledPageToken(schedKey, "alice", tok, schedNow.Add(25*time.Hour)); !errors.Is(err, ErrInvalidScheduledToken) {

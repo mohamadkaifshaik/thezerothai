@@ -408,8 +408,8 @@ func TestW320Banner_PurgeCoversEveryStatus(t *testing.T) {
 	}
 	// Public copies exist for the published ones, as after a real finalize; the PENDING and unscreened docs keep private objects.
 	for _, tg := range []UploadTarget{mine[1], mine[2], bob} {
-		e.obj.public["m/"+tg.MediaID+".webp"] = "image/webp"
-		e.obj.public["m/"+tg.MediaID+"_t.webp"] = "image/webp"
+		f, th := docNames(t, e.real, tg.MediaID, "webp")
+		e.obj.public[f], e.obj.public[th] = "image/webp", "image/webp"
 	}
 	before := len(e.obj.public) + len(e.obj.upload)
 
@@ -426,8 +426,9 @@ func TestW320Banner_PurgeCoversEveryStatus(t *testing.T) {
 	if err != nil || len(docs) != 1 || docs[bob.MediaID] == nil {
 		t.Fatalf("documents left = %v, %v: only the other user's banner may remain", docs, err)
 	}
+	bobFull, bobThumb := docNames(t, e.real, bob.MediaID, "webp")
 	for obj := range e.obj.public {
-		if obj != "m/"+bob.MediaID+".webp" && obj != "m/"+bob.MediaID+"_t.webp" {
+		if obj != bobFull && obj != bobThumb {
 			t.Errorf("a public object of the purged user is left: %s", obj)
 		}
 	}

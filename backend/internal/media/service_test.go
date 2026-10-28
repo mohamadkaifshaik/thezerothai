@@ -237,7 +237,7 @@ func TestFinalize_HappyPath(t *testing.T) {
 	if r.Status != StatusReady || r.Ref == nil {
 		t.Fatalf("result = %+v", r)
 	}
-	if r.Ref.URL != "https://cdn.test/media/m/"+tg.MediaID+".jpg" || r.Ref.ThumbURL != "https://cdn.test/media/m/"+tg.MediaID+"_t.jpg" {
+	if r.Ref.URL != "https://cdn.test/media/m/"+tg.MediaID+"-"+e.repo.docs[tg.MediaID].NameSuffix+".jpg" || r.Ref.ThumbURL != "https://cdn.test/media/m/"+tg.MediaID+"-"+e.repo.docs[tg.MediaID].NameSuffix+"_t.jpg" {
 		t.Fatalf("ref = %+v", r.Ref)
 	}
 	if len(e.obj.public) != 2 {
@@ -674,7 +674,7 @@ func (e *env) winnerResolves(id string, status Status) {
 	d.Status = string(status)
 	if status == StatusReady {
 		ext := extension(d.ContentType)
-		d.PublicPath, d.ThumbPath = publicObject(id, ext), publicThumbObject(id, ext)
+		d.PublicPath, d.ThumbPath = publicObject(id, d.NameSuffix, ext), publicThumbObject(id, d.NameSuffix, ext)
 		e.obj.public[d.PublicPath], e.obj.public[d.ThumbPath] = d.ContentType, d.ContentType
 	} else {
 		d.RejectionReason = reasonPolicy
@@ -736,7 +736,7 @@ func TestFinalize_LostRaceDuringPublishConvergesAndCarriesSpent(t *testing.T) {
 			if spent != 1 {
 				t.Fatalf("spent = %d: Vision units already paid by this call must still be counted", spent)
 			}
-			for _, name := range []string{publicObject(tg.MediaID, "jpg"), publicThumbObject(tg.MediaID, "jpg")} {
+			for _, name := range []string{publicObject(tg.MediaID, e.repo.docs[tg.MediaID].NameSuffix, "jpg"), publicThumbObject(tg.MediaID, e.repo.docs[tg.MediaID].NameSuffix, "jpg")} {
 				if _, ok := e.obj.public[name]; !ok {
 					t.Fatalf("a READY winner owns %s; it must be kept (have %v)", name, e.obj.public)
 				}
@@ -751,7 +751,6 @@ func TestFinalize_LostRaceDuringPublishConvergesAndCarriesSpent(t *testing.T) {
 // A REJECTED winner: this call's public copy of the full image would stay public-read forever (a REJECTED doc has
 // no public path for purge to remove), so it is deleted.
 func TestFinalize_LostRaceToRejectedWinnerDropsThePublicCopy(t *testing.T) {
-	pub := func(id string) string { return publicObject(id, "jpg") }
 	t.Run("thumb copy missing", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
 		tg := e.upload(t, uidA, PurposePost, "a")
@@ -761,7 +760,7 @@ func TestFinalize_LostRaceToRejectedWinnerDropsThePublicCopy(t *testing.T) {
 		if err != nil || got.Status != StatusRejected || got.Ref != nil || spent != 1 {
 			t.Fatalf("got %+v spent=%d err=%v", got, spent, err)
 		}
-		if _, ok := e.obj.public[pub(tg.MediaID)]; ok {
+		if _, ok := e.obj.public[publicObject(tg.MediaID, e.repo.docs[tg.MediaID].NameSuffix, "jpg")]; ok {
 			t.Fatal("the full-image copy of a REJECTED image must be removed from the public bucket")
 		}
 	})
@@ -821,7 +820,7 @@ func TestFinalize_RejectDoesNotDeleteUploadsUnlessItResolved(t *testing.T) {
 		if err != nil || got.Status != StatusReady {
 			t.Fatalf("got %+v err=%v", got, err)
 		}
-		for _, name := range []string{publicObject(tg.MediaID, "jpg"), publicThumbObject(tg.MediaID, "jpg")} {
+		for _, name := range []string{publicObject(tg.MediaID, e.repo.docs[tg.MediaID].NameSuffix, "jpg"), publicThumbObject(tg.MediaID, e.repo.docs[tg.MediaID].NameSuffix, "jpg")} {
 			if _, ok := e.obj.public[name]; !ok {
 				t.Fatalf("the winner's %s must be untouched (have %v)", name, e.obj.public)
 			}
