@@ -17,6 +17,7 @@ import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/messaging_feature_flag.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
+import '../../features/messages/presentation/thread_screen.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
@@ -69,9 +70,16 @@ class AppRouter {
   static const notificationsPath = '/notifications';
   // W7-14: the inbox and its Requests folder, behind the `messaging` flag
   // (both redirect Home without it). ShellRoute children. `/messages/new`
-  // (W7-17) and `/messages/:id` (W7-15) are added by those tickets.
+  // (W7-17) is added by that ticket. W7-15: `/messages/:id` is one
+  // conversation, full-screen outside the shell (like `/compose`) and declared
+  // AFTER the ShellRoute, so `/messages/requests` (and W7-17's
+  // `/messages/new`, which must sit in the ShellRoute or before `:id`) match
+  // first. Any `:id` that is not 32 lower-case hex shows "This conversation
+  // isn't available".
   static const messagesPath = '/messages';
   static const messageRequestsPath = '/messages/requests';
+  static String messagePath(String conversationId) =>
+      '/messages/$conversationId';
   // The Settings routes land with T15; the constants live here so
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
@@ -215,17 +223,20 @@ class AppRouter {
           ),
           GoRoute(
             path: messagesPath,
-            builder: (context, state) => const AuthGate(
-              // TODO(W7-15): onOpenConversation opens `/messages/<id>`.
+            builder: (context, state) => AuthGate(
               // TODO(W7-17): onNewMessage opens `/messages/new`.
-              child: ConversationsScreen(),
+              child: ConversationsScreen(
+                onOpenConversation: (id) => context.push(messagePath(id)),
+              ),
             ),
           ),
           GoRoute(
             path: messageRequestsPath,
-            builder: (context, state) => const AuthGate(
-              // TODO(W7-15): onOpenConversation opens `/messages/<id>`.
-              child: ConversationsScreen(folder: Folder.FOLDER_REQUESTS),
+            builder: (context, state) => AuthGate(
+              child: ConversationsScreen(
+                folder: Folder.FOLDER_REQUESTS,
+                onOpenConversation: (id) => context.push(messagePath(id)),
+              ),
             ),
           ),
           GoRoute(
@@ -332,6 +343,14 @@ class AppRouter {
           ),
         ],
       ),
+      // W7-15: one conversation, full-screen (no nav chrome under a composer).
+      // After the ShellRoute on purpose, see `messagesPath`.
+      GoRoute(
+        path: '$messagesPath/:id',
+        builder: (context, state) => AuthGate(
+          child: ThreadScreen(conversationId: state.pathParameters['id']!),
+        ),
+      ),
     ],
   );
 
@@ -354,6 +373,7 @@ class AppRouter {
   ];
 
   static final _profilePath = RegExp(r'^/profile/([^/]+)$');
+  static final _messageThreadPath = RegExp(r'^/messages/[^/]+$');
 
   /// The path of [uri] when it is a link worth keeping through the splash,
   /// sign-in and onboarding (`/post/<19 digits>`, `/u/<id>`,
@@ -508,11 +528,15 @@ class AppRouter {
       extra is ShellPush &&
       _onboardingBloc.state.enabledFeatures.contains(kFeatureShells);
 
-  /// `/messages` and `/messages/requests` redirect Home unless `messaging` is
-  /// on for this caller (W7-14). `GetMe` lists the flag per caller, so a flag
-  /// that is off for everyone is the same case.
+  /// `/messages`, `/messages/requests` and `/messages/<id>` redirect Home
+  /// unless `messaging` is on for this caller (W7-14, W7-15). `GetMe` lists
+  /// the flag per caller, so a flag that is off for everyone is the same case.
   String? _messagesFlagRedirect(String loc) {
-    if (loc != messagesPath && loc != messageRequestsPath) return null;
+    if (loc != messagesPath &&
+        loc != messageRequestsPath &&
+        !_messageThreadPath.hasMatch(loc)) {
+      return null;
+    }
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)
         ? null
         : homePath;
