@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
+import 'package:dzeroth/shared/widgets/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/embedded_post_card.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:dzeroth/shared/widgets/post_media.dart';
@@ -58,8 +59,26 @@ void main() {
   void expectNothingOfThePost(WidgetTester tester) {
     expect(find.text('secret words that must not show'), findsNothing);
     expect(find.byType(PostMedia), findsNothing);
-    expect(find.byType(Image), findsNothing);
-    expect(find.byType(CachedNetworkImage), findsNothing);
+    // The author's avatar is shown (founder 2026-10-28); no post media is.
+    expect(
+      find.descendant(
+        of: find.byType(ProtectedPostBox),
+        matching: find.byType(AppAvatar),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is CachedNetworkImage && w.imageUrl.contains('full'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is CachedNetworkImage && w.imageUrl.contains('thumb.jpg'),
+      ),
+      findsNothing,
+    );
     expect(find.text('Original Author'), findsOneWidget);
     expect(find.text('@orig'), findsOneWidget);
     expect(find.text(_message), findsOneWidget);

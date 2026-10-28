@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'app_avatar.dart';
 
 /// The bordered placeholder for a post whose author protects their posts
-/// (ADR-0025 D5, `EMBED_VIEWER_STATE_PROTECTED`): a lock, the author's name and
-/// @handle, and [message]. The server sends only the author snapshot for it,
-/// and this box shows nothing else: no post text, no media, and no avatar
-/// image either (so it makes no image request at all). It is not tappable:
+/// (ADR-0025 D5, `EMBED_VIEWER_STATE_PROTECTED`): the author's avatar, name and
+/// @handle (public header data, founder 2026-10-28), a lock and [message]. The
+/// server sends only the author snapshot for it, and this box shows nothing
+/// else: no post text and no post media. It is not tappable:
 /// opening the post would answer NOT_FOUND for a stranger.
 class ProtectedPostBox extends StatelessWidget {
   const ProtectedPostBox({
@@ -44,7 +45,7 @@ class ProtectedPostBox extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.lock_outline, size: AppIconSize.lg, color: muted),
+              AppAvatar(url: author.avatarUrl, radius: AppSpacing.md),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
@@ -77,9 +78,27 @@ class ProtectedPostBox extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      message,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.xs),
+                          child: Icon(
+                            Icons.lock_outline,
+                            size: AppIconSize.sm,
+                            color: muted,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
+                          child: Text(
+                            message,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: muted,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

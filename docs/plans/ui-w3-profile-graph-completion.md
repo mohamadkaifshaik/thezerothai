@@ -1026,12 +1026,12 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - Turning it off is shown whenever `is_private` is true, whatever the flag (the undo rule), with a confirm about auto-approval.
   - Copy for QUOTA_EXCEEDED `privacy_toggles` ("You can change this 4 times a day") and for LIMIT_REACHED `private_accounts`.
   - FEATURE_DISABLED hides the turn-on control until the next GetMe; turn-off stays.
-- **Protected embed.** "This post is from an account that protects its posts." No text or media is shown, and the author is shown.
+- **Protected embed.** "This post is from an account that protects its posts." Avatar shown (founder 2026-10-28); no post text or media. The author is shown.
 - **Refusals.** Repost and Quote are disabled on another user's FOLLOWERS post. `PROTECTED_ACCOUNT` shows "You can't repost or quote posts from a protected account." The server stays authoritative.
 - **Acceptance.**
   - Given the flag off for a protected user, then the switch shows "on" and can be turned off.
   - Given the flag off for a public user, then no switch.
-  - Given a PROTECTED embed, then no text and no image request is made.
+  - Given a PROTECTED embed, then no post text and no post media are shown; the author avatar is shown (founder 2026-10-28).
 - **Tests.** The widget matrix.
 - **Docs.** `docs/ui-catalog.md` rows.
 - **Flag.** `private_accounts`, for turn-on only.
