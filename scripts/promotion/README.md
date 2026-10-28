@@ -9,7 +9,7 @@ logic is testable with no credentials.
 | `validate-revision.sh <revision.json> <ceiling> <env>` | `gcloud run revisions describe --format=json` | unknown `FEATURE_*` name, `FEATURE_*` from `valueFrom`, duplicate var, bad mode/percent, effective mode above the ceiling, allowlist or percent above the ceiling, minScale differs, maxScale is not an integer in 1..ceiling (0 means unlimited) |
 | `check-traffic.sh <service.json> <ceiling> <env> serving` | `gcloud run services describe --format=json` | not exactly one named revision at 100%, `latestRevision` routing, any other revision with a percent, tag outside the allow-list |
 | `check-traffic.sh ... staged <candidate> <serving>` | same | serving revision differs from the expected one, or the candidate lacks the 0% `candidate` tag |
-| `resolve-rollback.sh <service> <last-good-rev.json> <images.json> <ceiling> <env>` | + `gcloud artifacts docker images list --format=json` | no `last-good` tag, wrong revision JSON, image not pinned by digest, digest gone from Artifact Registry, or the target fails `validate-revision.sh` |
+| `resolve-rollback.sh <service> <last-good-rev.json> <images.json> <ceiling> <env>` | + `gcloud artifacts docker images list --format=json` | no `last-good` tag, wrong revision JSON, image not pinned by digest, digest gone from Artifact Registry, a `rollback_floors` flag (see below) not `off` on the target with an image that has no 40-hex commit tag or is not at or after the floor commit, or the target fails `validate-revision.sh` |
 | `check-flag-registry.sh <config.go> <ceiling> [main.tf...]` | repo files | ceiling flag set differs from `flags.LoadSpec` names, a code default differs from `unset_default`, Terraform mentions an unknown `FEATURE_*` name |
 
 `flag-ceiling.json` holds names, modes and **counts** only. Allowlist uids are never stored, printed or logged: the
@@ -23,6 +23,14 @@ scripts print flag names and entry counts, and `test/run.sh` fails if any fixtur
   `check-flag-registry.sh` re-derives it from `config.go`, so a changed default fails CI.
 - Cloud Run omits `value` for empty strings (seen on the real dev revision), so "plain value" means "no
   `valueFrom`/`valueSource`", not "has `value`".
+- **Rollback floors (W3-42, W3-36 M-1(b)).** `flag-ceiling.json` `rollback_floors.<FLAG>.commit` is the oldest `main` commit whose
+  image may be restored while that flag is not `off` on the rollback target (unset counts as the code default). Today only
+  `PRIVATE_ACCOUNTS`, at e94014c6 (#418; first set to 061395a0, #395). `resolve-rollback.sh` takes the image's commit from its
+  40-hex Artifact Registry tag (`IMAGE_TAG` = `github.sha` in `deploy-dev.yml`) and runs
+  `git merge-base --is-ancestor <floor> <commit>` in `ROLLBACK_REPO` (default: this repo). Fails closed on no commit tag, a malformed floor, a floor
+  or commit missing from the checkout. **The checkout needs full history**: `deploy-dev.yml` sets `fetch-depth: 0` on its checkout (the only job that runs these scripts; the prod workflows do not call `resolve-rollback.sh`). In a shallow clone the floor is
+  absent and the script refuses. `promote-dev.sh` runs the same check in its step 5/8 preflight, before any tag or traffic
+  change. Raise a floor only to a commit already on `last-good` wherever the flag is not `off`.
 - jq output is passed through `tr -d '\r'` (the Windows jq build can emit CRLF); `.gitattributes` forces LF here.
 
 ## Verified against the live dev service (read-only, 2026-10-19)

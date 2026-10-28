@@ -132,7 +132,7 @@ new revision never becomes ready and `gcloud run deploy` fails. **User impact:**
 Stored posts stay `PUBLIC` (ADR-0025 D2). Only revisions that contain the Part B enforcement code hide a protected
 account's posts, so a revision without it shows them to everyone, and no flag can fix that.
 
-- **Enforcement floor:** an image built from `main` at **061395a0** (#395, W3-26b, the last Part B read path) or later.
+- **Enforcement floor:** an image built from `main` at **e94014c6** (#418, W3-39) or later; the original floor was **061395a0** (#395, W3-26b, the last Part B read path), and `flag-ceiling.json` holds the current one.
   It contains every Part B read path: GetPost and Viewable (#382), notifications (#380), timelines and feeds (#384), thread,
   bookmarks and likes (#386), follower lists (#388), the pin (#395).
 - **Before any rollback or traffic split** (dev or prod, manual or the deploy-dev automatic rollback to `last-good`):
@@ -146,9 +146,26 @@ account's posts, so a revision without it shows them to everyone, and no flag ca
 - **Prod:** `private_accounts` stays `off` until the first release carrying Part B is at 100% **and** its `last-good` is also
   post-floor. A 10% candidate step leaves 90% on the old revision, so nobody may protect during a split onto a pre-floor
   revision.
-- **Planned guard (before any prod ramp):** `scripts/promotion/resolve-rollback.sh` refuses a `last-good` image older than a
-  floor recorded next to `PRIVATE_ACCOUNTS` in `scripts/promotion/flag-ceiling.json` whenever that flag is not `off`
-  (a founder-gated file). Until then this section is the control.
+- **The guard (W3-42, enforced):** `scripts/promotion/resolve-rollback.sh` reads `rollback_floors.PRIVATE_ACCOUNTS` in
+  `scripts/promotion/flag-ceiling.json` (a founder-gated file) and refuses a `last-good` image that is not built from the
+  floor commit or a descendant of it (`git merge-base --is-ancestor <floor> <image commit>`), whenever
+  `FEATURE_PRIVATE_ACCOUNTS` on the rollback target is not `off` (unset counts as the code default, `off`). The image's
+  commit is its 40-hex Artifact Registry tag (the `github.sha` image tag). It fails closed: no commit tag, a commit not in
+  the checkout, an unreadable floor or a floor not in the checkout (a shallow clone) all refuse, and the message names the
+  floor. The floor is now **e94014c6** (#418, W3-39), raised from 061395a0 once W3-39 was on dev's `last-good`
+  (`api-00690-yiq`, built from `e29fe804`). Raise it only to a commit that is already on `last-good` in every environment
+  where the flag is not `off`, or every rollback is refused.
+  - **Automatic rollback in dev:** `promote-dev.sh` (called by `deploy-dev.yml`) runs `resolve-rollback.sh` twice: in step
+    5/8, before it tags `last-good` or moves any traffic, against the revision now serving (which becomes `last-good`), and
+    again if it has to roll back. A refusal in step 5/8 ends the job with "rollback target is not usable; refusing to promote
+    (no tag was changed)": the candidate keeps 0% and the serving revision keeps 100%. Roll forward with a fix, or first
+    deploy a post-floor revision.
+  - **What it does not cover:** the check looks at the rollback target's own flag value. Rolling back to a pre-floor image
+    whose flag is `off` passes the script, yet turning the flag off protects nobody's existing posts, so the manual
+    `privacy/protectedAuthors` check above still applies, and still refuses while it lists anyone.
+  - The full-history requirement: the job that runs the script must have the floor and image commits in its checkout.
+    `deploy-dev.yml` sets `fetch-depth: 0` for this (W3-42); a shallow clone would make the script refuse. The prod workflows do not call
+    `resolve-rollback.sh`, so nothing changes there.
 
 ## After any rollback
 - Confirm `/health` (not `/healthz`: `*.run.app` reserves paths ending in `z`) and the uptime check are green, and Error Reporting is quiet for the restored revision.

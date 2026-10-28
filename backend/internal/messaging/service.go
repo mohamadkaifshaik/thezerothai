@@ -73,8 +73,8 @@ type service struct {
 	newSends *ratelimit.DailyCap
 }
 
-// New builds the Service: the flag gate, then the rules of the RPCs that exist (SendMessage, ListConversations; the other
-// three answer Unimplemented until W7-8 and W7-9).
+// New builds the Service: the flag gate, then the rules of the RPCs that exist (SendMessage, ListConversations, ListMessages,
+// MarkRead; Accept and Delete answer Unimplemented until W7-9).
 func New(fc FlagChecker, d Deps) Service {
 	if d.Now == nil {
 		d.Now = time.Now
@@ -115,22 +115,6 @@ func (s *service) guard(ctx context.Context, uid string, class flagClass) error 
 		return ae.WithMeta("feature", FlagName)
 	}
 	return err
-}
-
-// ListMessages: not globally off. Skeleton: 0 reads, 0 writes.
-func (s *service) ListMessages(ctx context.Context, uid string, _ *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, error) {
-	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
-		return nil, err
-	}
-	return nil, ErrNotImplemented
-}
-
-// MarkRead: not globally off. Skeleton: 0 reads, 0 writes.
-func (s *service) MarkRead(ctx context.Context, uid string, _ *messagingv1.MarkConversationReadRequest) (*messagingv1.MarkConversationReadResponse, error) {
-	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
-		return nil, err
-	}
-	return nil, ErrNotImplemented
 }
 
 // Accept: per caller (and later per recipient). Skeleton: 0 reads, 0 writes.

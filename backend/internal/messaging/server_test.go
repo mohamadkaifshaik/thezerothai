@@ -105,7 +105,7 @@ func TestServer_AllSixHandlers(t *testing.T) {
 	perCaller := map[string]bool{"SendMessage": true, "AcceptMessageRequest": true}
 	// open is the code a caller past the gate gets from this RPC.
 	open := func(name string) connect.Code {
-		if name == "SendMessage" || name == "ListConversations" {
+		if name == "SendMessage" || name == "ListConversations" || name == "ListMessages" || name == "MarkConversationRead" {
 			return connect.CodeInvalidArgument
 		}
 		return connect.CodeUnimplemented

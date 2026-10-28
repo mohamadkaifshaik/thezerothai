@@ -30,6 +30,17 @@ expect() {
     failed=$((failed + 1))
   fi
 }
+# expect_msg <name> <want-exit> <pattern> <command...>: like expect, and the output must contain the pattern
+expect_msg() {
+  local name=$1 want=$2 pat=$3
+  shift 3
+  expect "$name" "$want" "$@"
+  if ! grep -q -- "$pat" "$tmp/out"; then
+    echo "FAIL $name: output lacks '$pat'"
+    sed 's/^/    /' "$tmp/out"
+    failed=$((failed + 1))
+  fi
+}
 # mut <jq-filter> <fixture> <out-name>
 mut() { jq "$1" "$fx/$2" | tr -d '\r' >"$tmp/$3"; }
 V="$p/validate-revision.sh"
@@ -107,6 +118,56 @@ jq '.metadata.name="api-00000-zzz" | .spec.containers[0].image = "example/api:la
 expect "tag-pinned image" 1 "$R" "$fx/service-ok.json" "$tmp/lg4" "$fx/images-ok.json" "$ceil" dev
 jq '.metadata.name="api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' "$fx/revision-ok.json" >"$tmp/lg5"
 expect "rollback target over ceiling" 1 "$R" "$fx/service-ok.json" "$tmp/lg5" "$fx/images-ok.json" "$ceil" dev
+
+# --- resolve-rollback.sh rollback floors (W3-42): a throwaway git repo with commits before, at and after the floor
+fr=$tmp/floorrepo
+git init -q "$fr" && git -C "$fr" config user.email t@example.invalid && git -C "$fr" config user.name t && git -C "$fr" config commit.gpgsign false
+git -C "$fr" commit -q --allow-empty -m before && c_before=$(git -C "$fr" rev-parse HEAD)
+git -C "$fr" commit -q --allow-empty -m floor && c_floor=$(git -C "$fr" rev-parse HEAD)
+git -C "$fr" commit -q --allow-empty -m after && c_after=$(git -C "$fr" rev-parse HEAD)
+git -C "$fr" checkout -q -b side "$c_before" && git -C "$fr" commit -q --allow-empty -m sideways && c_side=$(git -C "$fr" rev-parse HEAD)
+git -C "$fr" checkout -q - 2>/dev/null
+mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
+jq --arg c "$c_floor" '.rollback_floors.PRIVATE_ACCOUNTS = {"commit": $c, "pr": 1, "reason": "test"}' "$ceil" >"$tmp/ceil-floor"
+# lg-pa / lg-pa-off: last-good with FEATURE_PRIVATE_ACCOUNTS allowlist / off; img <commit...>: images.json whose digest carries those tags
+jq '.metadata.name = "api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_PRIVATE_ACCOUNTS","value":"allowlist"}]' "$fx/revision-ok.json" >"$tmp/lg-pa"
+jq '.metadata.name = "api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_PRIVATE_ACCOUNTS","value":"off"}]' "$fx/revision-ok.json" >"$tmp/lg-pa-off"
+img() { jq --argjson t "$(printf '%s\n' "$@" | jq -R . | jq -s .)" '.[0].tags += $t' "$fx/images-ok.json" >"$tmp/img-c"; }
+export ROLLBACK_REPO=$fr
+img "$c_before"
+expect_msg "floor: flag allowlist, image before the floor, refused" 1 "older than" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+expect_msg "floor: refusal names the rollback floor" 1 "PRIVATE_ACCOUNTS rollback floor" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+img "$c_side"
+expect_msg "floor: a commit on another branch is not at or after the floor" 1 "older than, or not provably after" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+img "$c_floor"
+expect "floor: image exactly at the floor passes" 0 "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+img "$c_after"
+expect "floor: image after the floor passes" 0 "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+img "$c_before"
+expect "floor: flag off on the target, pre-floor image passes" 0 "$R" "$fx/service-ok.json" "$tmp/lg-pa-off" "$tmp/img-c" "$tmp/ceil-floor" dev
+expect "floor: flag unset (code default off), pre-floor image passes" 0 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/img-c" "$tmp/ceil-floor" dev
+img "$c_before" "$c_after"
+expect "floor: any commit tag before the floor refuses" 1 "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+expect_msg "floor: no commit tag, flag allowlist, refused" 1 "no commit tag" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$fx/images-ok.json" "$tmp/ceil-floor" dev
+jq '.[0].tags += ["last-good", "serving", "ABCDEF", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]' "$fx/images-ok.json" >"$tmp/img-c"
+expect_msg "floor: tags that are not a full commit sha do not count" 1 "no commit tag" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+expect "floor: no commit tag but flag off, passes" 0 "$R" "$fx/service-ok.json" "$tmp/lg-pa-off" "$fx/images-ok.json" "$tmp/ceil-floor" dev
+img "$(printf '%040d' 7)"
+expect_msg "floor: commit unknown to the checkout, refused" 1 "older than, or not provably after" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+img "$c_after"
+jq 'del(.rollback_floors)' "$tmp/ceil-floor" >"$tmp/ceil-nofloor"
+expect "floor: no floors recorded, no check" 0 "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$fx/images-ok.json" "$tmp/ceil-nofloor" dev
+jq '.rollback_floors.PRIVATE_ACCOUNTS.commit = "abc123"' "$tmp/ceil-floor" >"$tmp/ceil-badfloor"
+expect_msg "floor: malformed floor commit, refused" 1 "not a 40-hex commit" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-badfloor" dev
+jq --arg c "$(printf '%040d' 9)" '.rollback_floors.PRIVATE_ACCOUNTS.commit = $c' "$tmp/ceil-floor" >"$tmp/ceil-missing"
+expect_msg "floor: floor commit not in the checkout (shallow), refused" 1 "not in the checkout" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-missing" dev
+ROLLBACK_REPO=$tmp expect_msg "floor: not a git checkout at all, refused" 1 "not in the checkout" "$R" "$fx/service-ok.json" "$tmp/lg-pa" "$tmp/img-c" "$tmp/ceil-floor" dev
+unset ROLLBACK_REPO
+# the committed floor is well formed and the registry check accepts the extra key
+expect "floor: committed ceiling floor is a 40-hex commit" 0 -c '[[ "$(jq -r .rollback_floors.PRIVATE_ACCOUNTS.commit "$0" | tr -d "\r")" =~ ^[0-9a-f]{40}$ ]]' "$ceil"
+expect "floor: registry check still ok with rollback_floors" 0 "$G" "$fx/config-ok.go.txt" "$ceil"
+# a floor must name a flag the ceiling knows
+expect "floor: every floor flag is a registered flag" 0 -c 'jq -e ".flags as \$f | [.rollback_floors // {} | keys[] | select(startswith(\"_\")|not) | select(. as \$k | \$f | index(\$k) | not)] | length == 0" "$0" >/dev/null' "$ceil"
 
 # --- check-flag-registry
 expect "registry ok" 0 "$G" "$fx/config-ok.go.txt" "$ceil"
@@ -222,17 +283,6 @@ expect "bookmarks smoke tests (dev-only, W2-16)" 0 "$here/bookmarks-smoke-test.s
 U="$p/check-until-dates.sh"
 ud="$tmp/until"
 mkdir -p "$ud/envs/prod" "$ud/.terraform"
-# expect_msg <name> <want-exit> <pattern> <command...>: like expect, and the output must contain the pattern
-expect_msg() {
-  local name=$1 want=$2 pat=$3
-  shift 3
-  expect "$name" "$want" "$@"
-  if ! grep -q -- "$pat" "$tmp/out"; then
-    echo "FAIL $name: output lacks '$pat'"
-    sed 's/^/    /' "$tmp/out"
-    failed=$((failed + 1))
-  fi
-}
 export UNTIL_TODAY=2026-12-22
 printf 'resource "x" "y" {\n  a = 1\n}\n' >"$ud/envs/prod/main.tf"
 expect_msg "until: no markers pass" 0 "0 until: marker" "$U" "$ud"

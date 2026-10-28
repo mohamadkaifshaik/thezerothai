@@ -221,18 +221,24 @@ func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res S
 // conversation is the participant check's read: the instance cache first (convCacheTTL), else 1 read. A missing
 // document is NOT_FOUND, the same answer as a non-participant (D11).
 func (s *service) conversation(ctx context.Context, id string) (ConvDoc, error) {
+	c, _, err := s.conversationHit(ctx, id)
+	return c, err
+}
+
+// conversationHit is conversation that also says whether the instance cache answered (the cache_hit log field).
+func (s *service) conversationHit(ctx context.Context, id string) (ConvDoc, bool, error) {
 	if c, ok := s.convs.Get(id); ok {
-		return c, nil
+		return c, true, nil
 	}
 	c, found, err := s.d.Repo.GetConversation(ctx, id)
 	if err != nil {
-		return ConvDoc{}, err
+		return ConvDoc{}, false, err
 	}
 	if !found {
-		return ConvDoc{}, ErrNotFound
+		return ConvDoc{}, false, ErrNotFound
 	}
 	s.convs.Set(id, c)
-	return c, nil
+	return c, false, nil
 }
 
 // freshRecipient is the purge-race check of a new conversation (ADR-0027 D8): the recipient's account status without
