@@ -88,8 +88,8 @@ enum ErrorReason {
   ERROR_REASON_ACCOUNT_RESTRICTED = 12;
   // FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
   ERROR_REASON_TARGET_BLOCKED = 13;
-  // FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet, e.g.
-  // follow requests). Hide the feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
+  // FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet). Hide the
+  // feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
   // metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
   // (ADR-0010 D2). When absent, the whole feature behind the called service is off.
   ERROR_REASON_FEATURE_DISABLED = 14;
@@ -102,4 +102,7 @@ enum ErrorReason {
   // an unusable root (deleted, hidden, a block in either direction) answers NOT_FOUND instead. Do not retry; show
   // the policy label.
   ERROR_REASON_REPLY_NOT_ALLOWED = 16;
+  // FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
+  // a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
+  ERROR_REASON_PROTECTED_ACCOUNT = 17;
 }

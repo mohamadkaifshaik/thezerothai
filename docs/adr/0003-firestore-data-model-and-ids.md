@@ -152,3 +152,15 @@ manual right-to-delete run) must also delete `quotas/{uid}`, the per-user daily 
 The first writer is the graph module in v0.2.0 (follows, blocks/mutes counters; `backend/internal/graph/repo_firestore.go`),
 so the doc now exists for real users. Cost: 1 delete per account deletion. `docs/runbooks/account-deletion.md` Step 2
 already deletes it.
+
+## Note 2026-10-28: see ADR-0025
+Cross-reference only; no decision above changes. ADR-0025 (private accounts and follow requests, accepted by the founder's
+merge of #325 on 2026-10-27) supersedes the sentence "Visibility changes (private ↔ public) rewrite **all** of the
+author's posts (privacy-critical; 1 toggle/day)" in the author-snapshot paragraph. No visibility job is built:
+- Stored `posts.visibility` stays `PUBLIC`. Every read path decides at read time from `privacy/protectedAuthors`, a new
+  identity-owned doc that lists the protected uids. It is written in the same transaction as `users.isPrivate`, and its
+  `uids` field is exempt from indexing (ADR-0025 D2, D3, D15).
+- A toggle costs 3 writes and is limited to 4 a day (ADR-0025 D8), so the Consequences item "privacy toggles cost
+  O(posts) writes" no longer applies.
+- The 2026-09-28 note's "`followRequests/*` and `graph.requested[]` get no writes" ends with ADR-0025: a Follow of a
+  protected account writes both (D6, D7).

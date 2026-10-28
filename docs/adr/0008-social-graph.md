@@ -753,3 +753,18 @@ Documentation only; no decision in this ADR changes and the D3 text above stays 
 - **planner:** plan deltas to carry into tickets: ADR filename is `0008-social-graph.md`; T5 adds
   `blockedByOverflow`; T7/T6/T10 add the overflow read; T9 own lists drop `blockedBy` users; T10 uses
   `Limit(page_size)`; T3 salts the bucket hash; T11 adds the start gate, `Exists` preconditions and page sizes.
+
+## Note 2026-10-28: D1 reversed by ADR-0025
+Pointer only; the D1 text above stays as the founder accepted it on 2026-09-28. ADR-0025 (private accounts and follow
+requests) was accepted by the founder's merge of #325 on 2026-10-27, and that merge is also the founder's explicit
+reversal of D1. From ADR-0025 on:
+- `UpdateProfile(is_private=true)` is accepted while `FEATURE_PRIVATE_ACCOUNTS` is on for the caller, not rejected with
+  VALIDATION (ADR-0025 D1, D12).
+- The legacy rule "Follow on a stored `isPrivate` target → FEATURE_DISABLED" is replaced: a Follow of a protected account
+  creates a follow request (ADR-0025 D6).
+- `ListFollowRequests` and `RespondToFollowRequest` are implemented (ADR-0025 D7, D12). The D9 table row that answers
+  them FEATURE_DISABLED is superseded with D1. `followRequests/*` and `graph.requested[]` get writes, and
+  `FOLLOW_STATE_REQUESTED` is reachable.
+- D1's last bullet ("needs its own ADR section on the visibility job") is answered by ADR-0025 D3: there is no
+  visibility job.
+- D3's invariants gain I-R and I-X, and ADR-0009's reopen criterion 5 was re-checked (ADR-0025 D9).
