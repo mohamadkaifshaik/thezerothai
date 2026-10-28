@@ -125,6 +125,8 @@ class _GraphListScreenState extends State<GraphListScreen> {
             _GraphTab(
               key: ValueKey('followers-$userId'),
               emptyMessage: 'No followers yet.',
+              protectedMessage:
+                  'Only approved followers can see who follows @${widget.handle}.',
               fetchPage: ({required pageSize, required pageToken}) =>
                   graphRepository.listFollowers(
                     userId: userId,
@@ -135,6 +137,8 @@ class _GraphListScreenState extends State<GraphListScreen> {
             _GraphTab(
               key: ValueKey('following-$userId'),
               emptyMessage: 'Not following anyone yet.',
+              protectedMessage:
+                  'Only approved followers can see who @${widget.handle} follows.',
               fetchPage: ({required pageSize, required pageToken}) =>
                   graphRepository.listFollowing(
                     userId: userId,
@@ -188,10 +192,15 @@ class _GraphTab extends StatefulWidget {
     super.key,
     required this.fetchPage,
     required this.emptyMessage,
+    required this.protectedMessage,
   });
 
   final FetchGraphPage fetchPage;
   final String emptyMessage;
+
+  /// Shown when the account is protected and the viewer is not approved
+  /// (`PROTECTED_ACCOUNT`, ADR-0025 D4).
+  final String protectedMessage;
 
   @override
   State<_GraphTab> createState() => _GraphTabState();
@@ -214,6 +223,10 @@ class _GraphTabState extends State<_GraphTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return PagedUserList(cubit: _cubit, emptyMessage: widget.emptyMessage);
+    return PagedUserList(
+      cubit: _cubit,
+      emptyMessage: widget.emptyMessage,
+      protectedMessage: widget.protectedMessage,
+    );
   }
 }

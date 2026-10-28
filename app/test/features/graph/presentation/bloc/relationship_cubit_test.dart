@@ -265,4 +265,138 @@ void main() {
       ).called(1);
     },
   );
+
+  group('follow of a protected account (ADR-0025 D6)', () {
+    RelationshipCubit build({required bool targetIsPrivate}) =>
+        RelationshipCubit(
+          graphRepository: graphRepository,
+          userId: userId,
+          initial: initialNone,
+          targetIsPrivate: targetIsPrivate,
+        );
+
+    blocTest<RelationshipCubit, RelationshipState>(
+      'shows Requested at once and keeps the server REQUESTED',
+      build: () {
+        when(
+          () => graphRepository.follow(
+            userId: userId,
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer(
+          (_) async => graph.Relationship(
+            userId: userId,
+            followState: graph.FollowState.FOLLOW_STATE_REQUESTED,
+          ),
+        );
+        return build(targetIsPrivate: true);
+      },
+      act: (cubit) => cubit.follow(),
+      expect: () => [
+        isA<RelationshipState>()
+            .having(
+              (s) => s.relationship.followState,
+              'optimistic',
+              graph.FollowState.FOLLOW_STATE_REQUESTED,
+            )
+            .having((s) => s.isUpdating, 'isUpdating', isTrue),
+        isA<RelationshipState>()
+            .having(
+              (s) => s.relationship.followState,
+              'confirmed',
+              graph.FollowState.FOLLOW_STATE_REQUESTED,
+            )
+            .having((s) => s.isUpdating, 'isUpdating', isFalse),
+      ],
+    );
+
+    blocTest<RelationshipCubit, RelationshipState>(
+      'a list row that cannot know shows Following, then the server corrects it',
+      build: () {
+        when(
+          () => graphRepository.follow(
+            userId: userId,
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer(
+          (_) async => graph.Relationship(
+            userId: userId,
+            followState: graph.FollowState.FOLLOW_STATE_REQUESTED,
+          ),
+        );
+        return build(targetIsPrivate: false);
+      },
+      act: (cubit) => cubit.follow(),
+      expect: () => [
+        isA<RelationshipState>().having(
+          (s) => s.relationship.followState,
+          'optimistic',
+          graph.FollowState.FOLLOW_STATE_FOLLOWING,
+        ),
+        isA<RelationshipState>().having(
+          (s) => s.relationship.followState,
+          'corrected',
+          graph.FollowState.FOLLOW_STATE_REQUESTED,
+        ),
+      ],
+    );
+
+    blocTest<RelationshipCubit, RelationshipState>(
+      'a failed request rolls back to Follow',
+      build: () {
+        when(
+          () => graphRepository.follow(
+            userId: userId,
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer(
+          (_) async =>
+              throw const LimitReachedException('x', quota: 'follow_requests'),
+        );
+        return build(targetIsPrivate: true);
+      },
+      act: (cubit) => cubit.follow(),
+      verify: (cubit) {
+        expect(
+          cubit.state.relationship.followState,
+          graph.FollowState.FOLLOW_STATE_NONE,
+        );
+        expect(cubit.state.error, isA<LimitReachedException>());
+      },
+    );
+
+    blocTest<RelationshipCubit, RelationshipState>(
+      'withdraw: one unfollow returns the relationship to none',
+      build: () {
+        when(
+          () => graphRepository.unfollow(
+            userId: userId,
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer((_) async => initialNone);
+        return RelationshipCubit(
+          graphRepository: graphRepository,
+          userId: userId,
+          initial: graph.Relationship(
+            userId: userId,
+            followState: graph.FollowState.FOLLOW_STATE_REQUESTED,
+          ),
+          targetIsPrivate: true,
+        );
+      },
+      act: (cubit) => cubit.unfollow(),
+      verify: (cubit) {
+        expect(
+          cubit.state.relationship.followState,
+          graph.FollowState.FOLLOW_STATE_NONE,
+        );
+        verify(
+          () => graphRepository.unfollow(
+            userId: userId,
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).called(1);
+      },
+    );
+  });
 }

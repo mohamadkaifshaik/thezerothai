@@ -450,4 +450,38 @@ void main() {
       expect(result.followedBy, isTrue);
     });
   });
+
+  group('follow of a protected account (ADR-0025 D6)', () {
+    test(
+      'REQUESTED is cached but never joins the local following set',
+      () async {
+        final repository = buildRepository((procedure, input) async {
+          expect(procedure, endsWith('/Follow'));
+          return graph.FollowResponse(
+            relationship: graph.Relationship(
+              followState: graph.FollowState.FOLLOW_STATE_REQUESTED,
+            ),
+          );
+        });
+
+        final relationship = await repository.follow(
+          userId: 'target',
+          idempotencyKey: 'key-1',
+        );
+
+        expect(
+          relationship.followState,
+          graph.FollowState.FOLLOW_STATE_REQUESTED,
+        );
+        expect(
+          repository.cached('target')?.followState,
+          graph.FollowState.FOLLOW_STATE_REQUESTED,
+        );
+        verifyNever(
+          () => database.upsertFollowing(any(), epoch: any(named: 'epoch')),
+        );
+        verify(() => database.removeFollowing('target', epoch: 0)).called(1);
+      },
+    );
+  });
 }

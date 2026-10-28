@@ -931,4 +931,89 @@ void main() {
       expect(timed.rateLimitedFor(), isNull);
     });
   });
+
+  // W3-33a: `author_protected` (ADR-0025 D4) replaces every cached tab of the
+  // author with the protected view.
+  group('author_protected', () {
+    final protectedFeeds = [
+      for (final tab in UserFeedTab.values) FeedKey.user('p1', tab: tab),
+    ];
+
+    Future<void> cacheEveryTab() async {
+      for (final feed in protectedFeeds) {
+        script[_user]!.add(
+          tl.GetUserTimelineResponse(
+            posts: [postView(7, authorId: 'p1')],
+            sinceToken: 's-${feed.value}',
+          ),
+        );
+        await repo.refresh(feed);
+      }
+    }
+
+    test('a protected answer deletes the cached rows of every tab', () async {
+      await cacheEveryTab();
+      for (final feed in protectedFeeds) {
+        expect((await repo.cached(feed)).entries, isNotEmpty);
+      }
+      script[_user]!.add(tl.GetUserTimelineResponse(authorProtected: true));
+
+      final snap = await repo.refresh(FeedKey.user('p1'));
+
+      expect(snap.authorProtected, isTrue);
+      expect(snap.entries, isEmpty);
+      for (final feed in protectedFeeds) {
+        final cached = await repo.cached(feed);
+        expect(cached.authorProtected, isTrue, reason: feed.value);
+        expect(cached.entries, isEmpty, reason: feed.value);
+        // And nothing is left on disk either.
+        expect((await store.read(feed)).entries, isEmpty, reason: feed.value);
+      }
+    });
+
+    test('a screen opened later still reports it, with no call', () async {
+      script[_user]!.add(tl.GetUserTimelineResponse(authorProtected: true));
+      await repo.refresh(FeedKey.user('p1'));
+      requests.clear();
+
+      final snap = await repo.cached(FeedKey.user('p1'));
+
+      expect(snap.authorProtected, isTrue);
+      expect(requests, isEmpty);
+    });
+
+    test('another author is not affected', () async {
+      script[_user]!.add(tl.GetUserTimelineResponse(authorProtected: true));
+      await repo.refresh(FeedKey.user('p1'));
+
+      expect((await repo.cached(FeedKey.user('p2'))).authorProtected, isFalse);
+      expect((await repo.cached(home)).authorProtected, isFalse);
+    });
+
+    test('an approved answer lifts it and caches the posts again', () async {
+      script[_user]!.add(tl.GetUserTimelineResponse(authorProtected: true));
+      await repo.refresh(FeedKey.user('p1'));
+      script[_user]!.add(
+        tl.GetUserTimelineResponse(
+          posts: [postView(9, authorId: 'p1')],
+          sinceToken: 's',
+        ),
+      );
+
+      final snap = await repo.refresh(FeedKey.user('p1'));
+
+      expect(snap.authorProtected, isFalse);
+      expect(ids(snap), idsOf([9]));
+      expect((await repo.cached(FeedKey.user('p1'))).authorProtected, isFalse);
+    });
+
+    test('clearSession forgets it', () async {
+      script[_user]!.add(tl.GetUserTimelineResponse(authorProtected: true));
+      await repo.refresh(FeedKey.user('p1'));
+
+      repo.clearSession();
+
+      expect((await repo.cached(FeedKey.user('p1'))).authorProtected, isFalse);
+    });
+  });
 }

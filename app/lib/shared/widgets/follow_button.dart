@@ -7,6 +7,7 @@ import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/bloc/relationship_state.dart';
 import '../../features/graph/presentation/graph_error_messages.dart';
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import 'cancel_follow_request_dialog.dart';
 
 /// Follow / Following / Unblock button, driven by a [RelationshipCubit]
 /// already provided above it in the widget tree (one cubit per profile
@@ -17,9 +18,10 @@ import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 ///   blocks the target — Follow is never offered while blocking (calling it
 ///   would just fail with `TARGET_BLOCKED`).
 /// - [followedBy] turns "Follow" into "Follow back" (the profile header).
-/// - A `FOLLOW_STATE_REQUESTED` row renders a disabled "Requested" state:
-///   unreachable until private accounts ship (ADR-0008 D1), but handled
-///   defensively since the enum value exists on the wire.
+/// - A `FOLLOW_STATE_REQUESTED` row (a protected account, ADR-0025 D6) renders
+///   an outlined "Requested". Tapping it asks "Cancel your follow request?" and
+///   then sends one Unfollow, which withdraws the request. Withdrawing is never
+///   gated on `private_accounts` (the undo rule, ADR-0025 D12).
 /// - Updates optimistically (via the cubit) and shows a friendly snackbar,
 ///   never the raw server message, if the server rejects the action.
 /// - [onGone] (optional): the server answered NOT_FOUND, so the account is
@@ -77,7 +79,12 @@ class FollowButton extends StatelessWidget {
             graph.FollowState.FOLLOW_STATE_REQUESTED) {
           label = 'Requested';
           filled = false;
-          onPressed = null;
+          onPressed = state.isUpdating
+              ? null
+              : () async {
+                  final cancel = await showCancelFollowRequestDialog(context);
+                  if (cancel && context.mounted) cubit.unfollow();
+                };
         } else {
           label = followedBy ? 'Follow back' : 'Follow';
           filled = true;

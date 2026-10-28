@@ -34,7 +34,13 @@ class TimelineSnapshot {
     this.entries = const [],
     this.sinceToken = '',
     this.olderPageToken = '',
+    this.authorProtected = false,
   });
+
+  /// The server said the feed's author is protected and the viewer is not
+  /// approved (ADR-0025 D4): there are no entries, and the screen shows the
+  /// protected view instead of an empty feed.
+  final bool authorProtected;
 
   /// Newest first, posts and gap markers interleaved at their positions.
   final List<TimelineEntry> entries;

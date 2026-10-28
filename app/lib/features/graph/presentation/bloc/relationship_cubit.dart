@@ -33,6 +33,7 @@ class RelationshipCubit extends Cubit<RelationshipState> {
     required GraphRepository graphRepository,
     required this.userId,
     required graph.Relationship initial,
+    this.targetIsPrivate = false,
     Uuid? uuid,
   }) : _graphRepository = graphRepository,
        _uuid = uuid ?? const Uuid(),
@@ -40,6 +41,12 @@ class RelationshipCubit extends Cubit<RelationshipState> {
 
   final GraphRepository _graphRepository;
   final String userId;
+
+  /// The target is a protected account (`Profile.is_private`): Follow shows
+  /// REQUESTED at once instead of FOLLOWING. Lists cannot know it (the row has
+  /// no such field), so they show FOLLOWING first and the server's answer
+  /// corrects it; either way the response is what the cubit keeps.
+  final bool targetIsPrivate;
   final Uuid _uuid;
 
   // One idempotency key per user "intent" (CLAUDE.md rule 4 / ADR-0003):
@@ -54,8 +61,11 @@ class RelationshipCubit extends Cubit<RelationshipState> {
   Future<void> follow() => _mutate(
     keyOf: () => _followKey ??= _uuid.v4(),
     onSuccess: () => _followKey = null,
-    optimistic: (r) =>
-        r.updated(followState: graph.FollowState.FOLLOW_STATE_FOLLOWING),
+    optimistic: (r) => r.updated(
+      followState: targetIsPrivate
+          ? graph.FollowState.FOLLOW_STATE_REQUESTED
+          : graph.FollowState.FOLLOW_STATE_FOLLOWING,
+    ),
     call: (key) => _graphRepository.follow(userId: userId, idempotencyKey: key),
   );
 

@@ -38,6 +38,7 @@ import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
 import 'widgets/pinned_post_section.dart';
 import 'widgets/profile_header.dart';
+import '../../../shared/widgets/protected_posts_view.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
@@ -659,99 +660,129 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       userId: profile.userId,
       viewerUserId: viewerUserId,
     );
-    final profileCubit = context.read<ProfileCubit>();
-    final ownPosts = state.isOwnProfile && spec.ownPosts;
-    final pinned = _pinnedFor(context, profile);
-    // Pin / Unpin on the own profile. Unpin (a clear) is offered whatever the
-    // flags are (ADR-0024 Amendment 1 A2); Pin (a set) needs `profile_extras`
-    // on for the viewer. The Pinned row itself renders whatever the flags are.
-    final isOwn = state.isOwnProfile;
-    final pinEnabled =
-        isOwn && isFeatureEnabled(context, kFeatureProfileExtras);
-    final postPin = _postPinFor(context);
-    return _ProfileScrollScaffold(
-      outer: widget.outer,
-      header: header,
-      tabBar: tabBar,
-      onRefresh: cubit.refresh,
-      body: BlocProvider<TimelineCubit>.value(
-        key: ValueKey('profile-posts-${profile.userId}-${spec.id}'),
-        value: cubit,
-        child: BlocListener<TimelineCubit, TimelineState>(
-          listenWhen: (before, after) =>
-              spec.requiresProfileTabs && _refusedProfileTabs(after),
-          listener: (context, _) => setState(() {
-            _profileTabsRefused = true;
-            _tabId = _postsTabId;
-          }),
-          child: _withPinControl(
-            postPin,
-            own: isOwn,
-            canPin: pinEnabled,
-            pinnedPostId: profile.pinnedPostId,
-            builder: (pinControl) {
-              // The request can outlive this screen: guard the cubit, not
-              // context.
-              void onRelationshipChanged(graph.Relationship relationship) {
-                if (!profileCubit.isClosed) {
-                  profileCubit.relationshipChanged(relationship);
+    // A protected account's posts: the server's `author_protected` answer
+    // replaces the tabs, the pin and the cached feeds with one view (ADR-0025
+    // D4). Nothing below is built then, so a stale pinned id costs no GetPost.
+    Widget tabbed() {
+      final profileCubit = context.read<ProfileCubit>();
+      final ownPosts = state.isOwnProfile && spec.ownPosts;
+      final pinned = _pinnedFor(context, profile);
+      // Pin / Unpin on the own profile. Unpin (a clear) is offered whatever the
+      // flags are (ADR-0024 Amendment 1 A2); Pin (a set) needs `profile_extras`
+      // on for the viewer. The Pinned row itself renders whatever the flags are.
+      final isOwn = state.isOwnProfile;
+      final pinEnabled =
+          isOwn && isFeatureEnabled(context, kFeatureProfileExtras);
+      final postPin = _postPinFor(context);
+      return _ProfileScrollScaffold(
+        outer: widget.outer,
+        header: header,
+        tabBar: tabBar,
+        onRefresh: cubit.refresh,
+        body: BlocProvider<TimelineCubit>.value(
+          key: ValueKey('profile-posts-${profile.userId}-${spec.id}'),
+          value: cubit,
+          child: BlocListener<TimelineCubit, TimelineState>(
+            listenWhen: (before, after) =>
+                spec.requiresProfileTabs && _refusedProfileTabs(after),
+            listener: (context, _) => setState(() {
+              _profileTabsRefused = true;
+              _tabId = _postsTabId;
+            }),
+            child: _withPinControl(
+              postPin,
+              own: isOwn,
+              canPin: pinEnabled,
+              pinnedPostId: profile.pinnedPostId,
+              builder: (pinControl) {
+                // The request can outlive this screen: guard the cubit, not
+                // context.
+                void onRelationshipChanged(graph.Relationship relationship) {
+                  if (!profileCubit.isClosed) {
+                    profileCubit.relationshipChanged(relationship);
+                  }
                 }
-              }
 
-              Widget feed({required bool pinCovered}) => TimelineFeedView(
-                nested: true,
-                fillViewport: spec.requiresProfileTabs,
-                scrollViewKey: scrollKey,
-                newPostsPillTop: AppSpacing.sm,
-                viewerUserId: viewerUserId,
-                headerSlivers: [
-                  if (spec.showsPinned)
-                    SliverToBoxAdapter(
-                      child: PinnedPostSection(
-                        cubit: pinned,
-                        viewerUserId: viewerUserId,
-                        onRelationshipChanged: onRelationshipChanged,
-                        pinControl: pinControl,
+                Widget feed({required bool pinCovered}) => TimelineFeedView(
+                  nested: true,
+                  fillViewport: spec.requiresProfileTabs,
+                  scrollViewKey: scrollKey,
+                  newPostsPillTop: AppSpacing.sm,
+                  viewerUserId: viewerUserId,
+                  headerSlivers: [
+                    if (spec.showsPinned)
+                      SliverToBoxAdapter(
+                        child: PinnedPostSection(
+                          cubit: pinned,
+                          viewerUserId: viewerUserId,
+                          onRelationshipChanged: onRelationshipChanged,
+                          pinControl: pinControl,
+                        ),
                       ),
-                    ),
-                ],
-                emptyTitle: spec.emptyTitle(
-                  own: state.isOwnProfile,
-                  handle: profile.handle,
-                ),
-                emptySubtitle: spec.emptySubtitle?.call(
-                  own: state.isOwnProfile,
-                  handle: profile.handle,
-                ),
-                emptyAction: ownPosts && canCompose
-                    ? AppPillButton(
-                        label: 'Write a post',
-                        compact: true,
-                        onPressed: () => context.push(AppRouter.composePath),
-                      )
-                    : null,
-                // Only post here is the one in the Pinned row above.
-                hideEmptyState: pinCovered,
-                showPending: ownPosts,
-                pendingAuthorId: viewerUserId,
-                hideAuthorsOnRelationship: false,
-                onRelationshipChanged: onRelationshipChanged,
-                pinControl: pinControl,
-              );
+                  ],
+                  emptyTitle: spec.emptyTitle(
+                    own: state.isOwnProfile,
+                    handle: profile.handle,
+                  ),
+                  emptySubtitle: spec.emptySubtitle?.call(
+                    own: state.isOwnProfile,
+                    handle: profile.handle,
+                  ),
+                  emptyAction: ownPosts && canCompose
+                      ? AppPillButton(
+                          label: 'Write a post',
+                          compact: true,
+                          onPressed: () => context.push(AppRouter.composePath),
+                        )
+                      : null,
+                  // Only post here is the one in the Pinned row above.
+                  hideEmptyState: pinCovered,
+                  showPending: ownPosts,
+                  pendingAuthorId: viewerUserId,
+                  hideAuthorsOnRelationship: false,
+                  onRelationshipChanged: onRelationshipChanged,
+                  pinControl: pinControl,
+                );
 
-              if (!spec.showsPinned) return feed(pinCovered: false);
-              return BlocBuilder<PinnedPostCubit, PinnedPostState>(
-                bloc: pinned,
-                buildWhen: (before, after) =>
-                    (before.coveredPostId != null) !=
-                    (after.coveredPostId != null),
-                builder: (context, pinnedState) =>
-                    feed(pinCovered: pinnedState.coveredPostId != null),
-              );
-            },
+                if (!spec.showsPinned) return feed(pinCovered: false);
+                return BlocBuilder<PinnedPostCubit, PinnedPostState>(
+                  bloc: pinned,
+                  buildWhen: (before, after) =>
+                      (before.coveredPostId != null) !=
+                      (after.coveredPostId != null),
+                  builder: (context, pinnedState) =>
+                      feed(pinCovered: pinnedState.coveredPostId != null),
+                );
+              },
+            ),
           ),
         ),
-      ),
+      );
+    }
+
+    if (state.isOwnProfile) return tabbed();
+    return BlocBuilder<TimelineCubit, TimelineState>(
+      bloc: cubit,
+      buildWhen: (before, after) =>
+          before.authorProtected != after.authorProtected,
+      builder: (context, timeline) {
+        if (!timeline.authorProtected) return tabbed();
+        return _ProfileScrollScaffold(
+          outer: widget.outer,
+          header: header,
+          tabBar: null,
+          onRefresh: cubit.refresh,
+          body: CustomScrollView(
+            key: PageStorageKey<String>('profile-${profile.userId}-protected'),
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: ProtectedPostsView(handle: profile.handle),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -820,7 +851,9 @@ class _ProfileScrollScaffold extends StatelessWidget {
 
   final ScrollController outer;
   final Widget header;
-  final Widget tabBar;
+
+  /// Null = no tab bar (a protected account's posts, one view for all tabs).
+  final Widget? tabBar;
   final Widget body;
   final Future<void> Function()? onRefresh;
 
@@ -843,14 +876,17 @@ class _ProfileScrollScaffold extends StatelessWidget {
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
             centred(SliverToBoxAdapter(child: header)),
             centred(const SliverToBoxAdapter(child: Divider(height: 1))),
-            SliverOverlapAbsorber(
-              handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
-              sliver: centred(
-                PinnedHeaderSliver(
-                  child: ColoredBox(color: background, child: tabBar),
+            if (tabBar != null)
+              SliverOverlapAbsorber(
+                handle: NestedScrollView.sliverOverlapAbsorberHandleFor(
+                  context,
+                ),
+                sliver: centred(
+                  PinnedHeaderSliver(
+                    child: ColoredBox(color: background, child: tabBar),
+                  ),
                 ),
               ),
-            ),
           ],
           body: body,
         );
