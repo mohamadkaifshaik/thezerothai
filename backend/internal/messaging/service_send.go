@@ -299,15 +299,24 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return limitReached(limitDMNewDaily)
 	case errors.Is(err, ErrKeyReused):
 		return keyReused()
-	case errors.Is(ctx.Err(), context.Canceled):
-		return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled")
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded")
+	case ctxFailure(ctx) != nil:
+		return ctxFailure(ctx)
 	case errors.Is(err, store.ErrContended) || store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
 		s.d.Log.WarnContext(ctx, "messaging_send_contention", slog.String("uid_hash", logger.HashUID(uid)), slog.String(fieldConvHash, logger.HashUID(in.convID)))
 		return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "busy, please retry").WithRetryAfter(time.Second)
 	}
 	return logger.RedactErr(fmt.Errorf("messaging: send: %w", err), uid, in.peer, in.convID, MessageID(uid, in.key))
+}
+
+// ctxFailure is the wire answer for a request whose own context ended (canceled or past its deadline), else nil.
+func ctxFailure(ctx context.Context) *apierr.Error {
+	switch {
+	case errors.Is(ctx.Err(), context.Canceled):
+		return apierr.New(connect.CodeCanceled, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "request canceled")
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return apierr.New(connect.CodeDeadlineExceeded, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "deadline exceeded")
+	}
+	return nil
 }
 
 func peerDocOf(p identity.Profile) PeerDoc {

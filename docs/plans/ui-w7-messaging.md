@@ -336,7 +336,7 @@ Prices (§7):
 | W7-4 | `make proto`; `FEATURE_MESSAGING`, config, rate limits, `DailyCap`, quota fields, ceiling, Terraform vars; `internal/messaging` skeleton with flag-guarded handlers; wiring | backend-developer | M | W7-2 | logic yes; shared files serialise (`config.go`, `apiserver.go`, `ratelimit_config.go`, `quota.go`, `flag-ceiling.json`, Terraform vars) | In review (PR pending) |
 | W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | In review (PR pending) |
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | In review (PR pending) |
-| W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Open |
+| W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | In review (PR pending) |
 | W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Open |
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Open |
@@ -558,7 +558,7 @@ Order:
 - **Flag.** Never flag-gated (right to delete, ADR-0011).
 - **Seam.** `messaging.Eraser` / `messaging.Exporter` behind identity's `StepEraser` and exporter interfaces.
 
-### W7-7 — ListConversations  [owner: backend-developer] [size: M] [depends: W7-5]  Status: Open
+### W7-7 — ListConversations  [owner: backend-developer] [size: M] [depends: W7-5]  Status: In review (PR pending)
 - **Description.**
   - The folder INBOX or REQUESTS from the caller's own subcollection (the path comes from the token uid; no user id parameter).
   - `lastMessageAt DESC, __name__ DESC`, Limit; a `since` refresh with a 5 s settle; sealed tokens bound to `(uid, folder)`.

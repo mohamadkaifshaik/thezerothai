@@ -72,8 +72,8 @@ func asConnect(err error, target **connect.Error) bool {
 // TestServer_AllSixHandlers drives each RPC over the wire in allowlist mode with a caller outside the allowlist:
 // SendMessage and AcceptMessageRequest are FAILED_PRECONDITION FEATURE_DISABLED feature=messaging, the other four reach
 // Unimplemented (the flag is not globally off). With the flag off, all six are FEATURE_DISABLED. An allowlisted caller
-// gets past the gate on all six: Unimplemented for the four skeleton RPCs and, for SendMessage (W7-5), its own
-// validation of the empty request.
+// gets past the gate on all six: Unimplemented for the three skeleton RPCs and, for SendMessage (W7-5) and
+// ListConversations (W7-7), their own validation of the empty request.
 func TestServer_AllSixHandlers(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(c messagingv1connect.MessagingServiceClient, uid string) error{
@@ -105,7 +105,7 @@ func TestServer_AllSixHandlers(t *testing.T) {
 	perCaller := map[string]bool{"SendMessage": true, "AcceptMessageRequest": true}
 	// open is the code a caller past the gate gets from this RPC.
 	open := func(name string) connect.Code {
-		if name == "SendMessage" {
+		if name == "SendMessage" || name == "ListConversations" {
 			return connect.CodeInvalidArgument
 		}
 		return connect.CodeUnimplemented

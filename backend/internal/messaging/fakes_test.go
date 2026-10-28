@@ -3,6 +3,8 @@ package messaging
 import (
 	"bytes"
 	"context"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -26,6 +29,58 @@ type fakeRepo struct {
 	sendRes  SendResult
 	sendErr  error
 	freshErr error // what FreshRecipient returned when the fake ran it
+
+	// entries is users/{uid}/{folder} keyed "uid|folder" (W7-7); lists and counts record the calls, queries the queries.
+	entries map[string][]EntryRow
+	lists   int
+	counts  int
+	queries []ListQuery
+	listErr error
+}
+
+func entryKey(uid, folder string) string { return uid + "|" + folder }
+
+// ListEntries answers like the Firestore query: `lastMessageAt DESC, __name__ DESC`, StartAfter / EndBefore, Limit.
+func (f *fakeRepo) ListEntries(_ context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lists++
+	f.queries = append(f.queries, q)
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	rows := slices.Clone(f.entries[entryKey(uid, folder)])
+	// after reports whether (t, id) sorts strictly after (ct, cid) in the DESC order, i.e. is older.
+	older := func(t time.Time, id string, c *cursor.Cursor) bool {
+		return t.Before(c.CreatedAt) || (t.Equal(c.CreatedAt) && id < c.DocID)
+	}
+	var out []EntryRow
+	for _, r := range rows {
+		if q.Before != nil && !older(r.LastMessageAt, r.ID, q.Before) {
+			continue
+		}
+		if q.After != nil && (older(r.LastMessageAt, r.ID, q.After) || (r.LastMessageAt.Equal(q.After.CreatedAt) && r.ID == q.After.DocID)) {
+			continue
+		}
+		out = append(out, r)
+	}
+	slices.SortFunc(out, func(a, b EntryRow) int {
+		if c := b.LastMessageAt.Compare(a.LastMessageAt); c != 0 {
+			return c
+		}
+		return strings.Compare(b.ID, a.ID)
+	})
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) CountRequests(_ context.Context, uid string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counts++
+	return int64(len(f.entries[entryKey(uid, dmRequestsCollection)])), nil
 }
 
 func (f *fakeRepo) GetConversation(_ context.Context, id string) (ConvDoc, bool, error) {
@@ -127,6 +182,9 @@ func (r *recBadge) Forget(uids ...string) {
 	r.got = append(r.got, uids)
 }
 
+// testCursorKey seals the list tokens of the unit tests.
+var testCursorKey = []byte("0123456789abcdef0123456789abcdef")
+
 const (
 	alice = "uid-alice"
 	bob   = "uid-bob"
@@ -163,7 +221,7 @@ func newRig(t *testing.T, mut func(*rig)) *rig {
 		mut(r)
 	}
 	r.svc = New(r.reg, Deps{
-		Repo: r.repo, Social: r.social, Profiles: r.profs, Events: r.events, Badge: r.badge, Limits: r.limits, Now: func() time.Time { return r.now },
+		Repo: r.repo, Social: r.social, Profiles: r.profs, Events: r.events, Badge: r.badge, Limits: r.limits, CursorKey: testCursorKey, Now: func() time.Time { return r.now },
 	}).(*service)
 	return r
 }
