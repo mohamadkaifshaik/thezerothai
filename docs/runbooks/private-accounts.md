@@ -143,3 +143,10 @@ A revision older than the Part B enforcement floor (`main` 061395a0, #395) shows
 stored posts stay `PUBLIC`. While `privacy/protectedAuthors.uids` is non-empty, never route traffic to such a revision. The
 check, the floor and the prod rule are in `docs/runbooks/rollback.md`, "Private accounts: never roll back past
 enforcement". W3-38 records the revision names of 100% of dev traffic and of `last-good` before the allowlist apply.
+
+The check is enforced for the script-driven paths (W3-42): `scripts/promotion/resolve-rollback.sh` refuses a `last-good`
+image older than `rollback_floors.PRIVATE_ACCOUNTS` in `scripts/promotion/flag-ceiling.json` (now `main` e94014c6, #418)
+while `FEATURE_PRIVATE_ACCOUNTS` on the target is not `off`, and it also refuses an image with no commit tag. It does not
+replace the `privacy/protectedAuthors` check before a manual `update-traffic`: turning the flag off lifts the script's
+floor but protects nobody's existing posts. Before widening the flag past the dev allowlist, confirm the floor in the
+file is at or before the commit `last-good` was built from (W3-39 on `last-good`, then raise).
