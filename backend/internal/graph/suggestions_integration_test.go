@@ -2,8 +2,8 @@
 
 // suggestions_integration_test.go: ListSuggestedUsers (ADR-0024 D8, ticket W3-12) against the Firestore emulator:
 // the friends-of-friends `in` + order-by query, the exclusion matrix on real documents, the curated fallback, the
-// 41-read cold cap (42 with the interceptor, which these tests do not run), the 0-read warm call and the Follow
-// eviction. The emulator does not enforce composite indexes: the index the query needs is the existing follows
+// cold cap (31 reads at the default EdgeLimit 20, 32 with the interceptor, which these tests do not run; 41 and 42 with
+// EdgeLimit pinned to 30; ADR-0024 Amendment 2 B1(b)), the 0-read warm call and the Follow eviction. The emulator does not enforce composite indexes: the index the query needs is the existing follows
 // (followerId ASC, createdAt DESC), reasoned from firebase/firestore.indexes.json in the repo_suggestions.go comment.
 package graph_test
 
@@ -128,7 +128,8 @@ func TestListEdgesByFollowers_OrderedAcrossFollowers(t *testing.T) {
 
 // seedSuggestionWorld creates viewer "v", followees fe-0..fe-29 (the viewer follows them in that order, so fe-29 is the
 // newest) and candidates ca-0..ca-11. Followee i follows candidates i%12 and (i+5)%12 at a time that grows with i, so
-// the newest 30 edges come from followees 15..29 and cover all 12 candidates.
+// the newest 30 edges come from followees 15..29 and cover all 12 candidates; the newest 20 (the default EdgeLimit) come
+// from followees 20..29 and still cover all 12.
 func seedSuggestionWorld(t *testing.T, w wired) (viewer string, followees, candidates []string) {
 	t.Helper()
 	viewer = "uid-v"
@@ -147,10 +148,12 @@ func seedSuggestionWorld(t *testing.T, w wired) (viewer string, followees, candi
 	return viewer, followees, candidates
 }
 
-// TestListSuggestedUsers_ColdWarmReadCap is the budget assertion of ticket W3-12 at the service boundary: a cold call
-// on a fresh instance (empty caches) reads the caller graph (1), the 30 newest edges (30) and hydrates 10 candidates
-// (10) = 41, which is the documented 42 with the interceptor's read; a warm call with the snapshot still cached reads
-// nothing (1 when the 60 s snapshot entry has expired, W3-22 L-1: TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere).
+// TestListSuggestedUsers_ColdWarmReadCap is the budget assertion of ticket W3-12 at the service boundary, with EdgeLimit
+// pinned to 30 (the pre-Amendment 2 default, still a supported setting up to 30): a cold call on a fresh instance (empty
+// caches) reads the caller graph (1), the 30 newest edges (30) and hydrates 10 candidates (10) = 41, which is 42 with
+// the interceptor's read; a warm call with the snapshot still cached reads nothing (1 when the 60 s snapshot entry has
+// expired, W3-22 L-1: TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere). The config default is
+// TestListSuggestedUsers_ColdReadCapAtTheDefault.
 func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 	w := newWired(t)
 	viewer, followees, candidates := seedSuggestionWorld(t, w)
@@ -191,10 +194,34 @@ func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 
 	// A second instance has its own caches: it pays the cold cost again, and the order (a hash of viewer, candidate and
 	// the IST day) is the same.
-	other := newInstance(w.client, withSuggestions(graph.SuggestionLimits{}))
+	// It is pinned to the same EdgeLimit 30 as the first: at the default 20 the window, and so the candidate set, differs.
+	other := newInstance(w.client, withSuggestions(graph.SuggestionLimits{EdgeLimit: 30}))
 	again, againReads := listSuggested(t, other, viewer, 0)
 	if againReads > 41 || !slices.Equal(rowUIDs(again), rowUIDs(cold)) {
 		t.Errorf("second instance: reads %d rows %v, want <= 41 and %v", againReads, rowUIDs(again), rowUIDs(cold))
+	}
+}
+
+// TestListSuggestedUsers_ColdReadCapAtTheDefault is the same world at the config default (ADR-0024 Amendment 2 B1(b):
+// EdgeLimit 20, zero SuggestionLimits normalize to it): the query reads the 20 newest edges, which still hold all 12
+// candidates, so the cold call is exactly the graph (1) + 20 + 10 hydrated = 31, the documented 32 with the interceptor.
+func TestListSuggestedUsers_ColdReadCapAtTheDefault(t *testing.T) {
+	w := newWired(t)
+	viewer, _, candidates := seedSuggestionWorld(t, w)
+
+	fresh := newInstance(w.client, withSuggestions(graph.SuggestionLimits{}))
+	cold, coldReads := listSuggested(t, fresh, viewer, 0)
+	t.Logf("BUDGET ListSuggestedUsers cold reads=%d at the default EdgeLimit 20 (+1 interceptor = %d, documented hard cap 32)", coldReads, coldReads+1)
+	if coldReads != 31 {
+		t.Errorf("cold reads = %d, want exactly 31 for this world (1 graph + 20 edges + 10 profiles); fewer means the cap was not reached", coldReads)
+	}
+	if len(cold) != 5 {
+		t.Fatalf("rows = %v, want 5", rowUIDs(cold))
+	}
+	for _, it := range cold {
+		if !slices.Contains(candidates, it.User.UserID) {
+			t.Errorf("row %s is not a candidate", it.User.UserID)
+		}
 	}
 }
 
@@ -237,8 +264,8 @@ func TestListSuggestedUsers_ExclusionMatrixOnRealDocuments(t *testing.T) {
 	if want := slices.Clone(ok); !slices.Equal(got, want) {
 		t.Errorf("rows = %v, want exactly %v", got, want)
 	}
-	if reads > 41 {
-		t.Errorf("reads = %d, want <= 41", reads)
+	if reads > 31 { // default limits: 1 graph + at most 20 edges + at most 10 profiles
+		t.Errorf("reads = %d, want <= 31", reads)
 	}
 }
 

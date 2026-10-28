@@ -34,6 +34,11 @@ all reads, against its own 10% review line (`docs/reviews/cost-model.md` section
 (6.3%) or `SUGGESTIONS_EDGE_LIMIT` 20 (9.4%; a change of a cap in `envs/*/main.tf`, reviewed like logic, with its cost note). Choose before
 `follow_suggestions` ramps past the dev allowlist. This plan keeps the shipped value (30).
 
+**Update 2026-10-28: decided.** ADR-0024 Amendment 2 was accepted by the merge of #367 and takes both levers (48 h client cache with guards, and
+`SUGGESTIONS_EDGE_LIMIT` 20, cold cap 32). The backend PR (#373) moves the code default and both `main.tf` literals to 20. Dev keeps the explicit 30
+of section 2.1 until a targeted dev apply of the `api` service, so the "equal to the code defaults" note in that table holds only until #373 merges.
+`follow_suggestions` stays on the dev allowlist until the Amendment 2 handoff is complete.
+
 ## 1. Preconditions, with evidence (dev project `dzeroth-dev`, captured 2026-10-27, 14:37 to 15:33 UTC)
 
 The raw output of every command below was kept outside the repository (the preparing session's scratchpad, files `1a-*`, `1b-*`, `1c-*`; some raw files hold uids, so none is
@@ -360,6 +365,7 @@ the practical check is a cold call repeatedly above its ceiling in the 4.1 table
 3. **Faster, in seconds, no Terraform:** `gcloud run services update-traffic api --project=dzeroth-dev --region=asia-south1 --to-revisions=$SERVING=100`, where `$SERVING` is the revision noted
    in step 4. It has no W3 env, so every flag is off by the code default, and it still contains #335 and #354. `last-good` (`api-00555-yeq`) is also such a revision. Then make the Terraform
    change so state and live agree. **Do not run `deploy-dev` between the two**: it builds its candidate from the service template, which still carries the flags until Terraform is changed.
+   **Update 2026-10-28.** `deploy-dev` has run since (#368, 18:30 UTC on 2026-10-27). Dev now serves `api-00571-xat`, and `last-good` is `api-00307-fcs`. Both carry the W3 env (the four flags on `allowlist`, `PROFILE_MEDIA_RETIRE=banner`), so routing to `last-good` does **not** turn the flags off. The revisions with no W3 env are `api-00564-vik` (`$SERVING` above) and `api-00561-meb`; both also have the retire switch `off` and lack only #368's job-log fix. Re-check with `gcloud run revisions describe` before routing.
 4. The backfill is not rolled back: `hasMedia` on posts is harmless with the flag off.
 
 ## 7. Not verified here (and why)
@@ -406,3 +412,29 @@ No `TESTER_*` or `SMOKE_*` credential exists on the deploying machine (the smoke
 
 The cohort and the Vision figures are unchanged by this run (Vision units this month 10 of the 10,000 cap, 0 today, read from `make cost PROJECT_ID=dzeroth-dev` after the route).
 For the next reader: the dev `api` template now carries the 24 W3 entries, so the next `deploy-dev` run keeps the four flags on `allowlist`; a rollback by Terraform removes the nine tfvars lines as section 6 says.
+
+### 8.2 The founder's in-app smoke run, read from the logs and Firestore (2026-10-28)
+The founder ran the in-app legs in the dev web app on the evening of 2026-10-27, with the allowlisted test accounts and one account that is not allowlisted (founder, 2026-10-28). The server side of that run, 17:58 to 19:24 UTC, was read on 2026-10-28 at about 04:10 UTC with the 4.3 filters, the request-log 5xx filter on every RPC, and true/false reads of the accounts' `users` and `media` documents. Counts only: no uid, uid hash or value is written here.
+An account counts as allowlisted only if a `MEDIA` or `REPOSTS` tab call answered `ok` for it, because `profile_tabs` refuses anyone else. Three did.
+
+| Leg | Evidence | Status |
+|---|---|---|
+| 1. Flags reach the client | `GetMe` `ok` for all three; the client then called the gated RPCs and got `ok` | Covered in effect (the log has no `enabledFeatures` list) |
+| 2. Location and website | One account's `users` document has both set now | Covered |
+| 3. Banner set | 2 `CreateUpload` + `FinalizeUpload` pairs with purpose `BANNER`, each followed by `UpdateProfile` `ok`, from two accounts; 1 `AVATAR` pair. Dev Firestore holds exactly 2 `BANNER` media documents, one per account, both `READY`, and each account still shows that banner | Covered (two first sets) |
+| 4. Pin | No account has a pinned post now. The client sends a pin only when one is chosen, so no profile save cleared one | **Not shown by the run** |
+| 5. The four tabs | `GetUserTimeline` `ok`: 4 `replies`, 5 `reposts` and 9 `media` across the three accounts; 21 `posts`, 2 of them from the account that is not allowlisted (the Posts tab is never gated) | Covered. A `media` or `reposts` answer of `ok` also proves both W3-2 indexes |
+| 6. Likes | 2 `ListLikedPosts` `ok` (19 and 3 reads) | Covered; 19 is under the 23 cold ceiling |
+| 7. "Follows you" | One `Follow` `ok` (17:58:54), then profile opens, but no `GetProfileRelationship` call reached the server during the run. The app calls it whenever it opens another account's profile without a fresh cached answer (5 min); the only call between 15:00 UTC and the read was at 15:36, before the flags | **Not shown by the run**: the chip had no server answer to show |
+| 8. Suggestions | 5 `ListSuggestedUsers` `ok` (1 to 9 reads) | Covered; all far under the 42 cap |
+| 9. Clear | Location, website and both banners are still set | Not run; it is cleanup, not a check |
+| 4.2 Smoke A | In the app, the account that is not allowlisted used only the Posts tab, so the gated features stayed hidden on the client. No `failed_precondition` on any W3 RPC: the six server refusals need direct calls (the 4.2 table) | Client side covered; **server refusals not run** |
+| Banner replace (`media.md`, "Owed to the testers") | No `account_job=profile_media_retired` line, no `/internal/pubsub/jobs` push and no `profile_media_retire_enqueue_failed` since the switch. Correct, because both banner sets were first sets | **Not run** |
+
+**Rollback trigger (section 6).** Not met. The four new RPCs answered 49 calls: 46 `ok` and 3 `unauthenticated` (the deployer's no-token probes at 17:17). No 5xx on any RPC in the window, and no line at ERROR or above; the only WARNING lines are the expected 401 and 400 request lines. No cold call went above its 4.1 ceiling. This is thin evidence: 49 calls from three accounts, most of them in the first two hours.
+
+**Still to do (in the app, or with the 4.1 helpers in a terminal that holds the credentials):**
+1. Step 7: with tester B following the tester, the tester opens B's profile after a reload, and the "Follows you" chip shows. One `GetProfileRelationship` line should appear.
+2. Step 4: pin one of the tester's own posts (post menu, Pin); the "Pinned" row shows on the Posts tab.
+3. Section 4.2, the six checks, as smoke account A with the helpers (the app hides these features, so it cannot produce the refusals).
+4. One banner **replace or remove** by either account that has a banner, then checks 1 to 6 in `media.md` "Owed to the testers".

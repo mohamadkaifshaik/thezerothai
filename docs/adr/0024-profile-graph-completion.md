@@ -1,5 +1,5 @@
 # 0024. Profile and graph completion (W3 Part A)
-Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default); Amendment 1 Proposed (2026-10-27, W3-22 M-1); Amendment 2 Proposed (2026-10-27, W3-23 who-to-follow read trigger)
+Status: Accepted (founder, 2026-10-27, by merging PR #325 with every recommended default); Amendment 1 Accepted (founder, 2026-10-27, by merging PR #349; W3-22 M-1); Amendment 2 Accepted (founder, 2026-10-28, by merging PR #367; W3-23 who-to-follow read trigger)
 Date: 2026-10-27
 Deciders: architect (proposal); the founder accepts by merging. The first W3 implementation PR flips the status, as
 #306 did for ADR-0023. Nine founder questions are listed below, each with a recommended default.
@@ -20,9 +20,9 @@ Related ADRs:
 Part B (private accounts) is ADR-0025. Nothing here depends on it. Where both touch a path, this ADR names the hook and
 ADR-0025 fills it.
 
-## Amendment 1 (2026-10-27, Proposed): kill switch hides the website, clears always allowed, operator lever (W3-22 M-1); old banner and avatar objects deleted (D1 Option 5B)
+## Amendment 1 (2026-10-27, Accepted): kill switch hides the website, clears always allowed, operator lever (W3-22 M-1); old banner and avatar objects deleted (D1 Option 5B)
 
-**Status: Proposed.** Merging its PR accepts A1 to A5. A4 records the founder's answer to question 2 of the W3-22
+**Status: Accepted** (founder, 2026-10-27, by merging PR #349, which accepted A1 to A5). A4 records the founder's answer to question 2 of the W3-22
 review: **Option 5B** (founder decision, 2026-10-27, relayed to the architect by the coordinator; the founder's merge of
 this PR is the acceptance). It amends D1. Source: the W3-22 security review (merged #348,
 `docs/reviews/security-review-w3.md`), findings M-1 and M-2 and its "Questions for the founder". Gate: A1 to A3 are
@@ -302,9 +302,9 @@ new topic, Scheduler job, collection or index.
     placeholder release.
 - **Flag:** no new flag. `FEATURE_PROFILE_EXTRAS` keeps its ceiling (dev allowlist 3, no prod raise). A4's `PROFILE_MEDIA_RETIRE` is per-project config (rule 11), not a cohort flag.
 
-## Amendment 2 (2026-10-27, Proposed): who to follow back under its own 10% read line (W3-23); 48 h client cache and `SUGGESTIONS_EDGE_LIMIT` 20
+## Amendment 2 (2026-10-27, Accepted 2026-10-28): who to follow back under its own 10% read line (W3-23); 48 h client cache and `SUGGESTIONS_EDGE_LIMIT` 20
 
-**Status: Proposed.** Merging its PR accepts B1 to B3. Source: the W3-23 cost report (merged #352,
+**Status: Accepted** (founder, 2026-10-28, by merging PR #367, which accepted B1 to B3). Source: the W3-23 cost report (merged #352,
 `docs/reviews/cost-model.md` §1 "Who-to-follow call mix", the §2 W3 notes, §6 "ADR-0024 triggers" and §9). It amends
 D8 ("Hard read cap", "Caches"), D10 (the `SUGGESTIONS_EDGE_LIMIT` default and the storm arithmetic), the
 `ListSuggestedUsers` row of the Cost impact table and the Stage-ladder row "Who to follow". **Gate:**
@@ -904,7 +904,7 @@ and charges the edge read to callers that never render the chip. B rejected.
   follows fewer than 3 accounts, or when step 3 yields fewer than 3. The same step-4 filter applies; curated rows fill
   after the friends-of-friends rows, up to the hydrate cap.
 - **Hard read cap.**
-  - Friends of friends: 1 (interceptor) + 1 (graph) + 30 (edges) + 10 (hydration) = **42**. Amendment 2 B1 (proposed): 32 at
+  - Friends of friends: 1 (interceptor) + 1 (graph) + 30 (edges) + 10 (hydration) = **42**. Amendment 2 B1 (accepted): 32 at
     `SUGGESTIONS_EDGE_LIMIT` 20.
   - Curated: 1 + 1 + 10 = **12**.
   - Planning 25. It never scans: no cursor, no target parameter, ≤ 5 results.
@@ -913,7 +913,7 @@ and charges the edge read to callers that never render the chip. B rejected.
     viewer's 60 s snapshot has expired: every warm hit is re-filtered against `graph/{uid}` (W3-22 L-1 amendment, 2026-10-27), so
     a blocker added on another instance is hidden within 60 s. The 42 cold cap and the planning 25 do not change.
   - This instance's Follow removes the followed uid from the cached entry.
-  - The client caches the result 24 h per uid (W3-19). Amendment 2 B1 and B2 (proposed): 48 h for a non-empty answer, 6 h for an
+  - The client caches the result 24 h per uid (W3-19). Amendment 2 B1 and B2 (accepted): 48 h for a non-empty answer, 6 h for an
     empty one, 24 h after a limit, and one refill when follows empty the card.
 - **Privacy.** It reveals follow edges of accounts the caller already follows, which `ListFollowing` already shows.
   It never suggests anyone in `blockedBy`. ADR-0025: a protected followee's edges are visible to the caller because
@@ -941,8 +941,8 @@ and charges the edge read to callers that never render the chip. B rejected.
 | Key | Value | Effective (×3) | Notes |
 |---|---|---|---|
 | `RATE_LIMIT_SUGGESTIONS_PER_MIN` | 10 | 30/min | |
-| `SUGGESTIONS_CALLS_PER_DAY` | 50 | 150/day | `DailyCaps` entry `limit_name=suggestions_daily`. Worst cold 42 × 150 = 6,300 reads/day per account, already bounded by the 2,000 read budget per uid per instance (ADR-0010 D5); Amendment 2 (proposed): 32 × 150 = 4,800, under the budget, so the call cap binds |
-| `SUGGESTIONS_SAMPLE_FOLLOWEES` / `_EDGE_LIMIT` / `_HYDRATE_MAX` / `_MAX_RESULTS` / `_CACHE_TTL` | 30 / 30 / 10 / 5 / 1h | n/a | `config.Load` rejects edge > 50, hydrate > 50, sample > 30; Amendment 2 (proposed): edge limit 20 |
+| `SUGGESTIONS_CALLS_PER_DAY` | 50 | 150/day | `DailyCaps` entry `limit_name=suggestions_daily`. Worst cold 42 × 150 = 6,300 reads/day per account, already bounded by the 2,000 read budget per uid per instance (ADR-0010 D5); Amendment 2 (accepted): 32 × 150 = 4,800, under the budget, so the call cap binds |
+| `SUGGESTIONS_SAMPLE_FOLLOWEES` / `_EDGE_LIMIT` / `_HYDRATE_MAX` / `_MAX_RESULTS` / `_CACHE_TTL` | 30 / 30 / 10 / 5 / 1h | n/a | `config.Load` rejects edge > 50, hydrate > 50, sample > 30; Amendment 2 (accepted): edge limit 20 |
 | `RATE_LIMIT_LIKES_LIST_PER_MIN` | 10 | 30/min | |
 | `RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN` | 60 | 180/min | 0 reads warm |
 
@@ -1038,7 +1038,7 @@ what the model multiplies.
 | `CreateUpload` + `FinalizeUpload`, BANNER | 2 / 1 + 5 / 1.7 (existing rows) | 3.3 + 4.4 (the finalize was 2.7 before W3-22 M-3 added the screening claim write; the whole-product writes per DAU move by under 0.01) | 1 (TTL) | 0.005 | 0.01 |
 | `ListLikedPosts`, page 20 / 50 | 23 / 53 cold; 20 / 50 warm; empty 2 (22) | 0 | 0 | 0.2 | 4.4 |
 | `GetProfileRelationship` (replaces the header's `GetRelationships`) | 3 cold (+1 overflow) / 0 warm (1; +0.5 net over the replaced call) | 0 | 0 | 2 | 1.0 |
-| `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm, 2 when the 60 s snapshot expired (W3-22 L-1) (25) | 0 | 0 | 1.0 (Amendment 2, proposed: 0.63 at 27.6 reads each) | 25.0 (Amendment 2: 17.2) |
+| `ListSuggestedUsers` | 42 friends of friends / 12 curated cold, 1 warm, 2 when the 60 s snapshot expired (W3-22 L-1) (25) | 0 | 0 | 1.0 (Amendment 2, accepted: 0.63 at 27.6 reads each) | 25.0 (Amendment 2: 17.2) |
 | Pin clean-up in the `post_delete` job | 2 (the post, fresh, then `users/{uid}` in the transaction; Amendment 1 A5) | ≤ 1 (only when the deleted post was the pin) | 0 | 0.05 | 0.10 |
 | `opsctl backfill-has-media` (one-off per project) | 1 per post | 1 per post lacking the field | 0 | n/a | n/a |
 | **Part A total** | | | | **≈ 2.3 new requests** | **≈ 40.2** |
@@ -1081,7 +1081,7 @@ The pin clean-up (+0.10 reads per DAU at 2 reads per deleted post, Amendment 1 A
 cold-count correction (3, not 2) move no total by more than INR 0.5.
 - **Fixed monthly cost added: INR 0.** No new GCP service, topic, Scheduler job or Terraform resource. There are two
   composite indexes and five fieldOverrides. The credit window (ADR-0022) lifts nothing.
-- **Largest line:** who to follow (25 of 40.2 reads; 35.7 of 51.5 as W3-23 restated it). Amendment 2 (proposed) takes the
+- **Largest line:** who to follow (25 of 40.2 reads; 35.7 of 51.5 as W3-23 restated it). Amendment 2 (accepted) takes the
   first two levers. Its levers, cheapest first:
   - a 48 h client cache (−12.5);
   - `SUGGESTIONS_EDGE_LIMIT` 20 (−5 worst);
@@ -1093,7 +1093,7 @@ cold-count correction (3, not 2) move no total by more than INR 0.5.
 
 | Concern | Stage 0 (this ADR) | Seam | Stage 2/3 target | Trigger |
 |---|---|---|---|---|
-| Who to follow | Friends of friends at query time, hard cap 42, per-viewer 1 h instance cache, curated fallback | `graph.Suggester` (no caller knows the source); no cursor on the wire | A precomputed table, refreshed by a batch job over a Firestore export (or SQL) and served at 1 read; later a ranking ADR | Suggestion reads above 10% of daily reads, or the §6 Firestore trigger, sustained 7 days (Amendment 2, proposed: cap 32, 48 h client cache, modelled 6.1%) |
+| Who to follow | Friends of friends at query time, hard cap 42, per-viewer 1 h instance cache, curated fallback | `graph.Suggester` (no caller knows the source); no cursor on the wire | A precomputed table, refreshed by a batch job over a Firestore export (or SQL) and served at 1 read; later a ranking ADR | Suggestion reads above 10% of daily reads, or the §6 Firestore trigger, sustained 7 days (Amendment 2, accepted: cap 32, 48 h client cache, modelled 6.1%) |
 | Profile tabs | One `Limit`ed indexed query per page, no cache (the Posts tab keeps author-recent) | `timeline` interface; tab-bound opaque tokens | A per-tab instance cache, then Memorystore with the Stage 2 timeline | Tab reads above 15% of daily reads |
 | Likes list | `userLikes.recent[]`, newest 1,000, resume-by-id cursor | `engagement.LikesList`; opaque `likes|uid` token | A `likes (uid, createdAt)` index or a SQL `likes` table with timestamps and full history | User demand, or most active users at the 1,000 cap |
 | "Follows you" | 1 cached point read per (caller, target) | `GetProfileRelationship` (single target by contract) | Served from the Stage 2 graph store (SQL edge table or Memorystore) | The §6 trigger |
@@ -1128,7 +1128,7 @@ The plan's decisions, each with this ADR's recommended default.
 
 | # | Question | Recommended default |
 |---|---|---|
-| 2 | Who-to-follow source: (a) friends of friends + (c) curated fallback, (b) recent active authors, or curated only | **(a) + (c)**: planning 25 reads, about INR 7.6 / 76 a month at 300 / 3,000 DAU; Amendment 2 (proposed) restates it at 17.2 reads per DAU |
+| 2 | Who-to-follow source: (a) friends of friends + (c) curated fallback, (b) recent active authors, or curated only | **(a) + (c)**: planning 25 reads, about INR 7.6 / 76 a month at 300 / 3,000 DAU; Amendment 2 (accepted) restates it at 17.2 reads per DAU |
 | 3 | Likes visibility: owner only, newest 1,000 | **Yes**: no new index, no public scraping vector |
 | 4 | Tabs: Posts · Replies · Reposts · Media | **Yes**: dropping Reposts saves one index and 3 reads per DAU |
 | 5 | Location and website, no birthday | **Yes** (D2 rules) |

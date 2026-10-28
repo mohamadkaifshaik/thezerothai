@@ -13,13 +13,14 @@ const MaxSuggestedUserIDs = 20
 // SuggestionsConfig holds the SUGGESTIONS_* limits and the curated fallback list of GraphService.ListSuggestedUsers
 // (ADR-0024 D8, D10). The RPC's per-minute bucket and daily call cap live in RateLimitConfig
 // (RATE_LIMIT_SUGGESTIONS_PER_MIN, SUGGESTIONS_CALLS_PER_DAY). These values bound the read cap: friends of friends
-// is 1 (interceptor) + 1 (graph) + EdgeLimit (edges) + HydrateMax (profiles) = 42 reads at the defaults, the curated
-// path 1 + 1 + HydrateMax = 12.
+// is 1 (interceptor) + 1 (graph) + EdgeLimit (edges) + HydrateMax (profiles) = 32 reads at the defaults (ADR-0024
+// Amendment 2 B1(b): the edge limit went from 30, a cap of 42, to 20), the curated path 1 + 1 + HydrateMax = 12.
 type SuggestionsConfig struct {
 	// SampleFollowees is how many of the caller's newest followees seed the friends-of-friends query
 	// (SUGGESTIONS_SAMPLE_FOLLOWEES, default 30, at most 30: the Firestore `in` limit).
 	SampleFollowees int
-	// EdgeLimit is the Limit of that query (SUGGESTIONS_EDGE_LIMIT, default 30, at most 50: CLAUDE.md rule 5).
+	// EdgeLimit is the Limit of that query (SUGGESTIONS_EDGE_LIMIT, default 20, at most 50: CLAUDE.md rule 5). A project
+	// may set 20 to 30 by a reviewed config PR that cites the ADR-0024 Amendment 2 B3 fill check; above 30 needs an ADR.
 	EdgeLimit int
 	// HydrateMax is the most candidates hydrated through identity.Directory (SUGGESTIONS_HYDRATE_MAX, default 10, at
 	// most 50).
@@ -49,7 +50,7 @@ func loadSuggestions() (SuggestionsConfig, error) {
 		min, max int
 	}{
 		{&c.SampleFollowees, "SUGGESTIONS_SAMPLE_FOLLOWEES", 30, 1, 30},
-		{&c.EdgeLimit, "SUGGESTIONS_EDGE_LIMIT", 30, 1, 50},
+		{&c.EdgeLimit, "SUGGESTIONS_EDGE_LIMIT", 20, 1, 50},
 		{&c.HydrateMax, "SUGGESTIONS_HYDRATE_MAX", 10, 1, 50},
 		{&c.MaxResults, "SUGGESTIONS_MAX_RESULTS", 5, 1, 5},
 	}

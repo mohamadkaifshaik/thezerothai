@@ -254,7 +254,7 @@ func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Reques
 }
 
 // ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller (ADR-0024 D8, D9); the
-// logic is in suggestions.go. Hard cap 42 reads cold (interceptor 1, caller graph 1, edges <= 30, hydration <= 10), 12
+// logic is in suggestions.go. Hard cap 32 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 20, hydration <= 10), 12
 // on the curated path, 1 warm (2 when the 60 s snapshot has expired: every warm hit is re-filtered, W3-22 L-1); 0 writes. At
 // most 5 rows, no cursor, Since unset, possibly none.
 func (s *Server) ListSuggestedUsers(ctx context.Context, req *connect.Request[graphv1.ListSuggestedUsersRequest]) (*connect.Response[graphv1.ListSuggestedUsersResponse], error) {
