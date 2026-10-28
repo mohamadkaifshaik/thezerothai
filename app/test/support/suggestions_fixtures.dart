@@ -66,6 +66,10 @@ class SuggestionsRig {
   /// How far "now" has moved since the rig was built.
   Duration clock = Duration.zero;
 
+  /// The repositories' "now" (the real clock when the rig was built, plus
+  /// [clock]): for a test that writes a disk entry by hand.
+  DateTime get now => _base.add(clock);
+
   List<graph.UserListItem> users;
   Future<graph.ListSuggestedUsersResponse> Function()? onSuggestions;
   Future<graph.FollowResponse> Function(graph.FollowRequest request)? onFollow;
@@ -90,7 +94,7 @@ class SuggestionsRig {
     apiClient: apiClient,
     graphRepository: graphRepository,
     database: database,
-    now: () => _base.add(clock),
+    now: () => now,
     onUnexpectedError: (error, stack) => onUnexpectedError?.call(error, stack),
   );
 
@@ -118,12 +122,18 @@ class SuggestionsRig {
 
 /// An in-memory stand-in for widget tests that need no database: serves
 /// [rows] (minus [hide]n ones) and counts [calls] of [suggestionsFor].
+///
+/// [followed] reports a refill when [refillRows] is set and no visible row is
+/// left; the next [suggestionsFor] then serves [refillRows] (a second call
+/// counts in [calls]). Without [refillRows] it never refills.
 class FakeSuggestionsRepository implements SuggestionsRepository {
   FakeSuggestionsRepository(this.rows);
 
   List<graph.UserListItem> rows;
+  List<graph.UserListItem>? refillRows;
   final Set<String> hidden = {};
   final Set<String> dropped = {};
+  final List<String> followedIds = [];
   int calls = 0;
   int clears = 0;
 
@@ -141,6 +151,17 @@ class FakeSuggestionsRepository implements SuggestionsRepository {
 
   @override
   void hide(String uid, String userId) => hidden.add(userId);
+
+  @override
+  bool followed(String uid, String userId) {
+    followedIds.add(userId);
+    hidden.add(userId);
+    final next = refillRows;
+    if (next == null || current(uid).isNotEmpty) return false;
+    rows = next;
+    refillRows = null;
+    return true;
+  }
 
   @override
   void drop(String uid, String userId) {

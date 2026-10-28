@@ -78,8 +78,8 @@ class AppWidget extends StatefulWidget {
   final IdentityRepository identityRepository;
   final GraphRepository graphRepository;
 
-  /// The 24 h "Who to follow" list (W3-19) behind the Home card and the
-  /// desktop right column.
+  /// The 48 h "Who to follow" list (W3-19, ADR-0024 Amendment 2) behind the
+  /// Home card and the desktop right column.
   final SuggestionsRepository suggestionsRepository;
   final AccountRepository accountRepository;
   final AuthRepository authRepository;

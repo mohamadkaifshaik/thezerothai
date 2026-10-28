@@ -109,8 +109,9 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     database: database,
   );
-  // "Who to follow" (W3-19): one ListSuggestedUsers per 24 h and account,
-  // shared by the Home card and the desktop right column.
+  // "Who to follow" (W3-19, ADR-0024 Amendment 2): one ListSuggestedUsers per
+  // 48 h and account (6 h when empty, 24 h after a limit), shared by the Home
+  // card and the desktop right column.
   final suggestionsRepository = SuggestionsRepository(
     apiClient: apiClient,
     graphRepository: graphRepository,

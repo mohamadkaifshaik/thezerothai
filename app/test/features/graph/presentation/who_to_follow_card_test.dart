@@ -272,6 +272,51 @@ void main() {
       expect(repo.dropped, {'u1'});
     });
 
+    testWidgets('following the last visible row asks for the list again and '
+        'shows the new rows (once)', (tester) async {
+      repo.rows = five().take(2).toList();
+      repo.refillRows = [suggestedUser(7), suggestedUser(8)];
+      await open(tester);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+      expect(find.text('User 2'), findsOneWidget);
+      expect(repo.calls, 1);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(followed, ['u1', 'u2']);
+      expect(repo.calls, 2);
+      expect(find.byType(UserListRow), findsNWidgets(2));
+      expect(find.text('User 7'), findsOneWidget);
+      expect(find.text('User 8'), findsOneWidget);
+
+      // The new rows are the last ones of the session: following them empties
+      // the card for good and sends nothing more.
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(UserListRow), findsNothing);
+      expect(find.text('Who to follow'), findsNothing);
+      expect(repo.calls, 2);
+      expect(repo.followedIds, ['u1', 'u2', 'u7', 'u8']);
+    });
+
+    testWidgets('a follow that leaves rows does not ask again', (tester) async {
+      repo.refillRows = [suggestedUser(7)];
+      await open(tester);
+
+      await tester.tap(followButtons().first);
+      await tester.pumpAndSettle();
+
+      expect(repo.calls, 1);
+      expect(find.text('User 7'), findsNothing);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+    });
+
     testWidgets('a rejected follow keeps the row and says why', (tester) async {
       followError = const QuotaExceededException('limit');
       await open(tester);
@@ -318,8 +363,10 @@ void main() {
       expect(find.byType(UserListRow), findsNWidgets(3));
     });
 
-    testWidgets('dismissing everything removes the card', (tester) async {
+    testWidgets('dismissing everything removes the card and never asks '
+        'again', (tester) async {
       repo.rows = five().take(2).toList();
+      repo.refillRows = [suggestedUser(7)];
       await open(tester);
 
       await tester.tap(find.byTooltip('Dismiss @user1'));
@@ -328,6 +375,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Who to follow'), findsNothing);
+      expect(repo.calls, 1);
+      expect(repo.followedIds, isEmpty);
     });
 
     testWidgets('the flag turning off removes the card', (tester) async {
