@@ -47,7 +47,7 @@ header says which cells it adds.
 | ADR-0010 D6 drop matrix on Reposts and Likes | `TestW320_TabDropMatrixOnRepostsAndMedia`, `TestW320_LikesDropMatrixWithEmbeddedAuthors`, `TestW320_TabRowsLeaveWhenPostsAreDeletedOrHidden` | A REPOST or QUOTE whose embedded author the viewer blocks, who blocks the viewer or whom the viewer mutes is dropped (counted under the right cause: 4 blocked, 2 muted on the likes page); the unrelated author's copy and the viewer's own copies stay; the author sees all of their own; unblock and unmute bring rows back; **blockedBy overflow fails closed** for every foreign copy; a viewer who blocks or mutes the AUTHOR still gets the posts; a deleted and a taken-down media post leave the Media tab and `removed_ids` lists the takedown |
 | Unlike between pages | `TestW320_LikesResidualCasesAndTrim` (likes_list), `TestW320_LikesForgedTokens`, `TestW320_LikesAreOwnerOnly` | Page size 10 over 25 likes: both anchors unliked, a double unlike, Last unliked plus a row above it, a trim of the 5 oldest, a trim that reaches Next: each walk terminates, no row twice inside the remainder, exact expected remainders. The residual "Last unliked, Next unliked and re-liked" case is **defect D-1** (section 5). Forged tokens (expired 25 h, wrong version, negative or non-numeric index, non-post anchors, missing and extra parts, sealed for another uid, for the bookmarks list, with a bare uid, from the future) are VALIDATION at 0 reads; two users' lists are strictly their own |
 | Follows-you block matrix and NOT_FOUND byte identity | `TestW320_FollowsYouMatrix`, `TestW320_FollowsYouPairCache`, `TestW320_FollowsYouConvergesAcrossInstances`, `TestW320_TabNotFoundBytesMatchGetProfile` (profile_tabs) | 8 relationship states built with real Follow / Block / Mute calls (no relation, target follows, caller follows, mutual, muted, blocked then edge gone, block then unblock, unfollow), self id at 0 reads, malformed ids at 0 reads, blocked-by refusal at 2 reads (3 on overflow); the pair cache is evicted by the TARGET's Follow, Unfollow and by a Block in either direction and not by the caller's own; a second instance converges within the cache TTL. **Byte identity:** for a user who never existed, a SUSPENDED, a DELETING, a blocking user and a blocker the caller's overflowed blockedBy no longer names, GetUserTimeline MEDIA, REPOSTS and GetProfileRelationship answer exactly GetProfile's HTTP status, content type and body; a control row shows all are 200 for an ordinary user |
-| Suggestions exclusion matrix and read cap | `TestW320_SuggestionsExclusionMatrix`, `...OverflowSuggestsNothing`, `...CuratedFallback`, `...HardCap42`, `...PerFolloweeCap`, `...KnownInactiveFolloweeIsSkipped`, `...BlockerOnAnotherInstance` (suggestions) | Self, already followed, blocked, blocks the caller, muted, SUSPENDED, DELETING and a ghost uid are never suggested, on the friends-of-friends path and on the curated list; only the 4 good candidates come back; overflow suggests nothing at 2 reads; **the cap is exactly 42** (30 followees, 30 edges, 10 hydrated) also on a dense graph (120 edges); W3-22 L-5: one followee contributes at most its newest 3 candidates, a followee the profile cache knows is suspended is left out of the edge query (7 reads against 14 for a control instance); W3-22 L-1: a user who blocks the viewer on another instance leaves the warm rows within the snapshot TTL (**2 reads** after expiry, 0 inside it) and Follow of the blocker is NOT_FOUND |
+| Suggestions exclusion matrix and read cap | `TestW320_SuggestionsExclusionMatrix`, `...OverflowSuggestsNothing`, `...CuratedFallback`, `...HardCap32`, `...HardCap42`, `...PerFolloweeCap`, `...KnownInactiveFolloweeIsSkipped`, `...BlockerOnAnotherInstance` (suggestions) | Self, already followed, blocked, blocks the caller, muted, SUSPENDED, DELETING and a ghost uid are never suggested, on the friends-of-friends path and on the curated list; only the 4 good candidates come back; overflow suggests nothing at 2 reads; **the cap is exactly 32 at the config default** (30 followees, 20 edges, 10 hydrated; Amendment 2), and exactly 42 when `SUGGESTIONS_EDGE_LIMIT` is pinned to 30, each also on a dense graph (120 edges); W3-22 L-5: one followee contributes at most its newest 3 candidates, a followee the profile cache knows is suspended is left out of the edge query (7 reads against 14 for a control instance); W3-22 L-1: a user who blocks the viewer on another instance leaves the warm rows within the snapshot TTL (**2 reads** after expiry, 0 inside it) and Follow of the blocker is NOT_FOUND |
 | Backfill rerun = 0 writes | `TestW320_LegacyPostIsOffTheMediaTabUntilBackfilled`, `TestW320_HasMediaOnEveryCreatePathAndTheMediaTab` (backfill) | Every create path (root, reply, quote, text, repost) writes an explicit `hasMedia` bool with both flags off; a legacy post (no key) is off the Media tab until `opsctl backfill-has-media`; the dry run writes 0; the real run writes one doc per missing key (2 writes, 3 reads); **the rerun writes 0** (3 reads); the Media tab then lists the legacy image post |
 | `budgettest` on every RPC at the ADR-0024 ceilings | `TestW320_BudgetTable` (budget_table) plus the W320BUDGET lines of the other files | Section 3 |
 | UpdateProfile daily cap and no-op skip (W3-22 L-4, added after the merge) | `TestW320_UpdateProfileDailyCapAndNoOpWrites` (profile_extras) | A change costs 1 read / 1 write; the same values again (trim-equal) **1 read / 0 writes**, `updatedAt` does not move, no `profile_fields_changed`; call cap+1 is RESOURCE_EXHAUSTED RATE_LIMITED `limit=profile_update_daily` at 0 reads and 0 writes; another user and GetMe are untouched |
@@ -91,12 +91,14 @@ ADR convention). Measured with the request-log `fs_reads` / `fs_writes` / `fs_de
 | `GetProfileRelationship` | standalone, cold Directory too / overflow | 4 / 5 | 0 | 0 | 3 (+1 Directory when GetProfile did not run first, +1 overflow) |
 | `GetProfileRelationship` | blocked-by refusal / with overflow | 2 / 3 | 0 | 0 | caller graph only |
 | `GetProfileRelationship` | warm, self id, malformed id | 0 | 0 | 0 | 0 |
-| `ListSuggestedUsers` | friends of friends, hard cap (30 followees, 30 edges, 10 hydrated) and dense graph | **42** | 0 | 0 | 42 |
-| `ListSuggestedUsers` | friends of friends, 3 followees / 6 edges / 4 candidates | 12 | 0 | 0 | 42 |
-| `ListSuggestedUsers` | exclusion matrix: 16 edges, 7 hydrated | 25 | 0 | 0 | 42 |
-| `ListSuggestedUsers` | per-followee cap: 8 edges, 5 hydrated | 15 | 0 | 0 | 42 |
-| `ListSuggestedUsers` | known-suspended followee skipped (control instance 14) | 7 | 0 | 0 | 42 |
-| `ListSuggestedUsers` | curated only / friends of friends then curated | 6 / 14 | 0 | 0 | 12 / 42 |
+| `ListSuggestedUsers` | friends of friends, hard cap at the config default (30 followees, 20 edges, 10 hydrated), cold | **32** | 0 | 0 | 32 (Amendment 2) |
+| `ListSuggestedUsers` | same, dense graph (120 edges, window 20) | 30 | 0 | 0 | 32 |
+| `ListSuggestedUsers` | pinned at `SUGGESTIONS_EDGE_LIMIT=30` (30 edges), also dense (120 edges) | **42** / 42 | 0 | 0 | 42 (walk-back bound) |
+| `ListSuggestedUsers` | friends of friends, 3 followees / 6 edges / 4 candidates | 12 | 0 | 0 | 32 |
+| `ListSuggestedUsers` | exclusion matrix: 16 edges, 7 hydrated | 25 | 0 | 0 | 32 |
+| `ListSuggestedUsers` | per-followee cap: 8 edges, 5 hydrated | 15 | 0 | 0 | 32 |
+| `ListSuggestedUsers` | known-suspended followee skipped (control instance 14) | 7 | 0 | 0 | 32 |
+| `ListSuggestedUsers` | curated only / friends of friends then curated | 6 / 14 | 0 | 0 | 12 / 32 |
 | `ListSuggestedUsers` | no followees and no curated list / blockedBy overflow | 1 / 2 | 0 | 0 | 2 |
 | `ListSuggestedUsers` | warm, snapshot cached / snapshot expired (W3-22 L-1) | 0 / 2 | 0 | 0 | 1 warm (planning), 2 when the 60 s snapshot expired |
 | `post_delete` job | pin cleared: the whole job line seen in the journey (posts, media and graph steps included; observed in the pre-merge failing run, not asserted here) | 8 | 1 | 2 | the pin step alone is 2 reads / 1 write, asserted by `identity.TestClearIfPinned_Integration` |
@@ -216,5 +218,50 @@ firebase emulators:exec --project demo-dzeroth-local --only firestore,auth,pubsu
 ```
 Windows can leave an emulator `java.exe` behind after `emulators:exec`; kill only the one still listening on 8080 / 8085 (default
 ports) before the next run.
+
+## Amendment 2 re-run (2026-10-28)
+
+Tester agent, branch `test/a2-suggestions-rerun` on `main@76ae3364` (ADR-0024 Amendment 2: backend #373, client #374).
+Tests only; no production code edited. Commands: `make test-int RACE_FLAG='-v -count=1 -run "Suggest|W320"'` (verbose
+suggestion run; exits 2 at the coverage gate, as expected for a filtered run), then the full `make test-int`, then
+`flutter test test/features/graph test/features/home/presentation/home_screen_test.dart`.
+
+**Backend, W320BUDGET (default config unless noted; emulators).**
+
+| Case | reads | ceil_reads |
+| --- | --- | --- |
+| cold, 30 followees, 20 edges, 10 hydrated (config default) | **32** | 32 |
+| cold, dense graph (120 edges, window 20), default | 30 | 32 |
+| cold, pinned `SUGGESTIONS_EDGE_LIMIT=30`, 30 edges (`TestW320_SuggestionsHardCap42`) | **42** | 42 |
+| cold, pinned 30, dense graph (120 edges) | 42 | 42 |
+| chain test `TestListSuggestedUsers_ChainReadCapAndWire` (real interceptor chain, `fs_reads` log field) cold / warm | 32 / 0 | 32 / 1 |
+| exclusion matrix 25, 3-followee 12, friends of friends then curated 14, curated only 6, suspended followee skipped 7 | as shown | 32 / 32 / 32 / 12 / 32 |
+| warm, snapshot cached / snapshot expired | 0 / 2 | 0 / 2 |
+
+`TestW320_SuggestionsHardCap32` passes (exactly 32 at the default, `w320SugColdCap` = 2 + EdgeLimit + HydrateMax read from
+`config.Load`), HardCap42 still passes at the pinned 30. Verbose run: 409 PASS lines, 0 FAIL. Full `make test-int`: every package
+`ok`, 0 FAIL, combined `internal/` coverage 92.5% (gate 70%).
+
+**B3 checks (ADR-0024 Amendment 2).**
+
+| ADR check | Covered by | Result |
+| --- | --- | --- |
+| Fill: cold friends-of-friends calls with `candidates` below 5 still answer correctly | `TestW320_SuggestionsCuratedFallback/3_followees_but_a_single_usable_friend_of_a_friend` (1 fof row first, curated after, 14 reads) and the budget-table case "3 followees / 6 edges / 4 candidates" (12 reads) | pass, no new test |
+| Per-followee cap L-5 (3 per followee) at 20 edges | `TestW320_SuggestionsPerFolloweeCap` (15 reads) and the chain test (4 followees x 8 edges, window 20, newest 3 each = 12 distinct candidates, 10 hydrated) | pass, no new test |
+| Storm bound: 50 calls/day x 32 = 1,600 under the 2,000 per-uid read budget | had no test | **added** `TestSuggestionsStormBound_DefaultsStayUnderTheReadBudget` (`backend/internal/apiserver/suggestions_storm_bound_test.go`, unit): pins edge limit 20, cold cap 32, 50 calls/day, storm 1,600 <= budget; fails if a default returns to 30 edges (2,100) |
+
+The production fill alarm itself (cold fof calls with `candidates` < 5 over 30% for 7 days) is a field measurement
+(`cost-model.md` section 9), not testable on emulators.
+
+**Client (`flutter test test/features/graph` plus the Home screen who-to-follow cases): 346 passed, 0 failed.** Present and passing:
+the lifetimes 48 h / 6 h / 24 h (`kSuggestionsLimitBackoff`), the 48 h boundary at one minute, empty answer 6 h; "a limit answer is
+kept 24 h: no call before, restarts included" (and the same at 1028 for the call path); the refill once per session
+(group "followed: the refill, once per session", incl. two confirmations landing together refill once, a failing refill cannot
+loop, a refill that meets a limit is kept for the limit window, reset on sign-out); resume after the TTL in
+`who_to_follow_card_test.dart` ("resume: free while the entry is fresh, one call past the TTL"). build_runner and dart format were not run.
+
+**Failures:** none. **Environment:** the first full `make test-int` could not start (Pub/Sub port 8085 held by `java.exe` PID
+25248, not mine and not killed, most likely another agent's suite); the full run was repeated with
+`FIREBASE="firebase --config firebase.graph-loadtest.json"` and passed.
 
 VERDICT: PASS
