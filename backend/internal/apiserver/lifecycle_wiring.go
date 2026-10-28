@@ -119,3 +119,40 @@ func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreR
 	}
 	return nil
 }
+
+// followRequestsExporter is the one method of graph's repo the `follow_requests` export section needs.
+type followRequestsExporter interface {
+	ExportRequests(ctx context.Context, uid string) (graph.RequestsExport, error)
+}
+
+// followRequestsSection is the export's `follow_requests` section (ADR-0025 D11): {sent, received}, newest first.
+type followRequestsSection struct{ g followRequestsExporter }
+
+func (followRequestsSection) Name() string { return "follow_requests" }
+
+func (s followRequestsSection) WriteSection(ctx context.Context, uid string, w io.Writer) error {
+	data, err := s.g.ExportRequests(ctx, uid)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		return fmt.Errorf("apiserver: write follow_requests section: %w", err)
+	}
+	return nil
+}
+
+// followRequestsEraserStep is the follow_requests step (step "follow_requests", ADR-0025 D11): BeforeIdentity, after
+// bookmarks. It has its own checkpoint type: step names are persisted in deletionJob.step, so it never joins graph's.
+func followRequestsEraserStep(e *graph.RequestEraser) identity.StepEraser {
+	return eraserStep[graph.RequestCheckpoint]{name: "follow_requests", purge: e.PurgeUser}
+}
+
+// registerFollowRequestsLifecycle registers the follow_requests step and export section on l, whether or not
+// FEATURE_PRIVATE_ACCOUNTS is on (documents outlive the flag). Call it after registerBookmarkLifecycle (Lifecycle
+// always runs the identity step last).
+func registerFollowRequestsLifecycle(l *identity.Lifecycle, repo *graph.FirestoreRepo) error {
+	if err := l.RegisterEraser(identity.BeforeIdentity, followRequestsEraserStep(graph.NewRequestEraser(repo))); err != nil {
+		return err
+	}
+	return l.RegisterExportSection(followRequestsSection{repo})
+}
