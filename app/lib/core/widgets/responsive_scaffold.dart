@@ -23,7 +23,9 @@ export 'app_nav_destination.dart';
 /// Mirrors X's web layout (`docs/x_research/screens/_shared.md`). The
 /// destinations are the high-frequency ones only; Settings/Sign out live in
 /// the drawer and the account chip menu. A destination marked
-/// `AppNavDestination.railOnly` (Bookmarks) is left out of the phone bar.
+/// `AppNavDestination.railOnly` (Bookmarks) is left out of the phone bar; one
+/// with `onActivate` (More) opens a menu anchored at its icon instead of
+/// navigating.
 class ResponsiveScaffold extends StatefulWidget {
   const ResponsiveScaffold({
     super.key,
@@ -73,6 +75,19 @@ class ResponsiveScaffold extends StatefulWidget {
 class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  // Anchors of the rail destinations that open a menu (`onActivate`), by index.
+  final _anchorKeys = <int, GlobalKey>{};
+
+  void _selectOnRail(int index) {
+    final activate = widget.destinations[index].onActivate;
+    if (activate == null) {
+      widget.onDestinationSelected(index);
+      return;
+    }
+    final anchor = _anchorKeys[index]?.currentContext;
+    if (anchor != null) activate(anchor);
+  }
+
   static const _composeTooltip = 'New post';
 
   @override
@@ -120,6 +135,27 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     );
   }
 
+  NavigationRailDestination _railDestination(int index, AppNavDestination d) {
+    final label = Text(d.label);
+    final icon = d.iconWidget(d.icon);
+    return NavigationRailDestination(
+      icon: d.onActivate == null
+          ? icon
+          : KeyedSubtree(
+              key: _anchorKeys.putIfAbsent(index, GlobalKey.new),
+              child: icon,
+            ),
+      selectedIcon: d.iconWidget(d.selectedIcon),
+      label: d.semanticsLabel == null
+          ? label
+          : Semantics(
+              label: d.semanticsLabel,
+              excludeSemantics: true,
+              child: label,
+            ),
+    );
+  }
+
   Widget _wide(BuildContext context, {required bool isDesktop}) {
     final colors = Theme.of(context).colorScheme;
     final master = isDesktop ? widget.masterPane : null;
@@ -135,7 +171,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
             NavigationRail(
               extended: isDesktop,
               selectedIndex: widget.selectedIndex,
-              onDestinationSelected: widget.onDestinationSelected,
+              onDestinationSelected: _selectOnRail,
               // X's order: the items, then the Post control right below them,
               // then (pushed to the bottom) the account chip.
               trailing: Expanded(
@@ -159,12 +195,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 ),
               ),
               destinations: [
-                for (final d in widget.destinations)
-                  NavigationRailDestination(
-                    icon: d.iconWidget(d.icon),
-                    selectedIcon: d.iconWidget(d.selectedIcon),
-                    label: Text(d.label),
-                  ),
+                for (var i = 0; i < widget.destinations.length; i++)
+                  _railDestination(i, widget.destinations[i]),
               ],
             ),
             if (master != null)
