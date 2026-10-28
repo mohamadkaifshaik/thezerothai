@@ -750,3 +750,16 @@ Founder decision 2026-10-28: accepted ("Option A").
   server sets the field, like the header badge from `Profile.is_private`); no stage-ladder change.
 - **Tickets:** W3-28c (backend: `make proto`, fill the field, a full-chain test and a +0-read budget check) and
   W3-33c (client: the badge on `UserListRow`), in the plan.
+
+## Implementation note (W3-28b, 2026-10-28): accept notifications from the `privacy_public` job
+
+Founder decision 2026-10-28: keep the existing per-actor cap.
+
+- When an account goes public, the `privacy_public` job accepts every pending request and emits one
+  `follow_accepted` per requester, with the account as the actor. Those notifications pass through the existing
+  per-actor daily recipient cap (200, or 50 for an account in its first day).
+- Past the cap, every follow edge is still created; only the surplus requesters get no `follow_accepted` row or
+  push, and the fan-out logs `notification_fanout_capped` (runbook `docs/runbooks/private-accounts.md` section 6).
+- Why: the cap is the abuse guard for any single actor's fan-out, and the follows themselves are never affected.
+  It only matters for an account with hundreds of pending requests. No separate cap for this type.
+- Cost: unchanged (+0); the cap only removes writes.
