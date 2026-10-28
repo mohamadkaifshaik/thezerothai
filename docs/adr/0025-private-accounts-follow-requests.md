@@ -695,7 +695,12 @@ Founder decision 2026-10-28: accepted.
   unfollows a protected author must lose that author's content in their own reposts too.
 - **When:** only while a protected-set loader is wired (`posts.WithProtectedAuthors`). Writes stay 0, and creating
   a repost or quote costs nothing extra.
-- **Cost:** this is the one exception to "+0 reads on every path" in the Cost impact table. GetPost of one's own
+- **Cost:** with the W3-30 path below, this is the only exception to "+0 reads on every path" in the Cost impact table. GetPost of one's own
   copy goes from 3 to 4 reads cold per request (with the interceptor read), the same as GetPost of another user's
   post. Opening one's own reposts is a small share of GetPost calls, and the read is cached 60 s, so the daily
   total stays inside the Part B planning margin. No free-tier line moves.
+- **Same rule on the caller's own profile tabs (W3-30, founder decision 2026-10-28: accepted).** GetUserTimeline of
+  the caller's own profile, when a page holds the caller's REPOST or QUOTE of another user's post, reads the
+  caller's graph once: +1 read cold, 0 warm (cached 60 s), only while a protected-set loader is wired. Own Media
+  and Reposts tabs go from 24 to 25 cold at page 20; other viewers' tabs and Home are unchanged. Same reason:
+  the copier's follow state toward the original's author decides whether the copy stays.
