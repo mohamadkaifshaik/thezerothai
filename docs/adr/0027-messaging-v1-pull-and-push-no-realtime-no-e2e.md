@@ -40,10 +40,11 @@ What exists on `main` (15975e5, 2026-10-28; the plan's table was checked on d2ff
 - Eraser steps are registered in `apiserver.Build`; the last appended steps run `scheduled` → `bookmarks` →
   `follow_requests`, all before `identity`.
 
-**Measured numbers.** No production traffic yet. The cost model (`docs/reviews/cost-model.md`, header and §2, W2 +
-W3 Part A) is 281.7 reads, 33.6 writes, 8.4 deletes, 39.6 requests per DAU per day. Free reads run out at about 177 DAU
-and writes at about 596. The Stage 0 bill is about INR 471 / 1,711 / 3,773 a month at 300 / 1,000 / 3,000 DAU.
-W3 Part B and W4–W6 are not in the model yet; each is small next to this ADR's increment.
+**Measured numbers.** No production traffic yet. This ADR keeps the plan's cost baseline as the founder approved it
+(`docs/reviews/cost-model.md` §5, W2 lines): 248.7 reads, 33.5 writes, 8.4 deletes, 37.7 requests per DAU per day; free
+reads run out at about 201 DAU and writes at about 597; the Stage 0 bill is about INR 441 / 1,653 / 3,498 a month at
+300 / 1,000 / 3,000 DAU. W3–W6 increments are not part of this baseline (the plan notes each is small next to W7's);
+W7-23 restates the W7 rows on the cost model current when it runs.
 
 ## Founder decisions F1–F11 (recorded 2026-10-28: all defaults)
 INR lines are the W7 increment at 300 / 1,000 / 3,000 DAU, computed with the `cost-model.md` §7 prices (INR 95/USD).
@@ -57,7 +58,7 @@ INR lines are the W7 increment at 300 / 1,000 / 3,000 DAU, computed with the `co
 | F4 | Read receipts, typing | **(a) neither**; (b) receipts (a write per read, the peer polls for it); (c) typing (needs realtime) | **(a)** | (a) 0. (b) about +1.5 writes/DAU/day ≈ 0 / 4.5 / 13.5. (c) not possible at Stage 0 (D7) |
 | F5 | Export section `messages` | **(a) own messages in full, received ones as time + "received"**; (b) both sides in full | **(a)** | Same reads either way (both sides are read to order the export); ≈ 0 |
 | F6 | Kill-switch semantics | **(a) send and accept need the flag for the caller and the recipient; list, read, mark-read, delete and report need only "not globally off"; `off` hides everything**; (b) off for the caller hides the inbox too | **(a)** | 0 |
-| F7 | Push for messages | **(a) one generic FCM push per message, Android only, none for requests or muted senders, no Notifications row**; (b) (a) plus a push for requests | **(a)** | (a) included; its reads (1.5 per message, D9) ≈ 0.7 / 2.3 / 6.8, its requests and CPU sit in the Cloud Run lines. (b) about +0.1 more |
+| F7 | Push for messages | **(a) one generic FCM push per message, Android only, none for requests or muted senders, no Notifications row**; (b) (a) plus a push for requests | **(a)** | (a) included; its reads (3.5 per message, D9) ≈ 1.6 / 5.3 / 15.9, its requests and CPU sit in the Cloud Run lines. (b) about +0.1 more |
 | F8 | Message length | **(a) the post grammar: 280 code points, 10 lines**; (b) 1,000 code points | **(a)** | (a) included. (b) ≈ +3 KB per long message; < 0.1 / 0.1 / 0.3 storage |
 | F9 | Muted senders | **(a) delivered silently: no push, no unread increment; muted and blocked requests hidden**; (b) refused (reveals the mute) | **(a)** | 0 |
 | F10 | Navigation | **(a) Messages is the 5th bar item (Home, Explore, Notifications, Messages, Profile) and a rail item, with an unread badge**; (b) drawer only | **(a)** | 0 server (the badge rides on GetMe, D10) |
@@ -79,7 +80,7 @@ INR lines are the W7 increment at 300 / 1,000 / 3,000 DAU, computed with the `co
 - **B1 (chosen). Pull + push.** A backing-off `since` poll on a visible thread, an inbox `since` refresh, and an
   Android FCM push that triggers an immediate pull. Pros: request-billed, scales to zero, reuses the timeline and
   notifications cursor codecs. Cons: delivery bounded by the poll interval on web (≤ 15 s hot, ≤ 45 s quiet). Cost:
-  ≈ INR 11 / 55 / 471 (Cost impact).
+  ≈ INR 12 / 58 / 480 (Cost impact).
 - **B2. Firestore client listeners on owner-only docs.** Pros: sub-second delivery, no polling CPU. Cons: rules
   are deny-all to clients today; this needs a rules ADR (per-path `allow read` scoped to the uid), client SDK listeners
   on every platform, and re-architecting authz checks that the server makes today (block, mute, participant). Listener
@@ -184,7 +185,7 @@ pages allowed; `next_page_token` follows the query). Block from a thread reuses 
 delete the conversation.
 
 ### D5. API (contract in W7-2)
-`dzeroth.messaging.v1.MessagingService`, six RPCs (the plan's header said seven; the ticket list has six):
+`dzeroth.messaging.v1.MessagingService`, with the RPCs of plan ticket W7-2:
 `SendMessage`, `ListConversations` (folder INBOX / REQUESTS), `ListMessages`, `MarkConversationRead`,
 `AcceptMessageRequest`, `DeleteConversation` (for me; also "delete request"). Every mutation takes an
 `idempotency_key`; every list takes `page_size` (default 20, max 50), an opaque `page_token` and a `since_token`.
@@ -262,9 +263,9 @@ participant, block and mute checks out of Go. The trigger that moves this (D16) 
 - Payload (ADR-0017 D6): generic title and body ("New message" / "You have a new message"); `data` carries
   `type=message` and `conversationId` only. No sender, no text, no uid. D11 unchanged: no web push; iOS waits for the
   Apple launch.
-- **The fresh actor and recipient profile reads are skipped for push-only events** (they protect row writes from the
-  purge race; a push-only event writes nothing, and a deleted recipient has no devices left). Planning 1.5 reads per
-  message instead of 3.5; the plan's totals are restated below with this lever taken.
+- The fan-out keeps its fresh actor and recipient profile reads for this type, as the plan's cost model assumes
+  (9 reads worst, 3.5 planning per message). Skipping them for push-only events would save about 2 reads per message
+  (≈ 3 reads/DAU/day); that is left as a measured lever for W7-23, not taken here.
 - The recipient's graph is still read for suppression (ADR-0017 D5), and `notifications` must be on for the recipient.
 
 ### D10. Badge (A5)
@@ -342,7 +343,7 @@ See "Stage ladder" below.
 | SendMessage, new conversation | 7 (+ fresh recipient status, `quotas`) | — | 5 (message, conversation, 2 entries, `quotas.dmNew`) | 0 | 0.05 of the 1.5 sends |
 | SendMessage, replay | +1 (read the stored message) | — | 0 | 0 | different body → VALIDATION |
 | SendMessage, refused | ≤ 5 | — | 0 | 0 | one error |
-| Push delivery (`/internal`, push-only) | 7 (recipient graph 1, devices ≤ 5, +1 actor graph on `blockedBy` overflow) | **1.5** (D9) | 0 | 0 | was 9 / 3.5 in the plan |
+| Push delivery (`/internal`, push-only, no row) | 9 (actor and recipient `users` fresh 2, recipient graph 1, devices ≤ 5, +1 actor graph on overflow) | 3.5 | 0 | 0 | D9 |
 | ListConversations, first page 20 (INBOX) | 23 (interceptor, query 20, caller graph, requests `count()`) | 9 | 0 | 0 | REQUESTS the same without the `count()` |
 | ListConversations `since` | 3 | 2 | 0 | 0 | |
 | ListMessages first page 20 / 50 | 24 / 54 (interceptor, conversation, query, peer `users`, caller graph for `can_reply`) | 15 | 0 | 0 | NOT_FOUND after ≤ 2 reads |
@@ -356,28 +357,25 @@ See "Stage ladder" below.
 | Export section (same account) | ≈ 620 | — | 0 | 0 | |
 
 **Per DAU per day** (assumptions; W7-23 replaces them with measurements): 1.5 messages sent, 1.5 pushes, 2.0 inbox
-calls, 1.5 thread opens, **5 polls**, 1.0 mark-read, 4 GetMe → **≈ 12.6 requests, ≈ 34.0 reads, ≈ 5.8 writes,
-≈ 0.05 deletes** (the plan's 37.0 reads less 3.0 from the D9 lever).
+calls, 1.5 thread opens, **5 polls**, 1.0 mark-read, 4 GetMe → **≈ 12.6 requests, ≈ 37.0 reads, ≈ 5.8 writes,
+≈ 0.05 deletes**.
 
 | INR per month (W7 increment) | 300 DAU | 1,000 DAU | 3,000 DAU |
 |---|---|---|---|
-| Firestore reads (34.0 × 30.42 = 1,034 per DAU-month, all billed past 177 DAU) | 10.3 | 34.4 | 103.1 |
-| Firestore writes (5.8/DAU/day; billed once the product passes 20k/day) | 0 | 17.4 | 52.3 |
+| Firestore reads (37.0 × 30.42 = 1,126 per DAU-month, all billed) | 11.2 | 37.4 | 112.3 |
+| Firestore writes (5.8/DAU/day; billed once the product passes 20k/day) | 0 (11.8k/day with W7) | 17.4 | 52.3 |
 | Firestore deletes | 0 | 0 | ≈ 0.1 |
-| Cloud Run requests (+383 per DAU-month) | 0 | 0 (1.57M of 2M) | 43.7 |
-| Cloud Run vCPU-s (12.6 × 0.1 s = 38.3 per DAU-month) | 0 | 0 (159k of 180k) | **262.0** (≈ 179 if a poll bills 20 ms) |
+| Cloud Run requests (+383 per DAU-month) | 0 | 0 (1.51M of 2M) | 43.7 |
+| Cloud Run vCPU-s (12.6 × 0.1 s = 38.3 per DAU-month) | 0 | 0 (153k of 180k) | **262.0** (≈ 179 if a poll bills 20 ms) |
 | Egress to India (≈ 10 KB/DAU/day) | 1.0 | 3.3 | 10.0 |
-| **W7 total** | **≈ 11** | **≈ 55** | **≈ 471** (≈ 388 with 20 ms polls; upper bound) |
-| Stage 0 bill, W2 + W3 Part A → + W7 | 471 → **≈ 482** | 1,711 → **≈ 1,766** | 3,773 → **≈ 4,244** |
+| **W7 total** | **≈ 12** | **≈ 58** | **≈ 480** (upper bound; ≈ 400 with 20 ms polls) |
+| Stage 0 bill with W2 + W7 (INR) | 441 → **≈ 453** | 1,653 → **≈ 1,711** | 3,498 → **≈ 3,978** |
 
-The plan said INR 12 / 58 / 480; the difference is the D9 lever.
-
-- **Quota crossovers that move:** Firestore writes reach the free 20k/day at about **508 DAU** (was 596; 456 at
-  3 messages/DAU/day, 399 at 5). Cloud Run requests reach 2M/month at about **1,272 DAU** (was about 1,660). vCPU-s
-  reach 180k/month at about **1,130 DAU** (was about 1,490). Reads: already billed; the free line moves from 177 to
-  about 158 DAU.
+- **Quota crossovers that move:** Firestore writes reach the free 20k/day at about **509 DAU** (was 597; 456 at
+  3 messages/DAU/day, 399 at 5). Cloud Run requests reach 2M/month at about **1,322 DAU** (was 1,743). vCPU-s reach
+  180k/month at about **1,174 DAU** (was 1,566). Reads are already billed.
 - **Sensitivity:** each poll per DAU per day ≈ INR 28/month at 3,000 DAU (21 CPU, 3.5 requests, 3.6 reads), ≈ 0.4 at
-  300. Each extra message per DAU per day ≈ INR 14/month at 1,000 DAU (5 reads, 3.1 writes, 2 requests). At 3,000 DAU
+  300. Each extra message per DAU per day ≈ INR 16/month at 1,000 DAU (7 reads, 3.1 writes, 2 requests). At 3,000 DAU
   polling is the largest line, which is why the realtime trigger watches it.
 - **Storage:** about 1 KB per message with index entries (text exempt) plus 2 entry updates: about 0.16 GiB a year at
   300 DAU, 1.6 GiB a year at 3,000 DAU (past the shared free 1 GiB within the year, then INR 10–20/month): the
@@ -399,7 +397,7 @@ requests, caps, block, mute, report and takedown; right-to-delete and export fro
 behind a named seam with a measured trigger.
 
 **Negative.** Delivery on web is bounded by the poll interval, not instant. Polling is the largest cost line at
-3,000 DAU. Writes become the binding free quota earlier (508 DAU instead of 596). Private text reaches an operator when
+3,000 DAU. Writes become the binding free quota earlier (509 DAU instead of 597). Private text reaches an operator when
 a message is reported. A block can lag up to 60 s on another instance. No read receipts, typing, images or groups.
 Rules 1 and 4 are bent for message ids (as ADR-0021 did).
 

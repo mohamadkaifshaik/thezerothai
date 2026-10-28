@@ -259,8 +259,8 @@ after the commit). What differs for this one type:
 - **D6 unchanged in spirit:** generic title and body ("New message"), `data` holds `type=message` and
   `conversationId` only (no sender, no text, no uid). Collapse key and Android tag `message` (type-level, as N-2).
 - **Own limiter bucket** (`MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR`, 20), outside the shared 10/h.
-- The fresh actor and recipient profile reads are skipped for this type (they guard row writes from the purge race;
-  it writes no row). D5 suppression still reads the recipient's graph.
+- The fan-out's reads are unchanged for this type (fresh actor and recipient profiles, the recipient's graph for D5
+  suppression, the devices).
 - Sent only when `messaging` and `notifications` are both on for the recipient.
 - **D11 unchanged:** no web push; iOS waits for the Apple launch.
 No decision of this ADR changes.
