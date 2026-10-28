@@ -119,7 +119,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | In review (PR #424) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | In progress (proto PR #427; backend after W3-40b #424 merges) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
-| W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | Open (depends: none; founder review of the gate file; gates any prod ramp) |
+| W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | In review (PR #428), founder review of `flag-ceiling.json` (depends: none; gates any prod ramp) |
 
 ## Milestones
 | # | Milestone | Tickets | Exit |
@@ -1361,7 +1361,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - AC: widget tests for the three rows, light and dark, 360 dp x2.0, a 48 dp target for the action; the action removes the row optimistically and restores it on a real error; `docs/ui-catalog.md` updated if the placeholder widget gains a variant.
 - **Flag.** None. **Cost.** 0 new RPCs; 1 undo RPC per tap.
 
-#### W3-42 Promotion: the `PRIVATE_ACCOUNTS` rollback floor (W3-36 M-1(b)) [production-deployer] [S] [depends: none; founder review of the gate file] Status: Open
+#### W3-42 Promotion: the `PRIVATE_ACCOUNTS` rollback floor (W3-36 M-1(b)) [production-deployer] [S] [depends: none; founder review of the gate file] Status: In review (PR #428), founder review of `flag-ceiling.json`
 - **Gate.** Before any prod ramp of `private_accounts` (with M-1(d): the flag stays `off` in prod until the first Part B release is at 100% and its `last-good` is post-Part-B). Not a W3-38 precondition.
 - **Where the floor lives.** In `scripts/promotion/flag-ceiling.json` (a founder-gated file), next to `PRIVATE_ACCOUNTS`, once for every environment: for example `"rollback_floors": {"PRIVATE_ACCOUNTS": {"commit": "061395a0a2ef3202482ffcd34273c032069865bf", "pr": 395, "reason": "W3-36 M-1"}}`. The floor is the image built from `main` at 061395a0 (#395, the last enforcement ticket) or later.
 - **Enforcement.** `resolve-rollback.sh` refuses a `last-good` image older than the floor whenever `PRIVATE_ACCOUNTS`' effective mode in that environment is not `off`.
