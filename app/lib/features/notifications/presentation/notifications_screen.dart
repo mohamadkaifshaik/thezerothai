@@ -23,6 +23,7 @@ import 'bloc/notifications_cubit.dart';
 import 'bloc/push_cubit.dart';
 import 'bloc/unread_badge_cubit.dart';
 import 'notifications_error_messages.dart';
+import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
 
@@ -143,6 +144,10 @@ class _NotificationsViewState extends State<_NotificationsView>
                             ],
                           ),
                         ),
+                      ),
+                      _inset(
+                        inset,
+                        const SliverToBoxAdapter(child: FollowRequestsRow()),
                       ),
                       _inset(
                         inset,
