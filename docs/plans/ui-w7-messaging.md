@@ -439,8 +439,8 @@ Order:
 
     If a new `ErrorReason` value is needed, it is additive in `common.proto`.
   - **Additive edits:**
-    - `identity.proto` `GetMeResponse.unread_conversation_count = 6`. The GetMe cost comment changes from "reads 2/1" to "reads 3/1 (+1 `count()` of unread conversations with `messaging` on, cached 30 s)", and the `cost-model.md` GetMe row with it (W7-23);
-    - `notifications.proto` `NOTIFICATION_TYPE_MESSAGE = 7`, push data only and never in ListNotifications (comment);
+    - `identity.proto` `GetMeResponse.unread_conversation_count` at the next free number when the PR opens (7 today: W3-25a took 6 for `pending_follow_request_count`, and W5-2's `home_tabs` may take 7 first). The GetMe cost comment, "reads 2/1 (+1 for a protected caller, cached 30 s)" since W3-25a, gains "+1 `count()` of unread conversations with `messaging` on, cached 30 s", and the `cost-model.md` GetMe row with it (W7-23);
+    - `notifications.proto` `NOTIFICATION_TYPE_MESSAGE` at the next free number when the PR opens (9 today: W3-25a took 7 and 8 for `FOLLOW_REQUEST` and `FOLLOW_ACCEPTED`), push data only and never in ListNotifications (comment);
     - `moderation.proto` `REPORT_TARGET_TYPE_MESSAGE = 3`, with the target-id shape in the comment.
 
   Every RPC comment carries its reads and writes from W7-1. `buf lint` and `buf breaking` are clean.
