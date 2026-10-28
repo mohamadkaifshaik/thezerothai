@@ -22,4 +22,5 @@
 	featureFollowSuggestions, err := flags.LoadSpec("FOLLOW_SUGGESTIONS", "follow_suggestions", flags.Off)
 	featurePrivateAccounts, err := flags.LoadSpec("PRIVATE_ACCOUNTS", "private_accounts", flags.Off)
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
+	featureShells, err := flags.LoadSpec("SHELLS", "shells", flags.Off)
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)

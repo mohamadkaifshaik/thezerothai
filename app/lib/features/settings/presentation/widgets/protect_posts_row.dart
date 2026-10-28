@@ -6,7 +6,7 @@ import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../bloc/protect_posts_cubit.dart';
 import '../protect_posts_messages.dart';
-import 'settings_group.dart';
+import '../../../../shared/widgets/settings_group.dart';
 
 /// The "Protect your posts" switch of Settings > Privacy & safety (W3-33b).
 ///

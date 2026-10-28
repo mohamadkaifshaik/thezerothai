@@ -204,6 +204,12 @@ type Config struct {
 	// [_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureUIShell flags.Spec
 
+	// FeatureShells is the client-only UI flag (wire name `shells`, docs/plans/ui-w8-shells.md) showing the W8
+	// coming-soon pages (Creator tools, Premium, Advertise, Calls) and their drawer and rail entries. No RPC is gated by
+	// it, it only reaches clients through GetMe.enabled_features. FEATURE_SHELLS[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
+	FeatureShells flags.Spec
+
 	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
 	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
 	// off in every environment: off means no log reads and no suspension-reset cost (docs/runbooks/moderation.md 3b).
@@ -839,6 +845,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureShells, err := flags.LoadSpec("SHELLS", "shells", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -924,6 +934,7 @@ func Load() (Config, error) {
 		FeatureFollowSuggestions:  featureFollowSuggestions,
 		FeaturePrivateAccounts:    featurePrivateAccounts,
 		FeatureUIShell:            featureUIShell,
+		FeatureShells:             featureShells,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,

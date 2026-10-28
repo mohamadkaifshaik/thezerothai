@@ -9,6 +9,7 @@ import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/shells/domain/shell_entries.dart';
 import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
@@ -16,6 +17,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_account_chip.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/app_more_menu.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import 'app_router.dart';
@@ -43,6 +45,7 @@ class MainShell extends StatelessWidget {
     required bool notifications,
     required bool bookmarks,
     required bool settings,
+    void Function(BuildContext anchor)? onMore,
   }) => [
     const _Destination(
       _Tab.home,
@@ -89,6 +92,21 @@ class MainShell extends StatelessWidget {
           label: 'Settings',
         ),
       ),
+    // Rail only: the menu of the shell entries (Creator tools, Premium, ...).
+    // It opens a menu at the item and never navigates; below 600dp the
+    // drawer carries those entries.
+    if (onMore != null)
+      _Destination(
+        _Tab.more,
+        AppNavDestination(
+          icon: Icons.more_horiz,
+          selectedIcon: Icons.more_horiz,
+          label: 'More',
+          semanticsLabel: 'More, menu',
+          railOnly: true,
+          onActivate: onMore,
+        ),
+      ),
   ];
 
   /// The selected tab, or null on screens that belong to no tab (Settings in
@@ -96,6 +114,13 @@ class MainShell extends StatelessWidget {
   _Tab? _selectedTab({required bool settingsTab}) {
     if (location.startsWith('/notifications')) return _Tab.notifications;
     if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
+    // The shell pages belong to the rail's More item. (Premium is a dialog on
+    // the root navigator: the page under it keeps its own tab.)
+    if (location == AppRouter.creatorStudioPath ||
+        location == AppRouter.advertisePath ||
+        location == AppRouter.callsPath) {
+      return _Tab.more;
+    }
     if (location.startsWith('/profile') || location.startsWith('/u/')) {
       return _Tab.profile;
     }
@@ -130,10 +155,14 @@ class MainShell extends StatelessWidget {
         newShell &&
         isFeatureEnabled(context, kFeatureBookmarks) &&
         isFeatureEnabled(context, kFeaturePosts);
+    final shellEntries = shellEntriesFor(context);
     final tabs = _destinationsFor(
       notifications: notificationsEnabled,
       bookmarks: bookmarksEntry,
       settings: !newShell,
+      onMore: shellEntries.isEmpty
+          ? null
+          : (anchor) => AppMoreMenu.show(anchor, entries: shellEntries),
     );
     final selected = _selectedTab(settingsTab: !newShell);
     final selectedIndex = selected == null
@@ -217,6 +246,9 @@ class MainShell extends StatelessWidget {
             context.go(AppRouter.bookmarksPath);
           case _Tab.settings:
             context.go(AppRouter.settingsPath);
+          case _Tab.more:
+            // Opens a menu through `onActivate`; never navigates.
+            break;
           case _Tab.profile:
             context.go(
               ownHandle == null || ownHandle.isEmpty
@@ -268,7 +300,7 @@ class _SettingsMaster extends StatelessWidget {
   }
 }
 
-enum _Tab { home, notifications, bookmarks, profile, settings }
+enum _Tab { home, notifications, bookmarks, profile, settings, more }
 
 class _Destination {
   const _Destination(this.tab, this.destination);
