@@ -101,6 +101,8 @@ type fakePosts struct {
 	created   []*posts.Post
 	removed   []string
 	viewCalls int
+	// shareRefused lists protected authors (ADR-0025 D5).
+	shareRefused map[string]bool
 }
 
 func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, error) {
@@ -406,6 +408,17 @@ func TestRepostAndUndo(t *testing.T) {
 		}
 		if len(e.posts.created) != 0 || e.events.reposts != 0 || len(e.posts.counts) != 0 {
 			t.Fatal("a replay changed state")
+		}
+	})
+	t.Run("protected author: PROTECTED_ACCOUNT, no write, no event (ADR-0025 D5)", func(t *testing.T) {
+		e := newEnv(t)
+		e.posts.shareRefused = map[string]bool{"author": true}
+		_, err := e.m.Repost(e.ctx, "viewer", keyOK, pidA)
+		if ae := requireCode(t, err, connect.CodeFailedPrecondition); ae.Reason != commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT {
+			t.Fatalf("reason = %v", ae.Reason)
+		}
+		if len(e.repo.repostParams) != 0 || len(e.posts.created) != 0 || e.events.reposts != 0 {
+			t.Fatal("a refusal wrote")
 		}
 	})
 	t.Run("original gone", func(t *testing.T) {
@@ -945,5 +958,30 @@ func TestRepost_ReplayWhileRepostExistsIsTheSameId(t *testing.T) {
 	}
 	if len(e.posts.created) != 1 || e.events.reposts != 1 || len(e.posts.counts) != 1 {
 		t.Fatalf("created=%d events=%d counts=%v, want the first call's effects only", len(e.posts.created), e.events.reposts, e.posts.counts)
+	}
+}
+
+// RefuseShare is posts' ADR-0025 D5 rule; the fake refuses authors listed in shareRefused.
+func (f *fakePosts) RefuseShare(_ context.Context, caller string, p *posts.Post) error {
+	if f.shareRefused[p.AuthorID] && p.AuthorID != caller {
+		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT, "this account's posts are protected")
+	}
+	return nil
+}
+
+// Undo is never gated by the audience (plan Part B rule 4): UnlikePost and UndoRepost resolve through
+// resolveForCounts and never call Viewable or RefuseShare, even when the author is now protected and not followed.
+func TestUndoNeverConsultsAudience(t *testing.T) {
+	e := newEnv(t)
+	e.posts.shareRefused = map[string]bool{"author": true}
+	before := e.posts.viewCalls
+	if _, err := e.m.Unlike(e.ctx, "viewer", keyOK, pidA); err != nil {
+		t.Fatalf("unlike: %v", err)
+	}
+	if _, err := e.m.UndoRepost(e.ctx, "viewer", keyOK, pidA); err != nil {
+		t.Fatalf("undo repost: %v", err)
+	}
+	if e.posts.viewCalls != before {
+		t.Fatalf("undo called Viewable %d times", e.posts.viewCalls-before)
 	}
 }

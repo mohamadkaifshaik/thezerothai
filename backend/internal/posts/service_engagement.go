@@ -77,7 +77,15 @@ func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error
 	if !ids.ValidPostID(id) {
 		return nil, apierr.Validation("quote_of_post_id", "quote_of_post_id must be a 19-digit post id")
 	}
-	return s.resolveTarget(ctx, uid, id)
+	q, err := s.resolveTarget(ctx, uid, id)
+	if err != nil {
+		return nil, err
+	}
+	// ADR-0025 D5: an approved caller may not quote a protected author's post (PROTECTED_ACCOUNT, 0 writes); 0 reads.
+	if err := s.aud.RefuseShare(ctx, uid, q); err != nil {
+		return nil, err
+	}
+	return q, nil
 }
 
 // applyQuote turns a root-post draft into a QUOTE of q: kind, the quote link, the frozen snapshot of q and the
@@ -132,4 +140,9 @@ func (s *service) releaseEngagement(ctx context.Context, p *Post) {
 		}
 		s.cache.AdjustCounts(p.QuoteOfID, 0, 0, -1)
 	}
+}
+
+// RefuseShare implements Engagement (ADR-0025 D5).
+func (s *service) RefuseShare(ctx context.Context, callerUID string, p *Post) error {
+	return s.aud.RefuseShare(ctx, callerUID, p)
 }

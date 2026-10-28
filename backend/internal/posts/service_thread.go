@@ -440,17 +440,26 @@ func applyReply(p *CreateParams, parent *Post) {
 // QUOTE p embeds. It reads the viewer's own lists only (never BlockedBy: an author who blocks the viewer is not
 // reported, GetPost answers NOT_FOUND for that). 0 reads for a post without a live embed; otherwise the viewer's graph
 // snapshot, which GetPost and GetThread have just cached (<= +1 read cold). On a graph error it is UNSPECIFIED and the
-// client falls back to its local relationship cache.
+// client falls back to its local relationship cache. With a protected-set loader wired it is PROTECTED (checked first) when the viewer may not see the original's author (ADR-0025 D4), and fails closed to PROTECTED when the follow state or the set is unknown.
 func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) postsv1.EmbedViewerState {
 	a := p.EmbeddedAuthor()
-	if a == "" || a == viewer || p.AuthorID == viewer {
+	if a == "" || a == viewer || (p.AuthorID == viewer && !s.aud.Enabled()) {
 		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 	}
 	snap, err := s.graph.Snapshot(ctx, viewer)
 	if err != nil {
+		if s.aud.Enabled() { // an unknown follow state must not show a possibly protected copy (ADR-0025 D3)
+			return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED
+		}
 		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 	}
-	return embedStateFor(snap, a)
+	return s.aud.EmbedState(ctx, viewer, snap, p)
+}
+
+// ProtectedAuthor implements VisibilityHinter: whether p's author is in the protected set (the computed wire
+// visibility, ADR-0025 D2). 0 reads for the caller (the loader is detached).
+func (s *service) ProtectedAuthor(ctx context.Context, p *Post) bool {
+	return s.aud.ProtectedAuthor(ctx, p.AuthorID)
 }
 
 // embedStateFor is the pure decision: blocked wins over muted.

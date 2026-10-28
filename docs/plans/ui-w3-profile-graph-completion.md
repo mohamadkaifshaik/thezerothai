@@ -94,7 +94,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Open (depends: W3-25b; merges only after W3-32, T11 guard) |
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Open (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Open (depends: W3-28a, W3-26a) |
-| W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Open (depends: W3-25b; merges after W3-26a) |
+| W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | In review (PR #382) (depends: W3-25b; merges after W3-26a) |
 | W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | Open (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Open (depends: W3-29a, W3-26a) |
 | W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Open (depends: W3-25b; merges after W3-29a and W3-26a) |
@@ -594,7 +594,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 | W3-27 | Graph: Follow request path, withdraw, Block clean-up, REQUESTED | backend-developer | M | W3-25b; merges after W3-32 | Follow 4 cold / 3 warm (planning 4), 5 writes (edge) or 3 (request), replay 0; withdraw 0 reads in the batches + 1 interceptor, 1 write, 1 delete; Block +0 reads, +0 writes, ≤ +2 deletes |
 | W3-28a | Graph: ListFollowRequests, RespondToFollowRequest, protected follower lists, request count | backend-developer | M | W3-27, W3-26a | List 42 / 102 cold at page 20 / 50, 21 / 51 warm; Respond 3 cold / 2 warm, accept 4 writes + 1 delete, decline 1 + 1, replay 2 / 1 and 0 writes; ListFollowers / ListFollowing of P unapproved 3 cold, 0 page reads |
 | W3-28b | Graph: `privacy_public` job | backend-developer | S | W3-28a, W3-26a | per pending request 2 reads, 3 writes (+1 per page), 1 delete; 500 pending: 1,000 / 1,505 / 500 |
-| W3-29a | Posts: `Audience`, GetPost, `Viewable`, D5 refusals, computed visibility, PROTECTED embed | backend-developer | M | W3-25b; merges after W3-26a | +0 reads on every path (GetPost 4 cold / 0 warm unchanged); refusals 0 writes |
+| W3-29a | Posts: `Audience`, GetPost, `Viewable`, D5 refusals, computed visibility, PROTECTED embed | backend-developer | M | W3-25b; merges after W3-26a | +0 reads on every path (GetPost 4 cold / 0 warm unchanged), except +1 cold / 0 warm when a caller opens their own REPOST or QUOTE of another user's post (founder-accepted 2026-10-28, ADR-0025 "Implementation note (W3-29a)"); refusals 0 writes |
 | W3-29b | Posts + engagement: GetThread, ListBookmarks, ListLikedPosts | backend-developer | M | W3-29a | +0 (ListBookmarks 43 / 103 / 2, ListLikedPosts 23 / 53 / 2, GetThread unchanged) |
 | W3-30 | Timeline: `author_protected`, feed embeds | backend-developer | S | W3-29a, W3-26a | P unapproved 3 cold, 0 page reads; tabs 24 / 54 cold and Home unchanged |
 | W3-31 | Notifications: two types, suppression | backend-developer | S | W3-25b; merges after W3-29a, W3-26a | fan-out about 2 reads per recipient, 1 write, 1 TTL delete (90 d); suppression 0 |
@@ -859,7 +859,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `identity.PrivacyListener`, the `jobs` topic, and one accept implementation.
 - **Cost.** Rare, about 0 per DAU. Worst case is 500 pending: 1,000 reads, 1,505 writes, 500 deletes (7.5% of the free daily writes), bounded by the 4-a-day toggle quota.
 
-#### W3-29a Posts: `posts.Audience`, GetPost, `Viewable`, refusals, embeds [backend-developer] [M] [depends: W3-25b; merges after W3-26a] Status: Open
+#### W3-29a Posts: `posts.Audience`, GetPost, `Viewable`, refusals, embeds [backend-developer] [M] [depends: W3-25b; merges after W3-26a] Status: In review (PR #382)
 - **`posts.Audience`** (D3):
   - `CanSee(viewer, author, snap, set) bool` is pure, using the AQ2 expression.
   - `Decide(ctx, viewer, snap, p, surface)` returns Show, Drop, NotFound, or Show with the embed state BLOCKED, MUTED or PROTECTED. It covers `Visible()`, ADR-0010 D6 block and mute by surface, and `CanSee` on `p.AuthorID` and on `p.EmbeddedAuthor()`.

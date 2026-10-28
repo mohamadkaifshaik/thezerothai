@@ -214,9 +214,9 @@ func TestGetForViewer(t *testing.T) {
 		{"overflow and no block", func(e *createEnv) {
 			e.graph.snaps = map[string]graph.Snapshot{testUID: overflow}
 		}, true, 3},
-		{"followers-only post, not following", func(e *createEnv) { e.repo.docs[pidOther].Visibility = VisibilityFollowers }, false, 2},
-		{"followers-only post, following", func(e *createEnv) {
-			e.repo.docs[pidOther].Visibility = VisibilityFollowers
+		{"protected author, not following", func(e *createEnv) { e.protect(otherUID) }, false, 2},
+		{"protected author, following", func(e *createEnv) {
+			e.protect(otherUID)
 			e.graph.snaps = map[string]graph.Snapshot{testUID: {Following: map[string]bool{otherUID: true}}}
 		}, true, 2},
 	}
