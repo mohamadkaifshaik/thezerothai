@@ -102,7 +102,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Done (PR #380; depends: W3-25b; W3-26a and W3-29a merged) |
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Done (PR #381; depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Open (depends: W3-26a, W3-27, W3-30 serving dev) |
-| W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | In review (PR #387) |
+| W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Open (depends: W3-28c serving dev, W3-33a) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Open (depends: W3-28a, W3-26b, W3-31 serving dev) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Open (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
@@ -1049,7 +1049,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `ProfileCubit` and `TimelineRepository` read `author_protected`, so no widget reads the proto.
 - **Cost.** 0 new RPCs; a protected profile open costs 3 reads.
 
-#### W3-33b Client: protect setting, protected embed, refusals [frontend-developer] [M] [depends: W3-26a, W3-29a serving dev] Status: In review (PR #387)
+#### W3-33b Client: protect setting, protected embed, refusals [frontend-developer] [M] [depends: W3-26a, W3-29a serving dev] Status: Done (PR #387; avatar follow-up PR #390)
 - **Setting.** Settings > Privacy and safety > Audience > "Protect your posts".
   - Turning it on needs `private_accounts` in `enabled_features`. The confirm explains:
     - only approved followers see your posts, past and future;
@@ -1060,12 +1060,12 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - Turning it off is shown whenever `is_private` is true, whatever the flag (the undo rule), with a confirm about auto-approval.
   - Copy for QUOTA_EXCEEDED `privacy_toggles` ("You can change this 4 times a day") and for LIMIT_REACHED `private_accounts`.
   - FEATURE_DISABLED hides the turn-on control until the next GetMe; turn-off stays.
-- **Protected embed.** "This post is from an account that protects its posts." No text or media is shown, and the author is shown.
+- **Protected embed.** "This post is from an account that protects its posts." Avatar shown (founder 2026-10-28); no post text or media. The author is shown.
 - **Refusals.** Repost and Quote are disabled on another user's FOLLOWERS post. `PROTECTED_ACCOUNT` shows "You can't repost or quote posts from a protected account." The server stays authoritative.
 - **Acceptance.**
   - Given the flag off for a protected user, then the switch shows "on" and can be turned off.
   - Given the flag off for a public user, then no switch.
-  - Given a PROTECTED embed, then no text and no image request is made.
+  - Given a PROTECTED embed, then no post text and no post media are shown; the author avatar is shown (founder 2026-10-28).
 - **Tests.** The widget matrix.
 - **Docs.** `docs/ui-catalog.md` rows.
 - **Flag.** `private_accounts`, for turn-on only.
