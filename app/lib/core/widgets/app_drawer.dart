@@ -7,7 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
-import '../../features/graph/domain/graph_feature_flag.dart';
+import '../../features/graph/data/graph_repository.dart';
+import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
@@ -39,12 +40,7 @@ class AppDrawer extends StatelessWidget {
     final pendingRequests = context.select(
       (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
     );
-    final protected = context.select(
-      (OnboardingBloc bloc) => bloc.state.profile?.isPrivate ?? false,
-    );
-    final showFollowRequests =
-        isFeatureEnabled(context, kFeatureGraph) &&
-        (protected || pendingRequests > 0);
+    final showFollowRequests = followRequestsEntryVisible(context);
     return Drawer(
       // 277dp, never more than 85 % of the screen on a very narrow phone.
       width: math.min(
@@ -301,7 +297,7 @@ class _DrawerRow extends StatelessWidget {
                 ),
                 if (badge != null) ...[
                   const SizedBox(width: AppSpacing.sm),
-                  _CountBadge(text: badge!),
+                  FollowRequestCountBadge(text: badge!),
                 ],
               ],
             ),
@@ -327,8 +323,8 @@ const kPendingRequestsCap = 1000;
 
 /// A small strong pill (AA contrast, like the primary pill button) with a count; the number is also in the row's spoken
 /// label, so this is excluded from semantics with the rest of the row.
-class _CountBadge extends StatelessWidget {
-  const _CountBadge({required this.text});
+class FollowRequestCountBadge extends StatelessWidget {
+  const FollowRequestCountBadge({super.key, required this.text});
 
   final String text;
 
@@ -356,4 +352,23 @@ class _CountBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Whether the "Follow requests" entry is shown (drawer row, account menu of
+/// wide layouts): [followRequestsAllowed] for the caller, and not while
+/// `ListFollowRequests` is backed off for the session (`followRequestsUnavailable`,
+/// W3-34b). Reads the caller from `OnboardingBloc` and the backoff from the
+/// `GraphRepository` in the tree; 0 RPCs. Call it at build or open time.
+bool followRequestsEntryVisible(BuildContext context) {
+  final features = context.select(
+    (OnboardingBloc bloc) => bloc.state.enabledFeatures,
+  );
+  final protected = context.select(
+    (OnboardingBloc bloc) => bloc.state.profile?.isPrivate ?? false,
+  );
+  return followRequestsAllowed(
+        enabledFeatures: features,
+        isProtected: protected,
+      ) &&
+      !context.read<GraphRepository>().followRequestsUnavailable;
 }

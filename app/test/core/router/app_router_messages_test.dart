@@ -8,7 +8,10 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
+import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -21,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/messaging_fixtures.dart';
+import '../../support/thread_test_support.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
@@ -38,8 +42,8 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/messages` and `/messages/requests` on the real router (W7-14): behind the
-/// `messaging` flag, redirecting Home without it.
+/// `/messages`, `/messages/requests` (W7-14) and `/messages/:id` (W7-15) on the
+/// real router: behind the `messaging` flag, redirecting Home without it.
 void main() {
   const user = AppUser(
     uid: 'uid-1',
@@ -56,22 +60,38 @@ void main() {
     WidgetTester tester,
     Set<String> flags, {
     String location = AppRouter.messagesPath,
+    bool threadNotFound = false,
   }) async {
     final repo = _MockMessagingRepository();
     when(() => repo.rateLimitedFor()).thenReturn(null);
     when(() => repo.cachedConversations(any())).thenAnswer(
       (_) async => ConversationsSnapshot(
-        conversations: [conv('a', snippet: 'hello from a')],
+        conversations: [conv(kThreadId, snippet: 'hello from a')],
       ),
     );
     when(() => repo.refreshConversations(any())).thenAnswer(
       (_) async => ConversationsResult(
         ConversationsSnapshot(
-          conversations: [conv('a', snippet: 'hello from a')],
+          conversations: [conv(kThreadId, snippet: 'hello from a')],
         ),
         requestCount: 2,
       ),
     );
+    when(() => repo.rateLimitHold).thenReturn(RateLimitHold());
+    when(() => repo.cachedThread(any())).thenAnswer(
+      (_) async =>
+          ThreadSnapshot(messages: msgs(1, 2), conversation: threadConv()),
+    );
+    when(() => repo.refreshThread(any())).thenAnswer(
+      (_) async =>
+          ThreadSnapshot(messages: msgs(1, 2), conversation: threadConv()),
+    );
+    if (threadNotFound) {
+      when(() => repo.cachedThread(any()))
+          .thenAnswer((_) async => const ThreadSnapshot());
+      when(() => repo.refreshThread(any()))
+          .thenThrow(const NotFoundException('nope'));
+    }
     final auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
     final badge = UnreadBadgeCubit();
@@ -124,6 +144,7 @@ void main() {
   test('the paths', () {
     expect(AppRouter.messagesPath, '/messages');
     expect(AppRouter.messageRequestsPath, '/messages/requests');
+    expect(AppRouter.messagePath(kThreadId), '/messages/$kThreadId');
   });
 
   testWidgets('with messaging off the inbox redirects Home, with no RPC', (
@@ -185,5 +206,87 @@ void main() {
 
     expect(path, AppRouter.messageRequestsPath);
     expect(find.byTooltip('Back'), findsOneWidget);
+  });
+
+  group('/messages/:id (W7-15)', () {
+    testWidgets('with messaging off a thread link redirects Home, no RPC', (
+      tester,
+    ) async {
+      final (path, repo) = await openAt(tester, const {
+        'notifications',
+      }, location: AppRouter.messagePath(kThreadId));
+
+      expect(path, AppRouter.homePath);
+      expect(find.byType(ThreadScreen), findsNothing);
+      verifyNever(() => repo.cachedThread(any()));
+      verifyNever(() => repo.refreshThread(any()));
+    });
+
+    testWidgets('with messaging on a deep link opens the conversation', (
+      tester,
+    ) async {
+      final (path, repo) = await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messagePath(kThreadId));
+
+      expect(path, AppRouter.messagePath(kThreadId));
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      expect(find.text('Sam Rivera'), findsOneWidget);
+      verify(() => repo.refreshThread(kThreadId)).called(1);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a malformed id shows "isn\'t available" and sends nothing', (
+      tester,
+    ) async {
+      final (_, repo) = await openAt(tester, const {
+        'messaging',
+      }, location: '/messages/not-a-conversation');
+
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      expect(find.text("This conversation isn't available"), findsOneWidget);
+      verifyNever(() => repo.refreshThread(any()));
+    });
+
+    testWidgets('NOT_FOUND (a conversation you are not in) shows "isn\'t '
+        'available"', (tester) async {
+      final (_, repo) = await openAt(
+        tester,
+        const {'messaging'},
+        location: AppRouter.messagePath(hexId(0xbeef)),
+        threadNotFound: true,
+      );
+
+      expect(find.text("This conversation isn't available"), findsOneWidget);
+      verify(() => repo.refreshThread(hexId(0xbeef))).called(1);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('/messages/requests is still the Requests folder', (
+      tester,
+    ) async {
+      final (path, _) = await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messageRequestsPath);
+
+      expect(path, AppRouter.messageRequestsPath);
+      expect(find.byType(ThreadScreen), findsNothing);
+      expect(find.byType(ConversationsScreen), findsOneWidget);
+    });
+
+    testWidgets('a row in the inbox opens its conversation', (tester) async {
+      final (_, repo) = await openAt(tester, const {'messaging'});
+
+      await tester.tap(find.text('hello from a'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      verify(() => repo.refreshThread(kThreadId)).called(1);
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ConversationsScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 }

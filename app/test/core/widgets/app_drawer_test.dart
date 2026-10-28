@@ -130,12 +130,18 @@ void main() {
         ),
       ],
     );
+    // The entry also reads the 10-minute backoff (W3-34b): not backed off
+    // unless a test passes its own repository.
+    final graphRepo = graphRepository ?? _MockGraph();
+    if (graphRepository == null) {
+      when(() => graphRepo.followRequestsUnavailable).thenReturn(false);
+    }
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       _withGraph(
-        graphRepository,
+        graphRepo,
         MultiBlocProvider(
           providers: [
             BlocProvider<OnboardingBloc>.value(value: onboarding),
@@ -360,7 +366,7 @@ void main() {
       // a protected caller keeps the drawer entry and the tap lands on "not
       // available". Plan W3-34: "FEATURE_DISABLED hides it with a 10-minute
       // backoff". Flip to false when the owner resolves it.
-      const d3Open = true;
+      const d3Open = false;
       testWidgets(
         'D-3: while the repository is backed off the entry is hidden',
         (tester) async {
@@ -383,7 +389,7 @@ void main() {
       // the router redirects a public caller without `private_accounts` Home
       // (app_drawer.dart:45-47 vs app_router.dart:495-498). The plan's W3-34
       // states both rules. Flip to false when the owner resolves it.
-      const d1Open = true;
+      const d1Open = false;
       testWidgets('D-1: a public account with a stale count and '
           'private_accounts off has no entry that the router sends Home', (
         tester,

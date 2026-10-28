@@ -28,6 +28,38 @@ void main() {
       expect(back, 1);
     });
 
+    testWidgets(
+      'titleContent replaces the title text; actions sit at the end',
+      (tester) async {
+        var tapped = 0;
+        await tester.pumpWidget(
+          _host(
+            AppBackHeader(
+              title: 'Sam',
+              onBack: () {},
+              titleContent: const Text('custom content'),
+              actions: [
+                IconButton(
+                  tooltip: 'More',
+                  icon: const Icon(Icons.info_outline),
+                  onPressed: () => tapped++,
+                ),
+              ],
+            ),
+          ),
+        );
+
+        expect(find.text('custom content'), findsOneWidget);
+        expect(find.text('Sam'), findsNothing);
+        await tester.tap(find.byTooltip('More'));
+        expect(tapped, 1);
+        expect(
+          tester.getTopRight(find.byTooltip('More')).dx,
+          greaterThan(tester.getTopRight(find.text('custom content')).dx),
+        );
+      },
+    );
+
     testWidgets('semantics: a labelled 48dp Back button and a header title', (
       tester,
     ) async {
