@@ -88,6 +88,11 @@ const (
 	// FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
 	// a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
 	ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT ErrorReason = 17
+	// FAILED_PRECONDITION: this account cannot be messaged (ADR-0027 D4). One reason with identical bytes for a block in
+	// either direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose
+	// peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
+	// message this account".
+	ErrorReason_ERROR_REASON_CANNOT_MESSAGE ErrorReason = 18
 )
 
 // Enum value maps for ErrorReason.
@@ -111,6 +116,7 @@ var (
 		15: "ERROR_REASON_REAUTH_REQUIRED",
 		16: "ERROR_REASON_REPLY_NOT_ALLOWED",
 		17: "ERROR_REASON_PROTECTED_ACCOUNT",
+		18: "ERROR_REASON_CANNOT_MESSAGE",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -131,6 +137,7 @@ var (
 		"ERROR_REASON_REAUTH_REQUIRED":        15,
 		"ERROR_REASON_REPLY_NOT_ALLOWED":      16,
 		"ERROR_REASON_PROTECTED_ACCOUNT":      17,
+		"ERROR_REASON_CANNOT_MESSAGE":         18,
 	}
 )
 
@@ -162,11 +169,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
-//   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//   (snapshotted when the row was written);
-// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//   cache, up to 60 s stale).
+//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
+//     may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//     (snapshotted when the row was written);
+//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//     cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -460,7 +467,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xf2\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x93\x05\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -480,7 +487,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1dERROR_REASON_FEATURE_DISABLED\x10\x0e\x12 \n" +
 	"\x1cERROR_REASON_REAUTH_REQUIRED\x10\x0f\x12\"\n" +
 	"\x1eERROR_REASON_REPLY_NOT_ALLOWED\x10\x10\x12\"\n" +
-	"\x1eERROR_REASON_PROTECTED_ACCOUNT\x10\x11BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1eERROR_REASON_PROTECTED_ACCOUNT\x10\x11\x12\x1f\n" +
+	"\x1bERROR_REASON_CANNOT_MESSAGE\x10\x12BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

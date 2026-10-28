@@ -34,6 +34,11 @@ const (
 	ReportTargetType_REPORT_TARGET_TYPE_UNSPECIFIED ReportTargetType = 0
 	ReportTargetType_REPORT_TARGET_TYPE_POST        ReportTargetType = 1
 	ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT     ReportTargetType = 2
+	// A direct message (ADR-0027 D12). target_id = "<convId>:<msgId>": the conversation id and the message id, 32
+	// lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
+	// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
+	// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
+	ReportTargetType_REPORT_TARGET_TYPE_MESSAGE ReportTargetType = 3
 )
 
 // Enum value maps for ReportTargetType.
@@ -42,11 +47,13 @@ var (
 		0: "REPORT_TARGET_TYPE_UNSPECIFIED",
 		1: "REPORT_TARGET_TYPE_POST",
 		2: "REPORT_TARGET_TYPE_ACCOUNT",
+		3: "REPORT_TARGET_TYPE_MESSAGE",
 	}
 	ReportTargetType_value = map[string]int32{
 		"REPORT_TARGET_TYPE_UNSPECIFIED": 0,
 		"REPORT_TARGET_TYPE_POST":        1,
 		"REPORT_TARGET_TYPE_ACCOUNT":     2,
+		"REPORT_TARGET_TYPE_MESSAGE":     3,
 	}
 )
 
@@ -291,11 +298,12 @@ const file_dzeroth_moderation_v1_moderation_proto_rawDesc = "" +
 	"\x04note\x18\x05 \x01(\tR\x04note\"_\n" +
 	"\x15ReportContentResponse\x12\x1b\n" +
 	"\treport_id\x18\x01 \x01(\tR\breportId\x12)\n" +
-	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*s\n" +
+	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\x93\x01\n" +
 	"\x10ReportTargetType\x12\"\n" +
 	"\x1eREPORT_TARGET_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17REPORT_TARGET_TYPE_POST\x10\x01\x12\x1e\n" +
-	"\x1aREPORT_TARGET_TYPE_ACCOUNT\x10\x02*\xa3\x02\n" +
+	"\x1aREPORT_TARGET_TYPE_ACCOUNT\x10\x02\x12\x1e\n" +
+	"\x1aREPORT_TARGET_TYPE_MESSAGE\x10\x03*\xa3\x02\n" +
 	"\fReportReason\x12\x1d\n" +
 	"\x19REPORT_REASON_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12REPORT_REASON_SPAM\x10\x01\x12\x1c\n" +
