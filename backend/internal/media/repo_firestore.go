@@ -43,21 +43,26 @@ type Doc struct {
 	// UpdateTime is set on reads only.
 	UpdateTime time.Time `firestore:"-"`
 
-	OwnerID         string     `firestore:"ownerId"`
-	Purpose         string     `firestore:"purpose"`
-	Status          string     `firestore:"status"`
-	ContentType     string     `firestore:"contentType"`
-	Bytes           int64      `firestore:"bytes"`
-	ThumbBytes      int64      `firestore:"thumbBytes"`
-	Width           int        `firestore:"w"`
-	Height          int        `firestore:"h"`
-	FullMD5         string     `firestore:"fullMd5"`
-	ThumbMD5        string     `firestore:"thumbMd5"`
-	Blurhash        string     `firestore:"blurhash,omitempty"`
-	UploadPath      string     `firestore:"uploadPath"`
-	ThumbUploadPath string     `firestore:"thumbUploadPath"`
-	PublicPath      string     `firestore:"publicPath,omitempty"`
-	ThumbPath       string     `firestore:"thumbPath,omitempty"`
+	OwnerID         string `firestore:"ownerId"`
+	Purpose         string `firestore:"purpose"`
+	Status          string `firestore:"status"`
+	ContentType     string `firestore:"contentType"`
+	Bytes           int64  `firestore:"bytes"`
+	ThumbBytes      int64  `firestore:"thumbBytes"`
+	Width           int    `firestore:"w"`
+	Height          int    `firestore:"h"`
+	FullMD5         string `firestore:"fullMd5"`
+	ThumbMD5        string `firestore:"thumbMd5"`
+	Blurhash        string `firestore:"blurhash,omitempty"`
+	UploadPath      string `firestore:"uploadPath"`
+	ThumbUploadPath string `firestore:"thumbUploadPath"`
+	PublicPath      string `firestore:"publicPath,omitempty"`
+	ThumbPath       string `firestore:"thumbPath,omitempty"`
+	// NameSuffix is the random part of the public object names (W3-39, ADR-0025 note M-2): 32 lowercase hex characters
+	// chosen at CreateUpload and written with the document. Empty on documents created before W3-39, whose objects keep
+	// the old "m/{id}.{ext}" names (founder B1). Finalize, the converge path, the retire step, the eraser and post_delete
+	// all derive every name from the document, so the suffix is never sent in a message or logged.
+	NameSuffix      string     `firestore:"nameSuffix,omitempty"`
 	RejectionReason string     `firestore:"rejectionReason,omitempty"`
 	PostID          string     `firestore:"postId,omitempty"`
 	CreatedAt       time.Time  `firestore:"createdAt"`

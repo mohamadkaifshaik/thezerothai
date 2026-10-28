@@ -137,8 +137,8 @@ func TestFinalize_BannerHappyPathChargesTwoVisionUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := res[0]
-	if r.Status != StatusReady || r.Ref == nil || r.Ref.URL != "https://cdn.test/media/m/"+tg.MediaID+".webp" ||
-		r.Ref.ThumbURL != "https://cdn.test/media/m/"+tg.MediaID+"_t.webp" || r.Ref.Width != 1500 || r.Ref.Height != 500 {
+	if r.Status != StatusReady || r.Ref == nil || r.Ref.URL != "https://cdn.test/media/m/"+tg.MediaID+"-"+e.repo.docs[tg.MediaID].NameSuffix+".webp" ||
+		r.Ref.ThumbURL != "https://cdn.test/media/m/"+tg.MediaID+"-"+e.repo.docs[tg.MediaID].NameSuffix+"_t.webp" || r.Ref.Width != 1500 || r.Ref.Height != 500 {
 		t.Fatalf("result = %+v", r)
 	}
 	if len(e.mod.calls) != 2 {
@@ -386,7 +386,7 @@ func TestPurgeAndExport_CoverBannerDocuments(t *testing.T) {
 	r, o := newFakeRepo(), newFakeObjects()
 	idOld, idNew, idBob := "0000000000000008101", "0000000000000008102", "0000000000000008103"
 	for _, id := range []string{idOld, idNew} {
-		pub, thumb := publicObject(id, "webp"), publicThumbObject(id, "webp")
+		pub, thumb := publicObject(id, "", "webp"), publicThumbObject(id, "", "webp")
 		r.docs[id] = &Doc{
 			ID: id, OwnerID: uidA, Purpose: string(PurposeBanner), Status: string(StatusReady), ContentType: "image/webp",
 			Width: 1500, Height: 500, PublicPath: pub, ThumbPath: thumb,
@@ -395,8 +395,8 @@ func TestPurgeAndExport_CoverBannerDocuments(t *testing.T) {
 		o.public[pub], o.public[thumb] = "image/webp", "image/webp"
 	}
 	r.docs[idBob] = &Doc{ID: idBob, OwnerID: uidB, Purpose: string(PurposeBanner), Status: string(StatusReady), ContentType: "image/webp",
-		PublicPath: publicObject(idBob, "webp"), ThumbPath: publicThumbObject(idBob, "webp"), CreatedAt: testNow}
-	o.public[publicObject(idBob, "webp")], o.public[publicThumbObject(idBob, "webp")] = "image/webp", "image/webp"
+		PublicPath: publicObject(idBob, "", "webp"), ThumbPath: publicThumbObject(idBob, "", "webp"), CreatedAt: testNow}
+	o.public[publicObject(idBob, "", "webp")], o.public[publicThumbObject(idBob, "", "webp")] = "image/webp", "image/webp"
 
 	p := NewPurger(r, o, "https://cdn.test/media")
 	var buf bytes.Buffer
@@ -428,7 +428,7 @@ func TestPurgeAndExport_CoverBannerDocuments(t *testing.T) {
 	if len(r.docs) != 1 || r.docs[idBob] == nil {
 		t.Fatalf("docs left = %v: only Bob's banner may remain", r.docs)
 	}
-	if len(o.public) != 2 || o.public[publicObject(idBob, "webp")] == "" {
+	if len(o.public) != 2 || o.public[publicObject(idBob, "", "webp")] == "" {
 		t.Fatalf("public objects left = %v: only Bob's two may remain", o.public)
 	}
 }

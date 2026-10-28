@@ -61,10 +61,32 @@ instance share a single flight and all get the same result.
 ### A deleted post's images are still served
 `post_delete` failed or was never published (`post_delete_job_publish_failed` in Error Reporting).
 1. Find the post's media: Firestore `media` where `postId == <id>` (Limit 4).
-2. Delete the public objects `m/<mediaId>.<ext>` and `m/<mediaId>_t.<ext>`, then the media docs. Or re-publish
+2. Delete the public objects named by the doc (`publicPath`, `thumbPath`; see "Public object names: two shapes"), then the media docs. Or re-publish
    `{"kind":"post_delete","uid":"<uid>","postId":"<postId>","mediaIds":[...]}` to the jobs topic: the job refuses while the
    post exists and is idempotent.
 3. Messages that exhaust retries go to the jobs dead-letter subscription; the same message can be re-published.
+
+### Public object names: two shapes (W3-39, W3-36 M-2)
+The public bucket is public-read by exact URL, so the name is the only secret. Since W3-39 a new upload publishes as
+`m/<mediaId>-<suffix>.<ext>` and `m/<mediaId>-<suffix>_t.<ext>`, where `<suffix>` is 128 bits from `crypto/rand` as 32 lowercase hex
+characters, chosen at `CreateUpload` and stored as `nameSuffix` on the PENDING `media/{id}` doc (in the write that already creates
+it: +0 reads, writes, deletes). Finalize (and its converge path), the eraser and the `post_delete` job derive every name from the
+doc, never from the message. A doc **without** `nameSuffix` (created before W3-39) keeps `m/<mediaId>.<ext>` and
+`m/<mediaId>_t.<ext>`; old objects are not renamed (founder B1), so old URLs stay valid and stay guessable from the id.
+- **Parser.** `media.ParseObjectName` accepts `^m/([0-9]{19})(?:-([0-9a-f]{32}))?(_t)?\.(jpg|webp)$`; `parseRetiredImage` also requires the
+  thumbnail's suffix to equal the full image's (a mismatch is an unparseable message, acked as `refused`). Anything else (upper-case hex,
+  31 or 33 characters, `_` or `-` inside the suffix) is not an image media owns.
+- **Delete paths.** The eraser and `post_delete` delete the recorded paths plus both derived pairs for a doc with `nameSuffix`
+  (the old pair too, covering a suffixed doc an older revision finalized and lost the race to record), and the old pair for a doc
+  without. Deletes are free. The retire step tags the recorded paths plus the doc's own-shape pair only: still 2 Class A per image.
+- **No log line carries a suffix or a full object name** of a new upload (ids and hashes only). If you need the names of one image, read
+  `media/<id>` (`publicPath`, `thumbPath`, `nameSuffix`); do not paste them into tickets.
+- **Manual clean-up** in "A deleted post's images are still served": delete the doc's `publicPath` and `thumbPath` (and, if
+  `nameSuffix` is set, also the old-shape pair `m/<id>.<ext>`, `m/<id>_t.<ext>`), then the doc.
+- **Rollback residual.** A revision older than W3-39 does not know `nameSuffix`: it publishes new uploads under the old, guessable
+  names (the doc keeps its `nameSuffix`, which that revision ignores) and its retire parser rejects suffixed avatar and banner URLs (`refused`, the
+  object stays until the account is deleted). Roll back only past W3-39 for a real defect, and keep `private_accounts` off the wider
+  rollout while the older revision serves (ADR-0025 note W3-36 M-2). Docs written by W3-39 remain valid for the newer code on roll-forward.
 
 ### Orphaned uploads
 PENDING and REJECTED documents are removed by the Firestore TTL (48 h) and the upload bucket's lifecycle rule deletes the

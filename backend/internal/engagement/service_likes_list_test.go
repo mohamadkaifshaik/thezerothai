@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -153,7 +154,7 @@ func TestListLikedPosts_InvalidTokens(t *testing.T) {
 		"foreign (another user's token)": seal(listKey, likesBinding("mallory"), payload),
 		"the bookmarks list's token":     seal(listKey, bookmarksBinding(caller), payload),
 		"sealed with another key":        seal([]byte("another-key-another-key-another!"), mine, payload),
-		"tampered":                       tok[:len(tok)-2] + "AA",
+		"tampered":                       cursortest.Tamper(tok),
 		"truncated":                      tok[:10],
 		"garbage":                        "!!!not base64!!!",
 		"zero position":                  zero,

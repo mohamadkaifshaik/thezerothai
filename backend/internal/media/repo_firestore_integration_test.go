@@ -295,8 +295,8 @@ func TestIntegration_PostDeleteJobAndPurge(t *testing.T) {
 	}
 	// Seed the public objects the fake bucket would hold.
 	for _, id := range ids {
-		e.obj.public["m/"+id+".jpg"] = "image/jpeg"
-		e.obj.public["m/"+id+"_t.jpg"] = "image/jpeg"
+		f, th := docNames(t, e.real, id, "jpg")
+		e.obj.public[f], e.obj.public[th] = "image/jpeg", "image/jpeg"
 	}
 
 	j := NewJobs(e.real, e.obj, fakePosts{live: map[string]bool{}}, nil)
@@ -428,10 +428,11 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 		t.Fatalf("vision units = %d, %v, want %d", used, err, BannerVisionUnits)
 	}
 
+	wantFull, wantThumb := docNames(t, e.real, tg.MediaID, "webp")
 	rctx, rc := counted()
 	ref, err := e.lib.ResolveBanner(rctx, uidA, tg.MediaID)
-	if err != nil || ref.ID != tg.MediaID || ref.URL != "https://cdn.test/media/m/"+tg.MediaID+".webp" ||
-		ref.ThumbURL != "https://cdn.test/media/m/"+tg.MediaID+"_t.webp" || ref.Width != 1500 || ref.Height != 500 {
+	if err != nil || ref.ID != tg.MediaID || ref.URL != "https://cdn.test/media/"+wantFull ||
+		ref.ThumbURL != "https://cdn.test/media/"+wantThumb || ref.Width != 1500 || ref.Height != 500 {
 		t.Fatalf("ref = %+v, %v", ref, err)
 	}
 	budgettest.Assert(t, "ResolveBanner", rc, budgettest.Budget{Reads: 1})
@@ -498,8 +499,8 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range append(ids, bob.MediaID) {
-		e.obj.public["m/"+id+".webp"] = "image/webp"
-		e.obj.public["m/"+id+"_t.webp"] = "image/webp"
+		f, th := docNames(t, e.real, id, "webp")
+		e.obj.public[f], e.obj.public[th] = "image/webp", "image/webp"
 	}
 
 	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
@@ -644,4 +645,14 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	if err != nil || len(docs) != 0 {
 		t.Fatalf("a claim created a document: %v, %v", docs, err)
 	}
+}
+
+// docNames returns the public object names the stored document owns (suffixed since W3-39), as a finalize publishes them.
+func docNames(t *testing.T, repo Repo, id, ext string) (full, thumb string) {
+	t.Helper()
+	docs, err := repo.GetMany(context.Background(), []string{id})
+	if err != nil || docs[id] == nil {
+		t.Fatalf("load media %s: %v", id, err)
+	}
+	return publicObject(id, docs[id].NameSuffix, ext), publicThumbObject(id, docs[id].NameSuffix, ext)
 }
