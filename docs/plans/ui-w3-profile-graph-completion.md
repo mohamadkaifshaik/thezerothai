@@ -106,11 +106,11 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
 | W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
-| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | In review (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
+| W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
 | W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Open (depends: W3-33a, W3-33b, W3-34) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
-| W3-37 | Part B cost report and load smoke | sre-performance | S | Open (depends: W3-26a to W3-32 merged) |
+| W3-37 | Part B cost report and load smoke | sre-performance | S | In review (PR #407) (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Open (depends: W3-35a to W3-35c, W3-36 fixes, W3-37, founder OK) |
 
 ## Milestones
@@ -1111,7 +1111,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
-#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: In review (PR #410)
+#### W3-35a Tests: visibility matrix, byte identity, leaks, budgets [tester] [M] [depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31] Status: Done (PR #410)
 - **The matrix.** Every D4 row on the emulators through `apiserver.Build`.
   - Viewer classes: self, approved follower, non-follower, P blocks A, A blocks P, A mutes P, P suspended, post taken down, `blockedBy` overflow.
   - Paths:
@@ -1207,7 +1207,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Output.** `docs/reviews/security-review-w3b.md`. Findings are fixed or ticketed before W3-38.
 - **Cost.** 0.
 
-#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: Open
+#### W3-37 Cost report, Part B [sre-performance] [S] [depends: W3-26a to W3-32 merged] Status: In review (PR #407)
 - **`docs/reviews/cost-model.md`.** The ADR-0025 rows go into §1 to §6 and §9, plus a new §13 of measurements:
   - +1.25 request-path reads, the set-refresh line (detached), +0.16 writes and +0.05 deletes per DAU, restated on the 300.2 base ("Part B: cost" below);
   - the who-to-follow share after Part B;
