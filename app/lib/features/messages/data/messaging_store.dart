@@ -38,6 +38,7 @@ class ThreadSnapshot {
     this.conversation,
     this.sinceToken = '',
     this.olderPageToken = '',
+    this.firstPageHeader = false,
   });
 
   final List<pb.Message> messages;
@@ -45,7 +46,22 @@ class ThreadSnapshot {
   final String sinceToken;
   final String olderPageToken;
 
+  /// True only for the snapshot a refresh returns after it APPLIED a first
+  /// ListMessages page (a cold open): the header's `unread_count` and `silent`
+  /// are then the server's (W7-27), 0 included. False for a cache read, a
+  /// `since` refresh and an older page, whose cached count may be stale.
+  final bool firstPageHeader;
+
   bool get hasMore => olderPageToken.isNotEmpty;
+
+  /// This snapshot, marked as the result of an applied first page.
+  ThreadSnapshot asFirstPage() => ThreadSnapshot(
+    messages: messages,
+    conversation: conversation,
+    sinceToken: sinceToken,
+    olderPageToken: olderPageToken,
+    firstPageHeader: true,
+  );
 }
 
 /// Sort key of a conversation: zero-padded `updated_at` microseconds, then
@@ -62,19 +78,24 @@ String conversationSortKey(pb.Conversation c) {
 /// (W7-19, ADR-0027 D14).
 ///
 /// ListMessages carries identity, peer, state, folder and `can_reply`; it does
-/// not carry the caller's entry (`last_message`, `unread_count`, `silent`,
-/// `updated_at`), which ListConversations owns. So the header wins for what it
-/// carries, and the cached entry is kept for what it omits. The sort key
-/// follows `updated_at`, so keeping it keeps the row where the Inbox put it.
+/// not carry the caller's `last_message` or `updated_at`, which
+/// ListConversations owns. So the header wins for what it carries, and the
+/// cached entry is kept for what it omits. The sort key follows `updated_at`,
+/// so keeping it keeps the row where the Inbox put it.
 ///
-/// A proto3 scalar cannot say "omitted" apart from zero: a header `unread_count`
-/// of 0 or `silent` of false keeps the cached value, a positive count or
-/// `silent` true wins. A stale cached unread count is harmless (opening the
-/// thread marks it read) and the next ListConversations page corrects it.
+/// `unread_count` and `silent` depend on the page kind (W7-27, ADR-0027). The
+/// FIRST page ([firstPage] true) carries the caller's entry, so both are taken
+/// as they are, including 0 and false: a 0 means the thread was read on
+/// another device. A `since` or older page leaves them unset, and a proto3
+/// scalar cannot say "omitted" apart from zero, so with [firstPage] false the
+/// cached values stay exactly as before (a header count above 0 or `silent`
+/// true still wins). The caller says which page it applied; it is never guessed
+/// from the value.
 pb.Conversation mergeThreadHeader(
   pb.Conversation? cached,
-  pb.Conversation fresh,
-) {
+  pb.Conversation fresh, {
+  required bool firstPage,
+}) {
   final merged = fresh.deepCopy();
   if (cached == null) return merged;
   if (merged.kind == ConversationKind.CONVERSATION_KIND_UNSPECIFIED) {
@@ -87,8 +108,19 @@ pb.Conversation mergeThreadHeader(
   if (!merged.hasLastMessage() && cached.hasLastMessage()) {
     merged.lastMessage = cached.lastMessage;
   }
-  if (merged.unreadCount == Int64.ZERO) merged.unreadCount = cached.unreadCount;
-  if (!merged.silent && cached.silent) merged.silent = true;
+  // Known window (#459 review): a first-page 0 is authoritative EXCEPT within
+  // 60 s of an Accept on another server instance. There the instance's cached
+  // conversation copy can still point at the requests folder, the entry read
+  // misses and the server answers 0. Effect: the Messages badge can drop for
+  // one conversation that is still unread and the mark-read is skipped. It
+  // self-corrects at the next GetMe or Inbox first page. No client heuristic
+  // on purpose: 0 is taken as it is.
+  if (!firstPage) {
+    if (merged.unreadCount == Int64.ZERO) {
+      merged.unreadCount = cached.unreadCount;
+    }
+    if (!merged.silent && cached.silent) merged.silent = true;
+  }
   if (!merged.hasUpdatedAt() && cached.hasUpdatedAt()) {
     merged.updatedAt = cached.updatedAt;
   }
@@ -371,12 +403,14 @@ class MessagingStore {
         await _setPageToken(conversationId, valid.last.id, nextPageToken);
       }
       if (conversation != null && conversation.id.isNotEmpty) {
-        // Merged, not overwritten: the header omits the caller's entry (unread,
-        // silent, preview, sort key), which the cached Inbox row holds.
+        // Merged, not overwritten: the header omits the preview and sort key,
+        // which the cached Inbox row holds. This is always a first page, so
+        // its unread_count and silent are the server's (W7-27), 0 included.
         await _putConversation(
           mergeThreadHeader(
             await this.conversation(conversation.id),
             conversation,
+            firstPage: true,
           ),
         );
       }

@@ -139,6 +139,91 @@ void main() {
       },
     );
 
+    test(
+      'W7-27: a cold open is marked first-page and takes the header count '
+      '(0 over a cached 3); a since refresh is not and keeps the cache',
+      () async {
+        await store.applyConversationsColdOpen(
+          Folder.FOLDER_INBOX,
+          items: [conv('c1', unread: 3)],
+          sinceToken: 'x',
+          nextPageToken: '',
+          session: store.session,
+        );
+        msgAnswers.add(thread(msgs(1, 2)));
+
+        final first = await repo.refreshThread('c1');
+
+        expect(first.firstPageHeader, isTrue);
+        expect(first.conversation?.unreadCount.toInt(), 0);
+
+        // A since page has no header: nothing marks it, the cache is returned.
+        await store.applyConversationsColdOpen(
+          Folder.FOLDER_INBOX,
+          items: [conv('c1', unread: 3)],
+          sinceToken: 'x',
+          nextPageToken: '',
+          session: store.session,
+        );
+        msgAnswers.add(thread([msg(3)], since: 's2', withConversation: false));
+        final since = await repo.refreshThread('c1');
+
+        expect(since.firstPageHeader, isFalse);
+        expect(since.conversation?.unreadCount.toInt(), 3);
+        expect((await repo.cachedThread('c1')).firstPageHeader, isFalse);
+      },
+    );
+
+    test(
+      'W7-30: only the cold-open header sets the cached peer; a header on '
+      'a since or older page ("Deleted account") never overwrites it',
+      () async {
+        final frozen = conv('c1')
+          ..peer = common.AuthorSnapshot(
+            userId: 'u-c1',
+            handle: 'frozenhandle',
+            displayName: 'Frozen Name',
+            avatarUrl: 'https://example.test/frozen.png',
+          );
+        final placeholder = pb.Conversation(
+          id: 'c1',
+          peer: common.AuthorSnapshot(displayName: 'Deleted account'),
+        );
+        msgAnswers.add(
+          pb.ListMessagesResponse(
+            messages: msgs(1, 3),
+            sinceToken: 's1',
+            nextPageToken: 'older',
+            conversation: frozen,
+          ),
+        );
+        await repo.refreshThread('c1');
+
+        msgAnswers.add(
+          pb.ListMessagesResponse(
+            messages: [msg(0, secondsAgo: 99)],
+            conversation: placeholder,
+          ),
+        );
+        await repo.loadOlderMessages('c1');
+        msgAnswers.add(
+          pb.ListMessagesResponse(
+            messages: [msg(4, secondsAgo: 0)],
+            sinceToken: 's2',
+            conversation: placeholder,
+          ),
+        );
+        final snap = await repo.refreshThread('c1');
+
+        expect(snap.conversation?.peer.handle, 'frozenhandle');
+        expect(snap.conversation?.peer.displayName, 'Frozen Name');
+        expect(
+          snap.conversation?.peer.avatarUrl,
+          'https://example.test/frozen.png',
+        );
+      },
+    );
+
     test('a since response with a duplicate id leaves one row', () async {
       msgAnswers.add(thread(msgs(1, 3)));
       await repo.refreshThread('c1');
