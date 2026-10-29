@@ -8,6 +8,7 @@ import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/conversation_row.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -424,6 +425,15 @@ void main() {
       expect(find.byType(AppEmptyView), findsOneWidget);
       expect(find.text('Welcome to your inbox'), findsOneWidget);
       expect(find.text('Start a conversation'), findsOneWidget);
+      expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+    });
+
+    testWidgets('the requests folder and a filled inbox do not repeat it', (
+      tester,
+    ) async {
+      stub(folder: Folder.FOLDER_REQUESTS);
+      await open(tester, folder: Folder.FOLDER_REQUESTS);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
     });
 
     testWidgets('loading: a skeleton announced once', (tester) async {
@@ -533,6 +543,30 @@ void main() {
   });
 
   group('responsive matrix', () {
+    forEachThemeAndWidth(
+      'the empty inbox with the not-encrypted line fits and is read (W7-31)',
+      (tester, env) async {
+        final handle = tester.ensureSemantics();
+        stub();
+
+        await open(
+          tester,
+          brightness: env.brightness,
+          size: env.size,
+          textScale: env.textScale,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+        expect(
+          tester.getSemantics(find.text(kMessagesNotEncryptedText)).label,
+          kMessagesNotEncryptedText,
+        );
+        handle.dispose();
+      },
+      textScales: kMatrixTextScalesLarge,
+    );
+
     forEachThemeAndWidth(
       'inbox with requests row, unread, silent and tombstone fits',
       (tester, env) async {

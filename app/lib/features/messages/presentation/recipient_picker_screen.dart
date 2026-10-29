@@ -28,6 +28,7 @@ import '../domain/people_source.dart';
 import 'bloc/recipient_picker_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'open_conversation.dart';
+import 'widgets/not_encrypted_note.dart';
 
 /// The "To:" field's key.
 const kRecipientFieldKey = ValueKey('recipient-field');
@@ -241,6 +242,17 @@ class _PickerViewState extends State<_PickerView> {
             title: 'New message',
             backTooltip: 'Close',
             onBack: () => _close(context),
+          ),
+          const Padding(
+            padding: EdgeInsetsDirectional.only(
+              start: AppSpacing.md,
+              end: AppSpacing.md,
+              bottom: AppSpacing.xs,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: NotEncryptedNote(),
+            ),
           ),
           _ToField(
             controller: _controller,

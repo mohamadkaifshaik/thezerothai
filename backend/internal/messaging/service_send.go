@@ -59,7 +59,8 @@ const (
 //     1 delete (the replier's dmRequests entry moves to dmInbox)
 //   - new conversation: reads 7 (+ the recipient's status fresh, quotas), writes 5 (message, conversation, two entries,
 //     quotas.dmNew)
-//   - by conversation_id with a cold conversation cache: +1 read (the participant check); warm +0
+//   - by conversation_id: +1 read (the participant check) with a cold conversation cache, warm +0 for a participant; a
+//     non-participant always pays that 1 read (the cache never answers or learns from it, W7-28)
 //   - replay: +1 read (the stored message), 0 writes; refused: at most 5 reads, 0 writes
 func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
@@ -120,7 +121,7 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(in.convID))
 	// Step 2: a conversation_id resolves to its peer through the participant check (cached 60 s).
 	if in.byConvID {
-		conv, err := s.conversation(ctx, in.convID)
+		conv, err := s.conversation(ctx, uid, in.convID)
 		if err != nil {
 			return nil, s.mapErr(ctx, uid, in, err)
 		}
@@ -218,16 +219,24 @@ func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res S
 	}
 }
 
-// conversation is the participant check's read: the instance cache first (convCacheTTL), else 1 read. A missing
-// document is NOT_FOUND, the same answer as a non-participant (D11).
-func (s *service) conversation(ctx context.Context, id string) (ConvDoc, error) {
-	c, _, err := s.conversationHit(ctx, id)
+// conversation is the participant check's read for uid: the instance cache first (convCacheTTL) when uid is a participant of
+// the cached copy, else 1 read. A missing document is NOT_FOUND, the same answer as a non-participant (D11).
+func (s *service) conversation(ctx context.Context, uid, id string) (ConvDoc, error) {
+	c, _, err := s.conversationHit(ctx, uid, id)
 	return c, err
 }
 
 // conversationHit is conversation that also says whether the instance cache answered (the cache_hit log field).
-func (s *service) conversationHit(ctx context.Context, id string) (ConvDoc, bool, error) {
-	if c, ok := s.convs.Get(id); ok {
+//
+// The cache is per instance and shared by every caller, and conversation ids are a public function of two public uids, so
+// it must not tell a non-participant anything (security review W7-22, H-1: a probe that warms the cache and times a second
+// probe is an existence oracle for "does A talk to B"). Hence: a cached copy answers only a caller who is in its
+// participants; every other caller (a non-participant against a warm copy, or any miss) pays one fresh GetConversation,
+// found or not, and a document read for a non-participant is never put into the cache. A non-participant probe therefore
+// always costs exactly 1 repo read and leaves no trace; a participant's path is unchanged (0 reads warm, 1 cold). The
+// returned document may belong to a conversation uid is not in: the caller's hasParticipant check turns it into NOT_FOUND.
+func (s *service) conversationHit(ctx context.Context, uid, id string) (ConvDoc, bool, error) {
+	if c, ok := s.convs.Get(id); ok && c.hasParticipant(uid) {
 		return c, true, nil
 	}
 	c, found, err := s.d.Repo.GetConversation(ctx, id)
@@ -237,7 +246,9 @@ func (s *service) conversationHit(ctx context.Context, id string) (ConvDoc, bool
 	if !found {
 		return ConvDoc{}, false, ErrNotFound
 	}
-	s.putConv(id, c)
+	if c.hasParticipant(uid) {
+		s.putConv(id, c)
+	}
 	return c, false, nil
 }
 
