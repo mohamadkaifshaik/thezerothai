@@ -927,7 +927,7 @@ Order:
     - report a message;
     - account deletion of a throwaway test user (tombstone).
   - Prod: no change (on hold).
-  - **Prepared (PR #458, 2026-10-29).** Runbook `docs/runbooks/w7-messaging-dev-rollout.md`; the W7-29 caps `MESSAGES_MARK_READ_PER_DAY` and `MESSAGES_MUTATIONS_PER_DAY` are now explicit config in `envs/dev` and `envs/prod` (prod also gets the other messaging limits, all inert). The `changedAt` query ran clean on dev Firestore (read-only, non-existent parent; the control on an exempt field failed as it should). Not applied. Waits for W7-27 (not merged). The throwaway-user deletion leg needs a founder decision (the allowlists are at the 3-uid ceiling).
+  - **Prepared (PR #458, 2026-10-29).** Runbook `docs/runbooks/w7-messaging-dev-rollout.md`; the W7-29 caps `MESSAGES_MARK_READ_PER_DAY` and `MESSAGES_MUTATIONS_PER_DAY` are now explicit config in `envs/dev` and `envs/prod` (prod also gets the other messaging limits, all inert). The `changedAt` query ran clean on dev Firestore (read-only, non-existent parent; the control on an exempt field failed as it should). Not applied. Waits for W7-27 (not merged). Founder decision 2026-10-29: the throwaway-user account-deletion (tombstone) leg is owed, skipped in this dev smoke and run before prod (the W7-20 emulator tests cover the eraser meanwhile); the Android push leg stays in.
 - **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state; `pending.md` 3.16 updated.
 - **Test notes.** —
 - **Observability.** Check the `kind=send|poll` lines, `notification_delivery type=message` and the `account_job step=messaging` line in dev logs.
