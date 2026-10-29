@@ -454,3 +454,16 @@ format-validated").
     (`clearedAt`, which the export does list, is the time the user cleared the conversation).
   - Indexing: like `clearedAt`, `clearedKey` has no fieldOverride; the map keys get the automatic single-field entries.
     An exemption for both is a founder-gated change to `firebase/firestore.indexes.json` and is not part of this note.
+
+  Additions from the #443 re-review (2026-10-29; the decision text above is still unchanged):
+  - **`createdAt` is stamped differently from D2's wording.** D2 says the time is taken "inside the transaction attempt".
+    Now it is the handler's clock read before the transaction, raised past both participants' `clearedAt` as the
+    transaction read it (`stampAfterClear`: `max(now, clearedAt + 1 µs)`, 0 extra reads). The difference is deliberate: a
+    `DeleteConversation` that commits between the clock read and the transaction would otherwise leave a recreated entry
+    with a preview and an unread count but an empty thread.
+  - **Ties while clocks are skewed.** While two instances' clocks disagree by more than the gap between messages, several
+    messages can share the stamp `clearedAt + 1 µs`. They then sort by `__name__` (the message id, a digest), so they appear
+    in effectively random order among themselves for the length of the skew. No message is lost or hidden. This is within
+    D14 (instances converge within the 60 s cache bound).
+  - **Only the last Delete key per user is remembered.** `clearedKey.{uid}` holds one digest. A late retry of an older key
+    that arrives after a newer delete is not recognised as a replay and counts as a new delete.

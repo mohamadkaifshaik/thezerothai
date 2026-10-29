@@ -1,14 +1,20 @@
 package messaging
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -167,6 +173,33 @@ func TestFailure_SharedTail(t *testing.T) {
 			}
 		})
 	}
+	// A timeout or contention is "busy" only where a transaction ran; a read path (list_messages) keeps INTERNAL so Error
+	// Reporting sees it and the client's retry interceptor does not triple the polls (re-review S-a).
+	for _, op := range []string{"send", "accept", "delete"} {
+		for name, err := range map[string]error{
+			"contended":         fmt.Errorf("txn: %w", store.ErrContended),
+			"deadline exceeded": fmt.Errorf("read: %w", context.DeadlineExceeded),
+			"grpc deadline":     status.Error(codes.DeadlineExceeded, "rpc deadline"),
+		} {
+			t.Run(op+"/"+name+" is UNAVAILABLE busy", func(t *testing.T) {
+				if got := s.failure(context.Background(), op, alice, aliceBobConv, err); apierr.ToConnect(got).Code() != connect.CodeUnavailable {
+					t.Errorf("got %v", got)
+				}
+			})
+		}
+	}
+	for name, err := range map[string]error{
+		"contended":         fmt.Errorf("txn: %w", store.ErrContended),
+		"deadline exceeded": fmt.Errorf("read: %w", context.DeadlineExceeded),
+		"grpc deadline":     status.Error(codes.DeadlineExceeded, "rpc deadline"),
+	} {
+		t.Run("list_messages/"+name+" stays internal", func(t *testing.T) {
+			got := s.failure(context.Background(), "list_messages", alice, aliceBobConv, err)
+			if c := apierr.ToConnect(got).Code(); c != connect.CodeInternal {
+				t.Errorf("code = %v, want Internal (got %v)", c, got)
+			}
+		})
+	}
 	t.Run("anything else is internal and redacted", func(t *testing.T) {
 		got := s.failure(context.Background(), "send", alice, aliceBobConv, fmt.Errorf("rpc: users/%s/dmInbox/%s %s", alice, aliceBobConv, "peer-uid-xyz"), "peer-uid-xyz")
 		var ae *apierr.Error
@@ -225,4 +258,39 @@ func TestDeleteIsKeyReplay(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A storage timeout while the request itself is alive (re-review S-a): ListMessages, a read path, stays INTERNAL (the
+// error middleware logs it at ERROR for Error Reporting, and the client does not retry it), with no "contention" WARN;
+// Send, a transaction, is UNAVAILABLE busy with the WARN. Both keep the cause in the chain.
+func TestTimeoutOnReadPathVersusTransaction(t *testing.T) {
+	timeout := fmt.Errorf("rpc: %w", context.DeadlineExceeded)
+
+	t.Run("ListMessages is INTERNAL and not contention", func(t *testing.T) {
+		var logs bytes.Buffer
+		rg := newRig(t, nil)
+		rg.svc.d.Log = slog.New(slog.NewJSONHandler(&logs, nil))
+		rg.putThread(1, nil)
+		rg.repo.msgErr = timeout
+		_, err := rg.svc.ListMessages(context.Background(), alice, &messagingv1.ListMessagesRequest{ConversationId: aliceBobConv})
+		if err == nil || apierr.ToConnect(err).Code() != connect.CodeInternal || !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v, want INTERNAL carrying the timeout for the error middleware", err)
+		}
+		if strings.Contains(logs.String(), "contention") {
+			t.Errorf("a read-path timeout logged as contention: %s", logs.String())
+		}
+	})
+
+	t.Run("Send is UNAVAILABLE busy with the contention WARN", func(t *testing.T) {
+		var logs bytes.Buffer
+		rg := newRig(t, func(r *rig) { r.repo.sendErr = timeout })
+		rg.svc.d.Log = slog.New(slog.NewJSONHandler(&logs, nil))
+		_, err := rg.svc.Send(context.Background(), alice, toUser(key1, bob, "hi"))
+		if code, _, _ := reasonOf(t, err); code != connect.CodeUnavailable {
+			t.Fatalf("err = %v, want UNAVAILABLE", err)
+		}
+		if !strings.Contains(logs.String(), "messaging_send_contention") || !strings.Contains(logs.String(), `"level":"WARN"`) {
+			t.Errorf("no contention WARN: %s", logs.String())
+		}
+	})
 }

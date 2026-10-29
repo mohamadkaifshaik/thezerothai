@@ -304,12 +304,19 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 	return s.failure(ctx, "send", uid, in.convID, err, in.peer, MessageID(uid, in.key))
 }
 
+// isTxOp reports the ops of failure that run a Firestore transaction (the ops whose busy answer is safe to retry: they carry an
+// idempotency key or are idempotent by state). Any other op, ListMessages above all, is a read path.
+func isTxOp(op string) bool { return op == "send" || op == "accept" || op == "delete" }
+
 // failure is the tail every RPC's error mapper shares (mapErr, messagesErr, lifecycleErr), reached after the mapper's own
 // sentinels. In this order: an *apierr.Error is already a wire answer; ErrNotFound is the one byte-identical NOT_FOUND of an
-// unknown id, a non-participant and a deleted conversation (D11); a request whose own context ended; a lost or timed-out
-// transaction is UNAVAILABLE "busy, please retry" (retry after 1 s) with a WARN messaging_<op>_contention line; anything
-// else is INTERNAL with uid, convID and every id in redact replaced by hashes, because a Firestore error embeds document
-// paths and a path names a uid and a conversation.
+// unknown id, a non-participant and a deleted conversation (D11); a request whose own context ended; for a transactional
+// op only (send, accept, delete) a lost or timed-out transaction is UNAVAILABLE "busy, please retry" (retry after
+// 1 s) with a WARN messaging_<op>_contention line; anything else, including a timeout on a read path (list_messages), is
+// INTERNAL with uid, convID and every id in redact replaced by hashes, because a Firestore error embeds document paths and
+// a path names a uid and a conversation. A read-path timeout stays INTERNAL on purpose: it is not contention, Error
+// Reporting must see it, and the client's RetryInterceptor retries a read-only RPC on UNAVAILABLE, which would multiply
+// the polls against an already degraded Firestore.
 func (s *service) failure(ctx context.Context, op, uid, convID string, err error, redact ...string) error {
 	var ae *apierr.Error
 	switch {
@@ -319,7 +326,7 @@ func (s *service) failure(ctx context.Context, op, uid, convID string, err error
 		return notFound()
 	case ctxFailure(ctx) != nil:
 		return ctxFailure(ctx)
-	case errors.Is(err, store.ErrContended) || store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
+	case isTxOp(op) && (errors.Is(err, store.ErrContended) || store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded):
 		s.d.Log.WarnContext(ctx, "messaging_"+op+"_contention", slog.String("uid_hash", logger.HashUID(uid)), slog.String(fieldConvHash, logger.HashUID(convID)))
 		return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "busy, please retry").WithRetryAfter(time.Second)
 	}
