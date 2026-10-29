@@ -354,6 +354,8 @@ Prices (§7):
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
+| W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
+| W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -576,6 +578,7 @@ Order:
 - **Budget.** 23 worst / 9 planning cold page; 2 refresh; writes 0.
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListConversations`; the folder is an enum, so an "archived" folder is additive.
+- **Built (note added with W7-18, PR #442).** `conversationOf` derives the state from the folder (the entry holds none, and a conversation read per row would break the budget): `dmRequests` is REQUEST, `dmInbox` is ACCEPTED. So a sender's own pending request, which lives in their `dmInbox`, reads ACCEPTED in their Inbox list. `ListMessages.conversation` (W7-8) does carry REQUEST with folder INBOX for the sender, on a first or older page only. Tracked as W7-25.
 
 ### W7-8 — ListMessages and MarkConversationRead  [owner: backend-developer] [size: M] [depends: W7-5]  Status: In review (PR pending)
 - **Description.**
@@ -788,6 +791,7 @@ Order:
 - **Budget.** About 0.05 per DAU.
 - **Flag.** `messaging` (Accept per caller, Delete not globally off), `reports`.
 - **Seam.** Reuses the report sheet and the block dialog; no second implementation.
+- **Built (W7-18, PR #442).** `request_banner.dart` (`RequestBanner`, `SentRequestNote`, `ThreadRequestActions`), `report_conversation.dart`, `ThreadCubit.acceptRequest`, `MessagingRepository.conversationsChanged` and `dropBlockedRequest`, `MessageBubble.onReport` (long press, secondary click, Shift+F10, the context-menu key, Enter, and an assistive action), `BrowserContextMenuGuard`, `ReportSheet.detail` and `ReportOutcome.alreadyReported`. Founder answers of 2026-10-29: the Delete confirmation stays (wording: "They won't be told. If they still can, they may message you again."), there is no "Request accepted" toast (the composer appearing is the answer), "Request deleted" stays, and the sender's waiting note ships as best effort. **Gap (W7-25):** the note is drawn for REQUEST in INBOX, which only the `ListMessages` header reports (first or older page), never `ListConversations`. It therefore disappears when the sender reopens the thread (the cached row reads ACCEPTED) and stays after the peer accepts (a `since` poll carries no header). **F6(a) gap (W7-26):** the whole screen is hidden when `messaging` is off for the caller, so Delete and Report are not reachable for such a caller.
 
 ### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: Open
 - **Description.**
@@ -901,6 +905,33 @@ Order:
 - **Budget.** A few hundred reads inside the dev project's free quota.
 - **Flag.** Dev: `feature_messaging` allowlist (3 uids); prod stays `off`.
 - **Seam.** —
+
+### W7-25 — Request state for the sender  [owner: architect, then backend-developer] [size: S] [depends: W7-7, W7-9]  Status: Open
+- **Description.**
+  - Problem: `ListConversations` reports every `dmInbox` entry as ACCEPTED, so the sender's pending request reads ACCEPTED in their Inbox list. The W7-18 waiting note ("Waiting for them to accept. You can send up to 3 messages.") needs REQUEST in INBOX, which only the `ListMessages` header carries, on a first or older page. The note disappears when the sender reopens the thread and stays after the peer accepts.
+  - Options for the architect: store `state` on the requester's `dmInbox` entry (+1 write on Accept, to flip it), or return it in `ListConversations`.
+  - Then the client reads the state from the list row and the header alike (no new client heuristic).
+- **Acceptance criteria.**
+  - Given a pending request, then the sender's Inbox row and thread header both read REQUEST, also after a reopen.
+  - Given the peer accepts, then the sender's next refresh reads ACCEPTED and the note goes.
+- **Test notes.** A contract test on the list and the header; a client test that the note follows the row.
+- **Observability.** —
+- **Budget.** Decided by the architect (the first option adds 1 write per Accept).
+- **Flag.** `messaging`.
+- **Seam.** `messaging.Service`; `conversationOf` stays the one mapper.
+
+### W7-26 — Client honours F6(a) for the clean-up RPCs  [owner: architect, then frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: Open
+- **Description.**
+  - Problem: the app hides all of Messages when `messaging` is off for the caller (the `/messages` routes redirect Home, the thread shows "Messages aren't available yet"), but F6(a) says list, read, mark-read, delete and report need only "not globally off". `GetMe` lists the flag per caller, so the client cannot tell "off for me" from "off for everyone".
+  - The architect decides: a contract signal (for example an additive `GetMe` field), or trying the call through `MessagingFeatureGate.runRead`. Then fix the W7-14 and W7-15 routing and screen gates.
+- **Acceptance criteria.**
+  - Given `messaging` off for the caller but not globally, then the caller can still open an existing conversation to delete it or report a message, and cannot send or accept.
+  - Given `messaging` off for everyone, then Messages stays hidden.
+- **Test notes.** Widget tests on the routes and the thread for both cases.
+- **Observability.** —
+- **Budget.** 0 (client only), unless the contract signal adds a field.
+- **Flag.** `messaging` (per caller and globally).
+- **Seam.** `MessagingFeatureGate`.
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids).
