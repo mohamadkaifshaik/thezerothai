@@ -226,14 +226,16 @@ object reads on the media, upload and exports buckets.
 
 **`tf-plan` cannot** (all should answer 403): read or list any Firestore document, read a Firebase Auth user, list log entries,
 list or read objects in the media, upload and exports buckets, or access a secret value. The provider tries `versions.access` on
-every plan for each generated secret and tolerates the 403 (it keeps the value already in state), so each plan leaves one
+every plan for each generated secret and, per the provider source (v8.8.1, not yet verified live: step 3 of the apply procedure proves it), tolerates the 403 by keeping the value already in state, so each plan should leave one
 `PERMISSION_DENIED` audit line per generated secret: expected, not an incident.
 
 **Residual (open, not fixed by W7-32).** Reading state is a bucket-level grant on `dzeroth-tfstate` for both envs' `tf-plan`, and
 state holds generated secrets (the cursor HMAC key, in plaintext). So a malicious plan token still reads the HMAC key (it can
-forge pagination cursors; it cannot read messages). Narrowing it needs an IAM condition on the object prefix
-(`thezerothai/dev` for the dev SA, `thezerothai/prod` for the prod SA), which has to be tested against the gcs backend's
-list call first. Follow-up; the same applies to `random_password` values anywhere in state.
+forge pagination cursors; it cannot read messages). An object-prefix IAM condition (`thezerothai/dev` for the dev SA,
+`thezerothai/prod` for the prod SA) only stops the dev `tf-plan` from reading prod state; the prod `tf-plan` would still read
+the prod `CURSOR_HMAC_KEY`. The real fix is to take the secret out of state: an `ephemeral "random_password"` plus
+`secret_data_wo` / `secret_data_wo_version` on the secret version (needs `required_version >= 1.11`), then **rotate the key**,
+because older state generations stay readable in the versioned bucket. Follow-up (`docs/pending.md` 3.21), not part of W7-32.
 
 **Adding a resource type to `infra/terraform`:** add its read permissions to `tfPlanReader` in the same PR. If a plan as
 `tf-plan` fails with a 403 on a refresh, add exactly the permission in the error. Never bind a predefined `*.viewer` role (they
@@ -245,8 +247,17 @@ job reads `secrets.*`, so they are evidently not set as secrets). CI therefore d
 not need those secrets (an attacker's workflow can hardcode the provider and SA names, which derive from public project numbers).
 
 ### Apply procedure (founder only; agents never apply, ADR-0019). Dev first, then prod.
-All commands use the real `terraform.tfvars` of that env (see `docs/runbooks/cloud-bootstrap.md` section 3a).
+All commands use the real `terraform.tfvars` of that env (see `docs/runbooks/cloud-bootstrap.md` section 3a). The creates and the
+destroys have no dependency on each other in the graph, so they are applied in **two phases**: if the role create failed inside a
+single combined apply, `tf-plan` could end up with no roles at all.
 
+0. **Pre-checks (both projects, read-only).**
+   - API keys: `apikeys.keys.getKeyString` is project-wide, so confirm there are exactly the 3 Firebase client keys:
+     `gcloud services api-keys list --project=<dzeroth-dev|dzeroth-prod> --format="table(uid,displayName)"`. Any other key: stop and ask.
+   - Optional, custom-role support: `gcloud iam list-testable-permissions //cloudresourcemanager.googleapis.com/projects/<p>
+     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 62 permissions in
+     `tfPlanReader` may be `NOT_SUPPORTED` (it was checked against `dzeroth-dev` when written). The likeliest to fail are the
+     `iam.googleapis.com/workloadIdentityPool*` spellings and `datastore.backupSchedules.*`.
 1. **State-bucket pre-step, before anything is removed.** The bucket is outside Terraform. Check, then add if missing:
    ```bash
    gcloud storage buckets get-iam-policy gs://dzeroth-tfstate --format=json | grep -i -B2 -A6 tf-plan
@@ -257,27 +268,39 @@ All commands use the real `terraform.tfvars` of that env (see `docs/runbooks/clo
    ```
    The prod `tf-plan` most likely read state through the bucket's project-viewer convenience binding, which disappears with
    `roles/viewer`; this makes it explicit. (Dropping `roles/viewer` also ends `tf-plan`'s object reads on the user-content buckets.)
-2. **Dev plan, targeted to the five W7-32 addresses** (a full plan has unrelated drift):
+2. **Dev, phase 1 (add only).** A full plan has unrelated drift, so target the three new addresses:
    ```bash
    cd infra/terraform/envs/dev
    terraform plan -out=tfplan \
      -target=module.iam.google_project_iam_custom_role.tf_plan_reader \
      -target=module.iam.google_project_iam_member.tf_plan_reader \
-     -target=module.iam.google_project_iam_member.tf_plan_notification_channel_viewer \
-     -target=module.iam.google_project_iam_member.tf_plan_viewer \
-     -target=module.iam.google_project_iam_member.tf_plan_security_reviewer
+     -target=module.iam.google_project_iam_member.tf_plan_notification_channel_viewer
    terraform show tfplan
    ```
-   Expect exactly: 3 to add (role, two bindings), 2 to destroy (the `roles/viewer` and `roles/iam.securityReviewer` bindings on
-   `tf-plan`), nothing else. Anything else: stop. Then `terraform apply tfplan`.
-3. **Prove plan still works, as `tf-plan`** (CI cannot; see the CI note). Wait a few minutes after the apply first: IAM changes propagate slowly, so a 403 now may be the new role not yet active, and a 200 in step 4 may be the old roles not yet gone. Retry before adding any permission or rolling back. Needs Token Creator on that SA for your user; grant it
-   temporarily if refused and remove it afterwards:
+   Expect exactly 3 to add (the role and its two bindings), nothing else. Then `terraform apply tfplan`.
+   If Terraform refuses with "Moved resource instances excluded by targeting", add the target it names; expect +1 move and
+   nothing else. Any other change: stop.
+   **Dev, phase 2 (remove the old grants).** Only after phase 1 succeeded:
+   ```bash
+   terraform plan -out=tfplan2 \
+     -target=module.iam.google_project_iam_member.tf_plan_viewer \
+     -target=module.iam.google_project_iam_member.tf_plan_security_reviewer
+   terraform show tfplan2    # exactly 2 to destroy: the roles/viewer and roles/iam.securityReviewer bindings on tf-plan
+   terraform apply tfplan2
+   ```
+3. **Prove plan still works, as `tf-plan`** (CI cannot; see the CI note). Wait a few minutes after the apply first: IAM changes
+   propagate slowly, so a 403 now may be the new role not yet active, and a 200 in step 4 may be the old roles not yet gone.
+   Retry before adding any permission or rolling back. Needs Token Creator on that SA for your user; grant it temporarily if
+   refused and remove it afterwards:
    ```bash
    cd infra/terraform/envs/dev
    GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=tf-plan@dzeroth-dev.iam.gserviceaccount.com \
      terraform plan -lock=false -input=false     # real tfvars; expect the same result as your own-credentials plan
    ```
    Any `403 ... Permission '<x>' denied` on a refresh: add exactly that permission to `tfPlanReader`, in a new PR, before prod.
+   This run also **proves or disproves** the claim that the provider tolerates a 403 on the secret `:access` call (read from the
+   provider source at v8.8.1, **not yet verified live**). If the plan fails on `google_secret_manager_secret_version`, stop and tell
+   the assistant; do not grant `secretmanager.versions.access`.
 4. **Prove the fix (negative checks), as `tf-plan`.** Each must answer 403:
    ```bash
    T=$(gcloud auth print-access-token --impersonate-service-account=tf-plan@dzeroth-dev.iam.gserviceaccount.com)
@@ -286,8 +309,22 @@ All commands use the real `terraform.tfvars` of that env (see `docs/runbooks/clo
    curl -s "${H[@]}" -X POST -H 'Content-Type: application/json' -d '{"resourceNames":["projects/dzeroth-dev"],"pageSize":1}' https://logging.googleapis.com/v2/entries:list
    curl -s "${H[@]}" "https://identitytoolkit.googleapis.com/v1/projects/dzeroth-dev/accounts:batchGet?maxResults=1"
    curl -s "${H[@]}" "https://storage.googleapis.com/storage/v1/b/<dev upload or exports bucket>/o?maxResults=1"   # NOT the media bucket: it is public-read by design
+   curl -s "${H[@]}" "https://secretmanager.googleapis.com/v1/projects/dzeroth-dev/secrets/cursor-hmac-key/versions/latest:access"
    ```
-5. **Prod.** Repeat steps 2 to 4 with `envs/prod` (real tfvars, `-target` as above, `dzeroth-prod`). Show the saved plan to the
-   founder-as-approver before `terraform apply tfplan` (plan-then-OK). Do not apply the other pending prod changes in the same run.
-6. **Rollback.** Re-add the old grants by hand (`gcloud projects add-iam-policy-binding ... --role=roles/viewer`) only to unblock
-   a broken plan, and only until a corrected `tfPlanReader` is applied; this re-opens M-4, so record it in `docs/pending.md`.
+   Then three inventory checks (these are not 403 checks):
+   - Role inventory. It must list exactly the custom role, `roles/monitoring.notificationChannelViewer` and
+     `roles/serviceusage.serviceUsageConsumer`:
+     `gcloud projects get-iam-policy dzeroth-dev --flatten="bindings[].members" --filter="bindings.members:tf-plan@" --format="value(bindings.role)"`
+   - The state bucket's policy (`gcloud storage buckets get-iam-policy gs://dzeroth-tfstate`) and the billing account's policy
+     (`gcloud billing accounts get-iam-policy <billing-account-id>`) show only the intended `tf-plan` grants
+     (`objectViewer` on the bucket, `billing.viewer` on the account) and nothing stray.
+   - Vision probe (measures finding M-A in `docs/pending.md` 3.20): one `images:annotate` call with the `tf-plan` token against
+     dev (a 1x1 image, free inside the 1,000-unit tier). Record the status code; it is a follow-up input, not a pass/fail for W7-32.
+5. **Prod.** Repeat steps 0 to 4 with `envs/prod` (real tfvars, the same targets in the same two phases, `dzeroth-prod`). Show each
+   saved plan to the founder-as-approver before `terraform apply` (plan-then-OK). Do not apply the other pending prod changes in
+   the same run. **Scheduler jobs, alert policies and the backup schedule exist only in prod, so their permissions are first
+   tested after the prod apply.** A 403, or a new diff on `module.scheduler`, the `module.monitoring` alert policies or the
+   `module.firestore` backup schedule, means a permission is missing. Fix it in a new PR; never roll back.
+6. **Rollback.** Only for a broken dev plan, and only until a corrected `tfPlanReader` is applied: re-add the old grants by hand
+   (`gcloud projects add-iam-policy-binding ... --role=roles/viewer`). This re-opens M-4, so record it in `docs/pending.md`. In
+   prod a missing permission is fixed forward (step 5), not rolled back.

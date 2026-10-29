@@ -244,7 +244,7 @@ resource "google_service_account" "tf_plan" {
 //  - google_secret_manager_secret_version reads the payload with :access on every plan. Without
 //    secretmanager.versions.access that call returns 403 and the provider (checked at v8.8.1, the locked version) logs
 //    it and keeps the value already in state, so plan still works. Expect one PERMISSION_DENIED audit line per generated
-//    secret per plan.
+//    secret per plan (unverified until the dev impersonation run).
 //  - monitoring.timeSeries.list still arrives through roles/serviceusage.serviceUsageConsumer below (metrics only).
 //  - Reading Terraform state is a separate, bucket-level grant on the state bucket (see the note after the billing
 //    binding). The state holds generated secrets (the cursor HMAC key), so that grant is the next thing to narrow.
