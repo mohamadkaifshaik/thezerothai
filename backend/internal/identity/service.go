@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +52,9 @@ type service struct {
 	protected ProtectedAuthors
 	// requests counts a protected caller's pending follow requests for GetMe (ADR-0025 AQ3); nil = always 0.
 	requests FollowRequestCounter
+	// badge counts a messaging caller's unread conversations for GetMe (ADR-0027 D10, W7-11); nil = always 0.
+	badge    MessageBadge
+	badgeLog *slog.Logger
 	// pinLog and reqLog receive the W3-26b WARN lines; nil means slog.Default().
 	pinLog, reqLog *slog.Logger
 }
@@ -74,6 +78,12 @@ func WithProtectedAuthors(p ProtectedAuthors, log *slog.Logger) Option {
 // WithFollowRequestCounter wires GetMe's pending_follow_request_count (ADR-0025 D7, AQ3, W3-26b). Nil leaves it 0. log receives the WARN for a failed count; nil means slog.Default().
 func WithFollowRequestCounter(c FollowRequestCounter, log *slog.Logger) Option {
 	return func(s *service) { s.requests, s.reqLog = c, log }
+}
+
+// WithMessageBadge wires GetMe's unread_conversation_count (ADR-0027 D10, W7-11). Nil leaves it 0. log receives the WARN for
+// a failed count; nil means slog.Default().
+func WithMessageBadge(b MessageBadge, log *slog.Logger) Option {
+	return func(s *service) { s.badge, s.badgeLog = b, log }
 }
 
 // WithAvatarResolver wires UpdateProfile.avatar_media_id (P4). Nil keeps non-empty values rejected.
@@ -228,6 +238,9 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 // pending_follow_request_count (ADR-0025 D7, AQ3) is +1 read per 1,000 matches (minimum 1, one count() on followRequests)
 // for a caller whose isPrivate is true and whose 30 s cached count is gone; 0 reads for every other caller (a public
 // caller never reaches the counter) and on a hit. A failed count is WARN pending_count_failed with the badge at 0.
+// unread_conversation_count (ADR-0027 D10, W7-11) is +1 read (a count() on users/{uid}/dmInbox, Limit 100) on a cache miss
+// for a caller with messaging on; 0 reads for every other caller and on a hit (30 s). A failed count is WARN
+// unread_conversations_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	profile, err := s.getProfileCached(ctx, uid)
 	if err != nil {
@@ -238,6 +251,7 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 		enabled = s.features.EnabledFeatures(uid)
 	}
 	res := MeResult{Profile: s.present(profile), EnabledFeatures: enabled, PendingFollowRequestCount: s.pendingRequests(ctx, profile)}
+	res.UnreadConversationCount = s.unreadConversations(ctx, uid, enabled)
 	if n, ok := s.cache.GetUnreadCount(uid); ok {
 		res.UnreadNotificationCount = n
 		return res, nil
@@ -249,6 +263,43 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	s.cache.SetUnreadCount(uid, n)
 	res.UnreadNotificationCount = n
 	return res, nil
+}
+
+// unreadConversations is the GetMe messages badge: the caller's unread conversations when messaging is on for the caller
+// (enabled holds "messaging"), else 0 with no read. Cached 30 s per uid (staleness bound: 30 s, shorter when this
+// instance sees a send to or a mark-read by the user, which evict it through MessageBadgeCache). An error is logged and
+// answers 0; it is never cached, so the next GetMe retries.
+func (s *service) unreadConversations(ctx context.Context, uid string, enabled []string) int64 {
+	if s.badge == nil || !slices.Contains(enabled, MessagingFlag) {
+		return 0
+	}
+	if n, ok := s.cache.GetConversationBadge(uid); ok {
+		logger.SetRequestField(ctx, "unread_conversations_cache_hit", true)
+		return n
+	}
+	logger.SetRequestField(ctx, "unread_conversations_cache_hit", false)
+	n, err := s.badge.UnreadConversations(ctx, uid)
+	if err != nil {
+		orDefault(s.badgeLog).WarnContext(ctx, "unread_conversations_failed", append([]any{"uid_hash", logger.HashUID(uid), "error", logger.CauseChain(logger.RedactErr(err, uid))}, logger.TraceAttrs(ctx)...)...)
+		return 0
+	}
+	s.cache.SetConversationBadge(uid, n)
+	return n
+}
+
+// MessageBadgeCache implements messaging.BadgeCache (ADR-0027 D10, W7-11) on identity's side: Forget evicts only the cached
+// unread_conversation_count of these users on this instance, leaving the profile and the notification count cached.
+// apiserver passes it as messaging.Deps.Badge.
+type MessageBadgeCache struct{ c *Cache }
+
+// NewMessageBadgeCache binds the eviction to identity's cache.
+func NewMessageBadgeCache(c *Cache) *MessageBadgeCache { return &MessageBadgeCache{c: c} }
+
+// Forget evicts the cached unread conversation count of each uid (a send evicts sender and recipient, a mark-read the caller).
+func (m *MessageBadgeCache) Forget(uids ...string) {
+	for _, uid := range uids {
+		m.c.InvalidateConversationBadge(uid)
+	}
 }
 
 // pendingRequests is the GetMe badge: the caller's pending follow requests when the caller is protected, else 0 with no

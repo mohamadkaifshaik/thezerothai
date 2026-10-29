@@ -78,6 +78,9 @@ type MeResult struct {
 	// PendingFollowRequestCount is the number of follow requests waiting for a protected caller (ADR-0025 D7, AQ3), capped at
 	// 1,000 by the counter; 0 for every other caller and when the count failed (WARN, never an error).
 	PendingFollowRequestCount int64
+	// UnreadConversationCount is the caller's unread direct-message conversations (ADR-0027 D10, W7-11), capped at 100 by
+	// the counter; 0 when messaging is off for the caller, when no MessageBadge is wired and when the count failed.
+	UnreadConversationCount int64
 }
 
 // UpdateProfileParams carries only the fields the caller wants to change (nil = unchanged), matching the
@@ -359,4 +362,17 @@ type PrivacyListener interface {
 // followRequests where followeeId == uid (1 read per 1,000 matches, minimum 1). identity caches the answer 30 s per uid.
 type FollowRequestCounter interface {
 	PendingFollowRequests(ctx context.Context, uid string) (int64, error)
+}
+
+// MessagingFlag is the wire name of FEATURE_MESSAGING in GetMe.enabled_features (ADR-0027 D6). identity cannot import
+// messaging, so GetMe reads the per-caller answer from the enabled_features list it already computed (0 reads).
+const MessagingFlag = "messaging"
+
+// MessageBadge is the consumer-side seam to the messaging module for GetMe.unread_conversation_count (ADR-0027 D10,
+// W7-11; the BlockChecker / PinChecker pattern, so identity never imports messaging). messaging implements it with a
+// count() of users/{uid}/dmInbox where unreadCount > 0, Limit 100: 1 read (minimum 1). Requests do not count. identity
+// caches the answer 30 s per uid and calls it only for a caller with messaging on. A nil MessageBadge
+// (WithMessageBadge not called) leaves the count 0.
+type MessageBadge interface {
+	UnreadConversations(ctx context.Context, uid string) (int64, error)
 }
