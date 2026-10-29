@@ -50,6 +50,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('AppEmptyView scrolls instead of overflowing in a short box', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: appDarkTheme,
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Scaffold(
+            body: Column(
+              children: const [
+                SizedBox(height: 40),
+                Expanded(
+                  child: Center(
+                    child: AppEmptyView(
+                      icon: Icons.mail_outline,
+                      title: 'New message to Sam Rivera',
+                      subtitle: 'Write your first message below.',
+                    ),
+                  ),
+                ),
+                SizedBox(height: 480),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -200),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Write your first message below.'), findsOneWidget);
+  });
+
+  testWidgets('AppEmptyView stays centred and plain when it fits', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: appDarkTheme,
+        home: const Scaffold(
+          body: Center(
+            child: AppEmptyView(icon: Icons.mail_outline, title: 'Nothing'),
+          ),
+        ),
+      ),
+    );
+
+    final box = tester.getRect(find.byType(AppEmptyView));
+    final screen = tester.getRect(find.byType(Scaffold));
+    expect(box.center.dy, closeTo(screen.center.dy, 0.5));
+    expect(box.height, lessThan(screen.height));
+  });
+
   testWidgets('PendingPostRow shows the text, the author and "Posting..."', (
     tester,
   ) async {
