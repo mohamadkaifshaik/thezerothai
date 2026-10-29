@@ -255,21 +255,18 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 	return c
 }
 
-// messagesErr turns a repo, directory or graph error into the wire answer; ids are redacted from anything that reaches a
-// log. ErrNotFound is the one NOT_FOUND of an unknown id and a non-participant (D11).
+// messagesErr turns a repo, directory or graph error into the wire answer through the shared tail (failure): ErrNotFound is
+// the one NOT_FOUND of an unknown id and a non-participant (D11), and ids are redacted from anything that reaches a log.
 func (s *service) messagesErr(ctx context.Context, uid, convID string, err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return notFound()
-	}
-	if ce := ctxFailure(ctx); ce != nil {
-		return ce
-	}
-	return logger.RedactErr(fmt.Errorf("messaging: list messages: %w", err), uid, convID)
+	return s.failure(ctx, "list_messages", uid, convID, err)
 }
 
 // MarkRead implements Service.MarkRead (ADR-0027 D4, D10; plan W7-8).
 //
-// Flag: not globally off. conversation_id must be 32 lower-case hex (VALIDATION, 0 reads). The write is a field-level
+// Flag: not globally off. idempotency_key (16-64 of [A-Za-z0-9_-]) and conversation_id (32 lower-case hex) are VALIDATION with 0
+// reads; the key is format-validated but not stored (founder decision 2026-10-29, option (a): ADR-0021's rule for a key the
+// RPC does not use). The RPC is idempotent by state, and the accepted risk is that a late retry sets unreadCount to 0 over
+// a newer message (the badge and the Inbox miss it until the next message or open). The write is a field-level
 // Update of the caller's own dmInbox entry, else dmRequests, with an Exists precondition: the path comes from the token
 // uid, so a non-participant or an unknown or deleted conversation simply has no entry and the answer is success with 0
 // writes, the same as a conversation that is already read. After a write the badge cache of this instance is evicted
@@ -283,8 +280,8 @@ func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.Mar
 	}
 	logger.SetRequestField(ctx, fieldKind, kindMarkRead)
 	id := req.GetConversationId()
-	if !ValidID(id) {
-		return nil, apierr.Validation("conversation_id", "conversation_id must be 32 lower-case hex characters")
+	if err := validateKeyAndConv(req.GetIdempotencyKey(), id); err != nil {
+		return nil, err
 	}
 	if s.d.Repo == nil {
 		return nil, errors.New("messaging: mark read is not configured")

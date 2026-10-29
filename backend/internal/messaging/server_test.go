@@ -15,6 +15,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -71,9 +73,9 @@ func asConnect(err error, target **connect.Error) bool {
 
 // TestServer_AllSixHandlers drives each RPC over the wire in allowlist mode with a caller outside the allowlist:
 // SendMessage and AcceptMessageRequest are FAILED_PRECONDITION FEATURE_DISABLED feature=messaging, the other four reach
-// Unimplemented (the flag is not globally off). With the flag off, all six are FEATURE_DISABLED. An allowlisted caller
-// gets past the gate on all six: Unimplemented for the three skeleton RPCs and, for SendMessage (W7-5) and
-// ListConversations (W7-7), their own validation of the empty request.
+// their own validation (the flag is not globally off). With the flag off, all six are FEATURE_DISABLED. An allowlisted
+// caller gets past the gate on all six: every RPC answers its own validation of the empty request (W7-9 implemented the
+// last two).
 func TestServer_AllSixHandlers(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(c messagingv1connect.MessagingServiceClient, uid string) error{
@@ -103,13 +105,8 @@ func TestServer_AllSixHandlers(t *testing.T) {
 		},
 	}
 	perCaller := map[string]bool{"SendMessage": true, "AcceptMessageRequest": true}
-	// open is the code a caller past the gate gets from this RPC.
-	open := func(name string) connect.Code {
-		if name == "SendMessage" || name == "ListConversations" || name == "ListMessages" || name == "MarkConversationRead" {
-			return connect.CodeInvalidArgument
-		}
-		return connect.CodeUnimplemented
-	}
+	// open is the code a caller past the gate gets from this RPC: the validation of the empty request.
+	open := func(string) connect.Code { return connect.CodeInvalidArgument }
 
 	allow := newClient(t, registry(flags.Allowlist, 0))
 	off := newClient(t, registry(flags.Off, 0))
@@ -144,5 +141,56 @@ func wantDisabled(t *testing.T, err error) {
 	reason, meta := reasonOf(t, err)
 	if reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || meta["feature"] != "messaging" {
 		t.Fatalf("reason = %v meta = %v, want FEATURE_DISABLED feature=messaging", reason, meta)
+	}
+}
+
+// TestServer_ReadonlyRefusesTheMutations: DEGRADED_MODE=readonly refuses SendMessage, MarkConversationRead,
+// AcceptMessageRequest and DeleteConversation through the existing interceptor, which reads each RPC's declared
+// idempotency level (the two lists are NO_SIDE_EFFECTS and still answer). Nothing in the module is needed for it; this pins
+// that the proto keeps declaring the mutations as such (ADR-0027 D11).
+func TestServer_ReadonlyRefusesTheMutations(t *testing.T) {
+	uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(authn.WithClaims(ctx, authn.Claims{UID: inList, SignInProvider: authn.SignInProviderGoogle}), req)
+		}
+	})
+	mux := http.NewServeMux()
+	mux.Handle(messagingv1connect.NewMessagingServiceHandler(messaging.NewServer(messaging.New(registry(flags.On, 0), messaging.Deps{})),
+		connect.WithInterceptors(degraded.Interceptor(config.DegradedReadonly, nil), uidOf, mw.ErrorMapping(slog.New(slog.NewTextHandler(io.Discard, nil))))))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := messagingv1connect.NewMessagingServiceClient(srv.Client(), srv.URL)
+	ctx := context.Background()
+	const id = "0123456789abcdef0123456789abcdef"
+	for name, call := range map[string]func() error{
+		"SendMessage": func() error {
+			_, err := c.SendMessage(ctx, connect.NewRequest(&messagingv1.SendMessageRequest{}))
+			return err
+		},
+		"MarkConversationRead": func() error {
+			_, err := c.MarkConversationRead(ctx, connect.NewRequest(&messagingv1.MarkConversationReadRequest{ConversationId: id}))
+			return err
+		},
+		"AcceptMessageRequest": func() error {
+			_, err := c.AcceptMessageRequest(ctx, connect.NewRequest(&messagingv1.AcceptMessageRequestRequest{ConversationId: id}))
+			return err
+		},
+		"DeleteConversation": func() error {
+			_, err := c.DeleteConversation(ctx, connect.NewRequest(&messagingv1.DeleteConversationRequest{ConversationId: id}))
+			return err
+		},
+	} {
+		err := call()
+		if connect.CodeOf(err) != connect.CodeUnavailable {
+			t.Errorf("%s: code = %v (%v), want Unavailable", name, connect.CodeOf(err), err)
+			continue
+		}
+		if reason, _ := reasonOf(t, err); reason != commonv1.ErrorReason_ERROR_REASON_DEGRADED_MODE {
+			t.Errorf("%s: reason = %v, want DEGRADED_MODE", name, reason)
+		}
+	}
+	// A list still reaches the service (its own validation of the empty request).
+	if _, err := c.ListMessages(ctx, connect.NewRequest(&messagingv1.ListMessagesRequest{})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("ListMessages under readonly: code = %v (%v), want InvalidArgument", connect.CodeOf(err), err)
 	}
 }
