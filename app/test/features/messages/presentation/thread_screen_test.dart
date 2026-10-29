@@ -11,6 +11,7 @@ import 'package:dzeroth/features/messages/data/timer_thread_poller.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
@@ -959,6 +960,12 @@ void main() {
         expect(box.right, lessThanOrEqualTo(env.size.width));
       }
       expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+      // W7-31: the disclosure is in the banner, inside the same container.
+      expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+      expect(
+        tester.getRect(find.text(kMessagesNotEncryptedText)).right,
+        lessThanOrEqualTo(env.size.width),
+      );
     }, textScales: kMatrixTextScalesLarge);
 
     testWidgets('a received request shows the banner instead of the composer', (
@@ -989,7 +996,21 @@ void main() {
 
       expect(find.textContaining('wants to message you'), findsNothing);
       expect(find.text(kSentRequestText), findsNothing);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
       expect(composer(), findsOneWidget);
+    });
+
+    testWidgets('the banner line is in the spoken banner text (W7-31)', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await openRequest(tester);
+
+      final label = tester
+          .getSemantics(find.text(kMessagesNotEncryptedText))
+          .label;
+      expect(label, contains(kMessagesNotEncryptedText));
+      handle.dispose();
     });
 
     testWidgets('the sender sees the waiting note above the composer', (
@@ -1547,8 +1568,14 @@ void main() {
         tester.getRect(find.byKey(RequestBanner.acceptKey)).left,
         lessThan(tester.getRect(find.byKey(RequestBanner.deleteKey)).left),
       );
+      // The live region announces the title and the W7-31 line together.
       expect(
-        find.bySemanticsLabel('Sam Rivera wants to message you'),
+        find.bySemanticsLabel(
+          RegExp(
+            'Sam Rivera wants to message you\\n'
+            '${RegExp.escape(kMessagesNotEncryptedText)}',
+          ),
+        ),
         findsOneWidget,
       );
       handle.dispose();
