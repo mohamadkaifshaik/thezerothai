@@ -349,7 +349,7 @@ Prices (§7):
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Done (#435) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | In review (PR #442) |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
-| W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
+| W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | In review (PR #453) |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | In review (PR #447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
@@ -817,7 +817,7 @@ Order:
 - **Flag.** `messaging` + `ui_shell` (destination), `notifications` (push).
 - **Seam.** Routes are built only through `AppRouter.messagePath(convId)`; the allowlist stays the one `deepLinkTarget` list.
 
-### W7-20 — Backend tests  [owner: tester] [size: M] [depends: W7-5 to W7-12]  Status: Open
+### W7-20 — Backend tests  [owner: tester] [size: M] [depends: W7-5 to W7-12]  Status: In review (PR #453)
 - **Description.** Emulator integration:
   - flag modes off / allowlist / percent / on for caller × recipient, and the not-globally-off reads;
   - the authz matrix (non-participant, guessed ids, foreign tokens) with byte-identical NOT_FOUND;
@@ -838,6 +838,7 @@ Order:
 - **Budget.** 0 (emulators).
 - **Flag.** Under test: `messaging` (caller × recipient) × `notifications` × `reports`.
 - **Seam.** —
+- **Built (W7-20, PR #453, 2026-10-29).** A traceability audit first: all 45 explicit acceptance criteria of W7-4 to W7-12 already had a named test; the traceability table (criterion to `file:TestName`) is `docs/reviews/test-report-w7.md` section 3, with the budgets per RPC in section 4. Added 18 tests for 13 gaps (the read RPCs' budgets, NOT_FOUND bytes, flag classes, limiter and badge through the interceptor chain; a mid-range percent; degraded mode for MarkConversationRead; the send caps of an established account; suspended recipient and the caller's own mute; blockedByOverflow on send; concurrent first messages; the reference-account eraser and export budgets). Coverage on `internal/messaging` 93.7 %. Two Low defects are filed as skipped tests (`W720_RUN_DEFECTS=1` reproduces): D-1, a `blockedByOverflow` caller's list and thread ignore the blockers that dropped out of `blockedBy` (a blocker's request stays listed, `can_reply` true); D-2, `ListMessages` on a conversation whose participant list is not a pair answers INTERNAL, not the unknown-id NOT_FOUND. Measured against the plan: the eraser for the reference account costs 381 reads, 360 writes, 20 deletes (the plan says about 340 / 340 / 20; the code matches its per-call documentation, so the plan figure and `cost-model.md` need correcting in W7-23). The load shapes stay with W7-23.
 
 ### W7-21 — Client tests  [owner: tester] [size: S] [depends: W7-14 to W7-19]  Status: In review (PR #447)
 - **Description.** The cross-screen matrix:
